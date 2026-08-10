@@ -4,9 +4,20 @@ access is service-internal only, never exposed through tenant-facing endpoints.
 All claims are CAS via conditional UPDATE (rowcount 0 = lost the race)."""
 
 from datetime import datetime
+from uuid import UUID
 
-from sqlalchemy import CheckConstraint, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin
@@ -14,6 +25,7 @@ from apps.api.db.base import Base, PKMixin
 OUTBOX_STATUSES = ("pending", "published", "failed")
 INBOX_STATUSES = ("processing", "enqueued", "processed", "failed")
 IDEMPOTENCY_STATUSES = ("processing", "completed", "failed")
+LOAD_SHED_MODES = ("normal", "reduced", "emergency", "maintenance")
 
 
 class OutboxMessage(PKMixin, Base):
@@ -60,6 +72,36 @@ class WebhookInboxEvent(PKMixin, Base):
     processed_at: Mapped[datetime | None]
     last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class PlatformState(Base):
+    """Single-row global switchboard: the load-shed mode AND the big red switch.
+
+    BACKEND-PATTERNS §6 requires the load-shed mode to be DURABLE in Postgres (Redis
+    is only its cache) so a Redis flush cannot silently re-open a service an operator
+    shut. The outbound halt lives in the same row because it is the same question —
+    "is the platform allowed to do work right now" — and one row means one read.
+
+    Not tenant-scoped and deliberately not RLS'd: it is global by definition, written
+    only through the audited admin ops surface (step-up confirmation, §7).
+    """
+
+    __tablename__ = "platform_state"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="singleton"),
+        CheckConstraint(f"load_shed_mode IN {LOAD_SHED_MODES!r}", name="load_shed_enum"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False, default=1)
+    load_shed_mode: Mapped[str] = mapped_column(String, nullable=False, server_default="normal")
+    # The big red switch (FLOWS §5): halts ALL tenants' outbound dispatch at once.
+    outbound_halted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    halt_reason: Mapped[str | None] = mapped_column(Text)
+    changed_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    changed_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
     )

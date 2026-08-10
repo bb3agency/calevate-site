@@ -52,6 +52,9 @@ class User(PKMixin, TimestampMixin, Base):
     email: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str | None] = mapped_column(Text)
     phone: Mapped[str | None] = mapped_column(Text)  # E.164
+    # Re-checked by the auth guard on EVERY request (BACKEND-PATTERNS §7): a cached
+    # Clerk session must not outlive a deactivation.
+    deactivated_at: Mapped[datetime | None]
 
 
 class Membership(PKMixin, TimestampMixin, Base):

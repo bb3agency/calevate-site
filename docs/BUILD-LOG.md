@@ -1,0 +1,90 @@
+# Calevate — Build Log (running tracker)
+
+Purpose: a durable, chronological record of what has actually been **built** in this
+repo, so a future session (human or agent) can pick up without re-reading every diff.
+The blueprint in `docs/` says what we intend; this file says what exists.
+
+Conventions:
+- Newest session at the top. One section per session, dated.
+- Every entry names the files touched and the doc/decision it implements.
+- "Verified" means a command was run and passed; anything else is "written, unverified".
+
+---
+
+## Session 2026-08-10 — M1 backend slice
+
+Branch: `claude/app-building-session-r1v5j9`
+
+### Starting state
+
+`b2df75f` — blueprint docs complete, M1 **DB core only**: SQLAlchemy models for 29
+tables, one migration (`05bba2f3c19c`) with FORCEd RLS + append-only triggers, RLS
+tests, seed script, three guardrail scripts. No routes, no services, no adapters, no
+workers, no frontend beyond the Next.js scaffold.
+
+### Local environment (this container)
+
+Docker Hub blobs are blocked by the outbound proxy (403 from CloudFront), so
+`docker compose up` cannot pull `pgvector/pgvector:pg16`. Worked around with the
+distro packages that are already installed:
+
+- Postgres 16 cluster `16/main` moved to **port 5433** (matches `.env.example`),
+  roles `calevate` (owner) + `calevate_app` (NOSUPERUSER NOBYPASSRLS) created, database
+  `calevate` created, `alembic upgrade head` applied — 29 tables live.
+- `redis-server --port 6380 --daemonize yes`.
+- pgvector is **not** installed and is not needed: D-28 moved RAG to a managed service,
+  and the migration creates no vector columns.
+
+Reproduce with: `scripts/dev_bootstrap.sh` (added this session).
+
+### Built this session
+
+**1. API foundation — `apps/api/core/`** (BACKEND-PATTERNS §2/§3/§6/§8)
+
+| File | What it is |
+|---|---|
+| `core/settings.py` | Bootstrap-env gate (DSN class only, fail fast) + cached `Settings` + `runtime_config_missing_keys()` (the readiness gate tolerant worker boot defers to) |
+| `core/logging.py` | JSON formatter with the redaction path list; `redact_text` (E.164-shaped runs) + `redact_mapping` (depth/length capped) — the pair that backs hard rule 6, the Langfuse hook and the serializer guardrail |
+| `core/context.py` | `correlation_id` contextvar + `Principal` (ids only, `impersonating` flag per D-22) |
+| `core/errors.py` | RFC-9457 ladder: `ProblemError` with `kind/retryable/remediation/trace_id/fields`, `InvalidStatusTransitionError`, handlers for validation/HTTP/unhandled. 500s log detail + alert, return a generic body |
+| `core/alerting.py` | One `alert()` with the `failure_stage` enum + the named metric recorders (`record_webhook_ack_ms`, `record_pipeline_lag`, `record_outbox_lag`, …) |
+| `core/middleware.py` | Security headers → CORS → body limit → rate limit → load-shed → correlation id, added in reverse so the documented order is the runtime order |
+| `core/loadshed.py` | Load-shed guard: 5s memo → Redis → Postgres, `ALWAYS_ALLOWED_PREFIXES` so an operator can never lock themselves out |
+| `core/health.py` | `/healthz/live`, `/healthz`, `/healthz/ready` with the priority-ordered `degradation_mode` and ARQ queue-staleness |
+| `core/redis.py`, `core/bootstrap.py` | Lazy Redis client; `create_app()` implementing the locked bootstrap order (shared by api + voice-runtime, `minimal=True` for the latency path) |
+
+**2. Auth, RBAC, tenancy** (D-37, D-22, BACKEND-PATTERNS §7)
+
+- `core/auth.py` — Clerk JWKS verification per realm (a client token can never mint an
+  admin principal), principal loading from OUR `users`/`memberships`/`admin_users`,
+  `deactivated_at` re-checked every request, `requires(permission)` dependency, and a
+  local-only `dev:<realm>:<id>` token that requires BOTH `APP_ENV=local` AND no Clerk
+  secret for that realm.
+- `core/rbac.py` — permission vocabulary, role→permission table, `MUTATING_PERMISSIONS`
+  (an impersonating admin is refused all of them — D-22 read-only), and
+  `assert_policy_registry_complete(app)` which fails the **boot** if a mounted route
+  declares no permission.
+- `core/deps.py` — `db` (tenant-scoped session, RLS does the isolation) and `global_db`.
+- `compliance/audit.py` — audit writer with the HMAC hash chain, Redis chain head under
+  a compare-and-delete lock, `verify_chain()`. Writes in the CALLER's transaction so an
+  audited read and its record commit together. Summaries go to the log stream, not the
+  hashed payload (no summary column ⇒ hashing it would make the chain unverifiable).
+
+**3. Reliability triad — `reliability/service.py`** (BACKEND-PATTERNS §4/§5)
+
+Idempotency (scope_key = HMAC of tenant/user, never raw ids; key+different body → 409;
+in-flight → 409; failed → CAS retry), transactional outbox (`enqueue_outbox` in the
+caller's transaction, `claim_outbox_batch` with `FOR UPDATE SKIP LOCKED`, DLQ at 5
+attempts + alert, `replay_dead_letters`), webhook inbox (claim on arrival, same
+event_key + different payload_hash → 409 **and** an alert, failed rows re-claimable).
+
+**4. Schema changes — migration `769a9152cb06`**
+
+- `platform_state` (singleton): durable load-shed mode + the big red switch, seeded.
+- `users.deactivated_at`.
+- **Repair:** `agents.system_prompt_id → prompt_versions` and
+  `agents.extraction_schema_id → extraction_schemas` never existed in the database.
+  Alembic silently drops `use_alter=True` constraints declared inside `op.create_table`,
+  so migration `05bba2f3c19c` created the columns without the FKs. Found by
+  autogenerating against a migrated DB and reading the diff. Added as explicit ALTERs.
+- New settings: `CLERK_FRONTEND_API` (JWKS host, D-37 custom domain), `AUDIT_CHAIN_SECRET`.

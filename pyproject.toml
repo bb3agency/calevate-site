@@ -75,6 +75,13 @@ select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ASYNC"]
 # `from sqlalchemy.dialects.postgresql import UUID as PgUUID` is the idiomatic alias.
 "apps/api/**/models.py" = ["N811"]
 "apps/api/db/base.py" = ["N811"]
+# B008 forbids function calls in argument defaults; `Depends(...)`/`Query(...)` in a
+# default IS the FastAPI dependency-injection API, and BACKEND-PATTERNS §1 mandates
+# it ("services receive deps via FastAPI Depends()"). Scoped to the files that wire
+# routes, so the rule still catches accidental calls everywhere else.
+"apps/api/**/routes.py" = ["B008"]
+"apps/api/core/deps.py" = ["B008"]
+"apps/api/core/auth.py" = ["B008"]
 
 # --- mypy (strict; CI gate) ---------------------------------------------------
 [tool.mypy]

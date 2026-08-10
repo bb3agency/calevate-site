@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     clerk_admin_secret_key: str | None = None
     clerk_client_publishable_key: str | None = None
     clerk_client_secret_key: str | None = None
+    # Custom domain so the flow is ours end to end (D-37); also the JWKS host.
+    clerk_frontend_api: str = "accounts.calevate.tech"
+
+    # HMAC material for the audit hash chain and idempotency scope fingerprints
+    # (BACKEND-PATTERNS §4/§7). Local dev derives a constant when unset; prod MUST
+    # inject it — rotating it starts a new chain, so it is rotated with a drill.
+    audit_chain_secret: str | None = None
 
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
