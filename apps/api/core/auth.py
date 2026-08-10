@@ -28,7 +28,13 @@ from fastapi import Depends, Request
 from jwt import PyJWKClient
 from sqlalchemy import text
 
-from apps.api.core.context import Principal, Realm, principal_var
+from apps.api.core.context import (
+    IMPERSONATE_HEADER,
+    ORG_HEADER,
+    Principal,
+    Realm,
+    principal_var,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import MUTATING_PERMISSIONS, Permission, role_has
@@ -37,8 +43,6 @@ from apps.api.db.session import untenanted_session, user_session
 
 log = get_logger(__name__)
 
-ORG_HEADER = "X-Org-Slug"
-IMPERSONATE_HEADER = "X-Impersonate-Org"
 CLERK_LEEWAY_S = 30
 
 _jwk_clients: dict[str, PyJWKClient] = {}

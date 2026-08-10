@@ -1,0 +1,125 @@
+"use client";
+
+import Link from "next/link";
+import { use } from "react";
+
+import {
+  Card,
+  EmptyState,
+  ProblemNotice,
+  Skeleton,
+  StatusBadge,
+  formatDuration,
+  formatIST,
+} from "@/components/ui";
+import { devSession } from "@/lib/api/client";
+import { useCall } from "@/lib/api/hooks";
+
+export default function CallDetailPage({
+  params,
+}: {
+  params: Promise<{ slug: string; callId: string }>;
+}) {
+  const { slug, callId } = use(params);
+  const session = devSession(slug);
+  const call = useCall(session, callId);
+
+  if (call.isLoading) return <Skeleton rows={8} />;
+  if (call.error) return <ProblemNotice error={call.error} onRetry={() => call.refetch()} />;
+  if (!call.data) return <EmptyState title="Call not found" />;
+
+  const detail = call.data;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Link href={`/c/${slug}/calls`} className="text-sm text-sky-700 hover:underline">
+          ← Calls
+        </Link>
+        <StatusBadge value={detail.status} kind="call" />
+        <span className="text-sm text-slate-500">
+          {formatIST(detail.started_at)} · {formatDuration(detail.duration_s)} ·{" "}
+          {detail.caller_masked ?? "—"}
+        </span>
+      </div>
+
+      {detail.summary && (
+        <Card title="Summary">
+          <p className="text-sm text-slate-700 dark:text-slate-300">{detail.summary}</p>
+          <div className="mt-3 flex gap-4 text-xs text-slate-500">
+            {detail.sentiment && <span>Sentiment: {detail.sentiment}</span>}
+            {detail.outcome_tag && <span>Outcome: {detail.outcome_tag.replace(/_/g, " ")}</span>}
+            {detail.lead_id && (
+              <Link href={`/c/${slug}/leads`} className="text-sky-700 hover:underline">
+                View lead
+              </Link>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {Object.keys(detail.extraction ?? {}).length > 0 && (
+        <Card title="Captured details">
+          {/* These keys are the agent's extraction schema (TRD §7) — the same
+              definition that becomes the Leads table columns and the CSV export. */}
+          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            {Object.entries(detail.extraction as Record<string, unknown>).map(([key, value]) => (
+              <div key={key} className="flex justify-between gap-4 text-sm">
+                <dt className="capitalize text-slate-500">{key.replace(/_/g, " ")}</dt>
+                <dd className="font-medium text-slate-800 dark:text-slate-200">
+                  {formatValue(value)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          {!detail.extraction_valid && (
+            <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
+              Some fields could not be captured cleanly from this call.
+            </p>
+          )}
+        </Card>
+      )}
+
+      <Card
+        title="Transcript"
+        action={
+          // Hard rule 5 surfaced in the UI: the default view is redacted, and the
+          // client should know it rather than wonder why a number looks odd.
+          <span className="text-xs text-slate-500">
+            Personal numbers are hidden. Ask your account manager for the full transcript.
+          </span>
+        }
+      >
+        {detail.transcript?.length ? (
+          <ol className="space-y-3">
+            {detail.transcript.map((turn) => (
+              <li key={turn.idx} className="flex gap-3">
+                <span
+                  className={
+                    turn.speaker === "agent"
+                      ? "mt-0.5 w-16 shrink-0 text-xs font-medium text-sky-700"
+                      : "mt-0.5 w-16 shrink-0 text-xs font-medium text-slate-500"
+                  }
+                >
+                  {turn.speaker === "agent" ? "Agent" : "Caller"}
+                </span>
+                <p className="text-sm text-slate-700 dark:text-slate-300">{turn.text}</p>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <EmptyState
+            title="No transcript yet"
+            hint="Transcripts arrive a couple of minutes after the call ends."
+          />
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}

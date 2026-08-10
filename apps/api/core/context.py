@@ -17,6 +17,12 @@ Realm = Literal["client", "admin", "system"]
 
 correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
+# Header names live here, in a leaf module, because BOTH the auth dependency (which
+# reads them) and the CORS config (which must allow them) need the same strings — and
+# a mismatch between those two is invisible to curl and fatal in a browser.
+ORG_HEADER = "X-Org-Slug"
+IMPERSONATE_HEADER = "X-Impersonate-Org"
+
 
 @dataclass(frozen=True, slots=True)
 class Principal:
@@ -43,4 +49,11 @@ class Principal:
 principal_var: ContextVar[Principal | None] = ContextVar("principal", default=None)
 
 
-__all__ = ["Principal", "Realm", "correlation_id_var", "principal_var"]
+__all__ = [
+    "IMPERSONATE_HEADER",
+    "ORG_HEADER",
+    "Principal",
+    "Realm",
+    "correlation_id_var",
+    "principal_var",
+]

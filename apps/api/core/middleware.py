@@ -21,7 +21,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from apps.api.core.context import correlation_id_var
+from apps.api.core.context import IMPERSONATE_HEADER, ORG_HEADER, correlation_id_var
 from apps.api.core.errors import PROBLEM_CONTENT_TYPE, ProblemError
 from apps.api.core.loadshed import get_platform_status, is_shed
 from apps.api.core.logging import get_logger
@@ -267,7 +267,20 @@ def install_middleware(app: FastAPI, *, cors_origins: list[str]) -> None:
         allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", CORRELATION_HEADER, "Idempotency-Key"],
+        # Every custom header the client sends must be listed, or the browser fails
+        # the PREFLIGHT and the request never reaches a handler — which looks like a
+        # dead API rather than a config gap. X-Org-Slug carries tenant selection and
+        # X-Impersonate-Org carries D-22 view-as, so omitting either breaks the whole
+        # client realm while curl keeps working.
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            CORRELATION_HEADER,
+            "Idempotency-Key",
+            ORG_HEADER,
+            IMPERSONATE_HEADER,
+            "X-Confirm-Action",
+        ],
         expose_headers=[CORRELATION_HEADER, "Idempotent-Replayed", "Retry-After"],
     )
     app.add_middleware(SecurityHeadersMiddleware)  # outermost

@@ -197,3 +197,37 @@ nothing is worse than no guardrail. Two tests cover the guardrail itself.
 
 **Verified:** 58 tests pass · both import contracts KEPT · RLS 21/22 policied, 2 exempt
 with reasons · env parity 24 keys · ruff + format clean.
+
+**13. Client app v1 — `apps/web`** (D-24, D-10, D-21, D-22)
+
+- `lib/api/client.ts` — the ONE place `fetch` appears, so auth/org headers and
+  problem+json handling cannot be forgotten screen by screen. `ApiProblem` keeps
+  `kind`/`retryable`/`remediation`/`fields`, which is what lets a compliance refusal
+  render as an explanation instead of "something went wrong".
+- `lib/api/schema.d.ts` — generated from the API's own OpenAPI (19 paths);
+  response types are aliased from it so they cannot drift.
+- `lib/api/hooks.ts` — TanStack Query with **polling** (D-24: not WebSockets, SSE
+  deferred to M3); 20s on live surfaces, 60s on leads, refetch-on-focus. Mutations
+  never auto-retry — the safety net is the server's `Idempotency-Key` handling.
+- Screens: `/c/<slug>` dashboard (incl. the after-hours tile that is D-38's whole sales
+  argument), calls list, call detail (redacted transcript + captured fields), leads
+  table whose **columns come from the API alongside the rows** (TRD §7), inline status
+  changes on the fixed enum, CSV export.
+- `Providers` retries only `retryable` problems — a 403 or a DNC block fails the same
+  way forever, so retrying it just delays the message.
+
+Verified by driving the real stack: API on :8000, web on :3000, four calls pushed
+through the actual webhook → pipeline → extraction path. Screenshots show the
+schema-driven Leads columns, masked phones, and live dashboard aggregates.
+
+**14. A bug only a browser could find: CORS preflight**
+
+`X-Org-Slug` (tenant selection) and `X-Impersonate-Org` (D-22 view-as) were not in the
+CORS `allow_headers` list, so every browser request failed its preflight while curl
+kept working perfectly. The header names now live in `core/context.py` — a leaf module
+both the auth dependency and the CORS config import — because a mismatch between those
+two is invisible to every test that does not use a real browser.
+
+**Local run recipe** (this container): `bash scripts/dev_bootstrap.sh`, then
+`uv run uvicorn apps.api.main:app --port 8000` and
+`NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 pnpm -C apps/web dev`.
