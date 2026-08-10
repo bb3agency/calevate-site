@@ -339,14 +339,36 @@ Also fixed: the shared `Card` only goes dark under `prefers-color-scheme`, so it
 rendered as a white slab inside the admin shell. Admin panels are styled locally, with
 a comment saying why rather than leaving a mystery duplicate.
 
+**21. Clerk mirror — `apps/api/tenancy/clerk_webhooks.py`** (D-37)
+
+The decision made concrete: **Clerk authenticates; it does not own our data model.**
+`user.created/updated/deleted` are mirrored into OUR `users` table so RLS keeps keying
+off OUR ids, and replacing Clerk would move token verification only.
+
+- **Svix signature verified directly** rather than via the SDK — thirty lines of HMAC
+  over a documented format, against a new dependency in the auth path. Constant-time
+  compare, all signatures in the header checked (secret rotation), and a 5-minute skew
+  window so a captured request is not replayable forever.
+- **Fails CLOSED with no secret configured.** This endpoint writes to the table the
+  membership lookup keys off, so an unverifiable identity feed is an account-creation
+  primitive — worse than no feed at all.
+- **Delete deactivates, never removes**: a hard delete would orphan memberships and
+  audit rows that must survive (hard rule 4), and `deactivated_at` is what the auth
+  guard re-checks per request, so the effect is immediate regardless.
+- Organization events are acknowledged and ignored: orgs come from OUR onboarding
+  wizard (D-10, admin-driven), and inventing a tenant from an upstream event would be
+  exactly the wrong direction of trust.
+- 8 tests, mostly adversarial: tampered body, stale timestamp, missing headers,
+  rotation, unsigned request, replay dedupe.
+
 ### Where the next session should start
 
-1. `docs/ROADMAP.md` §2 — remaining M1: the **Clerk webhook mirror** (users/orgs into
-   our Postgres — D-37 makes our DB the system of record; today users are seeded by
-   hand), **notification transport** (email; `notifications.py` deliberately returns
-   False rather than faking a send), **observability wiring** (Sentry, Langfuse), and
-   the wizard's intake step (FLOWS §1 step 3) which needs client #1 in the room.
-2. The test-call gate (wizard step 7) and number provisioning (step 6) are deliberately
-   NOT stubbed — both depend on the Bolna pilot (OPERATIONS §2).
-3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (79 tests) and
+1. `docs/ROADMAP.md` §2 — remaining M1: **notification transport** (email;
+   `notifications.py` deliberately returns False rather than faking a send),
+   **observability wiring** (Sentry, Langfuse, OTel — `bootstrap.py` marks the spot and
+   does not stub it), and the wizard's **intake step** (FLOWS §1 step 3), which needs
+   client #1 in the room rather than more code.
+2. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
+   number provisioning, transfer, the test-call gate, real latency numbers.
+3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (87 tests) and
    `make guardrails` before changing anything.

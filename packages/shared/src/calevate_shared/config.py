@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     clerk_client_secret_key: str | None = None
     # Custom domain so the flow is ours end to end (D-37); also the JWKS host.
     clerk_frontend_api: str = "accounts.calevate.tech"
+    # Svix signing secret for the user/org mirror webhook (`whsec_...`). Absent means
+    # the endpoint FAILS CLOSED — an unverifiable identity feed is worse than none.
+    clerk_webhook_secret: str | None = None
 
     # HMAC material for the audit hash chain and idempotency scope fingerprints
     # (BACKEND-PATTERNS §4/§7). Local dev derives a constant when unset; prod MUST

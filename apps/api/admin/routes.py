@@ -312,9 +312,7 @@ async def publish_kb(
     principal: Principal = Depends(requires("agents:write", realm="admin")),
 ) -> PublishOut:
     async with tenant_session(tenant_id) as scoped:
-        version = await kb_service.publish_source(
-            scoped, tenant_id=tenant_id, source_id=source_id
-        )
+        version = await kb_service.publish_source(scoped, tenant_id=tenant_id, source_id=source_id)
     await write_audit(
         session,
         action="kb.published",
