@@ -77,6 +77,38 @@ class WebhookInboxEvent(PKMixin, Base):
     )
 
 
+class EngineAgentRoute(Base):
+    """(engine, engine_agent_ref) → (tenant_id, agent_id). The inbound routing table.
+
+    Why this exists as its own table instead of a query against `agents`: an engine
+    webhook arrives with the VENDOR's agent id and nothing else — no session, no
+    tenant, no GUC — so resolving it means reading across tenants. `agents` is
+    FORCE-RLS'd and MUST stay that way (hard rule 1), and the alternative (an RLS
+    exemption, or running the resolver as the owner role) would punch a cross-tenant
+    hole through the exact control the whole design rests on.
+
+    So the resolver reads a table that is deliberately global and deliberately
+    boring: two opaque ids and the pair they map to. It carries no PII and no call
+    data, and being global is a property of routing, not a compromise of isolation.
+    Written by the agent publish path in the SAME transaction that sets
+    `agents.engine_agent_ref`, so the two cannot disagree.
+    """
+
+    __tablename__ = "engine_agent_routes"
+
+    # Composite PK: (engine, engine_agent_ref) IS the natural key — the same vendor id
+    # can exist on two engines during a migration and must resolve independently.
+    engine: Mapped[str] = mapped_column(Text, primary_key=True)
+    engine_agent_ref: Mapped[str] = mapped_column(Text, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    agent_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class PlatformState(Base):
     """Single-row global switchboard: the load-shed mode AND the big red switch.
 

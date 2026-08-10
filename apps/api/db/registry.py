@@ -55,6 +55,12 @@ TENANT_TABLES = [
 # the RLS coverage guardrail requires every exception to be listed here.
 RLS_EXEMPT_TENANT_COLUMNS = {
     "audit_log": "admin-realm surface reads cross-tenant; itself always audited",
+    "engine_agent_routes": (
+        "inbound routing table: an engine webhook arrives with only the VENDOR agent id "
+        "and no session, so resolving it to a tenant is inherently cross-tenant. Keeping "
+        "this two-id lookup in its own global table is what lets `agents` stay FORCE-RLS'd "
+        "(hard rule 1) instead of needing an exemption. Carries no PII and no call data."
+    ),
 }
 
 # INSERT-only ledgers (hard rule 4): immutability triggers in the migration.

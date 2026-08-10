@@ -88,3 +88,67 @@ event_key + different payload_hash → 409 **and** an alert, failed rows re-clai
   so migration `05bba2f3c19c` created the columns without the FKs. Found by
   autogenerating against a migrated DB and reading the diff. Added as explicit ALTERs.
 - New settings: `CLERK_FRONTEND_API` (JWKS host, D-37 custom domain), `AUDIT_CHAIN_SECRET`.
+
+**5. Engine adapters + conformance** — `apps/api/engine/`, `packages/shared/`
+
+`calevate_shared/engine.py` now carries the FULL contract in our vocabulary
+(`AgentConfig`, `CallContext`, `NumberSpec`, `KBSourceRef`, `CostBreakdown`,
+`ExecutionSnapshot`, `WebhookVerdict`), so a second engine is a change in
+`apps/api/engine/` and nowhere else. `bolna.py` encodes the three vendor facts that
+shape the design (unsigned at-most-once webhooks → `verify_webhook` reports
+`method="source_ip"` and never claims proof; cost/recording/transcript only at
+`completed` → `billable_ready`; USD cents → INR at capture with the fx rate stamped).
+`fake.py` is a real second implementation with a call lifecycle and rate-card costs.
+Conformance suite: 11 clauses × 2 adapters, no network.
+
+`CallEvent` no longer declares `tenant_id`/`agent_id` as required — an adapter cannot
+know them and must never invent them (hard rule 1); they are resolved from
+`engine_agent_ref`.
+
+**6. voice-runtime receiver** — `apps/voice-runtime/`
+
+`engine_intake.py` is the deliberately tiny twin (source-IP allowlist, trusted-proxy
+handling so a forged `CF-Connecting-IP` cannot walk through the allowlist, and the
+three fields needed to dedupe). `webhook_routes.py` verifies → dedupes (Redis fast path
++ durable inbox claim) → writes ONE forensic row → enqueues ARQ → acks, measuring
+`X-Ack-Ms` and alerting when it breaches hard rule 3's 500ms.
+
+**7. Workers** — `apps/workers/`
+
+- `redaction.py` — Aadhaar (Verhoeff), PAN, card (Luhn), OTP, email/UPI, Indian mobile
+  (keeps last 2 digits), and **spoken digit runs in English + transliterated Telugu**,
+  which a regex alone cannot see. 10 behaviour tests.
+- `extraction.py` — Sarvam (D-36 default) / Gemini (fallback, with its residency cost
+  stated) / Offline deterministic. No silent failover between providers.
+- `pipeline.py` — `ingest_engine_event` (re-fetches the truth, resolves tenant, upserts
+  the call, gates on `billable_ready`) and `run_post_call_pipeline` (recording FIRST →
+  transcript+redaction → extraction → lead upsert → metering → outbox notification),
+  plus `reconcile_executions` (the 10-min guarantee of record).
+- `storage.py`, `notifications.py`, `dispatcher.py` (outbox publish + DLQ metrics +
+  stalled-pipeline alert), `settings.py` (jobs + 4 crons, tolerant boot).
+- `core/queue.py` — ARQ pool with the `job:<natural key>` id convention, so a duplicate
+  webhook and a poller rediscovery collapse into one job before a worker runs.
+
+**8. Second architectural gap found by running it: `engine_agent_routes`**
+
+An engine webhook arrives with the VENDOR's agent id, no session and no tenant — so
+resolving it is inherently a cross-tenant read, and `agents` is FORCE-RLS'd. The smoke
+test failed with `engine_agent_unmapped`, which was the right failure. Rather than
+exempt `agents` from RLS or run the resolver as the owner role, added a deliberately
+global routing table (`engine`, `engine_agent_ref`) → (`tenant_id`, `agent_id`), no PII,
+registered in `RLS_EXEMPT_TENANT_COLUMNS` with that reason. Migration `fa06ed03b49d`.
+
+**9. Two smaller fixes the tooling forced**
+
+- `validate_bootstrap_env` read only `os.environ`, so it rejected a valid local setup
+  that keeps its DSNs in `.env` — the very file Pydantic Settings reads. It now checks
+  the same sources with the same precedence.
+- The import-linter engine contract was refined: forbid DIRECT imports of vendor adapter
+  modules (`allow_indirect_imports = true`) instead of forbidding `apps.api.engine`
+  wholesale. The old form banned workers from having an engine at all, which the
+  post-call pipeline and poller cannot do without. The rule is about vendor payload
+  shapes, not about the word "engine".
+
+**Verified this session:** 22 conformance + 10 redaction + 3 smoke + 6 RLS/scaffold
+tests pass; both import-linter contracts KEPT; RLS coverage 20/21 policied, 2 exempt
+with reasons; env parity OK.

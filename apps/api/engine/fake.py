@@ -151,6 +151,8 @@ class FakeEngine:
         duration = int(call.get("duration_s") or 0)
         return ExecutionSnapshot(
             engine_call_id=call_id,
+            engine_agent_ref=str(call.get("agent_ref") or "") or None,
+            direction=call.get("direction", "inbound"),
             status=raw_status,  # type: ignore[arg-type]  # fake only stores our enum
             raw_status=raw_status,
             terminal=raw_status in ("completed", "failed", "no_answer", "busy", "voicemail"),

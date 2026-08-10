@@ -19,7 +19,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
-from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
+from calevate_shared.events import CallDirection, CallEvent, CallStatus, TranscriptTurn
 
 # Domain aliases.
 E164 = str
@@ -122,6 +122,11 @@ class ExecutionSnapshot(BaseModel):
     """
 
     engine_call_id: str
+    # Their agent id — the ONLY bridge to our tenant (agents.engine_agent_ref). The
+    # reconciliation poller has no webhook payload to read it from, so the snapshot
+    # must carry it or every repaired call is unmappable.
+    engine_agent_ref: str | None = None
+    direction: CallDirection = "inbound"
     status: CallStatus
     raw_status: str
     terminal: bool

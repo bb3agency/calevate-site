@@ -213,9 +213,7 @@ class BolnaEngine:
         if response.status_code >= 400:
             # Never echo a vendor error body to a client — it is not user-safe and it
             # is not our vocabulary.
-            log.warning(
-                "engine_error", extra={"status": response.status_code, "route": path}
-            )
+            log.warning("engine_error", extra={"status": response.status_code, "route": path})
             raise ProblemError(
                 kind="dependency",
                 code="engine_rejected",
@@ -355,8 +353,11 @@ class BolnaEngine:
         ended = _parse_dt(payload.get("ended_at") or payload.get("updated_at"))
         duration = payload.get("conversation_duration") or payload.get("duration")
         telephony = payload.get("telephony_data") or {}
+        agent_ref = payload.get("agent_id")
         return ExecutionSnapshot(
             engine_call_id=call_id,
+            engine_agent_ref=str(agent_ref) if agent_ref else None,
+            direction="inbound" if payload.get("direction") == "inbound" else "outbound",
             status=status,
             raw_status=raw_status,
             terminal=raw_status in _TERMINAL_RAW,

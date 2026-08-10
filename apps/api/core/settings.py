@@ -12,10 +12,30 @@ from __future__ import annotations
 import os
 import sys
 from functools import lru_cache
+from pathlib import Path
 
 from calevate_shared.config import Settings
+from dotenv import dotenv_values
 
 BOOTSTRAP_REQUIRED = ("DATABASE_URL", "REDIS_URL")
+
+# Repo root: apps/api/core/settings.py -> apps/api/core -> apps/api -> apps -> root
+_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+
+
+def _effective_env() -> dict[str, str]:
+    """The environment the app will ACTUALLY see.
+
+    Pydantic Settings reads `.env` as well as the process environment, so a bootstrap
+    gate that only looked at `os.environ` would reject a perfectly valid local setup —
+    and would do it before the app exists, with no way to see why. Same sources, same
+    precedence (process environment wins).
+    """
+    merged: dict[str, str] = {}
+    if _ENV_FILE.exists():
+        merged.update({k: v for k, v in dotenv_values(_ENV_FILE).items() if v is not None})
+    merged.update(os.environ)
+    return merged
 
 
 class BootstrapError(RuntimeError):
@@ -23,7 +43,7 @@ class BootstrapError(RuntimeError):
 
 
 def validate_bootstrap_env(environ: dict[str, str] | None = None) -> None:
-    env = environ if environ is not None else dict(os.environ)
+    env = environ if environ is not None else _effective_env()
     missing = [key for key in BOOTSTRAP_REQUIRED if not env.get(key)]
     if missing:
         raise BootstrapError(

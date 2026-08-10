@@ -39,11 +39,15 @@ type = "forbidden"
 source_modules = ["calevate_shared"]
 forbidden_modules = ["apps"]
 
-# Hard rule 2 (engine isolation): business modules consume OUR normalized models
-# from `calevate_shared` — they never reach into the adapter package, so vendor
-# payload shapes cannot leak past the boundary. Extend `source_modules` whenever a
-# new business module is added; the voice-runtime twin is enforced by its own
-# deploy boundary (separate deployable, TRD §1).
+# Hard rule 2 (engine isolation). The rule is about VENDOR PAYLOAD SHAPES, not about
+# the word "engine": business modules and workers legitimately need an engine — the
+# post-call pipeline and the reconciliation poller cannot exist without one (TRD §8) —
+# they just must reach it through `apps.api.engine`'s factory, which hands back the
+# VoiceEngine Protocol and normalized models. What is forbidden is importing a VENDOR
+# ADAPTER module, because that is the only way a vendor shape can leak upward.
+# Extend `source_modules` whenever a new business module is added; the voice-runtime
+# twin is its own tiny module (apps/voice-runtime/engine_intake.py) and never imports
+# an adapter either.
 [[tool.importlinter.contracts]]
 name = "engine isolation: only engine/ may see vendor payload shapes"
 type = "forbidden"
@@ -55,9 +59,15 @@ source_modules = [
     "apps.api.integrations",
     "apps.api.reliability",
     "apps.api.tenancy",
+    "apps.api.core",
     "apps.workers",
 ]
-forbidden_modules = ["apps.api.engine"]
+forbidden_modules = ["apps.api.engine.bolna", "apps.api.engine.fake"]
+# DIRECT imports only. The factory in `apps.api.engine` obviously imports the adapters —
+# that is what a factory does — and forbidding the transitive chain would forbid having
+# a factory at all. What leaks a vendor shape into a module is that module NAMING the
+# vendor module in its own imports, and that is exactly what stays banned.
+allow_indirect_imports = true
 
 # --- Ruff (CI gate) -----------------------------------------------------------
 [tool.ruff]
@@ -98,10 +108,17 @@ disallow_untyped_defs = false
 # --- pytest -------------------------------------------------------------------
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# ONE event loop for the whole session, mirroring production. The Redis client and the
+# SQLAlchemy async pool are process-level singletons bound to the loop that created
+# them, so a loop-per-test would hand the second test a pool whose loop is closed.
+asyncio_default_test_loop_scope = "session"
+asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests", "apps", "packages"]
 # apps/* are virtual workspace members imported by path (apps.api.main), so the
-# repo root must be importable.
-pythonpath = ["."]
+# repo root must be importable. `apps/voice-runtime` is hyphenated (D-18) and so is
+# NOT importable as a module path — it runs with `--app-dir`, and tests get the same
+# treatment by putting the directory itself on the path.
+pythonpath = [".", "apps/voice-runtime"]
 markers = [
     "smoke: end-to-end smoke test (tenant -> agent -> webhook -> lead)",
     "rls: cross-tenant isolation tests; must return zero rows",
