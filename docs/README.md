@@ -38,6 +38,17 @@ and are all closed by two non-code actions: the Engine Verification Session
     Conventional Commits + pre-commit hooks), dev-loop conventions, release
     discipline trajectory.
 
+Method & evidence:
+11a. **RESEARCH-DISCIPLINE.md** — how vendor/competitor claims are handled: verify
+    first-party, mark verified vs inferred, compare like with like, never rank on
+    headline per-minute rates. Includes the eight mistakes already made and corrected,
+    and the vendor due-diligence bar. **Read before any vendor evaluation.**
+11b. **evidence/** — committed research artifacts: `bolna-pilot-scorecard.md` (the 13
+    gates that close the remaining cost unknowns), `outpero-teardown-aug2026.md`
+    (conclusions from the authenticated competitor teardown) and
+    `outpero-research-log.md` (the raw working notes behind it, including which
+    findings were later retracted).
+
 Engineering companions:
 12. **CLAUDE.md** — operating manual for Claude Code in the repo (hard rules, commands,
     conventions; the full manual now lives in the root CLAUDE.md). **AGENTS.md** — same
