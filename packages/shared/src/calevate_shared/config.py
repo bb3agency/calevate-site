@@ -71,6 +71,17 @@ class Settings(BaseSettings):
     # inject it — rotating it starts a new chain, so it is rotated with a drill.
     audit_chain_secret: str | None = None
 
+    # Email transport for hot-lead alerts (ROADMAP M1: email first, WhatsApp next).
+    # Any SMTP provider works, which keeps the provider a deployment decision rather
+    # than a code dependency. Unset in a non-local env = notifications report FAILURE
+    # rather than silently pretending (see workers/transport.py).
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_use_tls: bool = True
+    notifications_from: str | None = None
+
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     sentry_dsn: str | None = None

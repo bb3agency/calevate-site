@@ -385,14 +385,28 @@ them, which makes the DPA a promise rather than a control. Now:
   Bolna's deletion API is undocumented (pilot gate), and a proof that overclaims is
   worse than one that states its limits. 6 tests.
 
+**23. Notification transport — `apps/workers/transport.py`**
+
+Three implementations behind one Protocol, selected by config: SMTP (any provider —
+keeps the vendor a deployment decision, not a dependency), a console sink for local
+dev that reports SUCCESS because the message really did arrive somewhere, and a
+`NullTransport` for an unconfigured non-local deployment that reports **FAILURE and
+says why**.
+
+The last one is the reason the module exists. A transport that returns success with
+nothing wired makes the 2-minute hot-lead SLO look met in every dashboard while no
+client is ever told. The delivered flag is recorded on the lead timeline either way, so
+"the alert was sent" is a checkable claim rather than an assumption. Recipient
+**domains** are logged, never mailboxes.
+
 ### Where the next session should start
 
-1. `docs/ROADMAP.md` §2 — remaining M1: **notification transport** (email;
-   `notifications.py` deliberately returns False rather than faking a send),
-   **observability wiring** (Sentry, Langfuse, OTel — `bootstrap.py` marks the spot and
-   does not stub it), and the wizard's **intake step** (FLOWS §1 step 3), which needs
-   client #1 in the room rather than more code.
+1. `docs/ROADMAP.md` §2 — remaining M1: **observability wiring** (Sentry, Langfuse,
+   OTel — `bootstrap.py` marks the spot and deliberately does not stub it), the
+   wizard's **intake step** (FLOWS §1 step 3, needs client #1 in the room rather than
+   more code), and the **client-side KB submission UI** (the API exists; only the admin
+   half has a screen).
 2. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (93 tests) and
+3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (98 tests) and
    `make guardrails` before changing anything.

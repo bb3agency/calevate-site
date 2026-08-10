@@ -24,6 +24,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers.redaction import redact
+from apps.workers.transport import get_transport
 
 log = get_logger(__name__)
 
@@ -110,14 +111,16 @@ def _compose(
 
 
 async def _send_email(to: str | None, subject: str, body: str) -> bool:
-    """Delivery is not wired to a provider yet (M1 ops task). Until it is, this logs a
-    structured record and reports FALSE rather than pretending success — a silent
-    'sent' would make the hot-lead SLO look met when nobody was told."""
+    """Delivery goes through the configured transport (`workers/transport.py`).
+
+    A tenant with no billing email is the one case we cannot deliver at all, and it is
+    reported as a failure rather than skipped quietly — the fix is a data fix, and it
+    should show up as one.
+    """
     if not to:
         log.warning("notification_no_channel")
         return False
-    log.info("notification_pending_transport", extra={"subject": subject, "chars": len(body)})
-    return False
+    return get_transport().send(to=to, subject=subject, body=body)
 
 
 def _json(value: Any) -> str:
