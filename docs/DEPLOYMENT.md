@@ -12,11 +12,26 @@ The calevate.tech site is NOT in the live-call path — the rented engine (Bolna
 hosts the entire voice pipeline in v1. So the site stack (web, api, workers, webhook receiver) hosts on a
 **general-purpose VPS (Hetzner-class); India co-location is NOT required for it.**
 
-The India-latency requirement survives in one place: **any future in-call-path service**.
+The India-latency requirement survives in one place: **any in-call-path service**.
 With D-28 (RAG/memory = managed API service), the likely M3 shape is the engine calling
-the provider directly — putting NOTHING of ours in the call path. Only if the bake-off
-selects the thin-endpoint variant does a small India-region host enter the picture
-(that endpoint + nothing else). Until measured, there is nothing to co-locate.
+the provider directly — putting NOTHING of ours in the call path.
+
+> ⚠ **AMENDED (Aug 2026, after D-38 + SURFACES §2b).** "Nothing to co-locate" no longer
+> holds unconditionally. **In-call actions put our endpoint in the audio path**: when the
+> agent books a slot, sends a WhatsApp mid-call, or hits a custom API, the *engine* calls
+> *us* while the caller waits. A Hetzner-class European VPS answering a Bolna-India call
+> adds ~150ms each way — enough to blow an in-call tool budget on its own, before our
+> handler does any work.
+>
+> Consequence, decided here so it is not discovered late: **the moment we ship the first
+> in-call action, that endpoint (and only that endpoint) moves to an India-region host** —
+> the same carve-out already reserved for the M3 RAG endpoint. It is a `voice-runtime`
+> concern, which is why `hooks.calevate.tech` already has its own subdomain and its own
+> relocation story (§1). The site stack does not move.
+>
+> Until an in-call action ships, the original conclusion stands: nothing of ours is in the
+> call path, and the site can live anywhere. **Measure before relocating** (D-39: measure
+> latency before optimising it) — but budget for the move rather than assuming it away.
 
 Db: **host PostgreSQL 16 on the VPS** (D-26, raghava-proven; managed PG rejected for now).
 Edge: **Cloudflare proxied (orange), Full (strict)** (D-27).
@@ -34,7 +49,8 @@ nginx (host) ── admin.calevate.tech ─┐
    │            hooks.calevate.tech ─▶ voice-runtime container (:8100)
    │
 Docker Compose (project: calevate): api · voice-runtime · workers · redis
-Host: PostgreSQL 16 (+pgvector) · pm2 (web) · certbot · GitHub Actions runner
+Host: PostgreSQL 16 · pm2 (web) · certbot · GitHub Actions runner
+           (pgvector only if the D-28 bake-off fails — it is contingency, not the plan)
 Object storage: Cloudflare R2 (recordings, raw payloads, exports)
 ```
 
@@ -51,7 +67,8 @@ Object storage: Cloudflare R2 (recordings, raw payloads, exports)
 ## 2. VPS baseline (once per VPS — raghava §2 verbatim)
 
 Packages: Docker Engine + Compose plugin (v2.24+ for `!reset`), nginx ≥1.24, certbot,
-PostgreSQL 16 + pgvector, Node 22 (for web builds + pm2), Python is NOT needed on the
+PostgreSQL 16 (pgvector optional — D-28 contingency), Node 22 (for web builds + pm2;
+see §7a — prefer building in CI), Python is NOT needed on the
 host (api/workers run containerized; builds happen in Docker), jq, `systemd-timesyncd`
 (webhook ±5-min skew checks depend on it).
 
@@ -173,6 +190,57 @@ D-26 (host PG) breaks OPERATIONS §5's RPO 15min if we only do nightly dumps. So
 - Quarterly restore drill stays (OPERATIONS §6); evidence files committed.
 - Daily disk-hygiene cron (their `install-vps-cleanup.sh` pattern): docker prune,
   builder cache cap, pm2 log flush.
+
+**Tool choice re-validated (Aug 2026):** wal-g remains the right pick for object-storage
+PITR — it pushes straight from the DB host to S3-compatible storage with no backup server
+or local staging, which suits a single-VPS topology. Its main alternative, **pgBackRest, is
+*reported* to have gone unmaintained around April 2026** — that is a secondary-source claim,
+not first-party verified, so confirm before acting on it; either way it argues for staying
+on wal-g rather than migrating.
+
+**⚠ Vendor concentration — fix this when setting backups up.** The edge (Cloudflare) and the
+WAL archive destination (Cloudflare R2) are the *same vendor and the same account*. A
+credential compromise or account suspension takes out the front door and the backups
+together, which is exactly the scenario backups exist for. Therefore:
+- wal-g → R2 stays (it is the hot path, and colocation with the edge is fine for restores).
+- **The nightly `pg_dump` + Redis RDB offsite copy MUST land on a different provider and a
+  different credential** (Backblaze B2, S3, or a Hetzner Storage Box — any non-Cloudflare
+  target). This is the one that survives a Cloudflare-account event.
+- Restore drills alternate sources: prove the R2 PITR path one quarter, the offsite dump the
+  next. A backup nobody has restored from is a hypothesis, not a backup.
+
+## 7a. Self-serve exposure (D-34 — this doc predates it)
+
+Until D-34 the platform had **no public write surface**: every account was created by us,
+so the internet could only reach a login page. Self-serve signup changes that, and the
+single-VPS topology means one abusive account contends for the same CPU, Postgres and
+Redis as client #1. The infra half of R-11 lives here; the product half is in
+SECURITY-COMPLIANCE.
+
+**Newly public, therefore newly attackable:** signup, org-create, credit top-up
+(Razorpay callback), and the **lead-intake endpoint** — which by design accepts an
+unauthenticated POST from a customer's website or ad platform, so it is internet-facing
+with a per-agent token and nothing else.
+
+Required before self-serve opens (all at the Cloudflare edge, which we already run):
+- **Rate limits** on `signup`, `org-create`, and per-token limits on lead intake. The
+  intake limit is per *agent token*, not per IP — the caller is a customer's server.
+- **Bot protection (Turnstile) on signup only.** Never on lead intake: it is a
+  machine-to-machine endpoint and a challenge there silently breaks a client's funnel.
+- **WAF + DDoS** stays on for `app.` and `api.`. `hooks.calevate.tech` keeps its
+  never-gated policy (§5) — engine webhooks must not meet a challenge page.
+- **Per-tenant resource ceilings enforced in-app, not just at the edge**: concurrency cap
+  and spend cap checked pre-dispatch (`spend_state`, fail-closed). Edge limits protect the
+  box; only app-level caps protect *client #1 from tenant #47*.
+- **A noisy-neighbour budget**: workers already run in Compose, so cap the ARQ worker
+  concurrency rather than letting a bulk campaign saturate the host and starve the
+  webhook receiver's <500ms ack.
+
+**Sizing.** §2's "≥4GB RAM + 2GB swap" was derived from `next build` peaking >2GB on a
+single-tenant box. With Postgres, Redis, three Python services, and self-serve traffic on
+one VPS, treat **8GB as the practical floor** once self-serve opens, and move `next build`
+off the production host (build in CI, ship the artifact) rather than buying RAM to survive
+a build. Revisit when real concurrency numbers exist (pilot gate 13).
 
 ## 8. Observability on the VPS
 
