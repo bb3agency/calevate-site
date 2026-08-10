@@ -399,14 +399,32 @@ client is ever told. The delivered flag is recorded on the lead timeline either 
 "the alert was sent" is a checkable claim rather than an assumption. Recipient
 **domains** are logged, never mailboxes.
 
+**24. Observability — `apps/api/core/observability.py`**
+
+Bootstrap step 3 ("tracing init before the app exists") is now filled rather than
+marked. Sentry is config-gated, tolerant of a missing SDK, and stamps the release so a
+report names the deploy that produced it.
+
+The non-optional half is the **redaction hook**. An error tracker is a searchable log
+with attachments, and Sentry captures local variables and request bodies by default —
+which on this codebase means capturing a transcript the first time anything throws
+inside the post-call pipeline. `scrub_event` drops the body outright, redacts headers
+(auth, tenant, Svix signature), masks query strings (the leads filter takes a phone
+suffix) and scrubs stack-frame locals — reusing the SAME primitives as the logger so
+the two cannot drift. `redact_trace_payload` is the Langfuse seam CLAUDE.md requires.
+
+Six tests, including the one that actually bites: a pipeline frame holding the
+transcript it was mid-way through redacting. Ids survive, PII does not, and an event is
+never dropped entirely — scrubbing degrades the detail, not the signal.
+
 ### Where the next session should start
 
-1. `docs/ROADMAP.md` §2 — remaining M1: **observability wiring** (Sentry, Langfuse,
-   OTel — `bootstrap.py` marks the spot and deliberately does not stub it), the
-   wizard's **intake step** (FLOWS §1 step 3, needs client #1 in the room rather than
-   more code), and the **client-side KB submission UI** (the API exists; only the admin
-   half has a screen).
+1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
+   which needs client #1 in the room rather than more code), the **client-side KB
+   submission UI** (the API exists; only the admin half has a screen), **OTel spans**
+   (Sentry and the Langfuse hook are wired; distributed tracing is not), and the
+   **CI workflow** in `infra/` that runs `make check` + `make guardrails`.
 2. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (98 tests) and
+3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (104 tests) and
    `make guardrails` before changing anything.

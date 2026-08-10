@@ -26,6 +26,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.health import build_health_router
 from apps.api.core.logging import configure_logging, get_logger
 from apps.api.core.middleware import install_middleware
+from apps.api.core.observability import init_observability
 from apps.api.core.redis import close_redis
 from apps.api.core.settings import get_settings, validate_bootstrap_env
 
@@ -69,12 +70,23 @@ def create_app(
     settings = get_settings()
     # 4. Log redaction path list is installed with the formatter.
     configure_logging("INFO" if settings.app_env != "local" else "DEBUG")
-    # 3. Tracing init would go here (OTel, TRD §2) — deliberately not stubbed.
+    # 3. Tracing/error reporting, BEFORE the app exists so a failure during app build
+    # is still captured. Config-gated and scrubbed (hard rule 6).
+    observability = init_observability(service)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         _install_signal_handlers()
-        log.info("service_start", extra={"service": service, "env": settings.app_env})
+        log.info(
+            "service_start",
+            extra={
+                "service": service,
+                "env": settings.app_env,
+                # An operator should see at a glance whether errors go anywhere.
+                "observability": observability,
+                "release": settings.release_version,
+            },
+        )
         if on_startup is not None:
             async for _ in on_startup():
                 break

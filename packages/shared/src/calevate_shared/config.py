@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     sentry_dsn: str | None = None
+    # Stamped onto every error so a report names the deploy that produced it.
+    # CI sets it from the commit sha; unset is fine and reads as 'dev'.
+    release_version: str = "dev"
     posthog_key: str | None = None
 
     # Effective outbound pool = MIN(platform lines, model concurrency, trunk
