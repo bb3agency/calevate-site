@@ -4,6 +4,7 @@ Any new environment variable is added here AND to `.env.example` (DEV-SETUP.md �
 Secrets are never defaulted — a missing secret must raise at startup.
 """
 
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import Field
@@ -35,6 +36,10 @@ class Settings(BaseSettings):
     # Authenticity = source-IP allowlist + execution-id dedupe, and the
     # List-Executions poller is the guarantee of record (TRD §5).
     bolna_api_key: str | None = None
+    # Bolna quotes cost in USD cents; the adapter converts at capture and STAMPS this
+    # rate into usage_events.meta so any ledger row can be re-derived (hard rule 7).
+    # A config row, not a live FX call: metering must be reproducible, not current.
+    usd_inr_rate: Decimal = Decimal("88.00")
 
     # BYOK models — canonical stack per D-36: Sarvam does STT + LLM + TTS.
     # Gemini is a configurable FALLBACK, not the default.
