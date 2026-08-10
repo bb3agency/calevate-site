@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     object_store_endpoint: str
     object_store_bucket: str
 
+    # Public base URL of the voice-runtime deployable. It is baked into every agent's
+    # config at publish time, so it must be the address the ENGINE can reach — not the
+    # API's — and changing it means re-publishing every agent.
+    webhook_base_url: str = "http://localhost:8100"
+
     # Engine selection is per-environment; `fake` is the default for local work so
     # the whole pipeline runs offline (DEV-SETUP.md §3).
     engine: EngineName = "fake"

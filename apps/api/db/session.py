@@ -54,6 +54,28 @@ async def tenant_session(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
 
 
 @asynccontextmanager
+async def user_session(user_id: UUID) -> AsyncIterator[AsyncSession]:
+    """A session that can answer 'which tenants may this user enter?' and nothing more.
+
+    Authentication has a chicken-and-egg problem under RLS: scoping a session to a
+    tenant requires first reading `memberships`, which is itself scoped to the tenant
+    we do not have yet. `app.user_id` widens the READ policy by exactly one clause —
+    your own membership rows and the organizations they point at — and widens the
+    WRITE policy by nothing (migration 8c31d0f4ab27).
+
+    Transaction-local like `app.tenant_id`, so a pooled connection cannot carry one
+    request's identity into the next.
+    """
+    maker = get_sessionmaker()
+    async with maker() as session, session.begin():
+        await session.execute(
+            text("SELECT set_config('app.user_id', :uid, true)"),
+            {"uid": str(user_id)},
+        )
+        yield session
+
+
+@asynccontextmanager
 async def untenanted_session() -> AsyncIterator[AsyncSession]:
     """No GUC set: tenant tables yield ZERO rows. For global tables (users,
     reserved_slugs, admin_users, outbox/inbox/idempotency) and for tests proving

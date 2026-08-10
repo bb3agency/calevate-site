@@ -45,6 +45,10 @@ TENANT_TABLES = [
     "plans",
     "spend_state",
     "consent_ledger",
+    # dnc_list is listed but its policy is HAND-WRITTEN (asymmetric read/write): the
+    # standard tenant_id = GUC form would hide global entries from every tenant, and a
+    # nationally suppressed number would keep getting dialled.
+    "dnc_list",
     "retention_policies",
     "deletion_requests",
     "inbound_webhooks",

@@ -6,7 +6,15 @@ under a Redis lock; the chain head lives in Redis."""
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -36,6 +44,39 @@ class ConsentLedgerEntry(PKMixin, Base):
     status: Mapped[str] = mapped_column(String, nullable=False)
     captured_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     evidence: Mapped[dict[str, object] | None] = mapped_column(JSONB)  # e.g. transcript span
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class DncEntry(PKMixin, Base):
+    """Do-not-call list (DATA-MODEL §9). `tenant_id IS NULL` = a GLOBAL entry.
+
+    Two scopes in one table, as documented, with a deliberately asymmetric RLS policy
+    (see the migration): a tenant can READ global entries — it must, or a nationally
+    suppressed number would still be dialled — but can only WRITE its own. Creating a
+    global entry is not a tenant-reachable operation at all.
+
+    Additions must propagate BEFORE the next dispatch tick (hard rule 5), which is why
+    the check reads this table live on every dispatch path rather than caching it.
+    """
+
+    __tablename__ = "dnc_list"
+    __table_args__ = (
+        CheckConstraint("scope IN ('global', 'tenant')", name="scope_enum"),
+        CheckConstraint(
+            "(scope = 'global' AND tenant_id IS NULL) "
+            "OR (scope = 'tenant' AND tenant_id IS NOT NULL)",
+            name="scope_matches_tenant",
+        ),
+        UniqueConstraint("tenant_id", "phone_e164"),
+    )
+
+    tenant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), index=True
+    )
+    phone_e164: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    scope: Mapped[str] = mapped_column(String, nullable=False, server_default="tenant")
+    source: Mapped[str | None] = mapped_column(Text)
+    added_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 

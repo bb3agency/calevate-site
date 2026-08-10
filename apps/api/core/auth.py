@@ -33,7 +33,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import MUTATING_PERMISSIONS, Permission, role_has
 from apps.api.core.settings import get_settings
-from apps.api.db.session import untenanted_session
+from apps.api.db.session import untenanted_session, user_session
 
 log = get_logger(__name__)
 
@@ -147,6 +147,8 @@ async def _load_client_principal(verified: VerifiedToken, org_slug: str | None) 
     `is_active` is re-checked against the DB on every request rather than trusted
     from the cached session (§7): deactivation must take effect immediately.
     """
+    # `users` is a GLOBAL table (identity crosses tenants), so this lookup needs no
+    # tenant context — which is exactly why it can be the first step.
     async with untenanted_session() as session:
         user_row = (
             await session.execute(
@@ -154,10 +156,12 @@ async def _load_client_principal(verified: VerifiedToken, org_slug: str | None) 
                 {"cid": verified.clerk_user_id},
             )
         ).first()
-        if user_row is None:
-            raise ProblemError.unauthorized("This account is not provisioned.")
-        user_id: UUID = user_row[0]
+    if user_row is None:
+        raise ProblemError.unauthorized("This account is not provisioned.")
+    user_id: UUID = user_row[0]
 
+    # Now, and only now, a session that can see THIS user's memberships.
+    async with user_session(user_id) as session:
         params: dict[str, object] = {"uid": user_id}
         sql = (
             "SELECT m.tenant_id, m.role, o.slug FROM memberships m "

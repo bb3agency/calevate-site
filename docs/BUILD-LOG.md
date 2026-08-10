@@ -152,3 +152,48 @@ registered in `RLS_EXEMPT_TENANT_COLUMNS` with that reason. Migration `fa06ed03b
 **Verified this session:** 22 conformance + 10 redaction + 3 smoke + 6 RLS/scaffold
 tests pass; both import-linter contracts KEPT; RLS coverage 20/21 policied, 2 exempt
 with reasons; env parity OK.
+
+**10. API surface — 21 routes, every one permission-declared**
+
+- `crm/` (schemas + service + routes): dashboard, calls list/detail, **raw transcript
+  behind `calls:read_raw` with an audit row written in the same transaction**, presigned
+  recording links, leads list with schema-driven columns travelling alongside the rows,
+  lead patch with a timeline event, CSV export, and the D-21 "call this lead" button —
+  idempotent, and gated by the compliance gate which returns a *decision* so the UI can
+  explain a refusal rather than silently disabling a button.
+- `compliance/service.py` — the ONE gate every dispatch path calls: big red switch →
+  spend cap → agent live/disclosure/direction → calling hours (IST) → DNC (read live,
+  never cached, because additions must land before the next dispatch tick). No bypass
+  flag exists, deliberately.
+- `agents/` — publish writes `engine_agent_ref` AND the routing row in one transaction;
+  `dispatch_call` is the single outbound entry point.
+- `tenancy/routes.py` (`/v1/me`), `ops/routes.py` (big red switch + load-shed mode with
+  step-up confirmation, outbox DLQ replay, audit-chain verification).
+- New table: `dnc_list` (migration `17a91a69dee9`) with a **hand-written asymmetric RLS
+  policy** — READ includes global entries (a nationally suppressed number a tenant
+  cannot see is a number they keep dialling), WRITE does not (or any tenant could
+  suppress a number platform-wide).
+
+**11. Third architectural gap: authentication could not read its own memberships**
+
+Writing the API auth tests surfaced the same shape of problem a third time. To scope a
+session to a tenant we must first ask "which tenants is this user in?" — but
+`memberships` and `organizations` are FORCE-RLS'd on the tenant id we do not have yet,
+so every legitimate member got a 403.
+
+Fixed by adding a second, narrower GUC (`app.user_id`, migration `8c31d0f4ab27`) that
+widens **reads** by exactly one clause — your own membership rows and the organizations
+they point at — and widens **writes** by nothing. Three RLS tests pin that down,
+including that the user GUC does not unlock tenant business data.
+
+**12. A guardrail that was silently checking nothing**
+
+`assert_policy_registry_complete` iterated `app.routes` looking for `APIRoute`
+instances. FastAPI 0.140 stopped flattening `include_router` at mount time — `app.routes`
+now holds opaque `_IncludedRouter` wrappers — so the boot assertion was inspecting only
+the four built-in doc routes and passing trivially. Now walks nested routers (21 routes
+found), and **fails loudly if it ever finds zero**, because a guardrail that checks
+nothing is worse than no guardrail. Two tests cover the guardrail itself.
+
+**Verified:** 58 tests pass · both import contracts KEPT · RLS 21/22 policied, 2 exempt
+with reasons · env parity 24 keys · ruff + format clean.

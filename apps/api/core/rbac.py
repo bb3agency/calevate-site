@@ -15,6 +15,7 @@ Role tables (DATA-MODEL §2):
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
 from typing import Literal
 
 from fastapi import FastAPI
@@ -129,18 +130,51 @@ class MissingPolicyError(RuntimeError):
     """Boot-time failure: a route neither declares a permission nor is public."""
 
 
+def iter_api_routes(app: FastAPI) -> Iterator[APIRoute]:
+    """Every APIRoute the app will actually serve.
+
+    FastAPI 0.140 stopped flattening `include_router` at mount time: `app.routes` now
+    holds opaque `_IncludedRouter` wrappers that resolve lazily at request time. A
+    naive `isinstance(route, APIRoute)` loop over `app.routes` therefore sees ONLY the
+    four built-in doc routes and silently passes — which would turn the boot assertion
+    below into decoration. So walk anything that exposes nested routes, wrapper or not.
+    """
+    seen: set[int] = set()
+
+    def _walk(routes: Iterable[object]) -> Iterator[APIRoute]:
+        for route in routes:
+            if id(route) in seen:
+                continue
+            seen.add(id(route))
+            if isinstance(route, APIRoute):
+                yield route
+                continue
+            nested = getattr(route, "original_router", None) or getattr(route, "routes", None)
+            if nested is not None:
+                yield from _walk(getattr(nested, "routes", nested))
+
+    yield from _walk(app.routes)
+
+
 def assert_policy_registry_complete(app: FastAPI) -> None:
     """Called from `main.py` after routers are mounted. Every non-public route must
     carry `permission` in its `openapi_extra` (set by the `requires()` dependency)."""
     offenders: list[str] = []
-    for route in app.routes:
-        if not isinstance(route, APIRoute):
-            continue
+    checked = 0
+    for route in iter_api_routes(app):
         if any(route.path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
             continue
+        checked += 1
         declared = (route.openapi_extra or {}).get("x-calevate-permission")
         if not declared:
             offenders.append(f"{sorted(route.methods or [])} {route.path}")
+    if checked == 0:
+        # A registry that checks nothing is worse than no registry: it reads as a
+        # passing guardrail. If route discovery ever breaks again, fail loudly.
+        raise MissingPolicyError(
+            "The RBAC policy registry found no routes to check. Route discovery is "
+            "broken (see iter_api_routes) — fix it rather than removing this guard."
+        )
     if offenders:
         raise MissingPolicyError(
             "Routes without a declared permission (BACKEND-PATTERNS §7): "
@@ -164,6 +198,7 @@ __all__ = [
     "MissingPolicyError",
     "Permission",
     "assert_policy_registry_complete",
+    "iter_api_routes",
     "permission_meta",
     "role_has",
 ]
