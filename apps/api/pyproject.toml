@@ -1,0 +1,22 @@
+[project]
+name = "calevate-api"
+version = "0.1.0"
+description = "FastAPI modular monolith — tenancy, agents, crm, billing, kb, compliance"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "calevate-shared",
+    "fastapi>=0.121",
+    "uvicorn[standard]>=0.38",
+    "sqlalchemy>=2.0.44",
+    "alembic>=1.16",
+    "psycopg[binary,pool]>=3.2",
+    "pgvector>=0.4",
+    "pydantic>=2.12",
+    "pydantic-settings>=2.12",
+    "httpx>=0.28",
+    "uuid-utils>=0.10",
+]
+
+# Virtual member: run from the repo root as `apps.api.main:app`, never installed.
+[tool.uv]
+package = false

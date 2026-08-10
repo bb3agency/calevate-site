@@ -1,0 +1,57 @@
+"""Typed settings. The app fails fast on missing config, never at first use.
+
+Any new environment variable is added here AND to `.env.example` (DEV-SETUP.md §4).
+Secrets are never defaulted — a missing secret must raise at startup.
+"""
+
+from typing import Literal
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+Environment = Literal["local", "staging", "prod"]
+EngineName = Literal["fake", "thinnest", "bolna"]
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="forbid")
+
+    app_env: Environment = "local"
+
+    # App role (NOSUPERUSER NOBYPASSRLS — RLS depends on it). Migrations use
+    # alembic_database_url (owner role) and are the only thing that does.
+    database_url: str
+    alembic_database_url: str | None = None
+    redis_url: str
+
+    object_store_endpoint: str
+    object_store_bucket: str
+
+    # Engine selection is per-environment; `fake` is the default for local work so
+    # the whole pipeline runs offline (DEV-SETUP.md §3).
+    engine: EngineName = "fake"
+    thinnest_api_key: str | None = None
+    thinnest_webhook_secret: str | None = None
+
+    sarvam_api_key: str | None = None
+    gemini_api_key: str | None = None
+    cohere_api_key: str | None = None
+
+    # Two SEPARATE Clerk applications — admin realm and client realm never share
+    # session logic (TRD §11).
+    clerk_admin_publishable_key: str | None = None
+    clerk_admin_secret_key: str | None = None
+    clerk_client_publishable_key: str | None = None
+    clerk_client_secret_key: str | None = None
+
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    sentry_dsn: str | None = None
+    posthog_key: str | None = None
+
+    # Effective outbound pool = MIN(platform lines, model concurrency, trunk
+    # channels) minus inbound_reserve. Values come from engine verification item 8.
+    inbound_reserve_ratio: float = Field(default=0.3, ge=0.0, le=1.0)
+
+
+__all__ = ["EngineName", "Environment", "Settings"]

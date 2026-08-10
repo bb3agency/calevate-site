@@ -1,0 +1,40 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.uv-python/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Local artefacts
+*.log
+*.err
+.DS_Store
+Thumbs.db
+/tmp/
+coverage/
+.coverage
+htmlcov/
+
+# Engine verification / eval outputs are committed deliberately, not by accident
+!docs/**

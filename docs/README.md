@@ -1,0 +1,64 @@
+# Calevate — Master Blueprint (Document Set)
+
+Version 1.0 · July 2026 · Product brand of BuiltByThree · calevate.tech
+Status: **decision-complete**. Remaining unknowns are enumerated (BRD §10 assumptions)
+and are all closed by two non-code actions: the Engine Verification Session
+(OPERATIONS.md §2) and Milestone-0 admin tasks (entity → DLT).
+
+## Reading order
+
+1. **BRD.md** — what we're building and why: vision, market, personas, pricing/revenue
+   model, GTM for a cold start, KPIs, risk register, assumptions log.
+2. **TRD.md** — how: architecture (4 deployables), locked stack, voice stack + latency
+   budget, VoiceEngine adapter contract, RAG tiers, schema-driven extraction, metering,
+   cost model with phase-2/3 triggers.
+3. **DATA-MODEL.md** — full Postgres schema with RLS pattern, extraction-schema JSON
+   shape, append-only ledgers, compliance tables.
+4. **BACKEND-PATTERNS.md** — the CONSTRUCTION MANUAL for every Python service (read
+   with TRD + DATA-MODEL before writing backend code): module anatomy, locked
+   bootstrap order, RFC-9457 error ladder, the reliability triad (idempotency/outbox/
+   inbox), CAS concurrency doctrine, health/readiness, audit hash chain, alert
+   taxonomy, testing structure.
+5. **SECURITY-COMPLIANCE.md** — TRAI/DLT/DPDP obligations mapped to features; call-level
+   and campaign gates; threat model; compliance calendar.
+6. **FLOWS.md** — onboarding wizard, invitations/auth, inbound call lifecycle, instant
+   lead callback, bulk campaigns, post-call pipeline, KB updates, billing, offboarding.
+7. **OPERATIONS.md** — engine verification checklist (do this first), per-client
+   regression/eval harness, observability, SLOs, runbooks, pre-launch checklist.
+8. **ROADMAP.md** — milestones with gates (client #1 before platform polish), decision
+   log D-01…D-30, deferred list.
+9. **SURFACES.md** — the three product surfaces: admin-panel and client-CRM feature
+   inventories (seed the build-time design discussions) + the decided integration
+   doctrine (webhook intake pipeline, real-time UI transport, engine API usage rules).
+10. **DEPLOYMENT.md** — VPS deployment + CI/CD blueprint (adapted from the
+    raghava-organics production playbook): topology, self-hosted-runner CD, nginx/TLS/
+    Cloudflare, secrets tiers, backups/DR, go-live order, lessons-not-to-relearn.
+11. **ENGINEERING-PRACTICES.md** — executable governance: the guardrail pack
+    (fitness functions enforcing the Hard Rules in CI), git workflow (trunk-based +
+    Conventional Commits + pre-commit hooks), dev-loop conventions, release
+    discipline trajectory.
+
+Engineering companions:
+12. **CLAUDE.md** — operating manual for Claude Code in the repo (hard rules, commands,
+    conventions; the full manual now lives in the root CLAUDE.md). **AGENTS.md** — same
+    for all other coding agents (open standard).
+13. **DEV-SETUP.md** — local environment, bootstrap, env vars, Makefile targets.
+14. **PROMPT-GUIDE.md** — how client agent system prompts are structured, versioned,
+    regression-gated, and red-teamed (prompts are product code).
+
+## The two actions that precede any code
+
+1. **Engine Verification Session — the Bolna pilot (D-31)** — one afternoon on paid
+   Bolna credits (OPERATIONS.md §2). Confirms webhooks/API/latency/Telugu quality/
+   commercials incl. the unpublished BYOK platform fee.
+2. **Entity decision → DLT PE registration** — legal prerequisite for all outbound
+   calling (SECURITY-COMPLIANCE.md §3; Risk R-01). Inbound-only launch is the fallback.
+
+## One-line summary of the locked stack
+
+Bolna (engine, adapter-isolated — D-31) + the D-36 canonical all-Sarvam BYOK stack
+(Saaras STT · Sarvam 105B LLM, free + sovereign · Bulbul v3 TTS); Gemini 2.5
+Flash-Lite (→3.x) + Sarvam Bulbul V3 TTS (D-20) + Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
+Postgres 16 + pgvector + RLS · Redis/ARQ · Clerk (two realms) · DO Bangalore · Langfuse/
+Sentry/OTel · setup-fee + retainer + overage pricing · all-in ≈ ₹3.0–3.6/min now,
+₹1.7–2.3/min at phase 2.

@@ -1,0 +1,175 @@
+# Calevate — Core Flows
+
+Version 1.0. Each flow lists: trigger → steps → failure handling → owner surface.
+URLs: admin console = admin.calevate.tech; client app = app.calevate.tech/c/<slug>/…
+
+---
+
+## 1. Client Onboarding (Admin Wizard)
+
+Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume anytime).
+
+1. **Profile**: business name → slug auto-generated (immutable; reserved-word check),
+   vertical template pick (clinic | real_estate | insurance | education | custom),
+   billing email, owner contact.
+2. **Plan**: setup fee, retainer, included minutes, overage rate, hard caps → plans row.
+3. **Intake (the real work)**: guided form collecting business hours, address/branches,
+   services + prices, top FAQs, staff names/pronunciations, booking rules, escalation
+   contacts, languages. Output feeds T0 compiled context + KB seed + prompt generation.
+4. **Agent draft**: system prompt generated from intake (template + LLM assist), reviewed/
+   edited by admin; disclosure line auto-inserted (non-removable); extraction schema
+   pre-filled from vertical template, edited per client; voice/language/model picks.
+5. **Knowledge**: upload PDFs/URLs/text → parse → chunk preview → admin approves →
+   embeddings job → attach to engine KB (adapter).
+6. **Number & compliance** (see §10 for the full model): inbound DID provisioned via
+   adapter API (no SIMs — numbers are virtual, ~₹/hundreds/month rental, one-per-client
+   mandatory); existing client number handled by call-forwarding to the DID (porting only
+   later, never in onboarding critical path). If outbound intended: classification decided,
+   client's own **PE registration** initiated (~₹5,900, we handle it — part of setup fee),
+   DLT voice template drafted/submitted, series selected (140 promotional / 160-standard
+   service). Blocked until Calevate's TM registration exists — wizard shows compliance
+   status explicitly.
+7. **Test-call sign-off [GATE]**: "Call me" button dials admin's phone with the draft
+   agent; regression mini-suite (happy path + interruption + tool call + disclosure check)
+   must pass; latency numbers recorded. Only then: Publish (staging → live promote).
+8. **Invite client**: creates invitations row → email with single-use 72h link →
+   client sets password → membership(owner) created → lands on dashboard tour.
+
+Failure handling: every step idempotent; engine failures surface with retry; nothing
+client-visible until step 8.
+
+## 2. Client Auth & Access
+
+- Login at app.calevate.tech (Clerk client realm) → org resolution → redirect to
+  /c/<slug>/dashboard. Direct hits to /c/<slug>/* without session → login with return-to.
+- Invitation accept: token hash lookup, expiry + used_at check, burn on success; resend
+  invalidates prior token. No self-serve signup; no credential emails ever.
+- Roles: owner sees everything incl. billing; staff sees dashboard/calls/leads only,
+  redacted transcripts, no exports of raw data.
+
+## 3. Inbound Call Lifecycle
+
+caller dials client number → engine answers with agent →
+1. Disclosure line (AI + recording notice) plays first — always.
+2. T0 context already in prompt; conversation proceeds; tools available per agent:
+   `search_knowledge_base` (our RAG endpoint / engine KB in v1), `book_appointment`
+   (calendar), `transfer_call` (warm to client staff during business hours),
+   `add_to_dnc`, `end_call`.
+3. Unknown/out-of-scope (T4): agent says it doesn't know, offers callback, tags call.
+4. voice-runtime receives interim events (call.started etc.) → creates calls row
+   (status in_progress) → live tile on dashboards.
+5. terminal-status webhook (Bolna: fires on status transitions; UNSIGNED — verify
+   source IP + dedupe per TRD §5) or poller detection → wait for/confirm `completed`
+   status (cost, recording_url and extracted_data are null before it, ~2–3 min
+   post-disconnect) → Get Execution fetch (transcript, recording URL, USD-cent cost
+   breakdown → INR conversion) → persist → enqueue post-call pipeline (TRD §8):
+   recording copy (runs FIRST regardless — engine URL longevity is not our system of
+   record) → redaction → extraction → lead upsert → metering → notifications.
+   Repeat-caller context: the engine's incoming-call webhook lets our response inject
+   caller context (name, prior interactions, lead fields) into the conversation — the
+   lookup must answer in well under their ~5s webhook budget.
+6. SLO: lead + summary visible in client dashboard < 2 min after hangup.
+After-hours: agent runs 24/7 by default; "after_hours" flag set from business_hours →
+dashboard "after-hours captured" metric; escalation rules can differ after hours.
+Failure: engine down ⇒ number's fallback route = client's own phone (configured at
+provisioning); our webhook down ⇒ **the event is LOST at the webhook layer (Bolna has
+no delivery retries — D-31)**; the 10-min List-Executions reconciliation poller is the
+guarantee of record and recovers every missed event.
+
+## 4. Instant Lead Callback (Webhook-in → Outbound)
+
+Trigger: Meta Lead Ads / website form / Sheets/Zoho webhook hits our per-client ingest URL.
+1. Verify per-endpoint secret; validate mapping → create leads row (source=webhook).
+2. Compliance pre-checks: DNC scrub, calling hours, caps, consent provenance flag on the
+   form (form must state a call will be made).
+3. Adapter start_outbound_call with CallContext {lead name, form fields} → agent opens
+   with context ("you enquired about…").
+4. Speed-to-lead metric recorded (form_ts → dial_ts; target < 60s).
+5. No-answer → retry policy (respecting hours) → after exhaustion: WhatsApp/SMS follow-up
+   template + needs_follow_up lead status.
+
+## 5. Bulk Campaign Lifecycle
+
+Draft (CSV upload → dedupe → validation report) → Compliance gate (SEC-COMP §3; launch
+button disabled with reasons listed until green) → Schedule/launch via adapter →
+Running (live progress: dispatched/connected/failed/no-answer; concurrency slider ≤ plan
+ceiling; pause/resume) → per-contact retries per policy → Completed (batch analytics:
+pickup %, avg duration, interaction level, outcome distribution; leads flowed into CRM).
+Mid-campaign safeties: complaint-spike alarm (pause + notify), cap breach ⇒ auto-pause,
+big red switch halts all tenants' outbound.
+
+**Concurrency reservation (our dispatcher — the platform has no native reserved-inbound
+feature):** the platform account's line pool is shared across ALL tenants, so one client's
+campaign must never starve another's inbound receptionist. The dispatcher enforces, in
+order: (1) `platform_lines_total` (from verification item 8, config value); (2)
+`inbound_reserve` (default 30% of pool, min 4 lines) — outbound dispatch may only use
+`total − reserve`; (3) per-tenant `concurrency_ceiling` (plan field, default ≤ 10);
+(4) per-campaign concurrency slider ≤ tenant ceiling; (5) the platform's outbound
+call-creation rate limit — Bolna's is unpublished (pilot measures it; recorded as a
+config value) — the dispatch loop paces dial requests across ALL tenants to stay
+under whatever the measured/contracted limit is. Dispatch loop: before each dial, check active-call count from live engine
+events against (2)+(3); over-limit contacts stay queued (mirrors platform queuing
+behavior). Also respect the secondary ceilings: Sarvam
+BYOK-tier model concurrency and SIP trunk channels — the dispatcher's effective pool is
+MIN of all three (config values, reviewed when any vendor plan changes).
+
+## 6. Post-Call Pipeline (worker jobs, keyed by call_id, idempotent)
+
+fetch_recording → redact_transcript → extract(schema) → upsert_lead(+repeat-caller flag on
+phone match) → meter_usage(write unit rows + update spend_state) → notify(hot-lead rules:
+e.g., status hot OR urgency=emergency ⇒ WhatsApp+email to owner within 2 min) →
+embed_if_resolved(call corpus). Each step: 3 retries, exponential backoff, DLQ + Sentry
+alert on exhaustion; pipeline lag dashboard.
+
+## 7. Knowledge Update Flow (client-initiated)
+
+Client (owner) uploads doc / pastes text / submits URL → parse+chunk → side-by-side
+preview → client submits → admin approve (or auto-approve toggle per client later) →
+version bump → embeddings → T0 recompilation → engine KB sync → regression smoke
+(3 canned questions answered from new content) → live. Rollback = reactivate prior version.
+
+## 8. Billing Cycle
+
+Nightly rollup usage_events → month-to-date panel (client sees minutes used/remaining +
+overage estimate; admin sees cost + margin). Month close: invoice draft (retainer +
+overage + one-time lines) → GST → send (manual v1, Razorpay link) → paid/overdue states →
+overdue ⇒ dunning emails; 15 days ⇒ soft-suspend outbound (inbound stays up); caps always
+independent of billing status.
+
+## 9. Offboarding / Deletion
+
+Client churns: export bundle (leads CSV, transcripts redacted, recordings zip via
+presigned) → retention countdown per policy → deletion_requests execution (our storage +
+engine records via adapter) → proof certificate → org status churned; number released or
+ported per client wish.
+
+## 10. Number Provisioning & DLT Roles (reference)
+
+**No physical SIMs.** All numbers are virtual DIDs provisioned via API (Exotel /
+Vobiz / Plivo, connected to the engine — Bolna guides verified for all three; Vobiz
+inbound unconfirmed, TRD §5), routed over SIP, stored in `phone_numbers`.
+
+**One number set per client — mandatory**, because: (a) inbound number IS the client's
+public line; (b) DLT ties outbound numbers to one business identity + its templates —
+cross-client sharing is a compliance violation; (c) tenancy/routing/analytics assume it.
+
+Typical allocation per client:
+| Purpose | Series | DLT template needed | Cost note |
+|---|---|---|---|
+| Inbound receptionist | standard DID | No (receiving needs no template) | ₹0.4–0.9/min |
+| Outbound service/transactional (reminders, confirmations) | 160/standard, registered | Yes | 45–65% answer rates |
+| Outbound promotional (campaigns) | **140-series only** | Yes, approved | 8–20% answer rates — set client expectations |
+
+**DLT role model:** each **client is the Principal Entity (PE)** for calls made on their
+behalf (their identity, their templates, their consent records — PE registration ~₹5,900
+first TSP, executed by us during onboarding as part of the setup fee). **Calevate
+registers once as the Telemarketer (TM)** under our operating entity and is linked to each
+client PE. Calevate's TM registration is therefore the single company-level blocker
+(Risk R-01); each client's PE registration is an onboarding step.
+
+**Existing business numbers:** default answer is call-forwarding from the client's known
+number to the AI DID (zero disruption, day-one). Porting into the cloud provider is a
+later, weeks-long option — never inside onboarding.
+
+Failure route: every DID configured at provisioning time with a fallback destination
+(client's own phone) for engine outage (see OPERATIONS runbooks).

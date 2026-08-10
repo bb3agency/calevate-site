@@ -1,0 +1,18 @@
+[project]
+name = "calevate-workers"
+version = "0.1.0"
+description = "ARQ workers — post-call pipeline, embeddings, campaigns, retention"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "calevate-shared",
+    "arq>=0.27",
+    "sqlalchemy>=2.0.44",
+    "psycopg[binary,pool]>=3.2",
+    "pgvector>=0.4",
+    "httpx>=0.28",
+    "boto3>=1.40",
+]
+
+# Virtual member: run from the repo root as `apps.workers.settings.WorkerSettings`.
+[tool.uv]
+package = false

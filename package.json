@@ -1,0 +1,9 @@
+{
+	"devDependencies": {
+		"eslint-import-resolver-typescript": "3.7.0"
+	},
+	"overrides": {
+		"eslint-import-resolver-typescript": "3.7.0",
+		"unrs-resolver": "npm:oxc-resolver@1.1.2"
+	}
+}

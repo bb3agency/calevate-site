@@ -1,0 +1,19 @@
+packages:
+  - "apps/web"
+
+resolutions:
+  eslint-import-resolver-typescript: "3.7.0"
+  unrs-resolver: "npm:oxc-resolver@1.1.2"
+
+# Build scripts are opt-in in pnpm 11. sharp = Next.js image optimization
+# (first-party toolchain dep). unrs-resolver was REMOVED here after the Jul 2026
+# supply-chain incident (see incident_report.md + CLAUDE.md hard rule 9): it is
+# pinned out of the tree via `resolutions` above, and no unknown package gets
+# build permission again without verifying legitimacy first.
+allowBuilds:
+  sharp: true
+
+# This must stay the ONLY pnpm-workspace.yaml in the repo. create-next-app drops
+# a nested one in apps/web with `ignoredBuiltDependencies` — it makes apps/web a
+# second workspace root and breaks `pnpm -C apps/web <script>`. Delete it if it
+# reappears after a scaffold/upgrade.
