@@ -105,6 +105,12 @@ async def verify_token(token: str, realm: Realm) -> VerifiedToken:
     dev = _verify_dev_token(token, realm)
     if dev is not None:
         return dev
+    if token.startswith("dev:"):
+        # A dev token for the WRONG realm (or in an environment where dev tokens are
+        # disabled). It is never a valid JWT, so answering 401 is both correct and
+        # honest — falling through to JWKS would report "auth not configured", which
+        # tells the caller about our deployment instead of about their token.
+        raise ProblemError.unauthorized("This token is not valid for this realm.")
     try:
         signing_key = _jwk_client(realm).get_signing_key_from_jwt(token)
         claims: dict[str, Any] = jwt.decode(

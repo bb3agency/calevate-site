@@ -15,8 +15,13 @@ from uuid import UUID
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.core.auth import tenant_of
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.core.auth import current_admin, tenant_of
+from apps.api.core.context import Principal
+from apps.api.db.session import (
+    admin_session,
+    tenant_session,
+    untenanted_session,
+)
 
 
 async def db(tenant_id: UUID = Depends(tenant_of)) -> AsyncIterator[AsyncSession]:
@@ -34,4 +39,13 @@ async def global_db() -> AsyncIterator[AsyncSession]:
         yield session
 
 
-__all__ = ["db", "global_db"]
+async def admin_db(principal: Principal = Depends(current_admin)) -> AsyncIterator[AsyncSession]:
+    """Tenant-directory session for the admin realm. Taking the admin principal as a
+    DEPENDENCY rather than trusting the caller is the whole safety argument: the widened
+    policy cannot be reached without a verified admin-realm token."""
+    del principal
+    async with admin_session() as session:
+        yield session
+
+
+__all__ = ["admin_db", "db", "global_db"]

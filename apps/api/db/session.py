@@ -76,6 +76,25 @@ async def user_session(user_id: UUID) -> AsyncIterator[AsyncSession]:
 
 
 @asynccontextmanager
+async def admin_session() -> AsyncIterator[AsyncSession]:
+    """A session that can ENUMERATE tenants — the client directory, nothing more.
+
+    `app.admin` widens `USING` on `organizations` only (migration b57e2f9c4a13); it
+    does not unlock calls, leads or transcripts, and it widens no WITH CHECK anywhere.
+    To see a client's data an admin enters that tenant through impersonation, which
+    sets `app.tenant_id` normally, is read-only and is audited per page view (D-22).
+
+    CALLERS MUST have verified an admin-realm principal first. This is the one place a
+    mistake would be expensive, which is why it is a single small function with a name
+    that cannot be confused for a general-purpose session.
+    """
+    maker = get_sessionmaker()
+    async with maker() as session, session.begin():
+        await session.execute(text("SELECT set_config('app.admin', 'on', true)"))
+        yield session
+
+
+@asynccontextmanager
 async def untenanted_session() -> AsyncIterator[AsyncSession]:
     """No GUC set: tenant tables yield ZERO rows. For global tables (users,
     reserved_slugs, admin_users, outbox/inbox/idempotency) and for tests proving

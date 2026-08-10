@@ -259,10 +259,45 @@ honest about what it measured rather than flattering.
 - `tests/eval_harness_test.py` tests the gate itself, including that compliance and
   redaction cases must pass on EVERY model (they are our code, not the model's).
 
+**16. Admin realm — `apps/api/admin/`** (FLOWS §1/§2, D-22, D-38)
+
+- `create_organization` — wizard steps 1 + 4 in ONE transaction: org, **retention
+  policies immediately** (the 90-day recording floor is a legal obligation from the
+  first call, not from whenever it gets configured), an inbound receptionist agent in
+  `draft` with a non-removable disclosure line, and an extraction schema seeded from
+  the vertical template. A half-created tenant is worse than none, because the pipeline
+  would happily process calls for it.
+- Invitations: single-use, 72h, **hashed at rest**, burned by CAS on `used_at IS NULL`
+  so two clicks on one emailed link produce one membership.
+- `/v1/admin/tenants` health list, `/v1/admin/tenants/{id}/impersonate` which mints NO
+  credential — the admin keeps their own token and adds the header, so the audit trail
+  is never ambiguous about who acted.
+
+**17. Fourth cross-tenant read: the client directory (`app.admin`, `b57e2f9c4a13`)**
+
+Same shape as the previous three, and it gets the narrowest fix that works: `app.admin`
+widens `USING` on **`organizations` only** and widens `WITH CHECK` nowhere. An admin
+listing clients is not an admin reading transcripts — for tenant data they enter the
+tenant through impersonation, which sets `app.tenant_id` normally, is read-only, and is
+audited per page view.
+
+Consequence accepted: `tenant_overview` is N+1 by construction (directory from the
+admin session, counts from a per-tenant session). At M1 scale that is a handful of fast
+counts, and the alternative was widening RLS across every tenant table for a dashboard.
+Four tests assert the narrowness directly — leads, calls and transcripts must all
+return zero under `app.admin`, and it must grant no writes.
+
+Also fixed: a wrong-realm `dev:` token fell through to JWKS and answered 502
+"auth not configured", telling the caller about our deployment instead of about their
+token. It is a 401 now.
+
 ### Where the next session should start
 
-1. `docs/ROADMAP.md` §2 — remaining M1: admin onboarding wizard, KB upload+approve,
-   invitations/Clerk webhook mirror, notification transport (email), Sentry/Langfuse.
-2. `apps/api/ops/routes.py` — the ops surface exists; the admin CONSOLE does not.
-3. Run `bash scripts/dev_bootstrap.sh` then `uv run pytest -q` (64 tests) before
-   changing anything, then `make guardrails`.
+1. `docs/ROADMAP.md` §2 — remaining M1: **KB upload + approve** (FLOWS §7), the
+   **admin web console** (the admin API exists; the UI does not), the **Clerk webhook
+   mirror** (users/orgs into our Postgres — D-37 makes our DB the system of record),
+   notification transport (email), and observability wiring (Sentry, Langfuse).
+2. The test-call gate (wizard step 7) and number provisioning (step 6) are deliberately
+   NOT stubbed — both depend on the Bolna pilot (OPERATIONS §2).
+3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (71 tests) and
+   `make guardrails` before changing anything.
