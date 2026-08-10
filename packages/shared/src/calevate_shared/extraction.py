@@ -128,7 +128,10 @@ def coerce_value(field: ExtractionField, raw: Any) -> tuple[Any, str | None]:
             return parsed.isoformat(), None
     except (ValueError, TypeError) as exc:
         return None, f"{field.label}: {exc}"
-    return None, f"unsupported field type {field.type}"
+    # No fallthrough: `FieldType` is a closed Literal and every member is handled
+    # above, so mypy proves this point unreachable. Adding a member to `FieldType`
+    # without handling it here is therefore a TYPE error, not a silent None.
+    raise AssertionError(f"unhandled field type {field.type}")
 
 
 def validate_extraction(spec: ExtractionSchemaSpec, raw: dict[str, Any]) -> ValidationOutcome:

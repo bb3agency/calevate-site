@@ -67,17 +67,17 @@ def _to_config(tenant_id: UUID, agent: dict[str, object]) -> AgentConfig:
         tenant_id=str(tenant_id),
         agent_id=str(agent["id"]),
         name=str(agent["name"]),
-        direction=str(agent["direction"]),  # type: ignore[arg-type]
+        direction=str(agent["direction"]),
         language_primary=str(agent["language_primary"]),
         system_prompt=str(agent["prompt"] or "You are a helpful receptionist."),
         # Never defaulted, never blank — the schema enforces it and so does the gate.
         disclosure_line=str(agent["disclosure_line"]),
         models=ModelConfig(
-            stt_provider=agent["stt_provider"],  # type: ignore[arg-type]
-            stt_model=agent["stt_model"],  # type: ignore[arg-type]
-            llm_model=agent["llm_model"],  # type: ignore[arg-type]
-            tts_provider=agent["tts_provider"],  # type: ignore[arg-type]
-            tts_voice=agent["tts_voice"],  # type: ignore[arg-type]
+            stt_provider=agent["stt_provider"],
+            stt_model=agent["stt_model"],
+            llm_model=agent["llm_model"],
+            tts_provider=agent["tts_provider"],
+            tts_voice=agent["tts_voice"],
         ),
         webhook_url=f"{settings.webhook_base_url}/hooks/v1/engine/{settings.engine}",
     )

@@ -186,7 +186,12 @@ def redact(text: str) -> RedactionResult:
         return MASK
 
     out = _EMAIL_RE.sub(_email, out)
-    out = _UPI_RE.sub(lambda m: (_note("upi"), MASK)[1], out)
+
+    def _upi(match: re.Match[str]) -> str:
+        _note("upi")
+        return MASK
+
+    out = _UPI_RE.sub(_upi, out)
 
     def _phone(match: re.Match[str]) -> str:
         _note("phone")

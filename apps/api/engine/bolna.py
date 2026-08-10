@@ -156,7 +156,7 @@ def parse_transcript(raw: str | None, call_id: str) -> list[TranscriptTurn]:
             TranscriptTurn(
                 call_id=call_id,
                 idx=len(turns),
-                speaker=speaker,  # type: ignore[arg-type]
+                speaker=speaker,
                 text=text_value,
             )
         )
@@ -435,7 +435,7 @@ class BolnaEngine:
         return CallEvent(
             call_id=snapshot.engine_call_id,
             engine_agent_ref=str(agent_ref) if agent_ref else None,
-            direction=direction,  # type: ignore[arg-type]
+            direction=direction,
             status=snapshot.status,
             raw_status=snapshot.raw_status,
             started_at=snapshot.started_at,

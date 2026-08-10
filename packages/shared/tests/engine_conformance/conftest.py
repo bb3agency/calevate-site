@@ -20,6 +20,7 @@ import httpx
 import pytest
 from apps.api.engine.bolna import BolnaEngine
 from apps.api.engine.fake import FakeEngine
+from calevate_shared.engine import VoiceEngine
 
 ENGINE_IDS = ["fake", "bolna"]
 
@@ -77,7 +78,7 @@ def _bolna_handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(404, json={"error": "not found"})
 
 
-def make_engine(engine_id: str):
+def make_engine(engine_id: str) -> VoiceEngine:
     if engine_id == "fake":
         return FakeEngine()
     return BolnaEngine(
@@ -91,7 +92,7 @@ def make_engine(engine_id: str):
 
 
 @pytest.fixture(params=ENGINE_IDS)
-def engine(request: pytest.FixtureRequest):
+def engine(request: pytest.FixtureRequest) -> VoiceEngine:
     return make_engine(request.param)
 
 

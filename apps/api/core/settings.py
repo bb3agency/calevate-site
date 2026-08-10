@@ -55,7 +55,7 @@ def validate_bootstrap_env(environ: dict[str, str] | None = None) -> None:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]  # values come from env/.env
+    return Settings()  # values come from env/.env
 
 
 def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:

@@ -1,0 +1,140 @@
+# Calevate CI — the guardrail pack is the point (D-29).
+#
+# "Rules that matter are executable. A Hard Rule enforced only by memory or review will
+# be violated exactly when the codebase grows fastest." This workflow is where that
+# stops being a sentence in a doc.
+#
+# Order is deliberate: the cheap checks fail fast (lint, types), then the suite, then
+# the guardrails — which need a MIGRATED database, because `check_rls_coverage` reads
+# `pg_policies` rather than trusting the migration that claims to have created them.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A newer push supersedes an in-flight run on the same branch.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The app role is NOSUPERUSER NOBYPASSRLS in every environment including CI —
+  # verifying RLS as a superuser would verify nothing.
+  DATABASE_URL: postgresql+psycopg://calevate_app:calevate_app@localhost:5432/calevate
+  ALEMBIC_DATABASE_URL: postgresql+psycopg://calevate:calevate@localhost:5432/calevate
+  REDIS_URL: redis://localhost:6379/0
+  OBJECT_STORE_ENDPOINT: http://localhost:9000
+  OBJECT_STORE_BUCKET: calevate-ci
+  APP_ENV: local
+  ENGINE: fake
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: calevate
+          POSTGRES_PASSWORD: calevate
+          POSTGRES_DB: calevate
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U calevate"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-packages
+
+      - name: Create the unprivileged app role
+        # Migrations grant to this role, so it must exist before `alembic upgrade`.
+        run: |
+          PGPASSWORD=calevate psql -h localhost -U calevate -d calevate -v ON_ERROR_STOP=1 -c \
+            "CREATE ROLE calevate_app LOGIN PASSWORD 'calevate_app' NOSUPERUSER NOBYPASSRLS;"
+          PGPASSWORD=calevate psql -h localhost -U calevate -d calevate -v ON_ERROR_STOP=1 -c \
+            "GRANT ALL ON SCHEMA public TO calevate_app;"
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Migrate
+        run: uv run alembic upgrade head
+
+      - name: Seed
+        run: uv run python -m scripts.seed
+
+      - name: Tests
+        run: uv run pytest -q
+
+      # --- The guardrail pack (D-29 §2). A red guardrail blocks merge. -----------
+      - name: "Guardrail: engine isolation (hard rule 2)"
+        run: uv run lint-imports
+
+      - name: "Guardrail: RLS coverage (hard rule 1)"
+        run: uv run python -m scripts.check_rls_coverage
+
+      - name: "Guardrail: ledger immutability (hard rule 4)"
+        run: uv run python -m scripts.check_ledger_immutability
+
+      - name: "Guardrail: redaction exposure (hard rule 5)"
+        run: uv run python -m scripts.check_redaction_exposure
+
+      - name: "Guardrail: env parity (fail-fast config)"
+        run: uv run python -m scripts.check_env_parity
+
+      - name: "Guardrail: OpenAPI snapshot freshness"
+        run: uv run python -m scripts.check_openapi_fresh
+
+      - name: "Quality gate: regression suite (ratchet)"
+        # Exits non-zero only on a REGRESSION against the committed per-model baseline,
+        # not on absolute failure — see scripts/eval.py.
+        run: uv run python -m scripts.eval --client=ci
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm -C apps/web typecheck
+      - name: Build
+        run: pnpm -C apps/web build
+
+  types:
+    # mypy runs on its own so a type error does not hide behind a failing test, and so
+    # its cache is not invalidated by the database job.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages
+      - name: mypy (strict)
+        run: uv run mypy apps packages

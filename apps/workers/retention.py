@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.db.result import rowcount_of
 from apps.api.db.session import admin_session, tenant_session
 
 log = get_logger(__name__)
@@ -104,7 +105,7 @@ async def _apply_one(session: AsyncSession, *, category: str, ttl_days: int, act
             ),
             {"cutoff": cutoff},
         )
-        return int(result.rowcount or 0)
+        return int(rowcount_of(result) or 0)
 
     cutoff = datetime.now(UTC) - timedelta(days=ttl_days)
 
@@ -128,7 +129,7 @@ async def _apply_one(session: AsyncSession, *, category: str, ttl_days: int, act
                 ),
                 {"cutoff": cutoff, "mark": REDACTED_MARK},
             )
-        return int(result.rowcount or 0)
+        return int(rowcount_of(result) or 0)
 
     if category == "lead":
         # Never a DELETE: leads carry FKs from lead_events and are referenced by calls.
@@ -141,7 +142,7 @@ async def _apply_one(session: AsyncSession, *, category: str, ttl_days: int, act
             ),
             {"cutoff": cutoff, "anon": ANONYMIZED_PHONE[:9]},
         )
-        return int(result.rowcount or 0)
+        return int(rowcount_of(result) or 0)
 
     return 0
 
@@ -199,7 +200,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 ),
                 {"mark": REDACTED_MARK, "ids": list(calls)},
             )
-            turns_erased = int(result.rowcount or 0)
+            turns_erased = int(rowcount_of(result) or 0)
             await session.execute(
                 text(
                     "UPDATE calls SET from_e164 = NULL, to_e164 = NULL, recording_url = NULL, "

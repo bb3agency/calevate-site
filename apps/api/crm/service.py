@@ -28,6 +28,7 @@ from apps.api.crm.schemas import (
     LeadOut,
     TranscriptTurnOut,
 )
+from apps.api.db.result import rowcount_of
 
 MAX_PAGE = 200
 
@@ -302,7 +303,7 @@ async def update_lead(
         ),
         params,
     )
-    if result.rowcount == 0:
+    if rowcount_of(result) == 0:
         raise ProblemError.not_found("Lead")
     if status is not None:
         # The lead timeline is what makes "who moved this to won?" answerable.

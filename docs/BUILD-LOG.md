@@ -417,14 +417,50 @@ Six tests, including the one that actually bites: a pipeline frame holding the
 transcript it was mid-way through redacting. Ids survive, PII does not, and an event is
 never dropped entirely — scrubbing degrades the detail, not the signal.
 
+**25. The rest of D-29's critical four, plus CI**
+
+Three guardrails were specified in ENGINEERING-PRACTICES §2 for M1 and did not exist:
+
+- `check_redaction_exposure` — walks every response model reachable from the live
+  OpenAPI and fails if a raw-PII field is exposed outside an explicitly-listed
+  role-gated route. Adding an exception is a change to that list, visible in review.
+- `check_ledger_immutability` — two independent checks, because there are two failure
+  modes: the DB trigger exists (a migration could drop it) AND no code emits an
+  UPDATE/DELETE against a ledger (the trigger would catch it, during an incident, in
+  production, on the one path nobody tested).
+- `check_openapi_fresh` — the committed snapshot must match the live app. It **caught
+  real drift on its first run** (the Clerk webhook route), which is the whole argument
+  for having it. `gen:api` was also pointed at the committed snapshot rather than at
+  `http://localhost:8000` — generating from whatever server happens to be running is
+  how a stale client gets committed in the first place.
+
+`.github/workflows/ci.yml` runs all six guardrails plus lint, format, tests, mypy, the
+frontend build, and the regression ratchet — with Postgres and Redis services, the app
+role created as NOSUPERUSER NOBYPASSRLS (verifying RLS as a superuser verifies
+nothing), and migrations applied before the RLS check reads `pg_policies`.
+
+**26. mypy strict was failing and I had not been running it**
+
+CLAUDE.md names `uv run mypy .` as a CI gate; 36 errors had accumulated. All fixed, and
+mostly not by silencing:
+
+- `rowcount` is declared on `CursorResult`, not the `Result[Any]` the async API returns.
+  Since the CAS doctrine reads `rowcount == 0` as "another worker won" at ~12 call
+  sites, the narrowing lives once in `db/result.py` with the reason attached, instead
+  of a dozen `# type: ignore`s where a silenced error could later hide a real one.
+- `coerce_value`'s fallthrough was provably unreachable, so it now raises instead of
+  returning None — adding a member to `FieldType` without handling it is a TYPE error.
+- Untyped third-party packages (boto3, botocore, sentry_sdk) are listed explicitly in
+  `pyproject.toml` with a note, so the silenced set stays small and visible.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
    which needs client #1 in the room rather than more code), the **client-side KB
    submission UI** (the API exists; only the admin half has a screen), **OTel spans**
    (Sentry and the Langfuse hook are wired; distributed tracing is not), and the
-   **CI workflow** in `infra/` that runs `make check` + `make guardrails`.
+   **client-side KB submission UI** (the API exists; only the admin half has a screen).
 2. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (104 tests) and
+3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (104 tests), `uv run mypy apps packages` and
    `make guardrails` before changing anything.

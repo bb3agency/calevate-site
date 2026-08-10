@@ -67,7 +67,7 @@ def redact_mapping(data: dict[str, Any], *, depth: int = 0) -> dict[str, Any]:
         if any(marker in key.lower() for marker in REDACT_KEYS):
             out[key] = REDACTED
         elif isinstance(value, dict):
-            out[key] = redact_mapping(value, depth=depth + 1)  # type: ignore[arg-type]
+            out[key] = redact_mapping(value, depth=depth + 1)
         elif isinstance(value, str):
             out[key] = redact_text(value)
         elif isinstance(value, list):

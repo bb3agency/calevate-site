@@ -162,9 +162,9 @@ class OfflineExtractor:
                     data[field.key] = match.group(1).strip().title()
                 continue
             if field.type == "enum" and field.enum_values:
-                match = next((v for v in field.enum_values if v.lower() in lowered), None)
-                if match:
-                    data[field.key] = match
+                value = next((v for v in field.enum_values if v.lower() in lowered), None)
+                if value:
+                    data[field.key] = value
 
         agent_lines = [ln for ln in transcript.splitlines() if ln.strip()]
         return {

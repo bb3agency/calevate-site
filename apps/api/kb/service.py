@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.api.db.result import rowcount_of
 from apps.api.engine import get_engine
 
 log = get_logger(__name__)
@@ -178,7 +179,7 @@ async def approve_source(
         ),
         {"sid": source_id, "by": approved_by},
     )
-    if result.rowcount == 0:
+    if rowcount_of(result) == 0:
         raise ProblemError.conflict(
             "kb_not_pending",
             "This knowledge source is not awaiting approval.",
@@ -194,7 +195,7 @@ async def reject_source(session: AsyncSession, *, source_id: UUID, reason: str) 
         ),
         {"sid": source_id, "reason": reason[:500]},
     )
-    if result.rowcount == 0:
+    if rowcount_of(result) == 0:
         raise ProblemError.conflict("kb_not_pending", "This source is not awaiting approval.")
 
 

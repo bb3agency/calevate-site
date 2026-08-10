@@ -213,14 +213,16 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def _http(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         # Framework-raised 404/405 etc. still have to speak our dialect.
-        kind: ErrorKind = {
+        by_status: dict[int, ErrorKind] = {
             401: "auth",
             403: "permission",
             404: "not_found",
             409: "conflict",
             422: "validation",
             429: "transient",
-        }.get(exc.status_code, "internal" if exc.status_code >= 500 else "business_rule")
+        }
+        fallback: ErrorKind = "internal" if exc.status_code >= 500 else "business_rule"
+        kind: ErrorKind = by_status.get(exc.status_code, fallback)
         problem = ProblemError(
             kind=kind,
             code=f"http_{exc.status_code}",

@@ -9,7 +9,8 @@ help:  ## List targets
 	@echo   make check       - ruff + mypy + pytest + web typecheck (CI gate)
 	@echo   make db-reset    - drop, migrate, seed
 	@echo   make eval CLIENT=slug - regression harness (core5)
-	@echo   make gen-api     - OpenAPI -> typed TS client
+	@echo   make gen-api     - OpenAPI snapshot -> typed TS client
+	@echo   make guardrails  - executable governance (D-29)
 	@echo   make conformance - both engine adapters
 
 up:  ## Local infra
@@ -39,7 +40,7 @@ test:
 smoke:  ## tenant -> agent -> signed webhook -> lead with extraction
 	uv run pytest -m smoke
 
-check: lint types test  ## Full CI gate
+check: lint types test guardrails  ## Full CI gate
 	pnpm -C apps/web typecheck
 
 db-reset:
@@ -47,8 +48,7 @@ db-reset:
 	uv run alembic upgrade head
 	uv run python -m scripts.seed
 
-eval:  ## make eval CLIENT=<slug>   [regression harness — M1 deliverable, not built yet]
-	@test -f scripts/eval.py || { echo "scripts/eval.py does not exist yet: the regression harness is an M1 deliverable (ROADMAP.md §2). Build it before using this target."; exit 1; }
+eval:  ## make eval CLIENT=<slug>   [regression harness; fails on a REGRESSION, not on absolute red]
 	uv run python -m scripts.eval --client=$(CLIENT)
 
 gen-api:
@@ -61,3 +61,6 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	uv run lint-imports
 	uv run python -m scripts.check_env_parity
 	uv run python -m scripts.check_rls_coverage
+	uv run python -m scripts.check_ledger_immutability
+	uv run python -m scripts.check_redaction_exposure
+	uv run python -m scripts.check_openapi_fresh

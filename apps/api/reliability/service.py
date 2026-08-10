@@ -32,6 +32,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
+from apps.api.db.result import rowcount_of
 
 log = get_logger(__name__)
 
@@ -145,7 +146,7 @@ async def claim_idempotency(
             ),
             {"id": found_id},
         )
-        if retried.rowcount == 0:
+        if rowcount_of(retried) == 0:
             raise ProblemError.conflict(
                 "idempotent_request_in_flight", "An identical request is being retried."
             )
@@ -184,7 +185,7 @@ async def fail_idempotency(session: AsyncSession, *, record_id: UUID) -> None:
 
 async def sweep_idempotency(session: AsyncSession) -> int:
     result = await session.execute(text("DELETE FROM idempotency_records WHERE expires_at < now()"))
-    return int(result.rowcount or 0)
+    return int(rowcount_of(result) or 0)
 
 
 # --- Outbox -------------------------------------------------------------------
@@ -303,7 +304,7 @@ async def replay_dead_letters(session: AsyncSession, *, limit: int = 100) -> int
         ),
         {"limit": limit},
     )
-    return int(result.rowcount or 0)
+    return int(rowcount_of(result) or 0)
 
 
 # --- Webhook inbox ------------------------------------------------------------
@@ -379,7 +380,7 @@ async def claim_inbox_event(
             ),
             {"id": found_id},
         )
-        if retried.rowcount:
+        if rowcount_of(retried):
             return InboxClaim(state="claimed", row_id=found_id)
     return InboxClaim(state="duplicate", row_id=found_id)
 

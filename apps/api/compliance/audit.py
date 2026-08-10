@@ -142,7 +142,7 @@ async def write_audit(
         if have_lock:
             try:
                 # Compare-and-delete: never release a lock another writer now holds.
-                await redis.eval(
+                await redis.eval(  # type: ignore[misc]
                     "if redis.call('get', KEYS[1]) == ARGV[1] then "
                     "return redis.call('del', KEYS[1]) else return 0 end",
                     1,

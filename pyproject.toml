@@ -105,6 +105,17 @@ mypy_path = "packages/shared/src"
 module = ["tests.*"]
 disallow_untyped_defs = false
 
+# Third-party packages that ship no type information. Listed explicitly so the set
+# stays small and visible; anything added here is a library we have chosen to use
+# untyped, not a silence for our own code.
+[[tool.mypy.overrides]]
+module = [
+    "boto3.*",       # AWS SDK — types live in the separate boto3-stubs package
+    "botocore.*",
+    "sentry_sdk.*",  # optional dependency, imported inside a try/except ImportError
+]
+ignore_missing_imports = true
+
 # --- pytest -------------------------------------------------------------------
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

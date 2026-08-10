@@ -153,7 +153,7 @@ class FakeEngine:
             engine_call_id=call_id,
             engine_agent_ref=str(call.get("agent_ref") or "") or None,
             direction=call.get("direction", "inbound"),
-            status=raw_status,  # type: ignore[arg-type]  # fake only stores our enum
+            status=raw_status,  # fake only stores our enum
             raw_status=raw_status,
             terminal=raw_status in ("completed", "failed", "no_answer", "busy", "voicemail"),
             billable_ready=raw_status == "completed",
@@ -164,7 +164,7 @@ class FakeEngine:
             to_e164=call.get("to_e164"),
             recording_url=f"https://fake-engine.local/recordings/{call_id}.wav",
             transcript=[
-                TranscriptTurn(call_id=call_id, idx=i, speaker=speaker, text=text)  # type: ignore[arg-type]
+                TranscriptTurn(call_id=call_id, idx=i, speaker=speaker, text=text)
                 for i, (speaker, text) in enumerate(SAMPLE_TURNS)
             ],
             cost=self._cost_for(duration) if raw_status == "completed" else None,

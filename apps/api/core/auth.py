@@ -18,6 +18,7 @@ required, so staging/prod (which always carry Clerk keys, enforced by
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
@@ -265,7 +266,9 @@ async def current_any(request: Request) -> Principal:
     return await current_principal(request)
 
 
-def requires(permission: Permission, *, realm: Literal["client", "admin", "any"] = "any"):
+def requires(
+    permission: Permission, *, realm: Literal["client", "admin", "any"] = "any"
+) -> Callable[[Request], Awaitable[Principal]]:
     """Route dependency factory. Pair with `permission_meta(permission)` in
     `openapi_extra` so the boot assertion can see the declaration."""
 

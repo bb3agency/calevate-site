@@ -1557,6 +1557,37 @@
         ]
       }
     },
+    "/hooks/v1/clerk": {
+      "post": {
+        "operationId": "clerk_webhook_hooks_v1_clerk_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Clerk Webhook Hooks V1 Clerk Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Clerk user/organization mirror \u2014 Svix-signed (D-37: our DB is the record)",
+        "tags": [
+          "clerk-webhooks"
+        ]
+      }
+    },
     "/v1/admin/tenants": {
       "get": {
         "operationId": "list_tenants_v1_admin_tenants_get",

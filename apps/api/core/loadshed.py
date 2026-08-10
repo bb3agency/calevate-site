@@ -105,8 +105,12 @@ async def _read_durable() -> PlatformStatus:
 
 
 def _coerce_mode(value: str | None) -> LoadShedMode:
-    if value in ("normal", "reduced", "emergency", "maintenance"):
-        return value
+    # An unknown mode falls back to `normal` rather than failing closed: this value
+    # comes from our own table, and a typo there must not take the platform down.
+    modes: tuple[LoadShedMode, ...] = ("normal", "reduced", "emergency", "maintenance")
+    for mode in modes:
+        if value == mode:
+            return mode
     return "normal"
 
 
