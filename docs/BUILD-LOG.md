@@ -361,6 +361,30 @@ off OUR ids, and replacing Clerk would move token verification only.
 - 8 tests, mostly adversarial: tampered body, stale timestamp, missing headers,
   rotation, unsigned request, replay dedupe.
 
+**22. Retention + DPDP erasure — `apps/workers/retention.py`** (SEC-COMP §4, FLOWS §9)
+
+`retention_policies` and `deletion_requests` existed as tables with nothing acting on
+them, which makes the DPA a promise rather than a control. Now:
+
+- **Nightly retention sweep** per tenant, per category. The TRAI 90-day recording floor
+  is enforced a second time here — a DB CHECK stops anyone configuring less, and this
+  job refuses to act on a policy that somehow claims less, because deleting early is
+  the violation that cannot be undone.
+- **Anonymize over delete**, deliberately: deleting a call row would take its
+  `usage_events` with it (FK RESTRICT) and silently rewrite a billing period. The
+  personal data is neutralized and the countable shell stays — the minutes happened.
+- **Erasure with proof**: locate a number across calls, turns and leads, erase, and
+  write a certificate recording what, where, when and per-row HASHES. The proof
+  deliberately does not contain the number — a certificate that carries the data it
+  says was removed defeats itself. Idempotent, so a re-run cannot overwrite the
+  original with a weaker one.
+- **What survives is as tested as what goes**: `usage_events` and `consent_ledger`
+  both remain. The consent record is the proof the calls were lawful; deleting it to
+  satisfy an erasure request would destroy the evidence.
+- Engine-side deletion is marked `unconfirmed_pending_vendor_api` rather than asserted:
+  Bolna's deletion API is undocumented (pilot gate), and a proof that overclaims is
+  worse than one that states its limits. 6 tests.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: **notification transport** (email;
@@ -370,5 +394,5 @@ off OUR ids, and replacing Clerk would move token verification only.
    client #1 in the room rather than more code.
 2. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (87 tests) and
+3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (93 tests) and
    `make guardrails` before changing anything.

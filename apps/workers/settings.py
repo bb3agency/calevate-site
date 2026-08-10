@@ -23,6 +23,7 @@ from apps.api.core.settings import runtime_config_missing_keys, validate_bootstr
 from apps.workers.dispatcher import dispatch_outbox, report_stalled_pipeline, sweep_expired
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.pipeline import ingest_engine_event, reconcile_executions, run_post_call_pipeline
+from apps.workers.retention import apply_retention, execute_deletion_request
 
 log = get_logger(__name__)
 
@@ -30,6 +31,9 @@ FUNCTIONS: list[Any] = [
     ingest_engine_event,
     run_post_call_pipeline,
     notify_hot_lead,
+    # A DPDP erasure is queued rather than run inline: it touches many rows and must
+    # survive a request timing out halfway through.
+    execute_deletion_request,
 ]
 
 CRON_JOBS = [
@@ -40,6 +44,9 @@ CRON_JOBS = [
     cron(reconcile_executions, minute={0, 10, 20, 30, 40, 50}, run_at_startup=True),
     cron(report_stalled_pipeline, minute={5, 35}),
     cron(sweep_expired, hour={3}, minute={17}),
+    # Retention is a legal obligation, not a cleanup task: without this the
+    # policies we promise in the DPA are only a table (SEC-COMP §4).
+    cron(apply_retention, hour={3}, minute={40}),
 ]
 
 
