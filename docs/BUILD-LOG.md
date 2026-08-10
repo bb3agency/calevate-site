@@ -453,13 +453,26 @@ mostly not by silencing:
 - Untyped third-party packages (boto3, botocore, sentry_sdk) are listed explicitly in
   `pyproject.toml` with a note, so the silenced set stays small and visible.
 
+**27. Client knowledge screen — closes the FLOWS §7 loop**
+
+`/c/<slug>/knowledge`: an owner submits text, sees the chunk preview and the review
+status. The screen is deliberately honest about the approval gate rather than hiding
+it — a client who does not know their change is queued submits it three more times, and
+the agent speaks under their PE registration, so the wait is a property to explain, not
+a delay to discover.
+
+Driven end to end in a real browser, which surfaced two copy bugs worth fixing: the
+hint promised one answer per paragraph when chunking PACKS short paragraphs up to the
+size cap, and "1 answers" did not pluralize. Both are the kind of small wrongness that
+teaches a client not to trust the rest of the screen.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
    which needs client #1 in the room rather than more code), the **client-side KB
    submission UI** (the API exists; only the admin half has a screen), **OTel spans**
    (Sentry and the Langfuse hook are wired; distributed tracing is not), and the
-   **client-side KB submission UI** (the API exists; only the admin half has a screen).
+   **OTel spans** (Sentry and the Langfuse hook are wired; distributed tracing is not).
 2. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
 3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (104 tests), `uv run mypy apps packages` and
