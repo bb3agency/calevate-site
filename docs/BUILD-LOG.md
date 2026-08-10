@@ -291,13 +291,34 @@ Also fixed: a wrong-realm `dev:` token fell through to JWKS and answered 502
 "auth not configured", telling the caller about our deployment instead of about their
 token. It is a 401 now.
 
+**18. Knowledge base — `apps/api/kb/`** (FLOWS §7, D-28, D-33)
+
+Tables `kb_sources`, `kb_documents`, `kb_retrieval_logs` (migration `842ba923796d`,
+all FORCE-RLS'd). **`kb_chunks` + pgvector + HNSW are deliberately NOT created**: D-28
+moved retrieval to a managed service and made them contingency, and D-33 keeps v1
+in-call retrieval on the engine's built-in KB, which is not a BYOK slot. Chunks are
+stored as TEXT for preview and for the dual-push payload; provider ids go in
+`kb_documents.meta` so a DPDP erasure can prove it removed both copies.
+
+Workflow: client submits (`kb:write`) → paragraph-aware chunking capped at ~700 chars
+(a chunk cut mid-sentence becomes a sentence the agent reads aloud badly) → preview →
+**admin approves** (`agents:write`, realm=admin) → publish pushes to the engine BEFORE
+flipping the local active flag, so a rejected push never leaves our dashboard claiming
+the agent knows something it does not. Publishing archives the prior version rather
+than editing it, which makes rollback a republish. Approve/reject are CAS on
+`pending_approval`. 7 tests.
+
+The gate is not bureaucracy: the agent speaks under the client's own PE registration,
+so changing what it says changes a legal instrument.
+
 ### Where the next session should start
 
-1. `docs/ROADMAP.md` §2 — remaining M1: **KB upload + approve** (FLOWS §7), the
-   **admin web console** (the admin API exists; the UI does not), the **Clerk webhook
-   mirror** (users/orgs into our Postgres — D-37 makes our DB the system of record),
-   notification transport (email), and observability wiring (Sentry, Langfuse).
+1. `docs/ROADMAP.md` §2 — remaining M1: the **admin web console** (the admin API
+   exists, 31 routes; the UI does not), the **Clerk webhook mirror** (users/orgs into
+   our Postgres — D-37 makes our DB the system of record), **notification transport**
+   (email; `notifications.py` deliberately returns False rather than faking a send),
+   and observability wiring (Sentry, Langfuse).
 2. The test-call gate (wizard step 7) and number provisioning (step 6) are deliberately
    NOT stubbed — both depend on the Bolna pilot (OPERATIONS §2).
-3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (71 tests) and
+3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (78 tests) and
    `make guardrails` before changing anything.

@@ -11,6 +11,7 @@ from apps.api.compliance import models as compliance_models
 from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
 from apps.api.integrations import models as integrations_models
+from apps.api.kb import models as kb_models
 from apps.api.reliability import models as reliability_models
 from apps.api.tenancy import models as tenancy_models
 
@@ -23,6 +24,7 @@ __all__ = [
     "compliance_models",
     "crm_models",
     "integrations_models",
+    "kb_models",
     "reliability_models",
     "tenancy_models",
 ]
@@ -53,6 +55,9 @@ TENANT_TABLES = [
     "deletion_requests",
     "inbound_webhooks",
     "outbound_webhooks",
+    "kb_sources",
+    "kb_documents",
+    "kb_retrieval_logs",
 ]
 
 # Tables carrying tenant_id that are deliberately NOT tenant-RLS'd, with reasons —
