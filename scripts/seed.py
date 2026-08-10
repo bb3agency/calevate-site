@@ -16,6 +16,7 @@ or deletes existing rows.
 from __future__ import annotations
 
 import asyncio
+import sys
 from typing import Any
 
 from apps.api.db.session import untenanted_session
@@ -212,7 +213,12 @@ async def seed_reserved_slugs() -> int:
     async with untenanted_session() as session:
         before = (await session.execute(text("SELECT count(*) FROM reserved_slugs"))).scalar_one()
         await session.execute(
-            text("INSERT INTO reserved_slugs (slug) SELECT unnest(:slugs) ON CONFLICT DO NOTHING"),
+            # The ::text[] cast is required — without it Postgres cannot resolve which
+            # unnest() overload to use and errors with "could not choose a best candidate".
+            text(
+                "INSERT INTO reserved_slugs (slug) "
+                "SELECT unnest(CAST(:slugs AS text[])) ON CONFLICT DO NOTHING"
+            ),
             {"slugs": list(RESERVED_SLUGS)},
         )
         after = (await session.execute(text("SELECT count(*) FROM reserved_slugs"))).scalar_one()
@@ -231,4 +237,9 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    # Windows defaults to ProactorEventLoop, which psycopg's async mode cannot use.
+    # tests/conftest.py applies the same override via its event_loop_policy fixture —
+    # any standalone async entrypoint needs it too.
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(main())
