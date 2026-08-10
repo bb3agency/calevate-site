@@ -10,9 +10,10 @@ Multi-tenant AI voice-agent SaaS (India, Telugu-first). Rented voice engine (Bol
 D-31) + BYOK models — canonical stack per D-36: Sarvam Saaras STT, **Sarvam 105B LLM
 (free, all-India)**, Sarvam Bulbul v3 TTS (v2 = value tier); Gemini is a configurable
 fallback, not the default. Our code: admin console,
-client dashboards, schema-driven extraction + mini-CRM, RAG (pgvector), metering/billing,
+client dashboards, schema-driven extraction + mini-CRM, RAG (managed service — D-28), metering/billing,
 TRAI/DLT/DPDP compliance. Stack: FastAPI + Python 3.12, Next.js 15 + TypeScript,
-Postgres 16 (+pgvector, RLS), Redis + ARQ, Clerk auth (two realms), DO Bangalore.
+Postgres 16 (RLS; pgvector only as D-28 contingency), Redis + ARQ, Clerk auth
+(two realms — reaffirmed D-37), DO Bangalore.
 
 ## Setup & commands
 

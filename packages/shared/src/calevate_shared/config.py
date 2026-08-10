@@ -10,7 +10,8 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "staging", "prod"]
-EngineName = Literal["fake", "thinnest", "bolna"]
+# ThinnestAI was retired by D-31 before any adapter existed — do not re-add it.
+EngineName = Literal["fake", "bolna"]
 
 
 class Settings(BaseSettings):
@@ -30,11 +31,17 @@ class Settings(BaseSettings):
     # Engine selection is per-environment; `fake` is the default for local work so
     # the whole pipeline runs offline (DEV-SETUP.md §3).
     engine: EngineName = "fake"
-    thinnest_api_key: str | None = None
-    thinnest_webhook_secret: str | None = None
+    # Bolna webhooks are UNSIGNED (D-31) — there is deliberately no webhook secret.
+    # Authenticity = source-IP allowlist + execution-id dedupe, and the
+    # List-Executions poller is the guarantee of record (TRD §5).
+    bolna_api_key: str | None = None
 
+    # BYOK models — canonical stack per D-36: Sarvam does STT + LLM + TTS.
+    # Gemini is a configurable FALLBACK, not the default.
     sarvam_api_key: str | None = None
     gemini_api_key: str | None = None
+    # Embeddings are provider-managed if the D-28 RAG service bundles them;
+    # Cohere is only needed if the bake-off selects a store that does not.
     cohere_api_key: str | None = None
 
     # Two SEPARATE Clerk applications — admin realm and client realm never share

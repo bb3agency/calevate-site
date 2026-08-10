@@ -1,4 +1,4 @@
-# Calevate — Data Model (Postgres 16 + pgvector)
+# Calevate — Data Model (Postgres 16; pgvector is a D-28 contingency, not the plan)
 
 Version 1.0 · Conventions: snake_case; every table has id UUID PK (uuid_v7), created_at,
 updated_at; every tenant-scoped table has tenant_id UUID NOT NULL REFERENCES organizations(id)
@@ -40,9 +40,10 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   stt_provider, stt_model, tts_provider, tts_voice, llm_model,     -- config strings
   system_prompt_id → prompt_versions, extraction_schema_id → extraction_schemas,
   business_hours JSONB, escalation_config JSONB, disclosure_line TEXT NOT NULL,
-  status ENUM[draft,live,paused], engine ENUM[thinnest,bolna]  -- 'bolna' is the live
-    -- value (D-31); 'thinnest' stays in the CHECK until a migration removes it
-    -- (two-step deprecation, hard rule 8) --, engine_agent_ref TEXT,
+  status ENUM[draft,live,paused], engine ENUM[fake,bolna]  -- 'thinnest' REMOVED from the
+    -- CHECK (D-31: retired before any adapter or production row existed, so the
+    -- two-step deprecation in hard rule 8 does not apply — nothing ever wrote it)
+    --, engine_agent_ref TEXT,
   engine_staging_ref TEXT, deleted_at)
 prompt_versions(id, tenant_id, agent_id, version INT, body TEXT, compiled_t0_context TEXT,
   created_by, published_at, UNIQUE(agent_id,version))               -- full history + rollback

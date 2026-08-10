@@ -1,8 +1,9 @@
 """The VoiceEngine portability contract (TRD §5).
 
 Nothing outside `engine/` may import a vendor SDK or see a vendor payload shape.
-Both the `thinnest` and `bolna` adapters must satisfy this Protocol and pass the
+Both the `bolna` and `fake` adapters must satisfy this Protocol and pass the
 conformance suite — the second adapter exists to keep the first one honest.
+(ThinnestAI was retired by D-31 before any adapter was written.)
 """
 
 from typing import Any, Protocol, runtime_checkable

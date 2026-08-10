@@ -68,9 +68,10 @@ been updated to match; changing any of these needs a new entry.
 ## Before writing feature code
 
 [ROADMAP.md](docs/ROADMAP.md) Milestone 0 gates the build: the legal-entity
-decision → DLT registration, and the **Engine Verification Session**
-([OPERATIONS.md](docs/OPERATIONS.md) §2) which decides whether ThinnestAI or
-Bolna is the primary engine. The adapter interface in
+decision → DLT registration, and the **Bolna pilot** ([OPERATIONS.md](docs/OPERATIONS.md)
+§2) — 13 gates that confirm Bolna as primary engine (D-31) and close the two
+remaining unverified cost inputs, the BYOK platform fee and telephony rates.
+The adapter interface in
 `packages/shared/src/calevate_shared/engine.py` is deliberately engine-agnostic
 so this scaffold is safe to build on before that session; the adapter
 implementations are not.

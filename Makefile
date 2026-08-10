@@ -47,7 +47,8 @@ db-reset:
 	uv run alembic upgrade head
 	uv run python -m scripts.seed
 
-eval:  ## make eval CLIENT=<slug>
+eval:  ## make eval CLIENT=<slug>   [regression harness — M1 deliverable, not built yet]
+	@test -f scripts/eval.py || { echo "scripts/eval.py does not exist yet: the regression harness is an M1 deliverable (ROADMAP.md §2). Build it before using this target."; exit 1; }
 	uv run python -m scripts.eval --client=$(CLIENT)
 
 gen-api:

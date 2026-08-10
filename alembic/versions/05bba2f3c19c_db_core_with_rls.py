@@ -152,7 +152,7 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.CheckConstraint("direction IN ('inbound', 'outbound', 'both')", name=op.f('ck_agents_direction_enum')),
-    sa.CheckConstraint("engine IN ('fake', 'thinnest', 'bolna')", name=op.f('ck_agents_engine_enum')),
+    sa.CheckConstraint("engine IN ('fake', 'bolna')", name=op.f('ck_agents_engine_enum')),
     sa.CheckConstraint("status IN ('draft', 'live', 'paused')", name=op.f('ck_agents_status_enum')),
     sa.CheckConstraint('length(disclosure_line) > 0', name=op.f('ck_agents_disclosure_nonempty')),
     sa.ForeignKeyConstraint(['extraction_schema_id'], ['extraction_schemas.id'], name=op.f('fk_agents_extraction_schema_id_extraction_schemas'), ondelete='SET NULL', use_alter=True),

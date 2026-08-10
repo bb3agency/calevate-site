@@ -23,7 +23,7 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 AGENT_DIRECTIONS = ("inbound", "outbound", "both")
 AGENT_STATUSES = ("draft", "live", "paused")
-ENGINES = ("fake", "thinnest", "bolna")
+ENGINES = ("fake", "bolna")  # ThinnestAI retired by D-31 — do not re-add
 NUMBER_SERIES = ("140", "160", "standard")
 DLT_STATUSES = ("pending", "registered", "blocked")
 
