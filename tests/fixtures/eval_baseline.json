@@ -1,0 +1,8 @@
+{
+  "_doc": "Known-failing regression cases per extraction model. The gate is a RATCHET: a case listed here is allowed to fail, and anything not listed is not. Removing entries is progress; adding one is a decision that needs a reason in the PR.",
+  "offline-heuristic": [
+    "core5_happy_path",
+    "core5_out_of_scope",
+    "core5_tool_call"
+  ]
+}

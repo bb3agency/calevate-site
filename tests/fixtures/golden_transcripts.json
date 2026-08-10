@@ -1,0 +1,192 @@
+{
+  "_doc": [
+    "Golden-transcript fixtures for the extraction path (TRD §7, OPERATIONS §3).",
+    "",
+    "These are the transcripts the regression harness scores against, and they exist to",
+    "answer one question before a prompt or model change ships: does extraction still",
+    "capture what a real Telugu call actually contains?",
+    "",
+    "They are written in the CODE-MIXED romanized form Sarvam Saaras returns — Telugu",
+    "grammar with English nouns — because that is what the pipeline receives. A fixture",
+    "written in clean English would pass while the product failed.",
+    "",
+    "`expect` is what MUST be captured. `expect_absent` is the harder half: fields a",
+    "model must NOT invent when the caller never said them. D-36 accepts that Sarvam's",
+    "Telugu extraction quality is UNMEASURED and keeps Gemini configurable until these",
+    "fixtures say otherwise — so this file is that gate."
+  ],
+  "schema": [
+    {
+      "key": "name",
+      "label": "Caller name",
+      "type": "text",
+      "description": "the caller's own name if they say it"
+    },
+    {
+      "key": "intent",
+      "label": "Intent",
+      "type": "enum",
+      "enum_values": [
+        "book",
+        "reschedule",
+        "cancel",
+        "enquiry",
+        "complaint"
+      ],
+      "description": "what the caller wants to do"
+    },
+    {
+      "key": "urgency",
+      "label": "Urgency",
+      "type": "enum",
+      "enum_values": [
+        "routine",
+        "urgent",
+        "emergency"
+      ],
+      "description": "how soon they need it"
+    },
+    {
+      "key": "party_size",
+      "label": "People",
+      "type": "number",
+      "description": "how many people the booking is for"
+    },
+    {
+      "key": "wants_callback",
+      "label": "Callback requested",
+      "type": "bool",
+      "description": "true only if the caller asked to be called back"
+    }
+  ],
+  "cases": [
+    {
+      "id": "core5_happy_path",
+      "scenario": 1,
+      "title": "Happy path — booking captured end to end",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Namaskaram. Naaku appointment book cheyali.",
+        "agent: Tappakunda. Mee peru cheppagalara?",
+        "caller: Naa peru Ravi Kumar andi.",
+        "agent: Dhanyavadalu Ravi garu. Entha mandi vastunnaru?",
+        "caller: Iddaru vastam.",
+        "agent: Ee roju evening 6 gantalaku doctor available unnaru.",
+        "caller: Sare, adi baagundi."
+      ],
+      "expect": {
+        "name": "Ravi Kumar",
+        "intent": "book",
+        "party_size": 2
+      },
+      "expect_absent": [
+        "urgency"
+      ],
+      "expect_outcome": "resolved"
+    },
+    {
+      "id": "core5_interruption",
+      "scenario": 2,
+      "title": "Barge-in — the caller cuts the agent off mid-sentence",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record",
+        "caller: Aa aa, naaku emergency undi, ippude doctor kavali!",
+        "agent: Ardhamayindi. Emergency ki mundhu ga chuskuntam.",
+        "caller: Naa peru Lakshmi."
+      ],
+      "expect": {
+        "name": "Lakshmi",
+        "urgency": "emergency"
+      },
+      "expect_absent": [
+        "party_size"
+      ],
+      "expect_outcome": "resolved",
+      "note": "Barge-in truncates the disclosure line. The compliance assertion is that it STARTED, not that it finished — the caller interrupting is not our violation."
+    },
+    {
+      "id": "core5_tool_call",
+      "scenario": 3,
+      "title": "Tool-call correctness — a valid slot, not an invented one",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Repu morning appointment marchali, naa peru Suresh.",
+        "agent: Repu 11 gantalaku slot khali undi. Confirm cheyana?",
+        "caller: Avunu, confirm cheyandi."
+      ],
+      "expect": {
+        "name": "Suresh",
+        "intent": "reschedule"
+      },
+      "expect_absent": [
+        "party_size",
+        "urgency"
+      ],
+      "expect_outcome": "resolved"
+    },
+    {
+      "id": "core5_out_of_scope",
+      "scenario": 4,
+      "title": "Out of scope (T4) — refuse, offer callback, tag for follow-up",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Mee insurance claim process gurinchi cheppandi, ESI cover avutunda?",
+        "agent: Kshaminchandi, aa vivaram naa daggara ledu. Mimmalni malli call cheyamantara?",
+        "caller: Avunu, tarvata call cheyandi. Naa peru Anjali."
+      ],
+      "expect": {
+        "name": "Anjali",
+        "wants_callback": true
+      },
+      "expect_absent": [
+        "party_size",
+        "intent"
+      ],
+      "expect_outcome": "needs_follow_up",
+      "note": "The model must NOT force `intent` into an enum value the caller never expressed — an invented 'enquiry' here is the failure this case exists to catch."
+    },
+    {
+      "id": "core5_compliance",
+      "scenario": 5,
+      "title": "Compliance — disclosure spoken, DNC honored, no cross-sell",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Naaku inka call cheyakandi. Remove my number.",
+        "agent: Ardhamayindi, mee number ni do-not-call list lo pettanu. Kshaminchandi.",
+        "caller: Thank you."
+      ],
+      "expect": {},
+      "expect_absent": [
+        "name",
+        "party_size",
+        "urgency",
+        "wants_callback"
+      ],
+      "expect_outcome": "resolved",
+      "requires_dnc": true,
+      "note": "SEC-COMP §3: an opt-out must be honored live and must reach the DNC list before the next dispatch tick. No offer, no cross-sell, no 'are you sure' — those are the failure modes."
+    },
+    {
+      "id": "pii_spoken_number",
+      "scenario": 5,
+      "title": "PII — a number read aloud, digit by digit, must not survive redaction",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Naa number nine eight seven six five four three two one zero.",
+        "caller: Aadhaar 2341 2341 2346 kuda undi.",
+        "agent: Dhanyavadalu, note chesukunnanu."
+      ],
+      "expect": {},
+      "expect_absent": [
+        "name",
+        "party_size"
+      ],
+      "expect_outcome": "resolved",
+      "must_redact": [
+        "9876543210",
+        "234123412346"
+      ],
+      "note": "The spoken-digit case is the one a pure regex cannot see, and Indian callers do it constantly."
+    }
+  ]
+}

@@ -231,3 +231,38 @@ two is invisible to every test that does not use a real browser.
 **Local run recipe** (this container): `bash scripts/dev_bootstrap.sh`, then
 `uv run uvicorn apps.api.main:app --port 8000` and
 `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 pnpm -C apps/web dev`.
+
+**15. Regression harness v1 — `scripts/eval.py` + golden fixtures**
+
+D-15 sells regression-on-every-change as a differentiator, so the harness has to be
+honest about what it measured rather than flattering.
+
+- `tests/fixtures/golden_transcripts.json` — the mandatory five (OPERATIONS §3) plus a
+  PII case, written in the **code-mixed romanized Telugu** Saaras actually returns. A
+  fixture in clean English would pass while the product failed.
+- Each case scores **capture** (`expect`) AND **restraint** (`expect_absent`). The
+  second half matters more: a model that fills every column with plausible guesses
+  scores well on capture and poisons a client's CRM. The out-of-scope case exists
+  specifically to catch an invented `intent`.
+- Compliance and redaction are checked per case: disclosure spoken in the opening turn,
+  DNC request acknowledged, and `must_redact` values gone — including the digits, so a
+  spoken-out number cannot be reassembled.
+- **The gate is a RATCHET, not a pass/fail.** The offline extractor cannot read Telugu
+  numerals, so an absolute gate would be permanently red and stop being read. A
+  per-model baseline of known failures is committed (`eval_baseline.json`), and exit
+  code 1 means "a case that used to pass now fails". `--update-baseline` makes an
+  improvement a reviewable diff. Baseline is keyed BY MODEL because comparing Sarvam
+  against Gemini on these fixtures is exactly D-36's open question.
+- Current baseline (`offline-heuristic`): 3/6 pass. The three failures are real Telugu
+  comprehension limits — "iddaru" → 2, "marchali" → reschedule, "tarvata call cheyandi"
+  → callback — and are precisely what a real model has to beat.
+- `tests/eval_harness_test.py` tests the gate itself, including that compliance and
+  redaction cases must pass on EVERY model (they are our code, not the model's).
+
+### Where the next session should start
+
+1. `docs/ROADMAP.md` §2 — remaining M1: admin onboarding wizard, KB upload+approve,
+   invitations/Clerk webhook mirror, notification transport (email), Sentry/Langfuse.
+2. `apps/api/ops/routes.py` — the ops surface exists; the admin CONSOLE does not.
+3. Run `bash scripts/dev_bootstrap.sh` then `uv run pytest -q` (64 tests) before
+   changing anything, then `make guardrails`.
