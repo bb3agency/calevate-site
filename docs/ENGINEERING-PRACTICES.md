@@ -32,7 +32,7 @@ what they guard. All run in `make check` + CI; a red guardrail blocks merge.
 
 | Check | Enforces | Mechanism |
 |---|---|---|
-| `check:engine-isolation` | Hard rule 2 — only `engine/` sees vendor SDKs/payloads | **import-linter** contract: `thinnest*`/`bolna*`/vendor modules importable ONLY from `apps.api.engine` + voice-runtime twin; `packages/shared` imports no `apps.*` |
+| `check:engine-isolation` | Hard rule 2 — only `engine/` sees vendor SDKs/payloads | **import-linter**, 2 contracts SHIPPED and passing: (1) `calevate_shared` imports no `apps.*`; (2) no business module (`agents`, `billing`, `compliance`, `crm`, `integrations`, `reliability`, `tenancy`, `apps.workers`) may import `apps.api.engine` — they consume normalized models from `calevate_shared` instead. Add each new business module to the contract's `source_modules`. The voice-runtime twin is enforced by its own deploy boundary. |
 | `check:rls-coverage` | Hard rule 1 — every tenant table has FORCEd RLS | script queries `pg_tables`⨝`pg_policies` in the CI database after `alembic upgrade head`; any tenant_id-bearing table without a FORCEd policy = fail |
 | `check:redaction-exposure` | Hard rule 5 — raw transcript text never in default responses | serializer-exposure scan: any Pydantic response model exposing `text` (vs `text_redacted`) outside the role-gated endpoints = fail (raghava's `serializer:exposure-check` pattern) |
 | `check:env-parity` | fail-fast config doctrine | `.env.example` keys ⟷ `calevate_shared.config.Settings` fields, both directions; drift = fail |

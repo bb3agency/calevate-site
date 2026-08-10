@@ -75,6 +75,49 @@ Trust surfaces (our differentiators made visible)
 - "Why customers call" themes and knowledge-gap-driven "your agent couldn't answer
   these" list — turns T4 refusals into KB update requests.
 
+## 2b. Self-serve surfaces (D-34) + patterns adopted from the Outpero teardown
+
+Lands M2 (D-39: schema in M1, surface when a user needs it). These are **additions to the
+same client app** — a self-serve org is the same `organizations` row with a different
+`plan_tier`, so nothing forks.
+
+**Self-serve-only screens**
+- **Sign-up + org create**: email/password or Google (FLOWS §2), slug validated against
+  `reserved_slugs`.
+- **Credit wallet**: balance, **runway in minutes** ("₹X · ≈ N min, M min on premium" —
+  their money-UX is genuinely good), top-up packs, auto-receipt with GST.
+- **Plan/usage**: agents live vs draft, minutes used, spend against cap.
+- **Number purchase + KYC**: gated; calling stays disabled until verification clears.
+
+**Patterns worth adopting (evidence: teardown §9c/§9d — all verified in their product)**
+- **"Needs attention" queue** — leads on hold or awaiting retry, with early release. This
+  is the operational work-queue our dashboard inventory (§2) is missing; it belongs next to
+  the Leads table for both motions.
+- **Webhook activity view** — every inbound delivery shown as **accepted / deduplicated /
+  rejected**, with the raw payload. Pair it with a **"Test webhook"** button that runs a
+  sample lead end-to-end *without placing a call*. Together these are the single biggest
+  integration-DX win available, and they cost us little because the reliability triad
+  (D-30) already records everything needed.
+- **Two-speed publishing** — script/flow/actions/webhook edits require an explicit
+  **"Apply to live calls"**; voice, extraction fields and training apply immediately.
+  Split by blast radius, with an unsaved-changes banner offering Apply or Undo. Nothing
+  goes live silently.
+- **Precedence rule, stated in the UI** — *script decides content, rules decide conduct,
+  voice only changes delivery*. Cheap to say, removes a whole class of support question.
+- **Cost-runaway guard** — a per-agent max call length (their default 10 min, adjustable).
+  We have no equivalent today and should.
+- **Honest degraded-tier billing** — if a premium voice is unavailable the call runs on the
+  cheaper voice and is **billed at the cheaper rate**, never silently upgraded.
+
+**Where we deliberately go further** (teardown §9d table): HMAC-signed webhooks with
+timestamp + replay protection (they use a URL-path token and an *optional* header);
+outbox-backed delivery with retries, a delivery log and **replay** (they fire once and can
+arrive with null fields); a **published, versioned** outbound payload schema (theirs is
+undocumented); **native Meta Lead Ads** (theirs is Zapier-only); typed+validated extraction
+(theirs is untyped — the "Delhi in a quantity field" bug); full version history with diffs
+and audit (they keep 3 versions, no diff); and **DNC on every dispatch path** including
+instant, which is where their compliance actually fails.
+
 ## 3. Integration Layer (our site ⇄ engine [Bolna, D-31]) — DECIDED doctrine
 
 The verified vendor surface lives in TRD §5 (events, HMAC, rate limits, Get Call).

@@ -41,6 +41,13 @@ Build ONLY what one client needs; admin can be CLI + SQL where UI would slow us:
 - Regression harness v1: the mandatory five scenarios + fixture replay + report.
 - Ops: Sentry, Langfuse, alerts to phone, backups, pre-launch checklist run.
 
+- **Inbound receptionist is the headline capability (D-38)** — it is Outpero's confirmed
+  unbuilt flank and is consent-clean by construction (the caller initiated), so it also
+  de-risks the self-serve motion. Build and demo it first.
+- **Schema-for-scale (D-39):** credits/prepaid ledger, `plan_tier` on organizations, and
+  invitations ship in M1 even though the self-serve UI does not — metering and tenancy
+  are not retrofittable (D-12).
+
 Gate G1: a paying client (pilot pricing allowed) live on inbound; lead-in-2-min SLO met
 for 7 consecutive days; zero cross-tenant test failures.
 
@@ -57,6 +64,13 @@ for 7 consecutive days; zero cross-tenant test failures.
   Razorpay links, caps UI.
 - Admin polish: onboarding wizard complete, client health overview, prompt rollback UI.
 - Vertical template #2 fully dressed (whichever client #2 is: clinic or real estate).
+
+- **Self-serve tier goes live (D-34):** signup + Google OAuth, credit top-up, number
+  purchase with KYC gate. Ships WITH its R-11 mitigations — fixed calling hours, DNC on
+  every path, mandatory disclosure, consent ledger, spend caps, and manual review of each
+  account's first campaign. No self-serve calling before those exist.
+- Integration DX (SURFACES §2b): webhook activity view, test-webhook, "Needs attention"
+  queue, two-speed publishing.
 
 Gate G2: 2–3 clients incl. one outbound campaigner; DLT template approved and a
 compliant campaign completed; margin per client visible and ≥ target.

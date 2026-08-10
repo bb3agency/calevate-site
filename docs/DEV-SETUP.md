@@ -51,9 +51,10 @@ OBJECT_STORE_BUCKET=calevate-dev
 ENGINE=fake|bolna
 BOLNA_API_KEY=            # no webhook secret — Bolna webhooks are unsigned (TRD §5);
                           # authenticity = source-IP allowlist + dedupe + poller.
-                          # (Settings still carries legacy THINNEST_* fields until the
-                          # adapter build removes them — tracked under D-31.)
-SARVAM_API_KEY= / GEMINI_API_KEY= / COHERE_API_KEY=
+SARVAM_API_KEY=           # STT + LLM + TTS — the whole BYOK stack (D-36)
+GEMINI_API_KEY=           # configurable FALLBACK LLM only, not the default (D-36)
+COHERE_API_KEY=           # only if the D-28 RAG bake-off picks a store without
+                          # bundled embeddings; otherwise leave empty
 CLERK_ADMIN_* / CLERK_CLIENT_*                # two separate apps
 LANGFUSE_* / SENTRY_DSN / POSTHOG_KEY         # optional locally
 APP_ENV=local|staging|prod

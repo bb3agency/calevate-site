@@ -39,6 +39,26 @@ type = "forbidden"
 source_modules = ["calevate_shared"]
 forbidden_modules = ["apps"]
 
+# Hard rule 2 (engine isolation): business modules consume OUR normalized models
+# from `calevate_shared` — they never reach into the adapter package, so vendor
+# payload shapes cannot leak past the boundary. Extend `source_modules` whenever a
+# new business module is added; the voice-runtime twin is enforced by its own
+# deploy boundary (separate deployable, TRD §1).
+[[tool.importlinter.contracts]]
+name = "engine isolation: only engine/ may see vendor payload shapes"
+type = "forbidden"
+source_modules = [
+    "apps.api.agents",
+    "apps.api.billing",
+    "apps.api.compliance",
+    "apps.api.crm",
+    "apps.api.integrations",
+    "apps.api.reliability",
+    "apps.api.tenancy",
+    "apps.workers",
+]
+forbidden_modules = ["apps.api.engine"]
+
 # --- Ruff (CI gate) -----------------------------------------------------------
 [tool.ruff]
 target-version = "py312"

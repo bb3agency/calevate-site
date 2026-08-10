@@ -40,12 +40,40 @@ client-visible until step 8.
 
 ## 2. Client Auth & Access
 
-- Login at app.calevate.tech (Clerk client realm) → org resolution → redirect to
-  /c/<slug>/dashboard. Direct hits to /c/<slug>/* without session → login with return-to.
-- Invitation accept: token hash lookup, expiry + used_at check, burn on success; resend
-  invalidates prior token. No self-serve signup; no credential emails ever.
+Auth is Clerk (D-37 — reaffirmed against self-building; the decisive argument is that
+RLS trusts `tenant_id` from a verified session, so an auth defect is a cross-tenant
+breach). Two Clerk applications, never sharing session logic: **admin realm**
+(invite-only, signup DISABLED) and **client realm** (self-serve signup enabled).
+Custom domain `accounts.calevate.tech` so the flow is ours end to end.
+
+**Three ways into the client realm (D-34 — both motions supported):**
+1. **Self-serve signup** — email/password or **Google OAuth** → Clerk creates the user →
+   our webhook mirrors it into `users` → org-create step (name + slug, validated against
+   `reserved_slugs`) → `organizations` row with `plan_tier='self_serve'` → owner membership.
+2. **Admin invite link** — admin console issues an invitation for an existing or new org;
+   accept path: token hash lookup, expiry + `used_at` check, **burn on success**; resend
+   invalidates the prior token. This is how MANAGED clients (and extra staff on any org)
+   get in.
+3. **Managed onboarding** — the admin wizard (§1) creates the org first, then invites the
+   owner. Same invitation machinery as (2); the difference is who does the setup, not the
+   auth path.
+
+**Clerk ↔ our DB (D-37):** Clerk authenticates; it does **not** own our data model.
+Webhooks (`user.created/updated/deleted`, `organizationMembership.*`) mirror identities
+into `users` / `memberships`; our `organizations.id` remains the tenant key that RLS uses.
+Never derive `tenant_id` from a client-supplied value — only from the verified session's
+org claim, resolved against our own tables.
+
+**Never emailed:** credentials. Invitations carry a single-use token, nothing more.
+
+- Login → org resolution → redirect to `/c/<slug>/dashboard`. Direct hits to `/c/<slug>/*`
+  without a session → login with return-to. A user in multiple orgs gets an org switcher.
 - Roles: owner sees everything incl. billing; staff sees dashboard/calls/leads only,
   redacted transcripts, no exports of raw data.
+- **Self-serve accounts start restricted (R-11):** calling is gated until the org has a
+  KYC-verified number, and the **first campaign of every self-serve account is held for
+  manual review**. Platform-fixed calling hours and DNC scrub on every dispatch path apply
+  to both motions and are not user-editable.
 
 ## 3. Inbound Call Lifecycle
 
