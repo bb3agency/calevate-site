@@ -165,3 +165,20 @@ async def test_an_unpublished_agent_cannot_receive_knowledge() -> None:
                 session, tenant_id=created["id"], source_id=submitted["id"]
             )
     assert exc.value.code == "agent_not_published"
+
+
+async def test_approval_lives_on_the_admin_surface_not_behind_impersonation() -> None:
+    """The deadlock this layout avoids, asserted so it cannot be reintroduced.
+
+    An admin reaches a tenant through impersonation, and impersonation is READ-ONLY
+    (D-22). If approve/publish lived on the client-realm KB router they would be
+    reachable only with a tenant context that refuses mutations — permanently
+    un-callable. They belong on the admin router with the tenant named in the path.
+    """
+    from apps.api.core.rbac import iter_api_routes
+    from apps.api.main import app
+
+    paths = {r.path for r in iter_api_routes(app)}
+    for action in ("approve", "reject", "publish"):
+        assert f"/v1/kb/sources/{{source_id}}/{action}" not in paths
+        assert f"/v1/admin/tenants/{{tenant_id}}/kb/{{source_id}}/{action}" in paths

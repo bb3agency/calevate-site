@@ -55,6 +55,112 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Client health overview (cross-tenant by design, audited surface) */
+        get: operations["list_tenants_v1_admin_tenants_get"];
+        put?: never;
+        /** New-client wizard step 1 — org, retention defaults, agent draft, schema */
+        post: operations["create_tenant_v1_admin_tenants_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/impersonate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Begin a READ-ONLY view-as session (D-22) — audited, never acting-as */
+        post: operations["start_impersonation_v1_admin_tenants__tenant_id__impersonate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Wizard step 8 — single-use 72h invite (token hashed at rest) */
+        post: operations["invite_member_v1_admin_tenants__tenant_id__invitations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/kb/{source_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approval gate (D-28: stays ours whichever RAG provider wins) */
+        post: operations["approve_kb_v1_admin_tenants__tenant_id__kb__source_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/kb/{source_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Push to the engine KB and make this the active version
+         * @description Rollback is republishing an earlier version (FLOWS §7).
+         */
+        post: operations["publish_kb_v1_admin_tenants__tenant_id__kb__source_id__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/kb/{source_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject Kb */
+        post: operations["reject_kb_v1_admin_tenants__tenant_id__kb__source_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents": {
         parameters: {
             query?: never;
@@ -183,6 +289,41 @@ export interface paths {
         };
         /** Headline numbers for the client dashboard */
         get: operations["get_dashboard_v1_dashboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sources */
+        get: operations["list_sources_v1_kb_sources_get"];
+        put?: never;
+        /** Submit knowledge for review — chunked, previewable, NOT yet live */
+        post: operations["submit_v1_kb_sources_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/sources/{source_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Side-by-side preview of exactly what the agent would learn */
+        get: operations["preview_source_v1_kb_sources__source_id__preview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -491,6 +632,58 @@ export interface components {
             /** Ok */
             ok: boolean;
         };
+        /** ChunkOut */
+        ChunkOut: {
+            /** Chars */
+            chars: number;
+            /** Content */
+            content: string;
+            /** Idx */
+            idx: number;
+        };
+        /** CreateOrgIn */
+        CreateOrgIn: {
+            /** Billing Email */
+            billing_email?: string | null;
+            /**
+             * Language
+             * @default te-IN
+             * @enum {string}
+             */
+            language: "te-IN" | "hi-IN" | "en-IN";
+            /** Name */
+            name: string;
+            /** Slug */
+            slug?: string | null;
+            /**
+             * Vertical Template
+             * @default clinic
+             * @enum {string}
+             */
+            vertical_template: "clinic" | "real_estate" | "insurance" | "education" | "custom";
+        };
+        /** CreateOrgOut */
+        CreateOrgOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /**
+             * Extraction Schema Id
+             * Format: uuid
+             */
+            extraction_schema_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Slug */
+            slug: string;
+            /** Status */
+            status: string;
+        };
         /** DashboardOut */
         DashboardOut: {
             /**
@@ -542,6 +735,27 @@ export interface components {
              * @enum {string}
              */
             type: "text" | "number" | "bool" | "enum" | "date";
+        };
+        /** InviteIn */
+        InviteIn: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /**
+             * Role
+             * @default owner
+             * @enum {string}
+             */
+            role: "owner" | "staff";
+        };
+        /** InviteOut */
+        InviteOut: {
+            /** Expires In Hours */
+            expires_in_hours: number;
+            /** Token */
+            token: string;
         };
         /**
          * LeadListOut
@@ -654,18 +868,6 @@ export interface components {
             /** Outbound Halted */
             outbound_halted: boolean;
         };
-        /** PublishOut */
-        PublishOut: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
-            /** Engine Agent Ref */
-            engine_agent_ref: string;
-            /** Status */
-            status: string;
-        };
         /** RecordingLinkOut */
         RecordingLinkOut: {
             /** Expires In S */
@@ -673,10 +875,102 @@ export interface components {
             /** Url */
             url: string;
         };
+        /** RejectIn */
+        RejectIn: {
+            /** Reason */
+            reason: string;
+        };
         /** ReplayOut */
         ReplayOut: {
             /** Replayed */
             replayed: number;
+        };
+        /** SourceOut */
+        SourceOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Chunks */
+            chunks: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Published At */
+            published_at: string | null;
+            /** Status */
+            status: string;
+            /** Version */
+            version: number;
+        };
+        /** SubmitIn */
+        SubmitIn: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Body */
+            body: string;
+            /**
+             * Kind
+             * @default text
+             * @enum {string}
+             */
+            kind: "text" | "url" | "file";
+            /** Name */
+            name: string;
+            /** Uri */
+            uri?: string | null;
+        };
+        /** SubmitOut */
+        SubmitOut: {
+            /** Chunks */
+            chunks: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+            /** Version */
+            version: number;
+        };
+        /** TenantSummary */
+        TenantSummary: {
+            /** Calls 7D */
+            calls_7d: number;
+            /** Capped */
+            capped: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Call At */
+            last_call_at: string | null;
+            /** Leads */
+            leads: number;
+            /** Live Agents */
+            live_agents: number;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /** Status */
+            status: string;
+            /** Vertical Template */
+            vertical_template: string | null;
         };
         /** TranscriptTurnOut */
         TranscriptTurnOut: {
@@ -698,6 +992,30 @@ export interface components {
             start_ms?: number | null;
             /** Text */
             text: string;
+        };
+        /** PublishOut */
+        apps__api__admin__routes__PublishOut: {
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Status */
+            status: string;
+            /** Version */
+            version: number;
+        };
+        /** PublishOut */
+        apps__api__agents__routes__PublishOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Engine Agent Ref */
+            engine_agent_ref: string;
+            /** Status */
+            status: string;
         };
     };
     responses: never;
@@ -801,6 +1119,240 @@ export interface operations {
             };
         };
     };
+    list_tenants_v1_admin_tenants_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantSummary"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_tenant_v1_admin_tenants_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOrgIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateOrgOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    start_impersonation_v1_admin_tenants__tenant_id__impersonate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    invite_member_v1_admin_tenants__tenant_id__invitations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    approve_kb_v1_admin_tenants__tenant_id__kb__source_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    publish_kb_v1_admin_tenants__tenant_id__kb__source_id__publish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["apps__api__admin__routes__PublishOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    reject_kb_v1_admin_tenants__tenant_id__kb__source_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_agents_v1_agents_get: {
         parameters: {
             query?: never;
@@ -878,7 +1430,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PublishOut"];
+                    "application/json": components["schemas"]["apps__api__agents__routes__PublishOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -1035,6 +1587,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_sources_v1_kb_sources_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    submit_v1_kb_sources_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmitOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    preview_source_v1_kb_sources__source_id__preview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChunkOut"][];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -311,14 +311,42 @@ than editing it, which makes rollback a republish. Approve/reject are CAS on
 The gate is not bureaucracy: the agent speaks under the client's own PE registration,
 so changing what it says changes a legal instrument.
 
+**19. Admin console — `apps/web/src/app/admin/`** (TRD §11, D-22, FLOWS §1/§7)
+
+A separate route group with its own session helper (`lib/api/admin.ts`) and its own
+dark visual language. Both separations are deliberate: a `realm` flag on one shared
+session is one bad conditional away from an admin token on a client surface, and an
+operator with cross-client reach should never be one glance from believing they are
+inside a client's own dashboard.
+
+Screens: client health table with a "view as" link, the new-client wizard (steps 1 + 8,
+with the pilot-gated steps listed as *still manual* rather than rendered as dead
+buttons), the operations page (current state shown prominently — the failure mode of a
+kill switch is forgetting it is on — with a typed confirmation matching the API's
+step-up header), and per-client KB approval with chunk-by-chunk preview.
+
+**20. A deadlock caught while wiring the console**
+
+KB approve/reject/publish were on the client-realm router, which meant an admin could
+only reach them with a tenant context — and the only way an admin gets one is
+impersonation, which is READ-ONLY by D-22. They were permanently un-callable. Moved to
+`/v1/admin/tenants/{tenant_id}/kb/{source_id}/…`, which is exactly what D-22 prescribes
+("mutations still go through admin surfaces") and makes each approval self-documenting
+in the audit log. A route-layout test now asserts the split so it cannot regress: the
+queue is READ through impersonation, DECIDED through the admin surface.
+
+Also fixed: the shared `Card` only goes dark under `prefers-color-scheme`, so it
+rendered as a white slab inside the admin shell. Admin panels are styled locally, with
+a comment saying why rather than leaving a mystery duplicate.
+
 ### Where the next session should start
 
-1. `docs/ROADMAP.md` §2 — remaining M1: the **admin web console** (the admin API
-   exists, 31 routes; the UI does not), the **Clerk webhook mirror** (users/orgs into
-   our Postgres — D-37 makes our DB the system of record), **notification transport**
-   (email; `notifications.py` deliberately returns False rather than faking a send),
-   and observability wiring (Sentry, Langfuse).
+1. `docs/ROADMAP.md` §2 — remaining M1: the **Clerk webhook mirror** (users/orgs into
+   our Postgres — D-37 makes our DB the system of record; today users are seeded by
+   hand), **notification transport** (email; `notifications.py` deliberately returns
+   False rather than faking a send), **observability wiring** (Sentry, Langfuse), and
+   the wizard's intake step (FLOWS §1 step 3) which needs client #1 in the room.
 2. The test-call gate (wizard step 7) and number provisioning (step 6) are deliberately
    NOT stubbed — both depend on the Bolna pilot (OPERATIONS §2).
-3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (78 tests) and
+3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (79 tests) and
    `make guardrails` before changing anything.

@@ -27,6 +27,8 @@ from apps.api.core.context import IMPERSONATE_HEADER, Principal
 from apps.api.core.deps import admin_db, db, global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.db.session import tenant_session
+from apps.api.kb import service as kb_service
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
@@ -219,6 +221,111 @@ async def start_impersonation(
         "value": str(slug),
         "note": "Mutations are refused while impersonating.",
     }
+
+
+# --- Knowledge base: the MUTATING half (FLOWS §7) ------------------------------
+# These live on the admin router, not the client one, because of D-22: an admin
+# reaching a tenant does so by impersonation, and impersonation is read-only. The
+# tenant is therefore named in the path rather than inferred from a session, which
+# also makes every approval self-documenting in the audit log.
+
+
+class RejectIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class PublishOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: UUID
+    version: int
+    status: str
+
+
+@router.post(
+    "/tenants/{tenant_id}/kb/{source_id}/approve",
+    openapi_extra=permission_meta("agents:write"),
+    summary="Approval gate (D-28: stays ours whichever RAG provider wins)",
+)
+async def approve_kb(
+    tenant_id: UUID,
+    source_id: UUID,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("agents:write", realm="admin")),
+) -> dict[str, str]:
+    async with tenant_session(tenant_id) as scoped:
+        await kb_service.approve_source(scoped, source_id=source_id, approved_by=principal.user_id)
+    await write_audit(
+        session,
+        action="kb.approved",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="kb_source",
+        object_id=str(source_id),
+        ip=request.client.host if request.client else None,
+    )
+    return {"status": "approved"}
+
+
+@router.post(
+    "/tenants/{tenant_id}/kb/{source_id}/reject",
+    openapi_extra=permission_meta("agents:write"),
+)
+async def reject_kb(
+    tenant_id: UUID,
+    source_id: UUID,
+    payload: RejectIn,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("agents:write", realm="admin")),
+) -> dict[str, str]:
+    async with tenant_session(tenant_id) as scoped:
+        await kb_service.reject_source(scoped, source_id=source_id, reason=payload.reason)
+    await write_audit(
+        session,
+        action="kb.rejected",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="kb_source",
+        object_id=str(source_id),
+        ip=request.client.host if request.client else None,
+        summary={"reason": payload.reason},
+    )
+    return {"status": "rejected"}
+
+
+@router.post(
+    "/tenants/{tenant_id}/kb/{source_id}/publish",
+    response_model=PublishOut,
+    openapi_extra=permission_meta("agents:write"),
+    summary="Push to the engine KB and make this the active version",
+    description="Rollback is republishing an earlier version (FLOWS §7).",
+)
+async def publish_kb(
+    tenant_id: UUID,
+    source_id: UUID,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("agents:write", realm="admin")),
+) -> PublishOut:
+    async with tenant_session(tenant_id) as scoped:
+        version = await kb_service.publish_source(
+            scoped, tenant_id=tenant_id, source_id=source_id
+        )
+    await write_audit(
+        session,
+        action="kb.published",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="kb_source",
+        object_id=str(source_id),
+        ip=request.client.host if request.client else None,
+        summary={"version": version},
+    )
+    return PublishOut(source_id=source_id, version=version, status="live")
 
 
 __all__ = ["router"]
