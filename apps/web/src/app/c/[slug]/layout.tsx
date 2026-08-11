@@ -25,6 +25,7 @@ function Nav({ slug }: { slug: string }) {
     { href: `/c/${slug}/campaigns`, label: "Campaigns" },
     { href: `/c/${slug}/knowledge`, label: "Knowledge" },
     { href: `/c/${slug}/integrations`, label: "Integrations" },
+    { href: `/c/${slug}/lead-sources`, label: "Lead sources" },
     { href: `/c/${slug}/performance`, label: "Performance" },
     { href: `/c/${slug}/attention`, label: "Needs attention" },
     { href: `/c/${slug}/usage`, label: "Usage" },

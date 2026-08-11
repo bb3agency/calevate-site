@@ -863,6 +863,11 @@ available", built on the reliability triad that already records everything neede
   without dialling. Tested against a live DNC entry.
 - These live on a separate `/v1/lead-sources` router with the normal auth stack —
   NOT under `/hooks`, which is the never-shed, secret-authenticated machine surface.
+- **Screen**: `/c/{slug}/lead-sources` — a "Try a sample lead" form whose button says
+  what matters ("Run test — no call is placed"), step-by-step ✓/✗ results, and the
+  deliveries table with a "retries absorbed" column. Verified in a browser against
+  live data (one accepted delivery, one retry absorbed, dry run refusing on
+  calling_hours at 07:48 IST).
 
 197 tests.
 
