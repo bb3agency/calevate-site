@@ -47,6 +47,14 @@ export function useTenants(): UseQueryResult<TenantSummary[]> {
   });
 }
 
+export function useTenant(tenantId: string): UseQueryResult<TenantSummary> {
+  return useQuery({
+    queryKey: ["admin", "tenant", tenantId],
+    queryFn: () => apiRequest<TenantSummary>(adminSession(), `/v1/admin/tenants/${tenantId}`),
+    enabled: Boolean(tenantId),
+  });
+}
+
 export function useCreateTenant() {
   const client = useQueryClient();
   return useMutation({
@@ -156,5 +164,104 @@ export function useKbDecision(tenantId: string) {
         },
       ),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "kb"] }),
+  });
+}
+
+/**
+ * Campaign prerequisites — the two things every client campaign stalls on until an
+ * operator does them (SEC-COMP §3). Read through impersonation, written through the
+ * admin surface: same D-22 split as the KB queue, for the same reason.
+ */
+export function useTenantNumbers(slug: string) {
+  return useQuery({
+    queryKey: ["admin", "numbers", slug],
+    queryFn: () =>
+      apiRequest<components["schemas"]["NumberOut"][]>(
+        viewAsSession(slug),
+        "/v1/campaigns/numbers",
+      ),
+    enabled: Boolean(slug),
+  });
+}
+
+export function useTenantTemplates(slug: string) {
+  return useQuery({
+    queryKey: ["admin", "templates", slug],
+    queryFn: () =>
+      apiRequest<components["schemas"]["TemplateOut"][]>(
+        viewAsSession(slug),
+        "/v1/campaigns/templates",
+      ),
+    enabled: Boolean(slug),
+  });
+}
+
+export function useProvisionNumber(tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { e164: string; series: "140" | "160" | "standard" }) =>
+      apiRequest<components["schemas"]["NumberCreatedOut"]>(
+        adminSession(),
+        `/v1/admin/tenants/${tenantId}/numbers`,
+        { method: "POST", body: payload },
+      ),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "numbers"] }),
+  });
+}
+
+export function useSetNumberDltStatus(tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      numberId,
+      dltStatus,
+    }: {
+      numberId: string;
+      dltStatus: "pending" | "registered" | "blocked";
+    }) =>
+      apiRequest<Record<string, string>>(
+        adminSession(),
+        `/v1/admin/tenants/${tenantId}/numbers/${numberId}/dlt-status`,
+        { method: "POST", body: { dlt_status: dltStatus } },
+      ),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "numbers"] }),
+  });
+}
+
+export function useRegisterTemplate(tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      classification: "promotional" | "transactional" | "service";
+      body: string;
+      dlt_ref?: string | null;
+    }) =>
+      apiRequest<Record<string, string>>(
+        adminSession(),
+        `/v1/admin/tenants/${tenantId}/dlt-templates`,
+        { method: "POST", body: payload },
+      ),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "templates"] }),
+  });
+}
+
+export function useSetTemplateStatus(tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      templateId,
+      status,
+      dltRef,
+    }: {
+      templateId: string;
+      status: "approved" | "rejected" | "submitted";
+      dltRef?: string;
+    }) =>
+      apiRequest<Record<string, string>>(
+        adminSession(),
+        `/v1/admin/tenants/${tenantId}/dlt-templates/${templateId}/status`,
+        { method: "POST", body: { status, ...(dltRef ? { dlt_ref: dltRef } : {}) } },
+      ),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "templates"] }),
   });
 }

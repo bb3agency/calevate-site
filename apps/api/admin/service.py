@@ -261,7 +261,9 @@ async def accept_invitation(session: AsyncSession, *, raw_token: str, user_id: U
     return UUID(str(tenant_id))
 
 
-async def tenant_overview(session: AsyncSession) -> list[dict[str, Any]]:
+async def tenant_overview(
+    session: AsyncSession, *, tenant_id: UUID | None = None
+) -> list[dict[str, Any]]:
     """The admin's client-health list.
 
     Two passes, deliberately. The DIRECTORY (names, slugs, status) comes from the
@@ -275,12 +277,17 @@ async def tenant_overview(session: AsyncSession) -> list[dict[str, Any]]:
     table for a dashboard. Revisit with a materialized `tenant_health` table if the
     client list ever gets long enough to notice — not before.
     """
+    # `tenant_id` narrows the SAME query to one client. The detail screen used to pull
+    # the whole list and find its client in the browser, which pays the N+1 above once
+    # per page view for a single row.
     directory = (
         await session.execute(
             text(
                 "SELECT id, name, slug, status, vertical_template FROM organizations "
-                "WHERE deleted_at IS NULL ORDER BY created_at DESC"
-            )
+                "WHERE deleted_at IS NULL AND (CAST(:tid AS uuid) IS NULL OR id = CAST(:tid AS uuid)) "
+                "ORDER BY created_at DESC"
+            ),
+            {"tid": tenant_id},
         )
     ).all()
 

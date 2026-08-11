@@ -107,6 +107,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One client's health — the detail screen should not fetch the whole list */
+        get: operations["get_tenant_v1_admin_tenants__tenant_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/dlt-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register a voice template — created `submitted`, never `approved` */
+        post: operations["register_template_v1_admin_tenants__tenant_id__dlt_templates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/dlt-templates/{template_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve or reject per the registrar — `approved` unlocks the launch gate */
+        post: operations["set_template_status_v1_admin_tenants__tenant_id__dlt_templates__template_id__status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/impersonate": {
         parameters: {
             query?: never;
@@ -189,6 +240,40 @@ export interface paths {
         put?: never;
         /** Reject Kb */
         post: operations["reject_kb_v1_admin_tenants__tenant_id__kb__source_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/numbers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Provision a calling number — the series is the compliance-bearing field */
+        post: operations["provision_number_v1_admin_tenants__tenant_id__numbers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/numbers/{number_id}/dlt-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record what the DLT registrar decided about this number */
+        post: operations["set_number_dlt_status_v1_admin_tenants__tenant_id__numbers__number_id__dlt_status_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1032,6 +1117,14 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /** DltStatusIn */
+        DltStatusIn: {
+            /**
+             * Dlt Status
+             * @enum {string}
+             */
+            dlt_status: "pending" | "registered" | "blocked";
+        };
         /** ExtractionField */
         ExtractionField: {
             /**
@@ -1172,6 +1265,20 @@ export interface components {
             /** User Id */
             user_id: string | null;
         };
+        /** NumberCreatedOut */
+        NumberCreatedOut: {
+            /** Dlt Status */
+            dlt_status: string;
+            /** E164 */
+            e164: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Series */
+            series: string;
+        };
         /** NumberOut */
         NumberOut: {
             /** Dlt Status */
@@ -1233,12 +1340,40 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** ProvisionNumberIn */
+        ProvisionNumberIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** E164 */
+            e164: string;
+            /** Provider */
+            provider?: string | null;
+            /** Purpose */
+            purpose?: string | null;
+            /**
+             * Series
+             * @enum {string}
+             */
+            series: "140" | "160" | "standard";
+        };
         /** RecordingLinkOut */
         RecordingLinkOut: {
             /** Expires In S */
             expires_in_s: number;
             /** Url */
             url: string;
+        };
+        /** RegisterTemplateIn */
+        RegisterTemplateIn: {
+            /** Body */
+            body: string;
+            /**
+             * Classification
+             * @enum {string}
+             */
+            classification: "promotional" | "transactional" | "service";
+            /** Dlt Ref */
+            dlt_ref?: string | null;
         };
         /** RejectIn */
         RejectIn: {
@@ -1324,6 +1459,16 @@ export interface components {
             id: string;
             /** Status */
             status: string;
+        };
+        /** TemplateStatusIn */
+        TemplateStatusIn: {
+            /** Dlt Ref */
+            dlt_ref?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "submitted" | "approved" | "rejected";
         };
         /** TenantSummary */
         TenantSummary: {
@@ -1624,6 +1769,112 @@ export interface operations {
             };
         };
     };
+    get_tenant_v1_admin_tenants__tenant_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantSummary"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    register_template_v1_admin_tenants__tenant_id__dlt_templates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterTemplateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_template_status_v1_admin_tenants__tenant_id__dlt_templates__template_id__status_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateStatusIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     start_impersonation_v1_admin_tenants__tenant_id__impersonate_post: {
         parameters: {
             query?: never;
@@ -1771,6 +2022,79 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RejectIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    provision_number_v1_admin_tenants__tenant_id__numbers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProvisionNumberIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NumberCreatedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_number_dlt_status_v1_admin_tenants__tenant_id__numbers__number_id__dlt_status_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                number_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DltStatusIn"];
             };
         };
         responses: {

@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.agents import service as agents_service
 from apps.api.campaigns import service
 from apps.api.compliance.service import add_to_dnc
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
@@ -716,6 +717,92 @@ async def test_a_non_campaign_call_resolves_to_nothing() -> None:
             )
             is None
         )
+
+
+async def test_a_number_already_owned_by_another_tenant_is_a_conflict_not_a_500() -> None:
+    """RLS hides the other tenant's row, so a "is this taken?" probe would answer
+    "available" for exactly the number that is not. The unique index is the authority
+    and its violation has to surface as a clean 409."""
+    tenant_a, _ = await _tenant()
+    tenant_b, _ = await _tenant()
+    number = f"+9180{uuid.uuid4().int % 100000000:08d}"
+
+    async with tenant_session(tenant_a) as session:
+        await agents_service.provision_number(
+            session,
+            tenant_id=tenant_a,
+            e164=number,
+            series="140",
+            agent_id=None,
+            provider="exotel",
+            purpose="campaigns",
+        )
+    async with tenant_session(tenant_b) as session:
+        # From B's side the number is invisible — and still unavailable.
+        assert (
+            await session.execute(
+                text("SELECT count(*) FROM phone_numbers WHERE e164 = :e"), {"e": number}
+            )
+        ).scalar() == 0
+        with pytest.raises(ProblemError) as excinfo:
+            await agents_service.provision_number(
+                session,
+                tenant_id=tenant_b,
+                e164=number,
+                series="140",
+                agent_id=None,
+                provider="exotel",
+                purpose="campaigns",
+            )
+    assert excinfo.value.code == "number_taken"
+    assert excinfo.value.kind == "conflict"
+
+
+async def test_a_registered_template_starts_submitted_and_only_admin_approval_moves_it() -> None:
+    """A template we mark approved because we typed it in is how a campaign launches
+    under a registration that does not exist."""
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        number_id = await _number(session, tenant_id, "140")
+        template_id = await service.register_dlt_template(
+            session,
+            tenant_id=tenant_id,
+            classification="promotional",
+            body="Hello from {#var#}, calling about your enquiry with us.",
+            dlt_ref=None,
+        )
+        campaign_id = await service.create_campaign(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Diwali offers",
+            classification="promotional",
+            number_id=number_id,
+            dlt_template_id=template_id,
+            concurrency=3,
+        )
+        await service.add_contacts(
+            session,
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+            contacts=[{"phone": "9876500001"}],
+        )
+        before = await service.launch_blockers(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+        await service.set_template_status(
+            session, template_id=template_id, status="approved", dlt_ref="1207161234567890123"
+        )
+        after = await service.launch_blockers(session, tenant_id=tenant_id, campaign_id=campaign_id)
+        ref = (
+            await session.execute(
+                text("SELECT dlt_ref FROM dlt_templates WHERE id = :id"), {"id": template_id}
+            )
+        ).scalar()
+
+    assert [b.rule for b in before] == ["dlt_template_not_approved"]
+    assert after == [], "the registrar's approval is what unlocks the gate"
+    assert ref == "1207161234567890123", "and the registrar's id is kept with it"
 
 
 async def test_the_setup_lists_the_ui_needs_are_tenant_scoped_and_ordered() -> None:

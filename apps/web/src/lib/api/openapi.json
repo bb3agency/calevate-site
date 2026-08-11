@@ -926,6 +926,25 @@
         "title": "DashboardOut",
         "type": "object"
       },
+      "DltStatusIn": {
+        "additionalProperties": false,
+        "properties": {
+          "dlt_status": {
+            "enum": [
+              "pending",
+              "registered",
+              "blocked"
+            ],
+            "title": "Dlt Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dlt_status"
+        ],
+        "title": "DltStatusIn",
+        "type": "object"
+      },
       "ExtractionField": {
         "additionalProperties": false,
         "properties": {
@@ -1311,6 +1330,36 @@
         "title": "MeOut",
         "type": "object"
       },
+      "NumberCreatedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "dlt_status": {
+            "title": "Dlt Status",
+            "type": "string"
+          },
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "series": {
+            "title": "Series",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "e164",
+          "series",
+          "dlt_status"
+        ],
+        "title": "NumberCreatedOut",
+        "type": "object"
+      },
       "NumberOut": {
         "additionalProperties": false,
         "properties": {
@@ -1488,6 +1537,69 @@
         "title": "ProgressOut",
         "type": "object"
       },
+      "ProvisionNumberIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "e164": {
+            "maxLength": 20,
+            "minLength": 8,
+            "pattern": "^\\+[1-9]\\d{7,18}$",
+            "title": "E164",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          },
+          "series": {
+            "enum": [
+              "140",
+              "160",
+              "standard"
+            ],
+            "title": "Series",
+            "type": "string"
+          }
+        },
+        "required": [
+          "e164",
+          "series"
+        ],
+        "title": "ProvisionNumberIn",
+        "type": "object"
+      },
       "RecordingLinkOut": {
         "additionalProperties": false,
         "properties": {
@@ -1505,6 +1617,44 @@
           "expires_in_s"
         ],
         "title": "RecordingLinkOut",
+        "type": "object"
+      },
+      "RegisterTemplateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 2000,
+            "minLength": 10,
+            "title": "Body",
+            "type": "string"
+          },
+          "classification": {
+            "enum": [
+              "promotional",
+              "transactional",
+              "service"
+            ],
+            "title": "Classification",
+            "type": "string"
+          },
+          "dlt_ref": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dlt Ref"
+          }
+        },
+        "required": [
+          "classification",
+          "body"
+        ],
+        "title": "RegisterTemplateIn",
         "type": "object"
       },
       "RejectIn": {
@@ -1709,6 +1859,38 @@
           "body"
         ],
         "title": "TemplateOut",
+        "type": "object"
+      },
+      "TemplateStatusIn": {
+        "additionalProperties": false,
+        "properties": {
+          "dlt_ref": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dlt Ref"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "submitted",
+              "approved",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "TemplateStatusIn",
         "type": "object"
       },
       "TenantSummary": {
@@ -2128,6 +2310,164 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}": {
+      "get": {
+        "operationId": "get_tenant_v1_admin_tenants__tenant_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One client's health \u2014 the detail screen should not fetch the whole list",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/dlt-templates": {
+      "post": {
+        "operationId": "register_template_v1_admin_tenants__tenant_id__dlt_templates_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterTemplateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Register Template V1 Admin Tenants  Tenant Id  Dlt Templates Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Register a voice template \u2014 created `submitted`, never `approved`",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/dlt-templates/{template_id}/status": {
+      "post": {
+        "operationId": "set_template_status_v1_admin_tenants__tenant_id__dlt_templates__template_id__status_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateStatusIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Set Template Status V1 Admin Tenants  Tenant Id  Dlt Templates  Template Id  Status Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Approve or reject per the registrar \u2014 `approved` unlocks the launch gate",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/impersonate": {
       "post": {
         "operationId": "start_impersonation_v1_admin_tenants__tenant_id__impersonate_post",
@@ -2389,6 +2729,120 @@
           "admin"
         ],
         "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/numbers": {
+      "post": {
+        "operationId": "provision_number_v1_admin_tenants__tenant_id__numbers_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProvisionNumberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NumberCreatedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Provision a calling number \u2014 the series is the compliance-bearing field",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/numbers/{number_id}/dlt-status": {
+      "post": {
+        "operationId": "set_number_dlt_status_v1_admin_tenants__tenant_id__numbers__number_id__dlt_status_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Number Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DltStatusIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Set Number Dlt Status V1 Admin Tenants  Tenant Id  Numbers  Number Id  Dlt Status Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record what the DLT registrar decided about this number",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/agents": {
@@ -3216,7 +3670,7 @@
         "tags": [
           "knowledge-base"
         ],
-        "x-calevate-permission": "kb:write"
+        "x-calevate-permission": "agents:read"
       },
       "post": {
         "operationId": "submit_v1_kb_sources_post",
@@ -3296,7 +3750,7 @@
         "tags": [
           "knowledge-base"
         ],
-        "x-calevate-permission": "kb:write"
+        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/leads": {

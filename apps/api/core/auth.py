@@ -40,7 +40,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import MUTATING_PERMISSIONS, Permission, role_has
 from apps.api.core.settings import get_settings
-from apps.api.db.session import untenanted_session, user_session
+from apps.api.db.session import admin_session, untenanted_session, user_session
 
 log = get_logger(__name__)
 
@@ -206,7 +206,14 @@ async def _load_client_principal(verified: VerifiedToken, org_slug: str | None) 
 
 
 async def _load_admin_principal(verified: VerifiedToken, impersonate_slug: str | None) -> Principal:
-    async with untenanted_session() as session:
+    # `admin_session`, not `untenanted_session`: resolving an impersonation slug is a
+    # read of the tenant DIRECTORY, and `organizations` is RLS'd on `app.tenant_id` or
+    # a membership — an operator has neither. Under the untenanted session the lookup
+    # saw zero rows and every "view as client" request 404'd on a tenant that exists.
+    # `app.admin` widens USING on `organizations` alone (migration b57e2f9c4a13) and
+    # widens no WITH CHECK anywhere, which is exactly the authority this needs: the
+    # admin identity is verified from `admin_users` in the same session, first.
+    async with admin_session() as session:
         row = (
             await session.execute(
                 text("SELECT id, role FROM admin_users WHERE clerk_user_id = :cid"),

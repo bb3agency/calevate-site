@@ -308,6 +308,55 @@ async def set_campaign_status(
         raise InvalidStatusTransitionError("campaign", f"not in {from_statuses}", to_status)
 
 
+async def register_dlt_template(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    classification: str,
+    body: str,
+    dlt_ref: str | None,
+) -> UUID:
+    """Record the voice template the client registered with their DLT registrar.
+
+    Created `submitted`, never `approved`: approval happens at the registrar, and a
+    template we mark approved because we typed it in is how a campaign launches under a
+    template the operator never actually registered. `set_template_status` is the
+    separate, audited step that records what the registrar decided.
+    """
+    template_id = uuid7()
+    await session.execute(
+        text(
+            "INSERT INTO dlt_templates (id, tenant_id, kind, classification, body, dlt_ref, "
+            "status, created_at, updated_at) VALUES (:id, :tid, 'voice', :cls, :body, :ref, "
+            "'submitted', now(), now())"
+        ),
+        {
+            "id": template_id,
+            "tid": tenant_id,
+            "cls": classification,
+            "body": body,
+            "ref": dlt_ref,
+        },
+    )
+    return template_id
+
+
+async def set_template_status(
+    session: AsyncSession, *, template_id: UUID, status: str, dlt_ref: str | None = None
+) -> None:
+    """What the registrar decided. `approved` is what unlocks the launch gate, so this
+    is an audited admin action, not a field the client can edit."""
+    result = await session.execute(
+        text(
+            "UPDATE dlt_templates SET status = :st, "
+            "dlt_ref = COALESCE(:ref, dlt_ref), updated_at = now() WHERE id = :id"
+        ),
+        {"st": status, "ref": dlt_ref, "id": template_id},
+    )
+    if rowcount_of(result) == 0:
+        raise ProblemError.not_found("DLT template")
+
+
 async def list_campaigns(session: AsyncSession) -> list[dict[str, Any]]:
     """Newest first, with the two counts the list actually needs.
 
@@ -379,5 +428,7 @@ __all__ = [
     "launch_blockers",
     "launch_campaign",
     "list_campaigns",
+    "register_dlt_template",
     "set_campaign_status",
+    "set_template_status",
 ]

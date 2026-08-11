@@ -294,3 +294,62 @@ async def test_the_invite_guc_grants_no_writes_and_no_other_rows() -> None:
                 ),
                 {"i": uuid.uuid4(), "t": created["id"], "h": "deadbeef" * 8},
             )
+
+
+async def test_view_as_client_actually_resolves_the_tenant(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: "view as client" 404'd on every tenant that exists.
+
+    The impersonation slug was resolved under `untenanted_session`, where
+    `organizations` is RLS'd on `app.tenant_id` or a membership — an operator has
+    neither, so the lookup saw zero rows and raised "Organization not found" for a
+    live client. Reading the client directory is precisely what `app.admin` (and only
+    `admin_session`) is for.
+    """
+    token = await _make_admin()
+    created = await service.create_organization(
+        name="Impersonation Clinic",
+        slug=f"imp-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    slug = created["slug"]
+
+    async with _client() as http:
+        seen = await http.get(
+            "/v1/agents",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Org-Slug": slug,
+                "X-Impersonate-Org": slug,
+            },
+        )
+        # D-22 still holds: read-only. A mutation through the impersonated session is
+        # refused, which is the other half of the same feature.
+        blocked = await http.post(
+            "/v1/kb/sources",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Org-Slug": slug,
+                "X-Impersonate-Org": slug,
+            },
+            json={
+                "agent_id": str(created["agent_id"]),
+                "name": "Hours",
+                "body": "9 to 5",
+                "kind": "text",
+            },
+        )
+        unknown = await http.get(
+            "/v1/agents",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Org-Slug": "no-such-client",
+                "X-Impersonate-Org": "no-such-client",
+            },
+        )
+
+    assert seen.status_code == 200, seen.text
+    assert blocked.status_code == 403, "impersonation is read-only (D-22)"
+    assert unknown.status_code == 404, "a slug that does not exist is still a 404"

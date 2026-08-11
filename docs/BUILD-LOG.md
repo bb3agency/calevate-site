@@ -640,18 +640,58 @@ invocation died with "nextVitals is not iterable". Now bridged with `FlatCompat`
 the lockfile diff adds no new packages, only the direct link to the version already in
 the tree. The app lints clean.
 
+**33. Campaign prerequisites in the admin console** — `apps/api/admin/routes.py`,
+`apps/web/src/app/admin/tenants/[tenantId]/`
+
+Numbers and DLT templates are the two things every client campaign stalls on, and both
+are OUR operational work: we buy the number, we file the template with the registrar
+under the client's PE. So they are admin writes with a client-realm read, and the admin
+tenant page grows a "Campaign setup" panel that does both.
+
+- `POST /tenants/{id}/numbers` (+ `/dlt-status`) and `POST /tenants/{id}/dlt-templates`
+  (+ `/status`), all `admin:tenants`, all audited. The audit summary records the
+  **series**, never the number (hard rule 6).
+- **A template is created `submitted`, never `approved`.** Approval happens at the
+  registrar; a template we mark approved because we typed it in is how a campaign
+  launches under a registration that does not exist.
+- **The number uniqueness check is the index, not a probe.** `phone_numbers.e164` is
+  globally unique, but a probe runs under the provisioning tenant's RLS, which hides
+  another tenant's rows — it would report "available" for exactly the number that is
+  not, and the insert would surface as a 500. The IntegrityError becomes a clean 409.
+  Tested from both tenants' sides.
+
+Three latent bugs surfaced while wiring the screen, each now pinned by a test that was
+first confirmed to FAIL against the old code:
+
+1. **"View as client" 404'd on every tenant that exists.** The impersonation slug was
+   resolved under `untenanted_session`, where `organizations` is RLS'd on
+   `app.tenant_id` or a membership — an operator has neither, so the lookup saw zero
+   rows and raised "Organization not found" for a live client. Reading the client
+   directory is exactly what `admin_session` (`app.admin`, USING-only) exists for.
+   D-22's read-only half is asserted in the same test.
+2. **The KB approval queue could never be read.** Both KB *reads* were gated on
+   `kb:write`; the queue is read through impersonation, impersonation refuses every
+   MUTATING permission, and `kb:write` is one. They are `agents:read` now — reading
+   what an agent knows is an agent read; only submitting changes what it says. The
+   test asserts the general property (no KB read may be gated on a mutating
+   permission), so the next such route cannot regress it quietly.
+3. **The tenant detail page fetched the whole client directory to find one row** —
+   and that list is N+1 by design (per-tenant counts under each tenant's own RLS).
+   Added `GET /v1/admin/tenants/{id}`, the same query narrowed to one client.
+
+`(:tid IS NULL OR id = :tid)` needed an explicit `CAST(:tid AS uuid)` — Postgres cannot
+infer a bare NULL parameter's type, and the full suite caught it on the list path.
+
+150 tests.
+
 ### Where the next session should start
 
-1. **Admin-side campaign setup**: numbers and DLT templates are readable by the client
-   but only writable through SQL. The admin console needs screens to provision a number
-   (with its series) and register a DLT template, or every client campaign stalls on
-   the same two blockers.
-2. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
+1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
    which needs client #1 in the room rather than more code) and **OTel spans** (Sentry
    and the Langfuse hook are wired; distributed tracing is not).
 3. Remaining M2 openers: WhatsApp alerts, self-serve signup UI, Razorpay top-ups into
    `credit_ledger`, outbound CRM sync (D-23).
 4. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (146 tests),
+5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (150 tests),
    `uv run mypy apps packages`, `make guardrails` and `pnpm -C apps/web lint` before changing anything.

@@ -17,12 +17,14 @@ from uuid import UUID
 
 from calevate_shared.engine import AgentConfig, CallContext, ModelConfig
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
+from apps.api.db.result import rowcount_of
 from apps.api.engine import get_engine
 
 log = get_logger(__name__)
@@ -176,4 +178,65 @@ async def dispatch_call(
     return handle
 
 
-__all__ = ["dispatch_call", "publish_agent"]
+async def provision_number(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    e164: str,
+    series: str,
+    agent_id: UUID | None,
+    provider: str | None,
+    purpose: str | None,
+) -> UUID:
+    """Record a number the tenant may dial from (DATA-MODEL §6, admin-only).
+
+    `series` is the load-bearing field: it is what the campaign launch gate matches
+    against the campaign's classification, so getting it wrong here is a DLT violation
+    later. `dlt_status` starts `pending` and is a separate deliberate step — a number
+    is not registered because we typed it in.
+
+    The number is globally unique (`phone_numbers.e164`), and the collision is caught
+    from the UNIQUE INDEX rather than by probing first — deliberately. A probe runs
+    under this tenant's RLS, which hides another tenant's rows, so it would report
+    "available" for exactly the number that is not, and the insert would then surface
+    as a 500. The index sees all tenants because it is the database's, not the
+    session's. This is the one place where letting the constraint be the authority is
+    the *only* correct answer short of widening RLS for a uniqueness question.
+    """
+    number_id = uuid7()
+    try:
+        await session.execute(
+            text(
+                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, provider, "
+                "dlt_status, purpose, created_at, updated_at) VALUES (:id, :tid, :aid, :e, :s, "
+                ":prov, 'pending', :purpose, now(), now())"
+            ),
+            {
+                "id": number_id,
+                "tid": tenant_id,
+                "aid": agent_id,
+                "e": e164,
+                "s": series,
+                "prov": provider,
+                "purpose": purpose,
+            },
+        )
+    except IntegrityError as exc:
+        raise ProblemError.conflict(
+            "number_taken",
+            "This number is already provisioned.",
+            remediation="It may belong to another account — check before reassigning it.",
+        ) from exc
+    return number_id
+
+
+async def set_number_dlt_status(session: AsyncSession, *, number_id: UUID, dlt_status: str) -> None:
+    result = await session.execute(
+        text("UPDATE phone_numbers SET dlt_status = :st, updated_at = now() WHERE id = :id"),
+        {"st": dlt_status, "id": number_id},
+    )
+    if rowcount_of(result) == 0:
+        raise ProblemError.not_found("Number")
+
+
+__all__ = ["dispatch_call", "provision_number", "publish_agent", "set_number_dlt_status"]

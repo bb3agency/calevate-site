@@ -14,6 +14,7 @@ from apps.api.admin import service as admin_service
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb import service
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
 
@@ -182,3 +183,98 @@ async def test_approval_lives_on_the_admin_surface_not_behind_impersonation() ->
     for action in ("approve", "reject", "publish"):
         assert f"/v1/kb/sources/{{source_id}}/{action}" not in paths
         assert f"/v1/admin/tenants/{{tenant_id}}/kb/{{source_id}}/{action}" in paths
+
+
+async def test_the_approval_queue_is_readable_through_impersonation() -> None:
+    """Regression: the admin console's KB queue could never be read.
+
+    Both KB reads were gated on `kb:write`. The queue is read through impersonation
+    (D-22), impersonation refuses every MUTATING permission, and `kb:write` is one — so
+    the operator's approval screen 403'd on the list it exists to show. Reading what an
+    agent knows is an agent read; only submitting changes what it says.
+    """
+    import uuid as _uuid
+
+    from apps.api.core.rbac import MUTATING_PERMISSIONS, iter_api_routes
+    from apps.api.main import app
+
+    assert "kb:write" in MUTATING_PERMISSIONS, "the premise: writing knowledge is a mutation"
+
+    kb_reads = {
+        (route.path, tuple(sorted(route.methods)))
+        for route in iter_api_routes(app)
+        if route.path.startswith("/v1/kb/") and "GET" in route.methods
+    }
+    assert kb_reads, "the KB read routes must still exist"
+    for route in iter_api_routes(app):
+        if not route.path.startswith("/v1/kb/") or "GET" not in route.methods:
+            continue
+        declared = (getattr(route, "openapi_extra", None) or {}).get("x-calevate-permission")
+        assert declared not in MUTATING_PERMISSIONS, (
+            f"{route.path} is a read gated on the mutating permission {declared!r}; "
+            "an impersonating operator can never call it"
+        )
+
+    # And end to end: an operator viewing a client can see the queue.
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    async with tenant_session(tenant_id) as session:
+        await service.submit_source(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Hours",
+            body="The clinic is open 9am to 8pm, Monday to Saturday.",
+            kind="text",
+            uri=None,
+            submitted_by=None,
+        )
+    slug = await _slug_of(tenant_id)
+    admin_token = await _make_admin_token()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        listed = await http.get(
+            "/v1/kb/sources?status=pending_approval",
+            headers={
+                "Authorization": f"Bearer {admin_token}",
+                "X-Org-Slug": slug,
+                "X-Impersonate-Org": slug,
+            },
+        )
+        submitted = await http.post(
+            "/v1/kb/sources",
+            headers={
+                "Authorization": f"Bearer {admin_token}",
+                "X-Org-Slug": slug,
+                "X-Impersonate-Org": slug,
+            },
+            json={"agent_id": str(agent_id), "name": "Sneaky", "body": "x" * 20, "kind": "text"},
+        )
+    assert listed.status_code == 200, listed.text
+    assert len(listed.json()) == 1
+    assert submitted.status_code == 403, "reading is allowed; writing through impersonation is not"
+    del _uuid
+
+
+async def _slug_of(tenant_id: uuid.UUID) -> str:
+    from apps.api.db.session import admin_session
+
+    async with admin_session() as session:
+        return str(
+            (
+                await session.execute(
+                    text("SELECT slug FROM organizations WHERE id = :t"), {"t": tenant_id}
+                )
+            ).scalar()
+        )
+
+
+async def _make_admin_token() -> str:
+    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
+                "VALUES (:id, :cid, 'Ops', 'superadmin', now(), now())"
+            ),
+            {"id": uuid.uuid4(), "cid": clerk_id},
+        )
+    return f"dev:admin:{clerk_id}"

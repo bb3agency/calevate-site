@@ -21,6 +21,8 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service
+from apps.api.agents import service as agents_service
+from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import requires
 from apps.api.core.context import IMPERSONATE_HEADER, Principal
@@ -102,6 +104,23 @@ async def list_tenants(
     session: AdminSession, _: Principal = Depends(requires("admin:tenants", realm="admin"))
 ) -> list[TenantSummary]:
     return [TenantSummary.model_validate(row) for row in await service.tenant_overview(session)]
+
+
+@router.get(
+    "/tenants/{tenant_id}",
+    response_model=TenantSummary,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="One client's health — the detail screen should not fetch the whole list",
+)
+async def get_tenant(
+    tenant_id: UUID,
+    session: AdminSession,
+    _: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> TenantSummary:
+    rows = await service.tenant_overview(session, tenant_id=tenant_id)
+    if not rows:
+        raise ProblemError.not_found("Client")
+    return TenantSummary.model_validate(rows[0])
 
 
 @router.post(
@@ -324,6 +343,190 @@ async def publish_kb(
         summary={"version": version},
     )
     return PublishOut(source_id=source_id, version=version, status="live")
+
+
+# --------------------------------------------------------- campaign prerequisites
+#
+# Numbers and DLT templates are what the campaign launch gate checks (SEC-COMP §3),
+# and both are OUR operational work: we buy the number, we file the template with the
+# registrar under the client's PE. The client realm can read them (to pick one) but
+# never write them — a client who could mark their own template "approved" would be
+# launching under a registration that does not exist.
+
+
+class ProvisionNumberIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    e164: str = Field(min_length=8, max_length=20, pattern=r"^\+[1-9]\d{7,18}$")
+    # The series decides what the number may lawfully dial (DATA-MODEL §6).
+    series: Literal["140", "160", "standard"]
+    agent_id: UUID | None = None
+    provider: str | None = Field(default=None, max_length=60)
+    purpose: str | None = Field(default=None, max_length=120)
+
+
+class NumberCreatedOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    e164: str
+    series: str
+    dlt_status: str
+
+
+class DltStatusIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dlt_status: Literal["pending", "registered", "blocked"]
+
+
+class RegisterTemplateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    classification: Literal["promotional", "transactional", "service"]
+    body: str = Field(min_length=10, max_length=2000)
+    dlt_ref: str | None = Field(default=None, max_length=120)
+
+
+class TemplateStatusIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["draft", "submitted", "approved", "rejected"]
+    dlt_ref: str | None = Field(default=None, max_length=120)
+
+
+@router.post(
+    "/tenants/{tenant_id}/numbers",
+    response_model=NumberCreatedOut,
+    status_code=201,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Provision a calling number — the series is the compliance-bearing field",
+)
+async def provision_number(
+    tenant_id: UUID,
+    payload: ProvisionNumberIn,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> NumberCreatedOut:
+    async with tenant_session(tenant_id) as scoped:
+        number_id = await agents_service.provision_number(
+            scoped,
+            tenant_id=tenant_id,
+            e164=payload.e164,
+            series=payload.series,
+            agent_id=payload.agent_id,
+            provider=payload.provider,
+            purpose=payload.purpose,
+        )
+    await write_audit(
+        session,
+        action="number.provisioned",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="phone_number",
+        object_id=str(number_id),
+        ip=request.client.host if request.client else None,
+        # The series, never the number itself (hard rule 6).
+        summary={"series": payload.series},
+    )
+    return NumberCreatedOut(
+        id=number_id, e164=payload.e164, series=payload.series, dlt_status="pending"
+    )
+
+
+@router.post(
+    "/tenants/{tenant_id}/numbers/{number_id}/dlt-status",
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Record what the DLT registrar decided about this number",
+)
+async def set_number_dlt_status(
+    tenant_id: UUID,
+    number_id: UUID,
+    payload: DltStatusIn,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> dict[str, str]:
+    async with tenant_session(tenant_id) as scoped:
+        await agents_service.set_number_dlt_status(
+            scoped, number_id=number_id, dlt_status=payload.dlt_status
+        )
+    await write_audit(
+        session,
+        action="number.dlt_status_set",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="phone_number",
+        object_id=str(number_id),
+        ip=request.client.host if request.client else None,
+        summary={"dlt_status": payload.dlt_status},
+    )
+    return {"dlt_status": payload.dlt_status}
+
+
+@router.post(
+    "/tenants/{tenant_id}/dlt-templates",
+    openapi_extra=permission_meta("admin:tenants"),
+    status_code=201,
+    summary="Register a voice template — created `submitted`, never `approved`",
+)
+async def register_template(
+    tenant_id: UUID,
+    payload: RegisterTemplateIn,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> dict[str, str]:
+    async with tenant_session(tenant_id) as scoped:
+        template_id = await campaigns_service.register_dlt_template(
+            scoped,
+            tenant_id=tenant_id,
+            classification=payload.classification,
+            body=payload.body,
+            dlt_ref=payload.dlt_ref,
+        )
+    await write_audit(
+        session,
+        action="dlt_template.registered",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="dlt_template",
+        object_id=str(template_id),
+        ip=request.client.host if request.client else None,
+        summary={"classification": payload.classification},
+    )
+    return {"id": str(template_id), "status": "submitted"}
+
+
+@router.post(
+    "/tenants/{tenant_id}/dlt-templates/{template_id}/status",
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Approve or reject per the registrar — `approved` unlocks the launch gate",
+)
+async def set_template_status(
+    tenant_id: UUID,
+    template_id: UUID,
+    payload: TemplateStatusIn,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> dict[str, str]:
+    async with tenant_session(tenant_id) as scoped:
+        await campaigns_service.set_template_status(
+            scoped, template_id=template_id, status=payload.status, dlt_ref=payload.dlt_ref
+        )
+    await write_audit(
+        session,
+        action="dlt_template.status_set",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="dlt_template",
+        object_id=str(template_id),
+        ip=request.client.host if request.client else None,
+        summary={"status": payload.status},
+    )
+    return {"status": payload.status}
 
 
 __all__ = ["router"]

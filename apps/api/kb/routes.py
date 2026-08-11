@@ -70,11 +70,18 @@ class ChunkOut(Strict):
     chars: int
 
 
-@router.get("/sources", response_model=list[SourceOut], openapi_extra=permission_meta("kb:write"))
+# The two READS below are gated on `agents:read`, not `kb:write`. They were `kb:write`
+# and that made the admin console's approval queue permanently unreadable: the queue is
+# read through impersonation (D-22), impersonation refuses every MUTATING permission,
+# and `kb:write` is one. Reading what an agent knows is an agent read; only submitting
+# changes what it says.
+@router.get(
+    "/sources", response_model=list[SourceOut], openapi_extra=permission_meta("agents:read")
+)
 async def list_sources(
     session: Session,
     status: str | None = None,
-    _: Principal = Depends(requires("kb:write")),
+    _: Principal = Depends(requires("agents:read")),
 ) -> list[SourceOut]:
     return [SourceOut.model_validate(r) for r in await service.list_sources(session, status=status)]
 
@@ -108,11 +115,11 @@ async def submit(
 @router.get(
     "/sources/{source_id}/preview",
     response_model=list[ChunkOut],
-    openapi_extra=permission_meta("kb:write"),
+    openapi_extra=permission_meta("agents:read"),
     summary="Side-by-side preview of exactly what the agent would learn",
 )
 async def preview_source(
-    source_id: UUID, session: Session, _: Principal = Depends(requires("kb:write"))
+    source_id: UUID, session: Session, _: Principal = Depends(requires("agents:read"))
 ) -> list[ChunkOut]:
     return [ChunkOut.model_validate(c) for c in await service.preview(session, source_id)]
 
