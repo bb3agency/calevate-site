@@ -172,17 +172,22 @@ async def get_leads(
     agent_id: UUID | None = None,
     _: Principal = Depends(requires("leads:read")),
 ) -> LeadListOut:
-    items, total = await service.list_leads(
-        session, limit=limit, offset=offset, status=status, search=search
+    # `agent_id` filters the ROWS as well as choosing the columns. It used to do only
+    # the latter, which meant this route and the export disagreed about what the same
+    # query parameter meant, and a two-agent tenant read one agent's leads under the
+    # other's capture list. See `service._lead_scope` for the reasoning.
+    page = await service.list_leads_page(
+        session, limit=limit, offset=offset, status=status, search=search, agent_id=agent_id
     )
     return LeadListOut(
-        items=items,
+        items=page.items,
         # Columns travel with the rows so the frontend never hard-codes a client's
         # fields (TRD §7 (c)).
         columns=await service.lead_columns(session, agent_id),
-        total=total,
+        total=page.total,
         limit=limit,
         offset=offset,
+        status_counts_matching_search=page.status_counts,
     )
 
 
@@ -203,9 +208,19 @@ async def export_leads(
     session: Session,
     request: Request,
     agent_id: UUID | None = None,
+    # The SAME three filters `GET /v1/leads` takes, with the same meanings, so "export
+    # what I am looking at" is expressible. It accepted `agent_id` alone, so a client
+    # who filtered the table to `hot` and pressed Export downloaded every contact in the
+    # account with full numbers — the widest possible read of the narrowest possible
+    # request. Widening the filters does NOT widen the gate: this stays `calls:read_raw`
+    # and stays audited, and a narrower request is not a cheaper permission.
+    status: str | None = None,
+    search: str | None = Query(None, max_length=60),
     principal: Principal = Depends(requires("calls:read_raw")),
 ) -> Response:
-    csv_body = await service.export_leads_csv(session, agent_id=agent_id)
+    csv_body = await service.export_leads_csv(
+        session, agent_id=agent_id, status=status, search=search
+    )
     # An export leaves our redaction behind (SEC-COMP §4 says redaction runs BEFORE any
     # transcript leaves the system — a lead export is contact data, not transcript, and
     # is the client's own data — so it is audited rather than masked).
@@ -216,6 +231,17 @@ async def export_leads(
         tenant_id=principal.tenant_id,
         object_type="lead_export",
         ip=request.client.host if request.client else None,
+        # WHAT was taken, now that it can vary. "Exported four hot leads" and "exported
+        # the entire account" were the same audit row while `agent_id` was the only
+        # filter; they are the two ends of an incident and the record should tell them
+        # apart. `search` is recorded as a BOOLEAN and never as text — hard rule 6, and
+        # the search box accepts a phone suffix.
+        summary={
+            "status": status,
+            "agent_id": str(agent_id) if agent_id else None,
+            "searched": bool(search),
+            "rows": max(csv_body.count("\n") - 1, 0),
+        },
     )
     return Response(
         content=csv_body,

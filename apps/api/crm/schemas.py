@@ -87,9 +87,23 @@ class LeadListOut(Strict):
 
     items: list[LeadOut]
     columns: list[ExtractionField]
+    # Rows matching EVERY filter the request sent, `status` included — the denominator
+    # in "showing 50 of 140".
     total: int
     limit: int
     offset: int
+    # status → count for all six statuses, over the SAME search and agent scope as the
+    # page, but NOT narrowed by `status`. The name carries the scope on purpose: the
+    # screen renders this as a badge row, and the two wrong readings of an unlabelled
+    # `status_counts` are both damaging. Narrowed by status it would be one real number
+    # and five zeroes — which is exactly the bug this replaces, where filtering to `hot`
+    # told a client "new 0, contacted 0". Widened to the whole account it would be a
+    # different population from the rows above it, and would cost a second unfiltered
+    # scan on every keystroke of the debounced search.
+    #
+    # Always all six keys: a status with no leads answers 0 rather than going missing,
+    # so the UI never has to tell "none of these" apart from "the server did not say".
+    status_counts_matching_search: dict[str, int]
 
 
 class LeadUpdateIn(Strict):

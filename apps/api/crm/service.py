@@ -14,7 +14,7 @@ import io
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, get_args
 from uuid import UUID
 
 from calevate_shared.extraction import ExtractionField
@@ -28,11 +28,17 @@ from apps.api.crm.schemas import (
     CallSummaryOut,
     DashboardOut,
     LeadOut,
+    LeadStatus,
     TranscriptTurnOut,
 )
 from apps.api.db.result import rowcount_of
 
 MAX_PAGE = 200
+
+# Read off the response model's own Literal rather than retyped here, so the six
+# buckets the API promises and the six the DB CHECK constraint allows cannot drift
+# apart in a way that silently drops a status from every client's tally.
+LEAD_STATUSES: tuple[str, ...] = get_args(LeadStatus)
 
 # The CSV export is the one read here with no page to bound it, and it materializes
 # every row AND the whole file in the request. A tenant with 50k leads would turn one
@@ -203,6 +209,121 @@ async def lead_columns(
     return [ExtractionField.model_validate(f) for f in row[0]]
 
 
+def _lead_scope(
+    params: dict[str, Any],
+    *,
+    search: str | None,
+    agent_id: UUID | None,
+) -> list[str]:
+    """The filters that define WHICH leads a request is about, minus `status`.
+
+    Shared by the list, its per-status counts and the CSV export, so that "export what
+    I am looking at" is a property of one function rather than a coincidence between
+    three copies of a WHERE clause. `status` is deliberately not here: the counts need
+    the scope WITHOUT it (see `list_leads_page`).
+
+    `agent_id` filters ROWS. It used to select only the extraction schema that supplies
+    the table's COLUMNS while every agent's rows came back, so a two-agent tenant read
+    agent B's leads under agent A's capture list — and the export's own too-large
+    remediation ("Export one agent at a time with ?agent_id=") could never relieve the
+    cap it advertised. `leads.agent_id` is NOT NULL and part of
+    UNIQUE(tenant_id, phone_e164, agent_id), so a lead belongs to exactly one agent and
+    "rows for this agent" is well defined (DATA-MODEL §5).
+    """
+    clauses = ["deleted_at IS NULL"]
+    if search:
+        # Name or phone suffix. Never a LIKE on the full number in a logged query
+        # string — the route passes this as a bound parameter for that reason.
+        clauses.append("(name ILIKE :search OR phone_e164 LIKE :phone_suffix)")
+        params["search"] = f"%{search}%"
+        params["phone_suffix"] = f"%{search}"
+    if agent_id:
+        clauses.append("agent_id = :agent_id")
+        params["agent_id"] = agent_id
+    return clauses
+
+
+@dataclass(frozen=True, slots=True)
+class LeadPage:
+    """One page of leads, plus the two numbers that describe what it is a page OF."""
+
+    items: list[LeadOut]
+    # Rows matching EVERY filter, `status` included — what "showing 50 of 140" counts.
+    total: int
+    # status → count across ALL six statuses, for the same search/agent scope. Never
+    # narrowed by `status`, which is the whole reason it exists.
+    status_counts: dict[str, int]
+
+
+async def list_leads_page(
+    session: AsyncSession,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    status: str | None = None,
+    search: str | None = None,
+    agent_id: UUID | None = None,
+) -> LeadPage:
+    """A page of leads and a truthful per-status breakdown of the set it came from.
+
+    **Two queries, same as before.** The `SELECT count(*)` that produced `total` is now
+    a `GROUP BY status` over the scope MINUS the status filter, and `total` is read back
+    out of that map (or is its sum when no status is asked for). Same single pass over
+    the same rows, a hash aggregate over at most six groups on top, and no second trip:
+    the per-status counts are effectively free relative to the count we already paid
+    for. Costing them as a separate query would have doubled the scan on every keystroke
+    of the debounced search, which is the version of this that was not worth shipping.
+
+    The counts follow the SEARCH (and the agent scope) and ignore the STATUS filter.
+    That is the only combination that answers the question the UI is asking — "of what
+    I am looking at, how much sits in each stage" — and it is also the cheap one: a
+    whole-account breakdown next to a searched page would need its own unfiltered scan.
+    The response field is named `status_counts_matching_search` so a reader never has to
+    come here to find out which it is.
+    """
+    params: dict[str, Any] = {"limit": min(limit, MAX_PAGE), "offset": offset}
+    scope = _lead_scope(params, search=search, agent_id=agent_id)
+    scope_where = f"WHERE {' AND '.join(scope)}"
+
+    grouped = (
+        await session.execute(
+            text(f"SELECT status, count(*) FROM leads {scope_where} GROUP BY status"), params
+        )
+    ).all()
+    # Zero-fill: a status the tenant has none of must answer 0, not go missing. The UI
+    # renders one badge per status, and an absent key there is indistinguishable from a
+    # field the server failed to send.
+    counts = dict.fromkeys(LEAD_STATUSES, 0)
+    for name, count in grouped:
+        counts[str(name)] = int(count)
+    # A status outside the enum matches no rows, which is exactly what `.get(..., 0)`
+    # says — and the row query below independently agrees by returning nothing.
+    total = counts.get(status, 0) if status else sum(counts.values())
+
+    row_clauses = list(scope)
+    if status:
+        row_clauses.append("status = :status")
+        params["status"] = status
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, phone_e164, name, status, source, data, schema_version, "
+                "call_count, is_repeat_caller, last_call_id, created_at, updated_at "
+                f"FROM leads WHERE {' AND '.join(row_clauses)} "
+                # `id DESC` is not decoration. OFFSET pagination is only correct over a
+                # TOTAL order, and `updated_at` is not one: leads written by a single
+                # import share it to the microsecond, and Postgres is free to order ties
+                # differently per query — so a row lands on two pages while another
+                # lands on none, with `total` staying right throughout. Offset itself is
+                # kept deliberately (see the note in `list_leads`).
+                "ORDER BY updated_at DESC, id DESC LIMIT :limit OFFSET :offset"
+            ),
+            params,
+        )
+    ).all()
+    return LeadPage(items=[_lead_out(r) for r in rows], total=total, status_counts=counts)
+
+
 async def list_leads(
     session: AsyncSession,
     *,
@@ -210,34 +331,25 @@ async def list_leads(
     offset: int = 0,
     status: str | None = None,
     search: str | None = None,
+    agent_id: UUID | None = None,
 ) -> tuple[list[LeadOut], int]:
-    clauses = ["deleted_at IS NULL"]
-    params: dict[str, Any] = {"limit": min(limit, MAX_PAGE), "offset": offset}
-    if status:
-        clauses.append("status = :status")
-        params["status"] = status
-    if search:
-        # Name or phone suffix. Never a LIKE on the full number in a logged query
-        # string — the route passes this as a bound parameter for that reason.
-        clauses.append("(name ILIKE :search OR phone_e164 LIKE :phone_suffix)")
-        params["search"] = f"%{search}%"
-        params["phone_suffix"] = f"%{search}"
-    where = f"WHERE {' AND '.join(clauses)}"
+    """Rows and total only, for callers that do not want the status breakdown.
 
-    total = (
-        await session.execute(text(f"SELECT count(*) FROM leads {where}"), params)
-    ).scalar() or 0
-    rows = (
-        await session.execute(
-            text(
-                "SELECT id, phone_e164, name, status, source, data, schema_version, "
-                "call_count, is_repeat_caller, last_call_id, created_at, updated_at "
-                f"FROM leads {where} ORDER BY updated_at DESC LIMIT :limit OFFSET :offset"
-            ),
-            params,
-        )
-    ).all()
-    return [_lead_out(r) for r in rows], int(total)
+    Kept as the plain two-value read on top of `list_leads_page`; it costs the same
+    queries, so there is no reason for a caller to reach past it for speed.
+
+    On pagination: this stays LIMIT/OFFSET, and that is a decision rather than an
+    oversight. Keyset pagination is the right answer at a size this product does not
+    have — the page is capped at 200 rows, the largest tenant we plan for is tens of
+    thousands of leads, and `total` plus "jump to page N" are both in the shipped
+    contract and both incompatible with a cursor. What actually broke at scale was the
+    ORDER BY, not the OFFSET, and that is fixed above. Revisit when a single tenant's
+    lead table passes six figures or the UI grows infinite scroll.
+    """
+    page = await list_leads_page(
+        session, limit=limit, offset=offset, status=status, search=search, agent_id=agent_id
+    )
+    return page.items, page.total
 
 
 def _lead_out(r: Any) -> LeadOut:
@@ -327,7 +439,13 @@ async def update_lead(
     return await get_lead(session, lead_id)
 
 
-async def export_leads_csv(session: AsyncSession, *, agent_id: UUID | None = None) -> str:
+async def export_leads_csv(
+    session: AsyncSession,
+    *,
+    agent_id: UUID | None = None,
+    status: str | None = None,
+    search: str | None = None,
+) -> str:
     """CSV export with schema-driven columns (TRD §7 (e)).
 
     The phone is exported IN FULL: this is the client's own customer data, the export
@@ -335,25 +453,45 @@ async def export_leads_csv(session: AsyncSession, *, agent_id: UUID | None = Non
     for the follow-up call it exists to enable. That is a different judgement from the
     on-screen list, and it is deliberate.
 
+    **Takes the same filters as `list_leads_page`, through the same `_lead_scope`.**
+    It took `agent_id` alone, so a client who narrowed the table to `hot` and pressed
+    Export downloaded every contact in the account — a difference between what the
+    screen showed and what the file held, on the one route that emits unmasked numbers.
+    Sharing the WHERE builder is what keeps the two in step as filters grow.
+
     Bounded by `MAX_EXPORT_ROWS`: every other read in this module is paged, and this
-    one builds the entire file in memory inside the request.
+    one builds the entire file in memory inside the request. The bound now applies to
+    the FILTERED rows, which is what makes the refusal's advice ("narrow it") reachable.
     """
     columns = await lead_columns(session, agent_id)
+    params: dict[str, Any] = {"limit": MAX_EXPORT_ROWS + 1}
+    clauses = _lead_scope(params, search=search, agent_id=agent_id)
+    if status:
+        clauses.append("status = :status")
+        params["status"] = status
     rows = (
         await session.execute(
             text(
                 "SELECT phone_e164, name, status, source, call_count, created_at, data "
-                "FROM leads WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT :limit"
+                f"FROM leads WHERE {' AND '.join(clauses)} "
+                # Tiebreaker for the same reason as the list — here the stakes are which
+                # rows survive the LIMIT, so an unstable sort means two exports of one
+                # unchanged account hand back two different sets of people.
+                "ORDER BY created_at DESC, id DESC LIMIT :limit"
             ),
             # One row over the cap, so hitting it is detectable without a second count.
-            {"limit": MAX_EXPORT_ROWS + 1},
+            params,
         )
     ).all()
     if len(rows) > MAX_EXPORT_ROWS:
         raise ProblemError.business_rule(
             "lead_export_too_large",
             f"This export is over the {MAX_EXPORT_ROWS:,}-lead limit for a single file.",
-            remediation="Export one agent at a time with ?agent_id=, or ask us for a full extract.",
+            remediation=(
+                "Narrow it — filter by status or search on the Leads screen and export "
+                "again, or export one agent at a time with ?agent_id= — or ask us for a "
+                "full extract."
+            ),
         )
 
     buffer = io.StringIO()
@@ -600,10 +738,12 @@ async def link_callback(session: AsyncSession, *, handle: str, parent_call_id: U
 
 __all__ = [
     "CALLBACK_OUTCOMES",
+    "LEAD_STATUSES",
     "MAX_CALLBACK_DEPTH",
     "MAX_EXPORT_ROWS",
     "MAX_PAGE",
     "CallbackPlan",
+    "LeadPage",
     "dashboard",
     "export_leads_csv",
     "get_call",
@@ -613,6 +753,7 @@ __all__ = [
     "link_callback",
     "list_calls",
     "list_leads",
+    "list_leads_page",
     "mask_phone",
     "plan_callback",
     "recording_key_for",
