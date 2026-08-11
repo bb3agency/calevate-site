@@ -20,6 +20,7 @@ function Nav({ slug }: { slug: string }) {
   const pathname = usePathname();
   const items = [
     { href: `/c/${slug}`, label: "Dashboard" },
+    { href: `/c/${slug}/agents`, label: "Agents" },
     { href: `/c/${slug}/calls`, label: "Calls" },
     { href: `/c/${slug}/leads`, label: "Leads" },
     { href: `/c/${slug}/campaigns`, label: "Campaigns" },

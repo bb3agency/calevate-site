@@ -30,6 +30,10 @@ and are all closed by two non-code actions: the Engine Verification Session
 9. **SURFACES.md** — the three product surfaces: admin-panel and client-CRM feature
    inventories (seed the build-time design discussions) + the decided integration
    doctrine (webhook intake pipeline, real-time UI transport, engine API usage rules).
+9a. **WEBHOOKS.md** — the client-developer integration contract in both directions
+    (events we sign and send, signature verification and delivery rules; lead ingest,
+    field mapping, consent and the dry-run tester), written against the shipping code —
+    the concrete form of SURFACES §2b/§3's integration doctrine.
 10. **DEPLOYMENT.md** — VPS deployment + CI/CD blueprint (adapted from the
     raghava-organics production playbook): topology, self-hosted-runner CD, nginx/TLS/
     Cloudflare, secrets tiers, backups/DR, go-live order, lessons-not-to-relearn.

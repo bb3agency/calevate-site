@@ -25,8 +25,12 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.admin.routes import router as admin_router
     from apps.api.agents.prompt_routes import router as prompt_admin_router
     from apps.api.agents.routes import router as agents_router
+    from apps.api.agents.voice_routes import router as voice_router
+    from apps.api.billing.credit_routes import router as credits_admin_router
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.campaigns.routes import router as campaigns_router
+    from apps.api.compliance.dnc_routes import router as dnc_router
+    from apps.api.compliance.export_routes import router as subject_export_router
     from apps.api.crm.routes import router as crm_router
     from apps.api.ingest.routes import router as ingest_router
     from apps.api.ingest.routes import sources_router as lead_sources_router
@@ -40,7 +44,12 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(clerk_router)
     application.include_router(admin_router)
     application.include_router(billing_admin_router)
+    application.include_router(credits_admin_router)
     application.include_router(prompt_admin_router)
+    # BEFORE `agents_router`: FastAPI matches in declaration order, and
+    # `/v1/agents/{agent_id}` would otherwise swallow `/v1/agents/voices` and reject it
+    # as a malformed UUID. Same hazard `campaigns/routes.py` calls out for `/numbers`.
+    application.include_router(voice_router)
     application.include_router(agents_router)
     application.include_router(campaigns_router)
     application.include_router(crm_router)
@@ -48,6 +57,8 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(ingest_router)
     application.include_router(lead_sources_router)
     application.include_router(integrations_router)
+    application.include_router(dnc_router)
+    application.include_router(subject_export_router)
     application.include_router(ops_router)
 
 

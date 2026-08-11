@@ -55,14 +55,22 @@ for 7 consecutive days; zero cross-tenant test failures.
 
 - Campaigns end-to-end with the compliance gate (blocked features visibly explained);
   instant-lead-callback webhook ingest (Meta/website/Sheets); retry/escalation; DNC.
+  — **shipped** (BUILD-LOG §30, §31, §32, §41); escalation after retry exhaustion
+  (WhatsApp/SMS follow-up) not built.
 - WhatsApp follow-up + hot-lead WhatsApp alerts.
 - One-click AI callback on needs-follow-up calls (D-21): re-dispatch the agent with
-  prior-call context via the engine's context-injection webhook.
+  prior-call context via the engine's context-injection webhook. — **shipped**
+  (BUILD-LOG §35).
 - Outbound CRM sync (D-23): HMAC-signed outbound webhooks + Google Sheets sync
   (lead.created/updated, call.completed events; config table shipped in M1).
+  — webhook half **shipped** (BUILD-LOG §34); Google Sheets sync not built.
 - Billing surfaces: usage panel (client), margin panel (admin), invoice generation,
-  Razorpay links, caps UI.
+  Razorpay links, caps UI. — usage + margin panels **shipped** (BUILD-LOG §36),
+  invoice generation **shipped** (BUILD-LOG §40); Razorpay links and a caps-editing
+  UI not built.
 - Admin polish: onboarding wizard complete, client health overview, prompt rollback UI.
+  — client health overview and prompt rollback UI **shipped** (BUILD-LOG §33, §40,
+  §41); the wizard still lacks the intake step and the pilot-gated steps.
 - Vertical template #2 fully dressed (whichever client #2 is: clinic or real estate).
 
 - **Self-serve tier goes live (D-34):** signup + Google OAuth, credit top-up, number
@@ -70,7 +78,8 @@ for 7 consecutive days; zero cross-tenant test failures.
   every path, mandatory disclosure, consent ledger, spend caps, and manual review of each
   account's first campaign. No self-serve calling before those exist.
 - Integration DX (SURFACES §2b): webhook activity view, test-webhook, "Needs attention"
-  queue, two-speed publishing.
+  queue, two-speed publishing. — activity view, test-webhook and the attention queue
+  **shipped** (BUILD-LOG §37, §38, §39); two-speed publishing not built.
 
 Gate G2: 2–3 clients incl. one outbound campaigner; DLT template approved and a
 compliant campaign completed; margin per client visible and ≥ target.

@@ -85,6 +85,61 @@
         "title": "AddContactsOut",
         "type": "object"
       },
+      "AddNumbersIn": {
+        "additionalProperties": false,
+        "properties": {
+          "numbers": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 2000,
+            "minItems": 1,
+            "title": "Numbers",
+            "type": "array"
+          },
+          "source": {
+            "default": "manual",
+            "enum": [
+              "customer_request",
+              "call_optout",
+              "manual",
+              "regulator"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "numbers"
+        ],
+        "title": "AddNumbersIn",
+        "type": "object"
+      },
+      "AddNumbersOut": {
+        "additionalProperties": false,
+        "description": "Counts, never numbers \u2014 see the module docstring in `compliance/dnc.py`.",
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "already_suppressed": {
+            "title": "Already Suppressed",
+            "type": "integer"
+          },
+          "malformed": {
+            "title": "Malformed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "added",
+          "already_suppressed",
+          "malformed"
+        ],
+        "title": "AddNumbersOut",
+        "type": "object"
+      },
       "AgentOut": {
         "additionalProperties": false,
         "properties": {
@@ -746,6 +801,53 @@
         "title": "ChainVerifyOut",
         "type": "object"
       },
+      "CheckIn": {
+        "additionalProperties": false,
+        "properties": {
+          "phone": {
+            "maxLength": 20,
+            "minLength": 8,
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone"
+        ],
+        "title": "CheckIn",
+        "type": "object"
+      },
+      "CheckOut": {
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "suppressed": {
+            "title": "Suppressed",
+            "type": "boolean"
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid",
+          "suppressed",
+          "scope"
+        ],
+        "title": "CheckOut",
+        "type": "object"
+      },
       "ChunkOut": {
         "additionalProperties": false,
         "properties": {
@@ -1062,6 +1164,46 @@
         "title": "CreateOrgOut",
         "type": "object"
       },
+      "CreditsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "balance_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance Inr",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/LedgerEntryOut"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "is_low": {
+            "title": "Is Low",
+            "type": "boolean"
+          },
+          "low_balance_threshold_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Low Balance Threshold Inr",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "balance_inr",
+          "is_low",
+          "low_balance_threshold_inr",
+          "entries"
+        ],
+        "title": "CreditsOut",
+        "type": "object"
+      },
       "DashboardOut": {
         "additionalProperties": false,
         "properties": {
@@ -1206,6 +1348,54 @@
           "dlt_status"
         ],
         "title": "DltStatusIn",
+        "type": "object"
+      },
+      "DncEntryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "added_at": {
+            "format": "date-time",
+            "title": "Added At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "phone_masked": {
+            "title": "Phone Masked",
+            "type": "string"
+          },
+          "removable": {
+            "title": "Removable",
+            "type": "boolean"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "id",
+          "phone_masked",
+          "scope",
+          "source",
+          "added_at",
+          "removable"
+        ],
+        "title": "DncEntryOut",
         "type": "object"
       },
       "EndpointOut": {
@@ -1587,6 +1777,56 @@
           }
         },
         "title": "LeadUpdateIn",
+        "type": "object"
+      },
+      "LedgerEntryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "balance_after_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance After Inr",
+            "type": "string"
+          },
+          "delta_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Delta Inr",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          }
+        },
+        "required": [
+          "id",
+          "delta_inr",
+          "reason",
+          "ref",
+          "balance_after_inr",
+          "occurred_at"
+        ],
+        "title": "LedgerEntryOut",
         "type": "object"
       },
       "MeOut": {
@@ -2099,6 +2339,73 @@
         "title": "RollbackOut",
         "type": "object"
       },
+      "SetVoiceIn": {
+        "additionalProperties": false,
+        "description": "`extra=\"forbid\"` so a caller cannot smuggle a second config string (an llm_model,\na tts_provider) into a request whose whole point is one curated choice.",
+        "properties": {
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "voice_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "voice_id"
+        ],
+        "title": "SetVoiceIn",
+        "type": "object"
+      },
+      "SetVoiceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_status": {
+            "title": "Agent Status",
+            "type": "string"
+          },
+          "engine_synced": {
+            "title": "Engine Synced",
+            "type": "boolean"
+          },
+          "next_step": {
+            "title": "Next Step",
+            "type": "string"
+          },
+          "published": {
+            "title": "Published",
+            "type": "boolean"
+          },
+          "republish_required": {
+            "title": "Republish Required",
+            "type": "boolean"
+          },
+          "voice": {
+            "$ref": "#/components/schemas/Voice"
+          }
+        },
+        "required": [
+          "agent_id",
+          "voice",
+          "agent_status",
+          "published",
+          "engine_synced",
+          "republish_required",
+          "next_step"
+        ],
+        "title": "SetVoiceOut",
+        "type": "object"
+      },
       "SourceOut": {
         "additionalProperties": false,
         "properties": {
@@ -2161,6 +2468,24 @@
           "chunks"
         ],
         "title": "SourceOut",
+        "type": "object"
+      },
+      "SubjectExportIn": {
+        "additionalProperties": false,
+        "description": "`extra=\"forbid\"` so a caller cannot smuggle a second selector (a lead id, a\ntenant slug) into a request whose whole security argument is \"one phone number\".",
+        "properties": {
+          "phone": {
+            "maxLength": 20,
+            "minLength": 8,
+            "pattern": "^\\+[1-9]\\d{7,18}$",
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone"
+        ],
+        "title": "SubjectExportIn",
         "type": "object"
       },
       "SubmitIn": {
@@ -2395,6 +2720,95 @@
         "title": "TestWebhookIn",
         "type": "object"
       },
+      "TopUpIn": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_inr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,11}0*$)\\d{0,8}\\.\\d{0,2}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount Inr"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "payment_ref": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Payment Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_inr",
+          "payment_ref"
+        ],
+        "title": "TopUpIn",
+        "type": "object"
+      },
+      "TopUpOut": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "balance_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance Inr",
+            "type": "string"
+          },
+          "entry_id": {
+            "format": "uuid",
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "is_low": {
+            "title": "Is Low",
+            "type": "boolean"
+          },
+          "payment_ref": {
+            "title": "Payment Ref",
+            "type": "string"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "entry_id",
+          "payment_ref",
+          "amount_inr",
+          "balance_inr",
+          "is_low",
+          "recorded"
+        ],
+        "title": "TopUpOut",
+        "type": "object"
+      },
       "TranscriptTurnOut": {
         "additionalProperties": false,
         "properties": {
@@ -2448,6 +2862,94 @@
           "text"
         ],
         "title": "TranscriptTurnOut",
+        "type": "object"
+      },
+      "Voice": {
+        "additionalProperties": false,
+        "description": "One selectable voice. Doubles as the API response model \u2014 the catalog IS the\ncontract, so there is nothing to keep in sync.",
+        "properties": {
+          "gender": {
+            "anyOf": [
+              {
+                "enum": [
+                  "female",
+                  "male",
+                  "neutral"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "languages": {
+            "items": {
+              "enum": [
+                "te-IN",
+                "hi-IN",
+                "en-IN"
+              ],
+              "type": "string"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "provider": {
+            "const": "sarvam",
+            "title": "Provider",
+            "type": "string"
+          },
+          "tier": {
+            "enum": [
+              "premium",
+              "value"
+            ],
+            "title": "Tier",
+            "type": "string"
+          },
+          "tts_model": {
+            "enum": [
+              "bulbul:v3",
+              "bulbul:v2"
+            ],
+            "title": "Tts Model",
+            "type": "string"
+          },
+          "verified": {
+            "default": false,
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "provider",
+          "tts_model",
+          "tier",
+          "languages",
+          "note"
+        ],
+        "title": "Voice",
         "type": "object"
       },
       "WritePromptIn": {
@@ -2976,6 +3478,107 @@
           "admin"
         ],
         "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/credits": {
+      "get": {
+        "operationId": "read_credits_v1_admin_tenants__tenant_id__credits_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreditsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Wallet balance plus the recent ledger entries, newest first",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
+      },
+      "post": {
+        "description": "Posting the same payment reference again returns the existing entry and credits nothing. The same reference with a DIFFERENT amount is a conflict, not a second payment.",
+        "operationId": "record_topup_v1_admin_tenants__tenant_id__credits_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TopUpIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopUpOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record a client payment onto the wallet \u2014 idempotent by the payment reference",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/admin/tenants/{tenant_id}/dlt-templates": {
@@ -3622,6 +4225,39 @@
         "x-calevate-permission": "agents:read"
       }
     },
+    "/v1/agents/voices": {
+      "get": {
+        "description": "Static data, deliberately: no DB, no engine call, no tenant scoping.\n\nClient-realm readable on purpose \u2014 a client is legally the Principal Entity and\nshould be able to see what their own agent sounds like, exactly as they can read\nits disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to\n`realm=\"any\"`, so an admin (including one impersonating, since this is a read) gets\nthe same list \u2014 one catalog, no realm-specific truth.\n\nEntries carry `verified: false` until the Bolna pilot confirms each string is\nselectable (OPERATIONS \u00a72 gate 3); render that, do not hide it.",
+        "operationId": "list_voices_v1_agents_voices_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Voice"
+                  },
+                  "title": "Response List Voices V1 Agents Voices Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The voices an agent may speak in (client-readable; D-36's premium/value ladder)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
     "/v1/agents/{agent_id}": {
       "get": {
         "operationId": "get_agent_v1_agents__agent_id__get",
@@ -3696,6 +4332,57 @@
           }
         },
         "summary": "Create/update the agent on the engine and record its routing (admin only)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/agents/{agent_id}/voice": {
+      "patch": {
+        "description": "Writes `agents.tts_voice` (and the matching `tts_provider`) and audits it. It does NOT reach the voice engine: `publish_agent` re-reads both columns, so a live agent keeps its old voice until the next publish \u2014 see `republish_required` in the response. An id outside the catalog is refused with `unknown_voice`.",
+        "operationId": "set_agent_voice_v1_agents__agent_id__voice_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetVoiceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetVoiceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set an agent's voice from the catalog (admin realm, D-21)",
         "tags": [
           "agents"
         ],
@@ -4425,6 +5112,47 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/compliance/subject-export": {
+      "post": {
+        "description": "Build the document, record that it was built, return it.\n\nA number we hold nothing about returns an empty-but-valid document, not a 404 \u2014\nand it is audited just the same. \"We hold no data about you\" is itself a disclosure\nthe client made to a data principal, and the useful question six months later is\n\"who asked, and what were they told?\", which has an answer either way.",
+        "operationId": "subject_export_v1_compliance_subject_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubjectExportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Subject Export V1 Compliance Subject Export Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "DPDP subject access/portability export for one phone number \u2014 audited",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "calls:read_raw"
+      }
+    },
     "/v1/dashboard": {
       "get": {
         "operationId": "get_dashboard_v1_dashboard_get",
@@ -4451,6 +5179,170 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/dnc": {
+      "get": {
+        "operationId": "list_entries_v1_dnc_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DncEntryOut"
+                  },
+                  "title": "Response List Entries V1 Dnc Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The suppression list, masked \u2014 this tenant's entries and the global ones",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
+      "post": {
+        "operationId": "add_numbers_v1_dnc_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddNumbersIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddNumbersOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Suppress numbers \u2014 live before the next dispatch tick (hard rule 5)",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/dnc/check": {
+      "post": {
+        "operationId": "check_v1_dnc_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Is this number suppressed? (POST: the identifier IS the personal data)",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/dnc/{entry_id}": {
+      "delete": {
+        "operationId": "remove_v1_dnc__entry_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Remove V1 Dnc  Entry Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Undo a hand-added suppression \u2014 never a consumer opt-out, always audited",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "leads:dispatch"
       }
     },
     "/v1/integrations/deliveries": {

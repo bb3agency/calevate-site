@@ -934,6 +934,67 @@ Six subagents across two waves, disjoint files, integrated in two passes.
 
 214 tests.
 
+**42. Parallel round 3: the DNC write path, DPDP subject export, voices, top-ups**
+
+Six subagents on disjoint files, integrated in one pass. The theme is *closing gaps
+the docs already promised*, which the docs-vs-code audit in this same round found:
+
+- **Do-not-call, the write side** (`compliance/dnc.py`, `dnc_routes.py`, 10 tests).
+  The audit's most serious finding was that `add_to_dnc` had existed since the gate
+  shipped **with no production caller** — the gate reads `dnc_list` live on every
+  dispatch (SEC-COMP §3), which made that live read a promise about an empty table.
+  Now: bulk add (counts back, never numbers — the same shape as `add_contacts`), a
+  masked list, and a `POST /v1/dnc/check` that is a POST *because the identifier IS
+  the personal data* and a GET would write it into access logs and browser history.
+  Removal is deliberately narrow rather than privileged: a client may delete an entry
+  they typed in (`source = manual`) and may **not** delete one that records a
+  consumer's opt-out — an account that can delete "don't call me again" can un-hear
+  it. Making removal admin-realm instead would have shipped an unreachable route:
+  `admin:tenants` is a MUTATING permission, and D-22 refuses those while impersonating,
+  so no admin principal both sees a tenant's rows and may write them.
+  One bug caught by its own test: `removable` in the list was computed from `scope`
+  while enforcement was source-based, so the UI would have offered a button the
+  endpoint 422s. Both now call one `is_removable()`.
+- **DPDP subject-access export** (`compliance/export.py`, `export_routes.py`, 5 tests).
+  Transcripts read `text_redacted` and the raw column is not named in the query — the
+  argument is third-party harm, not policy: a caller who reads out a relative's number
+  has put someone else's data in our store, and releasing it while honouring a subject
+  right would be a fresh breach. `text_redacted IS NULL` renders `[redaction pending]`
+  rather than falling back to raw or lying with an empty string. Recordings and consent
+  evidence are booleans (a presigned URL in a JSON blob is a bearer credential that
+  survives every forward). Audited under a `subject_ref` hash matching `retention._hash`,
+  so an access request and an erasure request for one person correlate with neither
+  record carrying the number.
+- **Voice catalog** (`agents/voices.py`, `voice_routes.py`, 10 tests) — grounded in
+  D-36/D-35 (Bulbul v3 default, v2 the ₹15/10k value tier) and honest about its limits:
+  the docs name **no speakers**, so the catalog offers a choice of MODEL and invents no
+  speaker ids, every entry ships `verified: false` until pilot gate 3 confirms the
+  string Bolna accepts, and a test pins that none claims otherwise. Setting a voice does
+  not auto-republish: republishing a prompt changes what an agent says (just approved),
+  republishing a voice changes what a live client's phone line sounds like.
+- **Credit top-ups** (`billing/credit_routes.py`, 12 tests) — ops records an NEFT/UPI
+  payment. Idempotent on the **payment reference**, not an `Idempotency-Key` header: a
+  UTR is permanent and the header's claim expires in 24h, while the same payment
+  re-entered next week must not credit twice. The advisory lock is taken BEFORE the
+  lookup (`record_entry`'s own lock is too late — both writers would already have read
+  "not present"), and same-ref-different-amount is a 409 rather than a silently
+  swallowed second payment. JSON floats are refused outright (hard rule 7).
+- **Client agents screen** (`/c/[slug]/agents`) — read-only by design (D-21): the live
+  badge derives from `published` AND `status` together, mirroring `_is_live` in
+  `agents/prompts.py` so the UI cannot claim something the backend disagrees with; the
+  disclosure line is captioned as what the agent says, not as something they chose; and
+  the engine name is deliberately not rendered.
+- **Docs-vs-code audit** — 20 divergences found, two shipped as fixes here (WEBHOOKS.md
+  into the README reading order, M2 shipped-markers in ROADMAP §3). The rest are queued
+  for the follow-up round: four docs promise an exponential backoff curve the code does
+  not have; TRD §8 still opens the pipeline with "verify HMAC" (D-31 replaced it with
+  source-IP + execution-id dedupe); DATA-MODEL is missing six shipped columns and two
+  shipped tables and documents two tables that were never created.
+
+Route-ordering hazard worth remembering: `voice_router` mounts BEFORE `agents_router`,
+or `/v1/agents/{agent_id}` swallows `/v1/agents/voices` and 422s it as a bad UUID —
+the same hazard `campaigns/routes.py` calls out for `/numbers`.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,

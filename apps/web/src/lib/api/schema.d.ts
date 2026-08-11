@@ -162,6 +162,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/credits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Wallet balance plus the recent ledger entries, newest first */
+        get: operations["read_credits_v1_admin_tenants__tenant_id__credits_get"];
+        put?: never;
+        /**
+         * Record a client payment onto the wallet — idempotent by the payment reference
+         * @description Posting the same payment reference again returns the existing entry and credits nothing. The same reference with a DIFFERENT amount is a conflict, not a second payment.
+         */
+        post: operations["record_topup_v1_admin_tenants__tenant_id__credits_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/dlt-templates": {
         parameters: {
             query?: never;
@@ -378,6 +399,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/voices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The voices an agent may speak in (client-readable; D-36's premium/value ladder)
+         * @description Static data, deliberately: no DB, no engine call, no tenant scoping.
+         *
+         *     Client-realm readable on purpose — a client is legally the Principal Entity and
+         *     should be able to see what their own agent sounds like, exactly as they can read
+         *     its disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to
+         *     `realm="any"`, so an admin (including one impersonating, since this is a read) gets
+         *     the same list — one catalog, no realm-specific truth.
+         *
+         *     Entries carry `verified: false` until the Bolna pilot confirms each string is
+         *     selectable (OPERATIONS §2 gate 3); render that, do not hide it.
+         */
+        get: operations["list_voices_v1_agents_voices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}": {
         parameters: {
             query?: never;
@@ -410,6 +460,26 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/voice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set an agent's voice from the catalog (admin realm, D-21)
+         * @description Writes `agents.tts_voice` (and the matching `tts_provider`) and audits it. It does NOT reach the voice engine: `publish_agent` re-reads both columns, so a live agent keeps its old voice until the next publish — see `republish_required` in the response. An id outside the catalog is refused with `unknown_voice`.
+         */
+        patch: operations["set_agent_voice_v1_agents__agent_id__voice_patch"];
         trace?: never;
     };
     "/v1/attention": {
@@ -689,6 +759,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/compliance/subject-export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * DPDP subject access/portability export for one phone number — audited
+         * @description Build the document, record that it was built, return it.
+         *
+         *     A number we hold nothing about returns an empty-but-valid document, not a 404 —
+         *     and it is audited just the same. "We hold no data about you" is itself a disclosure
+         *     the client made to a data principal, and the useful question six months later is
+         *     "who asked, and what were they told?", which has an answer either way.
+         */
+        post: operations["subject_export_v1_compliance_subject_export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/dashboard": {
         parameters: {
             query?: never;
@@ -701,6 +796,58 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dnc": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The suppression list, masked — this tenant's entries and the global ones */
+        get: operations["list_entries_v1_dnc_get"];
+        put?: never;
+        /** Suppress numbers — live before the next dispatch tick (hard rule 5) */
+        post: operations["add_numbers_v1_dnc_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dnc/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Is this number suppressed? (POST: the identifier IS the personal data) */
+        post: operations["check_v1_dnc_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dnc/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Undo a hand-added suppression — never a consumer opt-out, always audited */
+        delete: operations["remove_v1_dnc__entry_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1095,6 +1242,29 @@ export interface components {
             /** Malformed */
             malformed: number;
         };
+        /** AddNumbersIn */
+        AddNumbersIn: {
+            /** Numbers */
+            numbers: string[];
+            /**
+             * Source
+             * @default manual
+             * @enum {string}
+             */
+            source: "customer_request" | "call_optout" | "manual" | "regulator";
+        };
+        /**
+         * AddNumbersOut
+         * @description Counts, never numbers — see the module docstring in `compliance/dnc.py`.
+         */
+        AddNumbersOut: {
+            /** Added */
+            added: number;
+            /** Already Suppressed */
+            already_suppressed: number;
+            /** Malformed */
+            malformed: number;
+        };
         /** AgentOut */
         AgentOut: {
             /** Direction */
@@ -1329,6 +1499,20 @@ export interface components {
             /** Ok */
             ok: boolean;
         };
+        /** CheckIn */
+        CheckIn: {
+            /** Phone */
+            phone: string;
+        };
+        /** CheckOut */
+        CheckOut: {
+            /** Scope */
+            scope: string | null;
+            /** Suppressed */
+            suppressed: boolean;
+            /** Valid */
+            valid: boolean;
+        };
         /** ChunkOut */
         ChunkOut: {
             /** Chars */
@@ -1451,6 +1635,22 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** CreditsOut */
+        CreditsOut: {
+            /** Balance Inr */
+            balance_inr: string;
+            /** Entries */
+            entries: components["schemas"]["LedgerEntryOut"][];
+            /** Is Low */
+            is_low: boolean;
+            /** Low Balance Threshold Inr */
+            low_balance_threshold_inr: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
         /** DashboardOut */
         DashboardOut: {
             /**
@@ -1510,6 +1710,27 @@ export interface components {
              * @enum {string}
              */
             dlt_status: "pending" | "registered" | "blocked";
+        };
+        /** DncEntryOut */
+        DncEntryOut: {
+            /**
+             * Added At
+             * Format: date-time
+             */
+            added_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Phone Masked */
+            phone_masked: string;
+            /** Removable */
+            removable: boolean;
+            /** Scope */
+            scope: string;
+            /** Source */
+            source: string | null;
         };
         /** EndpointOut */
         EndpointOut: {
@@ -1657,6 +1878,27 @@ export interface components {
             name?: string | null;
             /** Status */
             status?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost") | null;
+        };
+        /** LedgerEntryOut */
+        LedgerEntryOut: {
+            /** Balance After Inr */
+            balance_after_inr: string;
+            /** Delta Inr */
+            delta_inr: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Reason */
+            reason: string;
+            /** Ref */
+            ref: string | null;
         };
         /** MeOut */
         MeOut: {
@@ -1828,6 +2070,39 @@ export interface components {
             /** To Version */
             to_version: number;
         };
+        /**
+         * SetVoiceIn
+         * @description `extra="forbid"` so a caller cannot smuggle a second config string (an llm_model,
+         *     a tts_provider) into a request whose whole point is one curated choice.
+         */
+        SetVoiceIn: {
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Voice Id */
+            voice_id: string;
+        };
+        /** SetVoiceOut */
+        SetVoiceOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Status */
+            agent_status: string;
+            /** Engine Synced */
+            engine_synced: boolean;
+            /** Next Step */
+            next_step: string;
+            /** Published */
+            published: boolean;
+            /** Republish Required */
+            republish_required: boolean;
+            voice: components["schemas"]["Voice"];
+        };
         /** SourceOut */
         SourceOut: {
             /**
@@ -1854,6 +2129,15 @@ export interface components {
             status: string;
             /** Version */
             version: number;
+        };
+        /**
+         * SubjectExportIn
+         * @description `extra="forbid"` so a caller cannot smuggle a second selector (a lead id, a
+         *     tenant slug) into a request whose whole security argument is "one phone number".
+         */
+        SubjectExportIn: {
+            /** Phone */
+            phone: string;
         };
         /** SubmitIn */
         SubmitIn: {
@@ -1946,6 +2230,38 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** TopUpIn */
+        TopUpIn: {
+            /** Amount Inr */
+            amount_inr: number | string;
+            /** Note */
+            note?: string | null;
+            /** Payment Ref */
+            payment_ref: string;
+        };
+        /** TopUpOut */
+        TopUpOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Balance Inr */
+            balance_inr: string;
+            /**
+             * Entry Id
+             * Format: uuid
+             */
+            entry_id: string;
+            /** Is Low */
+            is_low: boolean;
+            /** Payment Ref */
+            payment_ref: string;
+            /** Recorded */
+            recorded: boolean;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
         /** TranscriptTurnOut */
         TranscriptTurnOut: {
             /** Idx */
@@ -1966,6 +2282,48 @@ export interface components {
             start_ms?: number | null;
             /** Text */
             text: string;
+        };
+        /**
+         * Voice
+         * @description One selectable voice. Doubles as the API response model — the catalog IS the
+         *     contract, so there is nothing to keep in sync.
+         */
+        Voice: {
+            /** Gender */
+            gender?: ("female" | "male" | "neutral") | null;
+            /** Id */
+            id: string;
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
+            /** Label */
+            label: string;
+            /** Languages */
+            languages: ("te-IN" | "hi-IN" | "en-IN")[];
+            /** Note */
+            note: string;
+            /**
+             * Provider
+             * @constant
+             */
+            provider: "sarvam";
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "premium" | "value";
+            /**
+             * Tts Model
+             * @enum {string}
+             */
+            tts_model: "bulbul:v3" | "bulbul:v2";
+            /**
+             * Verified
+             * @default false
+             */
+            verified: boolean;
         };
         /** WritePromptIn */
         WritePromptIn: {
@@ -2348,6 +2706,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RollbackOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_credits_v1_admin_tenants__tenant_id__credits_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_topup_v1_admin_tenants__tenant_id__credits_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TopUpIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopUpOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -2780,6 +3206,35 @@ export interface operations {
             };
         };
     };
+    list_voices_v1_agents_voices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Voice"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_agent_v1_agents__agent_id__get: {
         parameters: {
             query?: never;
@@ -2829,6 +3284,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["apps__api__agents__routes__PublishOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_agent_voice_v1_agents__agent_id__voice_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetVoiceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetVoiceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -3378,6 +3868,41 @@ export interface operations {
             };
         };
     };
+    subject_export_v1_compliance_subject_export_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubjectExportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_dashboard_v1_dashboard_get: {
         parameters: {
             query?: never;
@@ -3394,6 +3919,136 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_entries_v1_dnc_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DncEntryOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_numbers_v1_dnc_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddNumbersIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddNumbersOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    check_v1_dnc_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_v1_dnc__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
             /** @description RFC-9457 problem+json */
