@@ -261,10 +261,9 @@ async def test_the_intake_route_names_its_tenant_in_the_path() -> None:
 
 
 async def test_what_the_wizard_can_reopen_is_what_is_durably_stored() -> None:
-    """Resume-anytime (FLOWS §1) is only as good as what comes back. This pins the
-    honest answer: the structured facts round-trip, and the prose ones come back as the
-    compiled block rather than as the fields that produced it — see the module note in
-    `admin/intake.py` about the column that would fix it."""
+    """Resume-anytime (FLOWS §1) is only as good as what comes back: the structured
+    facts round-trip from the columns that already read them, and the prose ones from
+    the answer sheet on `organizations.intake`."""
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         await intake.record_intake(
@@ -276,6 +275,30 @@ async def test_what_the_wizard_can_reopen_is_what_is_durably_stored() -> None:
     assert stored["escalation_contacts"][0]["name"] == "Reception"
     assert stored["languages"] == ["en-IN"]
     assert stored["compiled_t0_context"] and "Root canal" in stored["compiled_t0_context"]
+
+
+async def test_reopening_the_step_gives_back_the_fields_not_just_the_compiled_block() -> None:
+    """The gap this wave closes. The prose answers — branches, services, FAQs, staff
+    pronunciations, booking rules — used to survive only as the [T0 FACTS] block and a
+    KB source, so reopening the step could repopulate the structured half of the form
+    and not the half an operator spent an afternoon typing. A form that cannot show
+    what was typed into it is a form that gets retyped.
+    """
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await intake.record_intake(
+            session, tenant_id=tenant_id, agent_id=agent_id, facts=FACTS, recorded_by=None
+        )
+        stored = await intake.read_intake(session, agent_id=agent_id)
+
+    prose = stored["prose_answers"]
+    assert prose is not None, "the raw answers have a durable home"
+    assert prose["branches"][0]["address"] == "12 MG Road, Ameerpet, Hyderabad 500016"
+    assert [s["name"] for s in prose["services"]] == ["Root canal", "Cleaning"]
+    assert prose["services"][1]["notes"] == "30 minutes", "a per-service note survives"
+    assert prose["faqs"][0]["question"] == "Do you take insurance?"
+    assert prose["staff"][0]["pronunciation"] == "సౌమ్య", "the field, not the sentence"
+    assert prose["booking_rules"] == FACTS.booking_rules
 
 
 # ------------------------------------------------- campaign list: provenance flag

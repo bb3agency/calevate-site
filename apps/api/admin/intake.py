@@ -36,13 +36,24 @@ system prompt is a number the agent can read out to whoever asks. Business hours
 `agents.business_hours` for the same reason (FLOWS §3's after-hours flag is specified to
 read that column) AND in the block, because a caller does ask what time you open.
 
-**The column this step is missing.** There is no home for the RAW intake answers — no
-`organizations.intake` JSONB, no `client_intake` table in DATA-MODEL §2/§3 — so the
-prose fields (branches, services, FAQs, staff, booking rules) are durable only as the
-compiled block and the KB source, not as the fields that produced them. FLOWS §1 says
-"draft state saved at every step (resume anytime)", and reopening this step can
-therefore repopulate the structured half and not the prose half. That is a migration,
-deliberately not guessed at here; see `read_intake` for exactly what does come back.
+**Where the raw answers go (migration c1f3a7d92b46).** All three outputs above are
+DERIVATIVES: a compiled sentence, a KB body, three typed columns. None of them is the
+form. FLOWS §1 promises "draft state saved at every step (resume anytime)", so the
+answer sheet itself is stored verbatim on `organizations.intake` — the business's own
+facts on the row that IS the business (DATA-MODEL §2), inheriting that table's existing
+FORCEd policy rather than minting a new one. The migration argues the choice against a
+`client_intake` table in full; the two rules that follow from it here are:
+
+- **A draft save is partial by definition.** `save_intake_draft` writes the sheet and
+  nothing else — no compile, no prompt version, no KB source, no publish. Half a step
+  is what a wizard mid-flow looks like, and every field on `IntakeFacts` is optional
+  for that reason.
+- **A submit is not.** `record_intake` runs `submission_blockers` first and refuses an
+  intake too thin to compile into an agent that can answer a caller. Draft freely,
+  publish deliberately.
+
+`read_intake` returns what a resume needs: the sheet's own fields plus the structured
+columns, with the compiled block for display.
 """
 
 from __future__ import annotations
@@ -51,7 +62,7 @@ import json
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -143,6 +154,119 @@ class IntakeFacts(_Strict):
     # BCP-47 tags; the agent's own `language_primary` is dropped when this is stored,
     # since `languages_extra` means the OTHERS (DATA-MODEL §3).
     languages: list[str] = Field(default_factory=list, max_length=6)
+
+
+class IntakeProse(_Strict):
+    """The five answers with no typed column anywhere else — the half of the form that
+    used to survive only as a compiled sentence.
+
+    Deliberately NOT the other three: hours, escalation contacts and languages round
+    trip from `agents` (DATA-MODEL §3), and a second copy of an escalation contact in
+    a second shape is how the two start disagreeing. It also keeps phone numbers out
+    of this model, which is what the read path returns to a browser.
+    """
+
+    branches: list[Branch] = Field(default_factory=list)
+    services: list[ServiceItem] = Field(default_factory=list)
+    faqs: list[Faq] = Field(default_factory=list)
+    staff: list[StaffMember] = Field(default_factory=list)
+    booking_rules: str | None = None
+
+    @classmethod
+    def from_facts(cls, facts: IntakeFacts) -> IntakeProse:
+        return cls(
+            branches=facts.branches,
+            services=facts.services,
+            faqs=facts.faqs,
+            staff=facts.staff,
+            booking_rules=facts.booking_rules,
+        )
+
+
+# ------------------------------------------------------- the durable answer sheet
+
+# Bump when the envelope (not the answers) changes shape. The CHECK in migration
+# c1f3a7d92b46 pins `version` + `answers`; a reader that finds a version it does not
+# know falls back to the derived columns rather than guessing.
+SHEET_VERSION = 1
+
+# `COALESCE(... ) || :doc` rather than a plain assignment: the merge keeps envelope keys
+# an earlier save wrote (notably `submitted_at`), so saving a draft after a submit does
+# not silently un-submit the step. `answers` is a top-level key and is REPLACED whole —
+# a deep merge would resurrect a service the operator deleted.
+_SAVE_SHEET = (
+    "UPDATE organizations SET intake = COALESCE(intake, '{}'::jsonb) || CAST(:doc AS jsonb) "
+    "|| jsonb_build_object('saved_at', to_jsonb(now())), updated_at = now() WHERE id = :tid"
+)
+_SUBMIT_SHEET = (
+    "UPDATE organizations SET intake = COALESCE(intake, '{}'::jsonb) || CAST(:doc AS jsonb) "
+    "|| jsonb_build_object('saved_at', to_jsonb(now()), 'submitted_at', to_jsonb(now())), "
+    "updated_at = now() WHERE id = :tid"
+)
+
+
+async def _store_sheet(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    facts: IntakeFacts,
+    submitted: bool,
+) -> None:
+    """Persist the answers as typed, on the tenant's own `organizations` row.
+
+    No RLS exemption and no tenant_id parameter smuggled past a policy: under
+    `tenant_session` the organizations policy matches on `id`, so a wrong tenant is
+    zero rows and a clean 404 — the same failure `_agent_state` gives for an agent.
+    """
+    doc = {
+        "version": SHEET_VERSION,
+        # Which agent the answers were last compiled into. Provenance, not ownership:
+        # the facts belong to the business (one sheet per org), and this says whose
+        # prompt currently carries them.
+        "agent_id": str(agent_id),
+        "answers": facts.model_dump(mode="json"),
+    }
+    result = await session.execute(
+        text(_SUBMIT_SHEET if submitted else _SAVE_SHEET),
+        {"doc": json.dumps(doc), "tid": tenant_id},
+    )
+    if rowcount_of(result) == 0:
+        raise ProblemError.not_found("Organization")
+
+
+def submission_blockers(facts: IntakeFacts) -> list[str]:
+    """What is still missing before this intake can BE an agent, as stable codes.
+
+    A draft may be missing anything; a submit may not be missing the facts without
+    which the three outputs are hollow. Each entry earns its place by naming something
+    downstream that cannot work without it — this is not a completeness score:
+
+    - hours: FLOWS §3's after-hours branch is specified to read `agents.business_hours`,
+      and an empty map is a branch that can never fire. A day that is neither `closed`
+      nor has both times is worse than an absent one: it compiles to nothing while
+      looking answered.
+    - branches: "where are you?" is the second question every caller asks.
+    - services: the price list is the KB seed and the most-asked question both.
+    - escalation contacts: `transfer_call` (FLOWS §3) has nowhere to transfer to.
+
+    FAQs, staff and booking rules are NOT blockers, and the omission is deliberate: a
+    single-practitioner shop with no FAQ list and no named staff is a real client, and
+    a gate that refuses it would be this module inventing policy FLOWS §1 does not
+    state. Step 7's test call is the gate on whether the agent is any good.
+    """
+    blockers: list[str] = []
+    if not facts.business_hours:
+        blockers.append("business_hours_missing")
+    elif any(not (day.closed or (day.opens and day.closes)) for day in facts.business_hours):
+        blockers.append("business_hours_incomplete")
+    if not facts.branches:
+        blockers.append("branch_missing")
+    if not facts.services:
+        blockers.append("service_missing")
+    if not facts.escalation_contacts:
+        blockers.append("escalation_contact_missing")
+    return blockers
 
 
 # --------------------------------------------------------------- the T0 compiler
@@ -360,6 +484,38 @@ async def _write_prompt_version(
     return version
 
 
+async def save_intake_draft(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    facts: IntakeFacts,
+) -> dict[str, Any]:
+    """Save the step as it stands. A half-filled form is the normal case, not an error.
+
+    This is FLOWS §1's "draft state saved at every step" and nothing more: no compiled
+    block, no prompt version, no KB source, no publish. That restraint is the point —
+    an operator who has typed three services and gone to lunch must not thereby have
+    changed what a LIVE agent tells callers, and must not mint a prompt version per
+    keystroke either. Everything downstream happens at submit, once.
+
+    Returns the blockers that still stand between this draft and a submit, so the
+    wizard can show them while they are still cheap to fix.
+    """
+    await _agent_state(session, agent_id)  # 404 for another tenant's agent, before writing
+    await _store_sheet(
+        session, tenant_id=tenant_id, agent_id=agent_id, facts=facts, submitted=False
+    )
+    # Counts and codes only. The answers are the client's business detail and the
+    # escalation contacts are phone numbers (hard rule 6).
+    blockers = submission_blockers(facts)
+    log.info(
+        "intake_draft_saved",
+        extra={"agent_id": str(agent_id), "blockers": len(blockers)},
+    )
+    return {"agent_id": agent_id, "blockers": blockers}
+
+
 async def record_intake(
     session: AsyncSession,
     *,
@@ -378,6 +534,10 @@ async def record_intake(
     A LIVE agent is re-published in the SAME transaction, for the reason
     agents/prompts.py gives: a fact change that only lands in our database is a lie on
     the admin screen, and an engine failure must roll the version back with it.
+
+    This is the SUBMIT path, so unlike `save_intake_draft` it validates the whole set:
+    what gets compiled here is what an agent says to a caller, and half an answer sheet
+    compiles into an agent that cannot say where the clinic is.
     """
     business_name = (
         await session.execute(
@@ -388,6 +548,22 @@ async def record_intake(
         raise ProblemError.not_found("Organization")
 
     agent = await _agent_state(session, agent_id)
+
+    blockers = submission_blockers(facts)
+    if blockers:
+        # The codes, never the answers: a problem+json body is a user-safe message
+        # (RFC-9457 house rule) and the wizard already holds the values it typed.
+        raise ProblemError.business_rule(
+            "intake_incomplete",
+            "The intake is missing answers the agent needs: " + ", ".join(blockers) + ".",
+            remediation="Save the step as a draft, finish these answers, then submit.",
+        )
+
+    # The answer sheet first, so a submit that later fails a downstream check has still
+    # persisted what was typed — and so the sheet is written even on the unchanged path
+    # below, where an edit to escalation contacts changes no compiled byte.
+    await _store_sheet(session, tenant_id=tenant_id, agent_id=agent_id, facts=facts, submitted=True)
+
     hours = _hours_map(facts)
     # `languages_extra` is the OTHER languages (DATA-MODEL §3), so the agent's primary
     # is dropped rather than stored twice under two names.
@@ -465,22 +641,55 @@ async def record_intake(
     }
 
 
-async def read_intake(session: AsyncSession, *, agent_id: UUID) -> dict[str, Any]:
-    """What reopening the step can actually show, and no pretence beyond it.
+def _sheet_answers(sheet: dict[str, Any] | None, *, agent_id: UUID) -> IntakeFacts | None:
+    """The stored sheet as the model that wrote it, or None if there is nothing usable.
 
-    The structured half round-trips as itself. The prose half comes back as the
-    COMPILED BLOCK — the facts are there, the fields that produced them are not,
-    because nothing stores them (see the module docstring's note on the missing
-    column). A wizard rendering this can prefill hours, escalation contacts and
-    languages, and must show the block as text rather than pretend it can repopulate
-    the services table from it.
+    Defensive on purpose. The sheet is written only by this module, but it outlives the
+    code that wrote it: an org that last saved under an older `SHEET_VERSION`, or a row
+    hand-patched during an incident, must degrade to "prefill from the derived columns"
+    rather than 500 a wizard that is only trying to reopen a step.
+    """
+    if not sheet or sheet.get("version") != SHEET_VERSION:
+        return None
+    try:
+        return IntakeFacts.model_validate(sheet.get("answers") or {})
+    except ValidationError:
+        # ids only — the payload that failed is the client's answers (hard rule 6).
+        log.warning("intake_sheet_unreadable", extra={"agent_id": str(agent_id)})
+        return None
+
+
+async def read_intake(session: AsyncSession, *, agent_id: UUID) -> dict[str, Any]:
+    """Everything reopening the step needs, from the sheet that stores it.
+
+    The answer sheet on `organizations.intake` is the source of truth when it exists:
+    it is what the operator typed, including a draft that was never submitted and so
+    never reached `agents` at all. The derived columns are the fallback for an org that
+    last submitted before migration c1f3a7d92b46 — for those, hours, escalation
+    contacts and languages still round-trip, and the prose comes back only as the
+    compiled block, which is the honest answer for a row saved before there was
+    anywhere to save it.
+
+    The shape, and why each key comes from where it does:
+
+    - `business_hours`, `escalation_contacts`, `languages` — the same shapes the agent
+      columns hold (`languages` is the EXTRA languages, DATA-MODEL §3, so the agent's
+      primary is not repeated), rendered from the sheet when there is one.
+    - `prose_answers` — branches, services, FAQs, staff, booking rules: the fields, not
+      the sentence compiled out of them. `None` for a pre-migration org.
+    - `compiled_t0_context` — the block currently in the agent's prompt, for display:
+      it is what the agent actually says today, which is not always what the sheet says
+      if a submit has not happened since the last draft.
+    - `submitted_at` — whether this sheet has ever been compiled into the agent, so the
+      wizard can tell "saved" from "live" instead of guessing.
     """
     row = (
         await session.execute(
             text(
                 "SELECT a.business_hours, a.escalation_config, a.languages_extra, "
-                "  pv.compiled_t0_context "
-                "FROM agents a LEFT JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
+                "  pv.compiled_t0_context, o.intake, a.language_primary "
+                "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
+                "LEFT JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
             {"aid": agent_id},
@@ -488,28 +697,46 @@ async def read_intake(session: AsyncSession, *, agent_id: UUID) -> dict[str, Any
     ).first()
     if row is None:
         raise ProblemError.not_found("Agent")
-    escalation = row[1] or {}
+    sheet: dict[str, Any] | None = row[4]
+    facts = _sheet_answers(sheet, agent_id=agent_id)
+    if facts is None:
+        escalation = row[1] or {}
+        return {
+            "business_hours": row[0] or {},
+            "escalation_contacts": escalation.get("contacts", []),
+            "languages": list(row[2] or []),
+            "prose_answers": None,
+            "compiled_t0_context": row[3],
+            "submitted_at": None,
+        }
+    primary = str(row[5])
     return {
-        "business_hours": row[0] or {},
-        "escalation_contacts": escalation.get("contacts", []),
-        "languages": list(row[2] or []),
+        "business_hours": _hours_map(facts),
+        "escalation_contacts": [c.model_dump() for c in facts.escalation_contacts],
+        "languages": [lang for lang in facts.languages if lang and lang != primary],
+        "prose_answers": IntakeProse.from_facts(facts).model_dump(),
         "compiled_t0_context": row[3],
+        "submitted_at": (sheet or {}).get("submitted_at"),
     }
 
 
 __all__ = [
     "DAYS",
+    "SHEET_VERSION",
     "T0_HEADER",
     "Branch",
     "DayHours",
     "EscalationContact",
     "Faq",
     "IntakeFacts",
+    "IntakeProse",
     "ServiceItem",
     "StaffMember",
     "compile_t0_facts",
     "kb_seed_text",
     "read_intake",
     "record_intake",
+    "save_intake_draft",
     "splice_t0_block",
+    "submission_blockers",
 ]

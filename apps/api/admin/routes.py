@@ -217,17 +217,24 @@ class IntakeOut(BaseModel):
 
 
 class IntakeStateOut(BaseModel):
-    """What reopening the step can prefill. The prose answers come back as the compiled
-    block, not as the fields that produced them — nothing stores those (see
-    `admin/intake.py`), and a form that pretended otherwise would silently drop the
-    services table on the next save."""
+    """What reopening the step prefills, now that the answers have a durable home
+    (`organizations.intake`, migration c1f3a7d92b46).
+
+    `prose_answers` carries the fields the operator typed — branches, services, FAQs,
+    staff, booking rules — rather than the sentence compiled out of them; it is `None`
+    for an org whose last submit predates the column, where the compiled block is still
+    the only record of the prose. Escalation contacts stay in their own key and out of
+    `prose_answers`: they are phone numbers, and keeping them in one place keeps the
+    two copies from disagreeing."""
 
     model_config = ConfigDict(extra="forbid")
 
     business_hours: dict[str, dict[str, str] | None]
     escalation_contacts: list[dict[str, str | None]]
     languages: list[str]
+    prose_answers: intake.IntakeProse | None
     compiled_t0_context: str | None
+    submitted_at: datetime | None
 
 
 @router.post(

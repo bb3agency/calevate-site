@@ -6,9 +6,11 @@ enums, DATA-MODEL §10) — cheaper to evolve than native PG enums.
 """
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -39,6 +41,15 @@ class Organization(PKMixin, TimestampMixin, Base):
     # whether credits gate dispatch and whether the self-serve screens render.
     plan_tier: Mapped[str] = mapped_column(String, nullable=False, server_default="managed")
     billing_email: Mapped[str | None] = mapped_column(Text)
+    # The wizard's intake answer sheet (FLOWS §1 step 3), raw and resumable: the fields
+    # an operator typed, not the [T0 FACTS] block compiled out of them. Lives here
+    # because these are the BUSINESS's own facts — hours, branches, prices, staff — and
+    # `organizations` is the row that is the business (DATA-MODEL §2); the per-agent
+    # halves stay on `agents` (§3). Envelope shape and the reasons for the column rather
+    # than a `client_intake` table: migration c1f3a7d92b46. Validated at the API
+    # boundary by `admin.intake.IntakeFacts` (§10), envelope pinned by a CHECK.
+    # Contains staff names and escalation numbers: never log it (hard rule 6).
+    intake: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     deleted_at: Mapped[datetime | None]
 
