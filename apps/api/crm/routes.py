@@ -28,6 +28,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.crm import service
 from apps.api.crm.attention import attention_queue
+from apps.api.crm.performance import performance
 from apps.api.crm.schemas import (
     CallbackEligibilityOut,
     CallbackOut,
@@ -320,6 +321,19 @@ async def call_lead(
             response_payload=result.model_dump(),
         )
     return result
+
+
+@router.get(
+    "/performance",
+    openapi_extra=permission_meta("calls:read"),
+    summary="Connect rate, funnel, outcomes, busiest hours IST (teardown §5 floor)",
+)
+async def performance_panel(
+    session: Session,
+    days: int = 30,
+    _: Principal = Depends(requires("calls:read")),
+) -> dict[str, Any]:
+    return await performance(session, days=days)
 
 
 @router.get(

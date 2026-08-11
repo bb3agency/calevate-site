@@ -4851,6 +4851,48 @@
         "x-calevate-permission": "ops:manage"
       }
     },
+    "/v1/performance": {
+      "get": {
+        "operationId": "performance_panel_v1_performance_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Performance Panel V1 Performance Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Connect rate, funnel, outcomes, busiest hours IST (teardown \u00a75 floor)",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
     "/v1/usage": {
       "get": {
         "description": "`billing:read`, which staff do not have (SEC-COMP \u00a75) \u2014 spend is an owner's\nbusiness. Our supplier cost never appears here; that is the admin margin panel.",
