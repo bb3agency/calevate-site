@@ -79,6 +79,14 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     max_tries = WORKER_MAX_TRIES
+    # `max_tries` only counts attempts for jobs that ask to be retried. arq 0.28 retries
+    # a job for `arq.Retry`, `RetryJob` or `CancelledError` and for NOTHING else — a job
+    # that fails by raising anything else is finished on its first attempt, whatever this
+    # number says. Every worker that wants the ladder must `raise Retry(defer=...)`; see
+    # `apps/workers/outbound_webhooks.py` and `StorageUnavailableError`. Set explicitly
+    # rather than left to the default, because the default is what makes the ladder work
+    # at all.
+    retry_jobs = True
     job_timeout = 300
     # Keep results long enough for the ARQ-level job-id dedupe window to be useful
     # against duplicate webhooks (BACKEND-PATTERNS §4's cheapest layer).

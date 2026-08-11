@@ -28,6 +28,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.integrations import service
 from apps.api.reliability.service import claim_outbox_batch, enqueue_outbox
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
+from arq import Retry
 from sqlalchemy import text
 
 SECRET = "whsec_test_secret_value"
@@ -439,15 +440,29 @@ async def test_the_last_allowed_try_knows_it_is_the_last(monkeypatch) -> None:
     """Regression from the runbook audit: the worker's exhaustion threshold said 5
     while ARQ's real budget said 3, so ARQ stopped retrying before the worker ever
     considered itself exhausted — and the `outbound_webhook_exhausted` alert could
-    not fire. The two numbers must be the same object, not coincidentally equal."""
+    not fire. The two numbers must be the same object, not coincidentally equal.
+
+    The earlier version of this test then handed the worker `{"job_try": 3}` directly,
+    which is the one thing it must never do. `job_try` is arq's to write, and injecting
+    it asserted only that an `if` compares two integers — it could not, and did not,
+    notice that arq never retried the job at all, so the branch it was "covering" was
+    unreachable in production. The real ladder is exercised in
+    `tests/reliability_audit_test.py::test_a_raising_job_is_actually_retried_by_a_real_worker`,
+    on a real worker with a real attempt count. What is left here is the part that IS a
+    pure unit question: given that this is the last try, does the job give up loudly?
+    """
     from apps.api.core.queue import WORKER_MAX_TRIES
     from apps.workers.settings import WorkerSettings
 
     assert service.MAX_ATTEMPTS is WORKER_MAX_TRIES, "one budget, one source"
     assert WorkerSettings.max_tries is WORKER_MAX_TRIES
+    assert WorkerSettings.retry_jobs is True, "max_tries means nothing without retries on"
 
-    # And end to end: on try == budget, a failing delivery alerts and STOPS (returns)
-    # instead of raising for a retry that will never come.
+    # The budget must leave room for the backoff curve to have a step per retry.
+    from apps.workers.outbound_webhooks import RETRY_BACKOFF_S
+
+    assert len(RETRY_BACKOFF_S) == WORKER_MAX_TRIES - 1, "one wait per retry, none after the last"
+
     tenant_id, endpoint_id = await _tenant_with_endpoint(url="https://down.example/hook")
     fired: list[str] = []
     monkeypatch.setattr(
@@ -462,8 +477,45 @@ async def test_the_last_allowed_try_knows_it_is_the_last(monkeypatch) -> None:
 
     from apps.workers.outbound_webhooks import deliver_outbound_webhook
 
+    payload = {
+        "tenant_id": str(tenant_id),
+        "endpoint_id": str(endpoint_id),
+        "event": "lead.created",
+        "data": {"lead_id": "1"},
+        "delivery_id": str(uuid7()),
+    }
+
+    # Not the last try: the job must ASK for a retry, in the only way arq honours.
+    with pytest.raises(Retry):
+        await deliver_outbound_webhook({"job_try": 1}, payload)
+    assert fired == [], "a retryable failure is not an incident yet"
+
+    # The last try: alert and STOP, rather than ask for a retry that will never come.
+    outcome = await deliver_outbound_webhook({"job_try": WORKER_MAX_TRIES}, payload)
+    assert outcome == f"exhausted after {WORKER_MAX_TRIES}"
+    assert fired == ["outbound_webhook_exhausted"], "the alert fires on the real last try"
+
+
+async def test_a_rejected_delivery_is_not_retried_at_all(monkeypatch) -> None:
+    """A 400 is a verdict on the request, not a blip. Retrying it three times only
+    delays the `failed` row the webhook-activity screen shows and hammers an endpoint
+    that has already said no — but giving up silently would be worse than either."""
+    tenant_id, endpoint_id = await _tenant_with_endpoint(url="https://picky.example/hook")
+    fired: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        "apps.workers.outbound_webhooks.alert",
+        lambda stage, code, **kw: fired.append((code, kw.get("detail"))),
+    )
+
+    async def reject(**kwargs: Any) -> service.DeliveryResult:
+        return service.DeliveryResult(delivered=False, status_code=400, error="HTTP 400")
+
+    monkeypatch.setattr("apps.api.integrations.service.deliver", reject)
+
+    from apps.workers.outbound_webhooks import deliver_outbound_webhook
+
     outcome = await deliver_outbound_webhook(
-        {"job_try": WORKER_MAX_TRIES},
+        {"job_try": 1},
         {
             "tenant_id": str(tenant_id),
             "endpoint_id": str(endpoint_id),
@@ -472,5 +524,6 @@ async def test_the_last_allowed_try_knows_it_is_the_last(monkeypatch) -> None:
             "delivery_id": str(uuid7()),
         },
     )
-    assert outcome == f"exhausted after {WORKER_MAX_TRIES}"
-    assert fired == ["outbound_webhook_exhausted"], "the alert fires on the real last try"
+    assert outcome == "rejected 400", "a permanent rejection returns rather than retrying"
+    assert [code for code, _ in fired] == ["outbound_webhook_exhausted"]
+    assert "permanent" in (fired[0][1] or ""), "and the alert says WHY we stopped"

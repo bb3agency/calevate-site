@@ -22,6 +22,7 @@ from uuid import UUID
 
 import boto3
 import httpx
+from arq import Retry
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -32,11 +33,40 @@ log = get_logger(__name__)
 
 PRESIGN_TTL_S = 300
 DOWNLOAD_TIMEOUT_S = 60.0
+# A recording copy is worth waiting for: the vendor's S3 link has no documented expiry
+# but no promise either, so a retry should be soon enough to beat a link going away and
+# far enough out to let a storage blip finish.
+RECORDING_RETRY_DEFER_S = 30.0
 
 
-class StorageUnavailableError(RuntimeError):
+class StorageUnavailableError(Retry):
     """Raised so the ARQ retry ladder can do its job — a failed recording copy must
-    retry, never be swallowed."""
+    retry, never be swallowed.
+
+    It subclasses `arq.Retry` because that sentence was not true before: arq 0.28 only
+    retries a job for `Retry`, `RetryJob` or `CancelledError`, and a plain
+    `RuntimeError` — which is what this used to be — finishes the job after ONE attempt.
+    The post-call pipeline re-raises this exception with the comment "Re-raise so ARQ
+    retries", and it now does.
+
+    Of everything in the pipeline this is the failure least tolerable to drop: the
+    recording copy runs FIRST precisely because Bolna's recording URLs are direct S3
+    links with no documented expiry, so a copy we quietly gave up on is a call recording
+    that is simply gone — against a 90-day TRAI floor that is our obligation, not the
+    vendor's.
+
+    `Retry` is still a `RuntimeError`, so every existing `except StorageUnavailableError`
+    and `except RuntimeError` keeps working.
+    """
+
+    def __init__(self, message: str, *, defer_s: float = RECORDING_RETRY_DEFER_S) -> None:
+        super().__init__(defer=defer_s)
+        self.message = message
+
+    def __str__(self) -> str:
+        # arq's Retry stringifies as "<Retry defer 30.00s>"; the alert in the pipeline
+        # logs str(exc) and needs to say what actually broke.
+        return self.message
 
 
 def _client() -> Any:
@@ -126,6 +156,7 @@ def presigned_url(key: str, *, ttl_s: int = PRESIGN_TTL_S) -> str | None:
 
 __all__ = [
     "PRESIGN_TTL_S",
+    "RECORDING_RETRY_DEFER_S",
     "StorageUnavailableError",
     "archive_payload",
     "copy_recording",

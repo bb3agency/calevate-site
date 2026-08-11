@@ -40,6 +40,23 @@ IDEMPOTENCY_TTL = timedelta(hours=24)
 OUTBOX_MAX_ATTEMPTS = 5
 OUTBOX_BATCH = 50
 
+# How long a PROCESSING claim may go untouched before it is treated as ABANDONED
+# rather than in-flight.
+#
+# Both claim tables have a state that means "someone is working on this": a crash
+# between the claim and its completion leaves that state behind with nobody behind it,
+# and without a lease it is permanent — 24h for an idempotency key (until the TTL
+# sweep), forever for an inbox row. The client retrying gets `409 in flight` for a
+# request that is not in flight, and an at-most-once engine event is answered
+# "duplicate" and never processed.
+#
+# The number is the longest a legitimate holder can live: ARQ's `job_timeout` is 300s
+# (apps/workers/settings.py) and an API request dies long before that, so ten minutes
+# of silence cannot be an attempt that is still running. Past it the claim is taken
+# over by CAS — the same treatment §4 already prescribes for a FAILED record, applied
+# to the case where the holder never got far enough to record its own failure.
+CLAIM_LEASE = timedelta(minutes=10)
+
 
 def body_hash(payload: Any) -> str:
     """Stable hash of a request/event body. Sorted keys so key order is not a
@@ -83,7 +100,11 @@ async def claim_idempotency(
 
     409s, both deliberate:
     - same key + DIFFERENT body → the client reused a key for a new request;
-    - status PROCESSING → the first attempt is still in flight.
+    - status PROCESSING and claimed within `CLAIM_LEASE` → genuinely still in flight.
+
+    A FAILED record, or a PROCESSING one whose holder has been silent for longer than
+    the lease, is re-claimed by CAS: a crashed attempt must not own the key until the
+    TTL sweep.
     """
     record_id = uuid7()
     inserted = await session.execute(
@@ -128,27 +149,31 @@ async def claim_idempotency(
             "This Idempotency-Key was already used for a different request body.",
             remediation="Use a fresh key for a new request.",
         )
-    if status == "processing":
-        raise ProblemError(
-            kind="conflict",
-            code="idempotent_request_in_flight",
-            title="Request already in progress",
-            detail="An identical request is still being processed.",
-            remediation="Retry in a few seconds.",
-            headers={"Retry-After": "3"},
-        )
-    if status == "failed":
-        # CAS the failed record back to processing; whoever wins retries.
+    if status in ("processing", "failed"):
+        # CAS the record back to processing; whoever wins retries.
+        #
+        # FAILED is the easy case: the previous attempt recorded its own defeat. A
+        # PROCESSING record OLDER THAN THE LEASE is the same situation seen from the
+        # other side — the attempt died before it could record anything — and it must
+        # be recoverable for the same reason: otherwise one crashed request owns the
+        # key until the 24h TTL sweep and every retry is refused as "in flight".
+        # A recent PROCESSING record really is in flight and still gets its 409.
         retried = await session.execute(
             text(
                 "UPDATE idempotency_records SET status = 'processing', updated_at = now() "
-                "WHERE id = :id AND status = 'failed'"
+                "WHERE id = :id AND (status = 'failed' OR "
+                "(status = 'processing' AND updated_at < now() - :lease))"
             ),
-            {"id": found_id},
+            {"id": found_id, "lease": CLAIM_LEASE},
         )
         if rowcount_of(retried) == 0:
-            raise ProblemError.conflict(
-                "idempotent_request_in_flight", "An identical request is being retried."
+            raise ProblemError(
+                kind="conflict",
+                code="idempotent_request_in_flight",
+                title="Request already in progress",
+                detail="An identical request is still being processed.",
+                remediation="Retry in a few seconds.",
+                headers={"Retry-After": "3"},
             )
         return IdempotencyClaim(state="fresh", record_id=found_id)
 
@@ -269,16 +294,24 @@ async def mark_outbox_failed(
 ) -> None:
     """< OUTBOX_MAX_ATTEMPTS stays pending (retried next tick); at the ceiling it goes
     to `failed` — the outbox DLQ — and alerts. Ops replays a DLQ row by flipping it
-    back to pending with an audit note."""
+    back to pending with an audit note.
+
+    `AND status = 'pending'` is the CAS guard (§5), and it is load-bearing rather than
+    decorative: without it a late failure report drags a message that has ALREADY been
+    published back to pending, and the next dispatcher tick queues its job a second
+    time. For `deliver_outbound_webhook` that is a duplicate POST into a client's CRM.
+    The alert fires only when the row actually moved, so a lost race cannot page ops
+    about a dead letter that does not exist.
+    """
     terminal = attempt_count >= OUTBOX_MAX_ATTEMPTS
-    await session.execute(
+    result = await session.execute(
         text(
             "UPDATE outbox_messages SET status = :status, last_error = :error, "
-            "updated_at = now() WHERE id = :id"
+            "updated_at = now() WHERE id = :id AND status = 'pending'"
         ),
         {"id": message_id, "status": "failed" if terminal else "pending", "error": error[:500]},
     )
-    if terminal:
+    if terminal and rowcount_of(result):
         alert(
             "OUTBOX_DISPATCH",
             "outbox_dead_letter",
@@ -305,12 +338,30 @@ async def record_outbox_metrics(session: AsyncSession) -> None:
 
 async def replay_dead_letters(session: AsyncSession, *, limit: int = 100) -> int:
     """The ops "replay dead letter" action. Attempts reset so the message gets a fresh
-    budget; the caller writes the audit note."""
+    budget; the caller writes the audit note.
+
+    Claimed exactly like `claim_outbox_batch`, and for the same three reasons:
+
+    - **MATERIALIZED + `ORDER BY created_at, id`** — dead letters written by one batch
+      share `created_at` to the microsecond, and `LIMIT` inside `WHERE id IN (SELECT
+      ...)` is only honoured while the planner does not rescan the subquery. A total
+      ordering plus a materialized CTE makes `limit` mean `limit` under every plan.
+    - **`FOR UPDATE SKIP LOCKED`** — two operators clicking replay, or a replay racing
+      the dispatcher, must not fight over the same rows.
+    - **`AND o.status = 'failed'` on the UPDATE itself** — the subquery's filter is not
+      a guard. Under READ COMMITTED the outer UPDATE blocks on a concurrent writer's
+      lock and, on waking, re-checks only its OWN WHERE clause; without the status in
+      it, a message that was dead when the CTE ran and published by the time the lock
+      was granted is flipped back to pending and delivered twice.
+    """
     result = await session.execute(
         text(
-            "UPDATE outbox_messages SET status = 'pending', attempt_count = 0, "
-            "updated_at = now() WHERE id IN (SELECT id FROM outbox_messages "
-            "WHERE status = 'failed' ORDER BY created_at LIMIT :limit)"
+            "WITH picked AS MATERIALIZED ("
+            "  SELECT id FROM outbox_messages WHERE status = 'failed' "
+            "  ORDER BY created_at, id LIMIT :limit FOR UPDATE SKIP LOCKED"
+            ") "
+            "UPDATE outbox_messages o SET status = 'pending', attempt_count = 0, "
+            "updated_at = now() FROM picked WHERE o.id = picked.id AND o.status = 'failed'"
         ),
         {"limit": limit},
     )
@@ -339,8 +390,9 @@ async def claim_inbox_event(
     """Durable dedupe. Same (provider, event_key) with a DIFFERENT payload_hash is a
     409 — that is a spoof or corruption signal, not a retry (§4).
 
-    A previously FAILED row is re-claimable via CAS: engine events are at-most-once,
-    so a failed processing attempt must not permanently poison the key.
+    A previously FAILED row — or a PROCESSING row abandoned for longer than
+    `CLAIM_LEASE` — is re-claimable via CAS: engine events are at-most-once, so
+    neither a failed nor a crashed processing attempt may permanently poison the key.
     """
     row_id = uuid7()
     inserted = await session.execute(
@@ -382,13 +434,25 @@ async def claim_inbox_event(
             "webhook_payload_mismatch",
             "This event id was already received with different content.",
         )
-    if status == "failed":
+    if status in ("failed", "processing"):
+        # FAILED = the consumer recorded its own defeat. PROCESSING past the lease =
+        # the consumer died before it could. Both mean nobody is doing this work, and
+        # for an at-most-once engine event (D-31) "nobody is doing this work and the
+        # key says duplicate" is a silently dropped call.
+        #
+        # This is not hypothetical: `apps/api/tenancy/clerk_webhooks.py` COMMITS the
+        # claim, then does the mirroring in a later transaction with no failure path
+        # that marks the row failed — so any exception there leaves PROCESSING behind
+        # and every Clerk retry of that svix-id is answered "duplicate".
+        #
+        # A recent PROCESSING row is a real concurrent delivery and still dedupes.
         retried = await session.execute(
             text(
                 "UPDATE webhook_inbox_events SET status = 'processing', updated_at = now() "
-                "WHERE id = :id AND status = 'failed'"
+                "WHERE id = :id AND (status = 'failed' OR "
+                "(status = 'processing' AND updated_at < now() - :lease))"
             ),
-            {"id": found_id},
+            {"id": found_id, "lease": CLAIM_LEASE},
         )
         if rowcount_of(retried):
             return InboxClaim(state="claimed", row_id=found_id)
