@@ -12,9 +12,10 @@ erasure request is impossible, which is the thing anyone actually depends on.
   `execute_deletion_request` the row that proves we erased someone must not still hold
   them. What replaces it, `subject_ref`, has to keep answering "have we already erased
   this person?" — otherwise the fix trades one compliance failure for another.
-- **The credit ledger's unique index is still absent**, and the last test here is the
-  tripwire that says why, so the reason is a fact somebody can run rather than a claim
-  in a docstring.
+
+The third item this file used to carry — a tripwire asserting the credit ledger's unique
+index was still ABSENT — is gone: migration f9c2b41a8e57 added it, and the property is
+now stated positively in `tests/credit_ledger_unique_index_test.py`.
 
 House rules, inherited from `tests/schema_hardening_test.py` because it is the same
 shared database: every row carries `RUN`, every assertion counts only rows this module
@@ -25,11 +26,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.billing.service import record_entry
 from apps.api.compliance.deletion import get_request, request_erasure
 from apps.api.compliance.export import subject_ref
 from apps.api.db.base import uuid7
@@ -436,50 +435,11 @@ async def test_a_fresh_request_after_an_erasure_gets_its_own_row() -> None:
     assert second.subject_ref == first.subject_ref
 
 
-# =================================== 3. the credit ledger index that is still absent
-
-
-async def test_the_ledger_still_accepts_the_double_credit_its_own_fixtures_write() -> None:
-    """TRIPWIRE, and the reason `credit_ledger` still has no unique index on
-    `(tenant_id, ref)` after two attempts.
-
-    The first refusal (a6f2e84b1d37) was about history: 21 pairs violate the index and
-    hard rule 4 forbids deleting them, so a cutoff predicate —
-    `... AND occurred_at >= '<literal>'::timestamptz` — was the obvious way around it,
-    and it does build.
-
-    It still cannot land, for a reason the first attempt could not have seen: this
-    repository manufactures fresh violations on purpose.
-    `tests/credit_reconciliation_test.py::_double_credit` reproduces the race through
-    `record_entry` — the ledger's only writer, chosen deliberately so the fixture has the
-    shape the production bug produced — and those rows land AFTER any cutoff one could
-    pick. Measured with the candidate index present: 11 of that module's 13 tests fail;
-    without it, all 13 pass. The constraint would be bought with the test coverage of the
-    script that repairs money.
-
-    So this test asserts the ABSENCE, which is unusual and deliberate: the day the
-    reconciliation fixture seeds its residue with an explicit pre-cutoff `occurred_at`,
-    this test fails, and the failure is the reminder that the index can finally go on.
-    Delete it in the same commit as the migration that adds it.
-    """
-    tenant_id = await _make_org()
-    ref = f"UTR-TRIPWIRE-{RUN}"
-
-    async with tenant_session(tenant_id) as session:
-        await record_entry(
-            session, tenant_id=tenant_id, delta=Decimal("500"), reason="topup", ref=ref
-        )
-        await record_entry(
-            session, tenant_id=tenant_id, delta=Decimal("500"), reason="topup", ref=ref
-        )
-
-    async with tenant_session(tenant_id) as session:
-        rows = (
-            await session.execute(
-                text("SELECT count(*) FROM credit_ledger WHERE ref = :r"), {"r": ref}
-            )
-        ).scalar()
-    assert rows == 2, (
-        "if this now fails, the (tenant_id, ref) unique index has landed — good; "
-        "delete this tripwire and the note in billing/models.CreditLedgerEntry"
-    )
+# =================================== 3. the credit ledger index — landed, moved out
+#
+# This file used to end with a TRIPWIRE asserting `credit_ledger` had no unique index on
+# its reference, minting a duplicate `topup` pair on every run to prove it. Its own
+# docstring said to delete it in the commit that adds the index. Migration f9c2b41a8e57
+# is that commit: the key turned out to be `(tenant_id, reason, ref)` rather than
+# `(tenant_id, ref)`, and the positive property — the index exists and refuses a genuine
+# duplicate — is asserted in `tests/credit_ledger_unique_index_test.py`.

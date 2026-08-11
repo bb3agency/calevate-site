@@ -135,65 +135,30 @@ class CreditLedgerEntry(PKMixin, Base):
     Append-only like the other ledgers (hard rule 4): a refund is a NEW entry, never an
     edit to the charge.
 
-    What is NOT here, and is missing deliberately rather than by oversight: a partial
-    unique index on `(tenant_id, ref) WHERE reason IN ('topup','usage')`. That is what
-    would make double-crediting structurally impossible instead of merely unlikely —
-    today both dedupes are check-then-write under a per-tenant advisory lock. It cannot
-    be created while the table holds rows that violate it (21 such pairs), and being
-    append-only, those rows can only be corrected by compensating entries, never
-    deleted. Migration a6f2e84b1d37 carries the reasoning and the route to the follow-up.
+    **`(tenant_id, reason, ref)` is unique for entries at or after 2026-08-11 08:07 UTC**
+    — migration f9c2b41a8e57, `ux_credit_ledger_tenant_reason_ref`, partial on
+    `ref IS NOT NULL AND reason IN ('topup','usage','adjustment')`. Two facts about it
+    are worth carrying next to the columns:
 
-    A SECOND attempt (2026-08-11) tried the way around that: keep the predicate but fence
-    off the history with a literal cutoff —
+    - **`reason` is in the key, and `ref` alone is not unique.** Four earlier attempts
+      proposed `UNIQUE (tenant_id, ref)` and all four were refused. `ref` is two
+      namespaces in one column: a `usage` row carries a call id, a `topup` row carries
+      whatever the bank printed, and `TopUpIn.payment_ref` accepts any 3-to-120-character
+      string — a UUID among them. The platform TOLERATES that collision deliberately
+      (`find_topup` and `charge_for_call` both scope their dedupe by reason), so a key
+      without `reason` would turn a valid payment into a 500.
+    - **It is partial on a cutoff**, because hard rule 4 forbids deleting the duplicates
+      a pre-fix check-then-write race left behind. `scripts/reconcile_credit_ledger.py`
+      repairs those balances with compensating entries and the duplicate rows REMAIN, so
+      the residue is permanent and a full index could never build. The cutoff constant is
+      `LEDGER_UNIQUE_INDEX_CUTOFF` in that script; the migration carries its own frozen
+      copy and `tests/credit_ledger_unique_index_test.py` holds the two equal.
 
-        UNIQUE (tenant_id, ref)
-        WHERE reason IN ('topup','usage') AND ref IS NOT NULL
-          AND occurred_at >= '<literal>'::timestamptz
-
-    which builds cleanly, since every violating pair predates any cutoff one would pick.
-    It was refused too, for a NEW reason that the first attempt could not have seen: the
-    repository manufactures fresh violations on purpose. `tests/credit_reconciliation_
-    test.py::_double_credit` reproduces the race by calling `record_entry` twice with one
-    `ref` — through the ledger's only writer, deliberately, because "a hand-rolled INSERT
-    would seed a shape the production bug never produced". Those rows land NOW, i.e.
-    after any cutoff, so the index turns the reconciler's own fixtures into integrity
-    errors: measured, 11 of that module's 13 tests fail with the index present and all 13
-    pass without it. Trading the reconciler's test coverage for the constraint is a bad
-    trade in the one place where the reconciler is the thing repairing money.
-
-    A THIRD attempt (2026-08-11, later the same day) came back after that fixture change
-    landed — `_double_credit` now seeds its residue by direct INSERT backdated 120 days,
-    exactly as prescribed above — and MEASURED the database before building anything.
-    The index still cannot go on, because the fixture that was fixed was not the only one
-    minting violations:
-
-        tests/credit_reconciliation_test.py::test_an_over_charged_call_is_compensated_upward
-
-    calls `record_entry` twice with one `usage` ref, inline, to set up the "client
-    debited twice for one call" group. `record_entry` stamps `clock_timestamp()`, so that
-    pair lands NOW — after any cutoff — and a cutoff-predicate index turns it into an
-    IntegrityError. Measured, not inferred: with the module's tenants marked at a clock
-    reading and re-queried, that single test manufactured a fresh violating pair on every
-    run, while every other test in the module (and in `credits_test`, `credit_topup_test`)
-    left the ledger clean. The database-wide count also rose from the 21 pairs the first
-    attempt saw to 202, which is what a suite minting them on every run looks like.
-
-    `tests/schema_hardening_2_test.py::test_the_ledger_still_accepts_the_double_credit_
-    its_own_fixtures_write` is a SECOND live minter, but a deliberate one — it is the
-    tripwire that says to delete it in the same commit as the migration, so it is not a
-    blocker, it is the switch.
-
-    So the remaining route is one more fixture change and still not schema work: seed the
-    `usage` pair in that test the same backdated way `_double_credit` already does. Then
-    the shape verified to build —
-
-        UNIQUE (tenant_id, ref)
-        WHERE reason IN ('topup','usage') AND ref IS NOT NULL
-          AND occurred_at >= '<literal>'::timestamptz
-
-    — lands, the tripwire in schema_hardening_2 fails and is deleted, and the advisory
-    lock demotes to belt-and-braces. Until then it remains load-bearing and this docstring
-    is the record of why.
+    The index is a backstop, not the primary guarantee: both dedupes are check-then-write
+    under `lock_tenant_credits`, and `tests/credit_ledger_uniqueness_test.py` pins that
+    the real writers cannot mint a duplicate key. What the index adds is protection from
+    a FUTURE writer that forgets the lock — which is the failure mode an advisory lock
+    can never cover, since it is only as good as every caller remembering it.
     """
 
     __tablename__ = "credit_ledger"

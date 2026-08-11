@@ -1,14 +1,17 @@
-"""Round three of the schema-hardening work: one constraint still refused, one hole closed.
+"""Round three of the schema-hardening work: the retention sweep's leads hole, closed.
 
-Two unrelated things share this file because they share a discipline — measure the
-database before believing a docstring, and write the property down in the words the
-person who has to defend it would use.
+The discipline this file was written under — measure the database before believing a
+docstring, and write the property down in the words the person who has to defend it
+would use — is the reason it is worth keeping as a file rather than folding into
+`retention_test.py`.
 
-1. **The credit-ledger unique index is STILL not here**, and this file records the
-   measurement that says why, naming the one fixture that now stands in the way.
-2. **The retention sweep's leads hole is closed at the ingest end**, and the tests below
-   are the compliance sentence — no personal data enters the platform that the retention
-   sweep cannot later expire — expressed as things that either happen or do not.
+**The retention sweep's leads hole is closed at the ingest end**, and the tests below are
+the compliance sentence — no personal data enters the platform that the retention sweep
+cannot later expire — expressed as things that either happen or do not.
+
+The second subject this file used to carry, a tripwire recording why the credit-ledger
+unique index could not yet be built, is gone with migration f9c2b41a8e57; see the note
+at the foot of the file.
 """
 
 from __future__ import annotations
@@ -16,11 +19,9 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.billing.service import record_entry
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
 from apps.api.ingest.routes import SECRET_HEADER
@@ -285,77 +286,17 @@ async def test_publishing_writes_both_halves_of_the_fact_the_refusal_reads() -> 
     )
 
 
-# ==================================== 2. the credit-ledger unique index, still refused
+# ==================================== 2. the credit-ledger unique index — landed
 #
-# Measured on 2026-08-11 against this database, before writing any migration:
+# This file used to end with a TRIPWIRE that reproduced the reconciler's over-charge
+# fixture — two `record_entry` calls with one `usage` ref, stamped `clock_timestamp()` —
+# and asserted both rows survived, on the reasoning that a cutoff predicate only fences
+# the past while the suite kept minting into the future. Its own docstring said to delete
+# it in the commit that adds the index.
 #
-#   SELECT tenant_id, ref, reason, count(*) FROM credit_ledger
-#    WHERE reason IN ('topup','usage') AND ref IS NOT NULL
-#    GROUP BY 1,2,3 HAVING count(*) > 1;            -- 202 pairs, newest seconds old
-#
-# 202, not the 21 the first attempt saw, and the newest of them minted by the suite that
-# had just run. The candidate shape —
-#
-#   UNIQUE (tenant_id, ref) WHERE reason IN ('topup','usage') AND ref IS NOT NULL
-#     AND occurred_at >= '<literal>'::timestamptz
-#
-# — grandfathers the history behind a literal cutoff and therefore builds. It still
-# cannot LIVE, because a cutoff only fences the past and the suite keeps writing to the
-# future. `tests/credit_reconciliation_test.py::_double_credit` was fixed (it now seeds
-# its residue backdated, by direct INSERT), which is what unblocked the first objection.
-# It was not the only minter.
-
-
-async def test_the_reconcilers_over_charge_fixture_still_mints_a_post_cutoff_violation() -> None:
-    """The ONE remaining blocker, reproduced in isolation and named.
-
-    `credit_reconciliation_test.py::test_an_over_charged_call_is_compensated_upward` sets
-    up its `usage` group by calling `record_entry` twice with one call id — inline, not
-    through the backdating helper its sibling test uses. `record_entry` stamps
-    `clock_timestamp()`, so the pair lands NOW, after any cutoff anyone could choose, and
-    the candidate index would turn that test into an IntegrityError.
-
-    This test reproduces exactly that write and asserts BOTH rows survive with a
-    present-tense timestamp. It is a tripwire, like the one in `schema_hardening_2_test`,
-    and it is more specific: when it fails, the remaining fixture has been fixed and the
-    index can finally be built. Delete it in the same commit as the migration that adds
-    the index.
-    """
-    tenant_id, _ = await _tenant_with_source(published=True, consent_field=False)
-    call_ref = str(uuid.uuid4())
-    before = datetime.now(UTC)
-
-    async with tenant_session(tenant_id) as session:
-        await record_entry(
-            session, tenant_id=tenant_id, delta=Decimal("1000"), reason="topup", ref="UTR-SH3-1"
-        )
-        # The exact double-charge shape the reconciler's fixture writes.
-        for _ in range(2):
-            await record_entry(
-                session, tenant_id=tenant_id, delta=Decimal("-30"), reason="usage", ref=call_ref
-            )
-
-    async with tenant_session(tenant_id) as session:
-        rows = (
-            (
-                await session.execute(
-                    text(
-                        "SELECT occurred_at FROM credit_ledger WHERE tenant_id = :t "
-                        "AND ref = :r AND reason = 'usage' ORDER BY occurred_at"
-                    ),
-                    {"t": tenant_id, "r": call_ref},
-                )
-            )
-            .scalars()
-            .all()
-        )
-
-    assert len(rows) == 2, (
-        "if this now fails, the (tenant_id, ref) partial unique index has landed — good; "
-        "delete this tripwire, and the note in billing/models.CreditLedgerEntry"
-    )
-    assert all(stamp >= before for stamp in rows), (
-        "and this is why a cutoff predicate does not save it: the fixture's rows are "
-        "stamped by clock_timestamp(), so they fall AFTER every cutoff a migration could "
-        "freeze into a literal"
-    )
+# That commit is migration f9c2b41a8e57. Two things changed between then and now: the
+# fixture was rewritten to seed its residue by backdated INSERT at an absolute instant
+# (`credit_reconciliation_test.RESIDUE_AT`), so it no longer writes past any cutoff; and
+# the key was found to be wrong rather than the predicate — `ref` is two namespaces in
+# one column, so the index is on `(tenant_id, reason, ref)`, not `(tenant_id, ref)`.
+# The positive property now lives in `tests/credit_ledger_unique_index_test.py`.

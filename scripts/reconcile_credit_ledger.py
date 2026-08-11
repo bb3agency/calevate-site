@@ -68,9 +68,9 @@ phantom rupees. Their balance is then genuinely negative and the ledger must say
 refusing to record the correction would leave a wallet that reads richer than it is,
 which is the exact condition this script exists to end.
 
-THE INDEX (settled — lift this verbatim into a migration).
+THE INDEX (landed — migration f9c2b41a8e57).
 
-Five attempts have now been made to add a unique index here. The first four were all on
+Five attempts were made to add a unique index here. The first four were all on
 `(tenant_id, ref)` and all correctly refused. The key was wrong, and the shape below is
 what the evidence supports. Every claim in it was measured against a database that had
 just run the suite, by snapshotting the violating groups, running, diffing, and pulling
@@ -80,7 +80,7 @@ the rows — not by reading code.
         ON credit_ledger (tenant_id, reason, ref)
      WHERE ref IS NOT NULL
        AND reason IN ('topup', 'usage', 'adjustment')
-       AND occurred_at >= '<LEDGER_UNIQUE_INDEX_CUTOFF>'::timestamptz;
+       AND occurred_at >= '2026-08-11 08:07:00+00:00'::timestamptz;
 
 `reason` IS IN THE KEY, and this is the finding the four refusals missed. `ref` is not
 one namespace: a `usage` row carries a call id, a `topup` row carries whatever the bank
@@ -108,24 +108,35 @@ THE PREDICATE, clause by clause:
   is the only shape that can ever build. Verified: the same index without the cutoff
   fails on `(…, topup, UTR-RACE-0)`.
 
-BEFORE IT CAN LAND, three things, none of them optional:
+HOW IT LANDED. Three preconditions, none of them optional, all executed in the
+migration's own commit:
 
-1. **Move the cutoff to your own authoring instant** and re-verify the build. The
-   constant below is a placeholder; a cutoff is only honest if it sits after every
-   duplicate on the target database and at or before deploy.
-2. **Delete the two tripwires in the same commit.** `schema_hardening_2_test.py::
+1. **The cutoff is the migration author's instant**, `2026-08-11 08:07:00+00:00`,
+   truncated DOWN to the minute — rounding forward would open a window in which a
+   duplicate is legal and invisible. A cutoff is only honest if it sits after every
+   duplicate on the target database and at or before deploy; production has never run a
+   test and holds no duplicate under this key at any cutoff, so the binding constraint
+   was the second one. The literal is duplicated in the migration rather than imported
+   from here, because a migration is a frozen historical fact and must not change
+   meaning when a constant three directories away is edited; the two copies are held
+   equal by `tests/credit_ledger_unique_index_test.py`.
+2. **The two tripwires were deleted in the same commit.** `schema_hardening_2_test.py::
    test_the_ledger_still_accepts_the_double_credit_its_own_fixtures_write` and
    `schema_hardening_3_test.py::test_the_reconcilers_over_charge_fixture_still_mints_a_
-   post_cutoff_violation` assert the index is ABSENT, and each mints a duplicate pair
-   per run to prove it. Measured over a full suite run: they are the ONLY writers that
-   put a violation after the cutoff. Both docstrings already say to delete them here.
-   Also drop the note in `billing/models.CreditLedgerEntry` that points at them.
-3. **`CONCURRENTLY`, outside a transaction.** A plain `CREATE UNIQUE INDEX` takes a
-   SHARE lock and blocks every credit write for the length of the build, on a table the
-   post-call pipeline writes to continuously. Alembic runs migrations in a transaction,
-   so this needs `with op.get_context().autocommit_block():` — and note that a
-   CONCURRENTLY build can fail and leave an INVALID index behind, which the downgrade
-   must `DROP INDEX IF EXISTS` unconditionally.
+   post_cutoff_violation` asserted the index was ABSENT, and each minted a duplicate
+   pair per run to prove it. Measured over a full suite run: they were the ONLY writers
+   that put a violation after the cutoff. They are replaced by the positive assertion —
+   the index EXISTS and refuses a genuine duplicate — in
+   `tests/credit_ledger_unique_index_test.py`, so the coverage moved rather than
+   evaporated. The note in `billing/models.CreditLedgerEntry` that pointed at them went
+   with them.
+3. **`CONCURRENTLY`, outside a transaction**, via `op.get_context().autocommit_block()`.
+   A plain `CREATE UNIQUE INDEX` takes a SHARE lock and blocks every credit write for
+   the length of the build, on a table the post-call pipeline writes to continuously. A
+   CONCURRENTLY build can fail and leave an INVALID index behind — which is not inert,
+   since an invalid UNIQUE index can still reject insertions — so the downgrade issues
+   `DROP INDEX IF EXISTS` unconditionally and is also the recovery for a build that
+   never finished.
 
 WHAT THE INDEX DOES NOT BUY. Every writer that could produce a duplicate key is already
 serialized by `lock_tenant_credits`, and `tests/credit_ledger_uniqueness_test.py` pins
@@ -133,10 +144,12 @@ that. The index is a backstop against a future writer that forgets the lock, not
 for a live defect — so it is worth having, and not worth breaking a money route for.
 
 DEV DATABASES. This repository's shared dev database carries duplicates the suite wrote
-before the fixtures were pinned, including some stamped in 2027 by a test that has since
-been rewritten not to write them. Those rows cannot be removed (hard rule 4), so the
-build will fail there against any sane cutoff. `make db-reset` before verifying locally;
-production has never run a test and has none of them.
+before the fixtures were pinned, including two groups stamped 2027-08-27 by a test that
+has since been rewritten not to write them (`UTR-DRIFT-1` and one call uuid). Those rows
+cannot be removed (hard rule 4), so `f9c2b41a8e57` does NOT build there and is not
+expected to — a cutoff moved past them would be a cutoff chosen to dodge dev residue,
+which protects nothing. Reset the database (or migrate a fresh one) to carry the index
+locally; CI builds from `base` every run and production has never run a test.
 
 PII: the output is ids and rupee amounts. No organization name, no phone number
 (hard rule 6) — a reconciliation report gets pasted into tickets and chat.
@@ -178,7 +191,12 @@ META_KIND: Final = "duplicate_ledger_entry"
 # it and would otherwise each carry their own copy of the date: the reconciliation
 # suite's residue seed (which must stay strictly BEFORE it, forever) and the test that
 # asserts the index still builds. One constant, three readers.
-LEDGER_UNIQUE_INDEX_CUTOFF: Final = datetime(2026, 8, 12, tzinfo=UTC)
+#
+# The migration (f9c2b41a8e57) carries the same instant as its own frozen literal rather
+# than importing this name — a migration must keep meaning what it meant on the day it
+# ran, whatever this file says later. `tests/credit_ledger_unique_index_test.py` asserts
+# the two are equal, so they cannot drift silently in either direction.
+LEDGER_UNIQUE_INDEX_CUTOFF: Final = datetime(2026, 8, 11, 8, 7, tzinfo=UTC)
 
 # Enough digest to make two different id-sets colliding a non-event, short enough that
 # the ref stays readable in a terminal next to the reference it corrects.
