@@ -6,6 +6,11 @@ The RLS contract (DATA-MODEL §1, verified against 2026 practice):
   pooled connection can never leak one tenant's context to the next request.
 - a session WITHOUT the GUC sees zero tenant rows (policies fail closed), never all
   rows. Admin paths use their own explicitly-audited surface, not a GUC bypass.
+
+Every deployable shares the engine below: `apps/api`, `apps/voice-runtime` and
+`apps/workers` all import their sessions from this module, so `hide_parameters` on it
+(see `get_engine`) is the single place that decides whether a DB error can quote a
+transcript.
 """
 
 from collections.abc import AsyncIterator
@@ -26,10 +31,37 @@ _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
 
 def get_engine(settings: Settings | None = None) -> AsyncEngine:
+    """The process-wide engine.
+
+    `hide_parameters=True` is a HARD RULE 6 control, not a preference. Without it,
+    SQLAlchemy renders the bound parameters into `str(exc)` for every DBAPI error —
+    `[SQL: INSERT INTO transcript_turns ...] [parameters: {... 'text': '<the raw
+    Telugu turn, phone number and all>' ...}]`. That string is the one thing an error
+    path reliably touches: it is what `dispatch_outbox` writes to `outbox_messages.
+    last_error` (500 chars, in the DB), what an unhandled worker exception hands to
+    the traceback, and what any future `log.warning(..., reason=str(exc))` would emit.
+    The JSON formatter's `redact_text()` (phone masking + a 200-char cap) sat in front
+    of it, but that is a backstop measured in characters — whether the parameters fall
+    inside the cap depends on how long the SQL statement happens to be. A payload we
+    never render cannot be truncated too late.
+
+    What it costs: DBAPI error strings keep the statement, the failing constraint and
+    the driver's own message, and lose only the VALUES. Nothing in this repo reads
+    them — every `except IntegrityError` handler here dispatches on the exception type
+    (admin/service.py re-probes the DB for the slug rather than parsing the error), no
+    test asserts on parameter text, and no engine runs with `echo=`. `exc.params` and
+    `exc.statement` are still populated on the exception object, so a debugger keeps
+    full access; only the *rendered* string drops them. Alembic builds its own engine
+    (`alembic/env.py`) and is unaffected, so migration review keeps its parameter echo.
+    """
     global _engine, _sessionmaker
     if _engine is None:
         cfg = settings or Settings()  # env-sourced
-        _engine = create_async_engine(cfg.database_url, pool_pre_ping=True)
+        _engine = create_async_engine(
+            cfg.database_url,
+            pool_pre_ping=True,
+            hide_parameters=True,
+        )
         _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine
 

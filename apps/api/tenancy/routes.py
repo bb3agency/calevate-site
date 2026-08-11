@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service as admin_service
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import current_any, current_identity
+from apps.api.core.auth import current_identity, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
@@ -60,7 +60,19 @@ class MeOut(BaseModel):
     openapi_extra=permission_meta("org:read"),
     summary="Who am I, in which account, with what permissions",
 )
-async def me(session: Session, principal: Principal = Depends(current_any)) -> MeOut:
+async def me(session: Session, principal: Principal = Depends(requires("org:read"))) -> MeOut:
+    """`requires("org:read")`, not `current_any`: the declaration in `openapi_extra`
+    above and the dependency here must name the same permission.
+
+    Nothing about who gets in changes — `requires()` defaults to `realm="any"` and so
+    resolves the identical principal, `org:read` is not in `MUTATING_PERMISSIONS` so an
+    impersonating admin is still admitted (D-22), and every role the DB enums allow
+    holds `org:read`. What changes is that the route now enforces what it advertises,
+    which is the property `assert_policy_registry_complete` checks at boot and
+    `tests/authz_audit_test.py` asserts for every route at once. A declaration with no
+    lock behind it reads as protected in the OpenAPI schema and the generated TS
+    client; this was the last route where that was true.
+    """
     org = None
     row = (
         await session.execute(

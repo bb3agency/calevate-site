@@ -558,25 +558,24 @@ async def test_oversized_duplicated_and_nul_bearing_headers_get_a_deliberate_ans
         assert response.status_code == 401, response.text
 
 
-# ------------------------------------------------------------- reported, not fixed
+# ------------------------------------------------------------- reported, then fixed
+#
+# Both cases below were `xfail`s naming the file that owned the defect. Both are fixed,
+# so they are ordinary tests now — the finding text has moved into the routes it
+# describes, and `tests/route_shape_test.py` covers each one behaviourally as well.
 
 
-@pytest.mark.xfail(
-    reason=(
-        "FINDING (owner: apps/api/tenancy/routes.py): GET /v1/me declares "
-        "permission_meta('org:read') and enforces it with nothing — its only auth "
-        "dependency is Depends(current_any), which resolves an identity and checks no "
-        "permission. Not exploitable today: every role the DB enums allow (owner, "
-        "staff, operator, superadmin) holds org:read, so no caller is admitted who "
-        "should be refused. It is the live example of the gap the strengthened "
-        "registry closes for future routes, and the registry cannot demand the "
-        "dependency outright while this route exists without failing the app's own "
-        "boot assertion. Fix in the route: "
-        "`principal: Principal = Depends(requires('org:read'))`."
-    ),
-    strict=False,
-)
 async def test_a_declared_permission_is_a_permission_the_route_checks() -> None:
+    """Every route's `openapi_extra` declaration names a permission the route actually
+    verifies.
+
+    This was xfailed on `GET /v1/me`, which declared `org:read` and enforced nothing —
+    its only auth dependency was `Depends(current_any)`, which resolves an identity and
+    checks no permission. Never exploitable (every role the DB enums allow holds
+    `org:read`), but a route whose label and lock disagree is exactly what the
+    strengthened registry exists to catch, and the registry could not demand the
+    dependency outright while the live app still had one such route.
+    """
     from apps.api.core.rbac import route_enforcement
 
     for route in iter_api_routes(app):
@@ -589,31 +588,31 @@ async def test_a_declared_permission_is_a_permission_the_route_checks() -> None:
         )
 
 
-@pytest.mark.xfail(
-    reason=(
-        "FINDING (owner: apps/api/agents/routes.py): POST /v1/agents/{agent_id}/publish "
-        "is un-callable. It is realm='admin' but takes its tenant from Depends(db) -> "
-        "tenant_of -> current_any, which without X-Impersonate-Org falls through to the "
-        "CLIENT verifier (401) and with it resolves an impersonating principal that D-22 "
-        "refuses for agents:write (403). The fix is the house pattern used by every other "
-        "admin mutation: name the tenant in the path "
-        "(/v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish) and scope with "
-        "tenant_session(tenant_id). Not fixable in the auth core without weakening D-22."
-    ),
-    strict=False,
-)
 async def test_an_admin_can_publish_an_agent() -> None:
+    """Publishing an agent is a request an admin can actually make.
+
+    This was xfailed on `POST /v1/agents/{agent_id}/publish`, which was `realm="admin"`
+    but took its tenant from `Depends(db)` -> `tenant_of` -> `current_any`: without
+    `X-Impersonate-Org` that falls through to the CLIENT verifier (401), and with it
+    resolves an impersonating principal that D-22 refuses for `agents:write` (403). The
+    endpoint was un-callable in both configurations.
+
+    The fix names the tenant in the path, the house pattern every other admin mutation
+    already used — so the assertion for the impersonating call FLIPS rather than
+    relaxing: a 403 there is now the correct answer, not the defect. D-22 was never the
+    thing standing in the way; inferring the tenant was.
+    """
     token = await _make_admin()
     org = await _make_org()
-    agent_id = org["agent_id"]
+    path = f"/v1/admin/tenants/{org['id']}/agents/{org['agent_id']}/publish"
 
     async with _client() as http:
-        plain = await http.post(
-            f"/v1/agents/{agent_id}/publish", headers={"Authorization": f"Bearer {token}"}
-        )
+        plain = await http.post(path, headers={"Authorization": f"Bearer {token}"})
         viewing = await http.post(
-            f"/v1/agents/{agent_id}/publish",
+            path,
             headers={"Authorization": f"Bearer {token}", "X-Impersonate-Org": str(org["slug"])},
         )
-    assert plain.status_code != 401, plain.text
-    assert viewing.status_code != 403, viewing.text
+    assert plain.status_code == 200, plain.text
+    assert plain.json()["agent_id"] == str(org["agent_id"])
+    # Still read-only inside a "view as client" session (D-22) — unchanged, on purpose.
+    assert viewing.status_code == 403, viewing.text
