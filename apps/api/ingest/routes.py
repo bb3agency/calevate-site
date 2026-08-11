@@ -16,7 +16,7 @@ import time
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -123,7 +123,9 @@ class TestWebhookIn(BaseModel):
 )
 async def ingest_activity(
     session: SessionDep,
-    limit: int = 50,
+    # Range-checked at the boundary rather than clamped below: `min(limit, 200)` let a
+    # negative value reach the SQL LIMIT, which Postgres rejects with a 500.
+    limit: int = Query(50, ge=1, le=200),
     _: Principal = Depends(requires("org:manage")),
 ) -> dict[str, Any]:
     """Reads the same durable inbox the dedupe writes, so this view costs nothing new.

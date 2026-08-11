@@ -20,6 +20,7 @@ obligation; recording WHAT the payload asserted is ours.
 from __future__ import annotations
 
 import hmac
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -40,6 +41,12 @@ log = get_logger(__name__)
 
 # E.164-ish: our market is India, but a webhook may carry 10 digits with no prefix.
 _INDIA_PREFIX = "+91"
+# E.164 proper: a leading +, a non-zero country digit, 8-15 digits in total.
+_E164 = re.compile(r"^\+[1-9]\d{7,14}$")
+# The field names we read a number and a name out of when a source has no mapping
+# (docs/WEBHOOKS.md §2.2). They are consumed into their own columns, so they must not
+# also be copied into the free-form `data` blob.
+_CONSUMED_KEYS = frozenset({"phone", "phone_number", "name"})
 
 
 def record_speed_to_lead(seconds: float, *, outcome: str) -> None:
@@ -53,15 +60,30 @@ def record_speed_to_lead(seconds: float, *, outcome: str) -> None:
 def normalize_phone(raw: str) -> str | None:
     """Best-effort E.164. Returns None rather than guessing a country: dialling a
     wrong-country number because we assumed a prefix is worse than dropping the lead
-    into the needs-attention queue."""
-    digits = "".join(c for c in raw if c.isdigit() or c == "+")
-    if digits.startswith("+") and 11 <= len(digits) <= 16:
-        return digits
-    if len(digits) == 10 and digits[0] in "6789":
-        return _INDIA_PREFIX + digits
-    if len(digits) == 12 and digits.startswith("91"):
-        return "+" + digits
-    return None
+    into the needs-attention queue.
+
+    The other half of that promise is that what we DO return is dialable. Keeping every
+    `+` in the string and then length-checking the result accepted `++91…` and
+    `+91+98…` as phone numbers and wrote them to `phone_e164`, so the final `_E164`
+    check is not belt-and-braces — it is the thing that makes the return type honest.
+    """
+    text = raw.strip()
+    # A `+` is a country-code marker, and E.164 has exactly one, at the front. Anything
+    # else is a malformed number, not a number we should clean up and dial.
+    if text.count("+") > 1 or ("+" in text and not text.startswith("+")):
+        return None
+    digits = "".join(c for c in text if c.isdigit())
+
+    if text.startswith("+"):
+        # The sender named a country; we take their word for it but not their typos.
+        candidate = "+" + digits if 10 <= len(digits) <= 15 else None
+    elif len(digits) == 10 and digits[0] in "6789":
+        candidate = _INDIA_PREFIX + digits
+    elif len(digits) == 12 and digits.startswith("91"):
+        candidate = "+" + digits
+    else:
+        candidate = None
+    return candidate if candidate and _E164.match(candidate) else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,7 +129,34 @@ def verify_ingest_secret(config: IngestConfig, presented: str | None) -> bool:
     """
     if not presented or not config.secret_ref:
         return False
-    return hmac.compare_digest(config.secret_ref, presented)
+    # Encoded first: `compare_digest` RAISES TypeError on a `str` with any non-ASCII
+    # character, and header values arrive latin-1-decoded — so one accented byte in the
+    # header turned a 401 into an unhandled 500 on the never-shed surface.
+    return hmac.compare_digest(config.secret_ref.encode("utf-8"), presented.encode("utf-8"))
+
+
+def lead_data(mapped: dict[str, Any], *, phone_e164: str) -> dict[str, Any]:
+    """The free-form half of a lead row: everything the sender told us that is not
+    already a column of its own.
+
+    The number gets its own column AND its own masking rule at every serialization
+    boundary (`LeadOut.phone_masked`). Copying it into `data` as well hands it straight
+    back out through the one field on that model that is not masked — which is exactly
+    what happened for a source with no mapping, where the payload is taken as-is and
+    the number arrives under `phone_number` rather than `phone`.
+
+    So: drop the keys we consumed, and drop any other value that IS this lead's number
+    however the sender spelled it. A hostile sender does not get to smuggle it back in
+    under a second name.
+    """
+    kept: dict[str, Any] = {}
+    for key, value in mapped.items():
+        if key in _CONSUMED_KEYS:
+            continue
+        if isinstance(value, str) and normalize_phone(value) == phone_e164:
+            continue
+        kept[key] = value
+    return kept
 
 
 def apply_mapping(mapping: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -171,7 +220,7 @@ async def ingest_lead(
                 "aid": config.agent_id,
                 "phone": phone,
                 "name": name,
-                "data": _json({k: v for k, v in mapped.items() if k not in ("phone", "name")}),
+                "data": _json(lead_data(mapped, phone_e164=phone)),
             },
         )
     ).first()
@@ -180,20 +229,22 @@ async def ingest_lead(
     # D-23: the client's CRM hears about it in the SAME transaction as the lead row —
     # before the gate, before the dial, because the lead landing is the fact being
     # reported. Whether we then called them is a separate event.
+    #
+    # The domain row goes in as-is: `enqueue_event` masks the phone per endpoint at the
+    # fan-out, which is the only place that knows whether THIS endpoint opted in
+    # (docs/WEBHOOKS.md §1.2). Masking here instead would apply one answer to every
+    # subscriber.
     await integrations.enqueue_event(
         session,
         tenant_id=config.tenant_id,
         event="lead.created",
-        data=integrations.lead_payload(
-            {
-                "lead_id": str(resolved_lead),
-                "phone": phone,
-                "name": name,
-                "source": "webhook",
-                "status": "new",
-            },
-            include_raw_phone=False,
-        ),
+        data={
+            "lead_id": str(resolved_lead),
+            "phone": phone,
+            "name": name,
+            "source": "webhook",
+            "status": "new",
+        },
     )
 
     # 2. Consent provenance (FLOWS §4): if the config names a consent field, the
@@ -270,6 +321,7 @@ __all__ = [
     "IngestConfig",
     "apply_mapping",
     "ingest_lead",
+    "lead_data",
     "load_config",
     "normalize_phone",
     "record_speed_to_lead",

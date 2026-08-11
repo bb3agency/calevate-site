@@ -343,7 +343,9 @@ async def performance_panel(
 )
 async def attention(
     session: Session,
-    limit: int = 50,
+    # Validated here rather than clamped in the service: an out-of-range limit is a bad
+    # request, and `min(limit, 100)` turns a negative one into a silently short queue.
+    limit: int = Query(50, ge=1, le=100),
     _: Principal = Depends(requires("leads:read")),
 ) -> dict[str, Any]:
     """`leads:read`, not an owner permission: staff work this queue — it is the daily

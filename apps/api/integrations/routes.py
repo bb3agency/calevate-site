@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -183,7 +183,9 @@ async def deactivate_endpoint(
 )
 async def list_deliveries(
     session: Session,
-    limit: int = 50,
+    # Range-checked at the boundary: `min(limit, 200)` passed a negative value straight
+    # into the SQL LIMIT, where Postgres refuses it and the client sees a 500.
+    limit: int = Query(50, ge=1, le=200),
     _: Principal = Depends(requires("org:manage")),
 ) -> list[DeliveryOut]:
     # `webhook_deliveries` is not tenant-RLS'd (engine webhooks arrive before tenant

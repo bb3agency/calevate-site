@@ -22,6 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.errors import ProblemError
+from apps.api.crm.performance import IST_HOUR_SQL
 from apps.api.crm.schemas import (
     CallDetailOut,
     CallSummaryOut,
@@ -32,6 +33,12 @@ from apps.api.crm.schemas import (
 from apps.api.db.result import rowcount_of
 
 MAX_PAGE = 200
+
+# The CSV export is the one read here with no page to bound it, and it materializes
+# every row AND the whole file in the request. A tenant with 50k leads would turn one
+# click into a hung worker, so the read is bounded and says so when it hits the bound —
+# a silently truncated contact export is a worse failure than a refused one.
+MAX_EXPORT_ROWS = 20_000
 
 
 def mask_phone(value: str | None) -> str | None:
@@ -327,16 +334,27 @@ async def export_leads_csv(session: AsyncSession, *, agent_id: UUID | None = Non
     is role-gated and audit-logged by the route, and a CSV of masked numbers is useless
     for the follow-up call it exists to enable. That is a different judgement from the
     on-screen list, and it is deliberate.
+
+    Bounded by `MAX_EXPORT_ROWS`: every other read in this module is paged, and this
+    one builds the entire file in memory inside the request.
     """
     columns = await lead_columns(session, agent_id)
     rows = (
         await session.execute(
             text(
                 "SELECT phone_e164, name, status, source, call_count, created_at, data "
-                "FROM leads WHERE deleted_at IS NULL ORDER BY created_at DESC"
-            )
+                "FROM leads WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT :limit"
+            ),
+            # One row over the cap, so hitting it is detectable without a second count.
+            {"limit": MAX_EXPORT_ROWS + 1},
         )
     ).all()
+    if len(rows) > MAX_EXPORT_ROWS:
+        raise ProblemError.business_rule(
+            "lead_export_too_large",
+            f"This export is over the {MAX_EXPORT_ROWS:,}-lead limit for a single file.",
+            remediation="Export one agent at a time with ?agent_id=, or ask us for a full extract.",
+        )
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
@@ -383,9 +401,11 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
                 "  count(*) FILTER (WHERE started_at::date = :today) AS calls_today, "
                 "  count(*) FILTER (WHERE started_at >= :since) AS calls_7d, "
                 "  avg(duration_s) FILTER (WHERE status = 'completed') AS avg_duration, "
+                # IST by name, not by a fixed offset: EXTRACT on a timestamptz renders
+                # it in the session's TimeZone, so `+ interval '5:30'` is only IST on a
+                # database that happens to be set to UTC (same fix as performance.py).
                 "  count(*) FILTER (WHERE started_at >= :since AND ("
-                "     EXTRACT(HOUR FROM started_at + interval '5 hours 30 minutes') < 9 "
-                "     OR EXTRACT(HOUR FROM started_at + interval '5 hours 30 minutes') >= 21"
+                f"     {IST_HOUR_SQL} < 9 OR {IST_HOUR_SQL} >= 21"
                 "  )) AS after_hours "
                 "FROM calls"
             ),
@@ -581,6 +601,8 @@ async def link_callback(session: AsyncSession, *, handle: str, parent_call_id: U
 __all__ = [
     "CALLBACK_OUTCOMES",
     "MAX_CALLBACK_DEPTH",
+    "MAX_EXPORT_ROWS",
+    "MAX_PAGE",
     "CallbackPlan",
     "dashboard",
     "export_leads_csv",

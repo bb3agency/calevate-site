@@ -132,25 +132,30 @@ async def enqueue_event(
     One row per endpoint rather than one per event: endpoints fail independently, and a
     shared row would make a dead endpoint retry deliveries that already succeeded
     elsewhere.
+
+    **Redaction happens HERE, per endpoint, because the fan-out is the last point that
+    still knows which endpoint a payload is for.** The raw phone is a per-endpoint
+    opt-in (docs/WEBHOOKS.md §1.2, recorded as `mapping.include_raw_phone`), and a
+    caller that masked once before this call could not express it — every endpoint got
+    the same body, so the opt-in was documented and unreachable. Masking on this side
+    of the fan-out also means a caller that simply passes the domain row cannot leak:
+    an endpoint that did not ask never gets a raw number in its outbox row.
     """
     if event not in EVENT_TYPES:
         raise ValueError(f"unknown outbound event: {event}")
 
     endpoints = (
-        (
-            await session.execute(
-                text(
-                    "SELECT id FROM outbound_webhooks WHERE active = true AND kind = 'webhook' "
-                    "AND :event = ANY(events)"
-                ),
-                {"event": event},
-            )
+        await session.execute(
+            text(
+                "SELECT id, mapping FROM outbound_webhooks WHERE active = true "
+                "AND kind = 'webhook' AND :event = ANY(events)"
+            ),
+            {"event": event},
         )
-        .scalars()
-        .all()
-    )
+    ).all()
 
-    for endpoint_id in endpoints:
+    for endpoint_id, mapping in endpoints:
+        opted_in = bool((mapping or {}).get("include_raw_phone"))
         await enqueue_outbox(
             session,
             queue="default",
@@ -159,7 +164,7 @@ async def enqueue_event(
                 "tenant_id": str(tenant_id),
                 "endpoint_id": str(endpoint_id),
                 "event": event,
-                "data": data,
+                "data": lead_payload(data, include_raw_phone=opted_in),
                 # Minted HERE, not in the worker: ARQ replays the same payload on
                 # retry, so a worker-side id would mint a new one per attempt and the
                 # "one forensic row per delivery" claim would be false — and a receiver
@@ -257,6 +262,11 @@ async def deliver(
 
     2xx is success. Everything else (including 3xx: a redirect to an unknown host is
     not a delivery we should follow with a signed body) is a failure the outbox retries.
+
+    `follow_redirects=False` is set on the REQUEST, not only on the client we build:
+    a 307 re-sends the body and our signature headers to whatever host the `Location`
+    names, and the promise in docs/WEBHOOKS.md §1.5 must not depend on how a caller
+    happened to construct the client it passed in.
     """
     body = json.dumps(envelope, separators=(",", ":"), default=str)
     timestamp = str(int(datetime.now(UTC).timestamp()))
@@ -271,7 +281,7 @@ async def deliver(
     owns_client = client is None
     http = client or httpx.AsyncClient(timeout=DELIVERY_TIMEOUT_S, follow_redirects=False)
     try:
-        response = await http.post(url, content=body, headers=headers)
+        response = await http.post(url, content=body, headers=headers, follow_redirects=False)
         ok = 200 <= response.status_code < 300
         return DeliveryResult(
             delivered=ok,
@@ -287,16 +297,19 @@ async def deliver(
 
 
 def lead_payload(row: dict[str, Any], *, include_raw_phone: bool) -> dict[str, Any]:
-    """What a `lead.*` event carries.
+    """What an event carries once the endpoint's own choice is applied.
 
     `include_raw_phone` is a per-endpoint opt-in, not a default: hard rule 6 is about
     logs, but the same reasoning applies to anything leaving our boundary. A client who
     needs the number in their CRM says so once, in the config row, and that choice is
     auditable. Everyone else gets the masked form the dashboard shows.
+
+    An event with no `phone` at all (every `call.*` event) comes back unchanged — a
+    masking pass must not ADD a field the published payload schema never declared.
     """
     payload = dict(row)
-    if not include_raw_phone:
-        masked = redact_mapping({"phone": payload.get("phone")})
+    if "phone" in payload and not include_raw_phone:
+        masked = redact_mapping({"phone": payload["phone"]})
         payload["phone"] = masked.get("phone")
     return payload
 

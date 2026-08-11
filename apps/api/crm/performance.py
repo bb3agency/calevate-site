@@ -10,7 +10,9 @@ The definitions matter more than the SQL and are stated here once:
 - **Connected** = the call reached a conversation: status `completed`, OR a duration
   above zero on a call that later dropped. `no_answer`/`busy`/`failed`/`voicemail` are
   dials, not conversations, and counting voicemail as "connected" is how a competitor
-  demo inflates its connect rate.
+  demo inflates its connect rate. The status exclusion is the load-bearing half: an
+  answering machine gives a `voicemail` a perfectly real duration, so "duration > 0"
+  alone readmits exactly the calls the definition rules out.
 - **Qualified** = the LEAD moved past `new` (contacted/interested/hot/won). Lead-level,
   not call-level: three calls that qualify one lead are one qualified outcome, and the
   funnel exists to show conversion, not activity.
@@ -27,8 +29,18 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-CONNECTED_SQL = "(status = 'completed' OR (duration_s IS NOT NULL AND duration_s > 0))"
+# Statuses that are a dial and never a conversation, whatever the clock says.
+DIAL_ONLY_STATUSES = ("no_answer", "busy", "failed", "voicemail")
+CONNECTED_SQL = (
+    "(status = 'completed' OR (duration_s IS NOT NULL AND duration_s > 0 "
+    f"AND status NOT IN {DIAL_ONLY_STATUSES!r}))"
+)
 QUALIFIED_STATUSES = ("contacted", "interested", "hot", "won")
+
+# `started_at` is `timestamptz`; EXTRACT renders one in the SESSION's TimeZone, so
+# shifting by a fixed interval only yields IST on a database that happens to be set to
+# UTC. `AT TIME ZONE` names the zone we mean and is correct on any of them.
+IST_HOUR_SQL = "EXTRACT(HOUR FROM started_at AT TIME ZONE 'Asia/Kolkata')"
 
 
 async def performance(session: AsyncSession, *, days: int = 30) -> dict[str, Any]:
@@ -78,7 +90,7 @@ async def performance(session: AsyncSession, *, days: int = 30) -> dict[str, Any
     for hour, count in (
         await session.execute(
             text(
-                "SELECT EXTRACT(HOUR FROM started_at + interval '5 hours 30 minutes')::int, "
+                f"SELECT {IST_HOUR_SQL}::int, "
                 "count(*) FROM calls WHERE started_at IS NOT NULL AND created_at >= :since "
                 "GROUP BY 1"
             ),
@@ -109,4 +121,10 @@ async def performance(session: AsyncSession, *, days: int = 30) -> dict[str, Any
     }
 
 
-__all__ = ["CONNECTED_SQL", "QUALIFIED_STATUSES", "performance"]
+__all__ = [
+    "CONNECTED_SQL",
+    "DIAL_ONLY_STATUSES",
+    "IST_HOUR_SQL",
+    "QUALIFIED_STATUSES",
+    "performance",
+]
