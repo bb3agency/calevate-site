@@ -15,6 +15,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 ORG_STATUSES = ("prospect", "onboarding", "active", "suspended", "churned")
+# D-34 runs both motions on one product; D-39 puts the column in M1 because tenancy is
+# not retrofittable. `managed` is the client-#1 path; `self_serve` unlocks the M2 UI.
+PLAN_TIERS = ("managed", "self_serve", "trial")
 MEMBER_ROLES = ("owner", "staff")
 ADMIN_ROLES = ("superadmin", "operator")
 
@@ -24,6 +27,7 @@ class Organization(PKMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("slug ~ '^[a-z0-9-]{3,40}$'", name="slug_shape"),
         CheckConstraint(f"status IN {ORG_STATUSES!r}".replace("(", "(", 1), name="status_enum"),
+        CheckConstraint(f"plan_tier IN {PLAN_TIERS!r}", name="plan_tier_enum"),
     )
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -31,6 +35,9 @@ class Organization(PKMixin, TimestampMixin, Base):
     slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="prospect")
     vertical_template: Mapped[str | None] = mapped_column(Text)
+    # Which motion this org belongs to (D-34/D-39). NOT a feature flag: it decides
+    # whether credits gate dispatch and whether the self-serve screens render.
+    plan_tier: Mapped[str] = mapped_column(String, nullable=False, server_default="managed")
     billing_email: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     deleted_at: Mapped[datetime | None]

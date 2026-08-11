@@ -466,6 +466,51 @@ hint promised one answer per paragraph when chunking PACKS short paragraphs up t
 size cap, and "1 answers" did not pluralize. Both are the kind of small wrongness that
 teaches a client not to trust the rest of the screen.
 
+---
+
+## Session 2026-08-11 — D-39 schema-for-scale + invite accept
+
+**28. Credit ledger + plan_tier — migration `f170dbce6f47`** (D-34/D-39, D-12)
+
+The self-serve UI is M2; the SCHEMA is M1 because metering is not retrofittable.
+`credit_ledger` is the fourth append-only ledger (RLS'd, immutability trigger,
+registered with the guardrail), with `balance_after` denormalized so the pre-dispatch
+check is one indexed read instead of an aggregate. `organizations.plan_tier`
+(`managed`/`self_serve`/`trial`) is what keeps D-34's two motions one product.
+
+Wired, not just stored: the compliance gate blocks a self-serve tenant with an empty
+wallet (`no_credits`, self-serve/trial ONLY — a managed client is invoiced against a
+retainer and must never be blocked by a concept that does not apply to them), and the
+post-call pipeline debits the wallet per call, idempotent by call_id.
+
+**A race the test suite caught before production did:** the first implementation used
+`SELECT … ORDER BY … LIMIT 1 FOR UPDATE` to serialize concurrent charges. Under READ
+COMMITTED that does not work — the second writer blocks on the newest row, then
+re-checks only the ROW it locked, never re-runs the query, so it computes from the
+pre-insert balance and a ₹100 wallet paid for two ₹80 calls. The concurrency test
+failed exactly this way. Fixed with `pg_advisory_xact_lock` per tenant, scoped to
+credit writes; the test now passes 5/5 consecutive runs. 10 tests total.
+
+**29. Invitation accept — the last mile of FLOWS §1 step 8**
+
+`POST /v1/invitations/accept` closes the loop: invitee signs up via Clerk (mirrored
+into `users`), posts the emailed token, membership is created. Two structural pieces:
+
+- `current_identity` — a verified client-realm user with NO membership requirement,
+  because creating the membership is the point and `current_principal` would 403 them
+  correctly. Listed in PUBLIC_PREFIXES with its reason.
+- **Fifth lookup-before-tenant case, narrowest widening yet** (`app.invite_hash`,
+  migration `c93a17d0e5b4`): the emailed token names its own tenant, so the invitation
+  must be read before a tenant is known. The GUC widens READS by exactly the row whose
+  token hash the caller can already name — possession of the 32-byte token IS the
+  capability — and widens writes by nothing, which forces the burn + membership
+  creation to happen under a normal tenant session. A test asserts the GUC shows
+  exactly one row, unlocks nothing else, and grants no writes.
+- Found while testing: a JOIN to `organizations` inside the invite-GUC session
+  silently returned zero rows (the GUC widens `invitations` only, correctly). The slug
+  is read after the tenant is known instead. Bad/used/expired tokens answer
+  identically so guessing reveals nothing.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,

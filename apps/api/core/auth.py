@@ -240,6 +240,30 @@ async def _load_admin_principal(verified: VerifiedToken, impersonate_slug: str |
     )
 
 
+async def current_identity(request: Request) -> tuple[UUID, str]:
+    """A verified client-realm user with NO membership requirement.
+
+    Exactly one flow needs this: accepting an invitation. The invitee has signed up
+    with Clerk and has been mirrored into `users`, but has no `memberships` row yet —
+    that row is what accepting the invitation creates. `current_principal` would 403
+    them, correctly, which is why the invite path cannot use it.
+
+    Returns (user_id, clerk_user_id) rather than a Principal, because a Principal
+    without a tenant is a shape the rest of the code should never have to handle.
+    """
+    verified = await verify_token(_bearer(request), "client")
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text("SELECT id FROM users WHERE clerk_user_id = :cid AND deactivated_at IS NULL"),
+                {"cid": verified.clerk_user_id},
+            )
+        ).first()
+    if row is None:
+        raise ProblemError.unauthorized("This account is not provisioned.")
+    return UUID(str(row[0])), verified.clerk_user_id
+
+
 async def current_principal(request: Request) -> Principal:
     """The client-realm dependency. Admin routes use `current_admin` instead."""
     verified = await verify_token(_bearer(request), "client")
@@ -310,6 +334,7 @@ __all__ = [
     "VerifiedToken",
     "current_admin",
     "current_any",
+    "current_identity",
     "current_principal",
     "requires",
     "tenant_of",

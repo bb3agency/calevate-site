@@ -76,6 +76,26 @@ async def user_session(user_id: UUID) -> AsyncIterator[AsyncSession]:
 
 
 @asynccontextmanager
+async def invite_session(token_hash: str) -> AsyncIterator[AsyncSession]:
+    """Read-only view of ONE invitation: the one whose token hash the caller can name.
+
+    The emailed token names its own tenant, so accepting an invitation must read
+    `invitations` before a tenant is known. `app.invite_hash` widens the READ policy by
+    exactly that row (migration c93a17d0e5b4) — guessing the value is guessing a
+    32-byte secret, so it grants nothing the caller did not already hold.
+
+    Writes are NOT widened: burning the invitation and creating the membership happen
+    afterwards under `tenant_session`, once the tenant is known.
+    """
+    maker = get_sessionmaker()
+    async with maker() as session, session.begin():
+        await session.execute(
+            text("SELECT set_config('app.invite_hash', :hash, true)"), {"hash": token_hash}
+        )
+        yield session
+
+
+@asynccontextmanager
 async def admin_session() -> AsyncIterator[AsyncSession]:
     """A session that can ENUMERATE tenants — the client directory, nothing more.
 

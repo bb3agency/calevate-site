@@ -314,6 +314,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept an emailed invitation and create the membership (FLOWS §1 step 8)
+         * @description The one authenticated route that does NOT require a membership — creating one is
+         *     the point (see `current_identity`).
+         *
+         *     The burn is a CAS on `used_at IS NULL`, so two clicks on the same emailed link
+         *     produce one membership rather than two.
+         */
+        post: operations["accept_invitation_v1_invitations_accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/kb/sources": {
         parameters: {
             query?: never;
@@ -491,6 +515,23 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AcceptInviteIn */
+        AcceptInviteIn: {
+            /** Token */
+            token: string;
+        };
+        /** AcceptInviteOut */
+        AcceptInviteOut: {
+            /** Role */
+            role: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
         /** AgentOut */
         AgentOut: {
             /** Direction */
@@ -1635,6 +1676,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    accept_invitation_v1_invitations_accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInviteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptInviteOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

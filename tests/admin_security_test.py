@@ -188,3 +188,109 @@ async def test_admin_can_list_tenants_with_health() -> None:
     body = response.json()
     assert isinstance(body, list) and body
     assert {"id", "name", "slug", "status", "calls_7d", "leads"} <= set(body[0])
+
+
+async def test_an_invitee_can_accept_before_they_have_any_membership() -> None:
+    """The chicken-and-egg the `/v1/invitations/accept` route exists for: a new invitee
+    is authenticated but has no membership, and creating one is the point. Every other
+    authenticated route would 403 them, correctly."""
+    created = await service.create_organization(
+        name="Accept Clinic",
+        slug=f"acc-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id = created["id"]
+    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
+    user_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
+                "VALUES (:i, :c, :e, now(), now())"
+            ),
+            {"i": user_id, "c": clerk_id, "e": f"{clerk_id}@example.com"},
+        )
+    async with tenant_session(tenant_id) as session:
+        token = await service.create_invitation(
+            session,
+            tenant_id=tenant_id,
+            email=f"{clerk_id}@example.com",
+            role="owner",
+            created_by=None,
+        )
+
+    headers = {"Authorization": f"Bearer dev:client:{clerk_id}"}
+    async with _client() as http:
+        # Before accepting, a normal tenant route refuses them.
+        blocked = await http.get("/v1/leads", headers=headers)
+        accepted = await http.post("/v1/invitations/accept", json={"token": token}, headers=headers)
+        after = await http.get("/v1/leads", headers={**headers, "X-Org-Slug": created["slug"]})
+
+    assert blocked.status_code == 403, "no membership, no tenant data"
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["slug"] == created["slug"]
+    assert accepted.json()["role"] == "owner"
+    assert after.status_code == 200, "the membership the accept created now works"
+
+
+async def test_a_bad_or_reused_invite_token_is_indistinguishable() -> None:
+    """An attacker guessing tokens must not learn whether one exists, is used, or has
+    expired — all three answer identically."""
+    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
+                "VALUES (:i, :c, :e, now(), now())"
+            ),
+            {"i": uuid.uuid4(), "c": clerk_id, "e": f"{clerk_id}@example.com"},
+        )
+    async with _client() as http:
+        response = await http.post(
+            "/v1/invitations/accept",
+            json={"token": "x" * 40},
+            headers={"Authorization": f"Bearer dev:client:{clerk_id}"},
+        )
+    assert response.status_code == 422
+    assert response.json()["type"].endswith("/invitation_invalid")
+
+
+async def test_the_invite_guc_grants_no_writes_and_no_other_rows() -> None:
+    """The widening is READ-ONLY and scoped to the single named row (c93a17d0e5b4)."""
+    from apps.api.db.session import invite_session
+
+    created = await service.create_organization(
+        name="Guc Invite Clinic",
+        slug=f"gi-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    async with tenant_session(created["id"]) as session:
+        token = await service.create_invitation(
+            session, tenant_id=created["id"], email="a@b.test", role="owner", created_by=None
+        )
+    import hashlib
+
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+    async with invite_session(token_hash) as session:
+        visible = (await session.execute(text("SELECT count(*) FROM invitations"))).scalar()
+        leads = (await session.execute(text("SELECT count(*) FROM leads"))).scalar()
+    assert visible == 1, "exactly the row the caller could already name"
+    assert leads == 0, "the invite GUC unlocks nothing else"
+
+    with pytest.raises(DBAPIError):
+        async with invite_session(token_hash) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO invitations (id, tenant_id, email, role, token_hash, "
+                    "expires_at, created_at, updated_at) VALUES (:i, :t, 'x@y.test', 'owner', "
+                    ":h, now() + interval '72 hours', now(), now())"
+                ),
+                {"i": uuid.uuid4(), "t": created["id"], "h": "deadbeef" * 8},
+            )

@@ -11,6 +11,10 @@ Checks, in the order that fails cheapest-first:
 1. **Big red switch** — a global outbound halt beats every other consideration.
 2. **Spend caps** — a capped tenant's outbound is refused (TRD §9); inbound is
    unaffected, which is why this gate is outbound-only.
+2b. **Prepaid credits** — a self-serve tenant with an empty wallet cannot dial (D-34).
+   Checked for `self_serve`/`trial` only: a managed client is invoiced against a
+   retainer, and blocking their calls over a credit balance they never bought would be
+   an outage caused by a concept that does not apply to them.
 3. **Calling hours** — per-tenant window in IST (SEC-COMP §3).
 4. **DNC** — global + tenant entries, read LIVE. Additions must take effect before the
    next dispatch tick (hard rule 5), so this must never be cached.
@@ -29,6 +33,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.service import get_balance, plan_tier_of
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
@@ -121,6 +126,17 @@ async def check_dispatch(
             rule="spend_cap",
             reason="This account has reached its spending cap for the month.",
         )
+
+    # Credits gate the self-serve motion only (D-34: one product, two motions).
+    tier = await plan_tier_of(session, tenant_id)
+    if tier in ("self_serve", "trial"):
+        balance = await get_balance(session, tenant_id=tenant_id)
+        if balance.is_exhausted:
+            return DispatchDecision(
+                allowed=False,
+                rule="no_credits",
+                reason="This account has no calling credit left.",
+            )
 
     if not within_calling_hours():
         return DispatchDecision(

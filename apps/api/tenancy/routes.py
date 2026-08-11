@@ -8,18 +8,23 @@ JWT it might read differently than we do.
 
 from __future__ import annotations
 
+from hashlib import sha256
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.core.auth import current_any
+from apps.api.admin import service as admin_service
+from apps.api.compliance.audit import write_audit
+from apps.api.core.auth import current_any, current_identity
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
+from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta
+from apps.api.db.session import invite_session, tenant_session
 
 router = APIRouter(prefix="/v1", tags=["tenancy"])
 
@@ -74,6 +79,92 @@ async def me(session: Session, principal: Principal = Depends(current_any)) -> M
         impersonating=principal.impersonating,
         organization=org,
     )
+
+
+class AcceptInviteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The raw token from the emailed link. Only its hash is stored, so this value
+    # cannot be recovered from our database — it exists in the email and nowhere else.
+    token: str = Field(min_length=20, max_length=200)
+
+
+class AcceptInviteOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
+    slug: str
+    role: str
+
+
+@router.post(
+    "/invitations/accept",
+    response_model=AcceptInviteOut,
+    summary="Accept an emailed invitation and create the membership (FLOWS §1 step 8)",
+)
+async def accept_invitation(
+    payload: AcceptInviteIn,
+    request: Request,
+    identity: tuple[UUID, str] = Depends(current_identity),
+) -> AcceptInviteOut:
+    """The one authenticated route that does NOT require a membership — creating one is
+    the point (see `current_identity`).
+
+    The burn is a CAS on `used_at IS NULL`, so two clicks on the same emailed link
+    produce one membership rather than two.
+    """
+    user_id, _clerk_id = identity
+
+    # The token names its own tenant, so the lookup runs under `app.invite_hash` —
+    # a read-only widening scoped to the single row the caller can already name.
+    token_hash = sha256(payload.token.encode()).hexdigest()
+    # No JOIN to `organizations` here: the invite GUC widens `invitations` and nothing
+    # else, so joining would silently return zero rows. The slug is read below, once
+    # the tenant is known and a normal tenant session applies.
+    async with invite_session(token_hash) as lookup:
+        row = (
+            await lookup.execute(
+                text(
+                    "SELECT tenant_id FROM invitations WHERE token_hash = :hash "
+                    "AND used_at IS NULL AND expires_at > now()"
+                ),
+                {"hash": token_hash},
+            )
+        ).first()
+    if row is None:
+        # Deliberately indistinguishable from "already used" and "expired": an
+        # attacker guessing tokens learns nothing from the difference.
+        raise ProblemError(
+            kind="business_rule",
+            code="invitation_invalid",
+            title="Invitation is not usable",
+            detail="This invitation has already been used or has expired.",
+            remediation="Ask your account manager for a fresh invite.",
+        )
+    tenant_id = UUID(str(row[0]))
+
+    async with tenant_session(tenant_id) as scoped:
+        await admin_service.accept_invitation(scoped, raw_token=payload.token, user_id=user_id)
+        role = (
+            await scoped.execute(
+                text("SELECT role FROM memberships WHERE user_id = :u"), {"u": user_id}
+            )
+        ).scalar()
+        slug = (
+            await scoped.execute(
+                text("SELECT slug FROM organizations WHERE id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+        await write_audit(
+            scoped,
+            action="invitation.accepted",
+            actor_type="user",
+            tenant_id=tenant_id,
+            object_type="membership",
+            object_id=str(user_id),
+            ip=request.client.host if request.client else None,
+        )
+    return AcceptInviteOut(tenant_id=tenant_id, slug=str(slug), role=str(role or "owner"))
 
 
 __all__ = ["router"]

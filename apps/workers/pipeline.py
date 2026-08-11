@@ -34,6 +34,7 @@ from calevate_shared.extraction import ExtractionSchemaSpec
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.service import charge_for_call, plan_tier_of
 from apps.api.core.alerting import alert, record_pipeline_lag, record_reconciliation_repair
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue, job_id_for
@@ -467,6 +468,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
     if cost is None:
         return
     async with tenant_session(tenant_id) as session:
+        tier = await plan_tier_of(session, tenant_id)
         already = (
             await session.execute(
                 text(
@@ -516,6 +518,14 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                     "at": snapshot.ended_at or datetime.now(UTC),
                     "meta": meta,
                 },
+            )
+
+        # Prepaid credits move with the metering, keyed by call_id so a pipeline
+        # re-run cannot double-charge (D-39). Managed tenants are invoiced against a
+        # retainer instead, which `charge_for_call` reads from plan_tier.
+        if tier in ("self_serve", "trial"):
+            await charge_for_call(
+                session, tenant_id=tenant_id, call_id=call_id, amount_inr=cost.total_inr
             )
 
         # spend_state is the pre-dispatch gate (TRD §9): caps are enforced BEFORE a

@@ -1,6 +1,47 @@
 {
   "components": {
     "schemas": {
+      "AcceptInviteIn": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "maxLength": 200,
+            "minLength": 20,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "AcceptInviteIn",
+        "type": "object"
+      },
+      "AcceptInviteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "slug",
+          "role"
+        ],
+        "title": "AcceptInviteOut",
+        "type": "object"
+      },
       "AgentOut": {
         "additionalProperties": false,
         "properties": {
@@ -2267,6 +2308,44 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/invitations/accept": {
+      "post": {
+        "description": "The one authenticated route that does NOT require a membership \u2014 creating one is\nthe point (see `current_identity`).\n\nThe burn is a CAS on `used_at IS NULL`, so two clicks on the same emailed link\nproduce one membership rather than two.",
+        "operationId": "accept_invitation_v1_invitations_accept_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInviteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptInviteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Accept an emailed invitation and create the membership (FLOWS \u00a71 step 8)",
+        "tags": [
+          "tenancy"
+        ]
       }
     },
     "/v1/kb/sources": {
