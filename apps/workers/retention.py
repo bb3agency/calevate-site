@@ -26,6 +26,18 @@ THE SWEEP'S COST SHAPE (see `_due_tenants` and `sweep_tenant`): the tick costs o
 probe per tenant that CAN hold call data, not one session per organization on the
 platform, and each tenant may consume at most `TENANT_ROW_BUDGET` rows per category
 before the rest is deferred to the next tick.
+
+THE CLOCK (see `_call_clock`): every arm dates a call's data from when the call ended,
+and `calls.ended_at` is a nullable VENDOR-supplied field. A call the engine never dated
+used to match no predicate at all and kept its recording pointer, transcript and summary
+forever. The clock now falls back to our own `created_at` plus the metered duration.
+
+THE ONE THING THIS MODULE REFUSES TO DECIDE: an erasure request for a recording younger
+than the TRAI 90-day floor. SEC-COMP §4 says erasure covers recordings, SEC-COMP §1 says
+90 days is a minimum, and the doc reserves the choice for the founder. The behaviour is
+therefore unchanged — the pointer is cleared at any age — but the collision is now
+COUNTED and reported (`_FLOOR_COLLISION_LOG`, and `floor_recordings=` on the job result)
+instead of passing unremarked.
 """
 
 from __future__ import annotations
@@ -52,6 +64,27 @@ log = get_logger(__name__)
 RECORDING_FLOOR_DAYS = 90
 ANONYMIZED_PHONE = "+910000000000"
 REDACTED_MARK = "[erased]"
+
+# THE ERASURE / FLOOR COLLISION — WHAT THIS MODULE MAY AND MAY NOT DO ABOUT IT.
+#
+# SEC-COMP §4 describes erasure as covering recordings; SEC-COMP §1 records the TRAI
+# 90-day retention floor. For a recording younger than 90 days those point opposite
+# ways. The doc says in terms that the decision is the founder's, that it needs the
+# Bolna erasure commitment (pilot gate 12(f)) in hand, and that until then nobody may
+# "make the pointer-clear conditional on age". So this module does NOT resolve it and
+# does not gate on age: the pointer is cleared at any age, exactly as before, and
+# `compliance.deletion.ERASURE_LIMITATIONS` is what tells the data principal.
+#
+# What it does do is stop the collision being SILENT. Counting the recordings this
+# erasure reached inside the floor turns "the two sections disagree" into a number a
+# human can act on — how often it actually happens, on which requests — which is the
+# first thing whoever resolves this will ask for. The count is emitted on the job's
+# result and on a WARNING; it is deliberately NOT added to the proof JSON, because that
+# document's shape is a typed response contract (`compliance/deletion_routes`
+# ErasureScopeOut, strict) and widening it is a coordinated change, not a worker's to
+# make alone. Putting it on the certificate is the right next step and needs that model
+# extended in the same release.
+_FLOOR_COLLISION_LOG = "erasure_within_recording_floor"
 
 # Rows touched by ONE statement. Small enough that the sweep never holds a lock long
 # enough to matter to a live call writing to the same tables.
@@ -93,6 +126,39 @@ DERIVED_COPIES: Mapping[str, tuple[str, ...]] = {
     "transcript": ("calls.summary",),
     "lead": ("call_extractions.data",),
 }
+
+
+# THE CALL'S RETENTION CLOCK — and why it is not simply `ended_at`.
+#
+# Every arm of this sweep dates a call's data from when the call ENDED. `calls.ended_at`
+# is nullable and VENDOR-SUPPLIED: the Bolna adapter reads it out of the execution
+# payload (`ended_at` or `updated_at`, else None — apps/api/engine/bolna.py), and the
+# pipeline's upsert keeps NULL when the vendor never sends one
+# (`ended_at = COALESCE(EXCLUDED.ended_at, calls.ended_at)`). Transcript turns, the
+# recording pointer and the summary are all written regardless.
+#
+# `ended_at < :cutoff` is NULL for such a row, so it matches nothing — not the probe,
+# not one of the four statements below. A call the engine never dated therefore kept its
+# recording pointer, its transcript and its summary FOREVER, with no counter, no alert
+# and no way for the tenant's own policy to reach it. That is a legal obligation a
+# vendor's missing field could switch off.
+#
+# The fallback is our own `created_at` (NOT NULL, written by us) plus the metered
+# duration: when we do not know when the call ended, we assume the LATEST moment it
+# plausibly could have. That direction is deliberate — the TRAI floor is a minimum, so a
+# guess that lands late retains slightly too long (safe) while a guess that lands early
+# deletes a recording before its 90 days are up (the violation that cannot be undone).
+#
+# Rows that DO carry `ended_at` are unaffected: COALESCE returns it, and every predicate
+# below behaves exactly as it did before.
+def _call_clock(alias: str) -> str:
+    return (
+        f"COALESCE({alias}.ended_at, "
+        f"{alias}.created_at + make_interval(secs => COALESCE({alias}.duration_s, 0)))"
+    )
+
+
+_CLOCK = _call_clock("c")
 
 # Counter keys, so a caller (and the log line) always sees the same shape.
 _EMPTY_TOTALS: Mapping[str, int] = {
@@ -192,21 +258,21 @@ async def _due_tenants() -> list[UUID]:
 #
 # Each arm covers the category's OWN table and its derived copies (see DERIVED_COPIES),
 # because a tick that skipped the category would skip those too.
-_PROBE_SQL = """
+_PROBE_SQL = f"""
 SELECT r.data_category, r.ttl_days, r.action,
   CASE r.data_category
     WHEN 'recording' THEN EXISTS (
       SELECT 1 FROM calls c
       WHERE c.recording_url IS NOT NULL
-        AND c.ended_at < now() - make_interval(days => GREATEST(r.ttl_days, :floor)))
+        AND {_CLOCK} < now() - make_interval(days => GREATEST(r.ttl_days, :floor)))
     WHEN 'transcript' THEN EXISTS (
       SELECT 1 FROM transcript_turns t JOIN calls c ON c.id = t.call_id
-      WHERE c.ended_at < now() - make_interval(days => r.ttl_days)
+      WHERE {_CLOCK} < now() - make_interval(days => r.ttl_days)
         AND (r.action = 'delete' OR t.text <> :mark))
       OR EXISTS (
       SELECT 1 FROM calls c
       WHERE c.summary IS NOT NULL
-        AND c.ended_at < now() - make_interval(days => r.ttl_days))
+        AND {_CLOCK} < now() - make_interval(days => r.ttl_days))
     WHEN 'lead' THEN EXISTS (
       SELECT 1 FROM leads l
       WHERE l.updated_at < now() - make_interval(days => r.ttl_days)
@@ -214,7 +280,7 @@ SELECT r.data_category, r.ttl_days, r.action,
       OR EXISTS (
       SELECT 1 FROM call_extractions e
       WHERE e.updated_at < now() - make_interval(days => r.ttl_days)
-        AND e.data <> '{}'::jsonb)
+        AND e.data <> '{{}}'::jsonb)
     ELSE false
   END AS has_work
 FROM retention_policies r
@@ -296,34 +362,34 @@ async def _sweep_in_batches(
     return done, True
 
 
-_RECORDING_SQL = """
+_RECORDING_SQL = f"""
 UPDATE calls SET recording_url = NULL, updated_at = now() WHERE id IN (
-  SELECT id FROM calls WHERE recording_url IS NOT NULL AND ended_at < :cutoff
-  ORDER BY ended_at LIMIT :batch)
+  SELECT c.id FROM calls c WHERE c.recording_url IS NOT NULL AND {_CLOCK} < :cutoff
+  ORDER BY {_CLOCK} LIMIT :batch)
 """
 
-_TRANSCRIPT_DELETE_SQL = """
+_TRANSCRIPT_DELETE_SQL = f"""
 DELETE FROM transcript_turns WHERE id IN (
   SELECT t.id FROM transcript_turns t JOIN calls c ON c.id = t.call_id
-  WHERE c.ended_at < :cutoff ORDER BY c.ended_at LIMIT :batch)
+  WHERE {_CLOCK} < :cutoff ORDER BY {_CLOCK} LIMIT :batch)
 """
 
 # Anonymize keeps the SHAPE of the conversation (turn count, speakers, timings) for
 # analytics while removing every word that was said.
-_TRANSCRIPT_ANONYMIZE_SQL = """
+_TRANSCRIPT_ANONYMIZE_SQL = f"""
 UPDATE transcript_turns SET text = :mark, text_redacted = :mark, updated_at = now()
 WHERE id IN (
   SELECT t.id FROM transcript_turns t JOIN calls c ON c.id = t.call_id
-  WHERE c.ended_at < :cutoff AND t.text <> :mark ORDER BY c.ended_at LIMIT :batch)
+  WHERE {_CLOCK} < :cutoff AND t.text <> :mark ORDER BY {_CLOCK} LIMIT :batch)
 """
 
 # DERIVED COPY of the transcript, on the transcript's clock. Cleared, never marked:
 # `summary` is free prose with no shape worth keeping, and the DPDP erasure path
 # already treats it as personal data.
-_SUMMARY_SQL = """
+_SUMMARY_SQL = f"""
 UPDATE calls SET summary = NULL, updated_at = now() WHERE id IN (
-  SELECT id FROM calls WHERE summary IS NOT NULL AND ended_at < :cutoff
-  ORDER BY ended_at LIMIT :batch)
+  SELECT c.id FROM calls c WHERE c.summary IS NOT NULL AND {_CLOCK} < :cutoff
+  ORDER BY {_CLOCK} LIMIT :batch)
 """
 
 # Never a DELETE: leads carry FKs from lead_events and are referenced by calls.
@@ -453,7 +519,23 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
 
         turns_erased = 0
         extractions_erased = 0
+        recordings_in_floor = 0
         if calls:
+            # Counted BEFORE the pointer is cleared — afterwards the question is
+            # unanswerable, which is how this collision stayed invisible.
+            recordings_in_floor = int(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT count(*) FROM calls c WHERE c.id = ANY(:ids) "
+                            "AND c.recording_url IS NOT NULL AND "
+                            f"{_CLOCK} > now() - make_interval(days => :floor)"
+                        ),
+                        {"ids": list(calls), "floor": RECORDING_FLOOR_DAYS},
+                    )
+                ).scalar()
+                or 0
+            )
             result = await session.execute(
                 text(
                     "UPDATE transcript_turns SET text = :mark, text_redacted = :mark, "
@@ -526,11 +608,24 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             {"rid": request_id, "proof": json.dumps(proof)},
         )
 
+    if recordings_in_floor:
+        # A WARNING, not an `alert()`: this is an expected, disclosed state under the
+        # position the docs record, not a job that died, and an alarm that fires on
+        # normal operation is an alarm nobody reads. It is here so the open decision has
+        # a rate in the log stream — "how often does this actually collide?" is the
+        # first question whoever resolves it will ask. Ids and counts only.
+        log.warning(
+            _FLOOR_COLLISION_LOG,
+            extra={"request_id": str(request_id), "recordings": recordings_in_floor},
+        )
     log.info(
         "deletion_executed",
         extra={"request_id": str(request_id), "calls": len(calls), "leads": len(leads)},
     )
-    return f"erased calls={len(calls)} leads={len(leads)} turns={turns_erased}"
+    return (
+        f"erased calls={len(calls)} leads={len(leads)} turns={turns_erased} "
+        f"floor_recordings={recordings_in_floor}"
+    )
 
 
 __all__ = [
