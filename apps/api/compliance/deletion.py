@@ -31,9 +31,17 @@ fourth:
 
    The check-then-write runs under `pg_advisory_xact_lock` on the same key, for the
    reason `billing/service.lock_tenant_credits` spells out: without it two concurrent
-   requests both read "no open request" under READ COMMITTED and both insert. A partial
-   unique index on `(tenant_id, phone_e164) WHERE completed_at IS NULL` would be the
-   stronger guarantee, but that needs a migration and this table is used as-is.
+   requests both read "no open request" under READ COMMITTED and both insert. Migration
+   e2c47b90d5a1 added the partial unique index on `(tenant_id, phone_e164) WHERE
+   completed_at IS NULL`, so that is now a database fact rather than a convention, and
+   the lock demotes to belt-and-braces: it still serialises the two requesters so the
+   loser receives the WINNER'S request (`already_open=True`) instead of an integrity
+   error, which is what this surface should return. A caller who forgets the lock now
+   gets a refusal from Postgres rather than a second certificate.
+
+   The dedupe reads `phone_e164` rather than `subject_ref` deliberately: it is the index's
+   own key, so the lookup and the constraint cannot drift apart, and an OPEN request
+   always carries the number (a CHECK, see below).
 
 3. **States what the erasure cannot do** (`ERASURE_LIMITATIONS`), because the client
    hands this to a data principal and an overclaiming certificate is worse than a candid
@@ -139,8 +147,11 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "Engine-side copies are reported in the certificate as "
     "'unconfirmed_pending_vendor_api'. The voice engine's deletion API is undocumented "
     "(pilot gate), so the certificate does not claim a deletion it cannot show.",
-    "This request record itself retains the number, because the queued worker has to be "
-    "able to find the subject; it is not cleared when the erasure completes.",
+    "This request record holds the number only until the erasure runs — the queued "
+    "worker has to be able to find the subject — and it is cleared in the same write "
+    "that records the proof. What remains afterwards is a one-way hash "
+    "(`subject_ref`), which confirms an erasure to someone who already has the number "
+    "and discloses nothing to anyone who does not.",
 )
 
 
@@ -148,10 +159,12 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
 class DeletionRequestRecord:
     """One erasure request, in the form that may leave the building.
 
-    Carries `subject_ref` and never `phone_e164`: the row keeps the number so the worker
-    can locate the subject, but a status page is read by more people than the request
-    was filed by, and the audit trail must not become an index of who exercised a right
-    (hard rule 6).
+    Carries `subject_ref` and never `phone_e164`: an OPEN row keeps the number so the
+    worker can locate the subject, but a status page is read by more people than the
+    request was filed by, and the audit trail must not become an index of who exercised
+    a right (hard rule 6). Once the erasure has run the row has no number left to leak
+    (migration f4a8e1c07b62) and `subject_ref` is the only handle there is — which is why
+    it is READ from the row rather than re-derived from a column that is by then NULL.
     """
 
     id: UUID
@@ -164,11 +177,12 @@ class DeletionRequestRecord:
     already_open: bool = False
 
 
-def _record(row: Any, *, phone_e164: str, already_open: bool) -> DeletionRequestRecord:
+def _record(row: Any, *, already_open: bool) -> DeletionRequestRecord:
+    """Build the record from `id, requested_at, completed_at, proof, subject_ref`."""
     completed_at = row[2]
     return DeletionRequestRecord(
         id=row[0],
-        subject_ref=subject_ref(phone_e164),
+        subject_ref=str(row[4]),
         status=STATUS_PENDING if completed_at is None else STATUS_COMPLETED,
         requested_at=row[1],
         completed_at=completed_at,
@@ -205,7 +219,8 @@ async def request_erasure(
     existing = (
         await session.execute(
             text(
-                "SELECT id, requested_at, completed_at, proof FROM deletion_requests "
+                "SELECT id, requested_at, completed_at, proof, subject_ref "
+                "FROM deletion_requests "
                 "WHERE phone_e164 = :phone AND completed_at IS NULL "
                 "ORDER BY requested_at ASC, id ASC LIMIT 1"
             ),
@@ -221,20 +236,24 @@ async def request_erasure(
                 "subject_ref": subject_ref(phone_e164),
             },
         )
-        return _record(existing, phone_e164=phone_e164, already_open=True)
+        return _record(existing, already_open=True)
 
     request_id = uuid7()
+    # `subject_ref` is written at insert time, not derived at read time: the number is
+    # cleared when the erasure completes (migration f4a8e1c07b62) and the hash is what
+    # remains to answer "have we already erased this person?".
     inserted = (
         await session.execute(
             text(
-                "INSERT INTO deletion_requests (id, tenant_id, phone_e164, scope, requested_at, "
-                "created_at) VALUES (:id, :tid, :phone, :scope, now(), now()) "
-                "RETURNING id, requested_at, completed_at, proof"
+                "INSERT INTO deletion_requests (id, tenant_id, phone_e164, subject_ref, scope, "
+                "requested_at, created_at) VALUES (:id, :tid, :phone, :ref, :scope, now(), now()) "
+                "RETURNING id, requested_at, completed_at, proof, subject_ref"
             ),
             {
                 "id": request_id,
                 "tid": tenant_id,
                 "phone": phone_e164,
+                "ref": subject_ref(phone_e164),
                 "scope": DELETION_SCOPE,
             },
         )
@@ -260,7 +279,7 @@ async def request_erasure(
             "subject_ref": subject_ref(phone_e164),
         },
     )
-    return _record(inserted, phone_e164=phone_e164, already_open=False)
+    return _record(inserted, already_open=False)
 
 
 async def get_request(session: AsyncSession, *, request_id: UUID) -> DeletionRequestRecord:
@@ -268,11 +287,14 @@ async def get_request(session: AsyncSession, *, request_id: UUID) -> DeletionReq
 
     RLS scopes the lookup, so another tenant's request is simply not found — which is
     also the answer a nonexistent id gets, deliberately (`ProblemError.not_found`).
+
+    Reads `subject_ref` and never `phone_e164`: a completed request no longer holds a
+    number, and a status read has no business selecting one when it does.
     """
     row = (
         await session.execute(
             text(
-                "SELECT id, requested_at, completed_at, proof, phone_e164 "
+                "SELECT id, requested_at, completed_at, proof, subject_ref "
                 "FROM deletion_requests WHERE id = :rid"
             ),
             {"rid": request_id},
@@ -280,7 +302,7 @@ async def get_request(session: AsyncSession, *, request_id: UUID) -> DeletionReq
     ).first()
     if row is None:
         raise ProblemError.not_found("Deletion request")
-    return _record(row, phone_e164=str(row[4]), already_open=False)
+    return _record(row, already_open=False)
 
 
 __all__ = [

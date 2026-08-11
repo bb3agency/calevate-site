@@ -9,11 +9,13 @@ from uuid import UUID
 from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
@@ -154,14 +156,58 @@ class RetentionPolicy(PKMixin, Base):
 
 
 class DeletionRequest(PKMixin, Base):
-    """Deletion-with-proof (DPDP): proof JSON records what/where/when/hashes."""
+    """Deletion-with-proof (DPDP): proof JSON records what/where/when/hashes.
+
+    The number lives exactly as long as the erasure takes. An OPEN request carries it
+    because the worker's only handle on the subject is this row; a COMPLETED request has
+    it cleared in the same UPDATE that stamps `proof`, because otherwise the record
+    proving we erased someone is the last surviving copy of their number and no retention
+    policy covers this table (migration f4a8e1c07b62). `subject_ref` — the same
+    sha256(number)[:32] as the proof's `subject_hash` and the subject-access export — is
+    what answers "have we already erased this person?" afterwards, and it answers it only
+    to a reader who already holds the number.
+
+    Two constraints keep those halves honest and are declared here to match the
+    migration: an open request must name its subject, and every row must carry its
+    reference. The first is also what keeps the partial unique index below total over the
+    rows it covers — a NULL never conflicts in a unique index, so a request that could
+    lose its number while still open would silently opt out of the one-open-request
+    guarantee.
+
+    `subject_ref` is NOT NULL and a BEFORE INSERT trigger derives it from the number when
+    a writer does not supply one, so the hash cannot drift from the number and no INSERT
+    written before the column existed becomes a failure. The application still writes it
+    explicitly; the trigger fills, and never overwrites.
+    """
 
     __tablename__ = "deletion_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "completed_at IS NOT NULL OR phone_e164 IS NOT NULL",
+            name="open_request_names_its_subject",
+        ),
+        CheckConstraint("subject_ref IS NOT NULL", name="subject_ref_not_null"),
+        # At most ONE queued, unexecuted erasure per subject (migration e2c47b90d5a1).
+        # Partial on purpose: erasure is not terminal for a phone number — the same
+        # person can call the same client next month and exercise DPDP §12 again.
+        # Declared with a predicate, so autogenerate cannot diff it; the migration is the
+        # source of truth for its existence.
+        Index(
+            "uq_deletion_requests_open_subject",
+            "tenant_id",
+            "phone_e164",
+            unique=True,
+            postgresql_where=text("completed_at IS NULL"),
+        ),
+        Index("ix_deletion_requests_tenant_subject", "tenant_id", "subject_ref"),
+    )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    phone_e164: Mapped[str] = mapped_column(Text, nullable=False)
+    # Nullable ONLY after completion — see the CHECK above.
+    phone_e164: Mapped[str | None] = mapped_column(Text)
+    subject_ref: Mapped[str] = mapped_column(Text, nullable=False)
     scope: Mapped[str | None] = mapped_column(Text)
     requested_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     completed_at: Mapped[datetime | None]

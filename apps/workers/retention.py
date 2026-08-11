@@ -384,10 +384,13 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         ).first()
         if row is None:
             return "not_found"
-        phone, completed_at = str(row[0]), row[1]
+        completed_at = row[1]
         if completed_at is not None:
             # Idempotent: an erasure re-run must not produce a second, weaker proof.
+            # Checked BEFORE the number is read, because a completed request no longer
+            # has one — it is cleared by the write below (migration f4a8e1c07b62).
             return "already_completed"
+        phone = str(row[0])
 
         calls = (
             (
@@ -470,10 +473,16 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             # so the certificate must not claim an engine-side deletion we cannot show.
             "engine_deletion": "unconfirmed_pending_vendor_api",
         }
+        # The number goes in the SAME write that records the proof. Until this statement
+        # the row is the worker's only handle on the subject; after it, the row would
+        # otherwise be the last surviving copy of a number we just certified as erased,
+        # on a table no retention policy sweeps (migration f4a8e1c07b62). `subject_ref`
+        # stays, so "have we already erased this person?" is still answerable to anyone
+        # who holds the number — and to nobody who does not.
         await session.execute(
             text(
-                "UPDATE deletion_requests SET completed_at = now(), proof = CAST(:proof AS jsonb) "
-                "WHERE id = :rid"
+                "UPDATE deletion_requests SET completed_at = now(), proof = CAST(:proof AS jsonb),"
+                " phone_e164 = NULL WHERE id = :rid"
             ),
             {"rid": request_id, "proof": json.dumps(proof)},
         )

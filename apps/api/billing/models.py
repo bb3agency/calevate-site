@@ -142,6 +142,30 @@ class CreditLedgerEntry(PKMixin, Base):
     be created while the table holds rows that violate it (21 such pairs), and being
     append-only, those rows can only be corrected by compensating entries, never
     deleted. Migration a6f2e84b1d37 carries the reasoning and the route to the follow-up.
+
+    A SECOND attempt (2026-08-11) tried the way around that: keep the predicate but fence
+    off the history with a literal cutoff —
+
+        UNIQUE (tenant_id, ref)
+        WHERE reason IN ('topup','usage') AND ref IS NOT NULL
+          AND occurred_at >= '<literal>'::timestamptz
+
+    which builds cleanly, since every violating pair predates any cutoff one would pick.
+    It was refused too, for a NEW reason that the first attempt could not have seen: the
+    repository manufactures fresh violations on purpose. `tests/credit_reconciliation_
+    test.py::_double_credit` reproduces the race by calling `record_entry` twice with one
+    `ref` — through the ledger's only writer, deliberately, because "a hand-rolled INSERT
+    would seed a shape the production bug never produced". Those rows land NOW, i.e.
+    after any cutoff, so the index turns the reconciler's own fixtures into integrity
+    errors: measured, 11 of that module's 13 tests fail with the index present and all 13
+    pass without it. Trading the reconciler's test coverage for the constraint is a bad
+    trade in the one place where the reconciler is the thing repairing money.
+
+    The route is therefore a fixture change and not schema work, and it is small: the
+    residue must be seeded with an explicit pre-cutoff `occurred_at` (or through a seed
+    helper that bypasses the production writer on purpose), after which the index lands
+    with the cutoff as its fence. Until then the advisory lock remains load-bearing and
+    this docstring is the record of why.
     """
 
     __tablename__ = "credit_ledger"

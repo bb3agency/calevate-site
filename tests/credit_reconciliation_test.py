@@ -28,12 +28,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing.service import get_balance, record_entry
+from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from scripts import reconcile_credit_ledger as reconciler
 from scripts.reconcile_credit_ledger import (
@@ -96,20 +98,61 @@ async def _balance(tenant_id: uuid.UUID) -> Decimal:
         return (await get_balance(session, tenant_id=tenant_id)).amount_inr
 
 
-async def _double_credit(tenant_id: uuid.UUID, ref: str = "UTR-DOUBLE-1") -> None:
-    """The race's output, reproduced: one payment, two entries under one reference.
+# The residue this tool repairs is HISTORICAL: it was written before the
+# check-then-write race was closed, and the closed race cannot produce it again.
+RESIDUE_AGE = timedelta(days=120)
 
-    Written through `record_entry` — the ledger's only writer — because the originals
-    were, balance_after and all. A hand-rolled INSERT would seed a shape the production
-    bug never produced.
+
+async def _double_credit(tenant_id: uuid.UUID, ref: str = "UTR-DOUBLE-1") -> None:
+    """The race's output, seeded as what it actually is — an old pair of rows.
+
+    This used to call `record_entry` twice, on the reasoning that the originals came
+    through the ledger's only writer and a hand-rolled INSERT would seed a shape the
+    bug never produced. That was right about fidelity and wrong about time:
+    `record_entry` stamps `clock_timestamp()`, so every run of this suite manufactured
+    a FRESH violating pair — and a unique index that would stop the race recurring
+    cannot be added while its own test suite keeps producing violations after any
+    cutoff. Measured by the migration that tried: 11 of this module's 13 tests failed
+    with such an index present.
+
+    So the rows are inserted directly, backdated. An INSERT is exactly what the
+    append-only trigger permits (hard rule 4 forbids UPDATE and DELETE, which is why
+    backdating afterwards is impossible and had to move to the write). `balance_after`
+    is computed the way `record_entry` computes it, so the shape is still the shape the
+    bug produced — including the second row's balance reflecting the phantom credit,
+    which is the whole reason the wallet reads richer than it is.
     """
+    occurred = datetime.now(UTC) - RESIDUE_AGE
     async with tenant_session(tenant_id) as session:
-        await record_entry(
-            session, tenant_id=tenant_id, delta=Decimal("750"), reason="topup", ref=ref
-        )
-        await record_entry(
-            session, tenant_id=tenant_id, delta=Decimal("750"), reason="topup", ref=ref
-        )
+        opening = (
+            await session.execute(
+                text(
+                    "SELECT balance_after FROM credit_ledger WHERE tenant_id = :tid "
+                    "ORDER BY occurred_at DESC, id DESC LIMIT 1"
+                ),
+                {"tid": tenant_id},
+            )
+        ).scalar()
+        running = Decimal(opening) if opening is not None else Decimal("0")
+        for index in range(2):
+            running += Decimal("750")
+            await session.execute(
+                text(
+                    "INSERT INTO credit_ledger (id, tenant_id, delta, reason, ref, "
+                    "balance_after, occurred_at, created_at) VALUES (:id, :tid, :delta, "
+                    "'topup', :ref, :balance, :at, :at)"
+                ),
+                {
+                    "id": uuid7(),
+                    "tid": tenant_id,
+                    "delta": Decimal("750"),
+                    "ref": ref,
+                    "balance": running,
+                    # Distinct instants, so `ORDER BY occurred_at, id` is stable and the
+                    # reconciler keeps the FIRST row exactly as it would in production.
+                    "at": occurred + timedelta(seconds=index),
+                },
+            )
 
 
 # --- the detector --------------------------------------------------------------
