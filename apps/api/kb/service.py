@@ -79,6 +79,37 @@ def _split_sentences(paragraph: str) -> list[str]:
     return out
 
 
+async def _assert_agent_is_ours(session: AsyncSession, agent_id: UUID) -> None:
+    """Refuse an agent this session's tenant cannot see.
+
+    Row-level security does not cover this on its own, and the two places it does not
+    reach are both on this INSERT.
+
+    `kb_sources.agent_id` is a FOREIGN KEY, and PostgreSQL runs referential-integrity
+    checks with row security bypassed — that is deliberate on their side, so integrity
+    cannot be defeated by visibility. The consequence here is that a row carrying tenant
+    B's `tenant_id` (which the policy's WITH CHECK does enforce) may name tenant A's
+    agent, and the insert succeeds.
+
+    `(agent_id, name, version)` is a UNIQUE INDEX, and unique indexes are likewise
+    evaluated over every row in the table rather than the visible ones. So that
+    unauthorised row takes a slot tenant A can no longer use: A's own submission then
+    fails on a constraint violation caused by a row A cannot see, cannot list and cannot
+    delete — a cross-tenant denial of service, plus an existence oracle for B, who
+    learns from the error whether A already holds a source of that name.
+
+    The read below is the fix and it must stay a READ, executed on the caller's own
+    session: `agents` is FORCE-RLS'd, so "visible here" is exactly "this tenant's".
+    Comparing the caller-supplied `tenant_id` against something else the caller supplied
+    would prove nothing about the database.
+    """
+    visible = (
+        await session.execute(text("SELECT 1 FROM agents WHERE id = :aid"), {"aid": agent_id})
+    ).scalar()
+    if visible is None:
+        raise ProblemError.not_found("Agent")
+
+
 async def submit_source(
     session: AsyncSession,
     *,
@@ -103,6 +134,8 @@ async def submit_source(
             title="Nothing to add",
             detail="The submitted content is empty.",
         )
+
+    await _assert_agent_is_ours(session, agent_id)
 
     current = (
         await session.execute(
@@ -279,34 +312,22 @@ async def _superseded_versions(
     return [(source_id, await _engine_kb_ref(session, source_id)) for source_id in live]
 
 
-async def _detach_superseded(
-    session: AsyncSession,
-    engine: VoiceEngine,
-    engine_ref: str,
-    source_id: UUID,
-    engine_kb_ref: str | None,
-) -> None:
-    """Withdraw one superseded version from the engine, or refuse to publish.
+def _require_addressable(superseded: list[tuple[UUID, str | None]]) -> None:
+    """Refuse to publish over a live version we have no handle for.
 
-    **The decision this function encodes: a detach that fails ABORTS the publish, and
-    the previously approved version stays live.** The two alternatives are both worse.
-    Continuing anyway is the defect being fixed — two versions attached, the agent free
-    to answer from the older one, our tables reporting success. Detaching-and-carrying-on
-    in the other direction (drop the old, publish nothing) would leave the client with no
-    knowledge at all, which is an outage we caused to avoid an inconsistency.
+    We cannot remove what we cannot address, and attaching anyway is the original
+    defect: two copies live, the agent free to answer from either. (Only versions
+    published before the handle was recorded can be in this state; the remediation is
+    one manual withdrawal on the engine side, not a code path that guesses.)
 
-    Refusing keeps the client whole: their agent still answers, from text a human
-    approved. What they lose is the UPDATE, and they are told so, with a retry that
-    costs nothing — the engine is idempotent from our side here because we have not
-    attached anything yet. `kind` is inherited from the adapter's own error so a rate
-    limit stays retryable and a rejection stays not.
-
-    A version we have no handle for is the same refusal for the same reason: we cannot
-    remove what we cannot address, so we must not publish over it. (Only versions
-    published before this path existed can be in that state; the remediation is to
-    withdraw the stale copy on the engine side once, not to weaken this.)
+    Hoisted out of the detach loop so it runs BEFORE the reconciliation below. Both
+    refusals describe the same disease — our records and the engine disagree — and when
+    both are true this is the more specific diagnosis, so it is the one an operator
+    should be handed.
     """
-    if engine_kb_ref is None:
+    for source_id, engine_kb_ref in superseded:
+        if engine_kb_ref is not None:
+            continue
         log.warning("kb_engine_ref_unknown", extra={"source_id": str(source_id)})
         raise ProblemError(
             kind="business_rule",
@@ -321,6 +342,119 @@ async def _detach_superseded(
                 "Ask support to withdraw the stale copy on the voice platform first."
             ),
         )
+
+
+async def _recorded_handles_of_agent(session: AsyncSession, agent_id: UUID) -> set[str]:
+    """Every engine handle we believe is attached to this agent, across all its sources.
+
+    Agent-wide rather than per-name: an agent's KB is several named sources, and the
+    question the reconciliation asks is "can we account for everything the engine is
+    holding", which no single name can answer.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT d.meta ->> 'engine_kb_ref' FROM kb_documents d "
+                "JOIN kb_sources s ON s.id = d.source_id "
+                "WHERE s.agent_id = :aid AND d.idx = 0 "
+                "AND d.meta ->> 'engine_kb_ref' IS NOT NULL"
+            ),
+            {"aid": agent_id},
+        )
+    ).scalars()
+    return {str(row) for row in rows}
+
+
+async def _reconcile_engine_state(
+    engine: VoiceEngine, engine_ref: str, *, agent_id: UUID, accounted: set[str]
+) -> None:
+    """Refuse to publish onto an agent holding a copy no row of ours mentions.
+
+    This is the only check that can see the failure our transaction cannot: the engine
+    calls in `publish_source` are not part of it, so a COMMIT that fails after a
+    successful attach discards every row while the engine keeps the document. What that
+    leaves is a client whose agent answers from a version our tables say is not live,
+    a superseded version our tables say IS live under a handle the engine already
+    deleted, and a document nobody can address again — billed for as long as the account
+    exists.
+
+    Without this, the next publish attempt read the superseded version's stale handle,
+    asked the engine to delete it, took the 404 and refused with `kb_detach_failed`,
+    whose remediation reads "the previously approved version is still live. Try
+    publishing again." Every clause of that is false, and it is worse than no message
+    because it looks handled.
+
+    **Evidence, not a dependency.** A listing we could not obtain proves nothing either
+    way, and `list_kb` is the adapter method whose response shape stays a hand-maintained
+    claim until pilot gate 8 — the adapter filters strictly by agent and so degrades to
+    an empty list if the engine's rows turn out not to carry that linkage. Refusing on
+    "we did not manage to look" would turn one flaky vendor read into an outage of the
+    approval workflow, so a failed listing is logged and stepped over. It can prove a
+    divergence; it can never prove the absence of one.
+    """
+    try:
+        attached = await engine.list_kb(engine_ref)
+    except Exception as exc:
+        log.warning(
+            "kb_reconcile_unavailable",
+            extra={"agent_id": str(agent_id), "engine_error": type(exc).__name__},
+        )
+        return
+    unaccounted = [handle for handle in attached if handle not in accounted]
+    if not unaccounted:
+        return
+    log.error(
+        "kb_engine_out_of_sync",
+        extra={"agent_id": str(agent_id), "unaccounted": len(unaccounted)},
+    )
+    raise ProblemError(
+        kind="business_rule",
+        code="kb_engine_out_of_sync",
+        title="The voice platform holds knowledge we cannot account for",
+        detail=(
+            "The voice platform is serving this agent a knowledge base that does not "
+            "match our records, so publishing would add a second copy rather than "
+            "replace it."
+        ),
+        remediation=(
+            "Nothing changed. Ask support to reconcile this agent's knowledge on the "
+            "voice platform — a previous update may have reached the platform without "
+            "being recorded here. Retrying on its own will not clear it."
+        ),
+    )
+
+
+async def _detach_superseded(
+    session: AsyncSession,
+    engine: VoiceEngine,
+    engine_ref: str,
+    source_id: UUID,
+    engine_kb_ref: str,
+) -> None:
+    """Withdraw one attached copy from the engine, or refuse to publish.
+
+    "One attached copy" is usually the superseded version and is sometimes this same
+    source's own earlier copy — see `publish_source` on why a re-publish has one to
+    withdraw. The decision below is identical in both cases, which is why they share
+    this function.
+
+    **The decision this function encodes: a detach that fails ABORTS the publish, and
+    the previously approved version stays live.** The two alternatives are both worse.
+    Continuing anyway is the defect being fixed — two versions attached, the agent free
+    to answer from the older one, our tables reporting success. Detaching-and-carrying-on
+    in the other direction (drop the old, publish nothing) would leave the client with no
+    knowledge at all, which is an outage we caused to avoid an inconsistency.
+
+    Refusing keeps the client whole: their agent still answers, from text a human
+    approved. What they lose is the UPDATE, and they are told so, with a retry that
+    costs nothing — the engine is idempotent from our side here because we have not
+    attached anything yet. `kind` is inherited from the adapter's own error so a rate
+    limit stays retryable and a rejection stays not.
+
+    A version we have no handle for is the same refusal for the same reason, raised one
+    step earlier by `_require_addressable`: we cannot remove what we cannot address, so
+    we must not publish over it.
+    """
     try:
         await engine.detach_kb(engine_ref, engine_kb_ref)
     except ProblemError as exc:
@@ -347,7 +481,7 @@ async def _reattach_after_failed_publish(
     engine: VoiceEngine,
     engine_ref: str,
     name: str,
-    detached: list[tuple[UUID, str | None]],
+    detached: list[UUID],
     chunks_of: dict[UUID, list[str]],
 ) -> None:
     """Close the gap the detach-first ordering opens when the ATTACH then fails.
@@ -360,11 +494,12 @@ async def _reattach_after_failed_publish(
     What deliberately is NOT done here: recording the new handle. The caller re-raises,
     the transaction rolls back, and any write here would roll back with it — so our
     tables keep pointing at the handle that was just deleted. That is the intended
-    residue: the NEXT publish tries to detach a handle the engine no longer has, and
-    refuses loudly (`kb_detach_failed`) instead of quietly stacking two versions. A loud
-    stop an operator can clear beats a silent divergence nobody sees.
+    residue, and it is now caught twice over: the next publish either fails to detach a
+    handle the engine no longer has (`kb_detach_failed`) or, where the re-attach minted
+    a new handle, finds a copy it cannot account for (`kb_engine_out_of_sync`). Both
+    stop; neither quietly stacks two versions.
     """
-    for source_id, _ in detached:
+    for source_id in detached:
         try:
             await engine.attach_kb(
                 engine_ref,
@@ -391,12 +526,24 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     1. The engine work happens BEFORE the local activation flip. If the engine rejects
        it, nothing in our state claims the agent knows something it does not — the
        opposite order would leave a client's dashboard confidently wrong.
-    2. The superseded version is DETACHED before the new one is attached. Archiving a
-       row only changes our tables; what the caller hears is what the engine holds. Push
-       first and there is a window — or, when the detach never happens at all, a
-       permanent state — in which the agent can answer from either version, and a
-       rollback leaves every version live at once. A client approved v2; the agent
-       quoting v1's prices is the divergence the approval gate exists to prevent.
+    2. EVERY copy of this source the engine is holding is DETACHED before the new one is
+       attached. Archiving a row only changes our tables; what the caller hears is what
+       the engine holds. Push first and there is a window — or, when the detach never
+       happens at all, a permanent state — in which the agent can answer from either
+       version, and a rollback leaves every version live at once. A client approved v2;
+       the agent quoting v1's prices is the divergence the approval gate exists to
+       prevent.
+
+       "Every copy" includes THIS source's own previously attached copy, which is not a
+       subtlety. `attach_kb` is a CREATE: it mints a fresh handle on every call and
+       de-duplicates nothing, because the engine has no idea two calls describe the same
+       source of ours. So re-publishing a version that is already live — a double-clicked
+       Publish button, a retry after a timeout, FLOWS §7's rollback onto the current
+       version — attached a second document and overwrote the only handle that could
+       have removed the first. That first copy is then unaddressable forever,
+       retrievable by the agent forever, and billed forever. The fake adapter cannot
+       show this: it keys its store on OUR `kb_id` and returns a stable handle, so it
+       silently replaces where a real engine accumulates.
 
     That ordering costs a gap: between the detach and the attach the agent has no copy
     of this source and answers "I don't know" (T4 refuse-and-escalate). One request of
@@ -408,6 +555,12 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     step rewrites `status`, so the recovery path refused the only rows it exists for.
     Approval is a fact about a version that a later publish cannot erase; rejection
     never sets `approved_at`, so a rejected source still cannot reach an agent.
+
+    What this function still cannot make atomic, stated so nobody assumes otherwise: the
+    engine calls are not in the transaction, so a COMMIT that fails after a successful
+    attach leaves the engine holding a document none of our rows mention.
+    `_reconcile_engine_state` cannot prevent that — nothing here can — but it detects it
+    on the next attempt and refuses, instead of attaching a second copy on top.
     """
     row = (
         await session.execute(
@@ -440,15 +593,39 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     superseded = await _superseded_versions(
         session, agent_id=agent_id, name=str(name), keep=source_id
     )
+    _require_addressable(superseded)
+    await _reconcile_engine_state(
+        engine,
+        engine_ref,
+        agent_id=agent_id,
+        accounted=await _recorded_handles_of_agent(session, agent_id),
+    )
+
+    # Everything to withdraw before the attach: the other live version(s) of this named
+    # source, plus this source's own copy if one is already attached.
+    #
+    # `engine_kb_ref IS NULL` means two different things depending on whose row it is,
+    # which is why the own-handle case is appended here rather than folded into
+    # `_superseded_versions`. On a DIFFERENT version that is still live it means the
+    # engine is serving something we cannot name — a refusal (`_require_addressable`).
+    # On the version being published it means we have attached nothing yet, which is
+    # every first publish and must proceed silently.
+    withdraw: list[tuple[UUID, str]] = [
+        (previous_id, str(handle)) for previous_id, handle in superseded
+    ]
+    own_handle = await _engine_kb_ref(session, source_id)
+    if own_handle is not None:
+        withdraw.append((source_id, own_handle))
+
     # Read the fallback text BEFORE anything is withdrawn: if the attach fails we have to
     # put these versions back, and a query issued after the failure is a query issued on
     # a session that may itself be the thing that failed.
     previous_chunks = {
-        previous_id: await _chunks_of(session, previous_id) for previous_id, _ in superseded
+        withdrawn_id: await _chunks_of(session, withdrawn_id) for withdrawn_id, _ in withdraw
     }
 
-    for previous_id, previous_kb_ref in superseded:
-        await _detach_superseded(session, engine, engine_ref, previous_id, previous_kb_ref)
+    for withdrawn_id, withdrawn_kb_ref in withdraw:
+        await _detach_superseded(session, engine, engine_ref, withdrawn_id, withdrawn_kb_ref)
 
     try:
         attached_ref = await engine.attach_kb(
@@ -457,7 +634,7 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         )
     except Exception:
         await _reattach_after_failed_publish(
-            engine, engine_ref, str(name), superseded, previous_chunks
+            engine, engine_ref, str(name), [wid for wid, _ in withdraw], previous_chunks
         )
         raise
 
