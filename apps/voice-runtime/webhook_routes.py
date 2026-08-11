@@ -8,7 +8,9 @@ The contract this file must satisfy, in order:
    already decided to trust, which is why the order matters.
 2. **Ack in under 500ms.** Measured AND reported on every response path
    (`X-Ack-Ms` + `record_webhook_ack_ms`), so a regression shows up as a number
-   rather than as a mystery — including on the paths a flood would take.
+   rather than as a mystery — including on the paths a flood would take, which are
+   the refusals. And BOUNDED, not merely measured: the durable section runs under
+   `_DURABLE_DEADLINE_S`, because measuring a nine-second ack does not shorten it.
 3. **Defer all real work to ARQ.** Nothing here fetches, parses costs, or writes a
    domain row.
 4. **No DB writes beyond the minimal event row** — the inbox claim (dedupe) and the
@@ -27,6 +29,7 @@ the guarantee of record.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Any
@@ -40,7 +43,7 @@ from apps.api.core.redis import get_redis
 from apps.api.db.base import uuid7
 from apps.api.db.session import untenanted_session
 from apps.api.reliability.service import body_hash, claim_inbox_event, mark_inbox_enqueued
-from engine_intake import client_ip, extract, verify_source
+from engine_intake import KNOWN_ENGINES, IntakeEvent, client_ip, extract, verify_source
 from fastapi import APIRouter, Request, Response
 from sqlalchemy import text
 
@@ -78,6 +81,33 @@ INGEST_JOB = "ingest_engine_event"
 # Hard rule 3's number, in one place so the metric, the alert and the docs agree.
 _ACK_BUDGET_MS = 500.0
 
+# How long the durable section may take before we stop waiting for it.
+#
+# THE BUDGET ABOVE IS AN ALERT, NOT A BOUND. Measuring an ack that took nine seconds does
+# not stop it taking nine seconds, and the only unbounded wait on this path was Postgres:
+# psycopg sets no statement timeout, the engine sets no connect timeout, and
+# `pool_pre_ping`'s `SELECT 1` hangs on exactly the same socket as the query it is
+# checking. So an unresponsive database did not degrade this service, it froze it — every
+# in-flight webhook holding a request, a pooled connection and a worker slot, on the one
+# deployable whose entire premise is that it never stalls.
+#
+# The other two waits were already bounded and are left alone: the fast-path Redis client
+# carries `socket_connect_timeout/socket_timeout = 2` (core/redis.py) and the ARQ pool
+# `conn_retries=1, conn_timeout=2` (core/queue.py, which argues this exact case — "ten
+# times the budget spent learning something the first refused connection already said").
+# This is the same doctrine and the same number, applied to the one place that lacked it.
+#
+# WHY NOT 500ms. The alert and the abandon are different jobs. A deadline at the ack
+# budget would give up on a database that is merely slow, and every event it gave up on
+# would wait for the 10-minute reconciliation poller — a latency blip promoted to a
+# pipeline outage. 500ms says "something is wrong, look at it"; two seconds says "nothing
+# is coming, stop holding the request". The gap between them is deliberate.
+#
+# Breaching it is an ERROR, never an ack: the transaction rolls back, the fast-path key is
+# never written (it is only written past the commit), the key stays claimable, and the
+# poller — the guarantee of record (D-31) — still recovers the execution.
+_DURABLE_DEADLINE_S = 2.0
+
 # The largest body we will hold in memory for an UNAUTHENTICATED caller. An execution
 # payload is a status line plus a transcript; a megabyte is already an implausibly long
 # call. Refusing above it is safe precisely because the payload is only a hint (D-31) —
@@ -88,6 +118,31 @@ _MAX_BODY_BYTES = 1_048_576
 
 def _ack_ms(started: float) -> float:
     return (time.perf_counter() - started) * 1000
+
+
+def _refuse(started: float, engine: str) -> str:
+    """Measure a response we are about to refuse, and hand back its `X-Ack-Ms` value.
+
+    Refusals used to set the header and record nothing. The header is for whoever is
+    holding a curl; the METRIC is what a dashboard and an SLO rule read, and this file
+    already argues the case in `_ack`: "instrumenting only the happy path measures the
+    endpoint at its least stressed, which is the opposite of useful". A refusal storm is
+    the most stressed this endpoint ever is, and it was the one shape missing.
+
+    It also matters for the specific incident the rejection alert is written for — the
+    vendor renumbers and every webhook 401s. With refusals unmeasured, `webhook_ack_ms`
+    for provider=bolna does not spike, it goes SILENT, which on a graph is indistinguish-
+    able from a quiet night.
+
+    `engine` is bounded to the engines we actually run before it becomes a label. It
+    comes out of the URL path, so on the refusal path it is an unauthenticated
+    stranger's string: passing it through raw would let anyone who found the URL mint
+    unbounded label cardinality in the metrics pipeline — a cheap way to hurt the
+    monitoring of the service they are already probing.
+    """
+    elapsed = _ack_ms(started)
+    record_webhook_ack_ms(elapsed, provider=engine if engine in KNOWN_ENGINES else "unknown")
+    return f"{elapsed:.1f}"
 
 
 def _server_span() -> Any:
@@ -216,7 +271,7 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
             source_ip=source_ip or "unknown",
         )
         refused = ProblemError.unauthorized("This caller is not permitted to post events.")
-        refused.headers["X-Ack-Ms"] = f"{_ack_ms(started):.1f}"
+        refused.headers["X-Ack-Ms"] = _refuse(started, engine)
         raise refused
 
     # Step 2 — the RAW bytes, bounded, read once and never re-parsed downstream. Bolna
@@ -232,7 +287,7 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
             title="Payload too large",
             detail="The event body exceeds the accepted size.",
             status=413,
-            headers={"X-Ack-Ms": f"{_ack_ms(started):.1f}"},
+            headers={"X-Ack-Ms": _refuse(started, engine)},
         )
         raise oversized
 
@@ -258,6 +313,11 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
     if event is None:
         # Ack anyway: an event we cannot key is one we can never dedupe, and Bolna
         # would not resend it regardless. The poller will pick the call up.
+        #
+        # "Cannot key" covers both a payload with no execution id and one whose id or
+        # status we refuse to store (over-long or control characters — `engine_intake.
+        # _keyable`). The reason string does not distinguish them on purpose: it is read
+        # by the vendor's logs, and the distinction is ours to keep in the alert.
         alert("ROUTE_HANDLER", "webhook_unkeyable", engine=engine)
         return _ack(
             response,
@@ -265,7 +325,7 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
             engine,
             {
                 "status": "ignored",
-                "reason": "no execution id" if readable else "unreadable payload",
+                "reason": "unusable execution key" if readable else "unreadable payload",
             },
         )
 
@@ -279,6 +339,75 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
             {"status": "duplicate", "execution_id": event.execution_id},
         )
 
+    # The durable half of the dedupe, under the one deadline on this path. Everything
+    # that can wait on a socket for an unbounded time is inside it: the three Postgres
+    # statements and the enqueue.
+    try:
+        async with asyncio.timeout(_DURABLE_DEADLINE_S):
+            claimed, job_id = await _claim_and_enqueue(
+                engine, event, signed=verdict.method == "hmac"
+            )
+    except TimeoutError:
+        # NOT an ack. The transaction rolled back with the cancellation, so the inbox key
+        # is still free and the reconciliation poller can still do this work; saying 202
+        # here would be a call we told the vendor we had taken and then dropped.
+        #
+        # Alerted here as well as by the 5xx path in `install_error_handlers`, because
+        # only this line knows which engine and how long — the two facts an operator
+        # needs to tell "Postgres is gone" from "one engine's traffic is pathological".
+        elapsed = _ack_ms(started)
+        record_webhook_ack_ms(elapsed, provider=engine)
+        alert(
+            "ROUTE_HANDLER",
+            "webhook_claim_timeout",
+            detail=f"{elapsed:.0f}ms",
+            engine=engine,
+        )
+        raise ProblemError(
+            kind="transient",
+            code="webhook_claim_unavailable",
+            title="Event could not be recorded",
+            detail="The event store did not respond in time; this event was not accepted.",
+            headers={"X-Ack-Ms": f"{elapsed:.1f}"},
+        ) from None
+
+    # PAST THE COMMIT. Everything the key stands for is now durable — the inbox row, the
+    # forensic row, the job — so the key cannot outlive a transaction that failed: an
+    # exception above propagates and never reaches this line. Reached on the duplicate
+    # branch too, because a delivery the inbox has already settled is exactly the thing
+    # the next copy should be spared a Postgres round trip for.
+    await _remember_fast_path(redis_key, engine=engine)
+
+    if not claimed:
+        return _ack(
+            response,
+            started,
+            engine,
+            {"status": "duplicate", "execution_id": event.execution_id},
+        )
+
+    return _ack(
+        response,
+        started,
+        engine,
+        {
+            "status": "accepted",
+            "execution_id": event.execution_id,
+            "job_id": job_id or "deduped",
+        },
+    )
+
+
+async def _claim_and_enqueue(
+    engine: str, event: IntakeEvent, *, signed: bool
+) -> tuple[bool, str | None]:
+    """Claim the transition, write the forensic row, queue the work. One transaction.
+
+    Returns (claimed, job_id) — `claimed` False means the inbox had already settled this
+    transition. Lives in its own function so the whole unit can be given a deadline
+    without the caller having to reason about which half of an interleaved block was
+    reached; everything here either commits together or rolls back together.
+    """
     job_id: str | None = None
     # The durable half of the dedupe, and the only Postgres round trip on the ack path —
     # so when the budget is blown this span is the first place to look. It wraps the
@@ -341,7 +470,7 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
                         "id": uuid7(),
                         "source": engine,
                         "event_type": event.raw_status,
-                        "sig": verdict.method == "hmac",
+                        "sig": signed,
                     },
                 )
 
@@ -362,32 +491,7 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
         # Outside the session, inside the span: set after the `async with` so the value
         # describes a transaction that actually committed.
         set_span_attributes(claim_stage, claim_status=claim.state, deduped=not claimed)
-
-    # PAST THE COMMIT. Everything the key stands for is now durable — the inbox row, the
-    # forensic row, the job — so the key cannot outlive a transaction that failed: an
-    # exception above propagates and never reaches this line. Reached on the duplicate
-    # branch too, because a delivery the inbox has already settled is exactly the thing
-    # the next copy should be spared a Postgres round trip for.
-    await _remember_fast_path(redis_key, engine=engine)
-
-    if not claimed:
-        return _ack(
-            response,
-            started,
-            engine,
-            {"status": "duplicate", "execution_id": event.execution_id},
-        )
-
-    return _ack(
-        response,
-        started,
-        engine,
-        {
-            "status": "accepted",
-            "execution_id": event.execution_id,
-            "job_id": job_id or "deduped",
-        },
-    )
+    return claimed, job_id
 
 
 __all__ = ["INGEST_JOB", "router"]

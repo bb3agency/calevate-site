@@ -23,15 +23,18 @@ Notes for whoever reads this next:
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from typing import Any
 
 import engine_intake
 import pytest
 import webhook_routes
+from apps.api.core.errors import ProblemError
 from apps.api.core.redis import get_redis
+from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.reliability.service import body_hash
+from apps.api.reliability.service import InboxClaim, body_hash
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
 from sqlalchemy import text
@@ -56,10 +59,21 @@ def _allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(engine_intake, "BOLNA_SOURCE_IPS", frozenset({ENGINE_EGRESS_IP}))
 
 
-def _client(peer_ip: str) -> AsyncClient:
-    """An ASGI client whose immediate TCP peer is `peer_ip`."""
+def _client(peer_ip: str, *, tolerate_crash: bool = False) -> AsyncClient:
+    """An ASGI client whose immediate TCP peer is `peer_ip`.
+
+    `tolerate_crash=True` turns an unhandled handler exception into the 500 the real
+    server would send instead of re-raising it into the test. Starlette's
+    `ServerErrorMiddleware` sends the problem+json AND re-raises so uvicorn can log
+    the traceback; `raise_app_exceptions=False` keeps the first half and drops the
+    second, which is the half a webhook caller actually experiences. Used only by the
+    hostile-payload tests, so an unexpected crash anywhere else still surfaces as a
+    traceback rather than as a quiet 500.
+    """
     return AsyncClient(
-        transport=ASGITransport(app=voice_app, client=(peer_ip, 44444)),
+        transport=ASGITransport(
+            app=voice_app, client=(peer_ip, 44444), raise_app_exceptions=not tolerate_crash
+        ),
         base_url="http://runtime",
     )
 
@@ -452,3 +466,227 @@ async def test_each_status_transition_reaches_the_queue_once(
     for raw_status in transitions:
         inbox, _deliveries = await _counts(execution_id=execution_id, event_type=raw_status)
         assert inbox == 1, f"{raw_status} should own exactly one inbox row"
+
+
+# --- 8. the dedupe key is attacker-shaped input ------------------------------
+
+
+@pytest.mark.parametrize(
+    ("case", "body_of"),
+    [
+        # A btree index tuple caps at 2704 bytes. `event_key` is
+        # `{execution_id}:{raw_status}` under a UNIQUE (provider, event_key) index, so a
+        # long-enough field in EITHER position is `index row size ... exceeds btree
+        # version 4 maximum` — an unhandled DataError, i.e. a 500.
+        ("long status", lambda t: {"execution_id": f"exec_{t}", "status": secrets.token_hex(2000)}),
+        (
+            "long execution id",
+            lambda t: {"execution_id": secrets.token_hex(2000), "status": "done"},
+        ),
+        # psycopg refuses a NUL in a text parameter outright. One byte, no size needed.
+        ("nul in status", lambda t: {"execution_id": f"exec_{t}", "status": "comp\x00leted"}),
+        ("nul in execution id", lambda t: {"execution_id": f"exec_{t}\x00", "status": "completed"}),
+    ],
+)
+async def test_a_hostile_dedupe_key_is_refused_deliberately_not_with_a_500(
+    case: str, body_of: Any
+) -> None:
+    """`webhook_routes`' own contract (docstring item 5) is that every request has a
+    CHOSEN answer and "none of them is a 500". The two keyable fields break that promise:
+    both are copied verbatim out of the payload into `webhook_inbox_events.event_key`,
+    which is covered by a UNIQUE index, and neither is bounded or checked.
+
+    Why a 500 here is not cosmetic. Bolna's delivery is at-most-once with no retry, so a
+    5xx does not get redelivered — it LOSES the call until the 10-minute poller. And the
+    receiver has no per-request isolation from its own crashes: the same POST that kills
+    this request is indistinguishable, from the vendor's side, from the receiver being
+    down for the real call arriving in the same second. An event we cannot key already
+    has a documented answer three lines further up — ack it, alert `webhook_unkeyable`,
+    let the poller be the truth (D-31). A key we cannot STORE is the same situation and
+    deserves the same answer.
+
+    Reachability, stated honestly: on a bolna deployment the source-IP allowlist stands
+    in front of this, so the hostile sender is the vendor (or anything that gets to
+    source-spoof past the edge). On a `fake`-engine deployment `verify_source` checks
+    nothing at all, and this endpoint is reachable by anyone who learns the URL — which
+    is exactly the configuration every developer machine and CI box runs.
+    """
+    token = uuid.uuid4().hex[:12]
+    body = body_of(token)
+
+    async with _client(EDGE_PROXY_IP, tolerate_crash=True) as http:
+        response = await http.post(HOOK, json=body, headers={"CF-Connecting-IP": ENGINE_EGRESS_IP})
+
+    assert response.status_code == 202, (
+        f"{case}: a payload we cannot store as a key must be acked and dropped, not 500 — "
+        f"got {response.status_code} {response.text[:200]}"
+    )
+    assert response.json()["status"] == "ignored"
+
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text("SELECT count(*) FROM webhook_inbox_events WHERE event_key LIKE :k"),
+                {"k": f"%{token}%"},
+            )
+        ).scalar()
+    assert rows == 0, f"{case}: an unkeyable event must not leave an inbox row"
+
+
+async def test_an_oversized_agent_ref_does_not_poison_the_job_payload() -> None:
+    """`engine_agent_ref` is not part of the dedupe key, so it cannot break the index —
+    but it IS copied into the ARQ job args, where the worker uses it to resolve a tenant.
+
+    A megabyte of it is a megabyte in Redis per delivery for a value that can only ever
+    resolve to nobody. The event itself is still real (the execution id is fine), so the
+    right answer is to keep the event and drop the ref: the worker's authenticated Get
+    Execution is the truth about which agent this was (D-31), the payload was only ever
+    a hint.
+    """
+    execution_id, status, body = _event()
+    body["agent_id"] = "a" * 20_000
+
+    captured: list[dict[str, Any]] = []
+    real_enqueue = webhook_routes.enqueue
+
+    async def _spy(job: str, *args: Any, **kwargs: Any) -> str | None:
+        captured.append(dict(args[0]) if args else {})
+        return await real_enqueue(job, *args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(webhook_routes, "enqueue", _spy)
+        async with _client(EDGE_PROXY_IP) as http:
+            response = await http.post(
+                HOOK, json=body, headers={"CF-Connecting-IP": ENGINE_EGRESS_IP}
+            )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "accepted", "the event is real; only the ref is junk"
+    assert captured, "the job must still be enqueued"
+    assert captured[0]["engine_agent_ref"] is None, (
+        "an implausible agent ref belongs in the bin, not in the job payload"
+    )
+    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
+
+
+# --- 9. the same execution id with DIFFERENT content --------------------------
+
+
+async def test_the_same_transition_with_a_different_body_is_deduped_not_conflicted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The inbox answers 409 `webhook_payload_mismatch` when a key it already holds
+    arrives with a different `payload_hash`. This receiver deliberately puts that beyond
+    reach: it hashes {engine, execution_id, raw_status} — a pure function of the key
+    itself — so no BODY variation can produce a mismatch.
+
+    That is the right call and this test pins it, because the alternative is worse in
+    both directions. At an unsigned endpoint (D-31) the caller controls the whole body,
+    so a body hash is not evidence of authenticity; and two honest deliveries of the same
+    transition genuinely can differ in body (a fuller payload the second time), which
+    would fire a spoofing alarm on healthy traffic. An alarm that cries wolf is an alarm
+    nobody reads.
+
+    So the doctored replay is not refused — it is DEDUPED, which is the outcome that
+    actually matters: one inbox row, one forensic row, one job, and none of the attacker's
+    content anywhere near a worker.
+    """
+    execution_id, status, body = _event()
+    headers = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
+
+    enqueued: list[dict[str, Any]] = []
+    real_enqueue = webhook_routes.enqueue
+
+    async def _spy(job: str, *args: Any, **kwargs: Any) -> str | None:
+        enqueued.append(dict(args[0]) if args else {})
+        return await real_enqueue(job, *args, **kwargs)
+
+    monkeypatch.setattr(webhook_routes, "enqueue", _spy)
+
+    doctored = {**body, "agent_id": "attacker_agent", "total_cost": 999999, "extra": "x" * 50}
+
+    async with _client(EDGE_PROXY_IP) as http:
+        first = await http.post(HOOK, json=body, headers=headers)
+        # Different bytes, so a different fast-path key: this reaches the DURABLE claim
+        # rather than being absorbed by Redis, which is the layer under test.
+        second = await http.post(HOOK, json=doctored, headers=headers)
+
+    assert first.json()["status"] == "accepted"
+    assert second.status_code == 202, "a doctored replay must not 409 on a body difference"
+    assert second.json()["status"] == "duplicate"
+
+    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
+    assert len(enqueued) == 1, "the doctored body must not reach the queue"
+    assert enqueued[0]["engine_agent_ref"] != "attacker_agent"
+
+
+async def test_an_inbox_payload_mismatch_surfaces_as_409_not_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half of the previous test: unreachable from a body difference is not the
+    same as unreachable full stop. `webhook_inbox_events` is shared — the Clerk receiver,
+    the payments receiver and the lead-ingest endpoint all claim keys in it — so a
+    provider/key collision from anywhere, or a future change to what this receiver hashes,
+    can still raise `ProblemError.conflict`.
+
+    It must leave as a 409 problem+json. It is raised INSIDE the `async with
+    untenanted_session()` block, so a handler that swallowed it (or let it become a 500)
+    would either lose the signal entirely or tell an at-most-once vendor "we are broken"
+    about an event that is in fact already recorded.
+    """
+    execution_id, status, body = _event()
+
+    async def _mismatch(*_args: Any, **_kwargs: Any) -> InboxClaim:
+        raise ProblemError.conflict(
+            "webhook_payload_mismatch",
+            "This event id was already received with different content.",
+        )
+
+    monkeypatch.setattr(webhook_routes, "claim_inbox_event", _mismatch)
+
+    async with _client(EDGE_PROXY_IP) as http:
+        response = await http.post(HOOK, json=body, headers={"CF-Connecting-IP": ENGINE_EGRESS_IP})
+
+    assert response.status_code == 409, response.text
+    assert response.headers["content-type"].startswith("application/problem+json")
+    problem = response.json()
+    assert problem["kind"] == "conflict"
+    assert problem["type"].endswith("/webhook_payload_mismatch")
+    assert problem["retryable"] is False
+
+    # Nothing was written and nothing was remembered: a conflicted claim rolls back with
+    # the transaction, and the fast-path key is only ever written past the commit.
+    assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
+    assert await get_redis().get(f"calevate:wh:bolna:{execution_id}:{body_hash(body)[:16]}") is None
+
+
+# --- 10. the fake engine's open door stays shut where it matters --------------
+
+
+async def test_the_fake_engine_hook_is_closed_on_a_deployment_that_runs_bolna(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`/hooks/v1/engine/fake` verifies NOTHING by design — that is how the pipeline runs
+    offline. The route table is identical in every environment, so the only thing standing
+    between a stranger and an inbox claim on a prod box is `settings.engine != "fake"`.
+
+    This test is the guard on that one comparison. It runs from an IP on no allowlist,
+    which is precisely the caller the gate exists for.
+    """
+    settings = get_settings()
+    execution_id, status, body = _event()
+
+    monkeypatch.setattr(settings, "engine", "bolna")
+    async with _client(ATTACKER_IP) as http:
+        refused = await http.post("/hooks/v1/engine/fake", json=body)
+    assert refused.status_code == 401, "the fake hook must be shut on a bolna deployment"
+    assert await _counts(execution_id=execution_id, event_type=status, engine="fake") == (0, 0)
+
+    # And the mirror, so the offline pipeline is proven to still work rather than merely
+    # assumed: where `fake` IS the engine, the same request is accepted.
+    monkeypatch.setattr(settings, "engine", "fake")
+    async with _client(ATTACKER_IP) as http:
+        accepted = await http.post("/hooks/v1/engine/fake", json=body)
+    assert accepted.status_code == 202, accepted.text
+    assert accepted.json()["status"] == "accepted"
+    assert await _counts(execution_id=execution_id, event_type=status, engine="fake") == (1, 1)

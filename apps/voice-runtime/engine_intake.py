@@ -13,8 +13,9 @@ payload is a HINT (D-31); the worker's authenticated Get Execution is the truth.
 from __future__ import annotations
 
 import ipaddress
+import re
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -77,6 +78,12 @@ TRUSTED_PROXY_CIDRS: tuple[str, ...] = (
 EngineName = Literal["bolna", "fake"]
 VerifyMethod = Literal["hmac", "source_ip", "none"]
 
+# The engines this service will answer for at all. Derived from the type rather than
+# retyped, so the two can never drift. Used to bound anything the URL's `{engine}`
+# segment is allowed to become — a metric label, in particular: on the refusal path that
+# segment is an unauthenticated stranger's string.
+KNOWN_ENGINES: frozenset[str] = frozenset(get_args(EngineName))
+
 
 @dataclass(frozen=True, slots=True)
 class IntakeVerdict:
@@ -138,24 +145,67 @@ def verify_source(engine: str, source_ip: str) -> IntakeVerdict:
     return IntakeVerdict(ok=False, method="none", reason="unknown engine")
 
 
+# The longest a keyable field may be. Bolna's execution ids are uuid-shaped (36 chars)
+# and its status enum's longest member is `call-disconnected` (17), so 128 is several
+# times either — generous enough that a vendor change does not start dropping real
+# events, and far under the ~2704-byte ceiling a btree index tuple has.
+#
+# THE CEILING IS NOT COSMETIC. `execution_id` and `raw_status` are concatenated into
+# `webhook_inbox_events.event_key`, which carries a UNIQUE index: a long enough value in
+# either position makes Postgres answer `index row size N exceeds btree version 4
+# maximum` and the whole ack becomes an unhandled 500. Same story for a NUL byte, which
+# psycopg refuses outright. Both are worth exactly one 500 to learn, and at an endpoint
+# whose vendor delivers at-most-once and never retries (D-31), that 500 is a lost call.
+_MAX_KEY_FIELD = 128
+
+# C0 + DEL. A control character has no business in an execution id or a status; NUL
+# cannot be stored in a Postgres text column at all, and the rest are log- and
+# key-injection material for a value we copy verbatim into a dedupe key and a job id.
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _keyable(value: str) -> str | None:
+    """`value` if it can safely become part of a durable key, else None."""
+    if not value or len(value) > _MAX_KEY_FIELD or _CONTROL_CHARS.search(value):
+        return None
+    return value
+
+
 def extract(payload: dict[str, Any]) -> IntakeEvent | None:
     """Pull the dedupe key and the status. Returns None when the payload carries no
     execution id — an event we cannot key is an event we cannot dedupe, and processing
-    it twice would double-meter a call."""
+    it twice would double-meter a call.
+
+    "Carries no execution id" now includes "carries one we refuse to store". The caller's
+    answer to an unkeyable payload is already the right answer to an unstorable one: ack
+    it, alert `webhook_unkeyable`, and let the 10-minute reconciliation poller be the
+    truth (D-31). That is a deliberate answer; a 500 out of the database driver is not.
+    """
     execution_id = payload.get("execution_id") or payload.get("id")
-    if not isinstance(execution_id, str) or not execution_id:
+    if not isinstance(execution_id, str):
         return None
+    keyed_id = _keyable(execution_id)
+    if keyed_id is None:
+        return None
+    raw_status = _keyable(str(payload.get("status") or "unknown").lower())
+    if raw_status is None:
+        return None
+    # NOT fatal, unlike the two above: the ref is a hint the worker uses to resolve a
+    # tenant, not part of any key, and the authenticated Get Execution is what actually
+    # says which agent this was. An implausible one is dropped and the event still flows
+    # — otherwise a junk field could suppress a real call's event entirely.
     agent_ref = payload.get("agent_id")
     return IntakeEvent(
-        execution_id=execution_id,
-        raw_status=str(payload.get("status") or "unknown").lower(),
-        engine_agent_ref=str(agent_ref) if agent_ref else None,
+        execution_id=keyed_id,
+        raw_status=raw_status,
+        engine_agent_ref=_keyable(str(agent_ref)) if agent_ref else None,
     )
 
 
 __all__ = [
     "BOLNA_SOURCE_IPS",
     "DEFAULT_BOLNA_SOURCE_IPS",
+    "KNOWN_ENGINES",
     "TRUSTED_PROXY_CIDRS",
     "EngineName",
     "IntakeEvent",

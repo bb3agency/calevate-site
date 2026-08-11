@@ -15,8 +15,12 @@ This service is never redeployed casually — a dashboard deploy must not touch 
 calls, so its deploy is never coupled to `api`. It DOES reuse `apps/api/core` as a
 library (bootstrap order, problem+json, logging, queue): shared library code is not
 deploy coupling, and re-implementing the error shape here would guarantee drift. The
-import surface is asserted by `import_surface_test.py`, which is what actually keeps
-the latency promise honest.
+import surface is asserted by `tests/voice_runtime_import_surface_test.py`, which is
+what actually keeps the latency promise honest — it boots this module in a fresh
+interpreter and reads the resulting `sys.modules`, because `make guardrails`' import
+linter CANNOT see this service: grimp walks `apps` as a package tree and D-18's
+hyphenated directory name is not a legal module name, so every voice-runtime module is
+invisible to it.
 """
 
 from apps.api.core.bootstrap import create_app
