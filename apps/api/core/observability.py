@@ -106,8 +106,30 @@ def redact_trace_payload(payload: dict[str, Any]) -> dict[str, Any]:
     An LLM trace is the single richest PII object we produce — it contains the prompt,
     which contains the transcript. Same redaction primitives as the logger so the two
     cannot drift apart.
+
+    It also CORRELATES the two trace systems. Langfuse holds "this extraction cost 4.2s
+    and 900 tokens"; OTel holds "the pipeline's extract stage took 4.3s" — and until the
+    trace id is written on both, going from one to the other is a manual hunt through
+    timestamps. Stamping `metadata.otel_trace_id` here rather than at each Langfuse call
+    site is deliberate: this function is the one seam every LLM trace already passes
+    through, so there is no second place to forget.
+
+    Stamped AFTER redaction, never before: `redact_mapping` walks values and a 32-char
+    hex id is exactly the shape the logger holds back from its phone pass — but relying
+    on that would make the correlation depend on a detail of an unrelated regex. And
+    when tracing is off (local dev, tests, no collector) there is no id, so the payload
+    is returned byte-for-byte as it is today.
     """
-    return redact_mapping(payload)
+    clean = redact_mapping(payload)
+    trace_id = current_trace_id()
+    if trace_id is None:
+        return clean
+    metadata = clean.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+        clean["metadata"] = metadata
+    metadata["otel_trace_id"] = trace_id
+    return clean
 
 
 # --- Distributed tracing (OpenTelemetry) --------------------------------------
@@ -283,6 +305,25 @@ def current_traceparent() -> str | None:
     carrier: dict[str, str] = {}
     _propagator.inject(carrier)
     return carrier.get("traceparent")
+
+
+def current_trace_id() -> str | None:
+    """The active trace id as 32 lowercase hex chars, or None when tracing is off.
+
+    The join key between OTel and Langfuse. Derived from the traceparent rather than
+    from `opentelemetry.trace` directly so this module keeps its "no SDK import at
+    module scope" property (hard rule 3), and so there is exactly one definition of
+    what "the current trace" means for both the queue hop and the LLM trace.
+    """
+    traceparent = current_traceparent()
+    if not traceparent:
+        return None
+    parts = traceparent.split("-")
+    # 00-<32 hex trace id>-<16 hex span id>-<flags>. An all-zero trace id is the
+    # invalid context OTel hands back outside any span; it is not a link to anything.
+    if len(parts) < 3 or len(parts[1]) != 32 or parts[1] == "0" * 32:
+        return None
+    return parts[1]
 
 
 def _context_from_traceparent(traceparent: str | None) -> Any:
@@ -703,6 +744,7 @@ __all__ = [
     "REDACT_KEYS",
     "TRACE_KWARG",
     "TracingMiddleware",
+    "current_trace_id",
     "current_traceparent",
     "dropped_attribute_keys",
     "init_observability",

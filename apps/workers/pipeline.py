@@ -39,6 +39,7 @@ from apps.api.billing.service import charge_for_call, plan_tier_of
 from apps.api.core.alerting import alert, record_pipeline_lag, record_reconciliation_repair
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.observability import set_span_attributes, span, tracing_enabled
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
@@ -60,6 +61,37 @@ HOT_LEAD_FIELD_TRIGGERS: dict[str, frozenset[str]] = {
     "urgency": frozenset({"emergency", "urgent"}),
     "intent": frozenset({"buy", "book"}),
 }
+
+# --- stage spans --------------------------------------------------------------
+#
+# `traced_job` gives this file ONE span per job, which answers "the lead took four
+# minutes" with "yes it did". The stages below are what turn that into an answer: each
+# `span("pipeline.…")` is a child of the job span, so the trace reads as a flame graph
+# of the seven things this pipeline actually does and the model round trip inside
+# `extract_call` — the usual culprit — is a bar you can see rather than a bar you infer.
+#
+# Attributes are ids, counts and durations, nothing else (hard rule 6). Note what is
+# NOT written: no field names, no summary, no transcript length in characters keyed as
+# `transcript_*` — `transcript`, `text`, `extraction` and `payload` are all REDACT_KEYS
+# substrings, so a key containing them is refused by `sanitize_attributes` before its
+# value is even looked at. The names here are chosen to pass that filter honestly, not
+# to slip past it.
+
+
+def _job_span() -> Any:
+    """The enclosing `traced_job` span, or None when tracing is off.
+
+    Used to stamp the pipeline's own SLO number onto the trace. The opentelemetry
+    import is local and guarded: workers are not the latency path, but this module is
+    imported by `apps/workers/settings.py` at boot and the SDK must stay unimported
+    when no collector is configured (the subprocess assertion in tracing_test.py).
+    """
+    if not tracing_enabled():
+        return None
+    from opentelemetry.trace import get_current_span
+
+    active = get_current_span()
+    return active if active.get_span_context().is_valid else None
 
 
 # --- tenant resolution --------------------------------------------------------
@@ -257,6 +289,13 @@ async def ingest_engine_event(ctx: dict[str, Any], payload: dict[str, Any]) -> s
 async def _upsert_call(tenant_id: UUID, agent_id: UUID, snapshot: ExecutionSnapshot) -> UUID:
     """Idempotent by `engine_call_id`. Status only ever moves forward: a late `ringing`
     webhook arriving after `completed` must not un-complete a finished call."""
+    with span("pipeline.call_upsert", tenant_id=str(tenant_id), agent_id=str(agent_id)) as stage:
+        resolved = await _upsert_call_row(tenant_id, agent_id, snapshot)
+        set_span_attributes(stage, call_id=str(resolved))
+    return resolved
+
+
+async def _upsert_call_row(tenant_id: UUID, agent_id: UUID, snapshot: ExecutionSnapshot) -> UUID:
     direction = snapshot.direction
     call_id = uuid7()
     async with tenant_session(tenant_id) as session:
@@ -339,34 +378,62 @@ async def run_post_call_pipeline(ctx: dict[str, Any], payload: dict[str, Any]) -
             raise
 
     # STEP 2 — transcript + redaction. `text_redacted` is the default view (hard rule 5).
-    transcript_text = await _persist_transcript(tenant_id, call_id, snapshot)
+    with span("pipeline.transcript_persist", call_id=str(call_id)) as stage:
+        transcript_text = await _persist_transcript(tenant_id, call_id, snapshot)
+        set_span_attributes(stage, turn_count=len(snapshot.transcript or []))
 
     # STEP 3 — extraction against the agent's schema.
     spec, schema_version, agent_id, direction = await _load_call_context(tenant_id, call_id)
     needs_extraction = bool(spec.fields or transcript_text)
-    extraction = await extract_call(spec, transcript_text) if needs_extraction else None
+    # THE SPAN THIS WHOLE EXERCISE IS FOR. A model round trip lives in here, and it is
+    # the stage most likely to own the missing minutes — a 30s extraction timeout
+    # (EXTRACTION_TIMEOUT_S) plus an ARQ retry is a lead that arrives late with nothing
+    # in the logs to say why. `input_bytes` is the transcript's SIZE, never its text.
+    with span(
+        "pipeline.extract",
+        call_id=str(call_id),
+        field_count=len(spec.fields),
+        input_bytes=len(transcript_text.encode("utf-8", "replace")),
+    ) as stage:
+        extraction = await extract_call(spec, transcript_text) if needs_extraction else None
+        set_span_attributes(
+            stage,
+            extract_status=(
+                "skipped" if extraction is None else ("valid" if extraction.valid else "invalid")
+            ),
+        )
 
     if extraction is not None:
-        await _persist_extraction(tenant_id, call_id, extraction, schema_version=schema_version)
+        with span(
+            "pipeline.extraction_persist",
+            call_id=str(call_id),
+            field_count=len(extraction.data),
+        ):
+            await _persist_extraction(tenant_id, call_id, extraction, schema_version=schema_version)
 
     # STEP 4 — lead upsert (+ repeat-caller flag on phone match).
-    lead_id = await _upsert_lead(
-        tenant_id,
-        agent_id,
-        call_id,
-        snapshot,
-        direction=direction,
-        data=extraction.data if extraction else {},
-        schema_version=schema_version,
-    )
+    with span("pipeline.lead_upsert", call_id=str(call_id), agent_id=str(agent_id)) as stage:
+        lead_id = await _upsert_lead(
+            tenant_id,
+            agent_id,
+            call_id,
+            snapshot,
+            direction=direction,
+            data=extraction.data if extraction else {},
+            schema_version=schema_version,
+        )
+        set_span_attributes(stage, lead_id=str(lead_id) if lead_id else "none")
 
     # STEP 5 — metering. Append-only, written once per (call, unit).
     if snapshot.cost is not None:
-        await _meter(tenant_id, call_id, snapshot)
+        with span("pipeline.meter", call_id=str(call_id)) as stage:
+            set_span_attributes(stage, usage_row_count=await _meter(tenant_id, call_id, snapshot))
 
     # STEP 6 — notifications, through the OUTBOX so a crash cannot lose them.
     if lead_id is not None and extraction is not None:
-        await _maybe_notify_hot_lead(tenant_id, lead_id, call_id, extraction.data)
+        with span("pipeline.notify_hot_lead", call_id=str(call_id), lead_id=str(lead_id)) as stage:
+            outcome = await _maybe_notify_hot_lead(tenant_id, lead_id, call_id, extraction.data)
+            set_span_attributes(stage, outcome=outcome)
 
     # STEP 7 — if this call was a campaign dial, the outcome closes the contact or puts
     # it back on the retry ladder (FLOWS §5). Local import: the dispatcher is a worker
@@ -414,6 +481,13 @@ async def run_post_call_pipeline(ctx: dict[str, Any], payload: dict[str, Any]) -
 
     lag = time.perf_counter() - started
     record_pipeline_lag(lag, stage="post_call")
+    # The SAME number, on the trace. `record_pipeline_lag` is the SLO metric — it fires
+    # on 100% of calls and it is what says the 2-minute budget was missed; the trace is
+    # sampled at 10% and it is what says where the time went. Without this attribute
+    # they are two systems with no join: an operator holding a breached metric has no
+    # way to ask the trace backend for the traces belonging to breaches. Written on the
+    # `traced_job` span rather than a child, because it measures the whole job.
+    set_span_attributes(_job_span(), pipeline_lag_ms=round(lag * 1000, 1), call_id=str(call_id))
     log.info("pipeline_complete", extra={"call_id": str(call_id), "duration_s": round(lag, 2)})
     return "ok"
 
@@ -775,13 +849,18 @@ ON CONFLICT (tenant_id) DO UPDATE SET
 """
 
 
-async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> None:
+async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> int:
     """Write the cost ledger. Append-only (hard rule 4), so the guard against a
     double-run is a pre-check, not an upsert: a compensating entry is the only fix
-    after the fact."""
+    after the fact.
+
+    Returns how many `usage_events` rows it wrote — 0 on the re-run path. That number
+    is the trace's evidence that a replay metered nothing, which is the property hard
+    rule 4 exists to protect and the one a double-bill would violate silently.
+    """
     cost = snapshot.cost
     if cost is None:
-        return
+        return 0
     async with tenant_session(tenant_id) as session:
         tier = await plan_tier_of(session, tenant_id)
         already = (
@@ -793,7 +872,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             )
         ).first()
         if already:
-            return
+            return 0
 
         duration_s = Decimal(snapshot.duration_s or 0)
         meta = _json(
@@ -871,22 +950,28 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 "spend": cost.total_inr,
             },
         )
+    return len(rows)
 
 
 async def _maybe_notify_hot_lead(
     tenant_id: UUID, lead_id: UUID, call_id: UUID, data: dict[str, Any]
-) -> None:
+) -> str:
     """Hot-lead rules key off the FIXED status enum and the schema's own fields (D-21).
     The notification goes through the outbox so a worker crash cannot lose it — and is
     queued once per call, so a pipeline replay does not promise a second alert for an
-    alert that was already sent."""
+    alert that was already sent.
+
+    Returns which of the three things happened, for the stage span's `outcome`: an
+    owner asking "why did I not get the alert" is asking to tell `not_hot` apart from
+    `already_queued`, and those are indistinguishable from the outside.
+    """
     triggered = [
         key
         for key, values in HOT_LEAD_FIELD_TRIGGERS.items()
         if str(data.get(key, "")).lower() in values
     ]
     if not triggered:
-        return
+        return "not_hot"
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
@@ -900,7 +985,7 @@ async def _maybe_notify_hot_lead(
             job="notify_hot_lead",
             matcher={"lead_id": str(lead_id), "call_id": str(call_id)},
         ):
-            return
+            return "already_queued"
         await enqueue_outbox(
             session,
             queue="notifications",
@@ -912,6 +997,7 @@ async def _maybe_notify_hot_lead(
                 "triggers": triggered,
             },
         )
+    return "queued"
 
 
 # --- job 3: reconciliation ----------------------------------------------------

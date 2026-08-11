@@ -34,6 +34,7 @@ from typing import Any
 from apps.api.core.alerting import alert, record_webhook_ack_ms
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.observability import set_span_attributes, span, tracing_enabled
 from apps.api.core.queue import enqueue, job_id_for
 from apps.api.core.redis import get_redis
 from apps.api.db.base import uuid7
@@ -89,6 +90,24 @@ def _ack_ms(started: float) -> float:
     return (time.perf_counter() - started) * 1000
 
 
+def _server_span() -> Any:
+    """The `TracingMiddleware` span for this request, or None when tracing is off.
+
+    THE BUDGET (hard rule 3). With no collector configured `tracing_enabled()` is one
+    module-global read and this returns immediately — the opentelemetry import below is
+    never reached, so a deploy without a collector runs the receiver it runs today. The
+    measured cost of the whole instrumentation on this path is in the report and in
+    `tests/tracing_stages_test.py`; it was measured rather than assumed, because "a
+    context manager is basically free" is how a 500ms budget gets spent.
+    """
+    if not tracing_enabled():
+        return None
+    from opentelemetry.trace import get_current_span
+
+    active = get_current_span()
+    return active if active.get_span_context().is_valid else None
+
+
 def _ack(response: Response, started: float, engine: str, body: dict[str, str]) -> dict[str, str]:
     """Every acked path leaves through here, so the budget is measured, alerted and
     REPORTED identically on all of them.
@@ -99,6 +118,10 @@ def _ack(response: Response, started: float, engine: str, body: dict[str, str]) 
     """
     elapsed = _ack_ms(started)
     record_webhook_ack_ms(elapsed, provider=engine)
+    # The same number the metric and the `X-Ack-Ms` header carry, on the span. "The ack
+    # was slow" is a metric; "the ack was slow AND its inbox-claim child took 480ms of
+    # it" is the thing an operator can act on, and it needs both halves on one trace.
+    set_span_attributes(_server_span(), ack_ms=round(elapsed, 1), engine=engine)
     if elapsed > _ACK_BUDGET_MS:
         # Hard rule 3 has a number in it; treat breaching it as an incident signal.
         alert("ROUTE_HANDLER", "webhook_ack_slow", detail=f"{elapsed:.0f}ms", engine=engine)
@@ -112,11 +135,18 @@ async def _fast_path_seen(redis_key: str, *, engine: str) -> bool:
     Redis being unavailable degrades correctly and deliberately: we answer "not seen" and
     fall through to the durable claim, which is the dedupe that carries the guarantee.
     """
-    try:
-        return await get_redis().get(redis_key) is not None
-    except Exception:  # Redis down: fall through to the durable claim, never 500
-        log.warning("webhook_fastpath_unavailable", extra={"engine": engine})
-        return False
+    with span("webhook.fastpath", engine=engine) as stage:
+        try:
+            seen = await get_redis().get(redis_key) is not None
+        except Exception:  # Redis down: fall through to the durable claim, never 500
+            log.warning("webhook_fastpath_unavailable", extra={"engine": engine})
+            # `outcome`, not an exception on the span: Redis being down here is a
+            # DESIGNED degradation, and a span marked ERROR for a path that behaved
+            # correctly is how a trace backend teaches people to ignore it.
+            set_span_attributes(stage, outcome="unavailable")
+            return False
+        set_span_attributes(stage, deduped=seen)
+        return seen
 
 
 async def _remember_fast_path(redis_key: str, *, engine: str) -> None:
@@ -250,78 +280,88 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
         )
 
     job_id: str | None = None
-    async with untenanted_session() as session:
-        claim = await claim_inbox_event(
-            session,
-            provider=engine,
-            # THE UNIT OF WORK IS THE TRANSITION, NOT THE EXECUTION. Bolna fires one
-            # webhook per status change (queued → in-progress → completed, TRD §5) with
-            # the same execution id each time, and `job_id_for` below already keys the
-            # job on (execution, status). Keying the inbox on the execution alone made
-            # the two disagree: the FIRST transition claimed the row and enqueued, and
-            # every later one — including `completed`, the only transition where cost,
-            # recording and transcript exist — came back `duplicate` and enqueued
-            # nothing. The post-call pipeline then never ran from a webhook at all;
-            # every call waited for the 10-minute reconciliation poller, which makes
-            # FLOWS §3.6 ("lead + summary visible < 2 min after hangup") unmeetable and
-            # quietly turns D-31's "poller = guarantee of record, webhook = low-latency
-            # hint" into "the poller does everything". `pipeline.py` returning
-            # `awaiting_completion:{raw_status}` is the other half of the evidence: it
-            # expects to be called once per transition.
-            event_key=f"{event.execution_id}:{event.raw_status}",
-            # The hash of that unit of work, not of this delivery. The inbox reads a
-            # changed hash under an existing key as a doctored replay and answers 409 +
-            # `webhook_payload_mismatch` — and two deliveries of the SAME transition can
-            # still differ in body (a retry with a fuller payload), so hashing the
-            # delivery raised a spoofing alarm on healthy traffic. An alarm that always
-            # fires is an alarm nobody reads when a real one arrives.
-            #
-            # Nothing is lost by narrowing it: at an unsigned endpoint the caller
-            # controls the entire payload, so a body hash was never evidence of
-            # authenticity — the source-IP check is, and the poller is the truth.
-            payload_hash=body_hash(
-                {
-                    "engine": engine,
-                    "execution_id": event.execution_id,
-                    "raw_status": event.raw_status,
-                }
-            ),
-            event_name=event.raw_status,
-        )
-        claimed = claim.state != "duplicate"
-
-        if claimed:
-            # The minimal event row: forensic trail only (SEC-COMP §4). `signature_valid`
-            # records what evidence we actually had, so a later investigation can tell an
-            # IP-allowlisted event from a signed one.
-            await session.execute(
-                text(
-                    "INSERT INTO webhook_deliveries (id, direction, source, event_type, "
-                    "status, attempts, signature_valid, first_at, last_at, created_at) VALUES "
-                    "(:id, 'in', :source, :event_type, 'received', 1, :sig, now(), now(), now())"
+    # The durable half of the dedupe, and the only Postgres round trip on the ack path —
+    # so when the budget is blown this span is the first place to look. It wraps the
+    # whole transaction (claim + forensic row + enqueue + mark), because that is the
+    # unit that has to commit, and a claim span that ended before the commit would
+    # attribute a slow flush to nothing at all.
+    with span("webhook.inbox_claim", kind="client", engine=engine) as claim_stage:
+        async with untenanted_session() as session:
+            claim = await claim_inbox_event(
+                session,
+                provider=engine,
+                # THE UNIT OF WORK IS THE TRANSITION, NOT THE EXECUTION. Bolna fires one
+                # webhook per status change (queued → in-progress → completed, TRD §5) with
+                # the same execution id each time, and `job_id_for` below already keys the
+                # job on (execution, status). Keying the inbox on the execution alone made
+                # the two disagree: the FIRST transition claimed the row and enqueued, and
+                # every later one — including `completed`, the only transition where cost,
+                # recording and transcript exist — came back `duplicate` and enqueued
+                # nothing. The post-call pipeline then never ran from a webhook at all;
+                # every call waited for the 10-minute reconciliation poller, which makes
+                # FLOWS §3.6 ("lead + summary visible < 2 min after hangup") unmeetable and
+                # quietly turns D-31's "poller = guarantee of record, webhook = low-latency
+                # hint" into "the poller does everything". `pipeline.py` returning
+                # `awaiting_completion:{raw_status}` is the other half of the evidence: it
+                # expects to be called once per transition.
+                event_key=f"{event.execution_id}:{event.raw_status}",
+                # The hash of that unit of work, not of this delivery. The inbox reads a
+                # changed hash under an existing key as a doctored replay and answers 409 +
+                # `webhook_payload_mismatch` — and two deliveries of the SAME transition can
+                # still differ in body (a retry with a fuller payload), so hashing the
+                # delivery raised a spoofing alarm on healthy traffic. An alarm that always
+                # fires is an alarm nobody reads when a real one arrives.
+                #
+                # Nothing is lost by narrowing it: at an unsigned endpoint the caller
+                # controls the entire payload, so a body hash was never evidence of
+                # authenticity — the source-IP check is, and the poller is the truth.
+                payload_hash=body_hash(
+                    {
+                        "engine": engine,
+                        "execution_id": event.execution_id,
+                        "raw_status": event.raw_status,
+                    }
                 ),
-                {
-                    "id": uuid7(),
-                    "source": engine,
-                    "event_type": event.raw_status,
-                    "sig": verdict.method == "hmac",
-                },
+                event_name=event.raw_status,
             )
+            claimed = claim.state != "duplicate"
 
-            # Keyed by the natural key, so a duplicate webhook and a poller rediscovery
-            # collapse into one job before any worker runs.
-            job_id = await enqueue(
-                INGEST_JOB,
-                {
-                    "engine": engine,
-                    "execution_id": event.execution_id,
-                    "raw_status": event.raw_status,
-                    "engine_agent_ref": event.engine_agent_ref,
-                    "inbox_row_id": str(claim.row_id),
-                },
-                job_id=job_id_for(INGEST_JOB, engine, event.execution_id, event.raw_status),
-            )
-            await mark_inbox_enqueued(session, row_id=claim.row_id)
+            if claimed:
+                # The minimal event row: forensic trail only (SEC-COMP §4). `signature_valid`
+                # records what evidence we actually had, so a later investigation can tell an
+                # IP-allowlisted event from a signed one.
+                await session.execute(
+                    text(
+                        "INSERT INTO webhook_deliveries (id, direction, source, event_type, "
+                        "status, attempts, signature_valid, first_at, last_at, created_at) "
+                        "VALUES (:id, 'in', :source, :event_type, 'received', 1, :sig, "
+                        "now(), now(), now())"
+                    ),
+                    {
+                        "id": uuid7(),
+                        "source": engine,
+                        "event_type": event.raw_status,
+                        "sig": verdict.method == "hmac",
+                    },
+                )
+
+                # Keyed by the natural key, so a duplicate webhook and a poller rediscovery
+                # collapse into one job before any worker runs.
+                job_id = await enqueue(
+                    INGEST_JOB,
+                    {
+                        "engine": engine,
+                        "execution_id": event.execution_id,
+                        "raw_status": event.raw_status,
+                        "engine_agent_ref": event.engine_agent_ref,
+                        "inbox_row_id": str(claim.row_id),
+                    },
+                    job_id=job_id_for(INGEST_JOB, engine, event.execution_id, event.raw_status),
+                )
+                await mark_inbox_enqueued(session, row_id=claim.row_id)
+        # Outside the session, inside the span: set after the `async with` so the value
+        # describes a transaction that actually committed.
+        set_span_attributes(claim_stage, claim_status=claim.state, deduped=not claimed)
 
     # PAST THE COMMIT. Everything the key stands for is now durable — the inbox row, the
     # forensic row, the job — so the key cannot outlive a transaction that failed: an
