@@ -2866,6 +2866,64 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/invoice": {
+      "get": {
+        "operationId": "tenant_invoice_v1_admin_tenants__tenant_id__invoice_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Tenant Invoice V1 Admin Tenants  Tenant Id  Invoice Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One tenant's invoice statement for an IST billing month (deterministic number)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/kb/{source_id}/approve": {
       "post": {
         "operationId": "approve_kb_v1_admin_tenants__tenant_id__kb__source_id__approve_post",
