@@ -27,6 +27,8 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.routes import router as agents_router
     from apps.api.agents.voice_routes import router as voice_router
     from apps.api.billing.credit_routes import router as credits_admin_router
+    from apps.api.billing.payment_routes import router as topups_router
+    from apps.api.billing.payment_routes import webhook_router as razorpay_router
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.campaigns.routes import router as campaigns_router
     from apps.api.compliance.deletion_routes import router as deletion_router
@@ -40,6 +42,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.routes import router as ops_router
     from apps.api.tenancy.clerk_webhooks import router as clerk_router
     from apps.api.tenancy.routes import router as tenancy_router
+    from apps.api.tenancy.signup_routes import router as signup_router
 
     application.include_router(tenancy_router)
     application.include_router(clerk_router)
@@ -61,6 +64,9 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(dnc_router)
     application.include_router(subject_export_router)
     application.include_router(deletion_router)
+    application.include_router(signup_router)
+    application.include_router(topups_router)
+    application.include_router(razorpay_router)
     application.include_router(ops_router)
 
 

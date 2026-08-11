@@ -89,6 +89,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hooks/v1/razorpay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Payment-captured callback → one credit_ledger entry, idempotent on the payment id
+         * @description Signature first, money last.
+         *
+         *     Nothing is read out of this payload until the HMAC verifies, and nothing durable is
+         *     written until the tenant resolves — so a forged or malformed event leaves no row at
+         *     all, not even an inbox trace it could later be replayed from.
+         *
+         *     Two layers of duplicate protection, deliberately:
+         *
+         *     1. the durable inbox, claimed on `payment.captured:<payment id>` with a hash of the
+         *        NORMALIZED facts (not the raw body), so a redelivery whose envelope gained a
+         *        field still dedupes, while the same payment id arriving with a different amount
+         *        is the conflict `claim_inbox_event` is designed to shout about;
+         *     2. the ledger's own `ref`, checked under the per-tenant credit lock inside
+         *        `credit_captured_payment`. This one is the guarantee: inbox rows are per
+         *        delivery and can be swept, a ledger row is permanent.
+         *
+         *     The claim and the credit share ONE transaction, which is what makes a failure
+         *     recoverable: a crash after the claim rolls the claim back too, so the provider's
+         *     retry is processed rather than answered "duplicate" forever (the failure mode
+         *     `reliability/service.py` documents against the Clerk mirror).
+         */
+        post: operations["razorpay_webhook_hooks_v1_razorpay_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants": {
         parameters: {
             query?: never;
@@ -197,6 +236,26 @@ export interface paths {
          * @description Posting the same payment reference again returns the existing entry and credits nothing. The same reference with a DIFFERENT amount is a conflict, not a second payment.
          */
         post: operations["record_topup_v1_admin_tenants__tenant_id__credits_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/dlt-registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record the client's DLT Principal Entity registration and its Calevate TM link
+         * @description The third registration in the same family as the number header and the voice template, and the one the campaign launch gate reads as `pe_registration_*` / `tm_link_not_active`. Upserts: re-recording is what happens every time we re-verify with the registrar.
+         */
+        post: operations["record_dlt_registration_v1_admin_tenants__tenant_id__dlt_registration_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -501,6 +560,46 @@ export interface paths {
         get: operations["attention_v1_attention_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a self-serve tenant for the signed-in user (D-34, FLOWS §2)
+         * @description The caller is a Clerk-verified user with no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, and makes the caller its owner. The wallet starts empty, so the compliance gate refuses outbound calls until it is topped up.
+         */
+        post: operations["signup_v1_auth_signup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/topups/intent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a prepaid top-up — prices it and binds it to this tenant (D-34)
+         * @description Returns what a checkout needs. It does NOT create the provider-side order: that requires API credentials this deployment does not hold, so `provider_order_id` is null and `provider_order_pending` is true.
+         */
+        post: operations["create_topup_intent_v1_billing_topups_intent_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1258,6 +1357,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/platform/tm-registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Calevate's own DLT telemarketer registration (step-up confirmed, audited)
+         * @description The company half of SEC-COMP §3's first bullet. While this is not `active`, NO tenant can launch an outbound campaign, however complete their own Principal Entity registration is. Inbound answering is unaffected.
+         */
+        post: operations["set_tm_registration_route_v1_ops_platform_tm_registration_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/performance": {
         parameters: {
             query?: never;
@@ -1922,6 +2041,47 @@ export interface components {
             /** Status */
             status: string | null;
         };
+        /**
+         * DltRegistrationIn
+         * @description What the registrar says about THIS CLIENT's Principal Entity (SEC-COMP §3).
+         *
+         *     Two statuses rather than one `ready` flag, because they fail separately and the
+         *     next action differs: an unregistered entity is a ₹5,900 registration we execute for
+         *     them, a missing TM link is an authorisation only they can grant. The launch gate
+         *     names them separately for the same reason.
+         */
+        DltRegistrationIn: {
+            /** Entity Name */
+            entity_name?: string | null;
+            /** Pe Id */
+            pe_id?: string | null;
+            /** Registered At */
+            registered_at?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "not_started" | "submitted" | "active" | "suspended" | "rejected";
+            /**
+             * Tm Link Status
+             * @enum {string}
+             */
+            tm_link_status: "not_linked" | "pending" | "active" | "revoked";
+        };
+        /** DltRegistrationOut */
+        DltRegistrationOut: {
+            /** Pe Id */
+            pe_id: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Tm Link Status */
+            tm_link_status: string;
+        };
         /** DltStatusIn */
         DltStatusIn: {
             /**
@@ -2393,6 +2553,7 @@ export interface components {
             load_shed_mode: string;
             /** Outbound Halted */
             outbound_halted: boolean;
+            tm_registration: components["schemas"]["TmRegistrationOut"];
         };
         /** ProgressOut */
         ProgressOut: {
@@ -2523,6 +2684,62 @@ export interface components {
             republish_required: boolean;
             voice: components["schemas"]["Voice"];
         };
+        /** SignupIn */
+        SignupIn: {
+            /** Billing Email */
+            billing_email?: string | null;
+            /** Business Name */
+            business_name: string;
+            /**
+             * Language
+             * @default te-IN
+             * @enum {string}
+             */
+            language: "te-IN" | "hi-IN" | "en-IN";
+            /**
+             * Plan Tier
+             * @default self_serve
+             * @enum {string}
+             */
+            plan_tier: "self_serve" | "trial";
+            /** Slug */
+            slug?: string | null;
+            /**
+             * Vertical Template
+             * @default clinic
+             */
+            vertical_template: string;
+        };
+        /** SignupOut */
+        SignupOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /**
+             * Extraction Schema Id
+             * Format: uuid
+             */
+            extraction_schema_id: string;
+            /** Name */
+            name: string;
+            /** Next Steps */
+            next_steps: string[];
+            /** Plan Tier */
+            plan_tier: string;
+            /** Role */
+            role: string;
+            /** Slug */
+            slug: string;
+            /** Status */
+            status: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
         /** SourceOut */
         SourceOut: {
             /**
@@ -2650,6 +2867,41 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** TmRegistrationIn */
+        TmRegistrationIn: {
+            /** Reason */
+            reason: string;
+            /** Registered At */
+            registered_at?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "not_registered" | "submitted" | "active" | "suspended" | "revoked";
+            /** Tm Id */
+            tm_id?: string | null;
+        };
+        /**
+         * TmRegistrationOut
+         * @description Calevate's own telemarketer registration (SEC-COMP §3, company half).
+         *
+         *     `is_live` is computed rather than left to the reader: "is `submitted` good enough"
+         *     is exactly the question a console must not answer for itself, and the launch gate
+         *     and this response must never disagree about it — both read
+         *     `ops.service.TmRegistration.is_live`.
+         */
+        TmRegistrationOut: {
+            /** Is Live */
+            is_live: boolean;
+            /** Registered At */
+            registered_at: string | null;
+            /** Status */
+            status: string;
+            /** Tm Id */
+            tm_id: string | null;
+            /** Verified At */
+            verified_at: string | null;
+        };
         /** TopUpIn */
         TopUpIn: {
             /** Amount Inr */
@@ -2658,6 +2910,43 @@ export interface components {
             note?: string | null;
             /** Payment Ref */
             payment_ref: string;
+        };
+        /** TopUpIntentIn */
+        TopUpIntentIn: {
+            /** Amount Inr */
+            amount_inr: number | string;
+        };
+        /** TopUpIntentOut */
+        TopUpIntentOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Amount Paise */
+            amount_paise: number;
+            /**
+             * Currency
+             * @constant
+             */
+            currency: "INR";
+            /** Key Id */
+            key_id: string;
+            /** Notes */
+            notes: {
+                [key: string]: string;
+            };
+            /** Provider Order Id */
+            provider_order_id?: string | null;
+            /**
+             * Provider Order Pending
+             * @default true
+             */
+            provider_order_pending: boolean;
+            /** Receipt */
+            receipt: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
         };
         /** TopUpOut */
         TopUpOut: {
@@ -2786,6 +3075,24 @@ export interface components {
              * @default false
              */
             verified: boolean;
+        };
+        /** WebhookAck */
+        WebhookAck: {
+            /** Amount Inr */
+            amount_inr?: string | null;
+            /** Balance Inr */
+            balance_inr?: string | null;
+            /** Entry Id */
+            entry_id?: string | null;
+            /** Event */
+            event: string;
+            /** Payment Id */
+            payment_id?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "credited" | "duplicate" | "ignored";
         };
         /** WritePromptIn */
         WritePromptIn: {
@@ -2971,6 +3278,35 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    razorpay_webhook_hooks_v1_razorpay_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookAck"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -3268,6 +3604,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TopUpOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_dlt_registration_v1_admin_tenants__tenant_id__dlt_registration_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DltRegistrationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DltRegistrationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -3809,6 +4180,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttentionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    signup_v1_auth_signup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignupIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignupOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_topup_intent_v1_billing_topups_intent_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TopUpIntentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopUpIntentOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -5274,6 +5711,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlatformStateOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_tm_registration_route_v1_ops_platform_tm_registration_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TmRegistrationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TmRegistrationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

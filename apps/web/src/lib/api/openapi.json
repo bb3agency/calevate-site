@@ -1623,6 +1623,112 @@
         "title": "DeliveryOut",
         "type": "object"
       },
+      "DltRegistrationIn": {
+        "additionalProperties": false,
+        "description": "What the registrar says about THIS CLIENT's Principal Entity (SEC-COMP \u00a73).\n\nTwo statuses rather than one `ready` flag, because they fail separately and the\nnext action differs: an unregistered entity is a \u20b95,900 registration we execute for\nthem, a missing TM link is an authorisation only they can grant. The launch gate\nnames them separately for the same reason.",
+        "properties": {
+          "entity_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Name"
+          },
+          "pe_id": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pe Id"
+          },
+          "registered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registered At"
+          },
+          "status": {
+            "enum": [
+              "not_started",
+              "submitted",
+              "active",
+              "suspended",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tm_link_status": {
+            "enum": [
+              "not_linked",
+              "pending",
+              "active",
+              "revoked"
+            ],
+            "title": "Tm Link Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "tm_link_status"
+        ],
+        "title": "DltRegistrationIn",
+        "type": "object"
+      },
+      "DltRegistrationOut": {
+        "additionalProperties": false,
+        "properties": {
+          "pe_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pe Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tm_link_status": {
+            "title": "Tm Link Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "status",
+          "tm_link_status",
+          "pe_id"
+        ],
+        "title": "DltRegistrationOut",
+        "type": "object"
+      },
       "DltStatusIn": {
         "additionalProperties": false,
         "properties": {
@@ -2802,11 +2908,15 @@
           "outbound_halted": {
             "title": "Outbound Halted",
             "type": "boolean"
+          },
+          "tm_registration": {
+            "$ref": "#/components/schemas/TmRegistrationOut"
           }
         },
         "required": [
           "load_shed_mode",
-          "outbound_halted"
+          "outbound_halted",
+          "tm_registration"
         ],
         "title": "PlatformStateOut",
         "type": "object"
@@ -3164,6 +3274,132 @@
         "title": "SetVoiceOut",
         "type": "object"
       },
+      "SignupIn": {
+        "additionalProperties": false,
+        "properties": {
+          "billing_email": {
+            "anyOf": [
+              {
+                "format": "email",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Billing Email"
+          },
+          "business_name": {
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Business Name",
+            "type": "string"
+          },
+          "language": {
+            "default": "te-IN",
+            "enum": [
+              "te-IN",
+              "hi-IN",
+              "en-IN"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
+          "plan_tier": {
+            "default": "self_serve",
+            "enum": [
+              "self_serve",
+              "trial"
+            ],
+            "title": "Plan Tier",
+            "type": "string"
+          },
+          "slug": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slug"
+          },
+          "vertical_template": {
+            "default": "clinic",
+            "maxLength": 40,
+            "title": "Vertical Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "business_name"
+        ],
+        "title": "SignupIn",
+        "type": "object"
+      },
+      "SignupOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "extraction_schema_id": {
+            "format": "uuid",
+            "title": "Extraction Schema Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_steps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Next Steps",
+            "type": "array"
+          },
+          "plan_tier": {
+            "title": "Plan Tier",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "slug",
+          "name",
+          "plan_tier",
+          "status",
+          "role",
+          "agent_id",
+          "extraction_schema_id",
+          "next_steps"
+        ],
+        "title": "SignupOut",
+        "type": "object"
+      },
       "SourceOut": {
         "additionalProperties": false,
         "properties": {
@@ -3478,6 +3714,116 @@
         "title": "TestWebhookIn",
         "type": "object"
       },
+      "TmRegistrationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          },
+          "registered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registered At"
+          },
+          "status": {
+            "enum": [
+              "not_registered",
+              "submitted",
+              "active",
+              "suspended",
+              "revoked"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tm_id": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tm Id"
+          }
+        },
+        "required": [
+          "status",
+          "reason"
+        ],
+        "title": "TmRegistrationIn",
+        "type": "object"
+      },
+      "TmRegistrationOut": {
+        "additionalProperties": false,
+        "description": "Calevate's own telemarketer registration (SEC-COMP \u00a73, company half).\n\n`is_live` is computed rather than left to the reader: \"is `submitted` good enough\"\nis exactly the question a console must not answer for itself, and the launch gate\nand this response must never disagree about it \u2014 both read\n`ops.service.TmRegistration.is_live`.",
+        "properties": {
+          "is_live": {
+            "title": "Is Live",
+            "type": "boolean"
+          },
+          "registered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registered At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tm_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tm Id"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          }
+        },
+        "required": [
+          "status",
+          "tm_id",
+          "registered_at",
+          "verified_at",
+          "is_live"
+        ],
+        "title": "TmRegistrationOut",
+        "type": "object"
+      },
       "TopUpIn": {
         "additionalProperties": false,
         "properties": {
@@ -3517,6 +3863,94 @@
           "payment_ref"
         ],
         "title": "TopUpIn",
+        "type": "object"
+      },
+      "TopUpIntentIn": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_inr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,11}0*$)\\d{0,8}\\.\\d{0,2}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount Inr"
+          }
+        },
+        "required": [
+          "amount_inr"
+        ],
+        "title": "TopUpIntentIn",
+        "type": "object"
+      },
+      "TopUpIntentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "amount_paise": {
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "currency": {
+            "const": "INR",
+            "title": "Currency",
+            "type": "string"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "notes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "object"
+          },
+          "provider_order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Order Id"
+          },
+          "provider_order_pending": {
+            "default": true,
+            "title": "Provider Order Pending",
+            "type": "boolean"
+          },
+          "receipt": {
+            "title": "Receipt",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "receipt",
+          "amount_inr",
+          "amount_paise",
+          "currency",
+          "notes",
+          "key_id"
+        ],
+        "title": "TopUpIntentOut",
         "type": "object"
       },
       "TopUpOut": {
@@ -3818,6 +4252,77 @@
         "title": "Voice",
         "type": "object"
       },
+      "WebhookAck": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Inr"
+          },
+          "balance_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Balance Inr"
+          },
+          "entry_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Id"
+          },
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "payment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Id"
+          },
+          "status": {
+            "enum": [
+              "credited",
+              "duplicate",
+              "ignored"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "event"
+        ],
+        "title": "WebhookAck",
+        "type": "object"
+      },
       "WritePromptIn": {
         "additionalProperties": false,
         "properties": {
@@ -4062,6 +4567,34 @@
         "summary": "Per-client lead intake \u2192 compliance-gated instant callback (FLOWS \u00a74)",
         "tags": [
           "lead-ingest"
+        ]
+      }
+    },
+    "/hooks/v1/razorpay": {
+      "post": {
+        "description": "Signature first, money last.\n\nNothing is read out of this payload until the HMAC verifies, and nothing durable is\nwritten until the tenant resolves \u2014 so a forged or malformed event leaves no row at\nall, not even an inbox trace it could later be replayed from.\n\nTwo layers of duplicate protection, deliberately:\n\n1. the durable inbox, claimed on `payment.captured:<payment id>` with a hash of the\n   NORMALIZED facts (not the raw body), so a redelivery whose envelope gained a\n   field still dedupes, while the same payment id arriving with a different amount\n   is the conflict `claim_inbox_event` is designed to shout about;\n2. the ledger's own `ref`, checked under the per-tenant credit lock inside\n   `credit_captured_payment`. This one is the guarantee: inbox rows are per\n   delivery and can be swept, a ledger row is permanent.\n\nThe claim and the credit share ONE transaction, which is what makes a failure\nrecoverable: a crash after the claim rolls the claim back too, so the provider's\nretry is processed rather than answered \"duplicate\" forever (the failure mode\n`reliability/service.py` documents against the Clerk mirror).",
+        "operationId": "razorpay_webhook_hooks_v1_razorpay_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookAck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Payment-captured callback \u2192 one credit_ledger entry, idempotent on the payment id",
+        "tags": [
+          "billing-webhooks"
         ]
       }
     },
@@ -4493,6 +5026,57 @@
           }
         },
         "summary": "Record a client payment onto the wallet \u2014 idempotent by the payment reference",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/dlt-registration": {
+      "post": {
+        "description": "The third registration in the same family as the number header and the voice template, and the one the campaign launch gate reads as `pe_registration_*` / `tm_link_not_active`. Upserts: re-recording is what happens every time we re-verify with the registrar.",
+        "operationId": "record_dlt_registration_v1_admin_tenants__tenant_id__dlt_registration_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DltRegistrationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DltRegistrationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record the client's DLT Principal Entity registration and its Calevate TM link",
         "tags": [
           "admin"
         ],
@@ -5304,6 +5888,83 @@
           "crm"
         ],
         "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/auth/signup": {
+      "post": {
+        "description": "The caller is a Clerk-verified user with no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, and makes the caller its owner. The wallet starts empty, so the compliance gate refuses outbound calls until it is topped up.",
+        "operationId": "signup_v1_auth_signup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Create a self-serve tenant for the signed-in user (D-34, FLOWS \u00a72)",
+        "tags": [
+          "signup"
+        ]
+      }
+    },
+    "/v1/billing/topups/intent": {
+      "post": {
+        "description": "Returns what a checkout needs. It does NOT create the provider-side order: that requires API credentials this deployment does not hold, so `provider_order_id` is null and `provider_order_pending` is true.",
+        "operationId": "create_topup_intent_v1_billing_topups_intent_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TopUpIntentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopUpIntentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Start a prepaid top-up \u2014 prices it and binds it to this tenant (D-34)",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/calls": {
@@ -7275,6 +7936,63 @@
           }
         },
         "summary": "Load-shed mode and the big red switch (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/platform/tm-registration": {
+      "post": {
+        "description": "The company half of SEC-COMP \u00a73's first bullet. While this is not `active`, NO tenant can launch an outbound campaign, however complete their own Principal Entity registration is. Inbound answering is unaffected.",
+        "operationId": "set_tm_registration_route_v1_ops_platform_tm_registration_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TmRegistrationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TmRegistrationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record Calevate's own DLT telemarketer registration (step-up confirmed, audited)",
         "tags": [
           "ops"
         ],

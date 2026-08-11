@@ -135,5 +135,21 @@ class Settings(BaseSettings):
     # price lives in their `plans` row.
     self_serve_inr_per_min: Decimal = Decimal("6.00")
 
+    # R-11's kill switch. Self-serve signup is the sharp edge of D-34 (anyone can sign
+    # up and dial), so the public intake is OFF unless someone turned it on, and
+    # closing it during an incident is an environment change, not a deploy.
+    self_serve_signup_enabled: bool = False
+
+    # Razorpay prepaid top-ups (D-34). NOTE: no Razorpay account has been provisioned
+    # and the vendor contract is UNVERIFIED — see apps/api/billing/payments.py, which
+    # isolates every assumption about their signing scheme and payload shape.
+    # The PUBLIC key id, handed to the browser's checkout. Unset = the top-up intent
+    # answers "payments not configured" rather than returning an unusable intent.
+    razorpay_key_id: str | None = None
+    # The webhook signing secret from their dashboard. Unset means the payment
+    # receiver FAILS CLOSED — an unverifiable payment feed credits wallets on
+    # anyone's say-so, which is worse than no feed at all.
+    razorpay_webhook_secret: str | None = None
+
 
 __all__ = ["EngineName", "Environment", "Settings"]
