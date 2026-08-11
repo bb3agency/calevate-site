@@ -37,6 +37,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.logging import get_logger, redact_mapping
+from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.reliability.service import enqueue_outbox
@@ -58,9 +59,12 @@ EVENT_HEADER = "X-Calevate-Event"
 DELIVERY_HEADER = "X-Calevate-Delivery"
 
 # Receivers are third-party endpoints on Indian SMB infrastructure; slow is normal,
-# hanging is not. The retry ladder is the outbox's, not a loop here.
+# hanging is not. The retry ladder is ARQ's, so the exhaustion threshold MUST be
+# ARQ's budget — a local number larger than the real one means the last try does not
+# know it is the last, and the exhausted alert never fires (found by the runbook
+# audit, pinned by a test).
 DELIVERY_TIMEOUT_S = 10.0
-MAX_ATTEMPTS = 5
+MAX_ATTEMPTS = WORKER_MAX_TRIES
 
 
 @dataclass(frozen=True, slots=True)

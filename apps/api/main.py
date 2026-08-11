@@ -23,6 +23,7 @@ install_error_handlers(app)
 def _mount_routers(application: FastAPI) -> None:
     """Imports are local so a router import error names the module that broke."""
     from apps.api.admin.routes import router as admin_router
+    from apps.api.agents.prompt_routes import router as prompt_admin_router
     from apps.api.agents.routes import router as agents_router
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.campaigns.routes import router as campaigns_router
@@ -39,6 +40,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(clerk_router)
     application.include_router(admin_router)
     application.include_router(billing_admin_router)
+    application.include_router(prompt_admin_router)
     application.include_router(agents_router)
     application.include_router(campaigns_router)
     application.include_router(crm_router)

@@ -83,6 +83,10 @@ class PromptVersion(PKMixin, TimestampMixin, Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     compiled_t0_context: Mapped[str | None] = mapped_column(Text)
+    # Operator-facing: why this version exists ("rollback to v3", "new pricing").
+    # NOT compiled_t0_context — that is a build artifact OF the version, reserved by
+    # D-39 for the T0 compiler (migration 2faa301dc488 split them).
+    notes: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     published_at: Mapped[datetime | None]
 

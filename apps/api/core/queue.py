@@ -28,6 +28,14 @@ log = get_logger(__name__)
 _pool: ArqRedis | None = None
 
 
+# The ONE retry budget every job and every 'is this the last try?' check reads.
+# It lived only in WorkerSettings.max_tries while the outbound delivery worker
+# compared against its own MAX_ATTEMPTS=5 — so ARQ stopped retrying at 3 and the
+# 'delivery exhausted' alert could never fire. A client's broken integration went
+# silently stale, which is exactly the failure the alert exists to catch.
+WORKER_MAX_TRIES = 3
+
+
 def redis_settings() -> RedisSettings:
     return RedisSettings.from_dsn(get_settings().redis_url)
 

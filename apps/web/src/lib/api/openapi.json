@@ -1826,6 +1826,63 @@
         "title": "ProgressOut",
         "type": "object"
       },
+      "PromptVersionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "notes",
+          "created_at",
+          "active"
+        ],
+        "title": "PromptVersionOut",
+        "type": "object"
+      },
+      "PromptWrittenOut": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "PromptWrittenOut",
+        "type": "object"
+      },
       "ProvisionNumberIn": {
         "additionalProperties": false,
         "properties": {
@@ -1974,6 +2031,40 @@
           "replayed"
         ],
         "title": "ReplayOut",
+        "type": "object"
+      },
+      "RollbackIn": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "RollbackIn",
+        "type": "object"
+      },
+      "RollbackOut": {
+        "additionalProperties": false,
+        "properties": {
+          "new_version": {
+            "title": "New Version",
+            "type": "integer"
+          },
+          "to_version": {
+            "title": "To Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "to_version",
+          "new_version"
+        ],
+        "title": "RollbackOut",
         "type": "object"
       },
       "SourceOut": {
@@ -2327,6 +2418,34 @@
         "title": "TranscriptTurnOut",
         "type": "object"
       },
+      "WritePromptIn": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 8000,
+            "minLength": 20,
+            "title": "Body",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "WritePromptIn",
+        "type": "object"
+      },
       "apps__api__admin__routes__PublishOut": {
         "additionalProperties": false,
         "properties": {
@@ -2652,6 +2771,179 @@
           "admin"
         ],
         "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": {
+      "get": {
+        "operationId": "prompt_history_v1_admin_tenants__tenant_id__agents__agent_id__prompt_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PromptVersionOut"
+                  },
+                  "title": "Response Prompt History V1 Admin Tenants  Tenant Id  Agents  Agent Id  Prompt Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Prompt version history, newest first \u2014 `active` is the pointer, not a flag",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      },
+      "post": {
+        "operationId": "write_prompt_v1_admin_tenants__tenant_id__agents__agent_id__prompt_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WritePromptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptWrittenOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Write a new immutable prompt version; a LIVE agent is re-published",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/rollback": {
+      "post": {
+        "description": "Copy-forward, never pointer-rewind: history stays linear and audited.",
+        "operationId": "rollback_prompt_v1_admin_tenants__tenant_id__agents__agent_id__prompt_rollback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RollbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Republish an earlier version as a NEW version (FLOWS \u00a77 doctrine)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
       }
     },
     "/v1/admin/tenants/{tenant_id}/dlt-templates": {

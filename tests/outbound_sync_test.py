@@ -433,3 +433,44 @@ async def test_two_dispatchers_running_at_once_never_claim_the_same_message() ->
     left, right = await asyncio.gather(claimer(True), claimer(False))
     assert not (left & right), "overlapping dispatchers took the same message"
     assert left and right, "both dispatchers should still find work to do"
+
+
+async def test_the_last_allowed_try_knows_it_is_the_last(monkeypatch) -> None:
+    """Regression from the runbook audit: the worker's exhaustion threshold said 5
+    while ARQ's real budget said 3, so ARQ stopped retrying before the worker ever
+    considered itself exhausted — and the `outbound_webhook_exhausted` alert could
+    not fire. The two numbers must be the same object, not coincidentally equal."""
+    from apps.api.core.queue import WORKER_MAX_TRIES
+    from apps.workers.settings import WorkerSettings
+
+    assert service.MAX_ATTEMPTS is WORKER_MAX_TRIES, "one budget, one source"
+    assert WorkerSettings.max_tries is WORKER_MAX_TRIES
+
+    # And end to end: on try == budget, a failing delivery alerts and STOPS (returns)
+    # instead of raising for a retry that will never come.
+    tenant_id, endpoint_id = await _tenant_with_endpoint(url="https://down.example/hook")
+    fired: list[str] = []
+    monkeypatch.setattr(
+        "apps.workers.outbound_webhooks.alert",
+        lambda stage, code, **kw: fired.append(code),
+    )
+
+    async def refuse(**kwargs: Any) -> service.DeliveryResult:
+        return service.DeliveryResult(delivered=False, status_code=503, error="HTTP 503")
+
+    monkeypatch.setattr("apps.api.integrations.service.deliver", refuse)
+
+    from apps.workers.outbound_webhooks import deliver_outbound_webhook
+
+    outcome = await deliver_outbound_webhook(
+        {"job_try": WORKER_MAX_TRIES},
+        {
+            "tenant_id": str(tenant_id),
+            "endpoint_id": str(endpoint_id),
+            "event": "lead.created",
+            "data": {"lead_id": "1"},
+            "delivery_id": str(uuid7()),
+        },
+    )
+    assert outcome == f"exhausted after {WORKER_MAX_TRIES}"
+    assert fired == ["outbound_webhook_exhausted"], "the alert fires on the real last try"

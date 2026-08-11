@@ -871,6 +871,37 @@ available", built on the reliability triad that already records everything neede
 
 197 tests.
 
+**40. Parallel round: prompt rollback, invoices, runbooks — and the bug a runbook
+found**
+
+Three subagents on disjoint files, integrated in one pass.
+
+- **Prompt versioning + rollback** (`apps/api/agents/prompts.py`, `prompt_routes.py`,
+  admin realm): same doctrine as the KB — versions are immutable history, rollback is
+  copy-forward republishing (a NEW version with the old body), never pointer-rewind,
+  so the audit trail never shows an agent silently pointing backwards. Live agents
+  re-publish to the engine INSIDE the transaction (an engine failure rolls back
+  version + pointer together); drafts skip the engine. The agent flagged that
+  `prompt_versions` had no `notes` column and had parked notes in
+  `compiled_t0_context` — which D-39 reserves for the T0 compiler, a collision waiting
+  to overwrite the audit trail. Resolved properly: migration `2faa301dc488` adds
+  `notes`; the workaround is gone. 4 tests.
+- **Invoice generation** (`apps/api/billing/invoice.py` + admin route): a structured
+  statement derived from `usage_summary` — imported, not duplicated, so the invoice
+  can never disagree with the usage panel. Deterministic invoice numbers
+  (regeneration cannot duplicate), 18% GST as a named constant, paise-exact Decimals,
+  and no ₹0.00 overage line (a zero line invites a dispute about nothing). 5 tests.
+- **Runbooks** (`runbooks/campaign-stall.md`, `runbooks/webhook-delivery-failures.md`):
+  2am decision trees with every table name, status value, tick return string and alert
+  code grep-verified against the code. **The audit found a real bug**: the delivery
+  worker's `MAX_ATTEMPTS=5` vs ARQ's `max_tries=3` meant the last real try never knew
+  it was the last, so `outbound_webhook_exhausted` could never fire — a client's broken
+  integration would go silently stale, exactly what the alert exists to catch. Fixed
+  with ONE constant (`WORKER_MAX_TRIES` in `core/queue.py`) that both read, pinned by
+  a test asserting identity (`is`, not `==`) plus an end-to-end alert-fires check.
+
+207 tests.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
@@ -882,5 +913,5 @@ available", built on the reliability triad that already records everything neede
    margin panels ship; turning a month into a PDF invoice does not).
 4. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (197 tests),
+5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (207 tests),
    `uv run mypy apps packages`, `make guardrails` and `pnpm -C apps/web lint` before changing anything.

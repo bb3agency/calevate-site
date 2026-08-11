@@ -124,6 +124,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Prompt version history, newest first — `active` is the pointer, not a flag */
+        get: operations["prompt_history_v1_admin_tenants__tenant_id__agents__agent_id__prompt_get"];
+        put?: never;
+        /** Write a new immutable prompt version; a LIVE agent is re-published */
+        post: operations["write_prompt_v1_admin_tenants__tenant_id__agents__agent_id__prompt_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Republish an earlier version as a NEW version (FLOWS §7 doctrine)
+         * @description Copy-forward, never pointer-rewind: history stays linear and audited.
+         */
+        post: operations["rollback_prompt_v1_admin_tenants__tenant_id__agents__agent_id__prompt_rollback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/dlt-templates": {
         parameters: {
             query?: never;
@@ -1696,6 +1734,30 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** PromptVersionOut */
+        PromptVersionOut: {
+            /** Active */
+            active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Notes */
+            notes: string | null;
+            /** Version */
+            version: number;
+        };
+        /** PromptWrittenOut */
+        PromptWrittenOut: {
+            /** Version */
+            version: number;
+        };
         /** ProvisionNumberIn */
         ProvisionNumberIn: {
             /** Agent Id */
@@ -1740,6 +1802,18 @@ export interface components {
         ReplayOut: {
             /** Replayed */
             replayed: number;
+        };
+        /** RollbackIn */
+        RollbackIn: {
+            /** Version */
+            version: number;
+        };
+        /** RollbackOut */
+        RollbackOut: {
+            /** New Version */
+            new_version: number;
+            /** To Version */
+            to_version: number;
         };
         /** SourceOut */
         SourceOut: {
@@ -1879,6 +1953,13 @@ export interface components {
             start_ms?: number | null;
             /** Text */
             text: string;
+        };
+        /** WritePromptIn */
+        WritePromptIn: {
+            /** Body */
+            body: string;
+            /** Notes */
+            notes?: string | null;
         };
         /** PublishOut */
         apps__api__admin__routes__PublishOut: {
@@ -2150,6 +2231,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TenantSummary"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    prompt_history_v1_admin_tenants__tenant_id__agents__agent_id__prompt_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptVersionOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    write_prompt_v1_admin_tenants__tenant_id__agents__agent_id__prompt_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WritePromptIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptWrittenOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rollback_prompt_v1_admin_tenants__tenant_id__agents__agent_id__prompt_rollback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RollbackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RollbackOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

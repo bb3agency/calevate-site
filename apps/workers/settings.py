@@ -18,7 +18,7 @@ from typing import Any
 from arq import cron
 
 from apps.api.core.logging import configure_logging, get_logger
-from apps.api.core.queue import redis_settings
+from apps.api.core.queue import WORKER_MAX_TRIES, redis_settings
 from apps.api.core.settings import runtime_config_missing_keys, validate_bootstrap_env
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
 from apps.workers.dispatcher import dispatch_outbox, report_stalled_pipeline, sweep_expired
@@ -78,7 +78,7 @@ class WorkerSettings:
     redis_settings = redis_settings()
     on_startup = startup
     on_shutdown = shutdown
-    max_tries = 3
+    max_tries = WORKER_MAX_TRIES
     job_timeout = 300
     # Keep results long enough for the ARQ-level job-id dedupe window to be useful
     # against duplicate webhooks (BACKEND-PATTERNS §4's cheapest layer).
