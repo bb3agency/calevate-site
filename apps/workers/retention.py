@@ -132,11 +132,50 @@ async def _due_tenants() -> list[UUID]:
     whose rows must keep ageing out. Deactivating an agent must not freeze its calls in
     time either.
 
-    KNOWN EDGE, reported rather than papered over: a lead ingested from a website/Meta
-    webhook lands even if its agent was never published (`ingest/service.py` writes the
-    lead before the dial), so a tenant that has *only* such leads is not in this set and
-    its `lead` TTL never runs. Closing it needs a global presence row written by the
-    ingest path — a migration, and a change to a module this job does not own.
+    THE LEADS HOLE, AND WHY IT IS CLOSED AT THE OTHER END. This set is a superset for
+    anything involving a CALL by construction — a call row only exists for a published
+    agent. Leads were the exception: `ingest/service.py` writes the lead BEFORE the
+    dial, so a tenant whose agent was never published could keep a lead (on the consent
+    or compliance-gate exits, which return before the dial and therefore commit) and
+    appear in no worklist, and its `lead` TTL would never run.
+
+    Three fixes were weighed and the sweep is deliberately NOT where any of them went:
+
+    - *Sweep churned/suspended/soft-deleted organizations too.* Rejected on the merits
+      before cost: it does not fix this. The tenant in the hole is typically ACTIVE — a
+      live client mid-onboarding, not a churned one — so an org-status arm misses the
+      population it is aimed at, while re-introducing `admin_session` into a worker that
+      the previous round deliberately took it out of. Wrong answer, high price.
+    - *A global presence row written by the ingest path.* The correct shape in the
+      abstract, and expensive in the concrete: any cross-tenant worklist table must be
+      exempt from tenant RLS (this one and `audit_log` are the only two that are, and
+      `db/registry.RLS_EXEMPT_TENANT_COLUMNS` is pinned in a test precisely so a third
+      costs a visible argument). It buys a second bridge to keep in step with the first,
+      to cover a state the platform should not be in.
+    - *Accept the invariant — and stop assuming it, enforce it.* Taken. `ingest_lead`
+      now makes the refusal `dispatch_call` was already making one step earlier, in
+      front of the INSERT rather than behind it, so a lead is never written for an agent
+      with no `engine_agent_ref`. `publish_agent` writes that column and this table in
+      one transaction, so "the tenant holds a lead" now implies "the tenant is in this
+      set", for every lead source: webhook leads by that refusal, call-sourced leads by
+      construction.
+
+    Said the way a compliance reviewer would: NO PERSONAL DATA ENTERS THE PLATFORM THAT
+    THE RETENTION SWEEP CANNOT LATER EXPIRE. `tests/schema_hardening_3_test.py` is that
+    sentence as executable tests.
+
+    What enforcement cannot do is reach BACKWARD. Rows written under the old ordering
+    are still outside this set, and this worker cannot even count them: it holds no
+    admin role, and an `untenanted_session` reading `leads` is fail-closed and returns
+    zero rows — so "how much residue is there?" is not a question the sweep can answer
+    about itself, and a self-check here would be a comforting no-op. It is one query in
+    the admin realm, where a cross-tenant read is audited and belongs:
+
+        SELECT count(*) FROM leads l WHERE NOT EXISTS (
+          SELECT 1 FROM engine_agent_routes r WHERE r.tenant_id = l.tenant_id);
+
+    and the alert that catches a recurrence is that count trending UP — flat is residue,
+    rising means something started writing leads outside a published agent again.
     """
     async with untenanted_session() as session:
         rows = (

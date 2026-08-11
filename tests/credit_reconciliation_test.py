@@ -155,6 +155,56 @@ async def _double_credit(tenant_id: uuid.UUID, ref: str = "UTR-DOUBLE-1") -> Non
             )
 
 
+async def _double_charge(tenant_id: uuid.UUID, ref: str, *, opening: Decimal) -> None:
+    """The usage side of the same residue: one call debited twice, seeded backdated.
+
+    Same reasoning as `_double_credit` — and this one is why the unique index was
+    refused a THIRD time. It used to call `record_entry` twice inline, which stamps
+    `clock_timestamp()`, so every run of this module minted a violating pair AFTER any
+    cutoff a migration could freeze into a literal. The violation count climbed from 21
+    to 246 over one session on that account alone.
+    """
+    occurred = datetime.now(UTC) - RESIDUE_AGE
+    async with tenant_session(tenant_id) as session:
+        # The wallet the charges are drawn against, seeded BEFORE them on the clock.
+        # It has to be backdated too: the balance read is "the newest entry", so a
+        # top-up written at `now()` would sit after 120-day-old charges and report a
+        # balance that never had them deducted.
+        running = opening
+        await session.execute(
+            text(
+                "INSERT INTO credit_ledger (id, tenant_id, delta, reason, ref, balance_after, "
+                "occurred_at, created_at) VALUES (:id, :tid, :delta, 'topup', :ref, :balance, "
+                ":at, :at)"
+            ),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "delta": opening,
+                "ref": f"UTR-OPENING-{ref[:8]}",
+                "balance": opening,
+                "at": occurred - timedelta(minutes=1),
+            },
+        )
+        for index in range(2):
+            running -= Decimal("30")
+            await session.execute(
+                text(
+                    "INSERT INTO credit_ledger (id, tenant_id, delta, reason, ref, "
+                    "balance_after, occurred_at, created_at) VALUES (:id, :tid, :delta, "
+                    "'usage', :ref, :balance, :at, :at)"
+                ),
+                {
+                    "id": uuid7(),
+                    "tid": tenant_id,
+                    "delta": Decimal("-30"),
+                    "ref": ref,
+                    "balance": running,
+                    "at": occurred + timedelta(seconds=index),
+                },
+            )
+
+
 # --- the detector --------------------------------------------------------------
 
 
@@ -287,14 +337,8 @@ async def test_an_over_charged_call_is_compensated_upward() -> None:
     correction is a credit. Same machinery, opposite sign."""
     tenant_id = await _tenant()
     call_id = str(uuid.uuid4())
-    async with tenant_session(tenant_id) as session:
-        await record_entry(
-            session, tenant_id=tenant_id, delta=Decimal("1000"), reason="topup", ref="UTR-USAGE-1"
-        )
-        for _ in range(2):
-            await record_entry(
-                session, tenant_id=tenant_id, delta=Decimal("-30"), reason="usage", ref=call_id
-            )
+    # Backdated, not written through `record_entry` — see `_double_charge`.
+    await _double_charge(tenant_id, call_id, opening=Decimal("1000"))
 
     assert await _balance(tenant_id) == Decimal("940.0000")
     report = await reconcile(tenant_id=tenant_id, apply=True)

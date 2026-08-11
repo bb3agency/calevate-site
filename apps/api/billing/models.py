@@ -161,11 +161,39 @@ class CreditLedgerEntry(PKMixin, Base):
     pass without it. Trading the reconciler's test coverage for the constraint is a bad
     trade in the one place where the reconciler is the thing repairing money.
 
-    The route is therefore a fixture change and not schema work, and it is small: the
-    residue must be seeded with an explicit pre-cutoff `occurred_at` (or through a seed
-    helper that bypasses the production writer on purpose), after which the index lands
-    with the cutoff as its fence. Until then the advisory lock remains load-bearing and
-    this docstring is the record of why.
+    A THIRD attempt (2026-08-11, later the same day) came back after that fixture change
+    landed — `_double_credit` now seeds its residue by direct INSERT backdated 120 days,
+    exactly as prescribed above — and MEASURED the database before building anything.
+    The index still cannot go on, because the fixture that was fixed was not the only one
+    minting violations:
+
+        tests/credit_reconciliation_test.py::test_an_over_charged_call_is_compensated_upward
+
+    calls `record_entry` twice with one `usage` ref, inline, to set up the "client
+    debited twice for one call" group. `record_entry` stamps `clock_timestamp()`, so that
+    pair lands NOW — after any cutoff — and a cutoff-predicate index turns it into an
+    IntegrityError. Measured, not inferred: with the module's tenants marked at a clock
+    reading and re-queried, that single test manufactured a fresh violating pair on every
+    run, while every other test in the module (and in `credits_test`, `credit_topup_test`)
+    left the ledger clean. The database-wide count also rose from the 21 pairs the first
+    attempt saw to 202, which is what a suite minting them on every run looks like.
+
+    `tests/schema_hardening_2_test.py::test_the_ledger_still_accepts_the_double_credit_
+    its_own_fixtures_write` is a SECOND live minter, but a deliberate one — it is the
+    tripwire that says to delete it in the same commit as the migration, so it is not a
+    blocker, it is the switch.
+
+    So the remaining route is one more fixture change and still not schema work: seed the
+    `usage` pair in that test the same backdated way `_double_credit` already does. Then
+    the shape verified to build —
+
+        UNIQUE (tenant_id, ref)
+        WHERE reason IN ('topup','usage') AND ref IS NOT NULL
+          AND occurred_at >= '<literal>'::timestamptz
+
+    — lands, the tripwire in schema_hardening_2 fails and is deleted, and the advisory
+    lock demotes to belt-and-braces. Until then it remains load-bearing and this docstring
+    is the record of why.
     """
 
     __tablename__ = "credit_ledger"

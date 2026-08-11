@@ -199,6 +199,43 @@ async def ingest_lead(
             remediation="Attach an agent to the webhook in the admin console.",
         )
 
+    # THE SAME REFUSAL `dispatch_call` ALREADY MAKES, MOVED IN FRONT OF THE INSERT.
+    #
+    # It is not a new rule and not a new error code: an unpublished agent could never
+    # be dialled, and step 4 below has always raised `agent_not_published` for it. What
+    # was new was WHERE it landed. Raising it after the lead row meant the outcome
+    # depended on which exit the request took: on the dial path the ProblemError rolled
+    # the whole transaction back and the lead vanished, while on the two early returns
+    # (consent provenance, compliance gate) the request succeeded and the lead was KEPT.
+    # One misconfiguration, two opposite answers, and the surviving half was the half
+    # nothing could ever delete.
+    #
+    # Why "nothing could ever delete": `apps/workers/retention.py::_due_tenants` resolves
+    # its worklist from `engine_agent_routes`, the global bridge, because a cross-tenant
+    # resolution must not need the admin role (hard rule 1). `publish_agent` writes that
+    # route in the same transaction as `agents.engine_agent_ref`, so the column checked
+    # here and the row the sweep reads are one fact. A tenant that has never published
+    # ANY agent is therefore in no worklist, and a lead it kept ages forever — personal
+    # data outliving its `lead` TTL, which is a DPDP obligation and not a preference.
+    #
+    # Refusing costs the enquiry, and that cost is paid knowingly: the sender gets a 422
+    # naming the fix, the client cannot call anybody in this state anyway, and the moment
+    # they publish, every later lead both lands and expires on schedule. Keeping the lead
+    # instead would mean the platform can hold personal data with no route to it, which
+    # is the invariant the sweep is built on.
+    ref = (
+        await session.execute(
+            text("SELECT engine_agent_ref FROM agents WHERE id = :aid"),
+            {"aid": config.agent_id},
+        )
+    ).scalar()
+    if not isinstance(ref, str) or not ref:
+        raise ProblemError.business_rule(
+            "agent_not_published",
+            "This agent has not been published to the voice platform yet.",
+            remediation="Publish the agent from the admin console, then resend the lead.",
+        )
+
     # 1. THE LEAD ALWAYS LANDS. A compliance block or an engine failure below must
     # not lose the enquiry — the data is the client's either way.
     lead_id = uuid7()
