@@ -12,14 +12,15 @@ import {
   formatDuration,
   formatIST,
 } from "@/components/ui";
-import { devSession } from "@/lib/api/client";
+import { useClientRealm } from "@/lib/api/session";
 import { useCalls } from "@/lib/api/hooks";
 
 const STATUSES = ["completed", "in_progress", "no_answer", "failed"] as const;
 
 export default function CallsPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
-  const session = devSession(slug);
+  // `href` keeps the D-22 operator session across in-realm links (session.tsx).
+  const { session, href } = useClientRealm();
   const [status, setStatus] = useState<string | undefined>(undefined);
   const calls = useCalls(session, { status, limit: 100 });
 
@@ -83,7 +84,7 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
                     </td>
                     <td className="max-w-md py-2">
                       <Link
-                        href={`/c/${slug}/calls/${call.id}`}
+                        href={href(`/c/${slug}/calls/${call.id}`)}
                         className="line-clamp-1 text-slate-700 hover:underline dark:text-slate-300"
                       >
                         {call.summary ?? "Open call"}

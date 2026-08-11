@@ -1,9 +1,9 @@
 "use client";
 
-import { use, useState } from "react";
+import { useState } from "react";
 
 import { Card, EmptyState, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
-import { devSession } from "@/lib/api/client";
+import { useClientSession } from "@/lib/api/session";
 import {
   EVENT_LABELS,
   useCreateEndpoint,
@@ -40,9 +40,8 @@ const STATUS_TONE: Record<string, string> = {
   skipped: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
 };
 
-export default function IntegrationsPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = use(params);
-  const session = devSession(slug);
+export default function IntegrationsPage() {
+  const session = useClientSession();
 
   const endpoints = useEndpoints(session);
   const deliveries = useDeliveries(session);

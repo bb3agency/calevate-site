@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { useTenants } from "@/lib/api/admin";
+import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
 
 export default function AdminClientsPage() {
   const tenants = useTenants();
@@ -81,8 +82,11 @@ export default function AdminClientsPage() {
                     {formatIST(tenant.last_call_at)}
                   </td>
                   <td className="px-4 py-2">
+                    {/* The marker tells the client shell to build the impersonating
+                        session (admin token + X-Impersonate-Org). See
+                        lib/api/session.tsx — it selects a credential, it grants none. */}
                     <Link
-                      href={`/c/${tenant.slug}`}
+                      href={`/c/${tenant.slug}?${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}`}
                       className="text-xs text-sky-400 hover:underline"
                       title="Read-only view as this client (D-22) — every page view is logged"
                     >

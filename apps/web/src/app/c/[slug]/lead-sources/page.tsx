@@ -1,9 +1,9 @@
 "use client";
 
-import { use, useState } from "react";
+import { useState } from "react";
 
 import { Card, EmptyState, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
-import { devSession } from "@/lib/api/client";
+import { useClientSession } from "@/lib/api/session";
 import {
   useIngestActivity,
   useTestWebhook,
@@ -42,9 +42,8 @@ const SAMPLE_PAYLOAD = JSON.stringify(
   2,
 );
 
-export default function LeadSourcesPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = use(params);
-  const session = devSession(slug);
+export default function LeadSourcesPage() {
+  const session = useClientSession();
 
   const activity = useIngestActivity(session);
   const test = useTestWebhook(session);

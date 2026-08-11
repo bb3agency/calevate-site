@@ -5,7 +5,7 @@ import { use } from "react";
 
 import { Card, EmptyState, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { useAttention, type AttentionKind } from "@/lib/api/attention";
-import { devSession } from "@/lib/api/client";
+import { useClientRealm } from "@/lib/api/session";
 
 /**
  * Per-kind chip copy and colour. Plain words, not system nouns: the reader is a
@@ -43,7 +43,8 @@ const KIND_COPY: Record<AttentionKind, { label: string; tone: string }> = {
  */
 export default function AttentionPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
-  const session = devSession(slug);
+  // `href` keeps the D-22 operator session across in-realm links (session.tsx).
+  const { session, href } = useClientRealm();
   const queue = useAttention(session);
 
   const counts = queue.data?.counts ?? {};
@@ -112,7 +113,7 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
                 <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{item.detail}</p>
                 {item.href && (
                   <Link
-                    href={`/c/${slug}${item.href}`}
+                    href={href(`/c/${slug}${item.href}`)}
                     className="mt-1.5 inline-block rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                   >
                     Open

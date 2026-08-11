@@ -1,9 +1,7 @@
 "use client";
 
-import { use } from "react";
-
 import { Card, ProblemNotice, Skeleton, StatTile } from "@/components/ui";
-import { devSession } from "@/lib/api/client";
+import { useClientSession } from "@/lib/api/session";
 import { useUsage } from "@/lib/api/hooks";
 
 /**
@@ -16,9 +14,8 @@ import { useUsage } from "@/lib/api/hooks";
  * Money arrives as strings and stays strings all the way to the screen. Parsing INR
  * into a JS number to format it is how ₹10,159.00 becomes ₹10,158.999999999998.
  */
-export default function UsagePage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = use(params);
-  const usage = useUsage(devSession(slug));
+export default function UsagePage() {
+  const usage = useUsage(useClientSession());
 
   if (usage.isLoading) return <Skeleton rows={5} />;
   if (usage.error) return <ProblemNotice error={usage.error} onRetry={() => usage.refetch()} />;

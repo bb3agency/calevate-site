@@ -1,9 +1,9 @@
 "use client";
 
-import { use, useState } from "react";
+import { useState } from "react";
 
 import { Card, EmptyState, ProblemNotice, Skeleton, StatTile, formatDuration } from "@/components/ui";
-import { devSession } from "@/lib/api/client";
+import { useClientSession } from "@/lib/api/session";
 import { usePerformance } from "@/lib/api/performance";
 
 const DAY_OPTIONS = [7, 30, 90] as const;
@@ -15,10 +15,10 @@ const DAY_OPTIONS = [7, 30, 90] as const;
  * "connect rate KPI". Charts are pure CSS bars — the CSP and bundle discipline
  * forbid a chart library, and two single-series bar charts do not need one.
  */
-export default function PerformancePage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = use(params);
+export default function PerformancePage() {
+  const session = useClientSession();
   const [days, setDays] = useState<number>(30);
-  const perf = usePerformance(devSession(slug), days);
+  const perf = usePerformance(session, days);
 
   if (perf.isLoading) return <Skeleton rows={6} />;
   if (perf.error) return <ProblemNotice error={perf.error} onRetry={() => perf.refetch()} />;

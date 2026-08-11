@@ -13,12 +13,13 @@ import {
   formatDuration,
   formatIST,
 } from "@/components/ui";
-import { devSession } from "@/lib/api/client";
+import { useClientRealm } from "@/lib/api/session";
 import { useCalls, useDashboard } from "@/lib/api/hooks";
 
 export default function DashboardPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
-  const session = devSession(slug);
+  // `href` keeps the D-22 operator session across in-realm links (session.tsx).
+  const { session, href } = useClientRealm();
   const dashboard = useDashboard(session);
   const recent = useCalls(session, { limit: 8 });
 
@@ -85,7 +86,7 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
       <Card
         title="Recent calls"
         action={
-          <Link href={`/c/${slug}/calls`} className="text-xs font-medium text-sky-700 hover:underline">
+          <Link href={href(`/c/${slug}/calls`)} className="text-xs font-medium text-sky-700 hover:underline">
             View all
           </Link>
         }
@@ -98,7 +99,7 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
               <li key={call.id} className="flex items-center gap-3 py-2 text-sm">
                 <StatusBadge value={call.status} kind="call" />
                 <Link
-                  href={`/c/${slug}/calls/${call.id}`}
+                  href={href(`/c/${slug}/calls/${call.id}`)}
                   className="flex-1 truncate text-slate-700 hover:underline dark:text-slate-300"
                 >
                   {call.summary ?? `${call.direction} call`}

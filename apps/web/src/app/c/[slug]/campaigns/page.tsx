@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Card, EmptyState, ProblemNotice, StatTile, formatIST } from "@/components/ui";
 import {
@@ -16,7 +16,7 @@ import {
   usePauseCampaign,
   type Classification,
 } from "@/lib/api/campaigns";
-import { devSession } from "@/lib/api/client";
+import { useClientSession } from "@/lib/api/session";
 import { useAgents } from "@/lib/api/kb";
 
 /**
@@ -50,9 +50,8 @@ const CLASSIFICATIONS: { value: Classification; label: string; hint: string }[] 
   { value: "transactional", label: "Transactional", hint: "Order and appointment updates — 160 or standard" },
 ];
 
-export default function CampaignsPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = use(params);
-  const session = devSession(slug);
+export default function CampaignsPage() {
+  const session = useClientSession();
   const agents = useAgents(session);
 
   const numbers = useCampaignNumbers(session);

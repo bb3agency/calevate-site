@@ -5,7 +5,7 @@ import { use } from "react";
 
 import { Card, EmptyState, ProblemNotice, Skeleton } from "@/components/ui";
 import { useAgents, type Agent, type AgentExtractionField } from "@/lib/api/agents";
-import { devSession } from "@/lib/api/client";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
 
 /**
  * Direction in the owner's terms, with a glyph that reads at a glance. "Inbound"
@@ -106,7 +106,7 @@ function liveState(agent: Agent): { label: string; tone: string; detail: string 
  */
 export default function AgentsPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
-  const session = devSession(slug);
+  const session = useClientSession();
   const agents = useAgents(session);
 
   return (
@@ -143,6 +143,8 @@ export default function AgentsPage({ params }: { params: Promise<{ slug: string 
 }
 
 function AgentCard({ agent, slug }: { agent: Agent; slug: string }) {
+  // `href` keeps the D-22 operator session across in-realm links (session.tsx).
+  const { href } = useClientRealm();
   const live = liveState(agent);
   const direction = DIRECTION_COPY[agent.direction] ?? {
     glyph: "•",
@@ -228,7 +230,7 @@ function AgentCard({ agent, slug }: { agent: Agent; slug: string }) {
               </ul>
               <p className="mt-2 text-xs text-slate-500">
                 These are the columns in your{" "}
-                <Link href={`/c/${slug}/leads`} className="underline underline-offset-2">
+                <Link href={href(`/c/${slug}/leads`)} className="underline underline-offset-2">
                   Leads
                 </Link>{" "}
                 table. The agent fills them in from the conversation — it never reads a

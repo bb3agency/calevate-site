@@ -1,9 +1,9 @@
 "use client";
 
-import { use, useState } from "react";
+import { useState } from "react";
 
 import { Card, EmptyState, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
-import { devSession } from "@/lib/api/client";
+import { useClientSession } from "@/lib/api/session";
 import { useAgents, useKbChunks, useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
 
 const STATUS_COPY: Record<string, { label: string; tone: string }> = {
@@ -34,9 +34,8 @@ const STATUS_COPY: Record<string, { label: string; tone: string }> = {
  * their PE registration — the wait is a feature they should understand, not a delay
  * they should have to discover.
  */
-export default function KnowledgePage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = use(params);
-  const session = devSession(slug);
+export default function KnowledgePage() {
+  const session = useClientSession();
   const sources = useKbSources(session);
   const agents = useAgents(session);
   const submit = useSubmitKnowledge(session);

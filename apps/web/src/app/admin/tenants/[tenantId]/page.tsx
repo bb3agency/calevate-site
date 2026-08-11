@@ -18,6 +18,7 @@ import {
   useTenantNumbers,
   useTenantTemplates,
 } from "@/lib/api/admin";
+import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
 
 /**
  * One client: health, the read-only view-as link, and the KB approval queue.
@@ -79,8 +80,14 @@ export default function TenantDetailPage({
           >
             Invoice
           </Link>
+          {/* `?view=admin` tells the client-realm shell to build the IMPERSONATING
+              session (admin token + X-Impersonate-Org) instead of a client one — see
+              lib/api/session.tsx. Without it the link handed over a client token the
+              operator does not have, so `me.impersonating` was always false and the
+              read-only banner never appeared. The marker selects a credential; it
+              grants nothing, and the API verifies the admin identity regardless. */}
           <Link
-            href={`/c/${tenant.slug}`}
+            href={`/c/${tenant.slug}?${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}`}
             className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
             title="Read-only (D-22). Every page view is audit-logged."
           >

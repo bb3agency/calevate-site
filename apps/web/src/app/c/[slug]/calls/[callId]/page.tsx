@@ -12,7 +12,7 @@ import {
   formatDuration,
   formatIST,
 } from "@/components/ui";
-import { devSession } from "@/lib/api/client";
+import { useClientRealm } from "@/lib/api/session";
 import { useCall, useCallBack, useCallbackEligibility } from "@/lib/api/hooks";
 
 export default function CallDetailPage({
@@ -21,7 +21,8 @@ export default function CallDetailPage({
   params: Promise<{ slug: string; callId: string }>;
 }) {
   const { slug, callId } = use(params);
-  const session = devSession(slug);
+  // `href` keeps the D-22 operator session across in-realm links (session.tsx).
+  const { session, href } = useClientRealm();
   const call = useCall(session, callId);
   const eligibility = useCallbackEligibility(session, callId);
   const callback = useCallBack(session, callId);
@@ -35,7 +36,7 @@ export default function CallDetailPage({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Link href={`/c/${slug}/calls`} className="text-sm text-sky-700 hover:underline">
+        <Link href={href(`/c/${slug}/calls`)} className="text-sm text-sky-700 hover:underline">
           ← Calls
         </Link>
         <StatusBadge value={detail.status} kind="call" />
@@ -106,7 +107,7 @@ export default function CallDetailPage({
             {detail.sentiment && <span>Sentiment: {detail.sentiment}</span>}
             {detail.outcome_tag && <span>Outcome: {detail.outcome_tag.replace(/_/g, " ")}</span>}
             {detail.lead_id && (
-              <Link href={`/c/${slug}/leads`} className="text-sky-700 hover:underline">
+              <Link href={href(`/c/${slug}/leads`)} className="text-sky-700 hover:underline">
                 View lead
               </Link>
             )}
