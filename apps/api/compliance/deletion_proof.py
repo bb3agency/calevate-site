@@ -66,9 +66,11 @@ from apps.api.compliance.deletion import (
     ErasureLimitation,
 )
 
-# Counts that are absent from the stored proof, said plainly. The erasure job counts the
-# floor collision TODAY (`floor_recordings=` on its result, plus a warning) but writes it
-# nowhere durable, so this is the sentence the certificate carries until it does.
+# A count that is absent from the stored proof, said plainly rather than as a zero.
+# The erasure job records the floor collision into `scope` now, so this sentence is what
+# certificates built from proofs written BEFORE it did carry — and they keep carrying it,
+# because hard rule 4 forbids back-filling a durable row to make an old document say
+# something it never said.
 _FLOOR_UNKNOWN = (
     "This certificate does not state how many of those recordings were inside the "
     f"{RECORDING_FLOOR_DAYS}-day window when the erasure ran."

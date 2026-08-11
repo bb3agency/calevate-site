@@ -15,11 +15,15 @@ Three claims, none of which needs a database:
    worker learned to record one more fact.
 3. The prose notice and the structured exceptions are one register, not two that drift.
 
-The floor COUNT is the coordinated half: `apps/workers/retention.execute_deletion_request`
-counts the collision today (`floor_recordings=` on the job result) but does not write it
-into the stored proof. The certificate is ready for it and says so honestly meanwhile —
-these tests pin both states, so the day the worker records the count, the wording that
-changes is the wording a test already describes.
+The floor COUNT is the coordinated half, and both sides have now landed:
+`apps/workers/retention.execute_deletion_request` writes
+`scope.recordings_within_trai_floor` into the stored proof, and the certificate reports
+it. What these tests hold onto is the distinction that outlives the change — a recorded
+`0` says "none were inside the window", an ABSENT key says "this proof predates the
+count" — because proofs written before it are not back-filled (hard rule 4) and will be
+read for years. `tests/deletion_request_test.py` covers the live worker's count end to
+end; the fixtures here are hand-built precisely so both states stay testable after only
+one of them can still occur in new rows.
 """
 
 from __future__ import annotations
@@ -173,10 +177,13 @@ def test_the_filed_certificate_is_readable_without_the_response_around_it() -> N
 
 
 def test_the_certificate_does_not_invent_a_count_it_was_never_given() -> None:
-    """Today's worker counts the collision into the job result and the log, not into the
-    stored proof. The honest certificate says the number is not recorded rather than
-    implying zero — "0 recordings were inside the floor" is a claim, and we cannot make
-    it."""
+    """A proof written before the job recorded the count — the fixture omits the key.
+
+    Those rows are not back-filled (hard rule 4), so this is a document that will still
+    be rendered and read years from now. It has to say the number is not recorded rather
+    than imply zero: "0 recordings were inside the floor" is a claim, and a proof that
+    never carried the field cannot support it.
+    """
     document = _certified()
     assert document["scope"][FLOOR_COUNT_KEY] is None
     entry = _recording_entry(document)
@@ -184,10 +191,10 @@ def test_the_certificate_does_not_invent_a_count_it_was_never_given() -> None:
     assert "does not state how many" in entry["why"]
 
 
-def test_the_count_reaches_the_certificate_the_day_the_worker_records_it() -> None:
-    """The other half of the coordinated change, pinned from this side so it cannot land
-    as a 500. `tests/retention_conflicts_test.py` pins the worker's side under the same
-    key name."""
+def test_a_recorded_count_is_reported_as_the_number_it_is() -> None:
+    """The other half, now that the job stores it: a recorded count is stated, and a
+    recorded ZERO says "none were" rather than falling back to the "not recorded"
+    wording. The two are different claims and the certificate must not blur them."""
     document = _certified(
         scope={
             "calls": ["a" * 32, "c" * 32],

@@ -99,11 +99,11 @@ class ErasureScopeOut(Strict):
     call_extractions_erased: int
     # How many of those calls still had a recording inside the TRAI 90-day floor when
     # the erasure ran — i.e. how many audio files this request could NOT lawfully
-    # destroy. NULLABLE and required: `None` means the proof was written by an erasure
-    # job that did not record it, and the certificate says so in words rather than
-    # certifying a zero it cannot support (`deletion_proof._floor_sentence`). The job
-    # counts them today (`floor_recordings=` on its result) but stores them nowhere;
-    # `deletion.FLOOR_COUNT_KEY` is the name both halves of that change use.
+    # destroy. NULLABLE and required: a recorded `0` is the claim "none were", while
+    # `None` means the proof predates the job recording it at all, and the certificate
+    # says those two things in different words rather than collapsing them
+    # (`deletion_proof._floor_sentence`). Hard rule 4 is why the older rows stay `None`:
+    # they are not back-filled.
     recordings_within_trai_floor: int | None
 
 

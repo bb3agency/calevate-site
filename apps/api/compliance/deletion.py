@@ -171,13 +171,16 @@ STATUS_COMPLETED = "completed"
 # `tests/erasure_certificate_test.py` pins the two together so they cannot drift.
 RECORDING_FLOOR_DAYS: Final = 90
 
-# The key the erasure job will write into the stored proof's `scope` when it starts
-# recording how many recordings this request collided with. It counts them TODAY
-# (`floor_recordings=` on the job result, plus a warning) but writes them nowhere
-# durable, so the certificate reports the count as "not stated" rather than as zero —
-# see `deletion_proof._floor_sentence`. Named here because both halves of that
-# coordinated change spell it the same way: `tests/retention_conflicts_test.py` pins the
-# worker's side, `tests/erasure_certificate_test.py` pins this one.
+# The key the erasure job writes into the stored proof's `scope`: how many recordings
+# this request collided with the floor over. Spelled the same in both halves —
+# `apps.workers.retention.FLOOR_COUNT_KEY` duplicates it deliberately (neither package
+# imports the other), and the tests on each side pin the two spellings together.
+#
+# ABSENT IS NOT ZERO on this field, and the distinction is the whole reason it is
+# nullable. A recorded `0` is the claim "no recording was inside the window"; a MISSING
+# key means the proof was written before the job recorded it, and hard rule 4 forbids
+# back-filling those rows to say otherwise. So the certificate reports the two states in
+# different words — see `deletion_proof._floor_sentence`.
 FLOOR_COUNT_KEY: Final = "recordings_within_trai_floor"
 
 # The one exception the floor count belongs to. Matched on the outcome rather than on a
