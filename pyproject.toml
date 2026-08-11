@@ -129,6 +129,13 @@ asyncio_mode = "auto"
 # SQLAlchemy async pool are process-level singletons bound to the loop that created
 # them, so a loop-per-test would hand the second test a pool whose loop is closed.
 asyncio_default_test_loop_scope = "session"
+# An xfail that starts passing is a FAILURE, not a quiet win. This repo uses xfail to
+# PIN A KNOWN DEFECT to the file that owns it — "publish is un-callable", "the published
+# KB diverges from what was approved". Without this, fixing one of those turns the test
+# into a silent XPASS: the suite stays green, the pin stops meaning anything, and the
+# comment naming the gap outlives the gap. Strict makes the fixer notice and either
+# promote the test or delete it.
+xfail_strict = true
 asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests", "apps", "packages"]
 # apps/* are virtual workspace members imported by path (apps.api.main), so the

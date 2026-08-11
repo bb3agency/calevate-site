@@ -264,7 +264,11 @@ def _event(status: str | None = None) -> tuple[str, str, dict[str, Any]]:
     return execution_id, event_status, {"execution_id": execution_id, "status": event_status}
 
 
-async def _inbox_row(execution_id: str) -> tuple[str, int] | None:
+async def _inbox_row(execution_id: str, raw_status: str) -> tuple[str, int] | None:
+    """The inbox key is `{execution_id}:{raw_status}` — the unit of work is the
+    TRANSITION, not the execution (D-40). Keying on the execution alone meant the first
+    status change claimed the row and `completed`, the only one carrying cost, recording
+    and transcript, was answered `duplicate` and never reached the queue."""
     async with untenanted_session() as session:
         row = (
             await session.execute(
@@ -272,7 +276,7 @@ async def _inbox_row(execution_id: str) -> tuple[str, int] | None:
                     "SELECT status, duplicate_count FROM webhook_inbox_events "
                     "WHERE provider = 'bolna' AND event_key = :k"
                 ),
-                {"k": execution_id},
+                {"k": f"{execution_id}:{raw_status}"},
             )
         ).first()
     return (str(row[0]), int(row[1])) if row else None
@@ -291,7 +295,7 @@ async def test_x_ack_ms_is_reported_on_every_response_path() -> None:
     allowlist. Those are the requests whose latency you most want to see, so reporting
     the header only on the happy path measures the endpoint at its least stressed.
     """
-    execution_id, _status, body = _event()
+    execution_id, status, body = _event()
 
     async with _client() as http:
         accepted = await http.post(HOOK, json=body, headers=_engine_headers())
@@ -313,7 +317,7 @@ async def test_x_ack_ms_is_reported_on_every_response_path() -> None:
         assert "X-Ack-Ms" in response.headers, f"the {label} path reports no ack time"
         assert float(response.headers["X-Ack-Ms"]) >= 0, f"the {label} path reports a non-number"
 
-    assert await _inbox_row(execution_id) is not None
+    assert await _inbox_row(execution_id, status) is not None
 
 
 # --- 2b. hostile input is answered, never 500'd -------------------------------
@@ -390,7 +394,7 @@ async def test_an_oversized_body_is_refused_before_it_is_buffered() -> None:
     assert response.status_code == 413, response.text
     assert response.headers["content-type"].startswith("application/problem+json")
     assert "X-Ack-Ms" in response.headers
-    assert await _inbox_row(execution_id) is None, "an oversized body must not claim a key"
+    assert await _inbox_row(execution_id, status) is None, "an oversized body must not claim a key"
 
 
 # --- 2c. the fake engine is a dev affordance, not a public door ---------------
@@ -456,18 +460,28 @@ async def test_a_later_status_transition_is_not_reported_as_a_doctored_payload()
     raises a spoofing alarm, and the alarm that fires on every call is the alarm nobody
     reads when a real one arrives.
 
-    The execution id is the unit of work by design (one execution, one inbox row,
-    however many deliveries — that is what the poller reconciles against), so a second
-    transition is a duplicate delivery, not a mismatch.
+    The hash is therefore taken over the UNIT OF WORK rather than the delivery. D-40
+    then settled what that unit is: the TRANSITION, `{execution_id}:{raw_status}` — so a
+    later transition is new work and is accepted, while a REPEAT of one transition (a
+    retry, whose body may legitimately have grown) is a counted duplicate. Both halves
+    are asserted below, because the failure this test exists to prevent is a 409 plus a
+    `webhook_payload_mismatch` alert on healthy traffic, and either half regressing
+    brings it back.
     """
     token = uuid.uuid4().hex[:12]
     execution_id = f"exec_{token}"
-    first = {"execution_id": execution_id, "status": f"in-progress-{token}"}
-    later = {"execution_id": execution_id, "status": f"completed-{token}", "total_cost": 8.5}
+    in_progress = f"in-progress-{token}"
+    completed = f"completed-{token}"
+    first = {"execution_id": execution_id, "status": in_progress}
+    later = {"execution_id": execution_id, "status": completed, "total_cost": 8.5}
+    # The same transition again, with MORE in the body — a retry that raced the vendor
+    # finishing its own bookkeeping. Same work, different bytes.
+    retry = {"execution_id": execution_id, "status": completed, "total_cost": 8.5, "extra": "x"}
 
     async with _client() as http:
         opened = await http.post(HOOK, json=first, headers=_engine_headers())
         transitioned = await http.post(HOOK, json=later, headers=_engine_headers())
+        repeated = await http.post(HOOK, json=retry, headers=_engine_headers())
 
     assert opened.status_code == 202, opened.text
     assert opened.json()["status"] == "accepted"
@@ -476,11 +490,21 @@ async def test_a_later_status_transition_is_not_reported_as_a_doctored_payload()
         "a legitimate status transition was answered "
         f"{transitioned.status_code}: {transitioned.text}"
     )
-    assert transitioned.json()["status"] == "duplicate"
+    assert transitioned.json()["status"] == "accepted", (
+        "`completed` is the transition that carries cost, recording and transcript — "
+        "absorbing it as a duplicate is how the pipeline stopped running from webhooks"
+    )
 
-    row = await _inbox_row(execution_id)
+    assert repeated.status_code == 202, (
+        f"a retry of one transition was answered {repeated.status_code}: {repeated.text}"
+    )
+    assert repeated.json()["status"] == "duplicate", (
+        "a bigger body for the same transition is a retry, not a doctored replay"
+    )
+
+    row = await _inbox_row(execution_id, completed)
     assert row is not None
-    assert row[1] >= 1, "the transition is counted as a delivery, not rejected"
+    assert row[1] >= 1, "the retry is counted as a delivery, not rejected"
 
 
 # --- 2e. the allowlist is operable ------------------------------------------
