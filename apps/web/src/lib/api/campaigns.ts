@@ -39,6 +39,39 @@ export interface NewCampaign {
   // applies". A campaign window may only NARROW that legal bound — the server
   // rejects anything wider (campaign_window_outside_platform_hours).
   calling_hours?: { start: string; end: string } | null;
+  // All-or-nothing by construction: source and collection date travel as ONE nested
+  // object, so "a source with no date" is not a shape this client can send. Null is a
+  // campaign that has not answered §3's provenance question yet — a legal state to
+  // create, never a legal state to dial from (`consent_provenance_missing`).
+  consent_provenance?: ConsentProvenance | null;
+}
+
+/**
+ * Where a contact list's consent came from (SEC-COMP §3).
+ *
+ * Aliased from the generated schema rather than re-typed, because the enum IS the
+ * compliance artefact: the five members are the only answers the gate recognises, and
+ * `purchased_list` is one of them ON PURPOSE — a refusal can only be issued in writing
+ * if the client is able to state the thing being refused. A hand-written union here
+ * would eventually drift from the server's Literal, and the first symptom would be a
+ * client unable to give the true answer.
+ */
+export type ConsentProvenance = Schemas["ConsentProvenanceIn"];
+export type ConsentSource = ConsentProvenance["source"];
+
+/**
+ * A `<input type="date">` value → the `date-time` the API expects.
+ *
+ * Parsed as LOCAL midnight, not `Date.parse("2026-08-10")` which is UTC midnight: for
+ * a client in IST the latter is 05:30 IST on the same day, so "collected today" would
+ * be sent as a moment that has not happened yet in the only timezone this product
+ * runs in — and the server refuses a future collection date. Local midnight is always
+ * safely in the past at +05:30.
+ */
+export function consentCollectedAt(date: string): string | null {
+  if (!date) return null;
+  const parsed = new Date(`${date}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
 export type CampaignNumber = Schemas["NumberOut"];
@@ -88,6 +121,39 @@ export function useAddContacts(session: Session, campaignId: string | null) {
         method: "POST",
         body: { contacts },
       }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["campaign-check", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign", campaignId] });
+    },
+  });
+}
+
+/**
+ * Answer §3's provenance question for a campaign that already exists.
+ *
+ * The reason this endpoint (and this hook) exist at all: the columns arrived after
+ * clients had drafts, so every one of those drafts is now blocked on a question it was
+ * never asked. Without an answer path the only "fix" is to delete a five-thousand-row
+ * list and rebuild it to record a date — data loss dressed up as a compliance control.
+ *
+ * Draft-only, and that is the mechanism's integrity, not a limitation to work around:
+ * if provenance could be edited on a running campaign, "dial first, pick a
+ * lawful-sounding source afterwards" would be available and the declaration would
+ * document nothing. The server refuses with `campaign_not_draft`; we do not pre-empt it.
+ *
+ * The launch check is invalidated on success because the answer is precisely what
+ * changes it — including the answer that makes it WORSE (`purchased_list` swaps
+ * `consent_provenance_missing` for `consent_source_refused`). The client must see that.
+ */
+export function useDeclareConsentProvenance(session: Session, campaignId: string | null) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (provenance: ConsentProvenance) =>
+      apiRequest<{ [key: string]: string }>(
+        session,
+        `/v1/campaigns/${campaignId}/consent-provenance`,
+        { method: "POST", body: provenance },
+      ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["campaign-check", campaignId] });
       void client.invalidateQueries({ queryKey: ["campaign", campaignId] });

@@ -12,17 +12,20 @@ import {
 } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
+  consentCollectedAt,
   parseContactCsv,
   useAddContacts,
   useCampaignNumbers,
   useCampaignProgress,
   useCampaigns,
   useCreateCampaign,
+  useDeclareConsentProvenance,
   useDltTemplates,
   useLaunchCampaign,
   useLaunchCheck,
   usePauseCampaign,
   type Classification,
+  type ConsentSource,
 } from "@/lib/api/campaigns";
 import { useClientSession } from "@/lib/api/session";
 import { useAgents } from "@/lib/api/kb";
@@ -40,17 +43,138 @@ import { useAgents } from "@/lib/api/kb";
  * identical gate server-side (hard rule 5).
  */
 
-const BLOCKER_COPY: Record<string, string> = {
-  status: "This campaign has already been launched.",
-  agent_not_live: "Your agent has to be published before it can make calls.",
-  disclosure_missing: "The agent needs its AI disclosure line — required on every call.",
-  dlt_template_missing: "Attach the DLT voice template this campaign speaks under.",
-  dlt_template_not_approved: "The DLT template is still with the registrar.",
-  dlt_template_mismatch: "The template's category doesn't match this campaign's.",
-  number_missing: "Choose the number these calls will come from.",
-  number_series_mismatch: "Promotional calls need a 140 number; service calls need 160.",
-  no_contacts: "Upload the contact list.",
+/**
+ * A blocker in the client's words, plus WHOSE desk it lands on.
+ *
+ * `owner` exists because the DLT blockers are the first ones on this screen that the
+ * client cannot act on at all. "Your DLT Principal Entity registration is not active"
+ * reads like a to-do, so a client who is told only that will go looking for a setting
+ * they do not have, then call support to be told we were already handling it. Naming
+ * the desk turns a dead end into a wait with someone to ask.
+ */
+type BlockerNote = { text: string; owner?: "calevate" | "client" };
+
+const BLOCKER_COPY: Record<string, BlockerNote> = {
+  status: { text: "This campaign has already been launched." },
+  agent_not_live: { text: "Your agent has to be published before it can make calls." },
+  disclosure_missing: {
+    text: "The agent needs its AI disclosure line — required on every call.",
+  },
+  dlt_template_missing: { text: "Attach the DLT voice template this campaign speaks under." },
+  dlt_template_not_approved: { text: "The DLT template is still with the registrar." },
+  dlt_template_mismatch: { text: "The template's category doesn't match this campaign's." },
+  number_missing: { text: "Choose the number these calls will come from." },
+  number_series_mismatch: {
+    text: "Promotional calls need a 140 number; service calls need 160.",
+  },
+  no_contacts: { text: "Upload the contact list." },
+
+  // The DLT entity registrations (SEC-COMP §3). Three separate registrations, none
+  // implying another, and all three are OUR paperwork — an operator records them in
+  // the admin console. The copy says the same thing the badge does, because a badge
+  // alone is easy to miss and this is the difference between waiting and hunting.
+  pe_registration_missing: {
+    text:
+      "Your business isn't registered with DLT yet — that's the government register every " +
+      "business must be on before an automated call can go out in its name. We do this " +
+      "registration for you; ask your account manager where it's up to. Calls coming IN are " +
+      "unaffected and keep working.",
+    owner: "calevate",
+  },
+  pe_registration_not_active: {
+    text:
+      "Your business's DLT registration isn't active — it's either still with the registrar " +
+      "or it has lapsed. Only an active registration may place campaign calls. We chase this " +
+      "with the registrar; your account manager can tell you where it stands. Calls coming IN " +
+      "are unaffected.",
+    owner: "calevate",
+  },
+  tm_link_not_active: {
+    text:
+      "Your DLT registration hasn't authorised Calevate to call on your behalf yet. It's a " +
+      "one-time link between your business and us on the register, and we set it up — your " +
+      "account manager will confirm when it's live.",
+    owner: "calevate",
+  },
+
+  // Provenance — the one blocker on this list only the client can clear, because only
+  // the client knows the answer. Both point at the form rendered directly below them.
+  consent_provenance_missing: {
+    text:
+      "Tell us where this list came from and when these people agreed to be called. " +
+      "Only you can answer that, and a list we can't trace to a consent can't be dialled. " +
+      "Record it below and this clears straight away.",
+    owner: "client",
+  },
+  consent_source_refused: {
+    text:
+      "This list is recorded as bought or rented. Calevate doesn't dial purchased lists — " +
+      "nobody on them agreed to hear from you, so there's no consent behind the call. This " +
+      "campaign can't launch. If that answer was a mistake, correct it below; otherwise build " +
+      "the list from your own customers and enquiries.",
+    owner: "client",
+  },
 };
+
+const OWNER_BADGE: Record<NonNullable<BlockerNote["owner"]>, string> = {
+  calevate: "We handle this",
+  client: "You can fix this",
+};
+
+/**
+ * The five answers, in the client's language.
+ *
+ * `purchased_list` sits in this list at the same size, in the same order it appears in
+ * the API's enum, with the same plain description as the other four and NO warning
+ * attached. That is deliberate, and it is the whole reason the option exists: the
+ * policy is that a purchased list is refused IN WRITING, and a refusal can only be
+ * written against an answer somebody actually gave. Labelling it "not allowed" here,
+ * greying it out, or hiding it behind a disclosure would not stop anyone dialling a
+ * bought list — it would only teach them to pick the nearest acceptable-sounding
+ * neighbour ("existing customers"), which loses the refusal AND corrupts the record we
+ * would need if a complaint ever landed. So the form asks a neutral question, and the
+ * consequence arrives from the server, by name, rendered as its own blocker above.
+ */
+const CONSENT_SOURCES: { value: ConsentSource; label: string; hint: string }[] = [
+  {
+    value: "existing_customer",
+    label: "Our existing customers",
+    hint: "People who have bought from us or hold an account with us.",
+  },
+  {
+    value: "inbound_enquiry",
+    label: "People who contacted us",
+    hint: "Enquiries by phone, message or walk-in that we're following up.",
+  },
+  {
+    value: "web_form_optin",
+    label: "Signed up on our website",
+    hint: "Filled in a form online and agreed to be contacted.",
+  },
+  {
+    value: "offline_form_optin",
+    label: "Signed up on paper",
+    hint: "A form, register or slip filled in at our shop, office or an event.",
+  },
+  {
+    value: "purchased_list",
+    label: "Bought or rented list",
+    hint: "Contacts supplied by a data vendor, broker or another business.",
+  },
+];
+
+/**
+ * Today, in the browser's own timezone, as a `<input type="date">` value.
+ *
+ * `toISOString().slice(0,10)` alone is a day early for half of every IST evening. Used
+ * only as the picker's `max` — a soft affordance, not validation. The server is the
+ * authority on "not in the future" and its refusal renders through ProblemNotice; this
+ * just stops the calendar offering next month as if it were a sensible answer.
+ */
+function todayInputValue(): string {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+}
 
 const CLASSIFICATIONS: { value: Classification; label: string; hint: string }[] = [
   { value: "promotional", label: "Promotional", hint: "Offers and marketing — dials from a 140 number" },
@@ -74,6 +198,13 @@ export default function CampaignsPage() {
   const [numberId, setNumberId] = useState("");
   const [templateId, setTemplateId] = useState("");
   const [csv, setCsv] = useState("");
+  // Asked at creation, not deferred to the launch check: the client is holding the
+  // list in their hand at this moment, which is the only moment they can answer
+  // cheaply. Empty string, never a default source — there is no sensible default for
+  // "where did these five thousand numbers come from", and a pre-selected one would
+  // put an assertion nobody made into an audited record.
+  const [consentSource, setConsentSource] = useState<ConsentSource | "">("");
+  const [consentDate, setConsentDate] = useState("");
   // Off by default, and "off" means null — not 09:00-21:00 echoed back. The platform
   // window is enforced by the per-dial compliance gate whether or not a campaign
   // carries one of its own, so sending it as a campaign setting would misrepresent
@@ -101,6 +232,16 @@ export default function CampaignsPage() {
   const setStatus = usePauseCampaign(session, campaignId);
 
   const parsed = useMemo(() => parseContactCsv(csv), [csv]);
+  // Both or neither, decided here so the two halves cannot be sent apart: the API
+  // takes provenance as one nested object and refuses a half-filled one.
+  const consentIso = consentCollectedAt(consentDate);
+  const provenanceAnswered = Boolean(consentSource) && consentIso !== null;
+  // Which of the two provenance blockers is on this campaign, if either — the answer
+  // form is the same either way, but the question it asks is not ("record" vs
+  // "correct"), and neither should appear when the launch check is clean.
+  const provenanceBlocker = (check.data?.blockers ?? []).find(
+    (b) => b.rule === "consent_provenance_missing" || b.rule === "consent_source_refused",
+  )?.rule;
   // Which agent dials decides the script, the voice and the disclosure line. A
   // silent `agents[0]` picks one for a client who has more than one — including
   // an inbound-only receptionist that cannot dial at all — so the choice is on
@@ -135,6 +276,21 @@ export default function CampaignsPage() {
 
       {!campaignId && (campaigns.data?.length ?? 0) > 0 && (
         <Card title="Your campaigns">
+          {/* SYMPTOM this fixes: a draft built before the provenance rule existed is now
+              blocked, and nothing on the landing view of this screen says so — the
+              client sees a normal-looking draft, opens it, and meets a refusal with no
+              hint that it is answerable. The list cannot tell WHICH drafts are missing
+              provenance (the summary carries no consent fields — see the backend note
+              at the foot of this file), so it says the honest thing: drafts now have one
+              more question, and opening one shows whether it has been answered. */}
+          {(campaigns.data ?? []).some((c) => c.status === "draft") && (
+            <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-300">
+              Campaigns now need one more answer before they can go out: where the contact
+              list came from, and when those people agreed to be called. Open a draft to
+              check — if it&apos;s missing, you can record it there without touching your
+              contacts.
+            </p>
+          )}
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {(campaigns.data ?? []).map((campaign) => (
               <li key={campaign.id} className="flex flex-wrap items-center gap-2 py-2.5">
@@ -177,6 +333,10 @@ export default function CampaignsPage() {
                   calling_hours: restrictHours
                     ? { start: windowStart, end: windowEnd }
                     : null,
+                  consent_provenance:
+                    consentSource && consentIso
+                      ? { source: consentSource, collected_at: consentIso }
+                      : null,
                 },
                 { onSuccess: (data) => setCampaignId(data.id) },
               );
@@ -370,6 +530,20 @@ export default function CampaignsPage() {
               )}
             </fieldset>
 
+            {/* Consent provenance (SEC-COMP §3) — a compliance artefact, not a form
+                field: the client is stating on the record where this list came from,
+                and the statement is what a complaint would later be answered with.
+                Required to submit, because a campaign created without it is a campaign
+                that cannot launch, and finding that out at the launch check — after the
+                list is uploaded — is a worse place to learn it. */}
+            <ConsentProvenanceFields
+              idPrefix="new"
+              source={consentSource}
+              collectedAt={consentDate}
+              onSource={setConsentSource}
+              onCollectedAt={setConsentDate}
+            />
+
             {/* Kept next to the button that causes it: a window the server refuses
                 (too wide, or start after end) comes back as a problem+json with copy
                 that explains the law, and ProblemNotice already renders it. Repeating
@@ -378,12 +552,25 @@ export default function CampaignsPage() {
 
             <button
               type="submit"
-              disabled={!write.allowed || create.isPending || !selectedAgentId || name.length < 2}
+              disabled={
+                !write.allowed ||
+                create.isPending ||
+                !selectedAgentId ||
+                name.length < 2 ||
+                !provenanceAnswered
+              }
               className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
             >
               {create.isPending ? "Creating…" : "Create campaign"}
             </button>
-            {/* A permanently dead button needs a reason next to it. */}
+            {/* A dead button needs a reason next to it — including this one, which is
+                dead until the provenance question is answered. */}
+            {!provenanceAnswered && (
+              <p className="text-xs text-slate-500">
+                Answer both questions about your list above — a campaign without them
+                can&apos;t be launched.
+              </p>
+            )}
             {!agents.isLoading && agentOptions.length === 0 && (
               <p className="text-xs text-slate-500">
                 No agent is set up yet — your account manager builds one before
@@ -476,17 +663,42 @@ export default function CampaignsPage() {
               ) : (
                 <div className="space-y-3">
                   <ul className="space-y-2">
-                    {(check.data?.blockers ?? []).map((blocker) => (
-                      <li key={blocker.rule} className="flex gap-2 text-sm">
-                        <span aria-hidden className="text-amber-500">
-                          ●
-                        </span>
-                        <span className="text-slate-700 dark:text-slate-300">
-                          {BLOCKER_COPY[blocker.rule] ?? blocker.reason}
-                        </span>
-                      </li>
-                    ))}
+                    {(check.data?.blockers ?? []).map((blocker) => {
+                      // The server's own `reason` is the fallback, never dropped: a
+                      // blocker this build has no copy for is still a blocker, and an
+                      // unnamed one would read as "you cannot launch, and we will not
+                      // say why" — the exact failure this card exists to prevent.
+                      const note = BLOCKER_COPY[blocker.rule];
+                      return (
+                        <li key={blocker.rule} className="flex gap-2 text-sm">
+                          <span aria-hidden className="text-amber-500">
+                            ●
+                          </span>
+                          <span className="text-slate-700 dark:text-slate-300">
+                            {note?.text ?? blocker.reason}
+                            {note?.owner && (
+                              <span className="ml-2 whitespace-nowrap rounded-full border border-slate-300 px-1.5 py-0.5 text-[11px] font-medium text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                                {OWNER_BADGE[note.owner]}
+                              </span>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ul>
+
+                  {/* The one blocker with a control attached, rendered under the
+                      sentence that asks for it. `consent_source_refused` gets the form
+                      too — a client who mis-answered must be able to correct the record
+                      without rebuilding the campaign, and a client who answered truly
+                      simply leaves it and the refusal stands. */}
+                  {campaignId && provenanceBlocker && (
+                    <ConsentProvenanceAnswer
+                      campaignId={campaignId}
+                      correcting={provenanceBlocker === "consent_source_refused"}
+                    />
+                  )}
+
                   {/* Disabled WITH the reasons above it — SURFACES §2b. A blocked
                       feature that is merely missing teaches the client nothing. */}
                   <button
@@ -567,3 +779,168 @@ export default function CampaignsPage() {
     </div>
   );
 }
+
+/**
+ * The provenance question itself — one set of fields, two places that ask it.
+ *
+ * Shared rather than written twice because the two callers must ask IDENTICALLY: a
+ * client answering on the create form and a client answering a blocker on a
+ * five-thousand-row draft are making the same statement, and it is a statement that
+ * gets audited. Two copies would drift, and the drift would show up as two different
+ * records of the same declaration.
+ */
+function ConsentProvenanceFields({
+  idPrefix,
+  source,
+  collectedAt,
+  onSource,
+  onCollectedAt,
+}: {
+  idPrefix: string;
+  source: ConsentSource | "";
+  collectedAt: string;
+  onSource: (value: ConsentSource) => void;
+  onCollectedAt: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <fieldset>
+        <legend className="text-xs font-medium text-slate-600 dark:text-slate-300">
+          Where did this list come from?
+        </legend>
+        <p className="mt-1 text-xs text-slate-500">
+          You&apos;re putting this on the record: it&apos;s how we can show, later, that the
+          people on this list agreed to hear from you. Pick the one that&apos;s true.
+        </p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {CONSENT_SOURCES.map((option) => (
+            <label
+              key={option.value}
+              className={
+                source === option.value
+                  ? "cursor-pointer rounded-lg border-2 border-slate-900 p-3 dark:border-slate-100"
+                  : "cursor-pointer rounded-lg border border-slate-200 p-3 hover:border-slate-400 dark:border-slate-700"
+              }
+            >
+              <input
+                type="radio"
+                name={`${idPrefix}-consent-source`}
+                className="sr-only"
+                checked={source === option.value}
+                onChange={() => onSource(option.value)}
+              />
+              <span className="block text-sm font-medium text-slate-800 dark:text-slate-200">
+                {option.label}
+              </span>
+              <span className="mt-0.5 block text-xs text-slate-500">{option.hint}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <label className="block max-w-xs">
+        <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+          When did they agree?
+        </span>
+        <input
+          type="date"
+          value={collectedAt}
+          max={todayInputValue()}
+          onChange={(e) => onCollectedAt(e.target.value)}
+          className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+        />
+        <span className="mt-1 block text-xs text-slate-500">
+          The date on the form, bill or enquiry. If the list was built up over time, use the
+          day the most recent person was added.
+        </span>
+      </label>
+    </div>
+  );
+}
+
+/**
+ * The answer path for a draft that is already blocked.
+ *
+ * SYMPTOM this fixes: a client opens a draft they built last month, the launch check
+ * says "tell us where this list came from", and there is nowhere on the screen to tell
+ * us — the only field that ever accepted the answer was on the create form, which is
+ * behind them. Their options were to abandon the campaign or re-upload five thousand
+ * rows into a new one. So the form is rendered where the blocker is read, not on a
+ * different screen.
+ *
+ * Draft-only, matching the endpoint: this whole card only renders inside the
+ * `status === "draft"` branch, and the server refuses anything else by name.
+ */
+function ConsentProvenanceAnswer({
+  campaignId,
+  correcting,
+}: {
+  campaignId: string;
+  /** True when a refused answer is already on file — the ask is "correct it", not "answer it". */
+  correcting: boolean;
+}) {
+  const session = useClientSession();
+  const write = useWriteAccess(session, "leads:dispatch", "record where a list came from");
+  const declare = useDeclareConsentProvenance(session, campaignId);
+  const [source, setSource] = useState<ConsentSource | "">("");
+  const [collectedAt, setCollectedAt] = useState("");
+
+  const iso = consentCollectedAt(collectedAt);
+
+  return (
+    <form
+      className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!source || !iso) return;
+        declare.mutate({ source, collected_at: iso });
+      }}
+    >
+      <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+        {correcting ? "Correct where this list came from" : "Record where this list came from"}
+      </p>
+      <p className="text-xs text-slate-500">
+        Your contacts stay as they are — this answers the question against this campaign.
+      </p>
+
+      <ConsentProvenanceFields
+        idPrefix={`answer-${campaignId}`}
+        source={source}
+        collectedAt={collectedAt}
+        onSource={setSource}
+        onCollectedAt={setCollectedAt}
+      />
+
+      {/* Same gate as every other mutating control here, said before the click rather
+          than discovered as a 403: `leads:dispatch` is a MUTATING permission, so an
+          impersonating operator and a `staff` user are both refused it server-side. */}
+      <RestrictionNote reason={write.reason} />
+      {declare.error && <ProblemNotice error={declare.error} />}
+
+      <button
+        type="submit"
+        disabled={!write.allowed || declare.isPending || !source || !iso}
+        className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+      >
+        {declare.isPending ? "Recording…" : "Record this"}
+      </button>
+      {/* No success banner: the launch check is refetched on success and the blocker
+          above either disappears or is replaced by the refusal. That IS the answer,
+          and it is more honest than "Saved!" over a campaign still unable to launch. */}
+    </form>
+  );
+}
+
+/**
+ * BACKEND GAP recorded here so it is not rediscovered from a support ticket.
+ *
+ * `CampaignSummaryOut` (GET /v1/campaigns) carries `status` but not `consent_source`,
+ * so this screen cannot say WHICH drafts are missing provenance without running the
+ * full launch gate once per draft. A client with a dozen drafts therefore gets a
+ * general notice on the list and the specific answer only after opening one.
+ *
+ * The cheap fix is one nullable field on the summary — `consent_source` (or a derived
+ * `needs_consent_provenance` boolean) — after which the list can flag the exact rows
+ * and link straight to the answer. Adding it is a response-model change plus a
+ * `pnpm gen:api`; nothing here needs redesigning to use it.
+ */
