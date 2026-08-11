@@ -18,6 +18,12 @@ from typing import Any
 from arq import cron
 
 from apps.api.core.logging import configure_logging, get_logger
+from apps.api.core.observability import (
+    init_observability,
+    shutdown_tracing,
+    traced_job,
+    tracing_enabled,
+)
 from apps.api.core.queue import WORKER_MAX_TRIES, redis_settings
 from apps.api.core.settings import runtime_config_missing_keys, validate_bootstrap_env
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
@@ -29,47 +35,79 @@ from apps.workers.retention import apply_retention, execute_deletion_request
 
 log = get_logger(__name__)
 
+# `traced_job` is what makes the trace survive Redis: it pops the W3C traceparent the
+# enqueue side put in the job payload and opens the worker's span as a CHILD of the
+# request that queued the work. Without it a post-call trace would start at the worker
+# and the queue wait — usually the largest slice of the "lead visible in 2 minutes"
+# budget — would be invisible.
+#
+# It wraps at IMPORT time and costs nothing when tracing is off (one global read), so
+# there is no configuration under which the two lists disagree about which jobs exist.
+# `functools.wraps` inside it preserves `__qualname__`, which is the name arq registers
+# and the name every producer enqueues by — a mismatch here would DLQ every job.
 FUNCTIONS: list[Any] = [
-    ingest_engine_event,
-    run_post_call_pipeline,
-    notify_hot_lead,
-    # D-23: the client's CRM hears about leads and calls through the same outbox as
-    # every other side effect, so a delivery cannot outlive a rolled-back write.
-    deliver_outbound_webhook,
-    # A DPDP erasure is queued rather than run inline: it touches many rows and must
-    # survive a request timing out halfway through.
-    execute_deletion_request,
+    traced_job(fn)
+    for fn in (
+        ingest_engine_event,
+        run_post_call_pipeline,
+        notify_hot_lead,
+        # D-23: the client's CRM hears about leads and calls through the same outbox as
+        # every other side effect, so a delivery cannot outlive a rolled-back write.
+        deliver_outbound_webhook,
+        # A DPDP erasure is queued rather than run inline: it touches many rows and must
+        # survive a request timing out halfway through.
+        execute_deletion_request,
+    )
 ]
 
+# Crons are traced too. They have no enqueuing parent, so each tick is its own ROOT
+# trace — which is the point for `dispatch_outbox`: outbox lag is a stage of the same
+# 2-minute SLO, and it is invisible from the call's own trace.
 CRON_JOBS = [
     # The outbox dispatcher is the heartbeat of every reliable side effect.
-    cron(dispatch_outbox, second={0, 10, 20, 30, 40, 50}, run_at_startup=True),
+    cron(traced_job(dispatch_outbox), second={0, 10, 20, 30, 40, 50}, run_at_startup=True),
     # D-31: the guarantee of record, not a safety net. 10 minutes matches the window
     # in which a Bolna execution reaches `completed` plus margin.
-    cron(reconcile_executions, minute={0, 10, 20, 30, 40, 50}, run_at_startup=True),
-    cron(report_stalled_pipeline, minute={5, 35}),
+    cron(traced_job(reconcile_executions), minute={0, 10, 20, 30, 40, 50}, run_at_startup=True),
+    cron(traced_job(report_stalled_pipeline), minute={5, 35}),
     # The dispatch tick (FLOWS §5). Hard rule 5's DNC propagation deadline is
     # 'before the next dispatch tick' — this cron IS that tick.
-    cron(dispatch_campaign_tick, second={0, 30}),
-    cron(sweep_expired, hour={3}, minute={17}),
+    cron(traced_job(dispatch_campaign_tick), second={0, 30}),
+    cron(traced_job(sweep_expired), hour={3}, minute={17}),
     # Retention is a legal obligation, not a cleanup task: without this the
     # policies we promise in the DPA are only a table (SEC-COMP §4).
-    cron(apply_retention, hour={3}, minute={40}),
+    cron(traced_job(apply_retention), hour={3}, minute={40}),
 ]
 
 
 async def startup(ctx: dict[str, Any]) -> None:
     validate_bootstrap_env()
     configure_logging()
+    # The worker has no `create_app`, so bootstrap step 3 happens here instead — and it
+    # must, because the worker is the CONSUMER side of the trace. If only the API
+    # initialised tracing, every enqueued traceparent would arrive at a process with no
+    # provider and the call's trace would end at Redis.
+    observability = init_observability("workers")
     missing = runtime_config_missing_keys()
     if missing:
         # Log, do not die. `/healthz/ready` is the go-live gate.
         log.warning("worker_started_degraded", extra={"missing_config": missing})
-    log.info("worker_start", extra={"jobs": len(FUNCTIONS), "crons": len(CRON_JOBS)})
+    log.info(
+        "worker_start",
+        extra={
+            "jobs": len(FUNCTIONS),
+            "crons": len(CRON_JOBS),
+            "observability": observability,
+            "tracing": tracing_enabled(),
+        },
+    )
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
     log.info("worker_stop")
+    # Drain the batch processor: a worker stopping mid-pipeline is exactly the trace
+    # someone will go looking for.
+    shutdown_tracing()
 
 
 class WorkerSettings:

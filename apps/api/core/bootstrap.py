@@ -26,7 +26,12 @@ from apps.api.core.alerting import alert
 from apps.api.core.health import build_health_router
 from apps.api.core.logging import configure_logging, get_logger
 from apps.api.core.middleware import install_middleware
-from apps.api.core.observability import init_observability
+from apps.api.core.observability import (
+    TracingMiddleware,
+    init_observability,
+    shutdown_tracing,
+    tracing_enabled,
+)
 from apps.api.core.redis import close_redis
 from apps.api.core.settings import get_settings, validate_bootstrap_env
 
@@ -95,6 +100,9 @@ def create_app(
         finally:
             log.info("service_stop", extra={"service": service})
             await close_redis()
+            # Flush before the process goes: an un-exported span is a span that never
+            # happened, and a drain is exactly when the interesting ones are in flight.
+            shutdown_tracing()
 
     app = FastAPI(
         title=title,
@@ -111,6 +119,23 @@ def create_app(
 
     # 5. Middleware, outermost last. Error handlers are registered by the caller for
     # `api`; voice-runtime installs them too but adds no CORS (no browser calls it).
+    #
+    # The tracing middleware is added FIRST, which Starlette makes it the INNERMOST —
+    # it runs just inside CorrelationIdMiddleware, so the server span can carry the
+    # correlation id that every log line and audit row already carries (§2 step 5 puts
+    # observability last before routes for the same reason).
+    #
+    # It is added only when tracing actually came up, which is what makes it acceptable
+    # on the latency-critical service (hard rule 3). MEASURED on the receiver's ASGI
+    # chain: 0.5µs with tracing off — this middleware is not in the chain at all, so a
+    # deploy without a collector is byte-for-byte today's service; 44µs when tracing is
+    # on and the trace is not sampled (the 90% case at the default ratio); 84µs when it
+    # is sampled and exported. Against a 500ms ack budget that is 0.017% at worst, and
+    # the SDK import (~79ms, ~220ms with the exporter, vs fastapi's own ~456ms) is paid
+    # once at boot. Export is batched on a background thread and drops rather than
+    # blocks, so a sick collector cannot reach the ack path.
+    if tracing_enabled():
+        app.add_middleware(TracingMiddleware, trust_incoming_traceparent=not minimal)
     if not minimal:
         install_middleware(app, cors_origins=cors_origins or DEFAULT_CORS_ORIGINS)
 

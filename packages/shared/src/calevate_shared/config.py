@@ -91,6 +91,19 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
     notifications_from: str | None = None
 
+    # WhatsApp transport for hot-lead alerts (ROADMAP M2). OFF by default and it must
+    # stay off until the human checklist in workers/whatsapp.py is done: WABA + business
+    # verification, an APPROVED template, and a recorded per-tenant opt-in (which needs
+    # a column that does not exist yet). No BSP has been chosen in the decision log, so
+    # `whatsapp_provider` is a seam, not a switch: any name other than `console`
+    # resolves to `provider_not_implemented` and refuses to send, loudly.
+    whatsapp_enabled: bool = False
+    whatsapp_provider: str | None = None
+    # The approved template's name and language, as registered with the provider. Here
+    # rather than in code because re-approval is an operational event, not a deploy.
+    whatsapp_template_hot_lead: str = "calevate_hot_lead_v1"
+    whatsapp_template_locale: str = "en"
+
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     sentry_dsn: str | None = None
@@ -98,6 +111,18 @@ class Settings(BaseSettings):
     # CI sets it from the commit sha; unset is fine and reads as 'dev'.
     release_version: str = "dev"
     posthog_key: str | None = None
+
+    # OpenTelemetry (TRD §2). Base URL of an OTLP/HTTP collector — the exporter appends
+    # `/v1/traces`. UNSET IS THE LOCAL DEFAULT AND MEANS NO TRACING AT ALL: no SDK
+    # import, no middleware, no background exporter thread, so `uv run pytest` and a
+    # dev box need nothing running (same contract as an absent SENTRY_DSN).
+    otel_exporter_otlp_endpoint: str | None = None
+    # Head sampling ratio for ROOT traces; child hops inherit the decision through the
+    # traceparent, so a sampled call stays whole from webhook to Postgres. 10% because
+    # the SLO BREACH is already caught on 100% of calls by the pipeline-lag metric —
+    # traces are for diagnosing one, and a diagnosis needs a representative sample, not
+    # every call. Config so an incident can raise it to 1.0 with a restart, not a deploy.
+    otel_traces_sample_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
 
     # Effective outbound pool = MIN(platform lines, model concurrency, trunk
     # channels) minus inbound_reserve. Values come from engine verification item 8.

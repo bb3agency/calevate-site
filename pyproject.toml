@@ -119,6 +119,11 @@ module = [
     "boto3.*",       # AWS SDK — types live in the separate boto3-stubs package
     "botocore.*",
     "sentry_sdk.*",  # optional dependency, imported inside a try/except ImportError
+    # opentelemetry-api ships py.typed; the SDK and the OTLP exporter do not. Both are
+    # imported inside `init_tracing`'s try/except ImportError, and everything they hand
+    # back is held as `Any` behind this repo's own `span()`/`traced_job()` API.
+    "opentelemetry.sdk.*",
+    "opentelemetry.exporter.*",
 ]
 ignore_missing_imports = true
 
