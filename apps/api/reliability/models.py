@@ -43,6 +43,13 @@ class OutboxMessage(PKMixin, Base):
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # The claim lease (migration 7c04ab5f9e26). The claim COMMITS — an uncommitted
+    # attempt bump dies with the dispatcher that wrote it — so exclusivity cannot rest
+    # on the `FOR UPDATE` locks that commit releases; it rests on this deadline instead.
+    # NULL = nobody holds it; in the future = in flight; in the past = abandoned, and
+    # the next claim tick picks it up with its attempt count intact. `status` keeps its
+    # three values on purpose, so every existing reader of it stays correct.
+    locked_until: Mapped[datetime | None]
     job_id: Mapped[str | None] = mapped_column(Text)
     published_at: Mapped[datetime | None]
     last_error: Mapped[str | None] = mapped_column(Text)

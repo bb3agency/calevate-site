@@ -115,9 +115,23 @@ class TranscriptTurn(PKMixin, TimestampMixin, Base):
 
 
 class CallExtraction(PKMixin, TimestampMixin, Base):
-    """Every extraction stores schema_version + model + prompt_version (auditability, TRD §7)."""
+    """Every extraction stores schema_version + model + prompt_version (auditability, TRD §7).
+
+    ONE row per call, enforced (migration d3b71c9a5e08). The post-call pipeline is
+    re-entrant by design — a webhook arriving after the poller already resolved the call
+    re-enters it (D-31) — and its update-or-insert closes the replay case but not the
+    race: two runs can both read "no row" and both insert. Every reader here is written
+    as if the invariant held (`ORDER BY created_at DESC LIMIT 1` in the CRM detail, "the"
+    extraction in the retention eraser), so it is a constraint rather than a convention.
+
+    `tenant_id` leads the key, and not only to match the pipeline's WHERE clause: under
+    FORCEd RLS a unique violation is one of the few channels through which a row your
+    policy hides can announce that it exists, and leading with the tenant means a
+    conflict is only ever reachable against a row of your own.
+    """
 
     __tablename__ = "call_extractions"
+    __table_args__ = (UniqueConstraint("tenant_id", "call_id"),)
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True

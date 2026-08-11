@@ -25,7 +25,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from apps.api.core.alerting import alert, record_outbox_dlq_depth, record_outbox_lag
 from apps.api.core.errors import ProblemError
@@ -56,6 +56,20 @@ OUTBOX_BATCH = 50
 # over by CAS — the same treatment §4 already prescribes for a FAILED record, applied
 # to the case where the holder never got far enough to record its own failure.
 CLAIM_LEASE = timedelta(minutes=10)
+
+# The outbox's own lease — the same doctrine, a different unit of work, so a different
+# number (migration 7c04ab5f9e26).
+#
+# A claimed outbox row is held for exactly as long as it takes to hand one job to Redis
+# and write one status row: milliseconds. Two minutes is roughly a thousand times the
+# p99, so a lease cannot lapse under a dispatcher that is merely slow — while still
+# returning an ABANDONED message to the queue well inside the outbox-lag SLO, which the
+# ten-minute `CLAIM_LEASE` would not.
+#
+# What happens if it lapses under a live dispatcher anyway: the row is claimed a second
+# time and the job is enqueued twice with the SAME `job_id_for(job, message.id)`, which
+# ARQ dedupes. The lease is a liveness mechanism, not the exactly-once one.
+OUTBOX_CLAIM_LEASE = timedelta(minutes=2)
 
 
 def body_hash(payload: Any) -> str:
@@ -246,11 +260,45 @@ class OutboxMessageRow:
     attempt_count: int
 
 
+def _claim_engine(session: AsyncSession) -> AsyncEngine:
+    """The engine the caller's session is bound to.
+
+    `claim_outbox_batch` cannot run inside the caller's transaction (see its docstring),
+    so it needs a second connection — and it must come from the SAME engine, or a test
+    that binds its own would have its claim land in a different database than its
+    assertions.
+    """
+    bind = session.bind
+    return bind if isinstance(bind, AsyncEngine) else bind.engine
+
+
 async def claim_outbox_batch(
     session: AsyncSession, *, limit: int = OUTBOX_BATCH
 ) -> list[OutboxMessageRow]:
-    """Oldest-first claim by conditional UPDATE. `attempt_count` bumps on claim, so a
-    message that keeps killing its worker still walks to the DLQ instead of looping.
+    """Oldest-first claim by conditional UPDATE, **committed on its own connection**.
+
+    The commit is the point, and it is why `session` is used only for its engine. The
+    claim's whole job is to record, DURABLY, that this message has now been attempted:
+
+        the bump used to live in the dispatcher's transaction, which does not commit
+        until after the publish. A SIGKILL there rolled it back with everything else and
+        the row returned to `pending` with `attempt_count = 0` — so a message whose
+        payload is what kills the worker looped forever on a retry budget that reset
+        every pass, and the DLQ this function's docstring promised was unreachable.
+
+    An uncommitted write is not durable; there is no version of this that does not
+    commit. But committing the bump ALONE would be a different bug: the commit drops the
+    `FOR UPDATE` locks, and while the row still says `pending` those locks are the only
+    thing making the claim exclusive. So the same statement that commits the bump also
+    writes the lease. After the commit, exclusivity is carried by `locked_until` — a
+    durable fact on the row — instead of by a lock that dies with the process holding it.
+    `FOR UPDATE SKIP LOCKED` still does its job for the window BEFORE the commit, where
+    two dispatchers' claim statements overlap.
+
+    A lapsed lease needs no reaper: the next tick's claim query selects the row again,
+    with its `attempt_count` where the dead worker left it, which is exactly how a poison
+    message now walks to the DLQ instead of looping. `_dead_letter_exhausted_claims`
+    below is the last step of that walk.
 
     MATERIALIZED + a tiebreak on `id` for the same reason as the campaign dispatcher's
     claim: `WHERE id IN (SELECT ... LIMIT :n FOR UPDATE SKIP LOCKED)` lets the planner
@@ -259,31 +307,75 @@ async def claim_outbox_batch(
     differently and the batch comes back larger than `limit`. Here that is a latency
     spike rather than corruption, but `limit` should mean what it says.
     """
-    rows = (
-        await session.execute(
-            text(
-                "WITH picked AS MATERIALIZED ("
-                "  SELECT id FROM outbox_messages WHERE status = 'pending' "
-                "  ORDER BY created_at, id LIMIT :limit FOR UPDATE SKIP LOCKED"
-                ") "
-                "UPDATE outbox_messages o SET attempt_count = o.attempt_count + 1, "
-                "updated_at = now() FROM picked WHERE o.id = picked.id "
-                "RETURNING o.id, o.queue, o.job, o.payload, o.attempt_count"
-            ),
-            {"limit": limit},
-        )
-    ).all()
+    engine = _claim_engine(session)
+    async with engine.begin() as conn:
+        await _dead_letter_exhausted_claims(conn)
+        rows = (
+            await conn.execute(
+                text(
+                    "WITH picked AS MATERIALIZED ("
+                    "  SELECT id FROM outbox_messages WHERE status = 'pending' "
+                    "  AND (locked_until IS NULL OR locked_until <= now()) "
+                    "  ORDER BY created_at, id LIMIT :limit FOR UPDATE SKIP LOCKED"
+                    ") "
+                    "UPDATE outbox_messages o SET attempt_count = o.attempt_count + 1, "
+                    "locked_until = now() + :lease, updated_at = now() FROM picked "
+                    "WHERE o.id = picked.id "
+                    "RETURNING o.id, o.queue, o.job, o.payload, o.attempt_count"
+                ),
+                {"limit": limit, "lease": OUTBOX_CLAIM_LEASE},
+            )
+        ).all()
     return [
         OutboxMessageRow(id=r[0], queue=r[1], job=r[2], payload=r[3] or {}, attempt_count=r[4])
         for r in rows
     ]
 
 
+async def _dead_letter_exhausted_claims(conn: AsyncConnection) -> None:
+    """Retire messages that spent the whole budget without ever reporting an outcome.
+
+    `mark_outbox_failed` is the only other route to the DLQ, and it is a route only a
+    worker that SURVIVED its attempt can take. A message that kills its dispatcher never
+    reports anything, so before the lease existed it looped, and with the lease alone it
+    would loop more slowly and with an ever-growing `attempt_count`. This closes it: a
+    row whose lease has lapsed and whose attempts are spent is a dead letter, and saying
+    so is what makes "walks to the DLQ" true rather than aspirational.
+
+    Only unleased rows are eligible, so a dispatcher still working on its final attempt
+    is never retired out from under itself. `last_error` is preserved when there is one —
+    a real error from a previous try explains more than this note does.
+    """
+    retired = (
+        await conn.execute(
+            text(
+                "UPDATE outbox_messages SET status = 'failed', locked_until = NULL, "
+                "last_error = COALESCE(last_error, :note), updated_at = now() "
+                "WHERE status = 'pending' AND attempt_count >= :max "
+                "AND (locked_until IS NULL OR locked_until <= now()) "
+                "RETURNING id"
+            ),
+            {"max": OUTBOX_MAX_ATTEMPTS, "note": "claim abandoned; budget spent with no outcome"},
+        )
+    ).all()
+    if retired:
+        # One alert for the tick, not one per row: a dispatcher crash-looping on a bad
+        # batch would otherwise page ops fifty times about one incident.
+        alert(
+            "OUTBOX_DISPATCH",
+            "outbox_dead_letter",
+            detail=f"{len(retired)} abandoned claim(s) exhausted their attempt budget",
+        )
+
+
 async def mark_outbox_published(session: AsyncSession, *, message_id: UUID, job_id: str) -> None:
+    # `locked_until = NULL` on every terminal transition, so a non-null lease means
+    # "claimed right now, or abandoned" and never "resolved a while ago".
     await session.execute(
         text(
             "UPDATE outbox_messages SET status = 'published', job_id = :job_id, "
-            "published_at = now(), updated_at = now() WHERE id = :id AND status = 'pending'"
+            "published_at = now(), locked_until = NULL, updated_at = now() "
+            "WHERE id = :id AND status = 'pending'"
         ),
         {"id": message_id, "job_id": job_id},
     )
@@ -302,12 +394,17 @@ async def mark_outbox_failed(
     time. For `deliver_outbound_webhook` that is a duplicate POST into a client's CRM.
     The alert fires only when the row actually moved, so a lost race cannot page ops
     about a dead letter that does not exist.
+
+    `locked_until = NULL` either way, and it is load-bearing on the retry branch: a
+    message returned to `pending` while still holding its lease would sit out the whole
+    lease before anyone could try it again, turning every transient failure into a
+    two-minute stall. Releasing the claim is part of reporting the outcome.
     """
     terminal = attempt_count >= OUTBOX_MAX_ATTEMPTS
     result = await session.execute(
         text(
             "UPDATE outbox_messages SET status = :status, last_error = :error, "
-            "updated_at = now() WHERE id = :id AND status = 'pending'"
+            "locked_until = NULL, updated_at = now() WHERE id = :id AND status = 'pending'"
         ),
         {"id": message_id, "status": "failed" if terminal else "pending", "error": error[:500]},
     )
@@ -361,7 +458,8 @@ async def replay_dead_letters(session: AsyncSession, *, limit: int = 100) -> int
             "  ORDER BY created_at, id LIMIT :limit FOR UPDATE SKIP LOCKED"
             ") "
             "UPDATE outbox_messages o SET status = 'pending', attempt_count = 0, "
-            "updated_at = now() FROM picked WHERE o.id = picked.id AND o.status = 'failed'"
+            "locked_until = NULL, updated_at = now() FROM picked "
+            "WHERE o.id = picked.id AND o.status = 'failed'"
         ),
         {"limit": limit},
     )
@@ -501,6 +599,7 @@ async def mark_inbox_failed(session: AsyncSession, *, row_id: UUID, error: str) 
 
 __all__ = [
     "IDEMPOTENCY_TTL",
+    "OUTBOX_CLAIM_LEASE",
     "OUTBOX_MAX_ATTEMPTS",
     "IdempotencyClaim",
     "InboxClaim",
