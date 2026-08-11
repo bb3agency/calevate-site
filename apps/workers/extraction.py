@@ -12,6 +12,19 @@ Post-call only, never in-call (TRD §7). Two implementations behind one function
 
 Both return the same `ExtractionOutput`, validated against the schema, so a provider
 swap is a config change (D-04's rationale) and not a code change.
+
+**Scoring the model path.** The regression harness already runs against whatever
+`get_extractor()` returns and keys its baseline by `model_name`, so scoring Sarvam or
+Gemini against the golden transcripts needs no flag and no new mode — it is
+
+    SARVAM_API_KEY=... uv run python -m scripts.eval --client=<slug> --update-baseline
+
+on a machine that holds a key, and the per-model baseline is the reviewable diff. A
+credentialed mode was deliberately NOT added to CI: CI has no key, and giving it one
+would ship committed transcripts to a provider on every push for a non-deterministic,
+rate-limited, chargeable result that could not gate a merge anyway. What CI can gate
+without credentials is the two ARTEFACTS this path is made of — the prompt's rules and
+the validator's rejections — and that is `tests/extraction_prompt_test.py`.
 """
 
 from __future__ import annotations
