@@ -111,12 +111,50 @@ same client app** — a self-serve org is the same `organizations` row with a di
 
 **Where we deliberately go further** (teardown §9d table): HMAC-signed webhooks with
 timestamp + replay protection (they use a URL-path token and an *optional* header);
-outbox-backed delivery with retries, a delivery log and **replay** (they fire once and can
-arrive with null fields); a **published, versioned** outbound payload schema (theirs is
-undocumented); **native Meta Lead Ads** (theirs is Zapier-only); typed+validated extraction
-(theirs is untyped — the "Delhi in a quantity field" bug); full version history with diffs
-and audit (they keep 3 versions, no diff); and **DNC on every dispatch path** including
-instant, which is where their compliance actually fails.
+outbox-backed delivery (publish retried up to `OUTBOX_MAX_ATTEMPTS` = 5 by the dispatcher
+— per-delivery retry is the open gap in §3.1), a delivery log and **replay** (they fire
+once and can arrive with null fields); a **published, versioned** outbound payload schema
+(theirs is undocumented); **a direct lead-ingest endpoint** —
+`POST /hooks/v1/ingest/{webhook_id}` with per-endpoint secret, field mapping and a
+no-call dry run, no Zapier in the middle (*`meta_lead_ads` is today only a value of the
+`inbound_webhooks.source` enum; a **native** Meta Lead Ads integration — their
+`X-Hub-Signature-256` verification and the form-field mapping — is NOT built, so do not
+claim it in sales copy yet*); typed+validated extraction (theirs is untyped — the "Delhi
+in a quantity field" bug); full version history with diffs and audit (they keep 3
+versions, no diff); and **DNC on every dispatch path** including instant, which is where
+their compliance actually fails.
+
+## 2c. Shipped today — no longer candidates
+
+§1 and §2 above are inventories (candidates). This section is the short list of what has
+actually landed, so nobody re-proposes a screen that exists. Verified against the route
+tree in `apps/web/src/app` and the OpenAPI paths in `apps/web/src/lib/api/schema.d.ts`.
+
+Client realm (`/c/<slug>/…`)
+- **Leads** with a **list ⇄ board toggle** — the board is one column per D-21 status,
+  so the "work the pipeline stage by stage" pattern is built, not pending.
+- **`/performance`** (`GET /v1/performance`) · **`/attention`** (`GET /v1/attention` — the
+  §2b "needs attention" queue, shipped) · **`/agents`** (read-only agent roster) ·
+  **`/lead-sources`** (`GET /v1/lead-sources/activity`, `POST /v1/lead-sources/{id}/test` —
+  the §2b webhook-activity view and its no-call "test webhook", shipped) ·
+  **`/integrations`** (endpoints + delivery log) · `/calls`, `/campaigns`, `/knowledge`,
+  `/usage`.
+
+Admin realm (`/admin/…`)
+- **Prompt history + rollback** per agent (`/admin/tenants/{id}/agents/{agentId}/prompt`;
+  `GET|POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt`, `…/prompt/rollback`).
+  Rollback is copy-forward, never pointer-rewind (FLOWS §7).
+- **Printable invoice statement** (`/admin/tenants/{id}/invoice`;
+  `GET /v1/admin/tenants/{tenant_id}/invoice`) — a white, print-first document. It is a
+  DERIVED statement, not a stored row (see DATA-MODEL §8).
+- **Credit top-up** (`POST|GET /v1/admin/tenants/{tenant_id}/credits`) — admin-recorded
+  today; the self-serve wallet UI in §2b is still M2.
+- **Ops** (`/admin/ops`; `/v1/ops/platform`, `/v1/ops/outbox/replay`, `/v1/ops/audit/verify`).
+
+Compliance API (client realm)
+- **DNC**: `GET|POST /v1/dnc`, `POST /v1/dnc/check`, `DELETE /v1/dnc/{entry_id}`.
+- **DPDP subject export**: `POST /v1/compliance/subject-export`.
+- **Voice catalog**: `GET /v1/agents/voices` (D-36's premium/value ladder as data).
 
 ## 3. Integration Layer (our site ⇄ engine [Bolna, D-31]) — DECIDED doctrine
 
@@ -140,7 +178,12 @@ Queue-first, idempotent, replayable — the industry-standard shape, mapped to o
 3. **Persist-then-ack**: write the minimal event row + archive raw payload to object
    storage, ack 2xx < 500ms. Never process inline (hard rule 3).
 4. **Process async**: ARQ jobs keyed by event/call id; every side effect is an upsert
-   or guarded by processed-state; retries 3× exponential; DLQ + Sentry on exhaustion.
+   or guarded by processed-state; **3 attempts, flat** (`WORKER_MAX_TRIES` in
+   `apps/api/core/queue.py` — no backoff curve is configured; a delay/jitter ladder is
+   wanted but not built); DLQ + Sentry on exhaustion. ⚠ The budget is not reached today
+   — see the KNOWN GAP note in FLOWS §6: a plain `raise` in a worker is terminal on the
+   first attempt under arq 0.28, so "no lost events" currently rests entirely on the
+   reconciliation poller in step 6, not on the retry ladder.
 5. **Replay tooling exists BEFORE the first incident** (industry lesson): admin
    surface to inspect webhook_deliveries, re-run a delivery, and re-run a pipeline
    step for a call id. The engine's own per-delivery retry API supplements ours.
@@ -151,8 +194,12 @@ Queue-first, idempotent, replayable — the industry-standard shape, mapped to o
    reconciliation, not delivery magic.
 
 Outbound webhooks (us → client tools, D-23) mirror the same doctrine from the sender
-side: our envelope, HMAC signing, retry ladder with backoff, delivery log
-(webhook_deliveries direction=out), and a per-endpoint disable switch on repeated failure.
+side: our envelope, HMAC signing, the same flat 3-attempt ladder (`MAX_ATTEMPTS` is
+`WORKER_MAX_TRIES` — deliberately ONE budget so the last try knows it is the last and the
+`outbound_webhook_exhausted` alert has a moment to fire; ⚠ blocked by the same FLOWS §6
+gap, so that alert cannot fire yet), delivery log (webhook_deliveries direction=out, one
+row per delivery with `endpoint_id`), and a per-endpoint disable switch on repeated
+failure. The client-facing form of these rules is WEBHOOKS §1.5.
 
 ### 3.2 Real-time UI sync (D-24)
 
@@ -177,7 +224,11 @@ side: our envelope, HMAC signing, retry ladder with backoff, delivery log
   the first pipeline step (Bolna URLs have no documented expiry — copy-first anyway,
   our storage is system of record).
 - All engine calls carry timeouts + circuit breakers (TRD §12); breaker-open ⇒
-  degrade to reconciliation mode, never drop work.
+  degrade to reconciliation mode, never drop work. **Shipped today: the timeout only**
+  (`REQUEST_TIMEOUT_S = 10.0` in `apps/api/engine/bolna.py`). The 429 throttle above and
+  the breaker are DECIDED and unbuilt — the dispatcher's own pacing and the
+  reconciliation poller are what currently stand in for them, so treat both bullets as
+  intent until an adapter carries them.
 - No vendor OpenAPI spec (Bolna): typed adapter models are hand-maintained from
   docs.bolna.ai + pilot-captured payloads committed as fixtures; payload drift is
   caught by the conformance suite, diff-review before adopting new fields.

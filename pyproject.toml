@@ -58,6 +58,7 @@ source_modules = [
     "apps.api.campaigns",
     "apps.api.compliance",
     "apps.api.crm",
+    "apps.api.db",
     "apps.api.ingest",
     "apps.api.integrations",
     "apps.api.kb",

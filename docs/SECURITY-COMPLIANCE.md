@@ -97,7 +97,8 @@ Transport & webhooks
   nice-to-have — plus execution-id dedupe, payloads treated as hints, and the
   authenticated Get Execution fetch as truth. Unexpected source ⇒ 401 + alert. The
   reconciliation poller, not webhook delivery, is the guarantee of record.
-  Outbound (to client CRMs): our own HMAC signing + retries with backoff + delivery log.
+  Outbound (to client CRMs): our own HMAC signing + a flat 3-attempt retry budget
+  (`WORKER_MAX_TRIES`; no backoff curve is configured — wanted, not built) + delivery log.
 - Client-facing webhook ingest (Meta/website): per-endpoint secret; schema-validated;
   rate-limited; payloads treated as untrusted data (never as instructions).
 

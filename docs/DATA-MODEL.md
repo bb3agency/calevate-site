@@ -22,9 +22,14 @@ CREATE POLICY tenant_isolation ON t
 ```
 organizations(id, name, slug UNIQUE CHECK (slug ~ '^[a-z0-9-]{3,40}$') IMMUTABLE-by-trigger,
   status ENUM[prospect,onboarding,active,suspended,churned], vertical_template TEXT,
+  plan_tier ENUM[managed,self_serve,trial] NOT NULL DEFAULT 'managed',   -- D-34/D-39
+    -- which MOTION this org belongs to, not a feature flag: it decides whether credits
+    -- gate dispatch (compliance gate) and whether the self-serve screens render
   billing_email, created_by, deleted_at)
 reserved_slugs(slug PK)              -- admin, api, login, settings, app, www, ...
-users(id, clerk_user_id UNIQUE, email, name, phone)
+users(id, clerk_user_id UNIQUE, email, name, phone, deactivated_at)
+  -- deactivated_at re-checked by the auth guard on EVERY request (BACKEND-PATTERNS §7):
+  -- a cached Clerk session must not outlive a deactivation
 memberships(id, tenant_id, user_id, role ENUM[owner,staff], UNIQUE(tenant_id,user_id))
   -- staff: no billing.*, no org settings, no raw (unredacted) transcripts
 invitations(id, tenant_id, email, role, token_hash UNIQUE, expires_at DEFAULT now()+'72h',
@@ -46,7 +51,10 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
     --, engine_agent_ref TEXT,
   engine_staging_ref TEXT, deleted_at)
 prompt_versions(id, tenant_id, agent_id, version INT, body TEXT, compiled_t0_context TEXT,
-  created_by, published_at, UNIQUE(agent_id,version))               -- full history + rollback
+  notes TEXT, created_by, published_at, UNIQUE(agent_id,version))   -- full history + rollback
+  -- notes = operator-facing "why this version exists" ("rollback to v3", "new pricing").
+  -- Deliberately NOT compiled_t0_context: that is a build artefact OF the version,
+  -- reserved by D-39 for the T0 compiler.
 extraction_schemas(id, tenant_id, agent_id, version INT, fields JSONB, published_at)
 phone_numbers(id, tenant_id, agent_id, e164 UNIQUE, series ENUM[140,160,standard],
   provider, engine_number_ref, dlt_status ENUM[pending,registered,blocked], purpose TEXT)
@@ -75,6 +83,9 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
   outcome_tag ENUM[resolved,needs_follow_up,transferred,dropped],
   sentiment ENUM[positive,neutral,negative], summary TEXT,
   campaign_id NULL → campaigns, lead_id NULL → leads,
+  callback_of_call_id NULL → calls ON DELETE RESTRICT,   -- D-21 M2: the call this one
+    -- follows up. Naming the parent is what BOUNDS the callback chain, and an unbounded
+    -- chain is a compliance problem (repeat dialling), not a UX one.
   latency JSONB,                       -- {stt_ms,llm_ttft_ms,tts_ttfa_ms,turn_p50,turn_p95}
   engine_payload_ref TEXT)             -- object-storage key of raw vendor payload (debug only)
 transcript_turns(id, tenant_id, call_id, idx INT, speaker ENUM[agent,caller], text TEXT,
@@ -100,7 +111,9 @@ lead_events(id, tenant_id, lead_id, type ENUM[status_change,note,call,notificati
 campaigns(id, tenant_id, agent_id, name, classification ENUM[promotional,transactional,service] NOT NULL,
   number_id → phone_numbers, dlt_template_id → dlt_templates,
   status ENUM[draft,scheduled,running,paused,completed,cancelled],
-  schedule JSONB, concurrency INT CHECK (1..10), retry_policy JSONB,   -- {max_attempts, backoff, windows}
+  schedule JSONB, concurrency INT CHECK (1..10), retry_policy JSONB,   -- shipped default:
+    -- {max_attempts: 3, backoff_minutes: [30, 120]} — this per-CONTACT ladder is the one
+    -- place backoff actually exists; the ARQ job ladder is flat (FLOWS §6)
   calling_hours JSONB, engine_campaign_ref TEXT, launched_at)
   -- launch is BLOCKED unless: entity DLT-registered, template approved, number series
   -- matches classification (140⇔promotional / 160|standard⇔service-transactional), DNC scrub done.
@@ -158,15 +171,31 @@ usage_events(id, tenant_id, call_id NULL, unit_type ENUM[telephony_s,stt_s,tts_c
 plans(id, tenant_id, setup_fee, monthly_fee, included_min INT, overage_rate,
   hard_cap_min INT, hard_cap_spend NUMERIC, concurrency_ceiling INT DEFAULT 10,
   effective_from, effective_to)
+credit_ledger(id, tenant_id, delta NUMERIC, reason ENUM[topup,usage,adjustment,refund],
+  ref, balance_after, occurred_at, meta JSONB)          -- INSERT-only (hard rule 4)
+spend_state(tenant_id PK, month, minutes_used NUMERIC, spend_used NUMERIC, capped BOOL)
+  -- read by the COMPLIANCE GATE before every outbound dispatch (fail closed when capped)
+  -- — apps/api/compliance/service.py, not voice-runtime; see TRD §9
+
+-- ── NOT YET CREATED. Still intended; kept here so the intent is not lost, but do NOT
+-- ── read the two blocks below as shippable schema.
 engine_capacity(id PK=1, platform_lines_total INT, inbound_reserve INT,
   sarvam_concurrency INT, trunk_channels INT, updated_at)
   -- singleton config; effective outbound pool = MIN(all three) − inbound_reserve;
-  -- values come from verification item 8, reviewed on any vendor plan change
-credit_ledger(id, tenant_id, delta NUMERIC, reason ENUM[topup,usage,adjustment,refund], ref, balance_after)
+  -- values come from verification item 8, reviewed on any vendor plan change.
+  -- SHIPPED INSTEAD (M1): the dispatcher holds ONE constant, PLATFORM_LINES_TOTAL = 10
+  -- (with MIN_INBOUND_RESERVE = 4) in apps/workers/campaign_dispatch.py — deliberately a
+  -- constant until the pilot produces real numbers, so the measured value has exactly one
+  -- place to land. The table lands when there is more than one number to store.
 invoices(id, tenant_id, period, lines JSONB, subtotal, gst, total,
   status ENUM[draft,sent,paid,overdue], razorpay_ref)
-spend_state(tenant_id PK, month, minutes_used NUMERIC, spend_used NUMERIC, capped BOOL)
-  -- read by voice-runtime & campaign engine BEFORE dispatch (fail closed when capped)
+  -- SHIPPED INSTEAD (M2): an invoice is a DERIVED STATEMENT, not a row. `build_invoice`
+  -- (apps/api/billing/invoice.py) computes it from usage_events + plan on request and
+  -- persists nothing. That is WHY the invoice number can be deterministic
+  -- (CAL-{YYYYMM}-{first 8 hex of tenant_id}): with no stored row there is no sequence to
+  -- collide with, and regenerating a month can never mint a second number for it.
+  -- This table lands only when an invoice acquires state we cannot derive (sent/paid/
+  -- overdue, razorpay_ref) — i.e. with collection, not with the statement.
 ```
 
 ## 9. Compliance & Audit
@@ -182,18 +211,60 @@ deletion_requests(id, tenant_id, phone_e164, scope, requested_at, completed_at,
 audit_log(id, actor_type ENUM[admin,user,system], actor_id, tenant_id, action, object_type,
   object_id, ip, at)                                 -- INSERT-only; includes recording/raw-transcript reads
 webhook_deliveries(id, direction ENUM[in,out], source, event_type, status, attempts,
-  signature_valid BOOL, payload_ref, first_at, last_at)
+  signature_valid BOOL, payload_ref, endpoint_id NULL → outbound_webhooks ON DELETE SET NULL,
+  first_at, last_at)                 -- ONE row per delivery, not per attempt
+  -- endpoint_id is outbound-only (D-23) and is how the client-facing delivery screen
+  -- scopes rows: it filters THROUGH outbound_webhooks, which IS tenant-RLS'd, so this
+  -- table needs no policy of its own.
 -- Reliability triad (D-30, BACKEND-PATTERNS §4; all claims via conditional-UPDATE CAS):
 outbox_messages(id, queue, job, payload JSONB, status ENUM[pending,published,failed],
   attempt_count INT, job_id, published_at, last_error)      -- written in the SAME txn
   -- as the domain write; ARQ dispatcher polls oldest-first; >=5 attempts -> failed(DLQ)
 webhook_inbox_events(id, provider, event_key, payload_hash, status
-  ENUM[processing,enqueued,processed,failed], event_name, processed_at, last_error,
+  ENUM[processing,enqueued,processed,failed], event_name, duplicate_count INT NOT NULL
+  DEFAULT 0, enqueued_at, processed_at, last_error,
   UNIQUE(provider, event_key))       -- same key + different hash = 409 (spoof signal)
+  -- duplicate_count = how many times the same event arrived again after the first claim.
+  -- It is the "deduplicated" column of the webhook activity view; without it a vendor
+  -- retrying fifteen times looks like one quiet success.
 idempotency_records(id, scope_key, route, method, idempotency_key, request_hash,
   status ENUM[processing,completed,failed], response_status, response_payload JSONB,
   expires_at, UNIQUE(scope_key, route, method, idempotency_key))
   -- scope_key = HMAC fingerprint of tenant/user (raw ids never stored); TTL ~24h
+```
+
+## 9a. Global tables (deliberately NOT tenant-RLS'd — every exception listed)
+
+Hard rule 1 admits no silent exceptions. A table that CARRIES `tenant_id` and still has no
+policy must be named, with its reason, in `apps/api/db/registry.py::RLS_EXEMPT_TENANT_COLUMNS`
+— the RLS-coverage guardrail reads that dict, so an undeclared exception fails CI. The
+reasons are repeated here. (`platform_state` and `idempotency_records` carry no `tenant_id`
+at all, so they are not tenant tables and need no exemption entry.)
+
+```
+engine_agent_routes(engine, engine_agent_ref, tenant_id, agent_id, active,
+  created_at, updated_at, PRIMARY KEY(engine, engine_agent_ref))
+  -- The inbound routing table: (vendor engine, vendor agent id) → (tenant, agent).
+  -- WHY IT IS EXEMPT: an engine webhook arrives carrying only the VENDOR's agent id —
+  -- no session, no tenant, no GUC — so resolving it is inherently a cross-tenant read.
+  -- Keeping that two-id lookup in its own global table is EXACTLY what lets `agents`
+  -- stay FORCE-RLS'd; the alternatives (an exemption on `agents`, or running the
+  -- resolver as the owner role) would punch a cross-tenant hole through the control the
+  -- whole design rests on. It carries no PII and no call data, and it is written by the
+  -- agent-publish path in the SAME transaction that sets agents.engine_agent_ref, so
+  -- the two cannot disagree. Composite PK because the same vendor id may exist on two
+  -- engines during a migration and must resolve independently.
+platform_state(id PK CHECK (id = 1), load_shed_mode
+  ENUM[normal,reduced,emergency,maintenance], outbound_halted BOOL, halt_reason,
+  changed_by, changed_at, updated_at)
+  -- Single-row global switchboard: the load-shed mode AND the big red switch.
+  -- BACKEND-PATTERNS §6 requires the load-shed mode to be DURABLE in Postgres (Redis is
+  -- only its cache) so a Redis flush cannot silently re-open a service an operator shut.
+  -- The outbound halt shares the row because it answers the same question — "is the
+  -- platform allowed to do work right now" — and one row means one read. Global by
+  -- definition; written only through the audited admin ops surface (step-up confirm).
+audit_log  -- (defined in §9) exempt because the admin realm reads cross-tenant by
+           -- design; every such read is itself audited.
 ```
 
 ## 10. Migration & Integrity Rules

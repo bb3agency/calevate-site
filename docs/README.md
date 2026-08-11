@@ -26,7 +26,9 @@ and are all closed by two non-code actions: the Engine Verification Session
 7. **OPERATIONS.md** — engine verification checklist (do this first), per-client
    regression/eval harness, observability, SLOs, runbooks, pre-launch checklist.
 8. **ROADMAP.md** — milestones with gates (client #1 before platform polish), decision
-   log D-01…D-30, deferred list.
+   log D-01…D-39 (§6; entries are appended, so the tail is not in numeric order — read
+   the whole table, and note the ⚠SUPERSEDED/AMENDED markers on the early ones),
+   deferred list.
 9. **SURFACES.md** — the three product surfaces: admin-panel and client-CRM feature
    inventories (seed the build-time design discussions) + the decided integration
    doctrine (webhook intake pipeline, real-time UI transport, engine API usage rules).
@@ -61,19 +63,32 @@ Engineering companions:
 14. **PROMPT-GUIDE.md** — how client agent system prompts are structured, versioned,
     regression-gated, and red-teamed (prompts are product code).
 
-## The two actions that precede any code
+## The two gates that are still unrun (Milestone 0)
+
+Both were once framed as preceding *any* code; they no longer do — M1 backend and web
+slices have shipped against the `fake` engine adapter (`ENGINE=fake`, the default), which
+is exactly what the adapter contract exists to make possible. They remain hard blockers on
+specific things, and neither has been run:
 
 1. **Engine Verification Session — the Bolna pilot (D-31)** — one afternoon on paid
    Bolna credits (OPERATIONS.md §2). Confirms webhooks/API/latency/Telugu quality/
    commercials incl. the unpublished BYOK platform fee.
+   **Blocks:** flipping `ENGINE=bolna` in production, the cost model's remaining
+   unknowns, and Gate G0. Evidence artifact `evidence/bolna-pilot-scorecard.md` is still
+   an empty template — the honest status marker.
 2. **Entity decision → DLT PE registration** — legal prerequisite for all outbound
-   calling (SECURITY-COMPLIANCE.md §3; Risk R-01). Inbound-only launch is the fallback.
+   calling (SECURITY-COMPLIANCE.md §3; Risk R-01). **Blocks:** every outbound path
+   (campaigns, "call this lead", instant callback) going live on real numbers — the code
+   is built and the compliance gate enforces it. Inbound-only launch is the fallback, and
+   D-38 makes inbound the headline capability anyway.
 
 ## One-line summary of the locked stack
 
-Bolna (engine, adapter-isolated — D-31) + the D-36 canonical all-Sarvam BYOK stack
-(Saaras STT · Sarvam 105B LLM, free + sovereign · Bulbul v3 TTS); Gemini 2.5
-Flash-Lite (→3.x) + Sarvam Bulbul V3 TTS (D-20) + Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
-Postgres 16 + pgvector + RLS · Redis/ARQ · Clerk (two realms) · DO Bangalore · Langfuse/
-Sentry/OTel · setup-fee + retainer + overage pricing · all-in ≈ ₹3.0–3.6/min now,
-₹1.7–2.3/min at phase 2.
+Bolna (engine, adapter-isolated — D-31) + the **D-36 canonical all-Sarvam BYOK stack**
+(Saaras STT · Sarvam 105B LLM, free + sovereign · Bulbul v3 TTS default, v2 as the value
+tier) — **Gemini 2.5 Flash-Lite is a configurable FALLBACK, not the default; D-04/D-20's
+Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
+Postgres 16 + RLS (pgvector is a D-28 contingency) · Redis/ARQ · Clerk (two realms) ·
+DO Bangalore · Langfuse/Sentry/OTel · setup-fee + retainer + overage pricing, plus the
+D-34 self-serve prepaid tier · all-in target ≈ ₹3.1–3.6/min (D-36; verified floor ₹2.9 on
+Bulbul v2 + Sarvam LLM), ₹1.7–2.3/min at phase 2.

@@ -350,16 +350,27 @@ Every extraction stores prompt_version + model for auditability.
 
 ## 8. Post-Call Pipeline (workers; idempotent; keyed by call_id)
 
-webhook(call.ended) → verify HMAC → persist CallEvent + turns → enqueue:
+webhook(execution status) → **authenticate per §5** (Bolna is unsigned: source-IP
+allowlist + execution-id dedupe, payload treated as a HINT; HMAC only where an engine
+signs) → authenticated Get Execution is the TRUTH → persist CallEvent + turns → enqueue:
 1. fetch/persist recording to our storage (presigned; engine copy is not our system of record)
 2. PII redaction pass on transcript (Aadhaar/PAN/card/OTP patterns + LLM assist) →
    redacted transcript is the default view; raw restricted by role
 3. extraction (per §7) → upsert Lead
 4. usage metering → usage_events rows (see §9)
 5. notifications: hot-lead rules → client email/WhatsApp
-6. embeddings for resolved calls (KB corpus)
-Every step retries with backoff; DLQ on repeated failure; pipeline lag is a monitored SLO
-(target: lead visible < 2 min after hangup).
+6. campaign-contact resolution (close or re-queue on the FLOWS §5 retry ladder)
+7. outbound CRM sync (`call.completed` through the outbox, D-23) — summary, never transcript
+*Planned, NOT in the shipped pipeline:* embeddings for resolved calls (KB corpus) — M3
+per ROADMAP; `apps/workers/pipeline.py` ends at step 7.
+Retry budget is **3 attempts, flat** — `WORKER_MAX_TRIES` in `apps/api/core/queue.py`,
+the one number the ARQ worker and the delivery worker's exhaustion check both read.
+**No backoff curve is configured**; a delay/jitter ladder is desirable and unbuilt.
+DLQ on repeated failure; pipeline lag is a monitored SLO
+(target: lead visible < 2 min after hangup). ⚠ The budget is not reached in practice
+today — under arq 0.28 a plain `raise` is terminal on the first attempt, so a worker must
+raise `arq.Retry` for the ladder above to exist at all. Full note and its consequences:
+FLOWS §6.
 
 ## 9. Metering & Billing
 
@@ -368,8 +379,13 @@ llm_tok_in|llm_tok_out|platform_min], qty, unit_cost_paid, occurred_at) — reco
 next to billable qty; per-client margin is a query, and phase-2/3 build-vs-rent decisions
 use months of real data. Plans are config rows {setup_fee, monthly_fee, included_min,
 overage_rate, hard_cap_min, hard_cap_spend}; invoices derive from ledger + plan. Prepaid
-credit balance; **caps enforced pre-dispatch in voice-runtime and campaign engine** (a
-capped tenant's outbound is refused and inbound answered with a graceful fallback line).
+credit balance; **caps enforced pre-dispatch in the compliance gate**
+(`apps/api/compliance/service.py::check_dispatch` — the one function every outbound path
+calls: campaign dispatch, "call this lead", instant lead callback). A capped tenant's
+outbound is refused (`spend_state.capped`); a self-serve/trial tenant with an empty
+wallet is refused too (D-34 credits). **Inbound is unaffected and never reaches this
+gate** — the caller initiated it, which is D-38's consent-clean property — so there is no
+inbound fallback line, and voice-runtime carries no cap logic (hard rule 3 keeps it thin).
 Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-negotiable).
 
 ## 10. Cost Model (verified July 2026; re-verify quarterly)

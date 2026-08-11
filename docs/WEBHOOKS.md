@@ -114,9 +114,13 @@ Three rules that matter:
   failure we retry. **Redirects are not followed**: we will not chase a signed body to
   a host you did not register.
 - **Timeout is 10 seconds** per attempt. Respond fast and process async on your side.
-- **Retry ladder: 3 attempts total**, driven by our job queue. After the 3rd failed
-  attempt the delivery is marked `failed`, we stop, and our on-call is alerted that
-  your integration is broken.
+- **Retry ladder: 3 attempts total**, driven by our job queue, with no delay between
+  them. After the 3rd failed attempt the delivery is marked `failed`, we stop, and our
+  on-call is alerted that your integration is broken.
+  *Status: the 3-attempt budget is the contract, but our queue does not yet re-run a
+  failed delivery — today a delivery that fails is marked `failed` on its FIRST attempt.
+  Design for at-least-once and idempotent receipt either way (dedupe on the envelope's
+  `id`, §1.2): when the ladder is switched on, retries will arrive.*
 - **One forensic row per delivery** (not per attempt): retries update the same row's
   attempt count and status. `GET /v1/integrations/deliveries` shows the last 50 (up to
   `?limit=200`) with `status` (`delivered` / `failed` / `skipped`), `attempts`,
