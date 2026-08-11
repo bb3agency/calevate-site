@@ -145,39 +145,111 @@ class OfflineExtractor:
 
     model_name = "offline-heuristic"
 
+    # `naa peru` / `my name is` only. The bare `peru` alternative this used to carry
+    # matched the AGENT asking "Mee peru cheppandi?" and filed "Cheppandi" as the
+    # caller's name — a fabricated CRM row from a question nobody answered.
     _NAME_RE = re.compile(
-        r"(?:naa peru|my name is|peru)\s+([A-Za-z][A-Za-z\s]{1,30}?)"
+        r"(?:naa peru|naa pearu|my name is)\s+([A-Za-z][A-Za-z\s]{1,30}?)"
         r"(?:\s+(?:andi|garu|ji)\b|[,.]|$)",
         re.IGNORECASE,
     )
     _NEGATIVE = ("complaint", "angry", "worst", "refund", "cheating", "bad")
     _CALLBACK = ("call me back", "callback", "malli call", "tarvata call")
+    # Denials, Telugu and English. A probe word appearing in the same turn as one of
+    # these is a caller REFUSING the thing, which is the opposite of the fact we would
+    # otherwise record.
+    _DENIAL = ("ledu", "vaddu", "avasaram ledu", "no ", "not ", "don't", "dont", "never")
+    # Speaker prefixes as the transcript writes them. Anything unprefixed is treated as
+    # the caller only when there is no prefixed line at all (a transcript we cannot
+    # attribute is not evidence about anybody).
+    _CALLER_PREFIXES = ("caller:", "customer:", "user:")
+    _AGENT_PREFIXES = ("agent:", "assistant:", "bot:")
+
+    @classmethod
+    def _caller_turns(cls, transcript: str) -> list[str]:
+        """Only what the CALLER said, with the prefix stripped.
+
+        Every field below describes the caller, and reading the agent's lines as
+        evidence about them is how this extractor invented three different kinds of
+        fact: a name out of the agent's question, a `true` out of a question the caller
+        answered "ledu" to, and an enum out of the word `caller:` itself.
+        """
+        turns: list[str] = []
+        saw_prefix = False
+        for line in transcript.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            lowered = stripped.lower()
+            if lowered.startswith(cls._AGENT_PREFIXES):
+                saw_prefix = True
+                continue
+            for prefix in cls._CALLER_PREFIXES:
+                if lowered.startswith(prefix):
+                    saw_prefix = True
+                    turns.append(stripped[len(prefix) :].strip())
+                    break
+            else:
+                if not lowered.startswith(cls._AGENT_PREFIXES):
+                    turns.append(stripped)
+        if saw_prefix:
+            return [turn for turn in turns if turn]
+        # No speaker labels anywhere: fall back to the whole transcript rather than
+        # returning nothing, but that is a transcript we cannot attribute.
+        return [line.strip() for line in transcript.splitlines() if line.strip()]
+
+    @staticmethod
+    def _denied(turn: str, probe: str) -> bool:
+        """Is the probe word denied in the turn that contains it?"""
+        lowered = turn.lower()
+        return any(marker in lowered for marker in OfflineExtractor._DENIAL)
+
+    @staticmethod
+    def _says(turn: str, needle: str) -> bool:
+        """Word-boundary containment. Substring matching made `other` match inside
+        "brother" and `caller` match the speaker prefix on every single line."""
+        pattern = rf"(?<!\w){re.escape(needle)}(?!\w)"
+        return re.search(pattern, turn, re.IGNORECASE) is not None
 
     async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:
-        lowered = transcript.lower()
+        caller_turns = self._caller_turns(transcript)
+        caller_text = "\n".join(caller_turns)
+        lowered = caller_text.lower()
         data: dict[str, Any] = {}
 
         for field in spec.fields:
             if field.type == "bool":
-                # Only claim true when the field's own words appear.
                 probe = field.label.lower().split()[0]
-                if probe and probe in lowered:
+                if not probe:
+                    continue
+                # True only when the CALLER says it and does not deny it in the same
+                # breath. Silence stays null: this extractor's one rule is never to
+                # invent a value that was not said, and "false" is a value.
+                affirmed = [
+                    turn
+                    for turn in caller_turns
+                    if self._says(turn, probe) and not self._denied(turn, probe)
+                ]
+                if affirmed:
                     data[field.key] = True
                 continue
             if field.key in ("name", "caller_name", "patient_name"):
-                match = self._NAME_RE.search(transcript)
+                match = self._NAME_RE.search(caller_text)
                 if match:
                     data[field.key] = match.group(1).strip().title()
                 continue
             if field.type == "enum" and field.enum_values:
-                value = next((v for v in field.enum_values if v.lower() in lowered), None)
+                value = next(
+                    (v for v in field.enum_values if any(self._says(t, v) for t in caller_turns)),
+                    None,
+                )
                 if value:
                     data[field.key] = value
 
-        agent_lines = [ln for ln in transcript.splitlines() if ln.strip()]
+        all_lines = [ln for ln in transcript.splitlines() if ln.strip()]
         return {
             **data,
-            "summary": (agent_lines[-1][:200] if agent_lines else "No transcript available."),
+            "summary": (all_lines[-1][:200] if all_lines else "No transcript available."),
             "sentiment": "negative" if any(w in lowered for w in self._NEGATIVE) else "neutral",
             "outcome_tag": (
                 "needs_follow_up" if any(w in lowered for w in self._CALLBACK) else "resolved"
