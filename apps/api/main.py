@@ -29,6 +29,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.credit_routes import router as credits_admin_router
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.campaigns.routes import router as campaigns_router
+    from apps.api.compliance.deletion_routes import router as deletion_router
     from apps.api.compliance.dnc_routes import router as dnc_router
     from apps.api.compliance.export_routes import router as subject_export_router
     from apps.api.crm.routes import router as crm_router
@@ -59,6 +60,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(integrations_router)
     application.include_router(dnc_router)
     application.include_router(subject_export_router)
+    application.include_router(deletion_router)
     application.include_router(ops_router)
 
 
