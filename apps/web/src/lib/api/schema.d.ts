@@ -163,6 +163,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reopen the intake step — what is durably stored, and only that
+         * @description No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's
+         *     scope directly rather than opening the cross-tenant directory it does not need.
+         */
+        get: operations["read_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_get"];
+        put?: never;
+        /**
+         * Wizard step 3 — the client's business facts (FLOWS §1 step 3)
+         * @description Compiles the answers into the agent's [T0 FACTS] block, stores the block as `prompt_versions.compiled_t0_context` (D-39), seeds the knowledge base with the same facts awaiting approval, and re-publishes a live agent. Idempotent: unchanged answers mint no new prompt version.
+         */
+        post: operations["record_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": {
         parameters: {
             query?: never;
@@ -1547,6 +1572,13 @@ export interface components {
             /** Rule */
             rule: string;
         };
+        /** Branch */
+        Branch: {
+            /** Address */
+            address: string;
+            /** Label */
+            label: string;
+        };
         /** CallDetailOut */
         CallDetailOut: {
             /**
@@ -1709,12 +1741,29 @@ export interface components {
             /** Start */
             start: string;
         };
-        /** CampaignSummaryOut */
+        /**
+         * CampaignSummaryOut
+         * @description One row of the campaign list.
+         *
+         *     `consent_provenance_blocker` is the only DERIVED field here, and it is derived on
+         *     purpose (see `service.list_campaigns` for the full argument): it answers "what does
+         *     this row need" rather than "what did they answer", so the list cannot mistake a
+         *     purchased list — recorded, refused, unfixable — for an answered one. It is a named
+         *     rule rather than a boolean because the two values have different remedies: the
+         *     client can clear `consent_provenance_missing` in the provenance form, and nobody can
+         *     clear `consent_source_refused`. The names are the launch gate's own, so the list and
+         *     `/launch-check` explain the same fact with the same words.
+         *
+         *     NULL means "nothing to do here", which covers both an answered draft and every
+         *     campaign past the point where provenance can still be recorded.
+         */
         CampaignSummaryOut: {
             /** Classification */
             classification: string;
             /** Connected */
             connected: number;
+            /** Consent Provenance Blocker */
+            consent_provenance_blocker?: ("consent_provenance_missing" | "consent_source_refused") | null;
             /** Contacts */
             contacts: number;
             /**
@@ -1949,6 +1998,28 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /**
+         * DayHours
+         * @description One day of the week. `closed` is explicit rather than implied by an absent day:
+         *     "we do not open on Sunday" and "nobody filled Sunday in" are different answers, and
+         *     the agent says different things about them.
+         */
+        DayHours: {
+            /**
+             * Closed
+             * @default false
+             */
+            closed: boolean;
+            /** Closes */
+            closes?: string | null;
+            /**
+             * Day
+             * @enum {string}
+             */
+            day: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+            /** Opens */
+            opens?: string | null;
+        };
         /** DeletionRequestAcceptedOut */
         DeletionRequestAcceptedOut: {
             /** Already Open */
@@ -2174,6 +2245,15 @@ export interface components {
             /** Transcript Turns Erased */
             transcript_turns_erased: number;
         };
+        /** EscalationContact */
+        EscalationContact: {
+            /** Hours */
+            hours?: string | null;
+            /** Name */
+            name: string;
+            /** Phone E164 */
+            phone_e164: string;
+        };
         /** ExtractionField */
         ExtractionField: {
             /**
@@ -2197,6 +2277,13 @@ export interface components {
              * @enum {string}
              */
             type: "text" | "number" | "bool" | "enum" | "date";
+        };
+        /** Faq */
+        Faq: {
+            /** Answer */
+            answer: string;
+            /** Question */
+            question: string;
         };
         /**
          * IngestActivityItemOut
@@ -2235,6 +2322,74 @@ export interface components {
         IngestActivityOut: {
             /** Items */
             items: components["schemas"]["IngestActivityItemOut"][];
+        };
+        /**
+         * IntakeFacts
+         * @description Exactly FLOWS §1 step 3's list, in its order. Every field is optional-by-default
+         *     because the step is resumable and an operator fills it over days — the gate that
+         *     decides an agent is ready to publish is step 7's test call, not this form.
+         */
+        IntakeFacts: {
+            /** Booking Rules */
+            booking_rules?: string | null;
+            /** Branches */
+            branches?: components["schemas"]["Branch"][];
+            /** Business Hours */
+            business_hours?: components["schemas"]["DayHours"][];
+            /** Escalation Contacts */
+            escalation_contacts?: components["schemas"]["EscalationContact"][];
+            /** Faqs */
+            faqs?: components["schemas"]["Faq"][];
+            /** Languages */
+            languages?: string[];
+            /** Services */
+            services?: components["schemas"]["ServiceItem"][];
+            /** Staff */
+            staff?: components["schemas"]["StaffMember"][];
+        };
+        /**
+         * IntakeOut
+         * @description What the step did, not what it was told.
+         *
+         *     `regenerated=false` means the answers matched what the agent already carries and no
+         *     prompt version was minted — the honest result of an operator reopening the step and
+         *     saving it unchanged, and the one FLOWS §1's "every step idempotent" asks for.
+         */
+        IntakeOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Kb Source Id */
+            kb_source_id: string | null;
+            /** Prompt Version */
+            prompt_version: number | null;
+            /** Regenerated */
+            regenerated: boolean;
+        };
+        /**
+         * IntakeStateOut
+         * @description What reopening the step can prefill. The prose answers come back as the compiled
+         *     block, not as the fields that produced them — nothing stores those (see
+         *     `admin/intake.py`), and a form that pretended otherwise would silently drop the
+         *     services table on the next save.
+         */
+        IntakeStateOut: {
+            /** Business Hours */
+            business_hours: {
+                [key: string]: {
+                    [key: string]: string;
+                } | null;
+            };
+            /** Compiled T0 Context */
+            compiled_t0_context: string | null;
+            /** Escalation Contacts */
+            escalation_contacts: {
+                [key: string]: string | null;
+            }[];
+            /** Languages */
+            languages: string[];
         };
         /** InviteIn */
         InviteIn: {
@@ -2652,6 +2807,20 @@ export interface components {
             to_version: number;
         };
         /**
+         * ServiceItem
+         * @description `price_inr` is a STRING (hard rule 7): a price read aloud to a caller must be
+         *     the digits the client typed, and a JSON float cannot promise that. It is also
+         *     optional — "consultation: ask at reception" is a real answer.
+         */
+        ServiceItem: {
+            /** Name */
+            name: string;
+            /** Notes */
+            notes?: string | null;
+            /** Price Inr */
+            price_inr?: string | null;
+        };
+        /**
          * SetVoiceIn
          * @description `extra="forbid"` so a caller cannot smuggle a second config string (an llm_model,
          *     a tts_provider) into a request whose whole point is one curated choice.
@@ -2766,6 +2935,20 @@ export interface components {
             status: string;
             /** Version */
             version: number;
+        };
+        /**
+         * StaffMember
+         * @description `pronunciation` is not decoration — PROMPT-GUIDE §3 requires proper nouns to be
+         *     spelled phonetically in [T0 FACTS], because a mispronounced doctor's name is the
+         *     first thing a caller notices.
+         */
+        StaffMember: {
+            /** Name */
+            name: string;
+            /** Pronunciation */
+            pronunciation?: string | null;
+            /** Role */
+            role?: string | null;
         };
         /**
          * SubjectExportIn
@@ -3400,6 +3583,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TenantSummary"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeStateOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntakeFacts"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -313,6 +313,29 @@
         "title": "BlockerOut",
         "type": "object"
       },
+      "Branch": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "maxLength": 400,
+            "minLength": 1,
+            "title": "Address",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "address"
+        ],
+        "title": "Branch",
+        "type": "object"
+      },
       "CallDetailOut": {
         "additionalProperties": false,
         "properties": {
@@ -809,6 +832,7 @@
       },
       "CampaignSummaryOut": {
         "additionalProperties": false,
+        "description": "One row of the campaign list.\n\n`consent_provenance_blocker` is the only DERIVED field here, and it is derived on\npurpose (see `service.list_campaigns` for the full argument): it answers \"what does\nthis row need\" rather than \"what did they answer\", so the list cannot mistake a\npurchased list \u2014 recorded, refused, unfixable \u2014 for an answered one. It is a named\nrule rather than a boolean because the two values have different remedies: the\nclient can clear `consent_provenance_missing` in the provenance form, and nobody can\nclear `consent_source_refused`. The names are the launch gate's own, so the list and\n`/launch-check` explain the same fact with the same words.\n\nNULL means \"nothing to do here\", which covers both an answered draft and every\ncampaign past the point where provenance can still be recorded.",
         "properties": {
           "classification": {
             "title": "Classification",
@@ -817,6 +841,21 @@
           "connected": {
             "title": "Connected",
             "type": "integer"
+          },
+          "consent_provenance_blocker": {
+            "anyOf": [
+              {
+                "enum": [
+                  "consent_provenance_missing",
+                  "consent_source_refused"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consent Provenance Blocker"
           },
           "contacts": {
             "title": "Contacts",
@@ -1409,6 +1448,59 @@
         "title": "DashboardOut",
         "type": "object"
       },
+      "DayHours": {
+        "additionalProperties": false,
+        "description": "One day of the week. `closed` is explicit rather than implied by an absent day:\n\"we do not open on Sunday\" and \"nobody filled Sunday in\" are different answers, and\nthe agent says different things about them.",
+        "properties": {
+          "closed": {
+            "default": false,
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "closes": {
+            "anyOf": [
+              {
+                "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closes"
+          },
+          "day": {
+            "enum": [
+              "mon",
+              "tue",
+              "wed",
+              "thu",
+              "fri",
+              "sat",
+              "sun"
+            ],
+            "title": "Day",
+            "type": "string"
+          },
+          "opens": {
+            "anyOf": [
+              {
+                "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opens"
+          }
+        },
+        "required": [
+          "day"
+        ],
+        "title": "DayHours",
+        "type": "object"
+      },
       "DeletionRequestAcceptedOut": {
         "additionalProperties": false,
         "properties": {
@@ -1927,6 +2019,40 @@
         "title": "ErasureScopeOut",
         "type": "object"
       },
+      "EscalationContact": {
+        "additionalProperties": false,
+        "properties": {
+          "hours": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hours"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "phone_e164": {
+            "pattern": "^\\+[1-9]\\d{7,18}$",
+            "title": "Phone E164",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "phone_e164"
+        ],
+        "title": "EscalationContact",
+        "type": "object"
+      },
       "ExtractionField": {
         "additionalProperties": false,
         "properties": {
@@ -1981,6 +2107,29 @@
           "type"
         ],
         "title": "ExtractionField",
+        "type": "object"
+      },
+      "Faq": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Answer",
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "answer"
+        ],
+        "title": "Faq",
         "type": "object"
       },
       "IngestActivityItemOut": {
@@ -2064,6 +2213,194 @@
           "items"
         ],
         "title": "IngestActivityOut",
+        "type": "object"
+      },
+      "IntakeFacts": {
+        "additionalProperties": false,
+        "description": "Exactly FLOWS \u00a71 step 3's list, in its order. Every field is optional-by-default\nbecause the step is resumable and an operator fills it over days \u2014 the gate that\ndecides an agent is ready to publish is step 7's test call, not this form.",
+        "properties": {
+          "booking_rules": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Rules"
+          },
+          "branches": {
+            "items": {
+              "$ref": "#/components/schemas/Branch"
+            },
+            "maxItems": 20,
+            "title": "Branches",
+            "type": "array"
+          },
+          "business_hours": {
+            "items": {
+              "$ref": "#/components/schemas/DayHours"
+            },
+            "maxItems": 7,
+            "title": "Business Hours",
+            "type": "array"
+          },
+          "escalation_contacts": {
+            "items": {
+              "$ref": "#/components/schemas/EscalationContact"
+            },
+            "maxItems": 10,
+            "title": "Escalation Contacts",
+            "type": "array"
+          },
+          "faqs": {
+            "items": {
+              "$ref": "#/components/schemas/Faq"
+            },
+            "maxItems": 50,
+            "title": "Faqs",
+            "type": "array"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 6,
+            "title": "Languages",
+            "type": "array"
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceItem"
+            },
+            "maxItems": 100,
+            "title": "Services",
+            "type": "array"
+          },
+          "staff": {
+            "items": {
+              "$ref": "#/components/schemas/StaffMember"
+            },
+            "maxItems": 50,
+            "title": "Staff",
+            "type": "array"
+          }
+        },
+        "title": "IntakeFacts",
+        "type": "object"
+      },
+      "IntakeOut": {
+        "additionalProperties": false,
+        "description": "What the step did, not what it was told.\n\n`regenerated=false` means the answers matched what the agent already carries and no\nprompt version was minted \u2014 the honest result of an operator reopening the step and\nsaving it unchanged, and the one FLOWS \u00a71's \"every step idempotent\" asks for.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "kb_source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kb Source Id"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "regenerated": {
+            "title": "Regenerated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agent_id",
+          "prompt_version",
+          "regenerated",
+          "kb_source_id"
+        ],
+        "title": "IntakeOut",
+        "type": "object"
+      },
+      "IntakeStateOut": {
+        "additionalProperties": false,
+        "description": "What reopening the step can prefill. The prose answers come back as the compiled\nblock, not as the fields that produced them \u2014 nothing stores those (see\n`admin/intake.py`), and a form that pretended otherwise would silently drop the\nservices table on the next save.",
+        "properties": {
+          "business_hours": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Business Hours",
+            "type": "object"
+          },
+          "compiled_t0_context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compiled T0 Context"
+          },
+          "escalation_contacts": {
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Escalation Contacts",
+            "type": "array"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Languages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "business_hours",
+          "escalation_contacts",
+          "languages",
+          "compiled_t0_context"
+        ],
+        "title": "IntakeStateOut",
         "type": "object"
       },
       "InviteIn": {
@@ -3207,6 +3544,48 @@
         "title": "RollbackOut",
         "type": "object"
       },
+      "ServiceItem": {
+        "additionalProperties": false,
+        "description": "`price_inr` is a STRING (hard rule 7): a price read aloud to a caller must be\nthe digits the client typed, and a JSON float cannot promise that. It is also\noptional \u2014 \"consultation: ask at reception\" is a real answer.",
+        "properties": {
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "price_inr": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "pattern": "^\\d+(\\.\\d{1,2})?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Inr"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ServiceItem",
+        "type": "object"
+      },
       "SetVoiceIn": {
         "additionalProperties": false,
         "description": "`extra=\"forbid\"` so a caller cannot smuggle a second config string (an llm_model,\na tts_provider) into a request whose whole point is one curated choice.",
@@ -3462,6 +3841,47 @@
           "chunks"
         ],
         "title": "SourceOut",
+        "type": "object"
+      },
+      "StaffMember": {
+        "additionalProperties": false,
+        "description": "`pronunciation` is not decoration \u2014 PROMPT-GUIDE \u00a73 requires proper nouns to be\nspelled phonetically in [T0 FACTS], because a mispronounced doctor's name is the\nfirst thing a caller notices.",
+        "properties": {
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "pronunciation": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pronunciation"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "StaffMember",
         "type": "object"
       },
       "SubjectExportIn": {
@@ -4704,6 +5124,116 @@
           "admin"
         ],
         "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {
+      "get": {
+        "description": "No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's\nscope directly rather than opening the cross-tenant directory it does not need.",
+        "operationId": "read_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntakeStateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Reopen the intake step \u2014 what is durably stored, and only that",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "post": {
+        "description": "Compiles the answers into the agent's [T0 FACTS] block, stores the block as `prompt_versions.compiled_t0_context` (D-39), seeds the knowledge base with the same facts awaiting approval, and re-publishes a live agent. Idempotent: unchanged answers mint no new prompt version.",
+        "operationId": "record_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntakeFacts"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntakeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Wizard step 3 \u2014 the client's business facts (FLOWS \u00a71 step 3)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
       }
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": {
