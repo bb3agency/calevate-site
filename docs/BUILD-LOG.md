@@ -1088,6 +1088,80 @@ is the one status that says the request was not performed); narrowing
 `TRUSTED_PROXY_CIDRS` (the correct value is a deployment fact, and guessing wrong 401s
 100% of real traffic).
 
+**44. Closing what the sweep found: eight agents on the recorded gaps**
+
+The audit sweep (§43) produced a list of defects it could NOT fix from inside its own
+territories. This round closed them. Every fix was reproduced by a failing test first.
+
+- **Spend caps became real.** `spend_state.capped` was never set to `true` by anything,
+  so `hard_cap_min` and `hard_cap_spend` were displayed in two panels and enforced by
+  nothing. The flag is now computed inside the same statement that accumulates the
+  counters — not a re-read, because two calls finishing at once would each see a
+  pre-cap total and neither would arm the cap.
+
+  Building it exposed a worse problem than the one it fixed: **the meter is the only
+  writer, and a capped tenant meters nothing.** Inbound traffic hides it (inbound is
+  never gated, so it keeps metering and rolls the month over) — but an outbound-only
+  campaign client, exactly the kind that hits a spend cap, would be capped in July,
+  refused every dial in August, with no call able to complete and clear the flag. Ever.
+  Both readers now check the month: a cap belonging to a closed billing month is not a
+  cap.
+- **`POST /v1/agents/{id}/publish` could not be called by anyone** — 401 without the
+  impersonation header (its `Depends(db)` fell through to the CLIENT verifier), 403 with
+  it (D-22 refuses mutating permissions while impersonating). Its `assert` was
+  unreachable code. Moved to `POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish`,
+  the pattern every other admin mutation uses. The test that pins it is structural: it
+  fails for ANY future admin-realm mutating route that resolves its tenant through
+  `tenant_of` — the shape that made this un-callable rather than merely buggy.
+- **DB errors echoed raw transcripts.** A failed transcript insert produced a
+  738-character message ending in the bound Telugu turn with the caller's number in it.
+  The 200-char log truncation was assumed to be the backstop; it is not — the outbox
+  writes 500 chars of that same string into `outbox_messages.last_error`, a DATABASE
+  COLUMN past every log redaction hook, and for this statement the cut lands just short
+  of the parameters. That is luck measured in SQL length, not a control.
+- **The big red switch could be ignored indefinitely.** The load-shed cache had no TTL
+  and was invalidated by a best-effort DELETE inside a swallowed `except` — so one
+  failed Redis call, exactly what happens when Redis is flaky, left every process
+  reading a stale "open" forever. The read now refuses a key with no expiry, which is
+  what heals one written by a pre-fix process.
+- **The post-call stall alarm had never fired** (blind under RLS, same root cause as the
+  reconciliation poller), and **a hot-lead email that failed to send told nobody**. The
+  trap in fixing the second one: the old idempotence check treated ANY notification row
+  as a duplicate, so a retry would have found the `delivered: false` row it wrote itself
+  — a decorative ladder plus a timeline claiming the client was told.
+- **The DPDP erasure right can now be exercised.** `execute_deletion_request` was a
+  registered worker that nothing could enqueue. The end-to-end test asserts the proof's
+  `subject_hash` equals the export path's `subject_ref(phone)` — the thing that lets an
+  auditor line an access request up against an erasure, and the one thing nothing
+  checked, because the two halves had never met.
+- **A superseded knowledge base stayed live on the agent.** The protocol had `attach_kb`
+  and no detach, so a rollback attached every version at once. `attach_kb` now returns
+  the VENDOR's handle, which is the load-bearing part: our `kb_sources.id` addresses
+  nothing on their side, so the obvious `DELETE /knowledgebase/{our uuid}` would have
+  404'd forever while looking like a working detach.
+- **A killed dispatcher can no longer loop a poison message forever** — the attempt bump
+  lived in the dispatcher's transaction, so a SIGKILL rolled it back and the row returned
+  to `pending` with `attempt_count = 0`. `locked_until` over a `claimed` status because a
+  lapsed lease is picked up by the claim query dispatchers already run: the recovery path
+  IS the normal path, so nothing needs a reaper.
+
+**The finding that could not be fixed, and should not have been.** The same migration
+tried to add a partial unique index on `credit_ledger (tenant_id, ref)` and could not:
+**21 pairs already violate it** — 19 topups and 2 usage charges, real double-credits left
+by the check-then-write races fixed in §43. They cannot be cleaned, because the ledger is
+append-only with a database trigger enforcing it, and dropping that trigger to delete
+money rows would do exactly what hard rule 4 forbids while destroying the evidence.
+Forcing the index with a skip-if-violations clause or a date cutoff was rejected too: the
+first leaves the constraint present in some environments and absent in others, the second
+hides 21 unreconciled pairs behind a clean-looking index. The route is compensating
+entries first, index second.
+
+**Test hygiene, twice.** `xfail_strict` was never set, so an xfail that starts passing
+was a silent XPASS — this repo uses xfail to PIN a known defect to the file that owns it,
+and without strictness the pin stops meaning anything the moment someone fixes it. And
+the caps tests hardcoded July as "this month", which passed only because nothing checked
+the month; they are relative now, so they cannot rot in September.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
