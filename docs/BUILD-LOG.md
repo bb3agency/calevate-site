@@ -1222,6 +1222,80 @@ a measurement afterwards still found ~11 fresh violating pairs in ten minutes. A
 one more minter exists. The refusal stands until it is named — an index that fires in
 production is worse than the duplicates it would have caught.
 
+## §46 — the waves that went after what nothing was watching
+
+Suite: **1036 passed, 8 skipped, 3 xfailed** on a clean tree. Fourteen territories, each
+committed only after its own verification was re-run independently of the agent's report.
+
+**Four holes that no test could have caught, because nothing was looking.**
+
+- **A guard hard rule 3 rested on did not exist.** `apps/voice-runtime/main.py` cited
+  `import_surface_test.py` by name; there was no such file. `make guardrails` could not
+  have covered it either — grimp walks `apps` as a package tree, and D-18's hyphenated
+  `apps/voice-runtime` is not a legal module name, so `build_graph("apps")` returns 109
+  modules and none of them are this service. The engine-isolation comment in
+  `pyproject.toml` was intent with nothing behind it.
+- **PostgreSQL runs foreign-key checks with row security BYPASSED.** So `submit_source`
+  not checking that `agent_id` belonged to the caller was not covered by RLS: the row
+  landed with tenant B's `tenant_id` and tenant A's `agent_id`, and the unique index —
+  also evaluated over all rows — took a slot A could never use again. A's own submit then
+  died on a UniqueViolation caused by a row A cannot see, list or delete. Cross-tenant
+  denial of service plus an existence oracle. Publishing it was already refused, which is
+  exactly what made it look harmless.
+- **A call the engine never dated never aged out.** `calls.ended_at` is nullable and
+  vendor-supplied; every predicate in the retention sweep compared it to a cutoff, and
+  NULL compares to nothing. Such a call kept its recording, transcript and summary
+  FOREVER — invisible to the probe, to all four statements, to the counters and to the
+  tenant's own policy. A legal obligation switched off by a missing vendor field.
+- **A staff reader could pull transcript text off the calls list.** The offline extractor
+  returns the last transcript line verbatim, speaker prefix included, and that is what
+  runs with no provider key. The pipeline stored it raw and the CRM surfaces returned it
+  raw; `staff` holds `calls:read` and not `calls:read_raw`. A fourth exit nobody had
+  named: `plan_callback` rendered the raw summary into the outbound agent's PROMPT, so it
+  left to the engine and could be spoken back to the person being rung.
+
+**The compliance gate stopped being asked once a campaign was `running`.** `check_dispatch`
+is per-number and per-agent — it structurally cannot see the DLT template, the header
+registration, the PE registration, the TM link, our own TM registration, or the list's
+consent provenance. Six facts verified once at launch and never again, every one of them
+withdrawable mid-campaign by a registrar or a TSP, with `resume` a bare CAS carrying no
+gate at all. And a cancelled tick re-rang people it had already called: the claim shared a
+transaction with the dial loop, and `except Exception` does not catch `CancelledError`.
+
+**The credit-ledger index, settled at the fifth attempt — the key was wrong, not the
+predicate.** `credit_ledger.ref` is two namespaces in one column: a `usage` row carries a
+call id, a `topup` row carries whatever the bank printed, and `payment_ref` accepts any
+3-120 character string. The system does not prevent that collision, it TOLERATES it, in
+three places deliberately. `UNIQUE (tenant_id, ref)` would have turned a defended-against
+collision into a 500 on a valid payment. The unnamed minter that stalled four attempts was
+a test asserting exactly that tolerance: 11 violating pairs under the old key, zero under
+`(tenant_id, reason, ref)`. The migration does not build on the shared dev database, on
+purpose — it holds two duplicate groups stamped 2027 that hard rule 4 makes permanent, and
+a cutoff chosen to dodge dev residue protects nothing.
+
+**Two documents were telling people things that were not true.** The erasure certificate
+promised the audio "is removed by the object-store lifecycle rule, floored at 90 days";
+SEC-COMP §4 records that policy as a bucket-wide CEILING of 2555 days that cannot follow a
+per-tenant rule, and no per-tenant mechanism deletes recording bytes at all. And
+`consent_ledger.phone_e164` is NOT NULL and erasure never touches it, so the number itself
+survives — while the notice read as "nothing about the person remains". Both widened; no
+behaviour changed, because §4 forbids making the pointer-clear conditional on age until a
+human decides.
+
+**What was refused, and rightly.** The TTL divergence (docs 24 months, seed 365/1095/90) —
+§4 names the founder as decider, so it got a tripwire asserting the divergence is still
+DECLARED rather than a silent pick. The erasure/floor precedence — a legal question, so
+the collisions are counted and warned, not resolved. 140/160 series enforcement — a
+refusal to launch or dispatch, never a choice of outgoing header, because the engine
+contract carries no from-number and the docs specify none. A Google adapter — no service
+account exists, and an adapter written against an API nobody can call looks finished and
+is not. A concurrent-submit collision in KB that could not be reproduced deterministically
+— not fixed on the strength of a flaky test.
+
+**One process lesson.** A repo-wide `ruff check --fix .` in an agent brief rewrote files
+three other agents held open. Nothing was lost, but the briefs now scope it per-directory,
+and `make db-reset` is prohibited outright while the dev database is shared.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
