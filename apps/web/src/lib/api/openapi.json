@@ -968,6 +968,34 @@
         "title": "ChunkOut",
         "type": "object"
       },
+      "ConsentProvenanceIn": {
+        "additionalProperties": false,
+        "description": "Where this list's consent came from, and when (SEC-COMP \u00a73).\n\n`source` is a Literal, not a string: the wire type IS the enum, so the generated\nTypeScript client offers a client the five real answers instead of a free-text box\nsomebody types \"yes\" into. `purchased_list` is offered because the gate has to be\nable to refuse it by name \u2014 see campaigns/models.py.",
+        "properties": {
+          "collected_at": {
+            "format": "date-time",
+            "title": "Collected At",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "existing_customer",
+              "inbound_enquiry",
+              "web_form_optin",
+              "offline_form_optin",
+              "purchased_list"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "collected_at"
+        ],
+        "title": "ConsentProvenanceIn",
+        "type": "object"
+      },
       "ContactIn": {
         "additionalProperties": false,
         "properties": {
@@ -1036,6 +1064,16 @@
             "minimum": 1.0,
             "title": "Concurrency",
             "type": "integer"
+          },
+          "consent_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsentProvenanceIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "dlt_template_id": {
             "anyOf": [
@@ -1400,14 +1438,12 @@
           "proof": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/ErasureProofOut"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Proof"
+            ]
           },
           "request_id": {
             "format": "uuid",
@@ -1489,14 +1525,12 @@
           "proof": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/ErasureProofOut"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Proof"
+            ]
           },
           "request_id": {
             "format": "uuid",
@@ -1712,6 +1746,79 @@
           "created_at"
         ],
         "title": "EndpointOut",
+        "type": "object"
+      },
+      "ErasureProofOut": {
+        "additionalProperties": false,
+        "description": "The certificate the subject can be shown. Carries no personal data by\nconstruction: a subject hash, timestamps, counts, and plain statements of what was\ndone to each table.\n\n`engine_deletion` is a status string rather than a boolean because the honest answer\ntoday is neither true nor false \u2014 Bolna's deletion API is undocumented (a pilot\ngate), and a certificate that claimed an engine-side deletion we cannot demonstrate\nwould be the one lie a compliance document must not contain.",
+        "properties": {
+          "actions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Actions",
+            "type": "object"
+          },
+          "engine_deletion": {
+            "title": "Engine Deletion",
+            "type": "string"
+          },
+          "executed_at": {
+            "title": "Executed At",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ErasureScopeOut"
+          },
+          "subject_hash": {
+            "title": "Subject Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_hash",
+          "executed_at",
+          "scope",
+          "actions",
+          "engine_deletion"
+        ],
+        "title": "ErasureProofOut",
+        "type": "object"
+      },
+      "ErasureScopeOut": {
+        "additionalProperties": false,
+        "description": "WHAT was erased, by hash and count \u2014 never by id and never by number.\n\n`calls` and `leads` are lists of hashes rather than uuids on purpose: an auditor\nneeds to see that the scope was non-empty and stable across a re-run, and a hash\nproves both without handing the reader a set of primary keys to go and look up.",
+        "properties": {
+          "call_extractions_erased": {
+            "title": "Call Extractions Erased",
+            "type": "integer"
+          },
+          "calls": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Calls",
+            "type": "array"
+          },
+          "leads": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Leads",
+            "type": "array"
+          },
+          "transcript_turns_erased": {
+            "title": "Transcript Turns Erased",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "calls",
+          "leads",
+          "transcript_turns_erased",
+          "call_extractions_erased"
+        ],
+        "title": "ErasureScopeOut",
         "type": "object"
       },
       "ExtractionField": {
@@ -2113,6 +2220,13 @@
             "title": "Offset",
             "type": "integer"
           },
+          "status_counts_matching_search": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Status Counts Matching Search",
+            "type": "object"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -2123,7 +2237,8 @@
           "columns",
           "total",
           "limit",
-          "offset"
+          "offset",
+          "status_counts_matching_search"
         ],
         "title": "LeadListOut",
         "type": "object"
@@ -5653,6 +5768,61 @@
         "x-calevate-permission": "leads:read"
       }
     },
+    "/v1/campaigns/{campaign_id}/consent-provenance": {
+      "post": {
+        "description": "The answer path for a draft created before the provenance columns existed.\n\nAudited: a client's assertion about where five thousand phone numbers came from is\nexactly the kind of statement that has to be attributable later \u2014 it is the record\n\u00a73's \"refused, in writing\" refers to. `leads:dispatch`, not a read permission,\nbecause declaring provenance is what unlocks dialling.",
+        "operationId": "declare_consent_provenance_v1_campaigns__campaign_id__consent_provenance_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentProvenanceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Declare Consent Provenance V1 Campaigns  Campaign Id  Consent Provenance Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Where this list's consent came from (SEC-COMP \u00a73) \u2014 draft campaigns only",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/campaigns/{campaign_id}/contacts": {
       "post": {
         "operationId": "add_contacts_v1_campaigns__campaign_id__contacts_post",
@@ -6752,6 +6922,39 @@
                 }
               ],
               "title": "Agent Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 60,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
             }
           }
         ],

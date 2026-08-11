@@ -677,6 +677,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/consent-provenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Where this list's consent came from (SEC-COMP §3) — draft campaigns only
+         * @description The answer path for a draft created before the provenance columns existed.
+         *
+         *     Audited: a client's assertion about where five thousand phone numbers came from is
+         *     exactly the kind of statement that has to be attributable later — it is the record
+         *     §3's "refused, in writing" refers to. `leads:dispatch`, not a read permission,
+         *     because declaring provenance is what unlocks dialling.
+         */
+        post: operations["declare_consent_provenance_v1_campaigns__campaign_id__consent_provenance_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/contacts": {
         parameters: {
             query?: never;
@@ -1626,6 +1651,27 @@ export interface components {
             /** Idx */
             idx: number;
         };
+        /**
+         * ConsentProvenanceIn
+         * @description Where this list's consent came from, and when (SEC-COMP §3).
+         *
+         *     `source` is a Literal, not a string: the wire type IS the enum, so the generated
+         *     TypeScript client offers a client the five real answers instead of a free-text box
+         *     somebody types "yes" into. `purchased_list` is offered because the gate has to be
+         *     able to refuse it by name — see campaigns/models.py.
+         */
+        ConsentProvenanceIn: {
+            /**
+             * Collected At
+             * Format: date-time
+             */
+            collected_at: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "existing_customer" | "inbound_enquiry" | "web_form_optin" | "offline_form_optin" | "purchased_list";
+        };
         /** ContactIn */
         ContactIn: {
             /** Custom */
@@ -1655,6 +1701,7 @@ export interface components {
              * @default 3
              */
             concurrency: number;
+            consent_provenance?: components["schemas"]["ConsentProvenanceIn"] | null;
             /** Dlt Template Id */
             dlt_template_id?: string | null;
             /** Name */
@@ -1791,10 +1838,7 @@ export interface components {
             completed_at: string | null;
             /** Limitations */
             limitations: string[];
-            /** Proof */
-            proof: {
-                [key: string]: unknown;
-            } | null;
+            proof: components["schemas"]["ErasureProofOut"] | null;
             /**
              * Request Id
              * Format: uuid
@@ -1835,10 +1879,7 @@ export interface components {
             completed_at: string | null;
             /** Limitations */
             limitations: string[];
-            /** Proof */
-            proof: {
-                [key: string]: unknown;
-            } | null;
+            proof: components["schemas"]["ErasureProofOut"] | null;
             /**
              * Request Id
              * Format: uuid
@@ -1930,6 +1971,48 @@ export interface components {
             secret_fingerprint: string | null;
             /** Url */
             url: string | null;
+        };
+        /**
+         * ErasureProofOut
+         * @description The certificate the subject can be shown. Carries no personal data by
+         *     construction: a subject hash, timestamps, counts, and plain statements of what was
+         *     done to each table.
+         *
+         *     `engine_deletion` is a status string rather than a boolean because the honest answer
+         *     today is neither true nor false — Bolna's deletion API is undocumented (a pilot
+         *     gate), and a certificate that claimed an engine-side deletion we cannot demonstrate
+         *     would be the one lie a compliance document must not contain.
+         */
+        ErasureProofOut: {
+            /** Actions */
+            actions: {
+                [key: string]: string;
+            };
+            /** Engine Deletion */
+            engine_deletion: string;
+            /** Executed At */
+            executed_at: string;
+            scope: components["schemas"]["ErasureScopeOut"];
+            /** Subject Hash */
+            subject_hash: string;
+        };
+        /**
+         * ErasureScopeOut
+         * @description WHAT was erased, by hash and count — never by id and never by number.
+         *
+         *     `calls` and `leads` are lists of hashes rather than uuids on purpose: an auditor
+         *     needs to see that the scope was non-empty and stable across a re-run, and a hash
+         *     proves both without handing the reader a set of primary keys to go and look up.
+         */
+        ErasureScopeOut: {
+            /** Call Extractions Erased */
+            call_extractions_erased: number;
+            /** Calls */
+            calls: string[];
+            /** Leads */
+            leads: string[];
+            /** Transcript Turns Erased */
+            transcript_turns_erased: number;
         };
         /** ExtractionField */
         ExtractionField: {
@@ -2102,6 +2185,10 @@ export interface components {
             limit: number;
             /** Offset */
             offset: number;
+            /** Status Counts Matching Search */
+            status_counts_matching_search: {
+                [key: string]: number;
+            };
             /** Total */
             total: number;
         };
@@ -4075,6 +4162,43 @@ export interface operations {
             };
         };
     };
+    declare_consent_provenance_v1_campaigns__campaign_id__consent_provenance_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsentProvenanceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     add_contacts_v1_campaigns__campaign_id__contacts_post: {
         parameters: {
             query?: never;
@@ -4884,6 +5008,8 @@ export interface operations {
         parameters: {
             query?: {
                 agent_id?: string | null;
+                status?: string | null;
+                search?: string | null;
             };
             header?: never;
             path?: never;
