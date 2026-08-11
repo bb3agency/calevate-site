@@ -6,7 +6,9 @@ import { useState } from "react";
 import { Providers } from "@/app/providers";
 import { Card, ProblemNotice } from "@/components/ui";
 import {
+  SIGNUP_CONTACT_EMAIL,
   SIGNUP_LANGUAGES,
+  SIGNUP_OPEN,
   SIGNUP_VERTICALS,
   isSignupClosed,
   isSignupDeferred,
@@ -29,12 +31,20 @@ import {
  * membership is what the call creates. So the page says who it is for, rather than
  * silently 401-ing someone who arrived without an account.
  *
- * **A closed deployment says it is closed.** The kill switch DEFAULTS OFF, so on most
- * deployments every submission is refused with `signup_disabled` — a normal state of
- * the world, not a fault. Rendering that as a red "something went wrong" would send a
- * business hunting for a mistake they did not make, so it gets a calm panel and the
- * other door (talk to us). Load-shedding gets the same treatment with "shortly"
- * attached, because that one really does clear on its own.
+ * **A closed deployment says it is closed BEFORE the form, not after it.** The kill
+ * switch DEFAULTS OFF, so on most deployments every submission is refused with
+ * `signup_disabled` — a normal state of the world, not a fault. This page used to
+ * learn that only from the refusal, which meant a closed deployment walked a business
+ * through five fields and a submit before answering "no"; the form was decoration over
+ * a door that was never going to open. `SIGNUP_OPEN` (build-time, defaulting to
+ * CLOSED, documented in lib/api/signup.ts) now decides up front, and the same calm
+ * panel — with the other door on it — is what the closed deployment renders instead of
+ * the form.
+ *
+ * The refusal path stays wired up underneath, because the config can only ever be
+ * stale and the server is the authority: a build that says open against a server that
+ * says closed still lands on the identical panel, and load-shedding — which no
+ * build-time flag can predict — still arrives that way with "shortly" attached.
  *
  * **What a new account can and cannot do is the SERVER's sentence.** `next_steps`
  * comes back on the response for exactly that reason — the wallet gate and the KYC
@@ -46,10 +56,86 @@ export default function SignupPage() {
     <Providers>
       <div className="min-h-full bg-slate-50 dark:bg-slate-950">
         <main className="mx-auto max-w-xl px-4 py-10">
-          <SignupForm />
+          {/* The gate sits HERE, above the form component, so a closed deployment does
+              not mount the form at all: no state, no mutation hook, and therefore no
+              submit path that could reach an endpoint certain to refuse it. */}
+          {SIGNUP_OPEN ? <SignupForm /> : <SignupClosed deferred={false} />}
         </main>
       </div>
     </Providers>
+  );
+}
+
+/**
+ * The closed door, said once — reached two ways and identical from both.
+ *
+ * `deferred` splits the two closures because they have different lifetimes and so
+ * different instructions: the kill switch will not clear by waiting (talk to us),
+ * load-shedding will (try again shortly). Collapsing them would either tell a business
+ * to wait for something that is never going to happen on its own, or send someone to
+ * support over a five-minute reduced-mode window.
+ *
+ * There is deliberately NO form here and no disabled submit button: a control whose
+ * only possible outcome is a refusal is not an affordance, it is a trap. What replaces
+ * it is the route that does work — a human at Calevate opening the account by hand,
+ * which is how every account is opened today anyway.
+ */
+function SignupClosed({
+  deferred,
+  remediation,
+  onRetry,
+}: {
+  deferred: boolean;
+  remediation?: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
+        {deferred ? "Not right now" : "Signing up online is closed"}
+      </h1>
+      <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+        <p>
+          {deferred
+            ? "We are not creating new accounts at this moment — the platform is running in a reduced mode. Nothing you entered was wrong; try again shortly."
+            : "Calevate does not open accounts online yet. Every workspace is set up by hand with you, so there is nothing to fill in here — and nothing you have done is wrong."}
+        </p>
+        {/* The server's sentence wins when there is one; it knows why THIS request was
+            refused. The fallback is only for the build-time closure, where no request
+            was made and so no server has spoken. */}
+        <p className="mt-2">
+          {remediation ??
+            (deferred
+              ? "Give it a few minutes and try again."
+              : "Talk to us and we will set your workspace up — usually the same day.")}
+        </p>
+        {!deferred && SIGNUP_CONTACT_EMAIL && (
+          <p className="mt-2">
+            Write to{" "}
+            <a className="font-medium underline" href={`mailto:${SIGNUP_CONTACT_EMAIL}`}>
+              {SIGNUP_CONTACT_EMAIL}
+            </a>
+            , or reply to whoever showed you the demo.
+          </p>
+        )}
+        {!deferred && (
+          <p className="mt-3 text-xs text-slate-500">
+            Already have a workspace? It lives at{" "}
+            <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">/c/your-slug</code> —
+            the URL your account manager gave you.
+          </p>
+        )}
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-3 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium dark:border-slate-700"
+          >
+            Try again
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -114,28 +200,13 @@ function SignupForm() {
   if (isSignupClosed(signup.error) || isSignupDeferred(signup.error)) {
     const deferred = isSignupDeferred(signup.error);
     return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
-          {deferred ? "Not right now" : "Signing up online is closed"}
-        </h1>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-          <p>
-            {deferred
-              ? "We are not creating new accounts at this moment — the platform is running in a reduced mode. Nothing you entered was wrong; try again shortly."
-              : "This Calevate deployment does not open accounts online. That is a setting on our side, not a problem with anything you entered."}
-          </p>
-          <p className="mt-2">{signup.error.remediation ?? "Talk to us and we will set your account up."}</p>
-          {deferred && (
-            <button
-              type="button"
-              onClick={() => signup.reset()}
-              className="mt-3 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium dark:border-slate-700"
-            >
-              Try again
-            </button>
-          )}
-        </div>
-      </div>
+      <SignupClosed
+        deferred={deferred}
+        // The server's own sentence when it gave one — it knows why it refused this
+        // request and we do not.
+        remediation={signup.error.remediation}
+        onRetry={deferred ? () => signup.reset() : undefined}
+      />
     );
   }
 

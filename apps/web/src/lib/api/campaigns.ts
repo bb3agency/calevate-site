@@ -26,25 +26,27 @@ export type LaunchCheck = Schemas["LaunchCheckOut"];
 export type LaunchResult = Schemas["LaunchOut"];
 export type CampaignProgress = Schemas["ProgressOut"];
 export type AddContactsResult = Schemas["AddContactsOut"];
-export type Classification = "promotional" | "transactional" | "service";
 
-export interface NewCampaign {
-  agent_id: string;
-  name: string;
-  classification: Classification;
-  number_id?: string | null;
-  dlt_template_id?: string | null;
-  concurrency?: number;
-  // Omitted/null = "no extra restriction, the platform's 09:00-21:00 IST window
-  // applies". A campaign window may only NARROW that legal bound — the server
-  // rejects anything wider (campaign_window_outside_platform_hours).
-  calling_hours?: { start: string; end: string } | null;
-  // All-or-nothing by construction: source and collection date travel as ONE nested
-  // object, so "a source with no date" is not a shape this client can send. Null is a
-  // campaign that has not answered §3's provenance question yet — a legal state to
-  // create, never a legal state to dial from (`consent_provenance_missing`).
-  consent_provenance?: ConsentProvenance | null;
-}
+/**
+ * The create-campaign body — the SERVER's model, not a hand-written copy of it.
+ *
+ * This was an interface restating all seven fields, which is the drift the "typed
+ * client generated from OpenAPI" convention forbids: a field added, renamed or made
+ * nullable on `CreateCampaignIn` would have compiled cleanly here and failed at 422.
+ * The two properties worth knowing are still worth saying, so they are said here
+ * rather than re-declared:
+ *
+ * - `calling_hours` omitted/null = "no extra restriction, the platform's 09:00-21:00
+ *   IST window applies". A campaign window may only NARROW that legal bound — the
+ *   server rejects anything wider (`campaign_window_outside_platform_hours`).
+ * - `consent_provenance` is all-or-nothing by construction: source and collection
+ *   date travel as ONE nested object, so "a source with no date" is not a shape this
+ *   client can send. Null is a campaign that has not answered §3's provenance
+ *   question yet — a legal state to create, never a legal state to dial from
+ *   (`consent_provenance_missing`).
+ */
+export type NewCampaign = Schemas["CreateCampaignIn"];
+export type Classification = NewCampaign["classification"];
 
 /**
  * Where a contact list's consent came from (SEC-COMP §3).

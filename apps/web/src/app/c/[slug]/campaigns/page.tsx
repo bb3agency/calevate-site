@@ -24,6 +24,7 @@ import {
   useLaunchCampaign,
   useLaunchCheck,
   usePauseCampaign,
+  type CampaignSummary,
   type Classification,
   type ConsentSource,
 } from "@/lib/api/campaigns";
@@ -113,6 +114,47 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
       "campaign can't launch. If that answer was a mistake, correct it below; otherwise build " +
       "the list from your own customers and enquiries.",
     owner: "client",
+  },
+};
+
+/**
+ * The same two rules again, sized for a LIST ROW rather than a launch panel.
+ *
+ * Two separate entries, never one "needs attention" — the values mean different things
+ * and end differently, and the list is where a client decides what to open next:
+ *
+ *  - `consent_provenance_missing` is a question with an answer. The row is one click
+ *    from the form that clears it, and nothing about the campaign is wrong yet.
+ *  - `consent_source_refused` is a decision. The list is bought or rented, Calevate
+ *    will not dial it, and no amount of opening the campaign changes that — the only
+ *    thing behind the click is correcting a mis-answer, so that is what the link says.
+ *    Sending a client to "fix" it would be a lie; letting them think the first message
+ *    applies would waste a trip.
+ *
+ * Keyed by the API's own rule names so the list, `/launch-check` and the panel below
+ * are all describing one fact. The names themselves stay out of the DOM.
+ */
+const LIST_PROVENANCE_COPY: Record<
+  NonNullable<CampaignSummary["consent_provenance_blocker"]>,
+  { badge: string; badgeClass: string; text: string; action: string }
+> = {
+  consent_provenance_missing: {
+    badge: "Needs one answer",
+    badgeClass:
+      "border-amber-300 text-amber-700 dark:border-amber-700/60 dark:text-amber-400",
+    text:
+      "This campaign can't go out until you say where the list came from and when those " +
+      "people agreed to be called. Your contacts stay as they are.",
+    action: "Answer it",
+  },
+  consent_source_refused: {
+    badge: "Can't be launched",
+    badgeClass: "border-rose-300 text-rose-700 dark:border-rose-800 dark:text-rose-400",
+    text:
+      "This list is recorded as bought or rented, and Calevate doesn't dial purchased " +
+      "lists — nobody on them agreed to hear from you. The campaign stays here but can't " +
+      "be launched.",
+    action: "If that was a mistake, correct it",
   },
 };
 
@@ -326,41 +368,62 @@ export default function CampaignsPage() {
 
       {!campaignId && (campaigns.data?.length ?? 0) > 0 && (
         <Card title="Your campaigns">
-          {/* SYMPTOM this fixes: a draft built before the provenance rule existed is now
-              blocked, and nothing on the landing view of this screen says so — the
-              client sees a normal-looking draft, opens it, and meets a refusal with no
-              hint that it is answerable. The list cannot tell WHICH drafts are missing
-              provenance (the summary carries no consent fields — see the backend note
-              at the foot of this file), so it says the honest thing: drafts now have one
-              more question, and opening one shows whether it has been answered. */}
-          {(campaigns.data ?? []).some((c) => c.status === "draft") && (
-            <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-300">
-              Campaigns now need one more answer before they can go out: where the contact
-              list came from, and when those people agreed to be called. Open a draft to
-              check — if it&apos;s missing, you can record it there without touching your
-              contacts.
-            </p>
-          )}
+          {/* SYMPTOM this fixed: a draft built before the provenance rule existed is
+              now blocked, and nothing on the landing view said so — the client saw a
+              normal-looking draft, opened it, and met a refusal with no hint it was
+              answerable. This used to be one general notice above the list, because the
+              summary carried no consent field and the list genuinely could not tell
+              WHICH drafts were affected. It can now: `consent_provenance_blocker` names
+              the exact rule per row, so the warning moved onto the rows it is about and
+              the rows it is not about say nothing. */}
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-            {(campaigns.data ?? []).map((campaign) => (
-              <li key={campaign.id} className="flex flex-wrap items-center gap-2 py-2.5">
-                <button
-                  type="button"
-                  onClick={() => setCampaignId(campaign.id)}
-                  className="text-sm font-medium text-slate-800 underline-offset-2 hover:underline dark:text-slate-200"
-                >
-                  {campaign.name}
-                </button>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                  {campaign.status}
-                </span>
-                <span className="text-xs text-slate-500">{campaign.classification}</span>
-                <span className="ml-auto text-xs text-slate-500">
-                  {campaign.connected}/{campaign.contacts} reached ·{" "}
-                  {campaign.launched_at ? formatIST(campaign.launched_at) : "not launched"}
-                </span>
-              </li>
-            ))}
+            {(campaigns.data ?? []).map((campaign) => {
+              const blocker = campaign.consent_provenance_blocker ?? null;
+              const note = blocker ? LIST_PROVENANCE_COPY[blocker] : null;
+              return (
+                <li key={campaign.id} className="py-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCampaignId(campaign.id)}
+                      className="text-sm font-medium text-slate-800 underline-offset-2 hover:underline dark:text-slate-200"
+                    >
+                      {campaign.name}
+                    </button>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      {campaign.status}
+                    </span>
+                    <span className="text-xs text-slate-500">{campaign.classification}</span>
+                    {/* The badge is the rule in the client's words. The enum name itself
+                        is never rendered — it is the launch gate's vocabulary, not a
+                        sentence anyone reading this list can act on. */}
+                    {note && (
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${note.badgeClass}`}
+                      >
+                        {note.badge}
+                      </span>
+                    )}
+                    <span className="ml-auto text-xs text-slate-500">
+                      {campaign.connected}/{campaign.contacts} reached ·{" "}
+                      {campaign.launched_at ? formatIST(campaign.launched_at) : "not launched"}
+                    </span>
+                  </div>
+                  {note && (
+                    <p className="mt-1 max-w-2xl text-xs text-slate-600 dark:text-slate-400">
+                      {note.text}{" "}
+                      <button
+                        type="button"
+                        onClick={() => setCampaignId(campaign.id)}
+                        className="font-medium underline underline-offset-2"
+                      >
+                        {note.action}
+                      </button>
+                    </p>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </Card>
       )}
@@ -994,15 +1057,21 @@ function ConsentProvenanceAnswer({
 }
 
 /**
- * BACKEND GAP recorded here so it is not rediscovered from a support ticket.
+ * BACKEND GAP — CLOSED. Kept as the record of what the fix was.
  *
- * `CampaignSummaryOut` (GET /v1/campaigns) carries `status` but not `consent_source`,
- * so this screen cannot say WHICH drafts are missing provenance without running the
- * full launch gate once per draft. A client with a dozen drafts therefore gets a
- * general notice on the list and the specific answer only after opening one.
+ * `CampaignSummaryOut` (GET /v1/campaigns) used to carry `status` but nothing about
+ * consent, so this screen could not say WHICH drafts were missing provenance without
+ * running the full launch gate once per draft; the list showed one general notice and
+ * the specific answer arrived only after opening a campaign.
  *
- * The cheap fix is one nullable field on the summary — `consent_source` (or a derived
- * `needs_consent_provenance` boolean) — after which the list can flag the exact rows
- * and link straight to the answer. Adding it is a response-model change plus a
- * `pnpm gen:api`; nothing here needs redesigning to use it.
+ * It now carries `consent_provenance_blocker` — and it landed as the NAMED RULE rather
+ * than the `needs_consent_provenance` boolean this note originally asked for, which is
+ * the better shape: a boolean would have merged "answer this" with "this can never
+ * launch", and the list would have sent a client with a purchased list to a form that
+ * cannot help them. `LIST_PROVENANCE_COPY` above keeps the two apart for exactly that
+ * reason.
+ *
+ * Nothing left open here. The remaining per-campaign detail (which of the DLT, agent
+ * and contact blockers apply) still needs `/launch-check`, and correctly so — that is
+ * the whole gate, not a list column.
  */
