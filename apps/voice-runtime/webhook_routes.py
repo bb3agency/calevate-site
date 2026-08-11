@@ -2,15 +2,21 @@
 
 The contract this file must satisfy, in order:
 
-1. **Verify authenticity per engine.** For Bolna that is a source-IP allowlist —
-   there is no signature to check (D-31) — plus execution-id dedupe.
-2. **Ack in under 500ms.** Measured on every request (`record_webhook_ack_ms`) so a
-   regression shows up as a metric, not as a mystery.
+1. **Verify authenticity per engine, before reading a byte of body.** For Bolna that
+   is a source-IP allowlist — there is no signature to check (D-31) — plus
+   execution-id dedupe. Everything after this step is work done for a caller we have
+   already decided to trust, which is why the order matters.
+2. **Ack in under 500ms.** Measured AND reported on every response path
+   (`X-Ack-Ms` + `record_webhook_ack_ms`), so a regression shows up as a number
+   rather than as a mystery — including on the paths a flood would take.
 3. **Defer all real work to ARQ.** Nothing here fetches, parses costs, or writes a
    domain row.
 4. **No DB writes beyond the minimal event row** — the inbox claim (dedupe) and the
    forensic delivery row. Both are infra tables, neither is tenant-scoped, and the
    tenant is not even resolved here.
+5. **Answer every request deliberately.** Unsigned means anyone who learns the URL can
+   POST: malformed JSON, 200MB of it, ten thousand nested arrays, an engine name we
+   never deployed. Each of those has a chosen answer here; none of them is a 500.
 
 The deeper reason it is this thin: Bolna's delivery is at-most-once with no retries,
 so a slow or failing receiver silently LOSES calls. Being fast is a correctness
@@ -23,6 +29,7 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Any
 
 from apps.api.core.alerting import alert, record_webhook_ack_ms
 from apps.api.core.errors import ProblemError
@@ -45,6 +52,57 @@ router = APIRouter(prefix="/hooks/v1", tags=["engine-webhooks"])
 _DEDUPE_TTL_S = 3600
 INGEST_JOB = "ingest_engine_event"
 
+# Hard rule 3's number, in one place so the metric, the alert and the docs agree.
+_ACK_BUDGET_MS = 500.0
+
+# The largest body we will hold in memory for an UNAUTHENTICATED caller. An execution
+# payload is a status line plus a transcript; a megabyte is already an implausibly long
+# call. Refusing above it is safe precisely because the payload is only a hint (D-31) —
+# the poller still picks the execution up — whereas buffering whatever a stranger sends
+# is an unbounded allocation on the one service that must not stall.
+_MAX_BODY_BYTES = 1_048_576
+
+
+def _ack_ms(started: float) -> float:
+    return (time.perf_counter() - started) * 1000
+
+
+def _ack(response: Response, started: float, engine: str, body: dict[str, str]) -> dict[str, str]:
+    """Every acked path leaves through here, so the budget is measured, alerted and
+    REPORTED identically on all of them.
+
+    The early returns are exactly the paths a flood takes — a duplicate storm, a stream
+    of unkeyable payloads. Instrumenting only the happy path measures the endpoint at
+    its least stressed, which is the opposite of useful.
+    """
+    elapsed = _ack_ms(started)
+    record_webhook_ack_ms(elapsed, provider=engine)
+    if elapsed > _ACK_BUDGET_MS:
+        # Hard rule 3 has a number in it; treat breaching it as an incident signal.
+        alert("ROUTE_HANDLER", "webhook_ack_slow", detail=f"{elapsed:.0f}ms", engine=engine)
+    response.headers["X-Ack-Ms"] = f"{elapsed:.1f}"
+    return body
+
+
+async def _read_bounded(request: Request) -> bytes | None:
+    """The raw body, or None if the caller exceeded the cap.
+
+    Streamed rather than `await request.body()` so an oversized POST is abandoned after
+    a megabyte instead of after all of it. The declared length is checked first, which
+    turns the common case into a rejection that reads nothing at all.
+    """
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > _MAX_BODY_BYTES:
+        return None
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > _MAX_BODY_BYTES:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 
 @router.post(
     "/engine/{engine}",
@@ -54,43 +112,94 @@ INGEST_JOB = "ingest_engine_event"
 async def engine_webhook(engine: str, request: Request, response: Response) -> dict[str, str]:
     started = time.perf_counter()
 
-    # Bootstrap step 6: the RAW bytes are read first and never re-parsed downstream.
-    # Bolna signs nothing today, but an engine that does will need the exact bytes,
-    # and retro-fitting raw-body preservation into a live receiver is miserable.
-    raw = await request.body()
+    # Step 1 — WHO is calling, decided from the socket and the edge headers alone.
+    # It reads no body, so a caller we are going to refuse never gets us to allocate
+    # for them: on a public, unsigned endpoint that ordering is the difference between
+    # a rejection and a memory-exhaustion primitive.
     source_ip = client_ip(
         request.client.host if request.client else None,
         {k.lower(): v for k, v in request.headers.items()},
     )
-
     verdict = verify_source(engine, source_ip)
     if not verdict.ok:
         # Alert, do not process. An unverified event at an unsigned endpoint is either
         # a misconfigured edge or someone probing us; both are worth waking up for.
-        alert("ROUTE_HANDLER", "webhook_source_rejected", detail=verdict.reason, engine=engine)
-        raise ProblemError.unauthorized("This caller is not permitted to post events.")
+        # `source_ip` is in the alert because of the incident it is FOR: the vendor
+        # renumbers, every webhook starts 401ing, every call falls back to the poller.
+        # An alert that says only "not allowlisted" leaves the operator running tcpdump
+        # to learn the one value they need to fix it. Not PII under hard rule 6 — it is
+        # a machine caller's address — and it never appears in the response body.
+        alert(
+            "ROUTE_HANDLER",
+            "webhook_source_rejected",
+            detail=verdict.reason,
+            engine=engine,
+            source_ip=source_ip or "unknown",
+        )
+        refused = ProblemError.unauthorized("This caller is not permitted to post events.")
+        refused.headers["X-Ack-Ms"] = f"{_ack_ms(started):.1f}"
+        raise refused
 
+    # Step 2 — the RAW bytes, bounded, read once and never re-parsed downstream. Bolna
+    # signs nothing today, but an engine that does will need the exact bytes (its
+    # signature check belongs right here, as a SECOND gate after the source check), and
+    # retro-fitting raw-body preservation into a live receiver is miserable.
+    raw = await _read_bounded(request)
+    if raw is None:
+        alert("ROUTE_HANDLER", "webhook_payload_too_large", engine=engine)
+        oversized = ProblemError(
+            kind="validation",
+            code="payload_too_large",
+            title="Payload too large",
+            detail="The event body exceeds the accepted size.",
+            status=413,
+            headers={"X-Ack-Ms": f"{_ack_ms(started):.1f}"},
+        )
+        raise oversized
+
+    # Step 3 — parse defensively. Anyone who reaches this line has cleared the source
+    # check, but "the engine's IP sent it" is not "the engine sent well-formed JSON",
+    # and `json.loads` raises RecursionError — NOT JSONDecodeError — on a deeply nested
+    # document. A 500 here is not cosmetic: Bolna delivers at most once and swallows
+    # errors, so a receiver that crashes on one hostile POST is indistinguishable from
+    # one that crashes on the real call arriving in the same second.
+    payload: dict[str, Any] = {}
+    readable = True
     try:
-        payload = json.loads(raw or b"{}")
-    except json.JSONDecodeError:
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
+        decoded = json.loads(raw or b"{}")
+    except (ValueError, RecursionError):
+        readable = False
+    else:
+        if isinstance(decoded, dict):
+            payload = decoded
+        else:
+            readable = False
 
     event = extract(payload)
     if event is None:
         # Ack anyway: an event we cannot key is one we can never dedupe, and Bolna
         # would not resend it regardless. The poller will pick the call up.
         alert("ROUTE_HANDLER", "webhook_unkeyable", engine=engine)
-        record_webhook_ack_ms((time.perf_counter() - started) * 1000, provider=engine)
-        return {"status": "ignored", "reason": "no execution id"}
+        return _ack(
+            response,
+            started,
+            engine,
+            {
+                "status": "ignored",
+                "reason": "no execution id" if readable else "unreadable payload",
+            },
+        )
 
     payload_digest = body_hash(payload)
     redis_key = f"calevate:wh:{engine}:{event.execution_id}:{payload_digest[:16]}"
     try:
         if not await get_redis().set(redis_key, "1", nx=True, ex=_DEDUPE_TTL_S):
-            record_webhook_ack_ms((time.perf_counter() - started) * 1000, provider=engine)
-            return {"status": "duplicate", "execution_id": event.execution_id}
+            return _ack(
+                response,
+                started,
+                engine,
+                {"status": "duplicate", "execution_id": event.execution_id},
+            )
     except Exception:  # Redis down: fall through to the durable claim, never 500
         log.warning("webhook_fastpath_unavailable", extra={"engine": engine})
 
@@ -99,12 +208,27 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
             session,
             provider=engine,
             event_key=event.execution_id,
-            payload_hash=payload_digest,
+            # The hash of the UNIT OF WORK, not of this delivery. The inbox reads a
+            # changed hash under an existing key as a doctored replay and answers 409 +
+            # `webhook_payload_mismatch` — but Bolna fires one webhook per status
+            # TRANSITION (queued → in-progress → completed, TRD §5), same execution id,
+            # different body every time. Hashing the delivery therefore raised a
+            # spoofing alarm on every healthy call, and an alarm that always fires is
+            # an alarm nobody reads when a real one arrives.
+            #
+            # Nothing is lost by narrowing it: at an unsigned endpoint the caller
+            # controls the entire payload, so a body hash was never evidence of
+            # authenticity — the source-IP check is, and the poller is the truth.
+            payload_hash=body_hash({"engine": engine, "execution_id": event.execution_id}),
             event_name=event.raw_status,
         )
         if claim.state == "duplicate":
-            record_webhook_ack_ms((time.perf_counter() - started) * 1000, provider=engine)
-            return {"status": "duplicate", "execution_id": event.execution_id}
+            return _ack(
+                response,
+                started,
+                engine,
+                {"status": "duplicate", "execution_id": event.execution_id},
+            )
 
         # The minimal event row: forensic trail only (SEC-COMP §4). `signature_valid`
         # records what evidence we actually had, so a later investigation can tell an
@@ -138,17 +262,16 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
         )
         await mark_inbox_enqueued(session, row_id=claim.row_id)
 
-    elapsed_ms = (time.perf_counter() - started) * 1000
-    record_webhook_ack_ms(elapsed_ms, provider=engine)
-    if elapsed_ms > 500:
-        # Hard rule 3 has a number in it; treat breaching it as an incident signal.
-        alert("ROUTE_HANDLER", "webhook_ack_slow", detail=f"{elapsed_ms:.0f}ms", engine=engine)
-    response.headers["X-Ack-Ms"] = f"{elapsed_ms:.1f}"
-    return {
-        "status": "accepted",
-        "execution_id": event.execution_id,
-        "job_id": job_id or "deduped",
-    }
+    return _ack(
+        response,
+        started,
+        engine,
+        {
+            "status": "accepted",
+            "execution_id": event.execution_id,
+            "job_id": job_id or "deduped",
+        },
+    )
 
 
 __all__ = ["INGEST_JOB", "router"]

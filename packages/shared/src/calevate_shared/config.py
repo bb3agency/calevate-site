@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     # Authenticity = source-IP allowlist + execution-id dedupe, and the
     # List-Executions poller is the guarantee of record (TRD §5).
     bolna_api_key: str | None = None
+    # The engine's egress addresses — comma-separated, literal IPs only. This is the
+    # ENTIRE authenticity control for an unsigned engine, and it is a value the VENDOR
+    # owns: they can renumber without telling us, and while it is stale every webhook
+    # 401s and every call waits for the 10-minute poller. It lives here so rotating it
+    # is an environment change and a restart, not a code change and a deploy of the
+    # latency-critical service. Not a secret — an allowlist. Parsing fails safe: junk
+    # entries are dropped and an empty result falls back to the documented default
+    # (apps/voice-runtime/engine_intake.py), because an empty allowlist is an outage.
+    bolna_webhook_source_ips: str = "13.203.39.153"
     # Bolna quotes cost in USD cents; the adapter converts at capture and STAMPS this
     # rate into usage_events.meta so any ledger row can be re-derived (hard rule 7).
     # A config row, not a live FX call: metering must be reproducible, not current.

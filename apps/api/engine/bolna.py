@@ -20,11 +20,18 @@ Three properties of this vendor shape the whole design and are load-bearing:
 
 Per-turn timings are not exposed, so `calls.latency` stays null for Bolna calls —
 latency measurement is the pilot stopwatch method (OPERATIONS §2 gate 4), not a field.
+
+Resilience shipped here: a request timeout and jittered backoff on 429 (SURFACES §3.3).
+The circuit breaker that section also describes is deliberately NOT built — see the
+throttle block below for what is and is not retried, and why.
 """
 
 from __future__ import annotations
 
+import asyncio
+import random
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
@@ -55,6 +62,63 @@ BASE_URL = "https://api.bolna.ai"
 # nginx AND here — belt and braces, because nginx config drifts and this does not.
 ALLOWED_SOURCE_IPS: frozenset[str] = frozenset({"13.203.39.153"})
 REQUEST_TIMEOUT_S = 10.0
+
+# --- Throttle handling (SURFACES §3.3) ---------------------------------------
+# Bolna's rate limits are unpublished (pilot item), so 429 is a response we will meet
+# without warning. Three deliberate limits on what we do about it:
+#
+# 1. **429 ONLY.** A 429 means the request was refused, not performed — the one status
+#    where retrying `POST /call` cannot dial a person twice. A 502/503/504 on the same
+#    endpoint is ambiguous, so those are reported, never repeated. Retrying a
+#    non-idempotent create because it "felt transient" is how a lead gets two calls.
+# 2. **Jitter, always.** Our workers are throttled in the same second and would
+#    otherwise retry in the same second; a synchronized herd is how a rate limit
+#    becomes an outage. Full jitter, and a `Retry-After` is a floor we never undercut.
+# 3. **A short ceiling.** Adapter calls happen inside request handlers as well as
+#    workers, so the adapter may stall a request by a second or two — not by two
+#    minutes. A `Retry-After` longer than the ceiling is not slept through: it is
+#    reported as `transient`, which is the caller's cue to reschedule the work.
+THROTTLE_STATUS = 429
+THROTTLE_MAX_ATTEMPTS = 3
+THROTTLE_BASE_S = 0.5
+THROTTLE_MAX_SLEEP_S = 8.0
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    """`Retry-After` in delay-seconds form. The HTTP-date form is not parsed on
+    purpose: a clock-skewed date is worse than no hint, and the fallback is a sane
+    backoff either way."""
+    raw = response.headers.get("retry-after")
+    if raw is None:
+        return None
+    try:
+        seconds = float(raw.strip())
+    except ValueError:
+        return None
+    return seconds if seconds >= 0 else None
+
+
+def throttle_delay_s(
+    attempt: int,
+    retry_after: float | None,
+    *,
+    rand: Callable[[], float] = random.random,
+) -> float:
+    """How long to wait before retry `attempt` (0-based). Never zero-variance.
+
+    `rand` is injected so the jitter is assertable in a test — an un-jittered backoff
+    passes every "does it retry" test ever written and still takes the platform down.
+    """
+    if retry_after is not None:
+        # Their number is a FLOOR. Jitter goes on top so we do not all wake together
+        # at exactly the moment they told everyone to wake.
+        return retry_after + THROTTLE_BASE_S * rand()
+    # Full jitter over an exponentially growing ceiling: the delay is uniform in
+    # [0, capped], so two workers throttled in the same second do not wake in the same
+    # second. A fixed backoff would just move the herd, not disperse it.
+    capped = min(THROTTLE_BASE_S * (2.0**attempt), THROTTLE_MAX_SLEEP_S)
+    return capped * rand()
+
 
 # Their 15-value status enum → our 8. Anything unmapped becomes `failed`, which is the
 # safe direction: a call we cannot classify must not look successful.
@@ -200,16 +264,40 @@ class BolnaEngine:
         return self._client
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        try:
-            response = await self._http().request(method, path, **kwargs)
-        except httpx.HTTPError as exc:
+        for attempt in range(THROTTLE_MAX_ATTEMPTS):
+            try:
+                response = await self._http().request(method, path, **kwargs)
+            except httpx.HTTPError as exc:
+                raise ProblemError(
+                    kind="dependency",
+                    code="engine_unreachable",
+                    title="Voice engine unreachable",
+                    detail="The voice platform did not respond.",
+                    failure_stage="CORE_LOGIC",
+                ) from exc
+            if response.status_code != THROTTLE_STATUS:
+                break
+            retry_after = _retry_after_seconds(response)
+            last_attempt = attempt == THROTTLE_MAX_ATTEMPTS - 1
+            if last_attempt or (retry_after is not None and retry_after > THROTTLE_MAX_SLEEP_S):
+                break
+            log.warning("engine_throttled", extra={"route": path, "attempt": attempt + 1})
+            await asyncio.sleep(throttle_delay_s(attempt, retry_after))
+
+        if response.status_code == THROTTLE_STATUS:
+            # Distinct from `engine_rejected` on purpose. A throttle says nothing about
+            # the request — so on the campaign path it must not burn a contact's retry
+            # budget for a reason that has nothing to do with the contact. `transient`
+            # is the ladder rung that means "identical retry can work" (503, retryable).
+            log.warning("engine_throttle_exhausted", extra={"route": path})
             raise ProblemError(
-                kind="dependency",
-                code="engine_unreachable",
-                title="Voice engine unreachable",
-                detail="The voice platform did not respond.",
+                kind="transient",
+                code="engine_rate_limited",
+                title="Voice engine is rate limiting us",
+                detail="The voice platform is temporarily refusing new requests.",
+                remediation="This will be retried automatically.",
                 failure_stage="CORE_LOGIC",
-            ) from exc
+            )
         if response.status_code >= 400:
             # Never echo a vendor error body to a client — it is not user-safe and it
             # is not our vocabulary.
@@ -448,4 +536,13 @@ class BolnaEngine:
         )
 
 
-__all__ = ["ALLOWED_SOURCE_IPS", "BASE_URL", "BolnaEngine", "parse_transcript"]
+__all__ = [
+    "ALLOWED_SOURCE_IPS",
+    "BASE_URL",
+    "THROTTLE_MAX_ATTEMPTS",
+    "THROTTLE_MAX_SLEEP_S",
+    "THROTTLE_STATUS",
+    "BolnaEngine",
+    "parse_transcript",
+    "throttle_delay_s",
+]

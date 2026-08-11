@@ -16,9 +16,54 @@ import ipaddress
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
+
+log = get_logger(__name__)
+
 # Bolna's static egress IP — their ONLY webhook authenticity control (D-31, TRD §5).
 # Enforced at nginx AND here: nginx config drifts, this does not.
-BOLNA_SOURCE_IPS: frozenset[str] = frozenset({"13.203.39.153"})
+#
+# This is the DEFAULT, not the source of truth. The address belongs to the vendor and
+# they can change it without telling us; while it is wrong every webhook 401s and every
+# call falls back to the 10-minute poller. Recovering from that must not require a code
+# change and a deploy of the one service that is deliberately never redeployed
+# casually (main.py) — so the effective set comes from `BOLNA_WEBHOOK_SOURCE_IPS`.
+DEFAULT_BOLNA_SOURCE_IPS: frozenset[str] = frozenset({"13.203.39.153"})
+
+
+def source_ips_from_settings(configured: str) -> frozenset[str]:
+    """Parse the configured allowlist. Fails SAFE, never open.
+
+    Three deliberate properties, because this string is the whole authenticity control
+    for an unsigned engine:
+
+    - entries must parse as literal IP addresses. A CIDR, a hostname or a `*` is not a
+      supported entry, so nobody can turn the allowlist into a wildcard by typing one
+      — and a typo cannot quietly widen trust;
+    - unusable entries are dropped with a log line, not silently accepted;
+    - if NOTHING usable remains, the built-in default stands. An empty allowlist would
+      reject the engine itself, which is a total outage; an operator who wants to stop
+      accepting webhooks stops the service, they do not blank a variable.
+    """
+    entries: set[str] = set()
+    for part in configured.split(","):
+        candidate = part.strip()
+        if not candidate:
+            continue
+        try:
+            ipaddress.ip_address(candidate)
+        except ValueError:
+            log.warning("webhook_allowlist_entry_ignored", extra={"reason": "not an ip address"})
+            continue
+        entries.add(candidate)
+    return frozenset(entries) or DEFAULT_BOLNA_SOURCE_IPS
+
+
+# Resolved once at import. `verify_source` reads this module global at call time, so
+# tests patch the attribute and operators set the environment variable; neither has to
+# edit code.
+BOLNA_SOURCE_IPS: frozenset[str] = source_ips_from_settings(get_settings().bolna_webhook_source_ips)
 
 # Edge networks whose forwarded-for header we trust. Everything else is spoofable, so
 # the immediate peer must be one of these before we believe a header (DEPLOYMENT §5).
@@ -76,7 +121,20 @@ def verify_source(engine: str, source_ip: str) -> IntakeVerdict:
             return IntakeVerdict(ok=True, method="source_ip")
         return IntakeVerdict(ok=False, method="source_ip", reason="source ip not allowlisted")
     if engine == "fake":
-        return IntakeVerdict(ok=True, method="none", reason="fake engine")
+        # The fake engine verifies NOTHING by design — that is how the whole pipeline
+        # runs offline (DEV-SETUP §3). Which makes this route an unauthenticated write
+        # endpoint, and the route table is identical in every environment: on a prod box
+        # running ENGINE=bolna, `/hooks/v1/engine/fake` would hand any stranger who
+        # found the URL an inbox claim, a forensic row and an ARQ job.
+        #
+        # So the door is open exactly where the fake engine is the engine. Nothing about
+        # this widens trust anywhere else, and a deployment cannot receive events for an
+        # engine it does not run.
+        if get_settings().engine == "fake":
+            return IntakeVerdict(ok=True, method="none", reason="fake engine")
+        return IntakeVerdict(
+            ok=False, method="none", reason="fake engine is not enabled in this environment"
+        )
     return IntakeVerdict(ok=False, method="none", reason="unknown engine")
 
 
@@ -97,6 +155,7 @@ def extract(payload: dict[str, Any]) -> IntakeEvent | None:
 
 __all__ = [
     "BOLNA_SOURCE_IPS",
+    "DEFAULT_BOLNA_SOURCE_IPS",
     "TRUSTED_PROXY_CIDRS",
     "EngineName",
     "IntakeEvent",
@@ -104,5 +163,6 @@ __all__ = [
     "client_ip",
     "extract",
     "is_trusted_peer",
+    "source_ips_from_settings",
     "verify_source",
 ]
