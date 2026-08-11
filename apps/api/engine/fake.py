@@ -41,11 +41,25 @@ from apps.api.core.errors import ProblemError
 
 # A short code-mixed exchange: Telugu with English clinical terms, which is what
 # real calls sound like and what the extraction fixtures must cope with.
+#
+# **The CALLER asks to book, in so many words, and that is load-bearing.** This sample
+# is what the pipeline tests classify, and one of them asserts the call comes out a hot
+# lead — `intent = book` is a HOT_LEAD_FIELD_TRIGGER. Until the extractor learned who
+# was speaking, that verdict came from the AGENT's closing line ("book chesanu"): the
+# fixture was hot because the extractor attributed the agent's words to the caller, and
+# the test measured the fabrication bug rather than the behaviour it named.
+#
+# Making the extractor speaker-aware correctly dropped this call to no intent at all,
+# because the caller had never actually said it. The repair belongs HERE, not in the
+# extractor: a caller ringing a clinic to book an appointment is exactly what this
+# fixture is meant to depict, so the caller now says so. Five turns, deliberately —
+# `smoke_pipeline_test` counts them to prove transcript turns upsert on (call_id, idx)
+# rather than duplicating.
 SAMPLE_TURNS: tuple[tuple[str, str], ...] = (
     ("agent", "Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi."),
     ("caller", "Namaskaram, naaku appointment kavali."),
     ("agent", "Tappakunda. Ee roju evening 6 gantalaku doctor available unnaru."),
-    ("caller", "Sare, naa peru Ravi, number 9876543210."),
+    ("caller", "Sare, appointment book cheyandi. Naa peru Ravi, number 9876543210."),
     ("agent", "Thank you Ravi garu, mee appointment 6 PM ki book chesanu."),
 )
 

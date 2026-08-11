@@ -959,6 +959,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/compliance/dlt-registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This account's DLT Principal Entity registration — absence is data, not a 404
+         * @description What the DLT registrar holds for this business, as the platform last verified it. Read-only: registrations are recorded by Calevate operations against the registrar, never by the client. A business with nothing filed yet gets `recorded: false` and a 200.
+         */
+        get: operations["read_registration_v1_compliance_dlt_registration_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/compliance/subject-export": {
         parameters: {
             query?: never;
@@ -1973,6 +1993,12 @@ export interface components {
         /** DashboardOut */
         DashboardOut: {
             /**
+             * After Hours Basis
+             * @default default_window
+             * @enum {string}
+             */
+            after_hours_basis: "business_hours" | "default_window";
+            /**
              * After Hours Captured 7D
              * @default 0
              */
@@ -2369,11 +2395,38 @@ export interface components {
             regenerated: boolean;
         };
         /**
+         * IntakeProse
+         * @description The five answers with no typed column anywhere else — the half of the form that
+         *     used to survive only as a compiled sentence.
+         *
+         *     Deliberately NOT the other three: hours, escalation contacts and languages round
+         *     trip from `agents` (DATA-MODEL §3), and a second copy of an escalation contact in
+         *     a second shape is how the two start disagreeing. It also keeps phone numbers out
+         *     of this model, which is what the read path returns to a browser.
+         */
+        IntakeProse: {
+            /** Booking Rules */
+            booking_rules?: string | null;
+            /** Branches */
+            branches?: components["schemas"]["Branch"][];
+            /** Faqs */
+            faqs?: components["schemas"]["Faq"][];
+            /** Services */
+            services?: components["schemas"]["ServiceItem"][];
+            /** Staff */
+            staff?: components["schemas"]["StaffMember"][];
+        };
+        /**
          * IntakeStateOut
-         * @description What reopening the step can prefill. The prose answers come back as the compiled
-         *     block, not as the fields that produced them — nothing stores those (see
-         *     `admin/intake.py`), and a form that pretended otherwise would silently drop the
-         *     services table on the next save.
+         * @description What reopening the step prefills, now that the answers have a durable home
+         *     (`organizations.intake`, migration c1f3a7d92b46).
+         *
+         *     `prose_answers` carries the fields the operator typed — branches, services, FAQs,
+         *     staff, booking rules — rather than the sentence compiled out of them; it is `None`
+         *     for an org whose last submit predates the column, where the compiled block is still
+         *     the only record of the prose. Escalation contacts stay in their own key and out of
+         *     `prose_answers`: they are phone numbers, and keeping them in one place keeps the
+         *     two copies from disagreeing.
          */
         IntakeStateOut: {
             /** Business Hours */
@@ -2390,6 +2443,9 @@ export interface components {
             }[];
             /** Languages */
             languages: string[];
+            prose_answers: components["schemas"]["IntakeProse"] | null;
+            /** Submitted At */
+            submitted_at: string | null;
         };
         /** InviteIn */
         InviteIn: {
@@ -2657,6 +2713,34 @@ export interface components {
             status: string;
             /** Vertical Template */
             vertical_template?: string | null;
+        };
+        /**
+         * PeRegistrationOut
+         * @description This tenant's Principal Entity registration, as the platform last verified it.
+         *
+         *     Every field except `recorded` and `is_active` is nullable, because all of them are
+         *     genuinely absent before ops files anything. `is_active` is computed server-side for
+         *     the same reason `TmRegistrationOut.is_live` is: "is `submitted` good enough" is a
+         *     question the console must not answer for itself, and this response and the launch
+         *     gate must never disagree about it.
+         */
+        PeRegistrationOut: {
+            /** Entity Name */
+            entity_name: string | null;
+            /** Is Active */
+            is_active: boolean;
+            /** Pe Id */
+            pe_id: string | null;
+            /** Recorded */
+            recorded: boolean;
+            /** Registered At */
+            registered_at: string | null;
+            /** Status */
+            status: string | null;
+            /** Tm Link Status */
+            tm_link_status: string | null;
+            /** Verified At */
+            verified_at: string | null;
         };
         /**
          * PerformanceFunnelOut
@@ -5101,6 +5185,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeletionRequestOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_registration_v1_compliance_dlt_registration_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeRegistrationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

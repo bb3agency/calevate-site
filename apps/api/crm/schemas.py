@@ -156,6 +156,17 @@ class DashboardOut(Strict):
     sentiment_split: dict[str, int] = Field(default_factory=dict)
     outcome_split: dict[str, int] = Field(default_factory=dict)
     after_hours_captured_7d: int = 0
+    # WHICH definition of "after hours" produced the number above. `business_hours` =
+    # this client's own recorded opening times; `default_window` = the 09:00-21:00 IST
+    # fallback used while no agent has any hours recorded.
+    #
+    # It is a field rather than a comment because the two are not the same claim. The
+    # fallback is a guess that is wrong in both directions — it undercounts the
+    # late-night clinic and overcounts the salon that closes on Sundays — and a tile
+    # that renders "14 captured after hours" identically from a guess and from a fact
+    # invites a client to trust a number we did not earn. The UI can now say which one
+    # it is holding, and prompt for the intake that turns the guess into the fact.
+    after_hours_basis: Literal["business_hours", "default_window"] = "default_window"
     # Client-facing spend is INR NUMERIC, never a float (hard rule 7).
     minutes_used_month: Decimal | None = None
 

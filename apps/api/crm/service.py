@@ -14,13 +14,14 @@ import io
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, get_args
+from typing import Any, Literal, get_args
 from uuid import UUID
 
 from calevate_shared.extraction import ExtractionField
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.business_hours import count_after_hours_calls
 from apps.api.core.errors import ProblemError
 from apps.api.crm.performance import IST_HOUR_SQL
 from apps.api.crm.schemas import (
@@ -528,7 +529,22 @@ def _csv_value(value: Any) -> str:
 
 async def dashboard(session: AsyncSession) -> DashboardOut:
     """One round trip per tile would be four round trips; these are cheap aggregates
-    over an already tenant-scoped view, and the dashboard polls (D-24)."""
+    over an already tenant-scoped view, and the dashboard polls (D-24).
+
+    **The after-hours tile prefers the client's own hours.** FLOWS §3 specifies the
+    `after_hours` flag as derived from `agents.business_hours`; until the intake step
+    landed there was nothing in that column, so this counted a hardcoded 09:00-21:00
+    IST window instead. That window is right only for a client who happens to keep
+    those hours and wrong in both directions otherwise — it misses the late-night
+    clinic's 22:30 enquiry entirely and files every Sunday walk-in at the
+    Sunday-closed salon as business as usual.
+
+    The hardcoded window survives as a FALLBACK rather than being deleted, because a
+    client who has not done the intake yet would otherwise watch a working tile drop to
+    zero and read it as calls being lost. What is new is that the response says which
+    of the two it is (`after_hours_basis`), so the number is never silently a guess
+    wearing the clothes of a fact.
+    """
     since_7d = datetime.now(UTC) - timedelta(days=7)
     today = datetime.now(UTC).date()
 
@@ -581,11 +597,30 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
     ).first()
     minutes = (await session.execute(text("SELECT minutes_used FROM spend_state LIMIT 1"))).scalar()
 
+    # One cheap existence check decides which definition the tile is entitled to. It is
+    # asked of `agents` rather than inferred from the count above, because "no agent has
+    # hours" and "hours are recorded and nothing fell outside them" are different facts
+    # that both produce zero.
+    has_hours = bool(
+        (
+            await session.execute(
+                text("SELECT 1 FROM agents WHERE business_hours IS NOT NULL LIMIT 1")
+            )
+        ).scalar()
+    )
+    if has_hours:
+        after_hours = await count_after_hours_calls(session, since=since_7d)
+        after_hours_basis: Literal["business_hours", "default_window"] = "business_hours"
+    else:
+        after_hours = int(counts[3] or 0) if counts else 0
+        after_hours_basis = "default_window"
+
     return DashboardOut(
         calls_today=int(counts[0] or 0) if counts else 0,
         calls_7d=int(counts[1] or 0) if counts else 0,
         avg_duration_s=int(counts[2]) if counts and counts[2] is not None else None,
-        after_hours_captured_7d=int(counts[3] or 0) if counts else 0,
+        after_hours_captured_7d=after_hours,
+        after_hours_basis=after_hours_basis,
         sentiment_split={row[0]: int(row[1]) for row in sentiment},
         outcome_split={row[0]: int(row[1]) for row in outcome},
         leads_new_7d=int(leads[0] or 0) if leads else 0,

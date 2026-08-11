@@ -1380,6 +1380,15 @@
       "DashboardOut": {
         "additionalProperties": false,
         "properties": {
+          "after_hours_basis": {
+            "default": "default_window",
+            "enum": [
+              "business_hours",
+              "default_window"
+            ],
+            "title": "After Hours Basis",
+            "type": "string"
+          },
           "after_hours_captured_7d": {
             "default": 0,
             "title": "After Hours Captured 7D",
@@ -2337,9 +2346,56 @@
         "title": "IntakeOut",
         "type": "object"
       },
+      "IntakeProse": {
+        "additionalProperties": false,
+        "description": "The five answers with no typed column anywhere else \u2014 the half of the form that\nused to survive only as a compiled sentence.\n\nDeliberately NOT the other three: hours, escalation contacts and languages round\ntrip from `agents` (DATA-MODEL \u00a73), and a second copy of an escalation contact in\na second shape is how the two start disagreeing. It also keeps phone numbers out\nof this model, which is what the read path returns to a browser.",
+        "properties": {
+          "booking_rules": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Rules"
+          },
+          "branches": {
+            "items": {
+              "$ref": "#/components/schemas/Branch"
+            },
+            "title": "Branches",
+            "type": "array"
+          },
+          "faqs": {
+            "items": {
+              "$ref": "#/components/schemas/Faq"
+            },
+            "title": "Faqs",
+            "type": "array"
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceItem"
+            },
+            "title": "Services",
+            "type": "array"
+          },
+          "staff": {
+            "items": {
+              "$ref": "#/components/schemas/StaffMember"
+            },
+            "title": "Staff",
+            "type": "array"
+          }
+        },
+        "title": "IntakeProse",
+        "type": "object"
+      },
       "IntakeStateOut": {
         "additionalProperties": false,
-        "description": "What reopening the step can prefill. The prose answers come back as the compiled\nblock, not as the fields that produced them \u2014 nothing stores those (see\n`admin/intake.py`), and a form that pretended otherwise would silently drop the\nservices table on the next save.",
+        "description": "What reopening the step prefills, now that the answers have a durable home\n(`organizations.intake`, migration c1f3a7d92b46).\n\n`prose_answers` carries the fields the operator typed \u2014 branches, services, FAQs,\nstaff, booking rules \u2014 rather than the sentence compiled out of them; it is `None`\nfor an org whose last submit predates the column, where the compiled block is still\nthe only record of the prose. Escalation contacts stay in their own key and out of\n`prose_answers`: they are phone numbers, and keeping them in one place keeps the\ntwo copies from disagreeing.",
         "properties": {
           "business_hours": {
             "additionalProperties": {
@@ -2392,13 +2448,37 @@
             },
             "title": "Languages",
             "type": "array"
+          },
+          "prose_answers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntakeProse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
           }
         },
         "required": [
           "business_hours",
           "escalation_contacts",
           "languages",
-          "compiled_t0_context"
+          "prose_answers",
+          "compiled_t0_context",
+          "submitted_at"
         ],
         "title": "IntakeStateOut",
         "type": "object"
@@ -3086,6 +3166,100 @@
           "status"
         ],
         "title": "OrganizationOut",
+        "type": "object"
+      },
+      "PeRegistrationOut": {
+        "additionalProperties": false,
+        "description": "This tenant's Principal Entity registration, as the platform last verified it.\n\nEvery field except `recorded` and `is_active` is nullable, because all of them are\ngenuinely absent before ops files anything. `is_active` is computed server-side for\nthe same reason `TmRegistrationOut.is_live` is: \"is `submitted` good enough\" is a\nquestion the console must not answer for itself, and this response and the launch\ngate must never disagree about it.",
+        "properties": {
+          "entity_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Name"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "pe_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pe Id"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "registered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registered At"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "tm_link_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tm Link Status"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          }
+        },
+        "required": [
+          "recorded",
+          "status",
+          "tm_link_status",
+          "pe_id",
+          "entity_name",
+          "registered_at",
+          "verified_at",
+          "is_active"
+        ],
+        "title": "PeRegistrationOut",
         "type": "object"
       },
       "PerformanceFunnelOut": {
@@ -7306,6 +7480,35 @@
           }
         },
         "summary": "Has this erasure been executed? Returns the proof certificate once it has",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/compliance/dlt-registration": {
+      "get": {
+        "description": "What the DLT registrar holds for this business, as the platform last verified it. Read-only: registrations are recorded by Calevate operations against the registrar, never by the client. A business with nothing filed yet gets `recorded: false` and a 200.",
+        "operationId": "read_registration_v1_compliance_dlt_registration_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeRegistrationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This account's DLT Principal Entity registration \u2014 absence is data, not a 404",
         "tags": [
           "compliance"
         ],
