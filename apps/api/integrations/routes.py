@@ -92,11 +92,16 @@ async def list_event_types(_: Principal = Depends(requires("org:read"))) -> dict
 @router.get(
     "/endpoints",
     response_model=list[EndpointOut],
-    openapi_extra=permission_meta("org:manage"),
+    openapi_extra=permission_meta("org:read"),
 )
 async def list_endpoints(
     session: Session,
-    _: Principal = Depends(requires("org:manage")),
+    # A READ permission on a read. `org:manage` is in MUTATING_PERMISSIONS, which
+    # D-22 refuses while impersonating — so gating this view on it made a client's
+    # own integration config invisible to the support person looking at their
+    # screen, for no security gain: nothing here is written, and secrets are shown
+    # as fingerprints only.
+    _: Principal = Depends(requires("org:read")),
 ) -> list[EndpointOut]:
     rows = (
         await session.execute(
@@ -178,7 +183,7 @@ async def deactivate_endpoint(
 @router.get(
     "/deliveries",
     response_model=list[DeliveryOut],
-    openapi_extra=permission_meta("org:manage"),
+    openapi_extra=permission_meta("org:read"),
     summary="Recent delivery attempts — 'did it reach my CRM?' answered without support",
 )
 async def list_deliveries(
@@ -186,7 +191,10 @@ async def list_deliveries(
     # Range-checked at the boundary: `min(limit, 200)` passed a negative value straight
     # into the SQL LIMIT, where Postgres refuses it and the client sees a 500.
     limit: int = Query(50, ge=1, le=200),
-    _: Principal = Depends(requires("org:manage")),
+    # Read permission on a read — see `list_endpoints`. This one matters most:
+    # "did it reach my CRM?" is the question support is asked, and it was the one
+    # view support could not open.
+    _: Principal = Depends(requires("org:read")),
 ) -> list[DeliveryOut]:
     # `webhook_deliveries` is not tenant-RLS'd (engine webhooks arrive before tenant
     # resolution — see its model docstring), so this query is scoped by the tenant's

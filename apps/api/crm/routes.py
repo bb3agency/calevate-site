@@ -383,13 +383,18 @@ async def usage_panel(
 @router.get(
     "/calls/{call_id}/callback",
     response_model=CallbackEligibilityOut,
-    openapi_extra=permission_meta("leads:dispatch"),
+    openapi_extra=permission_meta("leads:read"),
     summary="Whether this call may be followed up, and why not (D-21)",
 )
 async def callback_eligibility(
     call_id: UUID,
     session: Session,
-    principal: Principal = Depends(requires("leads:dispatch")),
+    # `leads:read`, not `leads:dispatch`: this endpoint exists so a button can
+    # render disabled WITH A REASON, and `leads:dispatch` is mutating, so D-22 hid
+    # the reason from anyone viewing a client read-only. The POST that actually
+    # places the call keeps `leads:dispatch` — reading why you cannot dial is not
+    # the authority to dial.
+    principal: Principal = Depends(requires("leads:read")),
 ) -> CallbackEligibilityOut:
     """A GET so the button renders disabled-with-a-reason on page load.
 

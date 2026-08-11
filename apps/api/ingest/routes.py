@@ -118,7 +118,7 @@ class TestWebhookIn(BaseModel):
 
 @sources_router.get(
     "/activity",
-    openapi_extra=permission_meta("org:manage"),
+    openapi_extra=permission_meta("org:read"),
     summary="Every inbound delivery: accepted / deduplicated / rejected (SURFACES §2b)",
 )
 async def ingest_activity(
@@ -126,7 +126,11 @@ async def ingest_activity(
     # Range-checked at the boundary rather than clamped below: `min(limit, 200)` let a
     # negative value reach the SQL LIMIT, which Postgres rejects with a 500.
     limit: int = Query(50, ge=1, le=200),
-    _: Principal = Depends(requires("org:manage")),
+    # A read gated on a READ permission. `org:manage` is mutating, so D-22 hid this
+    # from read-only impersonation — support could not see whether a client's form
+    # was reaching us at all. The dry-run POST below stays on `org:manage`: it is an
+    # action taken on the client's behalf, not a view of their data.
+    _: Principal = Depends(requires("org:read")),
 ) -> dict[str, Any]:
     """Reads the same durable inbox the dedupe writes, so this view costs nothing new.
 

@@ -4400,6 +4400,8 @@
             "required": false,
             "schema": {
               "default": 50,
+              "maximum": 100,
+              "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
@@ -4600,7 +4602,7 @@
         "tags": [
           "crm"
         ],
-        "x-calevate-permission": "leads:dispatch"
+        "x-calevate-permission": "leads:read"
       },
       "post": {
         "description": "Re-dispatch the same agent to the same lead, carrying what happened last time.\n\nIdempotency keys off the CALL, not a client-supplied header: the natural key for\n\"follow up this call\" is the call itself, and a double-click must not ring a\ncustomer twice even from two browser tabs.",
@@ -5355,6 +5357,8 @@
             "required": false,
             "schema": {
               "default": 50,
+              "maximum": 200,
+              "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
@@ -5386,7 +5390,7 @@
         "tags": [
           "integrations"
         ],
-        "x-calevate-permission": "org:manage"
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/integrations/endpoints": {
@@ -5418,7 +5422,7 @@
         "tags": [
           "integrations"
         ],
-        "x-calevate-permission": "org:manage"
+        "x-calevate-permission": "org:read"
       },
       "post": {
         "operationId": "create_endpoint_v1_integrations_endpoints_post",
@@ -5704,6 +5708,8 @@
             "required": false,
             "schema": {
               "default": 50,
+              "maximum": 200,
+              "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
@@ -5733,7 +5739,7 @@
         "tags": [
           "lead-ingest"
         ],
-        "x-calevate-permission": "org:manage"
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/lead-sources/{webhook_id}/test": {
