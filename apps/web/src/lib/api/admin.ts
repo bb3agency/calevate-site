@@ -251,16 +251,11 @@ export function useSetTemplateStatus(tenantId: string) {
 /**
  * Per-client margin (D-12). Admin realm only — `unit_cost_paid` is our supplier
  * pricing, and the client-facing usage panel deliberately does not carry it.
+ *
+ * `margin_pct` is null — not "0" — when there is no revenue to divide by, and the
+ * panel keeps that distinction: "not billed yet" is a different statement from "0%".
  */
-export interface Margin {
-  month: string;
-  minutes_used: string;
-  calls: number;
-  revenue_inr: string;
-  cost_inr: string;
-  margin_inr: string;
-  margin_pct: string | null;
-}
+export type Margin = Schemas["MarginOut"];
 
 export function useMargin(tenantId: string): UseQueryResult<Margin> {
   return useQuery({

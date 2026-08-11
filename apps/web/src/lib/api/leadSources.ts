@@ -9,32 +9,34 @@
  * on it — see apps/api/ingest/routes.py `test_webhook` for why that is not a
  * gate bypass.
  *
- * Response shapes are defined locally rather than aliased from the generated
- * schema: the ingest routes return plain dicts today, so the generated types
- * for them are untyped `Record<string, never>`-ish blobs. When the API grows
- * typed response models, replace these with `components["schemas"][...]`.
+ * The ACTIVITY shapes are aliased from the generated schema. The DRY-RUN shapes
+ * below still are not: `POST /v1/lead-sources/{id}/test` returns a plain dict, so
+ * there is nothing generated to alias yet — swap them the day it grows a response
+ * model, the way the activity types just were.
  */
 
 import { useMutation, useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
+import type { components } from "./schema";
 
-/** One inbound source's rolled-up delivery record from the durable inbox. */
-export interface IngestActivityItem {
-  source: string;
-  event: string;
-  /** The three words the SURFACES spec uses, not the internal inbox enum. */
-  outcome: "accepted" | "rejected" | "processing";
-  /** Vendor retries we absorbed without ringing the customer twice. */
-  deduplicated: number;
-  error: string | null;
-  first_at: string | null;
-  last_at: string | null;
-}
+type Schemas = components["schemas"];
 
-export interface IngestActivity {
-  items: IngestActivityItem[];
-}
+/**
+ * One inbound source's rolled-up delivery record from the durable inbox.
+ *
+ * Two things the hand-written interface this replaces got wrong, both now fixed by
+ * the server's own model: `event` is NULLABLE (a vendor that posts without an event
+ * name is a delivery we still record, and the old type made it unrepresentable), and
+ * `first_at` / `last_at` are NOT NULL — an inbox row cannot exist without the
+ * timestamps that created and last touched it.
+ *
+ * `outcome` is the three words the SURFACES spec uses, not the internal inbox enum;
+ * `deduplicated` counts vendor retries we absorbed without ringing the customer twice.
+ */
+export type IngestActivityItem = Schemas["IngestActivityItemOut"];
+
+export type IngestActivity = Schemas["IngestActivityOut"];
 
 /** One decision the real ingest path would have made, reported instead of acted on. */
 export interface TestWebhookStep {

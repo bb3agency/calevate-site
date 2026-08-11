@@ -68,17 +68,25 @@ export default function UsagePage() {
           value={data.overage_minutes}
           hint={overage ? "beyond your plan" : "none — you are within your plan"}
         />
+        {/* The rate, not just the total. Until the server published
+            `overage_rate_inr` this tile showed a rupee figure with nothing to check
+            it against — an owner could not tell how it was arrived at, nor what the
+            next minute will cost them. It is a string at full precision on purpose:
+            the invoice's overage line multiplies by exactly this number. */}
         <StatTile
           label="Extra charges"
           value={`₹${data.overage_cost_inr}`}
-          hint="added to this month's invoice"
+          hint={`₹${data.overage_rate_inr} per extra minute`}
         />
       </div>
 
       <Card title="This month">
         <dl className="space-y-2 text-sm">
           <Row label="Plan fee" value={data.monthly_fee_inr ? `₹${data.monthly_fee_inr}` : "—"} />
-          <Row label="Extra usage" value={`₹${data.overage_cost_inr}`} />
+          <Row
+            label={`Extra usage (${data.overage_minutes} min × ₹${data.overage_rate_inr})`}
+            value={`₹${data.overage_cost_inr}`}
+          />
           <Row
             label="Total so far"
             value={`₹${addRupees(data.monthly_fee_inr, data.overage_cost_inr)}`}

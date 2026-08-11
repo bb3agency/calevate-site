@@ -2,7 +2,15 @@
 
 import { useState } from "react";
 
-import { Card, EmptyState, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import {
+  Card,
+  EmptyState,
+  ProblemNotice,
+  RestrictionNote,
+  Skeleton,
+  formatIST,
+} from "@/components/ui";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import {
   EVENT_LABELS,
@@ -48,6 +56,19 @@ export default function IntegrationsPage() {
   const create = useCreateEndpoint(session);
   const deactivate = useDeactivateEndpoint(session);
 
+  /**
+   * D-22 read-only. Registering and turning off an endpoint are both `org:manage`
+   * (integrations/routes.py) — mutating, so refused while impersonating. The two READS
+   * on this screen deliberately sit on `org:read` so support keeps them: "did my CRM
+   * get it?" is the question this screen exists to answer, and it is the question
+   * support is asked.
+   *
+   * Turning an endpoint off is also where read-only earns its keep — an operator who
+   * did it wearing the client's face would leave an audit trail saying the client
+   * stopped their own integration.
+   */
+  const write = useWriteAccess(session, "org:manage", "change where events are sent");
+
   const [url, setUrl] = useState("");
   const [events, setEvents] = useState<OutboundEvent[]>(["lead.created"]);
   const [revealed, setRevealed] = useState<string | null>(null);
@@ -61,6 +82,8 @@ export default function IntegrationsPage() {
           Every request we send is signed so your system can verify it came from us.
         </p>
       </div>
+
+      <RestrictionNote reason={write.reason} />
 
       {endpoints.error && (
         <ProblemNotice error={endpoints.error} onRetry={() => endpoints.refetch()} />
@@ -139,7 +162,7 @@ export default function IntegrationsPage() {
           </fieldset>
           <button
             type="submit"
-            disabled={create.isPending || !url || events.length === 0}
+            disabled={!write.allowed || create.isPending || !url || events.length === 0}
             className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
           >
             {create.isPending ? "Adding…" : "Add endpoint"}
@@ -169,7 +192,7 @@ export default function IntegrationsPage() {
                 {endpoint.active && (
                   <button
                     type="button"
-                    disabled={deactivate.isPending}
+                    disabled={!write.allowed || deactivate.isPending}
                     onClick={() => deactivate.mutate(endpoint.id)}
                     className="rounded-md border border-slate-300 px-2 py-0.5 text-xs disabled:opacity-50 dark:border-slate-600"
                   >

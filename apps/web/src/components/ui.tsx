@@ -155,6 +155,27 @@ export function ProblemNotice({ error, onRetry }: { error: unknown; onRetry?: ()
   );
 }
 
+/**
+ * Why the controls on this screen are disabled, said once at the top of it.
+ *
+ * The D-22 counterpart to `ProblemNotice`: that one renders a refusal we already
+ * received, this one renders the refusal we can see coming. A control that explains
+ * itself before the click beats a 403 after it — and it is deliberately quiet (slate,
+ * not rose), because "you are looking at someone else's account read-only" is a normal
+ * state of the world, not a fault.
+ *
+ * Renders nothing when there is nothing to say, so a caller can pass the reason
+ * straight through while `/v1/me` is still in flight.
+ */
+export function RestrictionNote({ reason }: { reason: string | null }) {
+  if (!reason) return null;
+  return (
+    <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+      {reason}
+    </p>
+  );
+}
+
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="py-10 text-center">

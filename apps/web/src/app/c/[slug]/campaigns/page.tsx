@@ -2,7 +2,15 @@
 
 import { useMemo, useState } from "react";
 
-import { Card, EmptyState, ProblemNotice, StatTile, formatIST } from "@/components/ui";
+import {
+  Card,
+  EmptyState,
+  ProblemNotice,
+  RestrictionNote,
+  StatTile,
+  formatIST,
+} from "@/components/ui";
+import { useWriteAccess } from "@/lib/api/hooks";
 import {
   parseContactCsv,
   useAddContacts,
@@ -74,6 +82,17 @@ export default function CampaignsPage() {
   const [windowStart, setWindowStart] = useState("10:00");
   const [windowEnd, setWindowEnd] = useState("18:00");
 
+  /**
+   * D-22 read-only, applied to the controls rather than discovered on click. All four
+   * mutating steps on this screen — create, add contacts, launch, pause/resume — are
+   * `leads:dispatch` (campaigns/routes.py), which is a MUTATING permission: `staff`
+   * does not hold it, and an impersonating operator is refused it however senior they
+   * are. The note is rendered once at the top rather than four times, because the
+   * reason is the same one every time and the four controls are never all on screen
+   * together. The server still refuses; every ProblemNotice below stays.
+   */
+  const write = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
+
   const create = useCreateCampaign(session);
   const addContacts = useAddContacts(session, campaignId);
   const check = useLaunchCheck(session, campaignId);
@@ -103,6 +122,8 @@ export default function CampaignsPage() {
           tried again later.
         </p>
       </div>
+
+      <RestrictionNote reason={write.reason} />
 
       {campaigns.error && (
         <ProblemNotice error={campaigns.error} onRetry={() => campaigns.refetch()} />
@@ -357,7 +378,7 @@ export default function CampaignsPage() {
 
             <button
               type="submit"
-              disabled={create.isPending || !selectedAgentId || name.length < 2}
+              disabled={!write.allowed || create.isPending || !selectedAgentId || name.length < 2}
               className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
             >
               {create.isPending ? "Creating…" : "Create campaign"}
@@ -402,7 +423,7 @@ export default function CampaignsPage() {
                   </p>
                   <button
                     type="button"
-                    disabled={addContacts.isPending || parsed.length === 0}
+                    disabled={!write.allowed || addContacts.isPending || parsed.length === 0}
                     onClick={() =>
                       addContacts.mutate(parsed, { onSuccess: () => setCsv("") })
                     }
@@ -445,7 +466,7 @@ export default function CampaignsPage() {
                   </p>
                   <button
                     type="button"
-                    disabled={launch.isPending}
+                    disabled={!write.allowed || launch.isPending}
                     onClick={() => launch.mutate()}
                     className="rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
                   >
@@ -498,7 +519,7 @@ export default function CampaignsPage() {
                 status !== "completed" ? (
                   <button
                     type="button"
-                    disabled={setStatus.isPending}
+                    disabled={!write.allowed || setStatus.isPending}
                     onClick={() => setStatus.mutate(status === "running" ? "pause" : "resume")}
                     className="rounded-md border border-slate-300 px-3 py-1 text-xs font-medium disabled:opacity-50 dark:border-slate-600"
                   >

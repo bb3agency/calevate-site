@@ -2,7 +2,15 @@
 
 import { useState } from "react";
 
-import { Card, EmptyState, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import {
+  Card,
+  EmptyState,
+  ProblemNotice,
+  RestrictionNote,
+  Skeleton,
+  formatIST,
+} from "@/components/ui";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useAgents, useKbChunks, useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
 
@@ -40,6 +48,15 @@ export default function KnowledgePage() {
   const agents = useAgents(session);
   const submit = useSubmitKnowledge(session);
 
+  /**
+   * D-22 read-only. Submitting is `kb:write` (kb/routes.py) — a MUTATING permission,
+   * so an impersonating operator is refused it even though the `operator` role holds
+   * it outright. Reading what an agent knows is `agents:read` and stays open, which is
+   * the whole point of "view as client": support can see the knowledge base they are
+   * being asked about, they just cannot add to it wearing the client's face.
+   */
+  const write = useWriteAccess(session, "kb:write", "add knowledge to this account");
+
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
   const [agentId, setAgentId] = useState("");
@@ -61,6 +78,8 @@ export default function KnowledgePage() {
           before it goes live.
         </p>
       </div>
+
+      <RestrictionNote reason={write.reason} />
 
       {sources.error && <ProblemNotice error={sources.error} onRetry={() => sources.refetch()} />}
       {submit.error && <ProblemNotice error={submit.error} />}
@@ -125,7 +144,7 @@ export default function KnowledgePage() {
             </p>
             <button
               type="submit"
-              disabled={submit.isPending || !selectedAgentId || body.length < 10}
+              disabled={!write.allowed || submit.isPending || !selectedAgentId || body.length < 10}
               className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
             >
               {submit.isPending ? "Submitting…" : "Submit for review"}

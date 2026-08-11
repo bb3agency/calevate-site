@@ -2,7 +2,15 @@
 
 import { useState } from "react";
 
-import { Card, EmptyState, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import {
+  Card,
+  EmptyState,
+  ProblemNotice,
+  RestrictionNote,
+  Skeleton,
+  formatIST,
+} from "@/components/ui";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import {
   useIngestActivity,
@@ -48,6 +56,19 @@ export default function LeadSourcesPage() {
   const activity = useIngestActivity(session);
   const test = useTestWebhook(session);
 
+  /**
+   * D-22 read-only, and the least obvious case on the sweep: the dry-run writes
+   * nothing — no lead row, no inbox row, no dial — yet `POST /v1/lead-sources/{id}/test`
+   * requires `org:manage`, which is mutating, so an impersonating operator is refused
+   * it. That is the server's deliberate call (ingest/routes.py): a dry-run is an action
+   * taken ON the client's behalf, not a view of their data, and the activity table
+   * below is on `org:read` precisely so support keeps the view without the action.
+   *
+   * So the button is gated on what the endpoint actually checks, not on what the
+   * operation morally is.
+   */
+  const write = useWriteAccess(session, "org:manage", "run a test through this account");
+
   // There is no list-lead-sources endpoint yet, so the webhook ID is a raw UUID
   // input. A proper picker lands when the lead-source config CRUD ships.
   const [webhookId, setWebhookId] = useState("");
@@ -90,6 +111,8 @@ export default function LeadSourcesPage() {
         </p>
       </div>
 
+      <RestrictionNote reason={write.reason} />
+
       <Card title="Try a sample lead">
         <p className="text-sm text-slate-700 dark:text-slate-300">
           Send a sample through the same checks a real submission goes through, and see
@@ -122,7 +145,7 @@ export default function LeadSourcesPage() {
           )}
           <button
             type="submit"
-            disabled={test.isPending || !webhookId.trim()}
+            disabled={!write.allowed || test.isPending || !webhookId.trim()}
             className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
           >
             {test.isPending ? "Checking…" : "Run test — no call is placed"}
@@ -195,9 +218,11 @@ export default function LeadSourcesPage() {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {activity.data.items.map((item, i) => (
-                // No stable ID in the payload; source+event+first_at identifies a
-                // row well enough for a read-only list, index breaks rare ties.
-                <tr key={`${item.source}-${item.event}-${item.first_at}-${i}`}>
+                // No stable ID in the payload, and `event` is nullable — a vendor can
+                // post without naming an event and we still record the delivery — so
+                // it cannot carry the key. Source + first delivery narrows it; the
+                // index is what actually guarantees uniqueness for a read-only list.
+                <tr key={`${item.source}-${item.first_at}-${i}`}>
                   <td className="py-2 text-slate-700 dark:text-slate-300">{item.source}</td>
                   <td className="py-2">
                     <span

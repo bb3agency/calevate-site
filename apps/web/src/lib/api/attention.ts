@@ -7,43 +7,38 @@
  * (blocked leads, failed deliveries, stalled campaigns, rejected knowledge)
  * newest-first, so the screen has no joins or sorting of its own to do.
  *
- * Types are defined locally rather than aliased from the generated schema
- * because the attention endpoint is not yet in the OpenAPI snapshot; the
- * shape mirrors `attention_queue` in apps/api/crm/attention.py. Once the
- * schema is regenerated (`pnpm gen:api`), swap these for schema aliases so
- * they cannot drift.
+ * Types are ALIASED from the generated schema now that `/v1/attention` has a
+ * real response model, so they cannot drift from `attention_queue` in
+ * apps/api/crm/attention.py.
+ *
+ * Field meanings the generated type does not carry: `title` is the subject (who
+ * or what stopped), `detail` is the remedy (what happened and what the owner can
+ * do about it), `rule` is the machine name of the rule that fired (e.g. "dnc")
+ * when one did, and `href` is a realm-relative link to the screen where the fix
+ * lives, e.g. "/leads".
  */
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
+import type { components } from "./schema";
 
-/** The four things the platform refuses to do quietly (SURFACES §2b). */
-export type AttentionKind =
-  | "lead_blocked"
-  | "delivery_failed"
-  | "campaign_stalled"
-  | "kb_rejected";
+type Schemas = components["schemas"];
 
-export interface AttentionItem {
-  kind: AttentionKind;
-  id: string;
-  /** The subject — who or what stopped. */
-  title: string;
-  /** The remedy — what happened and what the owner can do about it. */
-  detail: string;
-  /** Machine name of the rule that fired (e.g. "dnc"), when one did. */
-  rule: string | null;
-  occurred_at: string;
-  /** Realm-relative link to the screen where the fix lives, e.g. "/leads". */
-  href: string | null;
-}
+export type AttentionItem = Schemas["AttentionItemOut"];
 
-export interface AttentionQueue {
-  total: number;
-  counts: Partial<Record<AttentionKind, number>>;
-  items: AttentionItem[];
-}
+/**
+ * The things the platform refuses to do quietly (SURFACES §2b) — derived from the
+ * generated item type rather than re-listed, so a fifth kind on the server becomes a
+ * type error in `KIND_COPY` instead of an unstyled chip.
+ */
+export type AttentionKind = AttentionItem["kind"];
+
+/**
+ * `counts` is keyed by `AttentionKind`, but the server OMITS kinds with nothing in
+ * them, so a lookup is genuinely absent rather than zero — read it as `counts[k] ?? 0`.
+ */
+export type AttentionQueue = Schemas["AttentionOut"];
 
 export function useAttention(session: Session): UseQueryResult<AttentionQueue> {
   return useQuery({

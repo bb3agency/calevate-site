@@ -67,6 +67,60 @@ export function useMe(session: Session): UseQueryResult<Me> {
   });
 }
 
+/** What a gated control needs to know: whether to enable itself, and what to say. */
+export interface WriteAccess {
+  /** Enable the control only when this is true. */
+  allowed: boolean;
+  /**
+   * Why not, in the client's words — rendered BESIDE the disabled control. Null while
+   * we do not yet know (the `/v1/me` request is still in flight), so a control never
+   * flashes an explanation it is about to retract.
+   */
+  reason: string | null;
+}
+
+/**
+ * May this session use a control that WRITES? — the D-22 read-only sweep, in one place.
+ *
+ * Two facts decide it, both from the server's own answer to `/v1/me` and never from a
+ * hardcoded role list: the permission the endpoint requires, and `impersonating`.
+ *
+ * The second is the one that changed. "View as client" now genuinely lands an operator
+ * on client screens, and `requires()` refuses every permission in `MUTATING_PERMISSIONS`
+ * for an impersonating principal (core/auth.py). So each mutating control became
+ * reachable-but-refused: the operator clicks, waits, and gets a 403 that reads like a
+ * fault. Disabled WITH the reason turns that into an answer given before the click —
+ * the same doctrine the campaign launch-check already follows for its blockers.
+ *
+ * Note `/v1/me` returns the ROLE's full permission set, impersonation included — it does
+ * not subtract the mutating ones — which is why `impersonating` has to be read as well
+ * as `permissions`. This is a preview of the server's answer, never a substitute for it:
+ * the endpoints still refuse, and every screen keeps its ProblemNotice as the backstop.
+ */
+export function useWriteAccess(session: Session, permission: string, action: string): WriteAccess {
+  const me = useMe(session);
+
+  if (me.error) {
+    // A permanently dead control with no explanation is the worst of both worlds; say
+    // that we could not find out rather than implying a refusal we did not receive.
+    return {
+      allowed: false,
+      reason: `We could not check whether you can ${action}. Reload the page to try again.`,
+    };
+  }
+  if (!me.data) return { allowed: false, reason: null };
+  if (me.data.impersonating) {
+    return {
+      allowed: false,
+      reason: `You are viewing this account read-only, so you cannot ${action} from here. Do it from the admin console instead.`,
+    };
+  }
+  if (!me.data.permissions.includes(permission)) {
+    return { allowed: false, reason: `Only an account owner can ${action}.` };
+  }
+  return { allowed: true, reason: null };
+}
+
 export function useDashboard(session: Session): UseQueryResult<Dashboard> {
   return useQuery({
     queryKey: queryKeys.dashboard(session.orgSlug),
@@ -224,22 +278,18 @@ export function useCallBack(session: Session, callId: string) {
   });
 }
 
-/** Usage + spend for the current billing month (IST). `billing:read`, owners only. */
-export interface UsagePanel {
-  month: string;
-  minutes_used: string;
-  calls: number;
-  included_minutes: number;
-  overage_minutes: string;
-  overage_cost_inr: string;
-  monthly_fee_inr: string | null;
-  cap_minutes: number | null;
-  capped: boolean;
-  spend_used_inr: string;
-  minutes_left: number | null;
-  plan_tier: string;
-  credit_balance_inr: string | null;
-}
+/**
+ * Usage + spend for the current billing month (IST). `billing:read`, owners only.
+ *
+ * Aliased from the generated schema, not hand-written: the local interface it replaces
+ * had drifted, omitting `overage_rate_inr` — so the Usage screen could show what the
+ * extra minutes cost but never what a minute costs, and nobody could tell.
+ *
+ * Every money field is an exact decimal STRING and must stay one all the way to the
+ * screen (hard rule 7's frontend shadow); `Number()` on INR is how ₹10,159.00 becomes
+ * ₹10,158.999999999998.
+ */
+export type UsagePanel = components["schemas"]["UsagePanelOut"];
 
 export function useUsage(session: Session): UseQueryResult<UsagePanel> {
   return useQuery({

@@ -13,7 +13,7 @@ import {
   formatIST,
 } from "@/components/ui";
 import { useClientRealm } from "@/lib/api/session";
-import { useCall, useCallBack, useCallbackEligibility } from "@/lib/api/hooks";
+import { useCall, useCallBack, useCallbackEligibility, useWriteAccess } from "@/lib/api/hooks";
 
 export default function CallDetailPage({
   params,
@@ -26,6 +26,14 @@ export default function CallDetailPage({
   const call = useCall(session, callId);
   const eligibility = useCallbackEligibility(session, callId);
   const callback = useCallBack(session, callId);
+  /**
+   * D-22 read-only. The eligibility QUERY is `leads:read` on purpose — the server made
+   * it a read so this button could render disabled with a reason — but the POST behind
+   * the button is `leads:dispatch`, which is mutating and refused while impersonating.
+   * Without this the eligibility check says "yes" to an operator and the click rings
+   * nobody, which is the exact failure the eligibility query was introduced to remove.
+   */
+  const write = useWriteAccess(session, "leads:dispatch", "place a follow-up call");
 
   if (call.isLoading) return <Skeleton rows={8} />;
   if (call.error) return <ProblemNotice error={call.error} onRetry={() => call.refetch()} />;
@@ -69,7 +77,7 @@ export default function CallDetailPage({
               {callback.data.blocked_reason ?? "This follow-up call was not allowed."}
               {callback.data.blocked_rule ? ` (${callback.data.blocked_rule})` : ""}
             </p>
-          ) : eligibility.data.eligible ? (
+          ) : eligibility.data.eligible && write.allowed ? (
             <div className="space-y-2">
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 Our agent will call back and pick up where this conversation stopped.
@@ -85,8 +93,15 @@ export default function CallDetailPage({
             </div>
           ) : (
             <div className="space-y-2">
+              {/* Two different refusals, one presentation. The server's eligibility
+                  reason ("we have already followed this up twice") and D-22's
+                  read-only both end in the same dead button, and both belong NEXT to
+                  it — the eligibility query exists so this button never answers with a
+                  403, and the read-only sweep would have reintroduced exactly that. */}
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                {eligibility.data.reason}
+                {eligibility.data.eligible
+                  ? (write.reason ?? "Checking what you can do in this account…")
+                  : eligibility.data.reason}
               </p>
               <button
                 type="button"
