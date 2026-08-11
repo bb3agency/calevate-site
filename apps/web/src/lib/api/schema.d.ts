@@ -321,10 +321,45 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Every campaign, newest first — a launched campaign must be findable later */
+        get: operations["list_campaigns_v1_campaigns_get"];
         put?: never;
         /** Create Campaign */
         post: operations["create_campaign_v1_campaigns_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/numbers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Numbers this tenant may dial from, with their series (140/160/standard) */
+        get: operations["list_numbers_v1_campaigns_numbers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** DLT voice templates, so the launch gate's requirement is selectable */
+        get: operations["list_templates_v1_campaigns_templates_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -834,6 +869,31 @@ export interface components {
             /** Summary */
             summary?: string | null;
         };
+        /** CampaignSummaryOut */
+        CampaignSummaryOut: {
+            /** Classification */
+            classification: string;
+            /** Connected */
+            connected: number;
+            /** Contacts */
+            contacts: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Launched At */
+            launched_at: string | null;
+            /** Name */
+            name: string;
+            /** Status */
+            status: string;
+        };
         /** ChainVerifyOut */
         ChainVerifyOut: {
             /**
@@ -1112,6 +1172,20 @@ export interface components {
             /** User Id */
             user_id: string | null;
         };
+        /** NumberOut */
+        NumberOut: {
+            /** Dlt Status */
+            dlt_status: string;
+            /** E164 */
+            e164: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Series */
+            series: string;
+        };
         /** OrganizationOut */
         OrganizationOut: {
             /**
@@ -1236,6 +1310,20 @@ export interface components {
             status: string;
             /** Version */
             version: number;
+        };
+        /** TemplateOut */
+        TemplateOut: {
+            /** Body */
+            body: string;
+            /** Classification */
+            classification: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
         };
         /** TenantSummary */
         TenantSummary: {
@@ -1926,6 +2014,35 @@ export interface operations {
             };
         };
     };
+    list_campaigns_v1_campaigns_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignSummaryOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     create_campaign_v1_campaigns_post: {
         parameters: {
             query?: never;
@@ -1946,6 +2063,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreateCampaignOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_numbers_v1_campaigns_numbers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NumberOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_templates_v1_campaigns_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateOut"][];
                 };
             };
             /** @description RFC-9457 problem+json */

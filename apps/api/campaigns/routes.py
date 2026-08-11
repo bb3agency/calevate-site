@@ -18,6 +18,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.campaigns import service
@@ -89,6 +90,86 @@ class ProgressOut(Strict):
     concurrency: int
     contacts: dict[str, int]
     total: int
+
+
+class CampaignSummaryOut(Strict):
+    id: UUID
+    name: str
+    classification: str
+    status: str
+    contacts: int
+    connected: int
+    launched_at: datetime | None
+    created_at: datetime
+
+
+class NumberOut(Strict):
+    id: UUID
+    e164: str
+    series: str
+    dlt_status: str
+
+
+class TemplateOut(Strict):
+    id: UUID
+    classification: str
+    status: str
+    body: str
+
+
+@router.get(
+    "",
+    response_model=list[CampaignSummaryOut],
+    openapi_extra=permission_meta("leads:read"),
+    summary="Every campaign, newest first — a launched campaign must be findable later",
+)
+async def list_campaigns(
+    session: Session,
+    _: Principal = Depends(requires("leads:read")),
+) -> list[CampaignSummaryOut]:
+    rows = await service.list_campaigns(session)
+    return [CampaignSummaryOut.model_validate(row) for row in rows]
+
+
+# NOTE: these two are declared BEFORE `/{campaign_id}` on purpose — FastAPI matches in
+# declaration order, and `/numbers` would otherwise be parsed as a campaign id.
+@router.get(
+    "/numbers",
+    response_model=list[NumberOut],
+    openapi_extra=permission_meta("org:read"),
+    summary="Numbers this tenant may dial from, with their series (140/160/standard)",
+)
+async def list_numbers(
+    session: Session,
+    _: Principal = Depends(requires("org:read")),
+) -> list[NumberOut]:
+    rows = (
+        await session.execute(
+            text("SELECT id, e164, series, dlt_status FROM phone_numbers ORDER BY created_at")
+        )
+    ).all()
+    return [NumberOut(id=r[0], e164=r[1], series=r[2], dlt_status=r[3]) for r in rows]
+
+
+@router.get(
+    "/templates",
+    response_model=list[TemplateOut],
+    openapi_extra=permission_meta("org:read"),
+    summary="DLT voice templates, so the launch gate's requirement is selectable",
+)
+async def list_templates(
+    session: Session,
+    _: Principal = Depends(requires("org:read")),
+) -> list[TemplateOut]:
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, classification, status, body FROM dlt_templates "
+                "WHERE kind = 'voice' ORDER BY created_at"
+            )
+        )
+    ).all()
+    return [TemplateOut(id=r[0], classification=r[1], status=r[2], body=r[3]) for r in rows]
 
 
 @router.post(

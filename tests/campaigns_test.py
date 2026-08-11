@@ -718,6 +718,31 @@ async def test_a_non_campaign_call_resolves_to_nothing() -> None:
         )
 
 
+async def test_the_setup_lists_the_ui_needs_are_tenant_scoped_and_ordered() -> None:
+    """The create form can only offer what these three endpoints return, so a leak here
+    is a client seeing another business's numbers in a dropdown."""
+    tenant_id, _, campaign_id = await _ready_campaign(classification="service", series="160")
+    other_tenant, _, _ = await _ready_campaign(classification="promotional", series="140")
+
+    async with tenant_session(tenant_id) as session:
+        campaigns = await service.list_campaigns(session)
+        numbers = (await session.execute(text("SELECT series FROM phone_numbers"))).scalars().all()
+        templates = (
+            (await session.execute(text("SELECT classification FROM dlt_templates")))
+            .scalars()
+            .all()
+        )
+
+    assert [c["id"] for c in campaigns] == [campaign_id], "one tenant, one campaign"
+    assert campaigns[0]["contacts"] == 3 and campaigns[0]["connected"] == 0
+    assert campaigns[0]["status"] == "draft"
+    assert numbers == ["160"], "the other tenant's 140 number is not visible here"
+    assert templates == ["service"]
+
+    async with tenant_session(other_tenant) as session:
+        assert [c["name"] for c in await service.list_campaigns(session)] == ["Diwali offers"]
+
+
 async def test_a_dial_stuck_in_flight_is_reclaimed_not_orphaned() -> None:
     """If a call never reports a terminal status, the contact would pin the campaign
     open forever. After 30 minutes it returns to the ladder."""

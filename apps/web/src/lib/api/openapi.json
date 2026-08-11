@@ -524,6 +524,65 @@
         "title": "CallSummaryOut",
         "type": "object"
       },
+      "CampaignSummaryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "classification": {
+            "title": "Classification",
+            "type": "string"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "integer"
+          },
+          "contacts": {
+            "title": "Contacts",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "launched_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Launched At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "classification",
+          "status",
+          "contacts",
+          "connected",
+          "launched_at",
+          "created_at"
+        ],
+        "title": "CampaignSummaryOut",
+        "type": "object"
+      },
       "ChainVerifyOut": {
         "additionalProperties": false,
         "properties": {
@@ -1252,6 +1311,36 @@
         "title": "MeOut",
         "type": "object"
       },
+      "NumberOut": {
+        "additionalProperties": false,
+        "properties": {
+          "dlt_status": {
+            "title": "Dlt Status",
+            "type": "string"
+          },
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "series": {
+            "title": "Series",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "e164",
+          "series",
+          "dlt_status"
+        ],
+        "title": "NumberOut",
+        "type": "object"
+      },
       "OrganizationOut": {
         "additionalProperties": false,
         "properties": {
@@ -1590,6 +1679,36 @@
           "status"
         ],
         "title": "SubmitOut",
+        "type": "object"
+      },
+      "TemplateOut": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "classification": {
+            "title": "Classification",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "classification",
+          "status",
+          "body"
+        ],
+        "title": "TemplateOut",
         "type": "object"
       },
       "TenantSummary": {
@@ -2595,6 +2714,36 @@
       }
     },
     "/v1/campaigns": {
+      "get": {
+        "operationId": "list_campaigns_v1_campaigns_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CampaignSummaryOut"
+                  },
+                  "title": "Response List Campaigns V1 Campaigns Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every campaign, newest first \u2014 a launched campaign must be findable later",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
       "post": {
         "operationId": "create_campaign_v1_campaigns_post",
         "requestBody": {
@@ -2630,6 +2779,70 @@
           "campaigns"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/numbers": {
+      "get": {
+        "operationId": "list_numbers_v1_campaigns_numbers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NumberOut"
+                  },
+                  "title": "Response List Numbers V1 Campaigns Numbers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Numbers this tenant may dial from, with their series (140/160/standard)",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/campaigns/templates": {
+      "get": {
+        "operationId": "list_templates_v1_campaigns_templates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateOut"
+                  },
+                  "title": "Response List Templates V1 Campaigns Templates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "DLT voice templates, so the launch gate's requirement is selectable",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/campaigns/{campaign_id}": {

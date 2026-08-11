@@ -308,6 +308,39 @@ async def set_campaign_status(
         raise InvalidStatusTransitionError("campaign", f"not in {from_statuses}", to_status)
 
 
+async def list_campaigns(session: AsyncSession) -> list[dict[str, Any]]:
+    """Newest first, with the two counts the list actually needs.
+
+    Counting in the query rather than per row: a client with thirty campaigns should
+    cost one round trip, and `connected` is the only per-status number worth showing
+    before you open one.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT c.id, c.name, c.classification, c.status, c.launched_at, c.created_at, "
+                "  count(cc.id) AS contacts, "
+                "  count(cc.id) FILTER (WHERE cc.status = 'connected') AS connected "
+                "FROM campaigns c LEFT JOIN campaign_contacts cc ON cc.campaign_id = c.id "
+                "GROUP BY c.id ORDER BY c.created_at DESC LIMIT 100"
+            )
+        )
+    ).all()
+    return [
+        {
+            "id": r[0],
+            "name": r[1],
+            "classification": r[2],
+            "status": r[3],
+            "launched_at": r[4],
+            "created_at": r[5],
+            "contacts": int(r[6] or 0),
+            "connected": int(r[7] or 0),
+        }
+        for r in rows
+    ]
+
+
 async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[str, Any]:
     rows = (
         await session.execute(
@@ -345,5 +378,6 @@ __all__ = [
     "create_campaign",
     "launch_blockers",
     "launch_campaign",
+    "list_campaigns",
     "set_campaign_status",
 ]

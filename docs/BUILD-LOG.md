@@ -609,12 +609,43 @@ the exact invocation CI uses — `make check` was quietly a no-op for types.
 
 21 campaign tests; 145 in the suite.
 
+**32. Campaign UI — `apps/web/src/app/c/[slug]/campaigns/`** (SURFACES §2b)
+
+The screen the launch-check endpoint was designed for. One rule drives the layout:
+**the launch button is disabled with its reasons on screen, not after a click.** Each
+named blocker maps to plain-language copy ("Your agent has to be published before it
+can make calls"), so a blocked launch is a to-do list rather than a support ticket.
+
+- **Create → contacts → gate → launch → live progress**, driven end to end in a
+  browser during the build: 3 contacts added, 1 unreadable number counted and skipped,
+  two blockers listed, then green and running. Pause/resume from the progress card.
+- **CSV is parsed client-side** so the row count is visible before committing, and
+  header/column order is guessed forgivingly — but the numbers themselves are still
+  normalized server-side, where an unparseable one is counted, never guessed.
+- **Progress polls only while dispatching** (`refetchInterval` reads the query's own
+  data): a completed campaign polled every 15s is noise on the phone connections most
+  of these clients are on.
+- Three read endpoints exist because the UI can't work without them:
+  `GET /v1/campaigns` (a launched campaign must be findable tomorrow — the page was
+  briefly single-campaign-per-visit, which is a data-loss-shaped bug), plus
+  `/campaigns/numbers` and `/campaigns/templates` so the number-series and DLT-template
+  blockers are *selectable* rather than permanently red. Both list routes are declared
+  BEFORE `/{campaign_id}` — FastAPI matches in declaration order, so `/numbers` would
+  otherwise parse as a campaign id.
+
+Also fixed: `pnpm lint` had never run. `eslint-config-next@15` still ships
+eslintrc-shaped configs, and the flat config imported them directly, so every
+invocation died with "nextVitals is not iterable". Now bridged with `FlatCompat`
+(Next's own scaffold pattern) and `@eslint/eslintrc` added as a direct devDependency —
+the lockfile diff adds no new packages, only the direct link to the version already in
+the tree. The app lints clean.
+
 ### Where the next session should start
 
-1. **Campaign management UI** (SURFACES §2b) — the API is complete and typed
-   (`pnpm gen:api` snapshot refreshed, 37 paths); no screen exists yet. The
-   launch-check endpoint is designed for it: render the button disabled with the
-   blocker list.
+1. **Admin-side campaign setup**: numbers and DLT templates are readable by the client
+   but only writable through SQL. The admin console needs screens to provision a number
+   (with its series) and register a DLT template, or every client campaign stalls on
+   the same two blockers.
 2. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
    which needs client #1 in the room rather than more code) and **OTel spans** (Sentry
    and the Langfuse hook are wired; distributed tracing is not).
@@ -622,5 +653,5 @@ the exact invocation CI uses — `make check` was quietly a no-op for types.
    `credit_ledger`, outbound CRM sync (D-23).
 4. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (145 tests),
-   `uv run mypy apps packages` and `make guardrails` before changing anything.
+5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (146 tests),
+   `uv run mypy apps packages`, `make guardrails` and `pnpm -C apps/web lint` before changing anything.
