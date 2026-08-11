@@ -95,7 +95,12 @@ class SarvamExtractor:
             )
         response.raise_for_status()
         body = response.json()
-        content = body.get("choices", [{}])[0].get("message", {}).get("content", "")
+        # `choices` comes back EMPTY when the provider declines to answer (filtered
+        # content, truncated generation). Indexing it blindly turned "the model said
+        # nothing" into an IndexError that escaped the error ladder below and failed
+        # the whole post-call job — losing the call to keep the fields.
+        choices = body.get("choices") or []
+        content = choices[0].get("message", {}).get("content", "") if choices else ""
         return _first_json_object(str(content))
 
 
@@ -123,8 +128,11 @@ class GeminiExtractor:
             )
         response.raise_for_status()
         body = response.json()
-        parts = body.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])
-        return _first_json_object(str(parts[0].get("text", "")))
+        # Gemini returns `candidates: []` on a safety block — a documented, ordinary
+        # response, not an exception. Same reasoning as the Sarvam path above.
+        candidates = body.get("candidates") or []
+        parts = (candidates[0].get("content", {}).get("parts") or []) if candidates else []
+        return _first_json_object(str(parts[0].get("text", "")) if parts else "")
 
 
 class OfflineExtractor:
@@ -202,7 +210,11 @@ async def extract_call(
     runner = extractor or get_extractor()
     try:
         raw = await runner.run(spec, transcript)
-    except (httpx.HTTPError, ValueError, KeyError) as exc:
+    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+        # IndexError/TypeError belong here with the rest: a provider response whose
+        # shape we did not expect is a MODEL failure, and this ladder exists so a model
+        # failure costs the structured fields and never the call, the lead or the
+        # metering (which all happen after this returns).
         record_extraction_failure(reason=type(exc).__name__)
         log.warning("extraction_failed", extra={"model": runner.model_name})
         return ExtractionOutput(valid=False, errors={"_model": type(exc).__name__})

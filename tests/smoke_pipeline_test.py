@@ -318,7 +318,13 @@ async def test_webhook_dedupe_survives_a_repeat_delivery() -> None:
                     "SELECT count(*) FROM webhook_inbox_events WHERE provider = 'fake' "
                     "AND event_key = :k"
                 ),
-                {"k": execution_id},
+                # The inbox key is `{execution_id}:{raw_status}` — the unit of work is
+                # the TRANSITION, not the execution (D-40), because Bolna fires one
+                # webhook per status change and `completed` is the only one that carries
+                # cost, recording and transcript. Keying on the execution alone meant the
+                # first transition claimed the row and `completed` was answered
+                # `duplicate` and never reached the queue.
+                {"k": f"{execution_id}:completed"},
             )
         ).scalar()
-    assert rows == 1, "one execution id is one inbox row, however many deliveries arrive"
+    assert rows == 1, "one transition is one inbox row, however many deliveries arrive"

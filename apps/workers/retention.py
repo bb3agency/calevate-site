@@ -55,12 +55,15 @@ def _hash(value: str) -> str:
 
 
 async def _tenant_ids() -> list[UUID]:
+    """EVERY organization, including churned and soft-deleted ones.
+
+    Offboarding is where the countdown STARTS (FLOWS §9: churn → retention countdown →
+    deletion request → proof), so filtering `deleted_at IS NULL` here stopped the sweep
+    for exactly the tenants whose data most needs to age out — their rows would have sat
+    past every TTL, indefinitely, with nothing left to notice.
+    """
     async with admin_session() as session:
-        rows = (
-            (await session.execute(text("SELECT id FROM organizations WHERE deleted_at IS NULL")))
-            .scalars()
-            .all()
-        )
+        rows = (await session.execute(text("SELECT id FROM organizations"))).scalars().all()
     return [UUID(str(r)) for r in rows]
 
 
@@ -134,11 +137,16 @@ async def _apply_one(session: AsyncSession, *, category: str, ttl_days: int, act
     if category == "lead":
         # Never a DELETE: leads carry FKs from lead_events and are referenced by calls.
         # Anonymizing keeps the funnel countable and removes the person.
+        #
+        # The "already anonymized?" guard is the ANONYMIZED PHONE PREFIX, not the name.
+        # Keying it on `name IS NOT NULL` skipped every lead whose caller never gave a
+        # name — those rows still carry the phone number and the whole extraction
+        # payload, and they are exactly the rows the TTL exists for.
         result = await session.execute(
             text(
                 "UPDATE leads SET phone_e164 = :anon || substr(id::text, 1, 8), name = NULL, "
                 "data = '{}'::jsonb, deleted_at = COALESCE(deleted_at, now()), updated_at = now() "
-                "WHERE updated_at < :cutoff AND name IS NOT NULL"
+                "WHERE updated_at < :cutoff AND left(phone_e164, length(:anon)) <> :anon"
             ),
             {"cutoff": cutoff, "anon": ANONYMIZED_PHONE[:9]},
         )
@@ -192,6 +200,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         )
 
         turns_erased = 0
+        extractions_erased = 0
         if calls:
             result = await session.execute(
                 text(
@@ -208,6 +217,18 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 ),
                 {"ids": list(calls)},
             )
+            # The DERIVED copy. `call_extractions.data` is the caller's name, their
+            # callback number and every schema field the model captured — erasing the
+            # transcript and leaving this behind means the person is still on file, and
+            # the proof certificate would have said otherwise.
+            result = await session.execute(
+                text(
+                    "UPDATE call_extractions SET data = '{}'::jsonb, errors = NULL, "
+                    "updated_at = now() WHERE call_id = ANY(:ids) AND data <> '{}'::jsonb"
+                ),
+                {"ids": list(calls)},
+            )
+            extractions_erased = int(rowcount_of(result) or 0)
         if leads:
             await session.execute(
                 text(
@@ -225,10 +246,12 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 "calls": [_hash(str(c)) for c in calls],
                 "leads": [_hash(str(lead)) for lead in leads],
                 "transcript_turns_erased": turns_erased,
+                "call_extractions_erased": extractions_erased,
             },
             "actions": {
                 "calls": "phone numbers, recording pointer and summary cleared",
                 "transcript_turns": "text and text_redacted replaced",
+                "call_extractions": "extracted field payload cleared",
                 "leads": "phone anonymized, name and extracted fields cleared",
                 "usage_events": "retained — append-only ledger, carries no personal data",
                 "consent_ledger": "retained — append-only proof that consent existed",

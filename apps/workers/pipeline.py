@@ -30,7 +30,7 @@ from typing import Any
 from uuid import UUID
 
 from calevate_shared.engine import ExecutionSnapshot
-from calevate_shared.extraction import ExtractionSchemaSpec
+from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +39,7 @@ from apps.api.core.alerting import alert, record_pipeline_lag, record_reconcilia
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue, job_id_for
 from apps.api.db.base import uuid7
+from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.integrations import service as integrations
@@ -249,38 +250,7 @@ async def run_post_call_pipeline(ctx: dict[str, Any], payload: dict[str, Any]) -
     extraction = await extract_call(spec, transcript_text) if needs_extraction else None
 
     if extraction is not None:
-        async with tenant_session(tenant_id) as session:
-            await session.execute(
-                text(
-                    "INSERT INTO call_extractions (id, tenant_id, call_id, schema_version, data, "
-                    "model, valid, errors, created_at, updated_at) VALUES (:id, :tid, :cid, :ver, "
-                    "CAST(:data AS jsonb), :model, :valid, CAST(:errors AS jsonb), now(), now())"
-                ),
-                {
-                    "id": uuid7(),
-                    "tid": tenant_id,
-                    "cid": call_id,
-                    "ver": schema_version,
-                    "data": _json(extraction.data),
-                    "model": None,
-                    "valid": extraction.valid,
-                    "errors": _json(extraction.errors) if extraction.errors else None,
-                },
-            )
-            await session.execute(
-                text(
-                    "UPDATE calls SET summary = :summary, sentiment = :sentiment, "
-                    "outcome_tag = :outcome, updated_at = now() "
-                    "WHERE id = :id AND tenant_id = :tid"
-                ),
-                {
-                    "summary": extraction.summary or None,
-                    "sentiment": extraction.sentiment,
-                    "outcome": extraction.outcome_tag,
-                    "id": call_id,
-                    "tid": tenant_id,
-                },
-            )
+        await _persist_extraction(tenant_id, call_id, extraction, schema_version=schema_version)
 
     # STEP 4 — lead upsert (+ repeat-caller flag on phone match).
     lead_id = await _upsert_lead(
@@ -315,7 +285,15 @@ async def run_post_call_pipeline(ctx: dict[str, Any], payload: dict[str, Any]) -
         # completed: an outcome the client's CRM can act on is one where the summary and
         # extraction above already exist. Enqueued in this transaction, delivered by the
         # outbox — the same guarantee the notification in step 6 gets.
-        if snapshot.status == "completed":
+        #
+        # Once per call, not once per pipeline run: the delivery id is minted fresh on
+        # each fan-out, so a receiver deduplicating on it cannot collapse two runs of
+        # the same call — the client would simply be told twice.
+        if snapshot.status == "completed" and not await _already_enqueued(
+            session,
+            job="deliver_outbound_webhook",
+            matcher={"event": "call.completed", "data": {"call_id": str(call_id)}},
+        ):
             await integrations.enqueue_event(
                 session,
                 tenant_id=tenant_id,
@@ -329,7 +307,11 @@ async def run_post_call_pipeline(ctx: dict[str, Any], payload: dict[str, Any]) -
                     "sentiment": extraction.sentiment if extraction else None,
                     # The SUMMARY, never the transcript: a transcript is the most
                     # sensitive artefact we hold, and it does not leave on a webhook.
-                    "summary": extraction.summary if extraction else None,
+                    # Redacted on the way out, because the summary is DERIVED from the
+                    # transcript and the offline extractor's is a transcript line
+                    # verbatim — SEC-COMP §4 puts redaction before anything leaves, and
+                    # the notification path already does this (`notifications._compose`).
+                    "summary": redact(extraction.summary).text if extraction else None,
                 },
             )
 
@@ -343,6 +325,29 @@ def _json(value: Any) -> str:
     import json
 
     return json.dumps(value, default=str)
+
+
+async def _already_enqueued(session: AsyncSession, *, job: str, matcher: dict[str, Any]) -> bool:
+    """Has this exact side effect already been promised for this call?
+
+    The outbox is the durable record of what we said we would send, and rows are never
+    deleted — status only moves (`mark_outbox_published`). So it is also the right place
+    to ask "did a previous run of this pipeline already queue this?", which is what
+    keeps a replay from telling a client twice.
+
+    Same doctrine as the metering pre-check: a concurrency window remains, and the ARQ
+    job id (keyed on the call) is what keeps two runs from overlapping in practice.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM outbox_messages WHERE job = :job "
+                "AND payload @> CAST(:matcher AS jsonb) LIMIT 1"
+            ),
+            {"job": job, "matcher": _json(matcher)},
+        )
+    ).first()
+    return row is not None
 
 
 async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> str:
@@ -378,6 +383,67 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
                 },
             )
     return "\n".join(lines)
+
+
+async def _persist_extraction(
+    tenant_id: UUID,
+    call_id: UUID,
+    extraction: ExtractionOutput,
+    *,
+    schema_version: int,
+) -> None:
+    """One call has ONE extraction, however many times the pipeline runs.
+
+    A re-run is normal here — a webhook that arrives after the poller already resolved
+    the call re-enters the pipeline (D-31) — so this is an update-or-insert rather than
+    the plain INSERT it used to be, which filed a second extraction per replay and left
+    the CRM with two answers and no way to say which one it read.
+
+    `call_extractions` has no unique key on `call_id` (DATA-MODEL §4), so this is a
+    read-modify-write and not `ON CONFLICT`. Two pipeline runs racing on the same call
+    could still both insert; what keeps them serialized today is the ARQ job id, which
+    is keyed on the call. The durable fix is a unique index and that is a migration.
+    """
+    async with tenant_session(tenant_id) as session:
+        params = {
+            "tid": tenant_id,
+            "cid": call_id,
+            "ver": schema_version,
+            "data": _json(extraction.data),
+            "valid": extraction.valid,
+            "errors": _json(extraction.errors) if extraction.errors else None,
+        }
+        updated = await session.execute(
+            text(
+                "UPDATE call_extractions SET schema_version = :ver, data = CAST(:data AS jsonb), "
+                "valid = :valid, errors = CAST(:errors AS jsonb), updated_at = now() "
+                "WHERE call_id = :cid AND tenant_id = :tid"
+            ),
+            params,
+        )
+        if rowcount_of(updated) == 0:
+            await session.execute(
+                text(
+                    "INSERT INTO call_extractions (id, tenant_id, call_id, schema_version, data, "
+                    "model, valid, errors, created_at, updated_at) VALUES (:id, :tid, :cid, :ver, "
+                    "CAST(:data AS jsonb), :model, :valid, CAST(:errors AS jsonb), now(), now())"
+                ),
+                {**params, "id": uuid7(), "model": None},
+            )
+        await session.execute(
+            text(
+                "UPDATE calls SET summary = :summary, sentiment = :sentiment, "
+                "outcome_tag = :outcome, updated_at = now() "
+                "WHERE id = :id AND tenant_id = :tid"
+            ),
+            {
+                "summary": extraction.summary or None,
+                "sentiment": extraction.sentiment,
+                "outcome": extraction.outcome_tag,
+                "id": call_id,
+                "tid": tenant_id,
+            },
+        )
 
 
 async def _load_call_context(
@@ -431,6 +497,12 @@ async def _upsert_lead(
     THE LEAD'S PHONE IS THE OTHER PARTY: the caller on inbound, the recipient on
     outbound. Keying on the wrong end would file every outbound call under our own
     number and collapse a tenant's whole CRM into one lead.
+
+    A RE-RUN IS NOT A SECOND CALL. `call_count` and `is_repeat_caller` move only when
+    the call id on the row actually changes, and the timeline event is written once per
+    call: the pipeline is re-runnable by design (TRD §8), and a replay that invented a
+    returning customer would put the repeat-caller context injection (FLOWS §3) in front
+    of a first-time caller.
     """
     caller = snapshot.from_e164 if direction == "inbound" else snapshot.to_e164
     if not caller:
@@ -450,8 +522,10 @@ async def _upsert_lead(
                     "  schema_version = EXCLUDED.schema_version, "
                     "  name = COALESCE(EXCLUDED.name, leads.name), "
                     "  last_call_id = EXCLUDED.last_call_id, "
-                    "  call_count = leads.call_count + 1, "
-                    "  is_repeat_caller = true, "
+                    "  call_count = leads.call_count + "
+                    "    (leads.last_call_id IS DISTINCT FROM EXCLUDED.last_call_id)::int, "
+                    "  is_repeat_caller = leads.is_repeat_caller OR (leads.call_count > 0 "
+                    "    AND leads.last_call_id IS DISTINCT FROM EXCLUDED.last_call_id), "
                     "  updated_at = now() "
                     "RETURNING id"
                 ),
@@ -480,17 +554,39 @@ async def _upsert_lead(
             await session.execute(
                 text(
                     "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, "
-                    "created_at, updated_at) VALUES (:id, :tid, :lid, 'call', "
-                    "CAST(:payload AS jsonb), 'system', now(), now())"
+                    "created_at, updated_at) SELECT :id, :tid, :lid, 'call', "
+                    "CAST(:payload AS jsonb), 'system', now(), now() "
+                    "WHERE NOT EXISTS (SELECT 1 FROM lead_events WHERE lead_id = :lid "
+                    "AND type = 'call' AND payload->>'call_id' = :cid)"
                 ),
                 {
                     "id": uuid7(),
                     "tid": tenant_id,
                     "lid": resolved_id,
+                    "cid": str(call_id),
                     "payload": _json({"call_id": str(call_id), "status": snapshot.status}),
                 },
             )
     return resolved_id
+
+
+def _unit_price(leg_inr: Decimal | None, qty: Decimal) -> Decimal | None:
+    """A leg's cost expressed per unit of `qty` — NUMERIC throughout (hard rule 7).
+
+    `qty == 0` (a completed call the engine reports as zero-length) would make the
+    division undefined; the leg cost is kept whole in that case so the money never
+    silently disappears from the ledger.
+    """
+    if leg_inr is None:
+        return None
+    if qty <= 0:
+        return leg_inr
+    return (leg_inr / qty).quantize(Decimal("0.0001"))
+
+
+def _ist_month(moment: datetime) -> str:
+    """The IST billing month a UTC instant belongs to (billing `_IST_MONTH`)."""
+    return (moment + timedelta(hours=5, minutes=30)).strftime("%Y-%m")
 
 
 async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> None:
@@ -524,15 +620,25 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 "fx_rate": str(cost.fx_rate) if cost.fx_rate else None,
             }
         )
+        # `unit_cost_paid` is a PRICE PER UNIT OF `qty`, because that is what every
+        # reader does with it: `margin_for_tenant` sums `qty * unit_cost_paid`, and
+        # `usage_summary` bills minutes off `telephony_s.qty`. Writing the leg TOTAL in
+        # that column reported ~50x our real cost for a 95-second call and — with the
+        # tts/llm rows carrying qty 0 — dropped those legs from the cost side entirely.
+        minutes = duration_s / Decimal(60)
         rows: list[tuple[str, Decimal, Decimal | None]] = [
-            ("telephony_s", duration_s, cost.network_inr),
-            ("platform_min", duration_s / Decimal(60), cost.platform_inr),
-            ("stt_s", duration_s, cost.stt_inr),
+            ("telephony_s", duration_s, _unit_price(cost.network_inr, duration_s)),
+            ("platform_min", minutes, _unit_price(cost.platform_inr, minutes)),
+            ("stt_s", duration_s, _unit_price(cost.stt_inr, duration_s)),
         ]
+        # The engine bills TTS and LLM as leg costs with no character or token count
+        # (TRD §5), so there is no quantity to price against. One unit priced at what
+        # the leg actually cost keeps the money in the ledger; when the engine exposes
+        # counts, qty becomes the count and the price divides by it like the rows above.
         if cost.tts_inr is not None:
-            rows.append(("tts_chars", Decimal(0), cost.tts_inr))
+            rows.append(("tts_chars", Decimal(1), cost.tts_inr))
         if cost.llm_inr is not None:
-            rows.append(("llm_tok_out", Decimal(0), cost.llm_inr))
+            rows.append(("llm_tok_out", Decimal(1), cost.llm_inr))
 
         for unit_type, qty, unit_cost in rows:
             await session.execute(
@@ -563,7 +669,13 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
 
         # spend_state is the pre-dispatch gate (TRD §9): caps are enforced BEFORE a
         # call is placed, so this counter has to move with the ledger.
-        month = (snapshot.ended_at or datetime.now(UTC)).strftime("%Y-%m")
+        #
+        # The month is the IST billing month, the same one the invoice and the usage
+        # panel use (billing `_IST_MONTH`). A UTC month boundary rolls over at 05:30
+        # IST, so every call between midnight and 05:30 on the 1st would be counted
+        # against the closed month — the counter and the invoice would disagree, and a
+        # tenant capped in the old month would stay capped into the new one.
+        month = _ist_month(snapshot.ended_at or datetime.now(UTC))
         await session.execute(
             text(
                 "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, capped, "
@@ -590,7 +702,9 @@ async def _maybe_notify_hot_lead(
     tenant_id: UUID, lead_id: UUID, call_id: UUID, data: dict[str, Any]
 ) -> None:
     """Hot-lead rules key off the FIXED status enum and the schema's own fields (D-21).
-    The notification goes through the outbox so a worker crash cannot lose it."""
+    The notification goes through the outbox so a worker crash cannot lose it — and is
+    queued once per call, so a pipeline replay does not promise a second alert for an
+    alert that was already sent."""
     triggered = [
         key
         for key, values in HOT_LEAD_FIELD_TRIGGERS.items()
@@ -606,6 +720,12 @@ async def _maybe_notify_hot_lead(
             ),
             {"lid": lead_id, "tid": tenant_id},
         )
+        if await _already_enqueued(
+            session,
+            job="notify_hot_lead",
+            matcher={"lead_id": str(lead_id), "call_id": str(call_id)},
+        ):
+            return
         await enqueue_outbox(
             session,
             queue="notifications",
@@ -620,6 +740,39 @@ async def _maybe_notify_hot_lead(
 
 
 # --- job 3: reconciliation ----------------------------------------------------
+
+
+async def _already_completed(engine_name: str, snapshot: ExecutionSnapshot) -> bool:
+    """Do we already hold a completed call row for this execution?
+
+    THE QUESTION CAN ONLY BE ASKED INSIDE THE OWNING TENANT'S SESSION. `calls` is
+    FORCE-RLS'd, so the untenanted probe this replaced returned zero rows for every
+    execution ever placed — the poller therefore re-drove its entire 30-minute window on
+    every tick and counted every healthy call as a repair, which both hides the real
+    repairs the metric exists to surface and re-runs the pipeline for calls that were
+    never broken.
+
+    The route table is the same bridge `ingest_engine_event` uses, and it is deliberately
+    not tenant-scoped precisely so this resolution needs no RLS exemption (hard rule 1).
+    An execution we cannot map is handed to ingest anyway: it alerts on the unmapped
+    agent, which is the outcome we want for a mis-provisioned agent.
+    """
+    async with untenanted_session() as session:
+        resolved = await _resolve_agent(session, engine_name, snapshot.engine_agent_ref)
+    if resolved is None:
+        return False
+    tenant_id, _agent_id = resolved
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT 1 FROM calls WHERE engine_call_id = :ecid AND tenant_id = :tid "
+                    "AND status = 'completed' LIMIT 1"
+                ),
+                {"ecid": snapshot.engine_call_id, "tid": tenant_id},
+            )
+        ).first()
+    return row is not None
 
 
 async def reconcile_executions(ctx: dict[str, Any]) -> str:
@@ -643,17 +796,7 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
     for snapshot in snapshots:
         if not snapshot.billable_ready:
             continue
-        async with untenanted_session() as session:
-            known = (
-                await session.execute(
-                    text(
-                        "SELECT 1 FROM calls WHERE engine_call_id = :ecid "
-                        "AND status = 'completed' LIMIT 1"
-                    ),
-                    {"ecid": snapshot.engine_call_id},
-                )
-            ).first()
-        if known:
+        if await _already_completed(engine.name, snapshot):
             continue
         await enqueue(
             INGEST_JOB,
@@ -661,7 +804,7 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
                 "engine": engine.name,
                 "execution_id": snapshot.engine_call_id,
                 "raw_status": snapshot.raw_status,
-                "engine_agent_ref": None,
+                "engine_agent_ref": snapshot.engine_agent_ref,
                 "source": "reconciliation",
             },
             job_id=job_id_for(INGEST_JOB, engine.name, snapshot.engine_call_id, "reconcile"),
