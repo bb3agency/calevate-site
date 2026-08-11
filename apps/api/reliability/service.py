@@ -392,6 +392,16 @@ async def claim_inbox_event(
         )
         if rowcount_of(retried):
             return InboxClaim(state="claimed", row_id=found_id)
+    # Make the retry visible: the activity view's "deduplicated" count is this
+    # counter, and without it a vendor retrying fifteen times looks like one quiet
+    # arrival and a client concluding that events vanish.
+    await session.execute(
+        text(
+            "UPDATE webhook_inbox_events SET duplicate_count = duplicate_count + 1, "
+            "updated_at = now() WHERE id = :id"
+        ),
+        {"id": found_id},
+    )
     return InboxClaim(state="duplicate", row_id=found_id)
 
 

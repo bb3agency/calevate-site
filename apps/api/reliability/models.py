@@ -68,6 +68,9 @@ class WebhookInboxEvent(PKMixin, Base):
     payload_hash: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="processing")
     event_name: Mapped[str | None] = mapped_column(Text)
+    # How many times this same event arrived again after the first claim — the
+    # "deduplicated" column of the webhook activity view (migration 2c8993164b46).
+    duplicate_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     enqueued_at: Mapped[datetime | None]
     processed_at: Mapped[datetime | None]
     last_error: Mapped[str | None] = mapped_column(Text)

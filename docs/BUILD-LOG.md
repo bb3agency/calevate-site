@@ -843,6 +843,29 @@ signup/top-ups. All are screens or provider integrations — none require a migr
 
 195 tests.
 
+**39. Integration DX — webhook activity view + test-webhook dry run** (SURFACES §2b)
+
+The two features the teardown called "the single biggest integration-DX win
+available", built on the reliability triad that already records everything needed.
+
+- `GET /v1/lead-sources/activity`: every inbound delivery as **accepted /
+  deduplicated / rejected** — the SURFACES words, not our internal enum. Deduplicated
+  was previously invisible (a retry hit the (provider, event_key) conflict and left no
+  trace), so migration `2c8993164b46` adds `webhook_inbox_events.duplicate_count`,
+  bumped on the duplicate path. The test drives 4 identical webhook POSTs and asserts
+  one `processed` row with `duplicate_count = 3` — and still exactly one call placed.
+- `POST /v1/lead-sources/{id}/test`: the dry run. Reports every decision the real
+  path would make — field mapping, phone normalization, form consent, and the
+  compliance gate's verdict with its rule — and DOES none of it: no lead row, no inbox
+  claim, no dial. This is not a hard-rule-5 bypass; the gate is CONSULTED (same
+  function, same live DNC read) and its verdict reported instead of acted on. The
+  difference is the direction of the arrow: a bypass dials without asking, this asks
+  without dialling. Tested against a live DNC entry.
+- These live on a separate `/v1/lead-sources` router with the normal auth stack —
+  NOT under `/hooks`, which is the never-shed, secret-authenticated machine surface.
+
+197 tests.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
@@ -854,5 +877,5 @@ signup/top-ups. All are screens or provider integrations — none require a migr
    margin panels ship; turning a month into a PDF invoice does not).
 4. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (195 tests),
+5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (197 tests),
    `uv run mypy apps packages`, `make guardrails` and `pnpm -C apps/web lint` before changing anything.

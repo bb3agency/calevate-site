@@ -239,3 +239,89 @@ async def test_a_payload_with_no_phone_is_a_422_not_a_lead() -> None:
         )
     assert response.status_code == 422
     assert response.json()["type"].endswith("/ingest_no_phone")
+
+
+async def test_the_activity_view_shows_accepted_and_deduplicated_honestly() -> None:
+    """SURFACES §2b: a vendor that retried five times must show as ONE accepted
+    delivery with a dedup count, not five quiet nothings."""
+    tenant_id, _, webhook_id = await _tenant_with_ingest()
+    payload = {"phone_number": "9876509990", "full_name": "Retry Fifteen"}
+    async with _client() as http:
+        for _ in range(4):
+            await http.post(
+                f"/hooks/v1/ingest/{webhook_id}", json=payload, headers={SECRET_HEADER: SECRET}
+            )
+
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT status, duplicate_count FROM webhook_inbox_events WHERE provider = :p"
+                ),
+                {"p": f"ingest:{webhook_id}"},
+            )
+        ).all()
+        calls = (await session.execute(text("SELECT count(*) FROM calls"))).scalar()
+
+    assert rows == [("processed", 3)], "one arrival accepted, three retries counted"
+    assert calls == 1, "and still only one phone rang"
+
+
+async def test_the_dry_run_reports_every_decision_and_does_nothing() -> None:
+    """The test-webhook button (SURFACES §2b). Not a gate bypass: the gate is
+    CONSULTED — same function, same live DNC read — and its verdict is reported
+    instead of acted on. Nothing is written, nobody is called."""
+    from apps.api.compliance.service import add_to_dnc
+
+    tenant_id, _, webhook_id = await _tenant_with_ingest()
+    async with tenant_session(tenant_id) as session:
+        await add_to_dnc(session, tenant_id=tenant_id, phone_e164="+919876509991", source="req")
+        config = await __import__("apps.api.ingest.service", fromlist=["load_config"]).load_config(
+            session, webhook_id
+        )
+        assert config is not None
+
+    from apps.api.core.context import Principal
+    from apps.api.ingest.routes import TestWebhookIn, test_webhook
+
+    principal = Principal(
+        realm="client",
+        user_id=uuid.uuid4(),
+        clerk_user_id="u",
+        tenant_id=tenant_id,
+        role="owner",
+        impersonating=False,
+    )
+    async with tenant_session(tenant_id) as session:
+        blocked = await test_webhook(
+            webhook_id,
+            TestWebhookIn(payload={"phone_number": "9876509991", "full_name": "DNC Person"}),
+            session,
+            principal,
+        )
+        clean = await test_webhook(
+            webhook_id,
+            TestWebhookIn(payload={"phone_number": "9876509992", "full_name": "Clean Person"}),
+            session,
+            principal,
+        )
+        malformed = await test_webhook(
+            webhook_id,
+            TestWebhookIn(payload={"phone_number": "12345"}),
+            session,
+            principal,
+        )
+        leads = (await session.execute(text("SELECT count(*) FROM leads"))).scalar()
+        calls = (await session.execute(text("SELECT count(*) FROM calls"))).scalar()
+
+    assert blocked["would_call"] is False
+    gate_step = next(s for s in blocked["steps"] if s["step"] == "compliance_gate")
+    assert gate_step["rule"] == "dnc", "the dry run consulted the LIVE DNC list"
+
+    assert clean["would_call"] is True
+    assert malformed["would_call"] is False
+    phone_step = next(s for s in malformed["steps"] if s["step"] == "phone_number")
+    assert phone_step["ok"] is False
+
+    assert leads == 0, "a dry run writes nothing"
+    assert calls == 0, "and dials nobody"

@@ -27,6 +27,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.campaigns.routes import router as campaigns_router
     from apps.api.crm.routes import router as crm_router
     from apps.api.ingest.routes import router as ingest_router
+    from apps.api.ingest.routes import sources_router as lead_sources_router
     from apps.api.integrations.routes import router as integrations_router
     from apps.api.kb.routes import router as kb_router
     from apps.api.ops.routes import router as ops_router
@@ -41,6 +42,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(crm_router)
     application.include_router(kb_router)
     application.include_router(ingest_router)
+    application.include_router(lead_sources_router)
     application.include_router(integrations_router)
     application.include_router(ops_router)
 

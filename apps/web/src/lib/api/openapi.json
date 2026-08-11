@@ -2257,6 +2257,21 @@
         "title": "TenantSummary",
         "type": "object"
       },
+      "TestWebhookIn": {
+        "additionalProperties": false,
+        "properties": {
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "TestWebhookIn",
+        "type": "object"
+      },
       "TranscriptTurnOut": {
         "additionalProperties": false,
         "properties": {
@@ -4402,6 +4417,102 @@
           "knowledge-base"
         ],
         "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/lead-sources/activity": {
+      "get": {
+        "description": "Reads the same durable inbox the dedupe writes, so this view costs nothing new.\n\n`duplicate_count` is the column that answers the classic support thread: the form\nvendor retried fifteen times, we rang the customer once, and the client wants to\nknow which of those two things happened.",
+        "operationId": "ingest_activity_v1_lead_sources_activity_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Ingest Activity V1 Lead Sources Activity Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every inbound delivery: accepted / deduplicated / rejected (SURFACES \u00a72b)",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/lead-sources/{webhook_id}/test": {
+      "post": {
+        "description": "Everything the real path would decide, nothing it would do.\n\nThis is NOT a compliance-gate bypass (hard rule 5 forbids those): no lead row is\nwritten, no call is dispatched, no inbox row is claimed. The gate is CONSULTED \u2014\nsame function, same live DNC read \u2014 and its verdict is reported instead of acted\non. The difference between this and a bypass is the direction of the arrow: a\nbypass dials without asking; this asks without dialling.",
+        "operationId": "test_webhook_v1_lead_sources__webhook_id__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestWebhookIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Test Webhook V1 Lead Sources  Webhook Id  Test Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Dry-run a sample lead end-to-end WITHOUT placing a call (SURFACES \u00a72b)",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/leads": {

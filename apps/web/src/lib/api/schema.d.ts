@@ -779,6 +779,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/lead-sources/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every inbound delivery: accepted / deduplicated / rejected (SURFACES §2b)
+         * @description Reads the same durable inbox the dedupe writes, so this view costs nothing new.
+         *
+         *     `duplicate_count` is the column that answers the classic support thread: the form
+         *     vendor retried fifteen times, we rang the customer once, and the client wants to
+         *     know which of those two things happened.
+         */
+        get: operations["ingest_activity_v1_lead_sources_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-sources/{webhook_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dry-run a sample lead end-to-end WITHOUT placing a call (SURFACES §2b)
+         * @description Everything the real path would decide, nothing it would do.
+         *
+         *     This is NOT a compliance-gate bypass (hard rule 5 forbids those): no lead row is
+         *     written, no call is dispatched, no inbox row is claimed. The gate is CONSULTED —
+         *     same function, same live DNC read — and its verdict is reported instead of acted
+         *     on. The difference between this and a bypass is the direction of the arrow: a
+         *     bypass dials without asking; this asks without dialling.
+         */
+        post: operations["test_webhook_v1_lead_sources__webhook_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/leads": {
         parameters: {
             query?: never;
@@ -1784,6 +1834,13 @@ export interface components {
             status: string;
             /** Vertical Template */
             vertical_template: string | null;
+        };
+        /** TestWebhookIn */
+        TestWebhookIn: {
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
         };
         /** TranscriptTurnOut */
         TranscriptTurnOut: {
@@ -3368,6 +3425,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChunkOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    ingest_activity_v1_lead_sources_activity_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    test_webhook_v1_lead_sources__webhook_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestWebhookIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description RFC-9457 problem+json */
