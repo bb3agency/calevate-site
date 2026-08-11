@@ -122,6 +122,50 @@ const OWNER_BADGE: Record<NonNullable<BlockerNote["owner"]>, string> = {
 };
 
 /**
+ * The one blocker that is not this client's list at all.
+ *
+ * `tm_registration_missing` means CALEVATE's own telemarketer registration is not live.
+ * It is platform-wide: every tenant's campaign is refused at the same instant, for a
+ * reason no business can act on, cannot escalate to their account manager as their
+ * case, and will not clear by doing anything on this screen. It is our outage.
+ *
+ * It is DELIBERATELY absent from `BLOCKER_COPY` above, and that absence is the
+ * mechanism: the list below renders one `<li>` per entry in that map, so a future edit
+ * cannot accidentally turn this into a bullet in a to-do list beside "upload your
+ * contacts". The page pulls it out of the blocker list before rendering and gives it
+ * its own notice — a different shape, no owner badge, no position in the count.
+ *
+ * "We handle this" would be the wrong badge too: the PE blockers that carry it are a
+ * queue an account manager can report progress on. This one is not paperwork with a
+ * desk attached — it is the product being unable to make outbound calls at all.
+ */
+const PLATFORM_BLOCKER = "tm_registration_missing";
+
+function PlatformOutageNotice({ reason }: { reason: string }) {
+  return (
+    <div
+      role="status"
+      className="rounded-lg border border-slate-300 bg-slate-100 p-3 text-sm dark:border-slate-700 dark:bg-slate-800"
+    >
+      <p className="font-medium text-slate-900 dark:text-slate-100">
+        Outbound calling is paused across Calevate — nothing for you to do here.
+      </p>
+      <p className="mt-1 text-slate-700 dark:text-slate-300">
+        Our own telemarketer registration with the DLT registrar is not live at the
+        moment, so no campaign on Calevate can launch — not just yours. This is on us
+        and there is no setting on your side that changes it. We are on it, and this
+        campaign will be launchable again the moment it is restored. Calls coming IN are
+        unaffected and keep being answered.
+      </p>
+      {/* The server's own sentence, kept but demoted: it is the precise reason support
+          and the audit trail will quote, and it should not be the headline a business
+          owner reads first. */}
+      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{reason}</p>
+    </div>
+  );
+}
+
+/**
  * The five answers, in the client's language.
  *
  * `purchased_list` sits in this list at the same size, in the same order it appears in
@@ -239,7 +283,13 @@ export default function CampaignsPage() {
   // Which of the two provenance blockers is on this campaign, if either — the answer
   // form is the same either way, but the question it asks is not ("record" vs
   // "correct"), and neither should appear when the launch check is clean.
-  const provenanceBlocker = (check.data?.blockers ?? []).find(
+  // Our outage is split off from the client's list BEFORE anything is rendered, so it
+  // can never be counted, bulleted or badged alongside things this business can
+  // actually do. See PLATFORM_BLOCKER.
+  const allBlockers = check.data?.blockers ?? [];
+  const platformOutage = allBlockers.find((b) => b.rule === PLATFORM_BLOCKER);
+  const clientBlockers = allBlockers.filter((b) => b.rule !== PLATFORM_BLOCKER);
+  const provenanceBlocker = clientBlockers.find(
     (b) => b.rule === "consent_provenance_missing" || b.rule === "consent_source_refused",
   )?.rule;
   // Which agent dials decides the script, the voice and the disclosure line. A
@@ -662,8 +712,19 @@ export default function CampaignsPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
+                  {/* Above the list, in its own shape, and never inside it. */}
+                  {platformOutage && <PlatformOutageNotice reason={platformOutage.reason} />}
+
+                  {/* A campaign blocked ONLY by our outage has an empty to-do list, and
+                      an empty list under "Before you launch" reads as "we will not say
+                      why". Say the true thing: your side is done. */}
+                  {clientBlockers.length === 0 ? (
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      Everything on your side is ready. There is nothing else to do here.
+                    </p>
+                  ) : (
                   <ul className="space-y-2">
-                    {(check.data?.blockers ?? []).map((blocker) => {
+                    {clientBlockers.map((blocker) => {
                       // The server's own `reason` is the fallback, never dropped: a
                       // blocker this build has no copy for is still a blocker, and an
                       // unnamed one would read as "you cannot launch, and we will not
@@ -686,6 +747,7 @@ export default function CampaignsPage() {
                       );
                     })}
                   </ul>
+                  )}
 
                   {/* The one blocker with a control attached, rendered under the
                       sentence that asks for it. `consent_source_refused` gets the form

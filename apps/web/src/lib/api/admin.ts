@@ -85,6 +85,66 @@ export function usePlatformState(): UseQueryResult<PlatformState> {
   });
 }
 
+/**
+ * Calevate's OWN telemarketer registration (SEC-COMP §3, company half).
+ *
+ * `is_live` is read, never computed here. "Is `submitted` good enough?" is the exact
+ * question the server answers for both this response and `launch_blockers` from one
+ * property (`ops.service.TmRegistration.is_live`), and a console that re-derived it
+ * would eventually disagree with the gate — showing a green platform while every
+ * tenant's launch was refused, or the reverse.
+ */
+export type TmRegistration = Schemas["TmRegistrationOut"];
+export type TmRegistrationIn = Schemas["TmRegistrationIn"];
+export type TmStatus = TmRegistrationIn["status"];
+
+export function useSetTmRegistration() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: TmRegistrationIn) =>
+      apiRequest<TmRegistration>(adminSession(), "/v1/ops/platform/tm-registration", {
+        method: "POST",
+        body: payload,
+        // The header names the DIRECTION of this write, and the rule is copied from
+        // the route verbatim (`ops/routes.py`: `"record_tm_registration" if
+        // payload.status == "active"`). That is a property of the request we are
+        // sending, not a judgement about what counts as live — the server owns that,
+        // and a mismatched header is refused rather than assumed.
+        confirmAction:
+          payload.status === "active" ? "record_tm_registration" : "withdraw_tm_registration",
+      }),
+    // The platform query carries `tm_registration`, so the panel above the form
+    // re-reads the SERVER's `is_live` rather than assuming the write made it live.
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "platform"] }),
+  });
+}
+
+/**
+ * The CLIENT's Principal Entity registration, and its link to us as Telemarketer.
+ *
+ * Operator-only by design, and the reason is worth stating where the hook lives: the
+ * launch gate reads these two statuses, so a client who could set them would be
+ * clearing their own compliance blocker with a form. There is no client-realm route
+ * for this, and there should never be one.
+ */
+export type DltRegistrationIn = Schemas["DltRegistrationIn"];
+export type DltRegistrationOut = Schemas["DltRegistrationOut"];
+export type PeStatus = DltRegistrationIn["status"];
+export type TmLinkStatus = DltRegistrationIn["tm_link_status"];
+
+export function useRecordDltRegistration(tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: DltRegistrationIn) =>
+      apiRequest<DltRegistrationOut>(
+        adminSession(),
+        `/v1/admin/tenants/${tenantId}/dlt-registration`,
+        { method: "POST", body: payload },
+      ),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] }),
+  });
+}
+
 export function useSetPlatformState() {
   const client = useQueryClient();
   return useMutation({

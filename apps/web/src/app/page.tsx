@@ -4,9 +4,13 @@ import Link from "next/link";
  * Root of `app.calevate.tech`.
  *
  * There is deliberately no marketing content here: client URLs are slug-based
- * (D-10, `/c/<slug>`) and the signed-in redirect lands on the workspace. The
- * self-serve signup flow that would otherwise live at this path is M2 (D-34), so
- * this page says what it is rather than pretending to be a product tour.
+ * (D-10, `/c/<slug>`) and the signed-in redirect lands on the workspace. This page
+ * says what it is rather than pretending to be a product tour.
+ *
+ * The self-serve door (D-34) is now a link rather than a note, but a quiet one: the
+ * kill switch behind `/v1/auth/signup` defaults OFF, so on most deployments that path
+ * ends in "signing up online is closed". Making it the headline would put the loudest
+ * thing on the page in front of the answer "not here, talk to us".
  */
 export default function Home() {
   const devSlug = process.env.NEXT_PUBLIC_DEV_ORG_SLUG;
@@ -33,6 +37,13 @@ export default function Home() {
           </Link>
         )}
       </div>
+      <p className="text-sm text-slate-600 dark:text-slate-400">
+        No workspace yet?{" "}
+        <Link href="/signup" className="font-medium underline">
+          Set one up
+        </Link>
+        .
+      </p>
     </div>
   );
 }

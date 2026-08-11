@@ -9,6 +9,7 @@ import {
   useKbPreview,
   useMargin,
   useProvisionNumber,
+  useRecordDltRegistration,
   useRegisterTemplate,
   useSetNumberDltStatus,
   useSetTemplateStatus,
@@ -17,6 +18,8 @@ import {
   useTenantKbQueue,
   useTenantNumbers,
   useTenantTemplates,
+  type PeStatus,
+  type TmLinkStatus,
 } from "@/lib/api/admin";
 import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
 
@@ -313,13 +316,160 @@ function MarginPanel({ tenantId }: { tenantId: string }) {
   );
 }
 
+const PE_STATUSES: { value: PeStatus; label: string }[] = [
+  { value: "not_started", label: "not_started — no application filed" },
+  { value: "submitted", label: "submitted — filed, awaiting the registrar" },
+  { value: "active", label: "active — granted and in force" },
+  { value: "suspended", label: "suspended — registrar action" },
+  { value: "rejected", label: "rejected — refused by the registrar" },
+];
+
+const TM_LINK_STATUSES: { value: TmLinkStatus; label: string }[] = [
+  { value: "not_linked", label: "not_linked — client has not authorised us" },
+  { value: "pending", label: "pending — authorisation requested" },
+  { value: "active", label: "active — we may call on their behalf" },
+  { value: "revoked", label: "revoked — authorisation withdrawn" },
+];
+
 /**
- * The two prerequisites every client campaign stalls on (SEC-COMP §3).
+ * The client's DLT Principal Entity registration, and its link to us (SEC-COMP §3).
+ *
+ * The symptom: three launch blockers (`pe_registration_missing`,
+ * `pe_registration_not_active`, `tm_link_not_active`) tell the client "we handle this,
+ * ask your account manager" — and the account manager had nowhere to record the answer
+ * when the registrar gave it. Every one of those campaigns stayed blocked with no
+ * control anywhere in the product to clear it.
+ *
+ * OPERATOR-ONLY, and that is the mechanism's integrity rather than a missing feature:
+ * the launch gate reads these two statuses, so a client who could set them would be
+ * clearing their own compliance blocker by choosing a value from a dropdown. There is
+ * no client-realm route for this and there must not be one.
+ *
+ * Two statuses, not one "ready" flag, because they fail separately and the next action
+ * differs — an unregistered entity is a registration we execute for them; a missing TM
+ * link is an authorisation only they can grant on the registrar's portal.
+ */
+function DltRegistrationPanel({ tenantId }: { tenantId: string }) {
+  const record = useRecordDltRegistration(tenantId);
+  const [status, setStatus] = useState<PeStatus>("not_started");
+  const [tmLink, setTmLink] = useState<TmLinkStatus>("not_linked");
+  const [peId, setPeId] = useState("");
+  const [entityName, setEntityName] = useState("");
+  const [registeredAt, setRegisteredAt] = useState("");
+
+  return (
+    <div className="space-y-3 lg:col-span-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+        DLT entity registration (Principal Entity)
+      </h3>
+      <p className="text-xs text-slate-500">
+        The registrar issues three separate registrations and none implies another: this
+        one is the client&apos;s ENTITY, the number header is its own, the voice template
+        is a third. The launch gate asks for all three by name.
+      </p>
+
+      {record.error && <ProblemNotice error={record.error} />}
+      {record.data && (
+        /* The API has no GET for this, so the panel can only show what THIS screen just
+           wrote — never the stored state on load. Saying "recorded" and echoing the
+           values back is the honest version; claiming to display current state we did
+           not read would be worse than showing nothing. */
+        <p className="rounded-lg border border-emerald-900 bg-emerald-950/50 p-2 text-xs text-emerald-200">
+          Recorded: entity <span className="font-medium">{record.data.status}</span>, TM link{" "}
+          <span className="font-medium">{record.data.tm_link_status}</span>
+          {record.data.pe_id && (
+            <>
+              , PE id <span className="font-mono">{record.data.pe_id}</span>
+            </>
+          )}
+          . The client&apos;s launch check reflects this on its next refresh.
+        </p>
+      )}
+
+      <form
+        className="space-y-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          record.mutate({
+            status,
+            tm_link_status: tmLink,
+            pe_id: peId.trim() || null,
+            entity_name: entityName.trim() || null,
+            // `<input type="date">` parsed as LOCAL midnight, not UTC: at +05:30 the
+            // UTC reading of "today" is a moment that has not happened yet, and the
+            // server refuses a future registration date.
+            registered_at: registeredAt ? new Date(`${registeredAt}T00:00:00`).toISOString() : null,
+          });
+        }}
+      >
+        <div className="flex flex-wrap gap-2">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as PeStatus)}
+            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+          >
+            {PE_STATUSES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={tmLink}
+            onChange={(e) => setTmLink(e.target.value as TmLinkStatus)}
+            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+          >
+            {TM_LINK_STATUSES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={peId}
+            onChange={(e) => setPeId(e.target.value)}
+            placeholder="PE id from the registrar (optional)"
+            className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs"
+          />
+          <input
+            value={entityName}
+            onChange={(e) => setEntityName(e.target.value)}
+            placeholder="Registered entity name (optional)"
+            className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+          />
+          <input
+            type="date"
+            value={registeredAt}
+            onChange={(e) => setRegisteredAt(e.target.value)}
+            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+          />
+        </div>
+        <p className="text-xs text-slate-500">
+          Re-recording is normal — this upserts, and it is what happens every time we
+          re-verify with the registrar.
+        </p>
+        <button
+          type="submit"
+          disabled={record.isPending}
+          className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-900 disabled:opacity-50"
+        >
+          {record.isPending ? "Recording…" : "Record registration"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/**
+ * The prerequisites every client campaign stalls on (SEC-COMP §3).
  *
  * They live in the ADMIN console because they are our operational work: we buy the
- * number, we file the template with the registrar under the client's PE. A client who
- * could mark their own template "approved" would be launching under a registration
- * that does not exist — so the client realm reads these and never writes them.
+ * number, we file the template with the registrar under the client's PE, we record
+ * what the registrar says about their entity. A client who could mark their own
+ * template "approved" would be launching under a registration that does not exist —
+ * so the client realm reads these and never writes them.
  */
 function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
   const numbers = useTenantNumbers(slug);
@@ -342,8 +492,8 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
       <header className="border-b border-slate-800 px-4 py-3">
         <h2 className="text-sm font-semibold text-slate-100">Campaign setup</h2>
         <p className="mt-0.5 text-xs text-slate-500">
-          Until a number and an approved template exist, every campaign this client
-          creates is blocked at launch.
+          Until a number, an approved template and an active entity registration exist,
+          every campaign this client creates is blocked at launch.
         </p>
       </header>
       <div className="grid gap-4 p-4 lg:grid-cols-2">
@@ -494,6 +644,11 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
             </button>
           </form>
         </div>
+
+        {/* Beside the numbers and the templates, because they are the same family of
+            registrar paperwork and an operator working one is usually working all
+            three — not on a separate screen a launch blocker has to send them to. */}
+        <DltRegistrationPanel tenantId={tenantId} />
       </div>
     </section>
   );
