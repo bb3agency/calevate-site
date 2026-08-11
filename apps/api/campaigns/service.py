@@ -14,6 +14,14 @@ But a number can join the list BETWEEN launch and dial (an opt-out from another 
 hard rule 5's propagation requirement), so the dispatcher runs the full compliance
 gate again per contact at dial time. The scrub is UX; the per-dial check is the law.
 
+**And the paperwork is re-read every tick, not only at launch.** `launch_blockers` is a
+photograph of §3 taken when the button was clicked; a campaign then runs for days, over
+which a registrar can reject the voice template, a TSP can pull the number's header, a
+client's Principal Entity registration can be suspended, and Calevate's own telemarketer
+registration can lapse. `dispatch_blockers` asks that subset again, under the SAME rule
+names, once per campaign per dispatch tick — see its docstring for why `check_dispatch`
+structurally cannot.
+
 State transitions are CAS (BACKEND-PATTERNS §5): `rowcount == 0` means someone else
 moved the row first, reported as INVALID_STATUS_TRANSITION, never silently retried.
 """
@@ -82,6 +90,215 @@ TM_LINK_REASON = (
 class LaunchBlocker:
     rule: str
     reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class _CampaignFacts:
+    """One read of everything both gates ask about — the campaign, its template, its
+    number and its agent. Shared so `launch_blockers` and `dispatch_blockers` cannot
+    drift into asking the same question two different ways."""
+
+    status: str
+    classification: str
+    template_id: UUID | None
+    template_status: str | None
+    template_cls: str | None
+    series: str | None
+    number_dlt_status: str | None
+    agent_status: str | None
+    disclosure: str | None
+    agent_direction: str | None
+    agent_deleted: bool
+    consent_source: str | None
+
+
+async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _CampaignFacts:
+    row = (
+        await session.execute(
+            text(
+                "SELECT c.status, c.classification, c.dlt_template_id, "
+                "  t.status AS template_status, t.classification AS template_cls, "
+                "  n.series, n.dlt_status AS number_dlt_status, "
+                "  a.status AS agent_status, a.disclosure_line, "
+                "  a.direction AS agent_direction, a.deleted_at AS agent_deleted_at, "
+                "  c.consent_source "
+                "FROM campaigns c "
+                "LEFT JOIN dlt_templates t ON t.id = c.dlt_template_id "
+                "LEFT JOIN phone_numbers n ON n.id = c.number_id "
+                "JOIN agents a ON a.id = c.agent_id "
+                "WHERE c.id = :cid"
+            ),
+            {"cid": campaign_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Campaign")
+    return _CampaignFacts(
+        status=str(row[0]),
+        classification=str(row[1]),
+        template_id=row[2],
+        template_status=row[3],
+        template_cls=row[4],
+        series=row[5],
+        number_dlt_status=row[6],
+        agent_status=row[7],
+        disclosure=row[8],
+        agent_direction=row[9],
+        agent_deleted=row[10] is not None,
+        consent_source=row[11],
+    )
+
+
+async def _entity_blockers(
+    session: AsyncSession, *, tenant_id: UUID, facts: _CampaignFacts
+) -> list[LaunchBlocker]:
+    """WHO may place these calls, and on what consent — SEC-COMP §3's first and fourth
+    bullets. Calevate's telemarketer registration, the client's Principal Entity
+    registration and its TM link, and the provenance of the contact list."""
+    blockers: list[LaunchBlocker] = []
+
+    # SEC-COMP §3, first bullet, COMPANY half: "Calevate TM registration exists AND
+    # this client's PE registration + TM-link are active". Ours comes first because it
+    # is not a fact about this client at all — it is one row in `platform_state`, false
+    # for everybody at once, and a campaign dialled while it is not live is not a
+    # client with a paperwork gap, it is US dialling as an unregistered telemarketer.
+    # Reported alongside the client's own blockers rather than short-circuiting them:
+    # a client who fixes their PE registration during our outage should see that
+    # progress, and ops watching a launch preview should see the whole list.
+    if not (await read_tm_registration(session)).is_live:
+        blockers.append(LaunchBlocker("tm_registration_missing", TM_REGISTRATION_MISSING_REASON))
+
+    # SEC-COMP §3, first bullet, CLIENT half: the client's DLT ENTITY registration.
+    # Distinct from the header (`number_not_registered`) and the template
+    # (`dlt_template_*`) checks — the registrar issues three registrations and none
+    # implies another. A missing row and a pending one are different facts with
+    # different next actions, so they are different blockers.
+    registration = (
+        await session.execute(
+            text("SELECT status, tm_link_status FROM dlt_registrations WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        )
+    ).first()
+    if registration is None:
+        blockers.append(LaunchBlocker("pe_registration_missing", PE_MISSING_REASON))
+    else:
+        pe_status, tm_link_status = registration
+        if pe_status != "active":
+            blockers.append(
+                LaunchBlocker(
+                    "pe_registration_not_active",
+                    f"This business's DLT Principal Entity registration is "
+                    f"{str(pe_status).replace('_', ' ')}; only an active registration may "
+                    "place campaign calls. Inbound answering is unaffected.",
+                )
+            )
+        # Sequential, not exhaustive, and only here: a TM link to an entity that is not
+        # registered cannot be active either, and telling a client to chase an
+        # authorisation for a registration they do not yet have sends them to the wrong
+        # desk. Every OTHER blocker in this family is reported independently.
+        elif tm_link_status != "active":
+            blockers.append(LaunchBlocker("tm_link_not_active", TM_LINK_REASON))
+
+    # SEC-COMP §3, fourth bullet: consent provenance for the list. NULL is "nobody has
+    # said", which is what every campaign predating the columns honestly reports —
+    # refused by name rather than defaulted into a consent nobody gave.
+    if facts.consent_source is None:
+        blockers.append(LaunchBlocker("consent_provenance_missing", NO_PROVENANCE_REASON))
+    elif facts.consent_source in REFUSED_CONSENT_SOURCES:
+        blockers.append(LaunchBlocker("consent_source_refused", PURCHASED_LIST_REASON))
+
+    return blockers
+
+
+def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
+    """WHAT this campaign may say, and from WHERE — SEC-COMP §3's second bullet. The
+    registered voice template and the registered header of the right series."""
+    blockers: list[LaunchBlocker] = []
+
+    if facts.template_id is None:
+        blockers.append(
+            LaunchBlocker("dlt_template_missing", "Attach an approved DLT voice template.")
+        )
+    elif facts.template_status != "approved":
+        blockers.append(
+            LaunchBlocker(
+                "dlt_template_not_approved", f"The DLT template is {facts.template_status}."
+            )
+        )
+    elif facts.template_cls != facts.classification:
+        blockers.append(
+            LaunchBlocker(
+                "dlt_template_mismatch",
+                f"A {facts.classification} campaign cannot use a {facts.template_cls} template.",
+            )
+        )
+
+    if facts.series is None:
+        blockers.append(LaunchBlocker("number_missing", "Attach a calling number."))
+    else:
+        allowed_series = SERIES_FOR_CLASSIFICATION.get(facts.classification, ())
+        if facts.series not in allowed_series:
+            allowed = "/".join(allowed_series)
+            blockers.append(
+                LaunchBlocker(
+                    "number_series_mismatch",
+                    f"A {facts.classification} campaign must dial from a {allowed} number, "
+                    f"not {facts.series}.",
+                )
+            )
+        # The number-side twin of the template check. `dlt_status` moves to `registered`
+        # through an audited admin step for the same reason `set_template_status` does:
+        # dialling from an unregistered header is the misclassification that gets the
+        # traffic dropped as spam and the complaints filed against the client's PE.
+        if facts.number_dlt_status != "registered":
+            blockers.append(
+                LaunchBlocker(
+                    "number_not_registered",
+                    f"This number's DLT registration is {facts.number_dlt_status}; only a "
+                    "registered number may place campaign calls.",
+                )
+            )
+
+    return blockers
+
+
+async def dispatch_blockers(
+    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
+) -> list[LaunchBlocker]:
+    """Every §3 condition that must STILL be true at dial time, by the same names.
+
+    **The launch gate is a photograph; a campaign runs for days.** Between the click and
+    the ring, the registrar can reject the voice template, a TSP can pull the number's
+    header registration, the client's Principal Entity registration can be suspended,
+    the client can withdraw Calevate's TM authorisation, and Calevate's own telemarketer
+    registration can lapse — SEC-COMP §1's 5-complaints-in-10-days rule suspends a
+    telemarketer, which is precisely the moment dialling must stop. None of that is
+    exotic; all of it is the registrar and the TSPs doing their job to a live campaign.
+
+    `compliance.service.check_dispatch` cannot ask any of it. That gate is per NUMBER
+    and per AGENT — the platform halt, the agent, the tenant's cap and wallet, the hour,
+    the DNC list — and it is called from three surfaces that have no campaign at all.
+    These are CAMPAIGN facts, so they are asked here, once per campaign per tick, by the
+    dispatcher, inside the transaction that claims the contacts.
+
+    What is deliberately NOT here:
+
+    - the launch-only questions — `status`, `no_contacts`, `all_contacts_dnc`. A running
+      campaign is not a draft and its contact list is being consumed by design;
+    - anything `check_dispatch` already asks per contact (agent, spend cap, credits,
+      calling hours, DNC). Asking twice would make the two gates disagree the first time
+      one of them changed.
+
+    RESUME is the reason this cannot live only at launch. `set_campaign_status` moves a
+    campaign from `paused` back to `running` with a bare CAS and no gate, so a campaign
+    can sit paused for a week — long enough for any of the above — and come back running
+    with nothing having re-read the paperwork.
+    """
+    facts = await _campaign_facts(session, campaign_id)
+    return [
+        *(await _entity_blockers(session, tenant_id=tenant_id, facts=facts)),
+        *_channel_blockers(facts),
+    ]
 
 
 def _parse_hhmm(value: object) -> time:
@@ -455,114 +672,38 @@ async def launch_blockers(
     per-number rules (DNC, calling hours) stay at dial time only: they are per contact
     and per minute, and a campaign launched at 22:00 to dial tomorrow morning is
     correct, not blocked.
+
+    The DLT-entity, consent-provenance, template and number rules are shared verbatim
+    with `dispatch_blockers` — same helpers, same names, same wording — because those
+    are the §3 conditions that can stop being true while a campaign RUNS, and a launch
+    screen that explained one of them differently from the dispatcher's refusal would
+    be two gates disagreeing in front of a client.
     """
     blockers: list[LaunchBlocker] = []
-    row = (
-        await session.execute(
-            text(
-                "SELECT c.status, c.classification, c.agent_id, c.dlt_template_id, "
-                "  t.status AS template_status, t.classification AS template_cls, "
-                "  n.series, n.dlt_status AS number_dlt_status, "
-                "  a.status AS agent_status, a.disclosure_line, "
-                "  a.direction AS agent_direction, a.deleted_at AS agent_deleted_at, "
-                "  c.consent_source, c.consent_collected_at "
-                "FROM campaigns c "
-                "LEFT JOIN dlt_templates t ON t.id = c.dlt_template_id "
-                "LEFT JOIN phone_numbers n ON n.id = c.number_id "
-                "JOIN agents a ON a.id = c.agent_id "
-                "WHERE c.id = :cid"
-            ),
-            {"cid": campaign_id},
-        )
-    ).first()
-    if row is None:
-        raise ProblemError.not_found("Campaign")
-    (
-        status,
-        classification,
-        _agent_id,
-        template_id,
-        template_status,
-        template_cls,
-        series,
-        number_dlt_status,
-        agent_status,
-        disclosure,
-        agent_direction,
-        agent_deleted_at,
-        consent_source,
-        _consent_collected_at,
-    ) = row
+    facts = await _campaign_facts(session, campaign_id)
 
-    if status not in ("draft", "scheduled"):
-        blockers.append(LaunchBlocker("status", f"Campaign is {status}, not draft."))
+    if facts.status not in ("draft", "scheduled"):
+        blockers.append(LaunchBlocker("status", f"Campaign is {facts.status}, not draft."))
     # `agent_missing` / `agent_inbound_only` are the gate's own names for these two —
     # the dispatcher would refuse every single contact with them.
-    if agent_deleted_at is not None:
+    if facts.agent_deleted:
         blockers.append(
             LaunchBlocker("agent_missing", "The agent this campaign uses has been deleted.")
         )
-    elif agent_status != "live":
+    elif facts.agent_status != "live":
         blockers.append(LaunchBlocker("agent_not_live", "The agent must be published first."))
-    if agent_direction == "inbound":
+    if facts.agent_direction == "inbound":
         blockers.append(
             LaunchBlocker(
                 "agent_inbound_only",
                 "This agent only answers calls; it cannot place them.",
             )
         )
-    if not disclosure or not str(disclosure).strip():
+    if not facts.disclosure or not str(facts.disclosure).strip():
         blockers.append(LaunchBlocker("disclosure_missing", "The agent has no disclosure line."))
 
-    # SEC-COMP §3, first bullet, COMPANY half: "Calevate TM registration exists AND
-    # this client's PE registration + TM-link are active". Ours comes first because it
-    # is not a fact about this client at all — it is one row in `platform_state`, false
-    # for everybody at once, and a campaign launched while it is not live is not a
-    # client with a paperwork gap, it is US dialling as an unregistered telemarketer.
-    # Reported alongside the client's own blockers rather than short-circuiting them:
-    # a client who fixes their PE registration during our outage should see that
-    # progress, and ops watching a launch preview should see the whole list.
-    if not (await read_tm_registration(session)).is_live:
-        blockers.append(LaunchBlocker("tm_registration_missing", TM_REGISTRATION_MISSING_REASON))
-
-    # SEC-COMP §3, first bullet, CLIENT half: the client's DLT ENTITY registration.
-    # Distinct from the header (`number_not_registered`) and the template
-    # (`dlt_template_*`) checks below — the registrar issues three registrations and
-    # none implies another. A missing row and a pending one are different facts with
-    # different next actions, so they are different blockers.
-    registration = (
-        await session.execute(
-            text("SELECT status, tm_link_status FROM dlt_registrations WHERE tenant_id = :tid"),
-            {"tid": tenant_id},
-        )
-    ).first()
-    if registration is None:
-        blockers.append(LaunchBlocker("pe_registration_missing", PE_MISSING_REASON))
-    else:
-        pe_status, tm_link_status = registration
-        if pe_status != "active":
-            blockers.append(
-                LaunchBlocker(
-                    "pe_registration_not_active",
-                    f"This business's DLT Principal Entity registration is "
-                    f"{str(pe_status).replace('_', ' ')}; only an active registration may "
-                    "place campaign calls. Inbound answering is unaffected.",
-                )
-            )
-        # Sequential, not exhaustive, and only here: a TM link to an entity that is not
-        # registered cannot be active either, and telling a client to chase an
-        # authorisation for a registration they do not yet have sends them to the wrong
-        # desk. Every OTHER blocker in this function is reported independently.
-        elif tm_link_status != "active":
-            blockers.append(LaunchBlocker("tm_link_not_active", TM_LINK_REASON))
-
-    # SEC-COMP §3, fourth bullet: consent provenance for the list. NULL is "nobody has
-    # said", which is what every campaign predating the columns honestly reports —
-    # refused by name rather than defaulted into a consent nobody gave.
-    if consent_source is None:
-        blockers.append(LaunchBlocker("consent_provenance_missing", NO_PROVENANCE_REASON))
-    elif consent_source in REFUSED_CONSENT_SOURCES:
-        blockers.append(LaunchBlocker("consent_source_refused", PURCHASED_LIST_REASON))
+    # WHO may dial, and on what consent (SEC-COMP §3, bullets one and four).
+    blockers.extend(await _entity_blockers(session, tenant_id=tenant_id, facts=facts))
 
     # Tenant-level refusals, asked with the same functions the dial-time gate uses.
     if await spend_capped(session, tenant_id=tenant_id):
@@ -570,45 +711,8 @@ async def launch_blockers(
     if await credits_exhausted(session, tenant_id=tenant_id):
         blockers.append(LaunchBlocker("no_credits", NO_CREDITS_REASON))
 
-    if template_id is None:
-        blockers.append(
-            LaunchBlocker("dlt_template_missing", "Attach an approved DLT voice template.")
-        )
-    elif template_status != "approved":
-        blockers.append(
-            LaunchBlocker("dlt_template_not_approved", f"The DLT template is {template_status}.")
-        )
-    elif template_cls != classification:
-        blockers.append(
-            LaunchBlocker(
-                "dlt_template_mismatch",
-                f"A {classification} campaign cannot use a {template_cls} template.",
-            )
-        )
-
-    if series is None:
-        blockers.append(LaunchBlocker("number_missing", "Attach a calling number."))
-    else:
-        if series not in SERIES_FOR_CLASSIFICATION.get(str(classification), ()):
-            allowed = "/".join(SERIES_FOR_CLASSIFICATION.get(str(classification), ()))
-            blockers.append(
-                LaunchBlocker(
-                    "number_series_mismatch",
-                    f"A {classification} campaign must dial from a {allowed} number, not {series}.",
-                )
-            )
-        # The number-side twin of the template check. `dlt_status` moves to `registered`
-        # through an audited admin step for the same reason `set_template_status` does:
-        # dialling from an unregistered header is the misclassification that gets the
-        # traffic dropped as spam and the complaints filed against the client's PE.
-        if number_dlt_status != "registered":
-            blockers.append(
-                LaunchBlocker(
-                    "number_not_registered",
-                    f"This number's DLT registration is {number_dlt_status}; only a "
-                    "registered number may place campaign calls.",
-                )
-            )
+    # WHAT it may say and from WHERE (SEC-COMP §3, bullet two).
+    blockers.extend(_channel_blockers(facts))
 
     # Pending AND dialable are different numbers, and the difference is the whole point
     # of this blocker: the scrub launch is about to run marks every DNC-listed contact
@@ -872,6 +976,7 @@ __all__ = [
     "campaign_window_open",
     "create_campaign",
     "declare_consent_provenance",
+    "dispatch_blockers",
     "launch_blockers",
     "launch_campaign",
     "list_campaigns",

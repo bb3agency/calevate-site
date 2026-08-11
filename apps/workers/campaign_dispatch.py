@@ -13,17 +13,31 @@ which the webhook receiver and reconciliation poller keep current — the engine
 view arrives through exactly those paths, so a separate "live count" API call would be
 the same data, later.
 
-Per contact, at dial time, the FULL compliance gate runs again. The launch scrub was
-UX; this is the enforcement — a number can join the DNC list between launch and dial,
-and hard rule 5 says additions propagate before the next dispatch tick. This loop IS
-the dispatch tick.
+TWO GATES RUN HERE, and they answer different questions:
+
+- `campaigns.service.dispatch_blockers`, ONCE PER CAMPAIGN, in the claiming
+  transaction: the §3 paperwork — Calevate's TM registration, the client's PE
+  registration and TM link, the consent provenance of the list, the DLT voice template,
+  the calling number's series and header registration. Launch checked all of it once;
+  registrars and TSPs withdraw things while campaigns run, and `resume` is a bare CAS
+  with no gate on it at all.
+- `compliance.service.check_dispatch`, ONCE PER CONTACT: the platform halt, the agent,
+  the tenant's cap and wallet, the calling hour, and the DNC list. The launch scrub was
+  UX; this is the enforcement — a number can join the DNC list between launch and dial,
+  and hard rule 5 says additions propagate before the next dispatch tick. This loop IS
+  the dispatch tick.
 
 Claiming is CAS: `pending → dialing` by conditional UPDATE with SKIP LOCKED, so N
-dispatcher processes never double-dial a contact.
+dispatcher processes never double-dial a contact. The claim COMMITS before the first
+dial and each dial gets its own transaction — see `_dispatch_for_campaign` for why a
+shared one re-rings people a cancelled tick has already called.
 
 COST SHAPE. A tick is one transaction and one query per tenant in
-`_dispatchable_tenants()` — tenants with a published agent — plus one transaction per
-campaign it actually dials for. It used to be one transaction and two queries per
+`_dispatchable_tenants()` — tenants with a published agent — plus, per campaign it
+actually dials for, one claiming transaction, one per contact dialled, and one to close
+the campaign out. The per-contact transactions are the price of not double-dialling,
+and they are cheap next to the engine round trip they no longer hold a connection open
+across. It used to be one transaction and two queries per
 ORGANIZATION (15,941 sessions / 47,825 queries / 44.9s on the development database, for
 a job scheduled every 30 seconds). What is left is proportional to tenants that have
 ever published an agent, NOT to tenants with a running campaign, because rules 1+2 need
@@ -45,14 +59,14 @@ from uuid import UUID
 from sqlalchemy import text
 
 from apps.api.agents.service import dispatch_call
-from apps.api.campaigns.service import campaign_window_open
+from apps.api.campaigns.service import campaign_window_open, dispatch_blockers
 
 # Module import (not `from ... import ist_now`) so tests that pin the compliance
 # clock pin THIS check too — the campaign window and the per-dial gate must agree
 # on what time it is.
 from apps.api.compliance import service as compliance_service
 from apps.api.compliance.service import check_dispatch
-from apps.api.core.alerting import alert, metrics_log
+from apps.api.core.alerting import alert, metrics_log, record_compliance_block
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -258,11 +272,59 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
 async def _dispatch_for_campaign(
     tenant_id: UUID, campaign_id: UUID, slots: int, retry_policy: dict[str, Any]
 ) -> dict[str, int]:
+    """One campaign's slice of a tick: reap, gate, claim — then dial, one at a time.
+
+    **THE CLAIM COMMITS BEFORE THE FIRST DIAL, AND EVERY DIAL IS ITS OWN TRANSACTION.**
+    That split is the whole double-dial defence, and it is not a refactor.
+
+    With one transaction around the batch, anything that escapes the loop after the
+    engine has accepted a call rolls the CLAIM back too — the contact returns to
+    `pending` although their phone has already rung, and the next tick, thirty seconds
+    later, rings them again. `except Exception` around the engine call does not help:
+    the escape that matters is `asyncio.CancelledError`, which is a `BaseException` and
+    is what a cron tick overrunning `job_timeout` (300s) or a worker caught mid-tick by
+    a deploy actually raises — and it is one of the three exceptions arq 0.28 RETRIES.
+
+    With the claim committed first, that same failure leaves the contact in `dialing`.
+    Nothing re-claims it; `_reap_stuck_dialing` returns it to the ladder after 30
+    minutes. One dial, one attempt, no second ring. The same split also delivers what
+    `agents.service.dispatch_call` already promises in its own docstring — a call row
+    that survives even when our side fails afterwards, rather than an invisible charge —
+    and it stops a DB transaction being held open across an engine HTTP round trip.
+    """
     max_attempts = int(retry_policy.get("max_attempts", 3))
     dialled = blocked = exhausted = 0
 
     async with tenant_session(tenant_id) as session:
         await _reap_stuck_dialing(session, campaign_id)
+
+        # THE STANDING COMPLIANCE GATE (hard rule 5), asked in the SAME transaction
+        # that claims the contacts, so a registration revoked a moment ago cannot slip
+        # between the check and the claim.
+        #
+        # `check_dispatch` below is per NUMBER and per AGENT; it structurally cannot see
+        # the campaign's DLT template, its calling number's header registration, the
+        # client's Principal Entity registration or Calevate's own TM registration.
+        # Those were verified once, at launch, and every one of them can be withdrawn by
+        # a registrar or a TSP while the campaign runs. `resume` makes it worse: it is a
+        # bare CAS from `paused` back to `running` with no gate at all.
+        #
+        # Checked BEFORE claiming, for the same reason the calling window is: it blocks
+        # every contact of this campaign identically, so skipping outright costs no
+        # attempts and needs no compensating refund.
+        standing = await dispatch_blockers(session, tenant_id=tenant_id, campaign_id=campaign_id)
+        if standing:
+            for blocker in standing:
+                record_compliance_block(rule=blocker.rule)
+            # Rules and ids only — never a number, never a client's wording (rule 6).
+            log.warning(
+                "campaign_dispatch_blocked",
+                extra={
+                    "campaign_id": str(campaign_id),
+                    "rules": ",".join(b.rule for b in standing),
+                },
+            )
+            return {"dialled": 0, "blocked": 0, "exhausted": 0}
 
         # CAS claim: pending → dialing, oldest first, due-for-retry respected.
         #
@@ -310,10 +372,16 @@ async def _dispatch_for_campaign(
                 text("SELECT agent_id FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
             )
         ).scalar()
+    # The claim is COMMITTED here — see this function's docstring. Everything below
+    # runs in its own short transaction, so losing one loses at most one dial's
+    # bookkeeping and never un-rings a phone.
 
-        for contact_id, phone, name, _custom, attempts in claimed:
+    for contact_id, phone, name, _custom, attempts in claimed:
+        async with tenant_session(tenant_id) as session:
             # THE per-dial gate (hard rule 5). This tick is "the next dispatch tick"
-            # DNC additions must precede.
+            # DNC additions must precede. Its DNC read is uncached and per contact, so
+            # an opt-out committed by another connection while this batch is mid-flight
+            # blocks the very next contact rather than waiting for the next tick.
             decision = await check_dispatch(
                 session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), phone_e164=phone
             )
@@ -327,7 +395,8 @@ async def _dispatch_for_campaign(
                     {"status": "dnc_blocked" if terminal else "pending", "id": contact_id},
                 )
                 if not terminal:
-                    # Not lawful right now (hours, caps): try again next window.
+                    # Not lawful right now (hours, caps, a halt pulled mid-batch): try
+                    # again next window.
                     await session.execute(
                         text(
                             "UPDATE campaign_contacts SET next_attempt_at = now() + "
@@ -373,6 +442,7 @@ async def _dispatch_for_campaign(
             )
             dialled += 1
 
+    async with tenant_session(tenant_id) as session:
         # Campaign auto-complete: nothing pending and nothing dialing left.
         remaining = (
             await session.execute(
