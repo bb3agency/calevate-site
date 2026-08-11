@@ -995,6 +995,99 @@ Route-ordering hazard worth remembering: `voice_router` mounts BEFORE `agents_ro
 or `/v1/agents/{agent_id}` swallows `/v1/agents/voices` and 422s it as a bad UUID —
 the same hazard `campaigns/routes.py` calls out for `/numbers`.
 
+**43. The audit sweep: eleven agents over the whole codebase**
+
+Eleven agents on strictly disjoint territories, each given one rule: **reproduce the
+defect with a failing test BEFORE fixing it**, and report what you investigated and
+found sound as well as what broke. That rule is the reason this entry is long — almost
+everything below was invisible, and several were invisible *because a test said
+otherwise*.
+
+The single most useful instruction turned out to be the one about test hygiene. The
+compromised test that hid the ARQ bug (`tests/outbound_sync_test.py` injected
+`{"job_try": WORKER_MAX_TRIES}` straight into the job context, manufacturing the state
+it then asserted) became the template for what agents went looking for elsewhere — and
+the guardrail audit found the same shape one layer down, in guardrails that asserted a
+trigger *existed* rather than that it *blocked*, and an allowlist entry's *comment*
+rather than its *behaviour*.
+
+**Security — the three that mattered most**
+
+- **Both Clerk realms verified against one JWKS host.** `_jwks_url()` took the realm's
+  secret, deleted it, and returned the same host either way, so the admin verifier
+  accepted a signature minted by the CLIENT Clerk application. The only thing between a
+  client token and the admin console was whether that user id also appeared in
+  `admin_users` — an authorization check standing in for an authentication one.
+- **`/hooks/v1/engine/fake` accepted writes from anyone, in every environment.** The
+  route table is identical everywhere and the receiver accepted the `fake` engine from
+  any source IP, so on a production box running `ENGINE=bolna` a stranger with the URL
+  got an inbox claim, a forensic row and an ARQ job.
+- **A deleted user came back.** The Clerk mirror's upsert cleared `deactivated_at` in
+  its `DO UPDATE`, and svix does not guarantee ordering — a `user.updated` landing after
+  the `user.deleted` restored a revoked account's access to every tenant it belonged to.
+
+**Money**
+
+- `unit_cost_paid` held leg TOTALS where every reader treats it as a per-unit price
+  (`SUM(qty * unit_cost_paid)`), so a 95-second call costing ₹6.41 was recorded as
+  ₹169.85 — and the TTS leg vanished entirely because its qty was 0.
+- `charge_for_call`'s dedupe ran BEFORE the advisory lock, so two overlapping pipeline
+  runs of one call both read "not charged yet" and both appended.
+- `occurred_at` used `now()` — TRANSACTION-START time — so a long transaction stamped
+  its entry earlier than a top-up that started later and committed first, and
+  `ORDER BY occurred_at DESC LIMIT 1` read a stale balance.
+- GST rounded ROUND_HALF_EVEN off the process-global decimal context: ₹18.045 became
+  ₹18.04 where an Indian tax invoice is checked for ₹18.05, and any library changing
+  that global silently changed our rupees.
+
+**Things that never ran at all**
+
+- **ARQ never retried.** arq only spares a job that raises `arq.Retry`; every worker
+  raised plain exceptions, so failures were dropped after one attempt — `max_tries`
+  decorative, the DLQ ladder dead, and `outbound_webhook_exhausted` unable to fire.
+- **The `completed` webhook never reached the queue** (D-40). The inbox deduped per
+  EXECUTION while the job id keyed per TRANSITION, so the first status change claimed
+  the row and `completed` — the only one carrying cost, recording and transcript — was
+  answered `duplicate`. Every call waited for the 10-minute poller.
+- **The reconciliation poller was blind under RLS**, probing `calls` on an untenanted
+  session, so it re-drove every healthy call on every tick and buried the real repairs.
+- **KB rollback was impossible** — publishing archives the predecessor, and
+  `publish_source` refused anything not `approved`.
+- **`GET /v1/agents/{id}/publish` is un-callable** (401 without the impersonation
+  header, 403 with it) — recorded as an xfail, not fixed, because the fix is the
+  tenant-in-path pattern rather than an auth-core change.
+
+**The guardrails could be fooled by the violations they name**
+
+Five of six. RLS coverage checked a policy's NAME, not its rule — `USING (true)` passed,
+as did a second permissive policy beside the good one, and `WITH CHECK` was never
+fetched. Ledger immutability had no ORM branch at all despite a docstring promising one,
+and counted a DISABLED trigger as present. The redaction guardrail never looked for
+`text` — the one field the rule is written about — and its allowlist was self-certifying.
+OpenAPI freshness compared only paths and property names, so a route silently downgraded
+from `calls:read_raw` to `calls:read` produced no diff. And `make help`, the default
+goal, had been broken by an unquoted `(CI gate)` so plain `make` exited 2.
+
+**A rule, not three fixes**
+
+Read endpoints kept getting gated on MUTATING permissions, which D-22 refuses while
+impersonating — so the views that EXPLAIN a refusal were exactly the ones support could
+not open. Found in three modules, so `tests/impersonation_reads_test.py` now asserts it
+over the whole route table. Same shape: any staff user could export a client's unmasked
+contact list, because the export's "role gate" was `leads:read`.
+
+**Sixteen web defects**, of which three were silent: "Export CSV" never worked (an
+`<a href>` to a header-authenticated endpoint — verified live, 401 not a file), the
+new-client wizard minted an owner invite for `owner@example.com` whenever billing email
+was blank, and approved knowledge could never go live.
+
+**Deliberately not built, with reasons recorded**: a circuit breaker around the vendor
+(one vendor, small fleet, and the reconciliation poller already IS the degraded mode the
+doc imagines — 429 handling with full jitter was built instead, and only 429, because it
+is the one status that says the request was not performed); narrowing
+`TRUSTED_PROXY_CIDRS` (the correct value is a deployment fact, and guessing wrong 401s
+100% of real traffic).
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
