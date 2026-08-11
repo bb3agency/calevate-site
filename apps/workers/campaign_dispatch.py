@@ -31,6 +31,12 @@ from uuid import UUID
 from sqlalchemy import text
 
 from apps.api.agents.service import dispatch_call
+from apps.api.campaigns.service import campaign_window_open
+
+# Module import (not `from ... import ist_now`) so tests that pin the compliance
+# clock pin THIS check too — the campaign window and the per-dial gate must agree
+# on what time it is.
+from apps.api.compliance import service as compliance_service
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.alerting import alert, metrics_log
 from apps.api.core.loadshed import get_platform_status
@@ -104,7 +110,7 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
             campaigns = (
                 await session.execute(
                     text(
-                        "SELECT c.id, c.concurrency, c.retry_policy, "
+                        "SELECT c.id, c.concurrency, c.retry_policy, c.calling_hours, "
                         "  COALESCE(p.concurrency_ceiling, 10) AS ceiling "
                         "FROM campaigns c "
                         "LEFT JOIN plans p ON p.tenant_id = c.tenant_id "
@@ -112,7 +118,17 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
                     )
                 )
             ).all()
-            for campaign_id, slider, retry_policy, ceiling in campaigns:
+            for campaign_id, slider, retry_policy, calling_hours, ceiling in campaigns:
+                # Per-campaign calling window (narrowing-only; the create path
+                # refuses anything outside 09:00-21:00 IST, so this can only ever
+                # SHRINK when a campaign dials). Checked BEFORE claiming: a closed
+                # window blocks every contact identically, so skipping the campaign
+                # outright is cheaper and cleaner than claim-then-refund — no
+                # attempts burned, no compensating UPDATE. The per-dial gate still
+                # runs for everything claimed below, which keeps the platform
+                # window enforced there regardless — defense in depth.
+                if not campaign_window_open(calling_hours, compliance_service.ist_now()):
+                    continue
                 # Rule 3 then rule 4: tenant ceiling bounds the campaign slider.
                 tenant_budget = max(0, int(ceiling) - int(active or 0))
                 slots = min(int(slider), tenant_budget)

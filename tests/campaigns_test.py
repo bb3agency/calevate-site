@@ -886,3 +886,175 @@ async def test_engine_dispatch_is_isolated_from_other_tenants(
         b_numbers = set((await session.execute(text("SELECT to_e164 FROM calls"))).scalars().all())
     assert a_numbers == {"+919876500011", "+919876500012"}
     assert b_numbers == {"+919876500021"}
+
+
+# ------------------------------------------------------------- per-campaign windows
+
+
+async def _windowed_campaign(
+    calling_hours: dict[str, str] | None,
+    phones: tuple[str, ...] = ("9876500001", "9876500002"),
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    """`_ready_campaign` with a per-campaign window, appended rather than threading
+    a knob through the shared fixture (the existing tests stay untouched). The
+    window goes through `create_campaign` so these tests exercise the validated
+    write path, not a raw UPDATE."""
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        number_id = await _number(session, tenant_id, "140")
+        template_id = await _template(session, tenant_id, "promotional", "approved")
+        campaign_id = await service.create_campaign(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Lunch-hour offers",
+            classification="promotional",
+            number_id=number_id,
+            dlt_template_id=template_id,
+            concurrency=3,
+            calling_hours=calling_hours,
+        )
+        await service.add_contacts(
+            session,
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+            contacts=[{"phone": p, "name": f"Lead {p[-4:]}"} for p in phones],
+        )
+    return tenant_id, agent_id, campaign_id
+
+
+async def test_a_window_outside_platform_hours_is_rejected_and_inside_is_stored() -> None:
+    """Narrowing-only: a client may shrink when their campaign dials, never widen
+    past 09:00-21:00 IST. That window is TRAI law (hard rule 5), so 06:00-10:00 is
+    refused at CREATE — an unlawful window must never even reach the column."""
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as excinfo:
+            await service.create_campaign(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                name="Early birds",
+                classification="promotional",
+                number_id=None,
+                dlt_template_id=None,
+                concurrency=3,
+                calling_hours={"start": "06:00", "end": "10:00"},
+            )
+        assert excinfo.value.code == "campaign_window_outside_platform_hours"
+        assert excinfo.value.kind == "validation"
+
+        # Entirely inside the platform window: accepted and stored verbatim.
+        campaign_id = await service.create_campaign(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Lunch only",
+            classification="promotional",
+            number_id=None,
+            dlt_template_id=None,
+            concurrency=3,
+            calling_hours={"start": "12:00", "end": "14:00"},
+        )
+        stored = (
+            await session.execute(
+                text("SELECT calling_hours FROM campaigns WHERE id = :c"), {"c": campaign_id}
+            )
+        ).scalar()
+    assert stored == {"start": "12:00", "end": "14:00"}
+
+
+async def test_a_closed_campaign_window_skips_the_campaign_without_burning_attempts() -> None:
+    """The autouse fixture pins the clock to 11:00 IST, so a 12:00-14:00 window is
+    closed RIGHT NOW. The dispatcher must skip the campaign BEFORE claiming — no
+    attempts consumed, nothing to refund — while an unwindowed campaign dials
+    normally in the very same tick. The contrast is the test: the skip is the
+    window's doing, not a dead dispatcher."""
+    w_tenant, _, windowed = await _windowed_campaign({"start": "12:00", "end": "14:00"})
+    o_tenant, _, unwindowed = await _ready_campaign(phones=("9876500021",))
+    for tenant_id, campaign_id in ((w_tenant, windowed), (o_tenant, unwindowed)):
+        async with tenant_session(tenant_id) as session:
+            await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
+
+    await _quiesce(windowed, unwindowed)
+    await dispatch_campaign_tick({})
+
+    async with tenant_session(w_tenant) as session:
+        rows = (
+            await session.execute(
+                text("SELECT status, attempts FROM campaign_contacts WHERE campaign_id = :c"),
+                {"c": windowed},
+            )
+        ).all()
+        w_calls = (await session.execute(text("SELECT count(*) FROM calls"))).scalar()
+    async with tenant_session(o_tenant) as session:
+        o_dialing = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM campaign_contacts WHERE campaign_id = :c "
+                    "AND status = 'dialing'"
+                ),
+                {"c": unwindowed},
+            )
+        ).scalar()
+
+    assert all(row == ("pending", 0) for row in rows), rows
+    assert w_calls == 0, "skipped before claiming: no dial, no attempt, no refund needed"
+    assert o_dialing == 1, "the same tick dialled the campaign with no window"
+
+
+async def test_the_windowed_campaign_dials_once_its_window_opens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, _, campaign_id = await _windowed_campaign(
+        {"start": "12:00", "end": "14:00"}, phones=("9876500001",)
+    )
+    async with tenant_session(tenant_id) as session:
+        await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
+
+    # 13:00 IST: inside the campaign's own window AND the platform window, so both
+    # the tick-level skip and the per-dial gate let it through.
+    lunch = datetime(2026, 8, 11, 7, 30, tzinfo=UTC) + timedelta(hours=5, minutes=30)
+    monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: lunch)
+    await _quiesce(campaign_id)
+    await dispatch_campaign_tick({})
+
+    async with tenant_session(tenant_id) as session:
+        status = (
+            await session.execute(
+                text("SELECT status FROM campaign_contacts WHERE campaign_id = :c"),
+                {"c": campaign_id},
+            )
+        ).scalar()
+        calls = (
+            await session.execute(text("SELECT count(*) FROM calls WHERE direction = 'outbound'"))
+        ).scalar()
+    assert status == "dialing", "the open window lets the same campaign dial"
+    assert calls == 1
+
+
+async def test_a_backwards_or_malformed_window_is_rejected() -> None:
+    tenant_id, agent_id = await _tenant()
+    bad_windows: tuple[dict[str, str], ...] = (
+        {"start": "14:00", "end": "12:00"},  # backwards
+        {"start": "12:00", "end": "12:00"},  # empty: start must be strictly before end
+        {"start": "noon", "end": "14:00"},  # not a time
+        {"start": "12:00:00", "end": "14:00"},  # seconds are not HH:MM
+        {"start": "12:00"},  # missing end
+    )
+    async with tenant_session(tenant_id) as session:
+        for window in bad_windows:
+            with pytest.raises(ProblemError) as excinfo:
+                await service.create_campaign(
+                    session,
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    name="Bad window",
+                    classification="promotional",
+                    number_id=None,
+                    dlt_template_id=None,
+                    concurrency=3,
+                    calling_hours=window,
+                )
+            assert excinfo.value.code == "campaign_window_invalid", window
+            assert excinfo.value.kind == "validation"

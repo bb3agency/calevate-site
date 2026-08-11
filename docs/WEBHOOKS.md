@@ -86,12 +86,13 @@ compact, with no spaces after separators).
 ```python
 import hashlib, hmac, time
 
+
 def verify(secret: str, signature_header: str, raw_body: bytes) -> bool:
     parts = dict(p.split("=", 1) for p in signature_header.split(",") if "=" in p)
     ts, provided = parts.get("t"), parts.get("v1")
     if not ts or not provided:
         return False
-    if abs(int(time.time()) - int(ts)) > 300:      # reject > 5 min skew
+    if abs(int(time.time()) - int(ts)) > 300:  # reject > 5 min skew
         return False
     signed = ts.encode() + b"." + raw_body
     expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()

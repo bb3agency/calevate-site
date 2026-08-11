@@ -902,6 +902,38 @@ Three subagents on disjoint files, integrated in one pass.
 
 207 tests.
 
+**41. Parallel round 2: calling windows, RLS sweep, webhook contract, admin screens**
+
+Six subagents across two waves, disjoint files, integrated in two passes.
+
+- **Per-campaign calling windows** (`campaigns/service.py`, `campaign_dispatch.py`):
+  a client may NARROW when their campaign dials, never widen — a window outside
+  09:00–21:00 IST is rejected at CREATE with `campaign_window_outside_platform_hours`,
+  so an unlawful window can never reach the column. A closed window SKIPS the campaign
+  before claiming (skip-not-refund: a closed window blocks every contact identically,
+  so burning attempts and compensating them back is pure churn), and the per-dial gate
+  still runs on everything claimed — defense in depth. The dispatcher reads the clock
+  as `compliance_service.ist_now()` through a module import so the window check and the
+  gate can never disagree about what time it is. 4 tests.
+- **`tests/rls_sweep_test.py`** — the RUNTIME twin of the RLS coverage guardrail.
+  Discovers tenant tables from `information_schema` at runtime and reuses the registry's
+  exemption list, so a table added next month is swept without anyone remembering.
+  Honest about its layers: behavioural zero-rows proof where onboarding seeds rows,
+  policy-exists-and-is-FORCEd proof where it does not, cross-tenant UPDATE asserting
+  rowcount 0 — with ground truth read through the OWNER connection, so a vacuous pass
+  (zero rows vs zero rows) is impossible.
+- **`docs/WEBHOOKS.md`** — the integration contract for a client's developer, both
+  directions. Every constant grep-verified against the code; the two event types with
+  no emitter yet are labeled "reserved, not yet emitted" rather than implied; and the
+  doc deliberately does NOT promise an exponential backoff curve, because the code has
+  none (the older docstrings claiming one are the thing that is wrong).
+- **Admin screens**: prompt history + rollback (captioned with the doctrine — rolling
+  back creates a NEW version), a printable invoice document (white page inside the dark
+  console, ₹ strings rendered verbatim, never through `Number()`), and an Agents panel
+  on the tenant page as the entry point to prompt history.
+
+214 tests.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
@@ -913,5 +945,5 @@ Three subagents on disjoint files, integrated in one pass.
    margin panels ship; turning a month into a PDF invoice does not).
 4. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (207 tests),
+5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (214 tests),
    `uv run mypy apps packages`, `make guardrails` and `pnpm -C apps/web lint` before changing anything.

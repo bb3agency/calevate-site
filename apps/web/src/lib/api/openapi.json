@@ -634,6 +634,28 @@
         "title": "CallbackOut",
         "type": "object"
       },
+      "CallingHoursIn": {
+        "additionalProperties": false,
+        "description": "A per-campaign calling window (IST). The service enforces the substantive\nrule \u2014 narrowing-only, inside the platform's 09:00-21:00 window \u2014 so this model\nonly pins the wire shape to two well-formed HH:MM strings.",
+        "properties": {
+          "end": {
+            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "CallingHoursIn",
+        "type": "object"
+      },
       "CampaignSummaryOut": {
         "additionalProperties": false,
         "properties": {
@@ -790,6 +812,16 @@
             "format": "uuid",
             "title": "Agent Id",
             "type": "string"
+          },
+          "calling_hours": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallingHoursIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "classification": {
             "enum": [

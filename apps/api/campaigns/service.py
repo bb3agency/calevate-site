@@ -23,12 +23,14 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import datetime, time
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.service import DEFAULT_WINDOW
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -54,6 +56,73 @@ class LaunchBlocker:
     reason: str
 
 
+def _parse_hhmm(value: object) -> time:
+    """Strict HH:MM only — seconds, offsets and prose all fail the same way."""
+    return datetime.strptime(str(value), "%H:%M").time()
+
+
+def _validated_window(calling_hours: dict[str, Any]) -> dict[str, str]:
+    """Validate a per-campaign calling window at CREATE time, so an unlawful window
+    can never be stored — which is why launch_blockers needs no window check.
+
+    The rule is NARROWING-ONLY: a client may shrink when their campaign dials
+    (lunch-hour only), never widen past the platform's 09:00-21:00 IST window.
+    That window is TRAI law (hard rule 5), not a default a client can override.
+    """
+    try:
+        start = _parse_hhmm(calling_hours.get("start"))
+        end = _parse_hhmm(calling_hours.get("end"))
+    except (TypeError, ValueError):
+        raise ProblemError(
+            kind="validation",
+            code="campaign_window_invalid",
+            title="Invalid calling window",
+            detail='calling_hours must be {"start": "HH:MM", "end": "HH:MM"} in IST.',
+        ) from None
+    if start >= end:
+        raise ProblemError(
+            kind="validation",
+            code="campaign_window_invalid",
+            title="Invalid calling window",
+            detail="The window's start must be before its end.",
+        )
+    platform_start, platform_end = DEFAULT_WINDOW
+    if start < platform_start or end > platform_end:
+        raise ProblemError(
+            kind="validation",
+            code="campaign_window_outside_platform_hours",
+            title="Calling window outside platform hours",
+            detail=(
+                "A campaign window may only narrow the platform's 09:00-21:00 IST "
+                "calling hours. That window is the law (TRAI), not a default — "
+                "nothing dials outside it."
+            ),
+        )
+    # Re-serialize rather than echo the input: the stored shape is exactly two
+    # canonical HH:MM strings, nothing a client smuggled alongside them.
+    return {"start": start.strftime("%H:%M"), "end": end.strftime("%H:%M")}
+
+
+def campaign_window_open(calling_hours: dict[str, Any] | None, now_ist: datetime) -> bool:
+    """Is this campaign's OWN window open right now (IST)?
+
+    None means "no extra restriction — the platform window applies", so True: this
+    helper answers only the narrowing question. The platform's 09:00-21:00 IST
+    bound is enforced separately by the per-dial compliance gate, which every
+    claimed contact still passes through (defense in depth).
+    """
+    if calling_hours is None:
+        return True
+    try:
+        start = _parse_hhmm(calling_hours["start"])
+        end = _parse_hhmm(calling_hours["end"])
+    except (KeyError, TypeError, ValueError):
+        # A window we cannot read is a window we cannot honour: fail closed.
+        # (Unreachable via create_campaign, which validates before storing.)
+        return False
+    return start <= now_ist.time() <= end
+
+
 async def create_campaign(
     session: AsyncSession,
     *,
@@ -64,14 +133,19 @@ async def create_campaign(
     number_id: UUID | None,
     dlt_template_id: UUID | None,
     concurrency: int,
+    calling_hours: dict[str, Any] | None = None,
 ) -> UUID:
+    # Validated HERE, at the only write path, so the column can never hold a window
+    # the dispatcher would have to second-guess. None = "platform window applies".
+    window = _validated_window(calling_hours) if calling_hours is not None else None
     campaign_id = uuid7()
     await session.execute(
         text(
             "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, number_id, "
-            "dlt_template_id, status, concurrency, retry_policy, created_at, updated_at) "
+            "dlt_template_id, status, concurrency, retry_policy, calling_hours, "
+            "created_at, updated_at) "
             "VALUES (:id, :tid, :aid, :name, :cls, :nid, :dlt, 'draft', :conc, "
-            "CAST(:retry AS jsonb), now(), now())"
+            "CAST(:retry AS jsonb), CAST(:window AS jsonb), now(), now())"
         ),
         {
             "id": campaign_id,
@@ -83,6 +157,7 @@ async def create_campaign(
             "dlt": dlt_template_id,
             "conc": concurrency,
             "retry": json.dumps(DEFAULT_RETRY_POLICY),
+            "window": json.dumps(window) if window is not None else None,
         },
     )
     return campaign_id
@@ -424,6 +499,7 @@ __all__ = [
     "LaunchBlocker",
     "add_contacts",
     "campaign_progress",
+    "campaign_window_open",
     "create_campaign",
     "launch_blockers",
     "launch_campaign",

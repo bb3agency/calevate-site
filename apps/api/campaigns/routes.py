@@ -37,6 +37,18 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+_HHMM = r"^(?:[01]\d|2[0-3]):[0-5]\d$"
+
+
+class CallingHoursIn(Strict):
+    """A per-campaign calling window (IST). The service enforces the substantive
+    rule — narrowing-only, inside the platform's 09:00-21:00 window — so this model
+    only pins the wire shape to two well-formed HH:MM strings."""
+
+    start: str = Field(pattern=_HHMM)
+    end: str = Field(pattern=_HHMM)
+
+
 class CreateCampaignIn(Strict):
     agent_id: UUID
     name: str = Field(min_length=2, max_length=120)
@@ -44,6 +56,8 @@ class CreateCampaignIn(Strict):
     number_id: UUID | None = None
     dlt_template_id: UUID | None = None
     concurrency: int = Field(default=3, ge=1, le=10)
+    # None = "the platform window" — clients narrow it, never widen it.
+    calling_hours: CallingHoursIn | None = None
 
 
 class CreateCampaignOut(Strict):
@@ -193,6 +207,7 @@ async def create_campaign(
         number_id=payload.number_id,
         dlt_template_id=payload.dlt_template_id,
         concurrency=payload.concurrency,
+        calling_hours=payload.calling_hours.model_dump() if payload.calling_hours else None,
     )
     return CreateCampaignOut(id=campaign_id, status="draft")
 

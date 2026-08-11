@@ -1279,6 +1279,18 @@ export interface components {
              */
             status: "queued" | "blocked";
         };
+        /**
+         * CallingHoursIn
+         * @description A per-campaign calling window (IST). The service enforces the substantive
+         *     rule — narrowing-only, inside the platform's 09:00-21:00 window — so this model
+         *     only pins the wire shape to two well-formed HH:MM strings.
+         */
+        CallingHoursIn: {
+            /** End */
+            end: string;
+            /** Start */
+            start: string;
+        };
         /** CampaignSummaryOut */
         CampaignSummaryOut: {
             /** Classification */
@@ -1344,6 +1356,7 @@ export interface components {
              * Format: uuid
              */
             agent_id: string;
+            calling_hours?: components["schemas"]["CallingHoursIn"] | null;
             /**
              * Classification
              * @enum {string}
