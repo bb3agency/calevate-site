@@ -6,6 +6,13 @@ that was missing: that a real deletion request can be *made*, that making it wri
 row and queues the job together, that asking twice does not erase twice, and that the
 answer to "has my data been erased?" is readable afterwards without a support ticket.
 
+They also prove what that answer SAYS. The certificate is the durable artifact — filed,
+forwarded, read years later — so the tests that read it assert what it admits as well as
+what it claims: the recording audio the pointer-clear did not destroy, and the rule that
+stopped it. `tests/erasure_certificate_test.py` covers the document itself, without a
+database; these cover it arriving through the surface, built from a row a real worker
+wrote.
+
 Every phone number here is randomised. `audit_log` and `outbox_messages` are global
 tables that other suites write to concurrently, so every assertion over them is scoped
 by this test's own tenant id.
@@ -20,7 +27,9 @@ import uuid
 from apps.api.admin import service as admin_service
 from apps.api.compliance.deletion import (
     DELETION_JOB,
+    ERASURE_EXCEPTIONS,
     ERASURE_LIMITATIONS,
+    FLOOR_OUTCOME,
     request_erasure,
 )
 from apps.api.compliance.deletion_routes import router as deletion_router
@@ -316,6 +325,75 @@ async def test_the_status_of_a_request_is_readable_and_carries_the_proof() -> No
     )
     assert "consent_ledger" in stated
 
+    # And stated INSIDE the certificate, not only beside it. The envelope is not what
+    # gets filed — the proof is, and a proof that lists what it cleared while staying
+    # silent about the audio that survived is the overclaim SEC-COMP §4 warns about.
+    proof = body["proof"]
+    assert proof["limitations"] == body["limitations"], (
+        "the filed document and the response must not say different things"
+    )
+    assert proof["erased"], "the certificate still says what it destroyed"
+    floor = [entry for entry in proof["not_erased"] if entry["outcome"] == FLOOR_OUTCOME]
+    assert len(floor) == 1, "the recording floor is a named exception, not a footnote"
+    assert "90" in floor[0]["authority"] and "§1" in floor[0]["authority"]
+    assert floor[0]["count"] is None, (
+        "the erasure job counts the collision but does not store it yet — the "
+        "certificate must say so rather than certify a zero"
+    )
+
+
+async def test_the_certificate_says_what_the_stored_row_alone_cannot() -> None:
+    """Where the durable row ends and the document begins, pinned end to end.
+
+    `execute_deletion_request` clears `calls.recording_url` — the POINTER — at any age,
+    and records exactly that: "recording pointer and summary cleared". True, and still
+    misleading on its own, because the audio it pointed at is held under the TRAI
+    90-day floor and this request did not delete it (SEC-COMP §1 against §4). The row
+    is a record of facts; the certificate is what a client hands to a data principal,
+    and it has to state the limits of those facts in words the reader can act on.
+
+    Both halves are asserted here so the seam is visible: what the worker stored, what
+    the API certifies, and the one field that must be identical in both.
+    """
+    phone = _phone()
+    tenant_id, agent_id, slug, token = await _tenant()
+    await _seed_call(tenant_id, agent_id, phone=phone)
+
+    async with _client(_app()) as http:
+        created = await http.post(BASE, json={"phone": phone}, headers=_headers(token, slug))
+        request_id = created.json()["request_id"]
+        await execute_deletion_request({}, (await _jobs(tenant_id))[0])
+        status = await http.get(f"{BASE}/{request_id}", headers=_headers(token, slug))
+
+    async with tenant_session(tenant_id) as session:
+        raw = (
+            await session.execute(
+                text("SELECT proof FROM deletion_requests WHERE id = :i"), {"i": request_id}
+            )
+        ).scalar()
+    stored = raw if isinstance(raw, dict) else json.loads(str(raw))
+
+    # The row, as the worker leaves it: the pointer is reported cleared, and nothing in
+    # it mentions the audio surviving. This is the gap, asserted rather than described.
+    assert "recording pointer" in stored["actions"]["calls"]
+    assert "not_erased" not in stored and "limitations" not in stored
+
+    # The certificate, built from that row, states both halves.
+    certificate = status.json()["proof"]
+    assert certificate["subject_hash"] == stored["subject_hash"] == subject_ref(phone), (
+        "the row and the document must name the same subject, or nothing lines up"
+    )
+    assert any("recording" in line.lower() for line in certificate["erased"])
+    audio = [entry for entry in certificate["not_erased"] if entry["outcome"] == FLOOR_OUTCOME]
+    assert len(audio) == 1
+    assert "still existing" in audio[0]["why"], (
+        "a non-engineer must come away knowing the audio may still exist"
+    )
+    assert "lifecycle" not in audio[0]["why"].lower(), (
+        "SEC-COMP §4: no per-tenant mechanism deletes recording bytes, so the "
+        "certificate must not hand the subject a deletion date derived from one"
+    )
+
 
 async def test_no_response_on_this_surface_carries_the_subjects_number() -> None:
     """The request record keeps the number so the worker can find the subject. Nothing
@@ -335,6 +413,14 @@ async def test_no_response_on_this_surface_carries_the_subjects_number() -> None
         assert national not in response.text
         assert phone not in response.text
     assert subject_ref(phone) in status.text
+
+    # The certificate ALONE, which is the part that gets detached and filed. It grew a
+    # limitations block; none of that prose may reintroduce the number, and the subject
+    # is still named by the same hash the subject-access export files under — that
+    # equality is how an auditor lines one person's two rights up (hard rule 6).
+    filed = json.dumps(status.json()["proof"], ensure_ascii=False)
+    assert national not in filed and phone not in filed
+    assert status.json()["proof"]["subject_hash"] == subject_ref(phone)
 
     # The queued job carries no number either — the worker resolves it from the row.
     assert national not in json.dumps(await _jobs(tenant_id))
@@ -468,8 +554,22 @@ async def test_a_number_we_hold_nothing_about_still_gets_a_request_and_a_certifi
         )
 
     assert status.json()["status"] == "completed"
-    assert status.json()["proof"]["scope"]["calls"] == []
-    assert status.json()["proof"]["scope"]["leads"] == []
+    proof = status.json()["proof"]
+    assert proof["scope"]["calls"] == []
+    assert proof["scope"]["leads"] == []
+    assert proof["erased"] == [
+        "No call record held this number.",
+        "No CRM lead held this number.",
+    ]
+
+    # "We found nothing" is the answer most likely to be filed as "nothing about you
+    # remains", and it is exactly where an unqualified certificate misleads: a consent
+    # ledger entry, a DNC suppression or a recording can exist for a number no call row
+    # matched. The empty certificate states its limits in full, like every other one.
+    assert proof["limitations"] == list(ERASURE_LIMITATIONS)
+    assert [entry["outcome"] for entry in proof["not_erased"]] == [
+        exception.outcome for exception in ERASURE_EXCEPTIONS
+    ]
 
 
 async def test_an_unknown_request_id_is_a_404_not_a_500() -> None:

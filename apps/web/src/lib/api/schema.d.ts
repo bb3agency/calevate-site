@@ -2230,6 +2230,28 @@ export interface components {
             url: string | null;
         };
         /**
+         * ErasureLimitationOut
+         * @description One thing the erasure did NOT destroy, and the rule that stopped it.
+         *
+         *     Modelled rather than left as prose because this is the part of the certificate a
+         *     regulator tabulates: `outcome` is the machine-readable verdict
+         *     (`retained_under_legal_floor`, `unconfirmed`, ...), `why` and `authority` are
+         *     written for a reader with no access to this codebase, and `count` is populated
+         *     where the erasure could count the affected rows and `None` where it could not.
+         */
+        ErasureLimitationOut: {
+            /** Authority */
+            authority: string;
+            /** Count */
+            count: number | null;
+            /** Outcome */
+            outcome: string;
+            /** What */
+            what: string;
+            /** Why */
+            why: string;
+        };
+        /**
          * ErasureProofOut
          * @description The certificate the subject can be shown. Carries no personal data by
          *     construction: a subject hash, timestamps, counts, and plain statements of what was
@@ -2239,6 +2261,14 @@ export interface components {
          *     today is neither true nor false — Bolna's deletion API is undocumented (a pilot
          *     gate), and a certificate that claimed an engine-side deletion we cannot demonstrate
          *     would be the one lie a compliance document must not contain.
+         *
+         *     The last four fields are why this is a certificate and not a database row. The proof
+         *     is the DURABLE artifact — filed, forwarded to a regulator, read years later by
+         *     someone who cannot ask us what it meant — so it has to state its own limits. It used
+         *     to state only what it cleared, with `limitations` riding the envelope beside it;
+         *     anyone who filed the proof alone filed a document that says the recording pointer was
+         *     cleared and is silent about the audio still existing. `deletion_proof.certificate`
+         *     builds all four from `deletion.ERASURE_LIMITATIONS`/`ERASURE_EXCEPTIONS`.
          */
         ErasureProofOut: {
             /** Actions */
@@ -2247,8 +2277,16 @@ export interface components {
             };
             /** Engine Deletion */
             engine_deletion: string;
+            /** Erased */
+            erased: string[];
             /** Executed At */
             executed_at: string;
+            /** Limitations */
+            limitations: string[];
+            /** Limitations Version */
+            limitations_version: string;
+            /** Not Erased */
+            not_erased: components["schemas"]["ErasureLimitationOut"][];
             scope: components["schemas"]["ErasureScopeOut"];
             /** Subject Hash */
             subject_hash: string;
@@ -2268,6 +2306,8 @@ export interface components {
             calls: string[];
             /** Leads */
             leads: string[];
+            /** Recordings Within Trai Floor */
+            recordings_within_trai_floor: number | null;
             /** Transcript Turns Erased */
             transcript_turns_erased: number;
         };

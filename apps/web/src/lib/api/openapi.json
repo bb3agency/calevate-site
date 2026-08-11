@@ -1955,9 +1955,51 @@
         "title": "EndpointOut",
         "type": "object"
       },
+      "ErasureLimitationOut": {
+        "additionalProperties": false,
+        "description": "One thing the erasure did NOT destroy, and the rule that stopped it.\n\nModelled rather than left as prose because this is the part of the certificate a\nregulator tabulates: `outcome` is the machine-readable verdict\n(`retained_under_legal_floor`, `unconfirmed`, ...), `why` and `authority` are\nwritten for a reader with no access to this codebase, and `count` is populated\nwhere the erasure could count the affected rows and `None` where it could not.",
+        "properties": {
+          "authority": {
+            "title": "Authority",
+            "type": "string"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "what": {
+            "title": "What",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "what",
+          "outcome",
+          "why",
+          "authority",
+          "count"
+        ],
+        "title": "ErasureLimitationOut",
+        "type": "object"
+      },
       "ErasureProofOut": {
         "additionalProperties": false,
-        "description": "The certificate the subject can be shown. Carries no personal data by\nconstruction: a subject hash, timestamps, counts, and plain statements of what was\ndone to each table.\n\n`engine_deletion` is a status string rather than a boolean because the honest answer\ntoday is neither true nor false \u2014 Bolna's deletion API is undocumented (a pilot\ngate), and a certificate that claimed an engine-side deletion we cannot demonstrate\nwould be the one lie a compliance document must not contain.",
+        "description": "The certificate the subject can be shown. Carries no personal data by\nconstruction: a subject hash, timestamps, counts, and plain statements of what was\ndone to each table.\n\n`engine_deletion` is a status string rather than a boolean because the honest answer\ntoday is neither true nor false \u2014 Bolna's deletion API is undocumented (a pilot\ngate), and a certificate that claimed an engine-side deletion we cannot demonstrate\nwould be the one lie a compliance document must not contain.\n\nThe last four fields are why this is a certificate and not a database row. The proof\nis the DURABLE artifact \u2014 filed, forwarded to a regulator, read years later by\nsomeone who cannot ask us what it meant \u2014 so it has to state its own limits. It used\nto state only what it cleared, with `limitations` riding the envelope beside it;\nanyone who filed the proof alone filed a document that says the recording pointer was\ncleared and is silent about the audio still existing. `deletion_proof.certificate`\nbuilds all four from `deletion.ERASURE_LIMITATIONS`/`ERASURE_EXCEPTIONS`.",
         "properties": {
           "actions": {
             "additionalProperties": {
@@ -1970,9 +2012,34 @@
             "title": "Engine Deletion",
             "type": "string"
           },
+          "erased": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Erased",
+            "type": "array"
+          },
           "executed_at": {
             "title": "Executed At",
             "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "limitations_version": {
+            "title": "Limitations Version",
+            "type": "string"
+          },
+          "not_erased": {
+            "items": {
+              "$ref": "#/components/schemas/ErasureLimitationOut"
+            },
+            "title": "Not Erased",
+            "type": "array"
           },
           "scope": {
             "$ref": "#/components/schemas/ErasureScopeOut"
@@ -1987,7 +2054,11 @@
           "executed_at",
           "scope",
           "actions",
-          "engine_deletion"
+          "engine_deletion",
+          "erased",
+          "not_erased",
+          "limitations",
+          "limitations_version"
         ],
         "title": "ErasureProofOut",
         "type": "object"
@@ -2014,6 +2085,17 @@
             "title": "Leads",
             "type": "array"
           },
+          "recordings_within_trai_floor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recordings Within Trai Floor"
+          },
           "transcript_turns_erased": {
             "title": "Transcript Turns Erased",
             "type": "integer"
@@ -2023,7 +2105,8 @@
           "calls",
           "leads",
           "transcript_turns_erased",
-          "call_extractions_erased"
+          "call_extractions_erased",
+          "recordings_within_trai_floor"
         ],
         "title": "ErasureScopeOut",
         "type": "object"

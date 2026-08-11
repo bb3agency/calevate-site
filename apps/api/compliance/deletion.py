@@ -66,15 +66,26 @@ than 90 days old these instructions point in opposite directions: §4 says erase
 request, §1 says retaining it is mandatory.
 
 The code as it stands has already half-picked, probably without anyone deciding to:
-`execute_deletion_request` clears `calls.recording_url` unconditionally, at any age,
-while the audio bytes are removed by the object-store lifecycle rule that follows the
-retention policy — and that rule is floored at 90 days. So today the *pointer* goes
-immediately (nothing in our system can reach the audio) and the *bytes* may lawfully
-survive the request. That is a defensible reading, but it is a reading, and this module
-does not launder it into a claim. `ERASURE_LIMITATIONS` states the position and names
-both sections so that whoever hands the certificate to a data principal knows they are
-standing on an unresolved question. Resolving it is a docs decision (a decision-log
-entry against SEC-COMP), not something a producer module gets to settle.
+`execute_deletion_request` clears `calls.recording_url` unconditionally, at any age. So
+today the *pointer* goes immediately (nothing in our system can reach the audio) and the
+*bytes* survive the request. That is a defensible reading, but it is a reading, and this
+module does not launder it into a claim. `ERASURE_LIMITATIONS` and `ERASURE_EXCEPTIONS`
+state the position and name both sections so that whoever hands the certificate to a data
+principal knows they are standing on an unresolved question. Resolving it is a docs
+decision (a decision-log entry against SEC-COMP), not something a producer module gets to
+settle.
+
+An earlier version of this notice told the data principal the audio was "removed by the
+object-store lifecycle rule, which is floored at 90 days". That sentence described a
+mechanism nobody has built. SEC-COMP §4 now records what `infra/object-lifecycle/`
+actually is: a bucket-wide growth CEILING (`recordings/` expire at 2555 days), static and
+prefix-scoped, which *cannot* follow a per-tenant `retention_policies` row — "no
+per-tenant mechanism deletes recording bytes". A certificate that hands someone a
+deletion date derived from a rule that does not delete on that clock is exactly the
+overclaim this register exists to prevent, so the notice now says the audio is not
+deleted by the request at all and must be confirmed removed in writing. That is a
+WIDENING of the stated limitation, which is what SEC-COMP §4 permits ("do not narrow the
+certificate's limitations text"); the erasure BEHAVIOUR is untouched.
 
 **Permission: `org:manage`.** Owner-only in the client realm, operator/superadmin in the
 admin realm, and — the part that matters — a member of `MUTATING_PERMISSIONS`, so D-22
@@ -101,7 +112,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from sqlalchemy import text
@@ -126,20 +137,71 @@ DELETION_SCOPE = "all"
 STATUS_PENDING = "pending"
 STATUS_COMPLETED = "completed"
 
-# What the erasure does NOT do. Shipped with every response on this surface because the
-# client forwards it to a data principal, and a certificate that quietly overclaims is
-# the failure mode DPDP's "erasure with proof" wording exists to prevent.
+# TRAI floor (SEC-COMP §1). Duplicated from `apps/workers/retention.RECORDING_FLOOR_DAYS`
+# rather than imported, for the reason `infra/object-lifecycle/apply_lifecycle.py`
+# duplicates it too: the API has no business importing a worker module — with its
+# session factory and its sweep SQL — in order to print a number into a sentence.
+# `tests/erasure_certificate_test.py` pins the two together so they cannot drift.
+RECORDING_FLOOR_DAYS: Final = 90
+
+# The key the erasure job will write into the stored proof's `scope` when it starts
+# recording how many recordings this request collided with. It counts them TODAY
+# (`floor_recordings=` on the job result, plus a warning) but writes them nowhere
+# durable, so the certificate reports the count as "not stated" rather than as zero —
+# see `deletion_proof._floor_sentence`. Named here because both halves of that
+# coordinated change spell it the same way: `tests/retention_conflicts_test.py` pins the
+# worker's side, `tests/erasure_certificate_test.py` pins this one.
+FLOOR_COUNT_KEY: Final = "recordings_within_trai_floor"
+
+# The one exception the floor count belongs to. Matched on the outcome rather than on a
+# list index so that reordering the register cannot silently attach the count to the
+# wrong statement.
+FLOOR_OUTCOME: Final = "retained_under_legal_floor"
+
+
+@dataclass(frozen=True, slots=True)
+class ErasureLimitation:
+    """One thing an erasure does NOT destroy, in the form the certificate carries it.
+
+    Written for a reader who has no access to this codebase — a data principal, a
+    support agent, a regulator — so `what` names a thing rather than a table, `why` is
+    a paragraph they can act on, and `authority` cites the rule by section so the claim
+    can be checked against the source rather than taken on our word.
+
+    `keyword` is not part of the document. It is the anchor that pins this entry to the
+    prose sentence at the same index in `ERASURE_LIMITATIONS`: two lists that say the
+    same thing drift, and the pairing test is what stops one of them being widened
+    while the other quietly stays narrow.
+    """
+
+    what: str
+    keyword: str
+    outcome: str
+    why: str
+    authority: str
+
+
+# What the erasure does NOT do. Shipped with every response on this surface AND written
+# into the certificate itself (`deletion_proof.certificate`), because the client forwards
+# the certificate to a data principal and a document that quietly overclaims is the
+# failure mode DPDP's "erasure with proof" wording exists to prevent.
+#
+# Index-aligned with `ERASURE_EXCEPTIONS` below. Adding a limitation means adding both.
 ERASURE_LIMITATIONS: tuple[str, ...] = (
     "Call recordings: the pointer to the audio is cleared immediately, so nothing in "
-    "this system can reach it. The stored audio itself is removed by the object-store "
-    "lifecycle rule, which is floored at 90 days by the TRAI retention rule "
-    "(SECURITY-COMPLIANCE §1), so a recording younger than that may survive this "
-    "request. SECURITY-COMPLIANCE §4 describes erasure as covering recordings; the two "
-    "sections are in tension and this notice states the position rather than resolving "
-    "it.",
-    "consent_ledger entries are retained. They are the append-only proof that the calls "
-    "were lawful (hard rule 4); destroying them would remove the evidence, not the "
-    "personal data.",
+    "this system can reach, play or export it. The audio file itself is NOT deleted by "
+    "this request. Indian telecom rules require call recordings to be retained for at "
+    f"least {RECORDING_FLOOR_DAYS} days (SECURITY-COMPLIANCE §1), and no automatic "
+    "per-tenant process "
+    "removes them once that period passes — the bucket-wide storage rule is a growth "
+    "ceiling, not a retention mechanism (SECURITY-COMPLIANCE §4). Treat the audio as "
+    "still existing until its removal is confirmed in writing. SECURITY-COMPLIANCE §4 "
+    "describes erasure as covering recordings; the two sections are in tension and this "
+    "notice states the position rather than resolving it.",
+    "consent_ledger entries are retained, and they carry the caller's number. They are "
+    "the append-only proof that the calls were lawful (hard rule 4); destroying them "
+    "would remove the evidence that consent existed. So the number itself survives on "
+    "that ledger even though it is cleared everywhere the calls are stored.",
     "usage_events are retained. They are an append-only billing ledger carrying no "
     "personal data, and deleting them would silently rewrite a closed billing period.",
     "Call rows survive with their personal fields cleared rather than being deleted, so "
@@ -152,6 +214,116 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "that records the proof. What remains afterwards is a one-way hash "
     "(`subject_ref`), which confirms an erasure to someone who already has the number "
     "and discloses nothing to anyone who does not.",
+    "If this number is on a do-not-call list — the client's own or the national one — "
+    "that entry is retained. Removing it would make the person callable again, which is "
+    "the opposite of what suppression is for. A DNC entry records a number and a scope, "
+    "and nothing else about the person.",
+)
+
+# The same register, structured, and the half that rides the CERTIFICATE. Prose is what
+# a person reads; these are what a regulator can tabulate and what a machine can check.
+# Index-aligned with `ERASURE_LIMITATIONS` — see `ErasureLimitation.keyword`.
+ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
+    ErasureLimitation(
+        what="The audio recordings of the calls this erasure covered.",
+        keyword="recording",
+        outcome=FLOOR_OUTCOME,
+        why=(
+            "The link this system held to each recording was cleared, so nothing in "
+            "Calevate can play, download or export the audio. The audio file itself is "
+            "still in object storage and this request did not delete it: Indian telecom "
+            "rules require call recordings to be kept for at least "
+            f"{RECORDING_FLOOR_DAYS} days, and no automatic per-tenant process removes "
+            "them once that period passes. Treat the audio as still existing until the "
+            "client confirms its removal in writing."
+        ),
+        authority=(
+            f"TRAI {RECORDING_FLOOR_DAYS}-day recording-retention floor "
+            "(SECURITY-COMPLIANCE §1), against the erasure duty in SECURITY-COMPLIANCE "
+            "§4. Which of the two takes precedence is an open decision recorded in §4; "
+            "until it is taken the pointer is cleared at every age and nothing in this "
+            "erasure is conditional on the recording's age."
+        ),
+    ),
+    ErasureLimitation(
+        what="The consent record for these calls.",
+        keyword="consent",
+        outcome="retained_as_evidence",
+        why=(
+            "The consent ledger is the append-only proof that these calls were "
+            "permitted. It records the caller's number, so an erasure leaves that "
+            "number on the ledger; deleting the entries would destroy the evidence that "
+            "the contact was lawful rather than reduce what is known about the person."
+        ),
+        authority="Hard rule 4 (append-only ledgers); SECURITY-COMPLIANCE §4.",
+    ),
+    ErasureLimitation(
+        what="The billing records for these calls.",
+        keyword="usage_events",
+        outcome="retained_as_record",
+        why=(
+            "Usage events are an append-only billing ledger. They count minutes and "
+            "money and name no person, and deleting them would silently rewrite a "
+            "billing period that has already been invoiced."
+        ),
+        authority="Hard rule 4 (append-only ledgers); hard rule 7 (money).",
+    ),
+    ErasureLimitation(
+        what="The call rows themselves.",
+        keyword="call rows",
+        outcome="retained_stripped",
+        why=(
+            "Each call survives as a row with its personal fields emptied — both "
+            "numbers, the summary and the link to the audio are gone — rather than "
+            "being deleted outright, so the minutes that were billed stay countable. "
+            "What is left is a duration, a timestamp and identifiers that point at no "
+            "person."
+        ),
+        authority=(
+            "SECURITY-COMPLIANCE §4 — erasure removes the personal data, not the fact "
+            "that a call happened and was billed."
+        ),
+    ),
+    ErasureLimitation(
+        what="Copies held by the voice engine that carried these calls.",
+        keyword="engine",
+        outcome="unconfirmed",
+        why=(
+            "The engine is a third-party platform and its deletion API is undocumented, "
+            "so this certificate reports engine-side deletion as "
+            "'unconfirmed_pending_vendor_api' rather than claiming something it cannot "
+            "show. Before telling the data principal those copies are gone, ask whether "
+            "a written erasure commitment with the vendor is in place."
+        ),
+        authority=(
+            "SECURITY-COMPLIANCE §4 — the vendor erasure commitment is an open "
+            "contractual item (pilot gate 12(f))."
+        ),
+    ),
+    ErasureLimitation(
+        what="This erasure request record.",
+        keyword="subject_ref",
+        outcome="retained_hashed",
+        why=(
+            "The request held the number only for as long as the erasure took, and it "
+            "was cleared in the same write that produced this certificate. What remains "
+            "is a one-way reference that confirms this erasure to someone who already "
+            "knows the number and discloses nothing to anyone who does not."
+        ),
+        authority="Hard rule 6 (no personal data in logs or trails); migration f4a8e1c07b62.",
+    ),
+    ErasureLimitation(
+        what="Any do-not-call suppression recorded for this number.",
+        keyword="do-not-call",
+        outcome="retained_as_suppression",
+        why=(
+            "If the number is on a do-not-call list — the client's own or the national "
+            "one — that entry stays. Removing it would make the person callable again, "
+            "which is the opposite of what suppression is for. The entry records a "
+            "number and a scope, and nothing else about the person."
+        ),
+        authority="Hard rule 5 (DNC additions propagate before the next dispatch tick).",
+    ),
 )
 
 
@@ -309,10 +481,15 @@ __all__ = [
     "DELETION_JOB",
     "DELETION_QUEUE",
     "DELETION_SCOPE",
+    "ERASURE_EXCEPTIONS",
     "ERASURE_LIMITATIONS",
+    "FLOOR_COUNT_KEY",
+    "FLOOR_OUTCOME",
+    "RECORDING_FLOOR_DAYS",
     "STATUS_COMPLETED",
     "STATUS_PENDING",
     "DeletionRequestRecord",
+    "ErasureLimitation",
     "get_request",
     "request_erasure",
 ]
