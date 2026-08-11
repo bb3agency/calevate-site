@@ -25,6 +25,7 @@ from uuid import UUID
 
 from scripts.seed import DEFAULT_RETENTION_POLICIES, VERTICAL_TEMPLATES
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.errors import ProblemError
@@ -95,15 +96,21 @@ async def create_organization(
 
     Runs in ONE transaction: a half-created tenant (org but no retention policy, or
     agent but no schema) is worse than no tenant, because the pipeline would happily
-    process calls for it.
+    process calls for it. A failure at any statement therefore rolls the whole thing
+    back and leaves the slug free for the retry.
+
+    The availability probe below runs in its own transaction, one round trip before the
+    insert, so two operators creating the same client at once can both pass it. The
+    UNIQUE index is the arbiter that cannot be raced, and its violation is translated
+    back into the SAME 409 the probe would have produced — see the handler below.
     """
     tenant_id = uuid7()
     agent_id = uuid7()
     schema_id = uuid7()
 
     # The uniqueness probe MUST see every tenant's slug. Under `untenanted_session`
-    # RLS would hide them all, the check would always pass, and a collision would
-    # surface as a 500 from the unique index instead of a clean 409.
+    # RLS would hide them all and the check would always pass, leaving the unique
+    # index as the only line of defence for a case it should catch cleanly here.
     async with admin_session() as probe:
         await assert_slug_available(probe, slug)
 
@@ -115,6 +122,62 @@ async def create_organization(
     # FORCE RLS derives WITH CHECK from USING, so creating a tenant root requires the
     # new org's own GUC — generate the id first, then insert under it (the pattern the
     # RLS tests pin down).
+    try:
+        await _write_tenant_root(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            schema_id=schema_id,
+            name=name,
+            slug=slug,
+            vertical_template=vertical_template,
+            billing_email=billing_email,
+            language=language,
+            disclosure=disclosure,
+            fields=fields,
+            created_by=created_by,
+        )
+    except IntegrityError as exc:
+        # The probe lost a race with a concurrent create. Reaching the wizard as a 500
+        # would tell the operator nothing and break the user-safe-message rule; the
+        # answer is the one the probe would have given a moment earlier.
+        async with admin_session() as probe:
+            taken = (
+                await probe.execute(
+                    text("SELECT 1 FROM organizations WHERE slug = :slug"), {"slug": slug}
+                )
+            ).first()
+        if taken:
+            raise ProblemError.conflict("slug_taken", "That slug is already in use.") from exc
+        raise
+
+    log.info(
+        "org_created",
+        extra={"tenant_id": str(tenant_id), "vertical": vertical_template},
+    )
+    return {
+        "id": tenant_id,
+        "slug": slug,
+        "agent_id": agent_id,
+        "extraction_schema_id": schema_id,
+        "status": "onboarding",
+    }
+
+
+async def _write_tenant_root(
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    schema_id: UUID,
+    name: str,
+    slug: str,
+    vertical_template: str,
+    billing_email: str | None,
+    language: str,
+    disclosure: str,
+    fields: Any,
+    created_by: UUID | None,
+) -> None:
+    """The single transaction the tenant is born in — see `create_organization`."""
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
@@ -174,18 +237,6 @@ async def create_organization(
             text("UPDATE agents SET extraction_schema_id = :sid WHERE id = :aid"),
             {"sid": schema_id, "aid": agent_id},
         )
-
-    log.info(
-        "org_created",
-        extra={"tenant_id": str(tenant_id), "vertical": vertical_template},
-    )
-    return {
-        "id": tenant_id,
-        "slug": slug,
-        "agent_id": agent_id,
-        "extraction_schema_id": schema_id,
-        "status": "onboarding",
-    }
 
 
 def _default_engine() -> str:

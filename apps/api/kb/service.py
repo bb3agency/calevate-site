@@ -205,20 +205,28 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     Order matters: the engine push happens BEFORE the local activation flip. If the
     engine rejects it, nothing in our state claims the agent knows something it does
     not — the opposite order would leave a client's dashboard confidently wrong.
+
+    Eligibility is `approved_at IS NOT NULL`, not `status = 'approved'`, because
+    FLOWS §7's rollback is republishing a version this same function ARCHIVED when its
+    successor went live. Gating on the current status made that impossible: the archive
+    step rewrites `status`, so the recovery path refused the only rows it exists for.
+    Approval is a fact about a version that a later publish cannot erase; rejection
+    never sets `approved_at`, so a rejected source still cannot reach an agent.
     """
     row = (
         await session.execute(
             text(
-                "SELECT s.agent_id, s.name, s.status, s.version, a.engine_agent_ref "
-                "FROM kb_sources s JOIN agents a ON a.id = s.agent_id WHERE s.id = :sid"
+                "SELECT s.agent_id, s.name, s.status, s.version, s.approved_at, "
+                "a.engine_agent_ref FROM kb_sources s JOIN agents a ON a.id = s.agent_id "
+                "WHERE s.id = :sid"
             ),
             {"sid": source_id},
         )
     ).first()
     if row is None:
         raise ProblemError.not_found("Knowledge source")
-    agent_id, name, status, version, engine_ref = row
-    if status != "approved":
+    agent_id, name, status, version, approved_at, engine_ref = row
+    if approved_at is None or status not in ("approved", "archived"):
         raise ProblemError.business_rule(
             "kb_not_approved",
             "A knowledge source must be approved before it can go live.",
@@ -247,7 +255,9 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     )
 
     # Archive the previous active version of this named source, then activate this one.
-    # Rollback (FLOWS §7) is re-running publish on the archived row.
+    # Rollback (FLOWS §7) is re-running publish on the archived row, which is why the
+    # activation restores `status` as well as `is_active` — a live version left marked
+    # `archived` is a row that contradicts itself on every screen that reads it.
     await session.execute(
         text(
             "UPDATE kb_sources SET is_active = false, status = 'archived', updated_at = now() "
@@ -257,8 +267,8 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     )
     await session.execute(
         text(
-            "UPDATE kb_sources SET is_active = true, published_at = now(), updated_at = now() "
-            "WHERE id = :sid"
+            "UPDATE kb_sources SET is_active = true, status = 'approved', "
+            "published_at = now(), updated_at = now() WHERE id = :sid"
         ),
         {"sid": source_id},
     )

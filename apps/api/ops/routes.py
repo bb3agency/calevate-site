@@ -103,6 +103,12 @@ async def set_platform(
     principal: Principal = Depends(requires("ops:manage", realm="admin")),
     x_confirm_action: str | None = Header(default=None),
 ) -> PlatformStateOut:
+    # KNOWN GAP (audited, not fixed here): releasing the halt shares the generic
+    # `set_platform_state` confirmation and audit action with a routine load-shed
+    # change, so BACKEND-PATTERNS §7's "bound to the specific action" only really holds
+    # for pulling the switch, not for lifting it. Splitting it out needs the admin
+    # console (apps/web/src/lib/api/admin.ts) and runbooks/campaign-stall.md to move in
+    # the same change, or the un-halt button and the documented incident step both 403.
     action = "halt_outbound" if payload.outbound_halted else "set_platform_state"
     _require_step_up(x_confirm_action, action)
 

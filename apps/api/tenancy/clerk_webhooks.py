@@ -37,7 +37,12 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import untenanted_session
-from apps.api.reliability.service import body_hash, claim_inbox_event, mark_inbox_processed
+from apps.api.reliability.service import (
+    body_hash,
+    claim_inbox_event,
+    mark_inbox_failed,
+    mark_inbox_processed,
+)
 
 log = get_logger(__name__)
 
@@ -63,7 +68,10 @@ def verify_svix(*, secret: str, headers: dict[str, str], body: bytes) -> bool:
         return False
 
     key = base64.b64decode(secret.removeprefix("whsec_"))
-    signed = f"{svix_id}.{svix_timestamp}.{body.decode()}".encode()
+    # Assemble the signed content as BYTES. Decoding the body to build a str first
+    # raises on anything that is not UTF-8, and an unverifiable request must come back
+    # as a refusal, never as an unhandled exception on an unauthenticated route.
+    signed = f"{svix_id}.{svix_timestamp}.".encode() + body
     expected = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
 
     # The header carries every currently-valid signature (secret rotation), so any
@@ -107,13 +115,21 @@ async def _mirror_user(payload: dict[str, Any], deleted: bool) -> str:
     ).strip()
 
     async with untenanted_session() as session:
+        # `deactivated_at` is deliberately NOT in the SET list. Svix does not guarantee
+        # ordering, so a `user.updated` can land after the `user.deleted` for the same
+        # id — and clearing the flag there would restore a revoked account's access to
+        # every tenant it belonged to, because the auth guard re-reads exactly this
+        # column on every request. Clerk never reuses a user id, so a later event for a
+        # deleted one is always stale: the mirror reflects the deletion, it does not
+        # get to overrule it. Nothing else in the codebase clears this column, so
+        # reinstating an account would be a deliberate admin action, not a side effect
+        # of whatever order the webhooks happened to arrive in.
         await session.execute(
             text(
                 "INSERT INTO users (id, clerk_user_id, email, name, created_at, updated_at) "
                 "VALUES (:id, :cid, :email, :name, now(), now()) "
                 "ON CONFLICT (clerk_user_id) DO UPDATE SET email = EXCLUDED.email, "
-                "name = COALESCE(EXCLUDED.name, users.name), deactivated_at = NULL, "
-                "updated_at = now()"
+                "name = COALESCE(EXCLUDED.name, users.name), updated_at = now()"
             ),
             {"id": uuid7(), "cid": clerk_id, "email": email, "name": name or None},
         )
@@ -168,15 +184,27 @@ async def clerk_webhook(request: Request) -> dict[str, str]:
         if claim.state == "duplicate":
             return {"status": "duplicate"}
 
-    if event_type in ("user.created", "user.updated"):
-        result = await _mirror_user(payload, deleted=False)
-    elif event_type == "user.deleted":
-        result = await _mirror_user(payload, deleted=True)
-    else:
-        # Organizations are created by OUR onboarding wizard, not by Clerk (D-10: flat
-        # tenancy, admin-driven onboarding). Acknowledge and ignore rather than invent
-        # a tenant from an upstream event.
-        result = "ignored"
+    try:
+        if event_type in ("user.created", "user.updated"):
+            result = await _mirror_user(payload, deleted=False)
+        elif event_type == "user.deleted":
+            result = await _mirror_user(payload, deleted=True)
+        else:
+            # Organizations are created by OUR onboarding wizard, not by Clerk (D-10:
+            # flat tenancy, admin-driven onboarding). Acknowledge and ignore rather
+            # than invent a tenant from an upstream event.
+            result = "ignored"
+    except Exception as exc:
+        # The claim was taken BEFORE the work, so a row left `processing` answers every
+        # subsequent Clerk retry with "duplicate" and the event is lost for good — for
+        # `user.deleted` that is a revoked account that stays live in our mirror.
+        # Marking it failed makes the key re-claimable (reliability §4). The exception
+        # type only: an error string can carry payload content, and this row is
+        # persisted (hard rule 6).
+        async with untenanted_session() as session:
+            await mark_inbox_failed(session, row_id=claim.row_id, error=type(exc).__name__)
+        alert("ROUTE_HANDLER", "clerk_mirror_failed", event_type=event_type)
+        raise
 
     async with untenanted_session() as session:
         await mark_inbox_processed(session, row_id=claim.row_id)
