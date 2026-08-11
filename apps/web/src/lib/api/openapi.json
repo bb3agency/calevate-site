@@ -3305,6 +3305,49 @@
         "x-calevate-permission": "agents:write"
       }
     },
+    "/v1/attention": {
+      "get": {
+        "description": "`leads:read`, not an owner permission: staff work this queue \u2014 it is the daily\noperational surface, and gating it on billing-grade permissions would put the work\non the one person least likely to be doing it.",
+        "operationId": "attention_v1_attention_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Attention V1 Attention Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Everything that stopped, and what to do about it (SURFACES \u00a72b)",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
     "/v1/calls": {
       "get": {
         "operationId": "get_calls_v1_calls_get",

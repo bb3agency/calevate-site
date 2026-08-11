@@ -357,6 +357,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/attention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Everything that stopped, and what to do about it (SURFACES §2b)
+         * @description `leads:read`, not an owner permission: staff work this queue — it is the daily
+         *     operational surface, and gating it on billing-grade permissions would put the work
+         *     on the one person least likely to be doing it.
+         */
+        get: operations["attention_v1_attention_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls": {
         parameters: {
             query?: never;
@@ -2483,6 +2505,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["apps__api__agents__routes__PublishOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    attention_v1_attention_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description RFC-9457 problem+json */

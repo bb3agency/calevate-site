@@ -796,6 +796,23 @@ ledger doctrine held under its first real use.
 
 182 tests.
 
+**37. "Needs attention" queue — `apps/api/crm/attention.py`** (SURFACES §2b)
+
+Everything the platform refuses to do quietly ends up in one queue, in words the
+client can act on. Four sources, each its own honest query rather than one clever
+UNION: leads whose dial the gate blocked (with per-rule remedies — "add the consent
+checkbox to your form", not "no_form_consent"), webhook deliveries the client's own
+endpoint rejected, campaigns paused or running-but-drained (all contacts DNC-blocked —
+looks busy on the dashboard, will never dial again), and rejected knowledge with the
+reviewer's note. `GET /v1/attention`, `leads:read` because staff work this queue.
+
+Judgment calls pinned by tests: an unmapped rule still appears with its raw name
+(dropping it hides a blocked lead behind our housekeeping); a contacted lead leaves the
+queue (it is a to-do list, not a history); `pending_approval` KB is excluded (waiting
+for US is not the client's to-do); a healthy running campaign stays out. 14-day window
+so the queue does not become wallpaper. 7 tests; 189 in the suite.
+Backend + tests shipped; the client screen is the natural next UI increment.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
@@ -807,5 +824,5 @@ ledger doctrine held under its first real use.
    margin panels ship; turning a month into a PDF invoice does not).
 4. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (182 tests),
+5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (189 tests),
    `uv run mypy apps packages`, `make guardrails` and `pnpm -C apps/web lint` before changing anything.

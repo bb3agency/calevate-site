@@ -27,6 +27,7 @@ from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.crm import service
+from apps.api.crm.attention import attention_queue
 from apps.api.crm.schemas import (
     CallbackEligibilityOut,
     CallbackOut,
@@ -319,6 +320,22 @@ async def call_lead(
             response_payload=result.model_dump(),
         )
     return result
+
+
+@router.get(
+    "/attention",
+    openapi_extra=permission_meta("leads:read"),
+    summary="Everything that stopped, and what to do about it (SURFACES §2b)",
+)
+async def attention(
+    session: Session,
+    limit: int = 50,
+    _: Principal = Depends(requires("leads:read")),
+) -> dict[str, Any]:
+    """`leads:read`, not an owner permission: staff work this queue — it is the daily
+    operational surface, and gating it on billing-grade permissions would put the work
+    on the one person least likely to be doing it."""
+    return await attention_queue(session, limit=min(limit, 100))
 
 
 @router.get(
