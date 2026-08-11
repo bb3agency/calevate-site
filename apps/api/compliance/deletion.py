@@ -87,6 +87,33 @@ deleted by the request at all and must be confirmed removed in writing. That is 
 WIDENING of the stated limitation, which is what SEC-COMP §4 permits ("do not narrow the
 certificate's limitations text"); the erasure BEHAVIOUR is untouched.
 
+---
+
+**A second gap, disclosed rather than closed: the knowledge base.**
+
+Migration `842ba923796d` created `kb_sources`/`kb_documents` and said that provider-side
+ids live in `kb_documents.meta`, "which is also what lets a DPDP erasure prove it removed
+both copies" — prose that `kb/models.py`, `kb/service.py`, DATA-MODEL §7 and BUILD-LOG
+§18 all repeat. No erasure removes either copy, and none ever has: this module's worker
+does not name those tables, nothing in the repository deletes a `kb_documents` row
+(publishing a new version archives the old `kb_sources` row and leaves its chunks
+intact), and `retention_policies.data_category` admits only
+`recording|transcript|lead|consent_log`, so no TTL reaches them either. A client's
+uploaded knowledge is kept indefinitely, every version of it.
+
+Whether it SHOULD have a retention period is not answered anywhere: SEC-COMP §4's
+retention row names recordings, transcripts and leads; its erasure row enumerates
+"calls/turns/extractions/leads/recordings"; DATA-MODEL §9 pins the category list at four.
+Choosing a TTL for a client's own uploaded content is a DPA commitment and a change to a
+documented enum — a decision-log entry (ROADMAP §6), not a module's to take. What IS this
+module's to take is what the certificate says, and a certificate that listed every other
+exception while staying silent about a whole store of personal data read as "we searched
+everywhere". So the register gains an entry (`KB_OUTCOME`) stating that the knowledge base
+is not searched, not changed and not expired, and that removing someone from it is manual
+work on both copies. That is a WIDENING of the notice, which SEC-COMP §4 permits; the
+erasure behaviour is untouched, and `tests/kb_retention_gap_test.py` pins the gap so it
+cannot be lost again.
+
 **Permission: `org:manage`.** Owner-only in the client realm, operator/superadmin in the
 admin realm, and — the part that matters — a member of `MUTATING_PERMISSIONS`, so D-22
 refuses it to an impersonating admin. That refusal is the point. The subject-access
@@ -158,6 +185,11 @@ FLOOR_COUNT_KEY: Final = "recordings_within_trai_floor"
 # wrong statement.
 FLOOR_OUTCOME: Final = "retained_under_legal_floor"
 
+# The knowledge-base entry's outcome, for the same reason: `tests/kb_retention_gap_test`
+# finds it by verdict, not by position. See the register entry itself for what it says
+# and the module docstring's second conflict note for why it exists.
+KB_OUTCOME: Final = "not_searched"
+
 
 @dataclass(frozen=True, slots=True)
 class ErasureLimitation:
@@ -218,6 +250,15 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "that entry is retained. Removing it would make the person callable again, which is "
     "the opposite of what suppression is for. A DNC entry records a number and a scope, "
     "and nothing else about the person.",
+    "The knowledge base is not searched by this request. An erasure finds a person by "
+    "their phone number across calls, transcripts, extracted fields and CRM leads; the "
+    "knowledge sources a client uploads for their agents — FAQs, price lists, staff and "
+    "contact details — are content they wrote rather than a record of a caller, so "
+    "nothing here reads or changes them. No retention period expires them either, so "
+    "every version ever published is kept indefinitely, including the superseded ones "
+    "no screen shows. If this person's details could have been put into that content, "
+    "finding and removing them is a manual step — on our copy and on the voice engine's "
+    "copy of the same source.",
 )
 
 # The same register, structured, and the half that rides the CERTIFICATE. Prose is what
@@ -323,6 +364,30 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "number and a scope, and nothing else about the person."
         ),
         authority="Hard rule 5 (DNC additions propagate before the next dispatch tick).",
+    ),
+    ErasureLimitation(
+        what="The knowledge base this client's agents answer from.",
+        keyword="knowledge base",
+        outcome=KB_OUTCOME,
+        why=(
+            "An erasure finds a person by their phone number across calls, transcripts, "
+            "extracted fields and CRM leads. A knowledge base is content the client "
+            "uploaded for their agents to quote — FAQs, price lists, staff and contact "
+            "details — rather than a record of a caller, so it is neither searched nor "
+            "changed by this request. Nothing expires it either: every published "
+            "version, including the superseded ones no screen shows, is kept "
+            "indefinitely. If this person's details were put into that content, they "
+            "have to be found and removed by hand, in Calevate and on the voice "
+            "engine's copy of the same source."
+        ),
+        authority=(
+            "SECURITY-COMPLIANCE §4 enumerates the erasure scope as calls, transcript "
+            "turns, extracted fields, leads and recordings — knowledge-base content is "
+            "not in it — and DATA-MODEL §9's retention categories (recording, "
+            "transcript, lead, consent_log) do not cover it, so no TTL reaches it. "
+            "Whether a client's uploaded knowledge should have a retention period at "
+            "all is undecided in both documents."
+        ),
     ),
 )
 
@@ -485,6 +550,7 @@ __all__ = [
     "ERASURE_LIMITATIONS",
     "FLOOR_COUNT_KEY",
     "FLOOR_OUTCOME",
+    "KB_OUTCOME",
     "RECORDING_FLOOR_DAYS",
     "STATUS_COMPLETED",
     "STATUS_PENDING",

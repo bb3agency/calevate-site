@@ -5,8 +5,10 @@ asks the CLIENT to erase them; the client — the Data Fiduciary, we are their P
 asks us. So this is a client-realm surface, and the certificate it returns is the
 client's to hand on.
 
-This router is NOT mounted in `main.py` — the integrator mounts it. The variable is
-`router`, as everywhere else in this package.
+The variable is `router`, as everywhere else in this package, and `main.py` mounts it
+alongside the other compliance surfaces (this docstring used to say it did not — it was
+written before the router was wired in, and a compliance module claiming to be unreachable
+is exactly the sentence a reviewer must not have to check for themselves).
 
 Four shapes worth explaining before someone "tidies" them:
 

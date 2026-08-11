@@ -314,11 +314,12 @@ async def test_erasure_clears_the_pointer_inside_the_floor_and_counts_the_collis
     assert "floor_recordings=1" in result
     warnings = [r for r in caplog.records if r.getMessage() == "erasure_within_recording_floor"]
     assert len(warnings) == 1 and getattr(warnings[0], "recordings", None) == 1
-    # The certificate itself still cannot say this — `ErasureScopeOut` is a strict
-    # response model in `apps/api/compliance/deletion_routes.py`, so widening the proof
-    # is a coordinated change. Pinned so the day it lands, this test is what gets
-    # updated rather than the fact being quietly forgotten.
-    assert "recordings_within_trai_floor" not in json.dumps(await _proof(tenant_id, request_id))
+    # ...and the count is now DURABLE as well as logged. It used to live only on the job
+    # result and this warning, which meant the certificate had to disclaim it: after the
+    # pointer clear nothing can reconstruct which recordings were young. The proof
+    # carries it under the key both halves agreed on; `tests/erasure_floor_count_test.py`
+    # follows it the rest of the way to the document a client hands over.
+    assert (await _proof(tenant_id, request_id))["scope"]["recordings_within_trai_floor"] == 1
 
 
 async def test_an_erasure_outside_the_floor_reports_no_collision(

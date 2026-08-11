@@ -35,9 +35,9 @@ forever. The clock now falls back to our own `created_at` plus the metered durat
 THE ONE THING THIS MODULE REFUSES TO DECIDE: an erasure request for a recording younger
 than the TRAI 90-day floor. SEC-COMP §4 says erasure covers recordings, SEC-COMP §1 says
 90 days is a minimum, and the doc reserves the choice for the founder. The behaviour is
-therefore unchanged — the pointer is cleared at any age — but the collision is now
-COUNTED and reported (`_FLOOR_COLLISION_LOG`, and `floor_recordings=` on the job result)
-instead of passing unremarked.
+therefore unchanged — the pointer is cleared at any age — but the collision is COUNTED
+and reported (`_FLOOR_COLLISION_LOG`, `floor_recordings=` on the job result, and
+`scope.recordings_within_trai_floor` in the proof) instead of passing unremarked.
 """
 
 from __future__ import annotations
@@ -78,13 +78,29 @@ REDACTED_MARK = "[erased]"
 # What it does do is stop the collision being SILENT. Counting the recordings this
 # erasure reached inside the floor turns "the two sections disagree" into a number a
 # human can act on — how often it actually happens, on which requests — which is the
-# first thing whoever resolves this will ask for. The count is emitted on the job's
-# result and on a WARNING; it is deliberately NOT added to the proof JSON, because that
-# document's shape is a typed response contract (`compliance/deletion_routes`
-# ErasureScopeOut, strict) and widening it is a coordinated change, not a worker's to
-# make alone. Putting it on the certificate is the right next step and needs that model
-# extended in the same release.
+# first thing whoever resolves this will ask for.
 _FLOOR_COLLISION_LOG = "erasure_within_recording_floor"
+
+# ...and WHERE the count is written. It used to ride only the job's return string and a
+# WARNING, which put it in the log stream and nowhere durable: the certificate a client
+# detaches and hands to a data principal had to say "this certificate does not state how
+# many", because after the pointer clear the question is unanswerable — `recording_url`
+# is NULL on every row the request touched and no later reader can reconstruct which of
+# them were young. So the count goes in the PROOF, where it outlives the process that
+# computed it.
+#
+# The receiving half was built first and waited for this: `ErasureScopeOut` already
+# models the field as `int | None` (strict, so an unmodelled key would 500 the status
+# read), and `deletion_proof._floor_sentence` already switches its wording on it. Absent
+# still means "not recorded" — proofs written before this change keep certifying that
+# they do not state the number, and hard rule 4 forbids back-filling them.
+#
+# DUPLICATED from `apps.api.compliance.deletion.FLOOR_COUNT_KEY` rather than imported,
+# for the same reason `RECORDING_FLOOR_DAYS` is duplicated in both directions: a worker
+# has no business importing the API's compliance package — with its outbox producer and
+# its session dependencies — in order to name a JSON key. `tests/erasure_floor_count_test`
+# pins the two spellings together so they cannot drift.
+FLOOR_COUNT_KEY = "recordings_within_trai_floor"
 
 # Rows touched by ONE statement. Small enough that the sweep never holds a lock long
 # enough to matter to a live call writing to the same tables.
@@ -581,6 +597,12 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 "leads": [_hash(str(lead)) for lead in leads],
                 "transcript_turns_erased": turns_erased,
                 "call_extractions_erased": extractions_erased,
+                # How many of those calls still held a recording pointer INSIDE the
+                # 90-day floor when this erasure ran — i.e. how many audio files the
+                # request could not lawfully destroy. Always written, including 0: on
+                # this field "absent" means "an older worker did not record it" and
+                # only a recorded 0 supports the certificate saying "none".
+                FLOOR_COUNT_KEY: recordings_in_floor,
             },
             "actions": {
                 "calls": "phone numbers, recording pointer and summary cleared",
@@ -631,6 +653,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
 __all__ = [
     "ANONYMIZED_PHONE",
     "DERIVED_COPIES",
+    "FLOOR_COUNT_KEY",
     "RECORDING_FLOOR_DAYS",
     "REDACTED_MARK",
     "SWEEP_BATCH_ROWS",

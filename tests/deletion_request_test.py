@@ -336,10 +336,12 @@ async def test_the_status_of_a_request_is_readable_and_carries_the_proof() -> No
     floor = [entry for entry in proof["not_erased"] if entry["outcome"] == FLOOR_OUTCOME]
     assert len(floor) == 1, "the recording floor is a named exception, not a footnote"
     assert "90" in floor[0]["authority"] and "§1" in floor[0]["authority"]
-    assert floor[0]["count"] is None, (
-        "the erasure job counts the collision but does not store it yet — the "
-        "certificate must say so rather than certify a zero"
+    assert floor[0]["count"] == 1, (
+        "the seeded call is minutes old, so its recording was inside the 90-day floor "
+        "when the erasure ran — the certificate states how many rather than disclaiming "
+        "a number the job now stores in the proof"
     )
+    assert "1 of those recordings" in floor[0]["why"]
 
 
 async def test_the_certificate_says_what_the_stored_row_alone_cannot() -> None:
