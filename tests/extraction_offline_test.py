@@ -75,20 +75,14 @@ async def test_a_caller_asking_for_a_callback_still_sets_the_flag() -> None:
     assert result["wants_callback"] is True
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a word-level heuristic cannot tell the question from the act; the model can",
-)
 async def test_asking_whether_something_was_cancelled_is_not_a_cancellation() -> None:
-    """A caller ringing to ASK whether their booking was cancelled should not be filed
-    as intent=cancel — the client sees a cancellation that never happened and acts on it.
+    """A caller ringing to ASK whether their booking was cancelled must not be filed as
+    intent=cancel — the client sees a cancellation that never happened and acts on it.
 
-    This is a REAL limitation of the offline heuristic, recorded as a strict xfail
-    rather than a passing test with a hedged assertion. The caller genuinely says the
-    word "cancel", and no word-level rule separates asking from doing; that needs the
-    model path production actually uses. Strict, so if someone teaches the heuristic to
-    read polarity, this fails as an unexpected pass and gets promoted instead of
-    quietly staying a known gap.
+    This was a strict xfail on the grounds that no word-level rule separates asking from
+    doing. That was half right: the WORD cannot be told apart, because a caller who asks
+    about a thing names it exactly as plainly as one who did it. The ASKING can be, and
+    that is a different question with an answer.
     """
     transcript = (
         "agent: Namaskaram.\n"
@@ -98,6 +92,41 @@ async def test_asking_whether_something_was_cancelled_is_not_a_cancellation() ->
     result = await OfflineExtractor().run(_spec(INTENT), transcript)
 
     assert result.get("intent") != "cancel"
+
+
+async def test_a_caller_who_actually_cancels_is_still_recorded() -> None:
+    """The direction that stops the fix from being "record nothing". An enquiry filter
+    that swallows real statements trades a false cancellation for a missed one, and the
+    client acts on neither."""
+    transcript = "agent: Cheppandi.\ncaller: Naa booking cancel cheyandi andi."
+
+    result = await OfflineExtractor().run(_spec(INTENT), transcript)
+
+    assert result["intent"] == "cancel"
+
+
+async def test_an_enquiry_in_one_turn_does_not_mute_a_statement_in_another() -> None:
+    """Enquiry is a property of the TURN, not of the call. A caller who asks about one
+    thing and then asks for another has said both, and only the first is a question."""
+    transcript = (
+        "agent: Namaskaram.\n"
+        "caller: Fees enta ani adagataniki call chesanu.\n"
+        "caller: Sare, appointment book cheyandi andi."
+    )
+
+    result = await OfflineExtractor().run(_spec(INTENT), transcript)
+
+    assert result["intent"] == "book"
+
+
+async def test_asking_about_a_callback_is_not_requesting_one() -> None:
+    """The same rule on the bool path, where the cost is a phone call to someone who
+    only asked a question."""
+    transcript = "agent: Cheppandi.\ncaller: Callback vasthundaa ani adugutunnanu andi."
+
+    result = await OfflineExtractor().run(_spec(CALLBACK), transcript)
+
+    assert result.get("wants_callback") is not True
 
 
 async def test_an_enum_value_hiding_inside_another_word_is_not_a_match() -> None:

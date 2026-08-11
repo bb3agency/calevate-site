@@ -403,24 +403,16 @@ def test_the_knowledge_half_can_never_end_the_block() -> None:
     assert t0.intake_half(compiled.block) == ["Hours: mon 09:30-18:00"]
 
 
-# --- the residual, pinned so it cannot be forgotten -----------------------------------
+# --- the other writer of the block ----------------------------------------------------
+#
+# Two modules write [T0 FACTS] and each owns one half, so the interesting cases are the
+# ones where they meet. This was a strict xfail: the intake step compiled from the answer
+# sheet ALONE, so a submit after a knowledge publish silently dropped every fact a client
+# had already approved, until the next publish happened to put them back.
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GAP: the intake step compiles the block from the answer sheet ALONE "
-        "(`apps/api/admin/intake.py:record_intake` → `compile_t0_facts`), so a submit "
-        "after a knowledge publish drops the published-knowledge half of [T0 FACTS] "
-        "until the next KB publish restores it. The facts stay retrievable at T3 (the "
-        "engine's KB copy is untouched), so this degrades T0 coverage rather than "
-        "correctness, and it self-heals. Closing it is `intake.record_intake` composing "
-        "through `agents.t0.compile_block` with `kb.service.active_knowledge` instead of "
-        "compiling the block itself — one call, in `apps/api/admin`, which this wave "
-        "does not own. Delete this marker when it lands."
-    ),
-)
 async def test_an_intake_submit_keeps_the_published_knowledge_half() -> None:
+    """A submit recompiles OUR half and must not erase the other one."""
     tenant_id, agent_id = await _tenant_with_published_agent()
     await _publish_knowledge(tenant_id, agent_id, "Fees", "A consultation costs 500 rupees.")
 
@@ -429,3 +421,31 @@ async def test_an_intake_submit_keeps_the_published_knowledge_half() -> None:
     latest = (await _versions(tenant_id, agent_id))[-1]
     assert "Root canal" in latest["compiled"], "premise: the intake half recompiled"
     assert "500 rupees" in latest["compiled"]
+
+
+async def test_an_intake_submit_with_no_published_knowledge_writes_no_marker() -> None:
+    """The other direction, so "keep the knowledge half" cannot become "always append a
+    heading". An empty `Published knowledge:` line spends prompt budget telling the model
+    a section exists and then showing it nothing."""
+    tenant_id, agent_id = await _tenant_with_published_agent()
+
+    await _record_intake(tenant_id, agent_id)
+
+    latest = (await _versions(tenant_id, agent_id))[-1]
+    assert "Root canal" in latest["compiled"]
+    assert t0.T0_KNOWLEDGE_MARKER not in latest["compiled"]
+
+
+async def test_a_second_identical_submit_still_mints_nothing() -> None:
+    """Composing through the compiler must not cost idempotence. `record_intake` returns
+    early only when the block it would write is byte-identical to the live one — if the
+    knowledge half were ordered or formatted differently on each pass, every save would
+    mint a prompt version and re-publish a live agent for no change at all."""
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    await _publish_knowledge(tenant_id, agent_id, "Fees", "A consultation costs 500 rupees.")
+    await _record_intake(tenant_id, agent_id)
+    before = await _versions(tenant_id, agent_id)
+
+    await _record_intake(tenant_id, agent_id)
+
+    assert await _versions(tenant_id, agent_id) == before

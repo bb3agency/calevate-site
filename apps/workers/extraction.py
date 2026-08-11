@@ -172,6 +172,22 @@ class OfflineExtractor:
     # these is a caller REFUSING the thing, which is the opposite of the fact we would
     # otherwise record.
     _DENIAL = ("ledu", "vaddu", "avasaram ledu", "no ", "not ", "don't", "dont", "never")
+    # "Did my booking get cancelled?" is not a cancellation. A caller who rings to ASK
+    # about something says its name just as plainly as one who did it, so the word alone
+    # cannot separate them — but the ASKING can be recognised, and that is a different
+    # question with a real answer. The Telugu verb "to ask" is the `adag-`/`adug-` stem
+    # (`adagataniki` = "in order to ask"), `telusuko-` is "to find out", and the English
+    # equivalents follow.
+    #
+    # Deliberately verbs and not question marks: a transcript comes from an STT engine
+    # that does not punctuate reliably, so a rule resting on "?" would work on the
+    # fixtures and fail on production audio. Deliberately narrow, too — bare "check" is
+    # left out because "I want to check in" is not an enquiry, and a false enquiry
+    # DISCARDS a fact the caller really did state.
+    _ASKING_RE = re.compile(
+        r"(?<!\w)(?:adag\w*|adug\w*|telusuko\w*|ask\w*|enquir\w*|inquir\w*|wanted to know)(?!\w)",
+        re.IGNORECASE,
+    )
     # Speaker prefixes as the transcript writes them. Anything unprefixed is treated as
     # the caller only when there is no prefixed line at all (a transcript we cannot
     # attribute is not evidence about anybody).
@@ -218,6 +234,17 @@ class OfflineExtractor:
         return any(marker in lowered for marker in OfflineExtractor._DENIAL)
 
     @staticmethod
+    def _asked_about(turn: str) -> bool:
+        """Is this turn the caller ENQUIRING rather than stating?
+
+        Turn-level, like `_denied`, and for the same reason: the evidence and its
+        qualifier live in one breath. "Naa booking cancel aipoyinda ani adagataniki call
+        chesanu" is one turn, and splitting it would leave the word `cancel` standing
+        alone as a fact the caller never asserted.
+        """
+        return OfflineExtractor._ASKING_RE.search(turn) is not None
+
+    @staticmethod
     def _says(turn: str, needle: str) -> bool:
         """Word-boundary containment. Substring matching made `other` match inside
         "brother" and `caller` match the speaker prefix on every single line."""
@@ -241,7 +268,9 @@ class OfflineExtractor:
                 affirmed = [
                     turn
                     for turn in caller_turns
-                    if self._says(turn, probe) and not self._denied(turn, probe)
+                    if self._says(turn, probe)
+                    and not self._denied(turn, probe)
+                    and not self._asked_about(turn)
                 ]
                 if affirmed:
                     data[field.key] = True
@@ -253,7 +282,11 @@ class OfflineExtractor:
                 continue
             if field.type == "enum" and field.enum_values:
                 value = next(
-                    (v for v in field.enum_values if any(self._says(t, v) for t in caller_turns)),
+                    (
+                        v
+                        for v in field.enum_values
+                        if any(self._says(t, v) and not self._asked_about(t) for t in caller_turns)
+                    ),
                     None,
                 )
                 if value:

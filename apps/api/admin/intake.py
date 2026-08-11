@@ -67,6 +67,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import t0
 from apps.api.agents.service import publish_agent
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -586,7 +587,19 @@ async def record_intake(
         },
     )
 
-    block = compile_t0_facts(facts)
+    # The intake half is ours; the published-knowledge half is not. Compiling only our
+    # own half and writing it as the whole block dropped every fact a client had already
+    # approved — [T0 FACTS] would lose "Published knowledge:" until the next KB publish
+    # happened to restore it. So the block is composed through the module that OWNS the
+    # format (`agents.t0`), with "what is live" answered by the module that owns that
+    # question (`kb.service.active_knowledge`). Passing our freshly compiled half as
+    # `previous` is exactly right: `compile_block` keeps the non-knowledge lines of what
+    # it is given, so the intake step still decides its own half completely and only
+    # stops deciding the other one.
+    block = t0.compile_block(
+        previous=compile_t0_facts(facts),
+        knowledge=await kb_service.active_knowledge(session, agent_id=agent_id),
+    ).block
     body, current_block = await _current_prompt(session, agent_id)
     if current_block == block and body is not None and block in body:
         log.info("intake_unchanged", extra={"agent_id": str(agent_id)})
