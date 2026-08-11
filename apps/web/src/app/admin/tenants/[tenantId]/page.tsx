@@ -13,6 +13,7 @@ import {
   useSetNumberDltStatus,
   useSetTemplateStatus,
   useTenant,
+  useTenantAgents,
   useTenantKbQueue,
   useTenantNumbers,
   useTenantTemplates,
@@ -59,13 +60,21 @@ export default function TenantDetailPage({
             /c/{tenant.slug} · {tenant.status} · {tenant.vertical_template ?? "no template"}
           </p>
         </div>
-        <Link
-          href={`/c/${tenant.slug}`}
-          className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
-          title="Read-only (D-22). Every page view is audit-logged."
-        >
-          View as client
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href={`/admin/tenants/${tenantId}/invoice`}
+            className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
+          >
+            Invoice
+          </Link>
+          <Link
+            href={`/c/${tenant.slug}`}
+            className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
+            title="Read-only (D-22). Every page view is audit-logged."
+          >
+            View as client
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-4">
@@ -162,12 +171,46 @@ export default function TenantDetailPage({
         </div>
       </section>
 
+      <AgentsPanel tenantId={tenantId} slug={slug} />
+
       <MarginPanel tenantId={tenantId} />
 
       <CampaignSetup tenantId={tenantId} slug={slug} />
     </div>
   );
 }
+
+/** The tenant's agents, each linking to its prompt history — the entry point the
+ * rollback screen needs, since a prompt belongs to an agent, not to the tenant. */
+function AgentsPanel({ tenantId, slug }: { tenantId: string; slug: string }) {
+  const agents = useTenantAgents(slug);
+  if (!agents.data?.length) return null;
+  return (
+    <section className="rounded-xl border border-slate-800 bg-slate-900">
+      <header className="border-b border-slate-800 px-4 py-3">
+        <h2 className="text-sm font-semibold text-slate-100">Agents</h2>
+      </header>
+      <ul className="divide-y divide-slate-800 px-4">
+        {agents.data.map((agent) => (
+          <li key={agent.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm">
+            <span className="font-medium text-slate-100">{agent.name}</span>
+            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
+              {agent.status}
+            </span>
+            <span className="text-xs text-slate-500">{agent.direction}</span>
+            <Link
+              href={`/admin/tenants/${tenantId}/agents/${agent.id}/prompt`}
+              className="ml-auto rounded-md border border-slate-700 px-2 py-0.5 text-xs"
+            >
+              Prompt history
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 
 /**
  * Per-client margin (D-12), the number gate G2 turns on.

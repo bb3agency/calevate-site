@@ -287,3 +287,15 @@ export function useMargin(tenantId: string): UseQueryResult<Margin> {
     enabled: Boolean(tenantId),
   });
 }
+
+/** The tenant's agents, read through impersonation (same D-22 split as the KB queue):
+ * the admin console needs agent ids to link to prompt history, and reading what
+ * agents exist is a read like any other. */
+export function useTenantAgents(slug: string) {
+  return useQuery({
+    queryKey: ["admin", "agents", slug],
+    queryFn: () =>
+      apiRequest<components["schemas"]["AgentOut"][]>(viewAsSession(slug), "/v1/agents"),
+    enabled: Boolean(slug),
+  });
+}
