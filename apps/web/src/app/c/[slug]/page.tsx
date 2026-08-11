@@ -63,11 +63,22 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
+        {/* `loading` is passed through rather than folded into the empty case: an
+            absent split during the first fetch is "we don't know yet", and printing
+            "No completed calls yet" for it is a claim about the business. */}
         <Card title="Sentiment (7d)">
-          <Split data={dashboard.data?.sentiment_split} empty="No completed calls yet." />
+          <Split
+            data={dashboard.data?.sentiment_split}
+            loading={dashboard.isLoading}
+            empty="No completed calls yet."
+          />
         </Card>
         <Card title="Outcomes (7d)">
-          <Split data={dashboard.data?.outcome_split} empty="No outcomes recorded yet." />
+          <Split
+            data={dashboard.data?.outcome_split}
+            loading={dashboard.isLoading}
+            empty="No outcomes recorded yet."
+          />
         </Card>
       </div>
 
@@ -112,7 +123,16 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
   );
 }
 
-function Split({ data, empty }: { data?: Record<string, number>; empty: string }) {
+function Split({
+  data,
+  loading,
+  empty,
+}: {
+  data?: Record<string, number>;
+  loading: boolean;
+  empty: string;
+}) {
+  if (loading) return <Skeleton rows={3} />;
   const entries = Object.entries(data ?? {});
   if (!entries.length) return <EmptyState title={empty} />;
   const total = entries.reduce((sum, [, n]) => sum + n, 0);

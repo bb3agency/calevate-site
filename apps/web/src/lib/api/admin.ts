@@ -88,33 +88,15 @@ export function usePlatformState(): UseQueryResult<PlatformState> {
 export function useSetPlatformState() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      outboundHalted,
-      reason,
-    }: {
-      outboundHalted: boolean;
-      reason: string;
-    }) => {
-      const session = adminSession();
-      // Step-up confirmation (BACKEND-PATTERNS §7): the header must echo the action.
-      // It is not a second factor and does not pretend to be — it stops the accidental
-      // and the drive-by, and Clerk re-auth replaces it when admin MFA lands.
-      const action = outboundHalted ? "halt_outbound" : "set_platform_state";
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"}/v1/ops/platform`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.token}`,
-            "Content-Type": "application/json",
-            "X-Confirm-Action": action,
-          },
-          body: JSON.stringify({ outbound_halted: outboundHalted, reason }),
-        },
-      );
-      if (!response.ok) throw new Error(await response.text());
-      return (await response.json()) as PlatformState;
-    },
+    mutationFn: ({ outboundHalted, reason }: { outboundHalted: boolean; reason: string }) =>
+      apiRequest<PlatformState>(adminSession(), "/v1/ops/platform", {
+        method: "POST",
+        body: { outbound_halted: outboundHalted, reason },
+        // Step-up confirmation (BACKEND-PATTERNS §7): the header must echo the action.
+        // It is not a second factor and does not pretend to be — it stops the accidental
+        // and the drive-by, and Clerk re-auth replaces it when admin MFA lands.
+        confirmAction: outboundHalted ? "halt_outbound" : "set_platform_state",
+      }),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "platform"] }),
   });
 }

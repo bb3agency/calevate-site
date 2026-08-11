@@ -94,7 +94,7 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
               </tbody>
             </table>
           </div>
-        ) : (
+        ) : calls.error ? null : (
           <EmptyState title="No calls match this filter" />
         )}
       </Card>

@@ -58,6 +58,16 @@ export default function CallDetailPage({
               Calling back now — follow-up #{callback.data.follow_up_number}. It will
               appear in your calls list in a moment.
             </p>
+          ) : callback.data?.status === "blocked" ? (
+            /* A refusal by the compliance gate comes back 200 with a reason, not as an
+               error. Falling through to the enabled button rendered it as a no-op: the
+               client presses "Call back", nothing visibly happens, and they press it
+               again. The server has already recorded the answer against this call, so
+               it says why instead of offering another attempt. */
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              {callback.data.blocked_reason ?? "This follow-up call was not allowed."}
+              {callback.data.blocked_rule ? ` (${callback.data.blocked_rule})` : ""}
+            </p>
           ) : eligibility.data.eligible ? (
             <div className="space-y-2">
               <p className="text-sm text-slate-600 dark:text-slate-400">

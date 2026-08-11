@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 
 import {
   Card,
@@ -10,8 +10,8 @@ import {
   StatusBadge,
   formatIST,
 } from "@/components/ui";
-import { API_BASE, devSession, type Lead, type LeadStatus } from "@/lib/api/client";
-import { useLeads, useUpdateLeadStatus } from "@/lib/api/hooks";
+import { devSession, type Lead, type LeadStatus } from "@/lib/api/client";
+import { useExportLeads, useLeads, useUpdateLeadStatus } from "@/lib/api/hooks";
 
 /** Fixed enum (D-21): clients cannot add statuses, because analytics and the hot-lead
  *  rules key off exactly these values. */
@@ -27,10 +27,19 @@ export default function LeadsPage({ params }: { params: Promise<{ slug: string }
   const [status, setStatus] = useState<string | undefined>();
   const [search, setSearch] = useState("");
   const [view, setView] = useState<ViewMode>("list");
+  // The search box drives the query KEY, so an undebounced value is one request
+  // (and one server-side LIKE) per keystroke. A short pause is what "finished
+  // typing" looks like; the input itself stays instant.
+  const [searchTerm, setSearchTerm] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchTerm(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
   // useLeads already accepts a `status` param and filters server-side, so the chips
   // below drive the query directly — no client-side filtering needed.
-  const leads = useLeads(session, { status, search: search || undefined, limit: 100 });
+  const leads = useLeads(session, { status, search: searchTerm || undefined, limit: 100 });
   const updateStatus = useUpdateLeadStatus(session);
+  const exportLeads = useExportLeads(session);
 
   const columns = leads.data?.columns ?? [];
   const items = leads.data?.items ?? [];
@@ -41,13 +50,18 @@ export default function LeadsPage({ params }: { params: Promise<{ slug: string }
         <div>
           <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Leads</h1>
           <p className="mt-0.5 text-sm text-slate-500">
-            {leads.data?.total ?? 0} leads · columns follow your agent&apos;s capture list
+            {/* No count until there IS one: "0 leads" while the first page loads is a
+                statement about the business, and it is the wrong one. */}
+            {leads.data ? `${leads.data.total} leads · ` : ""}columns follow your
+            agent&apos;s capture list
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            // The API caps `search` at 60 characters and 422s beyond it.
+            maxLength={60}
             placeholder="Name or last digits"
             className="w-52 rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
           />
@@ -74,14 +88,17 @@ export default function LeadsPage({ params }: { params: Promise<{ slug: string }
               </button>
             ))}
           </div>
-          {/* A plain link, not a fetch: the export is a file download and the browser
-              handles it better than we would. The API audit-logs the read. */}
-          <a
-            href={`${API_BASE}/v1/leads/export.csv`}
-            className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          {/* Fetched, not linked: the endpoint authenticates from the session headers,
+              which a browser navigation does not send — a plain <a> answers 401. The
+              API audit-logs the read either way. */}
+          <button
+            type="button"
+            disabled={exportLeads.isPending}
+            onClick={() => exportLeads.mutate()}
+            className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
-            Export CSV
-          </a>
+            {exportLeads.isPending ? "Preparing…" : "Export CSV"}
+          </button>
         </div>
       </div>
 
@@ -101,6 +118,7 @@ export default function LeadsPage({ params }: { params: Promise<{ slug: string }
 
       {leads.error && <ProblemNotice error={leads.error} onRetry={() => leads.refetch()} />}
       {updateStatus.error && <ProblemNotice error={updateStatus.error} />}
+      {exportLeads.error && <ProblemNotice error={exportLeads.error} />}
 
       {view === "list" ? (
         <Card>
@@ -161,7 +179,9 @@ export default function LeadsPage({ params }: { params: Promise<{ slug: string }
                 </tbody>
               </table>
             </div>
-          ) : (
+          ) : leads.error ? null : (
+            /* Never "No leads yet" on a failed fetch: the notice above already says
+               we could not read them, and this line would contradict it. */
             <EmptyState
               title="No leads yet"
               hint="Every answered call becomes a lead within two minutes."
@@ -228,13 +248,24 @@ export default function LeadsPage({ params }: { params: Promise<{ slug: string }
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-        {STATUSES.map((s) => (
-          <span key={s} className="flex items-center gap-1">
-            <StatusBadge value={s} /> {countByStatus(leads.data?.items, s)}
+      {/* The tally counts the rows ON SCREEN, and says so. The list is capped at 100
+          and the chips filter server-side, so an unlabelled row of badges would tell
+          a client with a status filter on that they have zero leads in every other
+          status — a statement about our query, read as a statement about their
+          business. */}
+      {leads.data && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <span>
+            Showing {items.length} of {leads.data.total}
+            {status ? ` ${status}` : ""} {leads.data.total === 1 ? "lead" : "leads"}:
           </span>
-        ))}
-      </div>
+          {STATUSES.map((s) => (
+            <span key={s} className="flex items-center gap-1">
+              <StatusBadge value={s} /> {countByStatus(items, s)}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

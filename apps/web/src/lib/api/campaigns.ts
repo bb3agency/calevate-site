@@ -141,7 +141,12 @@ export function usePauseCampaign(session: Session, campaignId: string | null) {
       apiRequest<{ status: string }>(session, `/v1/campaigns/${campaignId}/${action}`, {
         method: "POST",
       }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["campaign", campaignId] }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["campaign", campaignId] });
+      // The list carries the status too, and it is one click away ("Start another
+      // campaign") — without this it keeps showing "running" for a paused campaign.
+      void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
+    },
   });
 }
 

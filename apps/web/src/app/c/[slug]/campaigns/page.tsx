@@ -60,6 +60,7 @@ export default function CampaignsPage({ params }: { params: Promise<{ slug: stri
   const campaigns = useCampaigns(session);
 
   const [campaignId, setCampaignId] = useState<string | null>(null);
+  const [agentId, setAgentId] = useState("");
   const [name, setName] = useState("");
   const [classification, setClassification] = useState<Classification>("service");
   const [concurrency, setConcurrency] = useState(3);
@@ -82,8 +83,15 @@ export default function CampaignsPage({ params }: { params: Promise<{ slug: stri
   const setStatus = usePauseCampaign(session, campaignId);
 
   const parsed = useMemo(() => parseContactCsv(csv), [csv]);
-  const agentId = agents.data?.[0]?.id ?? "";
-  const status = progress.data?.status ?? "draft";
+  // Which agent dials decides the script, the voice and the disclosure line. A
+  // silent `agents[0]` picks one for a client who has more than one — including
+  // an inbound-only receptionist that cannot dial at all — so the choice is on
+  // screen whenever there IS a choice, defaulted to the first.
+  const agentOptions = agents.data ?? [];
+  const selectedAgentId = agentId || agentOptions[0]?.id || "";
+  // Null, not "draft", until the server says: defaulting to draft renders the
+  // contact-upload and launch cards over a campaign that is already running.
+  const status = progress.data?.status ?? null;
   const counts = progress.data?.contacts ?? {};
 
   return (
@@ -97,6 +105,10 @@ export default function CampaignsPage({ params }: { params: Promise<{ slug: stri
         </p>
       </div>
 
+      {campaigns.error && (
+        <ProblemNotice error={campaigns.error} onRetry={() => campaigns.refetch()} />
+      )}
+      {progress.error && <ProblemNotice error={progress.error} onRetry={() => progress.refetch()} />}
       {addContacts.error && <ProblemNotice error={addContacts.error} />}
       {launch.error && <ProblemNotice error={launch.error} />}
       {setStatus.error && <ProblemNotice error={setStatus.error} />}
@@ -133,10 +145,10 @@ export default function CampaignsPage({ params }: { params: Promise<{ slug: stri
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
-              if (!agentId) return;
+              if (!selectedAgentId) return;
               create.mutate(
                 {
-                  agent_id: agentId,
+                  agent_id: selectedAgentId,
                   name,
                   classification,
                   concurrency,
@@ -161,6 +173,29 @@ export default function CampaignsPage({ params }: { params: Promise<{ slug: stri
                 className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
               />
             </label>
+
+            {/* Only when there is something to choose: one agent needs no question. */}
+            {agentOptions.length > 1 && (
+              <label className="block max-w-sm">
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  Which agent makes these calls
+                </span>
+                <select
+                  value={selectedAgentId}
+                  onChange={(e) => setAgentId(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                >
+                  {agentOptions.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs text-slate-500">
+                  Its script and voice are what your customers will hear.
+                </span>
+              </label>
+            )}
 
             <fieldset>
               <legend className="text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -323,17 +358,24 @@ export default function CampaignsPage({ params }: { params: Promise<{ slug: stri
 
             <button
               type="submit"
-              disabled={create.isPending || !agentId || name.length < 2}
+              disabled={create.isPending || !selectedAgentId || name.length < 2}
               className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
             >
               {create.isPending ? "Creating…" : "Create campaign"}
             </button>
+            {/* A permanently dead button needs a reason next to it. */}
+            {!agents.isLoading && agentOptions.length === 0 && (
+              <p className="text-xs text-slate-500">
+                No agent is set up yet — your account manager builds one before
+                campaigns can run.
+              </p>
+            )}
           </form>
         </Card>
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-4">
-            <StatTile label="Status" value={status.replace(/_/g, " ")} />
+            <StatTile label="Status" value={status?.replace(/_/g, " ")} />
             <StatTile label="Contacts" value={progress.data?.total ?? parsed.length} />
             <StatTile label="Connected" value={counts.connected ?? 0} hint="calls answered" />
             <StatTile
@@ -393,6 +435,10 @@ export default function CampaignsPage({ params }: { params: Promise<{ slug: stri
             <Card title="Before you launch">
               {check.isLoading ? (
                 <p className="text-sm text-slate-500">Checking…</p>
+              ) : check.error ? (
+                /* Without this the card renders an empty blocker list under a
+                   dead button: "you cannot launch, and we will not say why". */
+                <ProblemNotice error={check.error} onRetry={() => check.refetch()} />
               ) : check.data?.ready ? (
                 <div className="space-y-3">
                   <p className="text-sm text-emerald-700 dark:text-emerald-400">
@@ -446,7 +492,7 @@ export default function CampaignsPage({ params }: { params: Promise<{ slug: stri
             </Card>
           )}
 
-          {["running", "paused", "completed"].includes(status) && (
+          {status !== null && ["running", "paused", "completed"].includes(status) && (
             <Card
               title="Progress"
               action={

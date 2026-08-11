@@ -167,13 +167,18 @@ export default function NewClientPage() {
               className="mt-3 flex gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
+                // No placeholder fallback: an invite is a single-use credential for a
+                // real inbox, and minting one for `owner@example.com` because the
+                // billing-email field was left blank is a token nobody can use and a
+                // membership row nobody asked for.
                 invite.mutate(
-                  { tenantId: created.id, email: email || "owner@example.com", role: "owner" },
+                  { tenantId: created.id, email: email.trim(), role: "owner" },
                   { onSuccess: (data) => setInviteToken(data.token) },
                 );
               }}
             >
               <input
+                required
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -182,7 +187,7 @@ export default function NewClientPage() {
               />
               <button
                 type="submit"
-                disabled={invite.isPending}
+                disabled={invite.isPending || !email.trim()}
                 className="rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-900 disabled:opacity-50"
               >
                 Create invite

@@ -16,6 +16,7 @@
  */
 
 import {
+  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
@@ -107,6 +108,38 @@ export function useLeads(
     queryFn: () => apiRequest<LeadList>(session, `/v1/leads${query(filters)}`),
     refetchInterval: SLOW_INTERVAL_MS,
     refetchOnWindowFocus: true,
+    // Changing a filter chip or the search box is a re-filter, not a navigation:
+    // keeping the previous rows on screen beats blanking the table to a skeleton
+    // (and, worse, flashing "No leads yet") on every change of the query key.
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * CSV export — the same `leads:read` endpoint the table uses, fetched WITH the
+ * session headers.
+ *
+ * It cannot be a plain `<a href>`: the API authenticates every request from the
+ * Authorization and X-Org-Slug headers, which a browser navigation does not carry,
+ * so a link answers with a 401 problem+json instead of a file. Fetching it here and
+ * handing the browser a blob keeps the download while letting a refusal render
+ * through ProblemNotice like every other error.
+ */
+export function useExportLeads(session: Session) {
+  return useMutation({
+    mutationFn: () => apiRequest<string>(session, "/v1/leads/export.csv"),
+    onSuccess: (csv) => {
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+      // In the document and revoked a tick later: a detached anchor is a no-op in
+      // some browsers, and revoking synchronously can cancel the save.
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    },
   });
 }
 

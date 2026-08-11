@@ -180,7 +180,7 @@ export default function IntegrationsPage({ params }: { params: Promise<{ slug: s
               </li>
             ))}
           </ul>
-        ) : (
+        ) : endpoints.error ? null : (
           <EmptyState
             title="No endpoints yet"
             hint="Add your CRM's webhook URL and we'll start sending leads the moment they arrive."
@@ -189,6 +189,13 @@ export default function IntegrationsPage({ params }: { params: Promise<{ slug: s
       </Card>
 
       <Card title="Recent deliveries">
+        {/* Without this the card falls through to "Nothing sent yet" on a 4xx —
+            which is the exact wrong answer to "did my CRM get it?". */}
+        {deliveries.error && (
+          <div className="mb-3">
+            <ProblemNotice error={deliveries.error} onRetry={() => deliveries.refetch()} />
+          </div>
+        )}
         {deliveries.isLoading ? (
           <Skeleton rows={3} />
         ) : deliveries.data?.length ? (
@@ -226,7 +233,7 @@ export default function IntegrationsPage({ params }: { params: Promise<{ slug: s
               ))}
             </tbody>
           </table>
-        ) : (
+        ) : deliveries.error ? null : (
           <EmptyState
             title="Nothing sent yet"
             hint="Deliveries appear here as they happen — including the ones your endpoint rejected."

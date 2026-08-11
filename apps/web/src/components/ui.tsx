@@ -110,6 +110,12 @@ export function ProblemNotice({ error, onRetry }: { error: unknown; onRetry?: ()
   if (!error) return null;
   const problem = error instanceof ApiProblem ? error : null;
   const title = problem?.message ?? "Something went wrong.";
+  // Anything that is not an ApiProblem never reached the API — a dropped connection,
+  // a DNS failure, a laptop that slept. The API's `retryable` cannot speak for those,
+  // and they are the most retryable failures there are, so the button must not depend
+  // on it: without this, a client on a train watches a screen with no way forward
+  // except reloading the page.
+  const canRetry = Boolean(onRetry) && (problem === null || problem.retryable);
   return (
     <div
       role="alert"
@@ -117,6 +123,11 @@ export function ProblemNotice({ error, onRetry }: { error: unknown; onRetry?: ()
     >
       <p className="font-medium">{title}</p>
       {problem?.remediation && <p className="mt-1 text-rose-800 dark:text-rose-300">{problem.remediation}</p>}
+      {problem === null && (
+        <p className="mt-1 text-rose-800 dark:text-rose-300">
+          We could not reach Calevate. Check your connection and try again.
+        </p>
+      )}
       {problem?.fields?.length ? (
         <ul className="mt-2 list-inside list-disc">
           {problem.fields.map((f) => (
@@ -126,7 +137,7 @@ export function ProblemNotice({ error, onRetry }: { error: unknown; onRetry?: ()
           ))}
         </ul>
       ) : null}
-      {problem?.retryable && onRetry && (
+      {canRetry && (
         <button
           type="button"
           onClick={onRetry}

@@ -224,7 +224,7 @@ export default function LeadSourcesPage({ params }: { params: Promise<{ slug: st
               ))}
             </tbody>
           </table>
-        ) : (
+        ) : activity.error != null ? null : (
           <EmptyState
             title="No deliveries yet"
             hint="When your website form or ad account sends a lead, it appears here — accepted or not."

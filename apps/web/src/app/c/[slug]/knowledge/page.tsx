@@ -43,10 +43,15 @@ export default function KnowledgePage({ params }: { params: Promise<{ slug: stri
 
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
+  const [agentId, setAgentId] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const chunks = useKbChunks(session, selected);
 
-  const agentId = agents.data?.[0]?.id ?? "";
+  // Knowledge belongs to ONE agent. Silently posting it against `agents[0]` means a
+  // client with two agents teaches the wrong one and waits for an answer the right
+  // one will never give — so the choice is shown whenever there is one.
+  const agentOptions = agents.data ?? [];
+  const selectedAgentId = agentId || agentOptions[0]?.id || "";
 
   return (
     <div className="space-y-5">
@@ -66,13 +71,31 @@ export default function KnowledgePage({ params }: { params: Promise<{ slug: stri
           className="space-y-3"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!agentId) return;
+            if (!selectedAgentId) return;
             submit.mutate(
-              { agentId, name, body },
+              { agentId: selectedAgentId, name, body },
               { onSuccess: () => { setName(""); setBody(""); } },
             );
           }}
         >
+          {agentOptions.length > 1 && (
+            <label className="block max-w-sm">
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                Which agent should know this
+              </span>
+              <select
+                value={selectedAgentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+              >
+                {agentOptions.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <input
             required
             minLength={2}
@@ -103,7 +126,7 @@ export default function KnowledgePage({ params }: { params: Promise<{ slug: stri
             </p>
             <button
               type="submit"
-              disabled={submit.isPending || !agentId || body.length < 10}
+              disabled={submit.isPending || !selectedAgentId || body.length < 10}
               className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
             >
               {submit.isPending ? "Submitting…" : "Submit for review"}
@@ -166,7 +189,7 @@ export default function KnowledgePage({ params }: { params: Promise<{ slug: stri
               );
             })}
           </ul>
-        ) : (
+        ) : sources.error ? null : (
           <EmptyState
             title="Nothing submitted yet"
             hint="Add your opening hours, services and prices first — those are what callers ask about."

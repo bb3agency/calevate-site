@@ -66,13 +66,21 @@ interface RequestOptions {
   body?: unknown;
   /** Required by the API on any endpoint that can place a call or spend money. */
   idempotencyKey?: string;
+  /**
+   * Step-up confirmation (BACKEND-PATTERNS §7): the header must echo the action
+   * being taken, e.g. `halt_outbound`. Only the ops surface needs it, but it lives
+   * here so that surface does not need a `fetch` of its own — a hand-rolled call
+   * loses problem+json parsing, and the big red switch is the last place that
+   * should answer a refusal with a wall of raw JSON.
+   */
+  confirmAction?: string;
   signal?: AbortSignal;
 }
 
 export async function apiRequest<T>(
   session: Session,
   path: string,
-  { method = "GET", body, idempotencyKey, signal }: RequestOptions = {},
+  { method = "GET", body, idempotencyKey, confirmAction, signal }: RequestOptions = {},
 ): Promise<T> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${session.token}`,
@@ -80,6 +88,7 @@ export async function apiRequest<T>(
   };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+  if (confirmAction) headers["X-Confirm-Action"] = confirmAction;
   if (session.impersonateOrg) headers["X-Impersonate-Org"] = session.impersonateOrg;
 
   const response = await fetch(`${API_BASE}${path}`, {

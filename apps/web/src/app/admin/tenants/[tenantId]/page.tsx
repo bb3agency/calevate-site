@@ -41,11 +41,23 @@ export default function TenantDetailPage({
   const slug = tenant?.slug ?? "";
 
   const queue = useTenantKbQueue(slug);
+  // Approved-but-unpublished is its own queue: approving does NOT push to the engine
+  // (kb_service.approve_source only moves the status), so without this list the
+  // publish endpoint has no caller and the client's Knowledge screen sits on
+  // "Approved, not live yet" forever.
+  const publishQueue = useTenantKbQueue(slug, "approved");
+  // Publishing leaves `status` at 'approved' and flips `is_active`, so the live ones
+  // stay in this list — filter them out rather than offer a second Publish button.
+  const awaitingPublish = (publishQueue.data ?? []).filter((source) => !source.is_active);
   const [selected, setSelected] = useState<string | null>(null);
   const preview = useKbPreview(slug, selected);
   const decide = useKbDecision(tenantId);
 
   if (tenantQuery.isLoading) return <Skeleton rows={6} />;
+  // A 403, a 500 or a dropped connection is not "no such client" — saying so sends
+  // an operator hunting for a deleted tenant that is sitting right there.
+  if (tenantQuery.error)
+    return <ProblemNotice error={tenantQuery.error} onRetry={() => tenantQuery.refetch()} />;
   if (!tenant) return <EmptyState title="Client not found" />;
 
   return (
@@ -170,6 +182,39 @@ export default function TenantDetailPage({
         )}
         </div>
       </section>
+
+      {/* Approve moves a source to `approved`; publishing is the separate step that
+          pushes it to the engine and makes it the live version (FLOWS §7). Both are
+          ours, so both need a button — an approved source with nowhere to press is
+          work that silently stops halfway. */}
+      {awaitingPublish.length > 0 ? (
+        <section className="rounded-xl border border-slate-800 bg-slate-900">
+          <header className="border-b border-slate-800 px-4 py-3">
+            <h2 className="text-sm font-semibold text-slate-100">Approved, awaiting publish</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              The agent does not know these until they are published.
+            </p>
+          </header>
+          <ul className="divide-y divide-slate-800 px-4">
+            {awaitingPublish.map((source) => (
+              <li key={source.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm">
+                <span className="font-medium text-slate-100">{source.name}</span>
+                <span className="text-xs text-slate-500">
+                  v{source.version} · {source.chunks} chunks
+                </span>
+                <button
+                  type="button"
+                  disabled={decide.isPending}
+                  onClick={() => decide.mutate({ sourceId: source.id, decision: "publish" })}
+                  className="ml-auto rounded-md bg-sky-500 px-2 py-1 text-xs font-medium text-sky-950 disabled:opacity-50"
+                >
+                  Publish
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <AgentsPanel tenantId={tenantId} slug={slug} />
 
