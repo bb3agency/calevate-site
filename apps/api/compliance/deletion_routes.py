@@ -76,6 +76,40 @@ class DeletionRequestIn(Strict):
     phone: str = Field(min_length=8, max_length=20, pattern=r"^\+[1-9]\d{7,18}$")
 
 
+class ErasureScopeOut(Strict):
+    """WHAT was erased, by hash and count — never by id and never by number.
+
+    `calls` and `leads` are lists of hashes rather than uuids on purpose: an auditor
+    needs to see that the scope was non-empty and stable across a re-run, and a hash
+    proves both without handing the reader a set of primary keys to go and look up.
+    """
+
+    calls: list[str]
+    leads: list[str]
+    transcript_turns_erased: int
+    call_extractions_erased: int
+
+
+class ErasureProofOut(Strict):
+    """The certificate the subject can be shown. Carries no personal data by
+    construction: a subject hash, timestamps, counts, and plain statements of what was
+    done to each table.
+
+    `engine_deletion` is a status string rather than a boolean because the honest answer
+    today is neither true nor false — Bolna's deletion API is undocumented (a pilot
+    gate), and a certificate that claimed an engine-side deletion we cannot demonstrate
+    would be the one lie a compliance document must not contain.
+    """
+
+    subject_hash: str
+    executed_at: str
+    scope: ErasureScopeOut
+    # Table name -> what was done to it. `dict[str, str]`, not `Any`: the values are
+    # sentences we wrote, and the guardrail can see that they are strings.
+    actions: dict[str, str]
+    engine_deletion: str
+
+
 class DeletionRequestOut(Strict):
     """The response model IS the output whitelist (BACKEND-PATTERNS §1), and what it
     leaves out is the point: there is no `phone_e164` field, so the number the row keeps
@@ -87,9 +121,12 @@ class DeletionRequestOut(Strict):
     status: Literal["pending", "completed"]
     requested_at: datetime
     completed_at: datetime | None
-    # The worker's proof certificate: hashes, counts and a plain statement of what was
-    # done. Null until the erasure runs. Carries no personal data by construction.
-    proof: dict[str, Any] | None
+    # The worker's proof certificate. TYPED, not a free-form dict: the redaction
+    # guardrail inspects response MODELS, so a `dict[str, Any]` here would be a field it
+    # is structurally blind to — on the one endpoint whose entire subject is a person
+    # who asked to be erased. The shape is built in exactly one place
+    # (`workers/retention.execute_deletion_request`), so there is nothing to guess.
+    proof: ErasureProofOut | None
     # What the erasure cannot do, stated rather than hidden.
     limitations: list[str]
 

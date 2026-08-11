@@ -47,12 +47,42 @@ REDACTED = "[redacted]"
 
 # +91XXXXXXXXXX and friends: 8+ digits with optional +, spaces or dashes.
 _PHONE_RE = re.compile(r"\+?\d[\d\s-]{7,}\d")
+# A uuid is digits and hyphens too, and uuid_v7 is TIME-PREFIXED, so its leading
+# segments are mostly decimal — `019fef30-ef78-7420-900b-c603a569b465` contains
+# `78-7420-900`, which the phone pattern matches. Masking it corrupts the one thing a
+# log line exists to carry: the id you correlate on. It bit us as an intermittently
+# failing audit test — intermittent because whether a given uuid contains a
+# phone-shaped run is luck. So uuids are lifted out before the phone pass and put back
+# after, rather than the phone pattern being loosened (which would risk the opposite,
+# and far worse, error).
+_UUID_RE = re.compile(
+    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
+)
+# The same hazard for hex digests, and this one is worse. `subject_ref` (sha256[:32])
+# is what ties a DPDP access request to the erasure that answered it, and the audit
+# chain's `entry_hash` is what proves the chain was not edited — and a digest is a third
+# digits by construction, so a phone-shaped run inside one is not unlikely, it is
+# routine: `67f5cc9ca451c598d14313258429e5c9` contains `14313258429`. No phone number is
+# 32 characters long, so holding runs of 32+ hex digits back cannot hide one.
+_HEX_ID_RE = re.compile(r"\b[0-9a-fA-F]{32,64}\b")
+_STASH = "\x00"
 _MAX_FREE_TEXT = 200
 
 
 def redact_text(value: str) -> str:
     """Mask phone-shaped digit runs and cap length. Used on strings we did not author."""
-    masked = _PHONE_RE.sub("[phone]", value)
+    held: list[str] = []
+
+    def _hold(match: re.Match[str]) -> str:
+        held.append(match.group(0))
+        return f"{_STASH}{len(held) - 1}{_STASH}"
+
+    held_ids = _HEX_ID_RE.sub(_hold, _UUID_RE.sub(_hold, value))
+    masked = _PHONE_RE.sub("[phone]", held_ids)
+    for index, original in enumerate(held):
+        masked = masked.replace(f"{_STASH}{index}{_STASH}", original)
+    # Truncation runs LAST, on the restored text, so the cap measures what a reader
+    # will actually see rather than the placeholder form.
     if len(masked) > _MAX_FREE_TEXT:
         masked = masked[:_MAX_FREE_TEXT] + "…[truncated]"
     return masked
