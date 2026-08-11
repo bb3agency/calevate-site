@@ -246,6 +246,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/margin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Revenue vs OUR cost for one client (D-12) — the number G2 gates on
+         * @description Admin realm only. `unit_cost_paid` is our supplier pricing — it is the reason
+         *     this lives here and not beside the client's usage panel.
+         *
+         *     Runs under a tenant-scoped session because `usage_events` is RLS'd and stays that
+         *     way: `app.admin` opens the client DIRECTORY, never their data (migration
+         *     b57e2f9c4a13). An operator reads one client's numbers by entering that client's
+         *     scope deliberately, exactly like impersonation does for pages.
+         */
+        get: operations["tenant_margin_v1_admin_tenants__tenant_id__margin_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/numbers": {
         parameters: {
             query?: never;
@@ -863,6 +889,27 @@ export interface paths {
         put?: never;
         /** Load-shed mode and the big red switch (step-up confirmed, audited) */
         post: operations["set_platform_v1_ops_platform_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This month's usage and what it costs (SURFACES §2b)
+         * @description `billing:read`, which staff do not have (SEC-COMP §5) — spend is an owner's
+         *     business. Our supplier cost never appears here; that is the admin margin panel.
+         */
+        get: operations["usage_panel_v1_usage_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2250,6 +2297,41 @@ export interface operations {
             };
         };
     };
+    tenant_margin_v1_admin_tenants__tenant_id__margin_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     provision_number_v1_admin_tenants__tenant_id__numbers_post: {
         parameters: {
             query?: never;
@@ -3530,6 +3612,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlatformStateOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    usage_panel_v1_usage_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description RFC-9457 problem+json */

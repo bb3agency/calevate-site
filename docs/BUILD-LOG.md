@@ -762,6 +762,40 @@ the *real* reason — verified in the browser at 07:00 IST, where it correctly r
 
 174 tests.
 
+**36. Billing surfaces — `apps/api/billing/service.py`, two panels** (D-12, hard rule 7)
+
+The metering has been recording `unit_cost_paid` beside every billable quantity since
+M1 for exactly this: margin per client is a query, not a monthly spreadsheet exercise.
+Two audiences, two panels, one ledger.
+
+- **Client usage panel** (`GET /v1/usage`, `billing:read` — owners, not staff): minutes
+  against included minutes, overage in exact rupees, cap state, and the prepaid credit
+  balance *only* for self-serve/trial tiers (showing a managed client a ₹0 wallet
+  invites a support ticket about a concept that does not apply to them). Our supplier
+  cost is deliberately absent — that is commercially ours.
+- **Admin margin panel** (`GET /v1/admin/tenants/{id}/margin`, admin realm): revenue vs
+  what we actually paid. It runs under a tenant-scoped session because `usage_events`
+  is RLS'd and stays that way — `app.admin` opens the client DIRECTORY, never their
+  data, so an operator enters a client's scope deliberately, exactly as impersonation
+  does for pages.
+- **Billing months are IST**, computed in SQL as `occurred_at + interval '5:30'`. A
+  month that rolls at 05:30 IST puts an evening call in the wrong month and makes an
+  invoice disagree with the client's own diary. A test pins 19:00 UTC on the 31st as
+  belonging to the NEXT month.
+- **NUMERIC end to end**, including the last step: the API sends exact strings and the
+  screen adds them in whole paise rather than parsing to a float, because
+  `Number(a) + Number(b)` in a React component is the most embarrassing possible place
+  for ₹10,159.00 to become ₹10,158.999999999998.
+- `margin_pct` is **null, not 0**, before anything is billed: "nothing billed yet" and
+  "we made nothing" are different facts and an operator acts differently on each.
+
+While seeding demo data the seeded cost was wrong by a factor of 60 (a per-minute rate
+applied per second). It was corrected the way hard rule 4 requires — a negative
+compensating entry plus a correct one, with the reason in `meta` — not an UPDATE. The
+ledger doctrine held under its first real use.
+
+182 tests.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
@@ -769,9 +803,9 @@ the *real* reason — verified in the browser at 07:00 IST, where it correctly r
    and the Langfuse hook are wired; distributed tracing is not).
 2. Remaining M2 openers: WhatsApp alerts, self-serve signup UI, Razorpay top-ups into
    `credit_ledger`, Google Sheets sync (the other half of D-23 — the `google_sheets`
-   endpoint kind is in the schema and unimplemented), billing surfaces (usage panel,
-   margin panel, invoices).
+   endpoint kind is in the schema and unimplemented), invoice generation (the usage and
+   margin panels ship; turning a month into a PDF invoice does not).
 4. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (174 tests),
+5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (182 tests),
    `uv run mypy apps packages`, `make guardrails` and `pnpm -C apps/web lint` before changing anything.

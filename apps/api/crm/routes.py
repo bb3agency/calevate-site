@@ -11,12 +11,14 @@ raw transcript, recording link, and "call this lead".
 
 from __future__ import annotations
 
-from typing import Annotated
+from decimal import Decimal
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing import service as billing
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.auth import requires
@@ -317,6 +319,32 @@ async def call_lead(
             response_payload=result.model_dump(),
         )
     return result
+
+
+@router.get(
+    "/usage",
+    openapi_extra=permission_meta("billing:read"),
+    summary="This month's usage and what it costs (SURFACES §2b)",
+)
+async def usage_panel(
+    session: Session,
+    month: str | None = None,
+    principal: Principal = Depends(requires("billing:read")),
+) -> dict[str, Any]:
+    """`billing:read`, which staff do not have (SEC-COMP §5) — spend is an owner's
+    business. Our supplier cost never appears here; that is the admin margin panel."""
+    assert principal.tenant_id is not None
+    summary = await billing.usage_summary(session, tenant_id=principal.tenant_id, month=month)
+    balance = await billing.get_balance(session, tenant_id=principal.tenant_id)
+    tier = await billing.plan_tier_of(session, principal.tenant_id)
+    return {
+        **{k: (str(v) if isinstance(v, Decimal) else v) for k, v in summary.items()},
+        "plan_tier": tier,
+        # Credits only mean something for the self-serve motion (D-34); showing a
+        # managed client a ₹0 wallet would invite a support ticket about a concept
+        # that does not apply to them.
+        "credit_balance_inr": str(balance.amount_inr) if tier in ("self_serve", "trial") else None,
+    }
 
 
 @router.get(

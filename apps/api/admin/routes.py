@@ -13,7 +13,8 @@ question answerable.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from decimal import Decimal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
@@ -22,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service
 from apps.api.agents import service as agents_service
+from apps.api.billing import service as billing
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import requires
@@ -343,6 +345,31 @@ async def publish_kb(
         summary={"version": version},
     )
     return PublishOut(source_id=source_id, version=version, status="live")
+
+
+@router.get(
+    "/tenants/{tenant_id}/margin",
+    openapi_extra=permission_meta("billing:read"),
+    summary="Revenue vs OUR cost for one client (D-12) — the number G2 gates on",
+)
+async def tenant_margin(
+    tenant_id: UUID,
+    session: AdminSession,
+    month: str | None = None,
+    _: Principal = Depends(requires("billing:read", realm="admin")),
+) -> dict[str, Any]:
+    """Admin realm only. `unit_cost_paid` is our supplier pricing — it is the reason
+    this lives here and not beside the client's usage panel.
+
+    Runs under a tenant-scoped session because `usage_events` is RLS'd and stays that
+    way: `app.admin` opens the client DIRECTORY, never their data (migration
+    b57e2f9c4a13). An operator reads one client's numbers by entering that client's
+    scope deliberately, exactly like impersonation does for pages.
+    """
+    async with tenant_session(tenant_id) as scoped:
+        margin = await billing.margin_for_tenant(scoped, tenant_id=tenant_id, month=month)
+    del session
+    return {k: (str(v) if isinstance(v, Decimal) else v) for k, v in margin.items()}
 
 
 # --------------------------------------------------------- campaign prerequisites

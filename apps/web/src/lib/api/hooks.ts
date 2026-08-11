@@ -182,3 +182,28 @@ export function useCallBack(session: Session, callId: string) {
     },
   });
 }
+
+/** Usage + spend for the current billing month (IST). `billing:read`, owners only. */
+export interface UsagePanel {
+  month: string;
+  minutes_used: string;
+  calls: number;
+  included_minutes: number;
+  overage_minutes: string;
+  overage_cost_inr: string;
+  monthly_fee_inr: string | null;
+  cap_minutes: number | null;
+  capped: boolean;
+  spend_used_inr: string;
+  plan_tier: string;
+  credit_balance_inr: string | null;
+}
+
+export function useUsage(session: Session): UseQueryResult<UsagePanel> {
+  return useQuery({
+    queryKey: ["usage", session.orgSlug],
+    queryFn: () => apiRequest<UsagePanel>(session, "/v1/usage"),
+    // Metering lands with the post-call pipeline, not live during a call.
+    staleTime: 60_000,
+  });
+}

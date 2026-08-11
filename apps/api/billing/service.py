@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -184,12 +185,139 @@ async def plan_tier_of(session: AsyncSession, tenant_id: UUID) -> str:
     return str(tier or "managed")
 
 
+# --- reporting -----------------------------------------------------------------
+#
+# Two audiences, two panels, one ledger. The CLIENT sees what they used and what it
+# will cost them. WE see what it cost us next to that, which is D-12's whole reason
+# for putting `unit_cost_paid` on every usage row: margin is a query, not a monthly
+# spreadsheet exercise.
+#
+# The client panel never shows `unit_cost_paid`. Our supplier pricing is commercially
+# ours, and a client who can see it is a client negotiating against it.
+
+# Billing months are IST (conventions: UTC in the DB, IST at the edge). A month that
+# rolls over at 05:30 IST would put an evening call in the wrong month and make a
+# client's invoice disagree with their own diary.
+_IST_MONTH = "to_char(occurred_at + interval '5 hours 30 minutes', 'YYYY-MM')"
+
+
+def current_billing_month() -> str:
+    return (datetime.now(UTC) + timedelta(hours=5, minutes=30)).strftime("%Y-%m")
+
+
+async def usage_summary(
+    session: AsyncSession, *, tenant_id: UUID, month: str | None = None
+) -> dict[str, Any]:
+    """What the client used this billing month, in their terms.
+
+    Minutes come from `telephony_s`, which is the unit we bill on; the other unit types
+    are inputs to OUR cost and are deliberately not shown as separate line items,
+    because a client cannot act on "llm_tok_out" and does not buy tokens from us.
+    """
+    period = month or current_billing_month()
+    row = (
+        await session.execute(
+            text(
+                "SELECT "
+                "  COALESCE(SUM(qty) FILTER (WHERE unit_type = 'telephony_s'), 0) / 60.0, "
+                "  COUNT(DISTINCT call_id) "
+                f"FROM usage_events WHERE {_IST_MONTH} = :month"
+            ),
+            {"month": period},
+        )
+    ).first()
+    minutes = Decimal(str(row[0] if row else 0)).quantize(Decimal("0.01"))
+    calls = int(row[1] or 0) if row else 0
+
+    plan = (
+        await session.execute(
+            text(
+                "SELECT monthly_fee, included_min, overage_rate, hard_cap_min, hard_cap_spend "
+                "FROM plans WHERE tenant_id = :tid ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"tid": tenant_id},
+        )
+    ).first()
+    included = int(plan[1] or 0) if plan else 0
+    overage_rate = Decimal(str(plan[2])) if plan and plan[2] is not None else Decimal("0")
+    overage_min = max(Decimal("0"), minutes - included)
+    # NUMERIC throughout, never float (hard rule 7). Quantize at the boundary only.
+    overage_cost = (overage_min * overage_rate).quantize(Decimal("0.01"))
+
+    spend = (
+        await session.execute(
+            text("SELECT minutes_used, spend_used, capped FROM spend_state WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        )
+    ).first()
+
+    return {
+        "month": period,
+        "minutes_used": minutes,
+        "calls": calls,
+        "included_minutes": included,
+        "overage_minutes": overage_min.quantize(Decimal("0.01")),
+        "overage_cost_inr": overage_cost,
+        # Quantized to paise like every other money field: NUMERIC(12,4) is the
+        # storage precision, two decimals is what a rupee amount means to a reader.
+        "monthly_fee_inr": (
+            Decimal(str(plan[0])).quantize(Decimal("0.01"))
+            if plan and plan[0] is not None
+            else None
+        ),
+        "cap_minutes": int(plan[3]) if plan and plan[3] is not None else None,
+        "capped": bool(spend[2]) if spend else False,
+        "spend_used_inr": (
+            Decimal(str(spend[1])).quantize(Decimal("0.01")) if spend else Decimal("0.00")
+        ),
+    }
+
+
+async def margin_for_tenant(
+    session: AsyncSession, *, tenant_id: UUID, month: str | None = None
+) -> dict[str, Any]:
+    """Admin-only: revenue vs OUR cost for one client (D-12).
+
+    Revenue is the plan's monthly fee plus overage — the invoice, not an estimate. Cost
+    is the sum of `unit_cost_paid`, which the pipeline stamps per usage row at capture
+    time with the fx rate it used, so a later rate move cannot rewrite history.
+    """
+    usage = await usage_summary(session, tenant_id=tenant_id, month=month)
+    cost = (
+        await session.execute(
+            text(
+                "SELECT COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)), 0) "
+                f"FROM usage_events WHERE {_IST_MONTH} = :month"
+            ),
+            {"month": usage["month"]},
+        )
+    ).scalar()
+    cost_inr = Decimal(str(cost or 0)).quantize(Decimal("0.01"))
+    revenue = (usage["monthly_fee_inr"] or Decimal("0")) + usage["overage_cost_inr"]
+    margin = (revenue - cost_inr).quantize(Decimal("0.01"))
+    # Percent is reported as None rather than 0 when there is no revenue: "0% margin"
+    # and "nothing billed yet" are different facts and an operator acts differently.
+    pct = (margin / revenue * 100).quantize(Decimal("0.1")) if revenue > 0 else None
+    return {
+        "month": usage["month"],
+        "minutes_used": usage["minutes_used"],
+        "calls": usage["calls"],
+        "revenue_inr": revenue.quantize(Decimal("0.01")),
+        "cost_inr": cost_inr,
+        "margin_inr": margin,
+        "margin_pct": pct,
+    }
+
+
 __all__ = [
     "LOW_BALANCE_INR",
     "Balance",
     "CreditReason",
     "charge_for_call",
+    "current_billing_month",
     "get_balance",
+    "margin_for_tenant",
     "plan_tier_of",
     "record_entry",
+    "usage_summary",
 ]

@@ -265,3 +265,25 @@ export function useSetTemplateStatus(tenantId: string) {
     onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "templates"] }),
   });
 }
+
+/**
+ * Per-client margin (D-12). Admin realm only — `unit_cost_paid` is our supplier
+ * pricing, and the client-facing usage panel deliberately does not carry it.
+ */
+export interface Margin {
+  month: string;
+  minutes_used: string;
+  calls: number;
+  revenue_inr: string;
+  cost_inr: string;
+  margin_inr: string;
+  margin_pct: string | null;
+}
+
+export function useMargin(tenantId: string): UseQueryResult<Margin> {
+  return useQuery({
+    queryKey: ["admin", "margin", tenantId],
+    queryFn: () => apiRequest<Margin>(adminSession(), `/v1/admin/tenants/${tenantId}/margin`),
+    enabled: Boolean(tenantId),
+  });
+}

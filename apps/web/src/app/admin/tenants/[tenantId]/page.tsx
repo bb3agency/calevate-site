@@ -7,6 +7,7 @@ import { EmptyState, ProblemNotice, Skeleton, formatIST } from "@/components/ui"
 import {
   useKbDecision,
   useKbPreview,
+  useMargin,
   useProvisionNumber,
   useRegisterTemplate,
   useSetNumberDltStatus,
@@ -161,8 +162,59 @@ export default function TenantDetailPage({
         </div>
       </section>
 
+      <MarginPanel tenantId={tenantId} />
+
       <CampaignSetup tenantId={tenantId} slug={slug} />
     </div>
+  );
+}
+
+/**
+ * Per-client margin (D-12), the number gate G2 turns on.
+ *
+ * It lives in the ADMIN console and nowhere else: `unit_cost_paid` is our supplier
+ * pricing, and a client who can see it is a client negotiating against it. Their own
+ * usage panel shows what they used and what it costs them, which is the half that is
+ * theirs.
+ */
+function MarginPanel({ tenantId }: { tenantId: string }) {
+  const margin = useMargin(tenantId);
+  if (margin.error) return <ProblemNotice error={margin.error} />;
+  if (!margin.data) return null;
+  const data = margin.data;
+  const negative = data.margin_inr.trim().startsWith("-");
+
+  return (
+    <section className="rounded-xl border border-slate-800 bg-slate-900">
+      <header className="border-b border-slate-800 px-4 py-3">
+        <h2 className="text-sm font-semibold text-slate-100">
+          Margin · {data.month}
+        </h2>
+      </header>
+      <div className="grid gap-3 p-4 sm:grid-cols-4">
+        <Stat label="Revenue" value={`₹${data.revenue_inr}`} />
+        <Stat label="Our cost" value={`₹${data.cost_inr}`} />
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+          <div className="text-xs uppercase tracking-wide text-slate-500">Margin</div>
+          <div
+            className={
+              negative
+                ? "mt-1 text-lg font-semibold tabular-nums text-rose-400"
+                : "mt-1 text-lg font-semibold tabular-nums text-emerald-400"
+            }
+          >
+            ₹{data.margin_inr}
+          </div>
+        </div>
+        {/* null, not 0%: "nothing billed yet" and "we made nothing" are different
+            facts, and an operator acts differently on each. */}
+        <Stat label="Margin %" value={data.margin_pct === null ? "not billed yet" : `${data.margin_pct}%`} />
+        <div className="sm:col-span-4 text-xs text-slate-500">
+          {data.minutes_used} minutes across {data.calls} calls. Cost is what we actually
+          paid, stamped per usage row at capture time with the fx rate used.
+        </div>
+      </div>
+    </section>
   );
 }
 

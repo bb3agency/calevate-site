@@ -3020,6 +3020,65 @@
         "x-calevate-permission": "agents:write"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/margin": {
+      "get": {
+        "description": "Admin realm only. `unit_cost_paid` is our supplier pricing \u2014 it is the reason\nthis lives here and not beside the client's usage panel.\n\nRuns under a tenant-scoped session because `usage_events` is RLS'd and stays that\nway: `app.admin` opens the client DIRECTORY, never their data (migration\nb57e2f9c4a13). An operator reads one client's numbers by entering that client's\nscope deliberately, exactly like impersonation does for pages.",
+        "operationId": "tenant_margin_v1_admin_tenants__tenant_id__margin_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Tenant Margin V1 Admin Tenants  Tenant Id  Margin Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Revenue vs OUR cost for one client (D-12) \u2014 the number G2 gates on",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/numbers": {
       "post": {
         "operationId": "provision_number_v1_admin_tenants__tenant_id__numbers_post",
@@ -4747,6 +4806,55 @@
           "ops"
         ],
         "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "description": "`billing:read`, which staff do not have (SEC-COMP \u00a75) \u2014 spend is an owner's\nbusiness. Our supplier cost never appears here; that is the admin margin panel.",
+        "operationId": "usage_panel_v1_usage_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Usage Panel V1 Usage Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This month's usage and what it costs (SURFACES \u00a72b)",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "billing:read"
       }
     }
   }
