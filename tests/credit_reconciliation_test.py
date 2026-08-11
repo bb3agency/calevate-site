@@ -100,7 +100,22 @@ async def _balance(tenant_id: uuid.UUID) -> Decimal:
 
 # The residue this tool repairs is HISTORICAL: it was written before the
 # check-then-write race was closed, and the closed race cannot produce it again.
-RESIDUE_AGE = timedelta(days=120)
+#
+# An ABSOLUTE instant, not `now() - <age>`. The difference decides whether
+# `credit_ledger` can ever carry a unique index on `(tenant_id, reason, ref)`, because
+# that index has to be partial — hard rule 4 forbids deleting the real residue, so the
+# only way to build is to grandfather it behind a cutoff literal frozen into the
+# migration. A seed backdated RELATIVE to the wall clock walks forward every day and
+# crosses any such literal: 120 days after the migration lands, `now() - 120 days` is
+# after the cutoff, these rows start landing INSIDE the partial index, and this module
+# begins failing with an IntegrityError on a date nobody chose — after four green
+# months. A fixed instant cannot drift, so the cutoff and the seed stay in the order
+# they were put in.
+#
+# Kept strictly behind `LEDGER_UNIQUE_INDEX_CUTOFF` with months to spare, so the cutoff
+# can be moved forward when the migration is finally authored without coming back here.
+# `tests/credit_ledger_uniqueness_test.py` asserts both halves of that relationship.
+RESIDUE_AT = datetime(2026, 1, 15, tzinfo=UTC)
 
 
 async def _double_credit(tenant_id: uuid.UUID, ref: str = "UTR-DOUBLE-1") -> None:
@@ -121,8 +136,11 @@ async def _double_credit(tenant_id: uuid.UUID, ref: str = "UTR-DOUBLE-1") -> Non
     is computed the way `record_entry` computes it, so the shape is still the shape the
     bug produced — including the second row's balance reflecting the phantom credit,
     which is the whole reason the wallet reads richer than it is.
+
+    Backdated to `RESIDUE_AT`, an absolute instant — see the constant for why an age
+    relative to `now()` was still a time bomb under the partial index.
     """
-    occurred = datetime.now(UTC) - RESIDUE_AGE
+    occurred = RESIDUE_AT
     async with tenant_session(tenant_id) as session:
         opening = (
             await session.execute(
@@ -163,8 +181,11 @@ async def _double_charge(tenant_id: uuid.UUID, ref: str, *, opening: Decimal) ->
     `clock_timestamp()`, so every run of this module minted a violating pair AFTER any
     cutoff a migration could freeze into a literal. The violation count climbed from 21
     to 246 over one session on that account alone.
+
+    Backdated to `RESIDUE_AT` for the same reason its sibling is: an age measured from
+    `now()` walks forward across any cutoff the migration could freeze.
     """
-    occurred = datetime.now(UTC) - RESIDUE_AGE
+    occurred = RESIDUE_AT
     async with tenant_session(tenant_id) as session:
         # The wallet the charges are drawn against, seeded BEFORE them on the clock.
         # It has to be backdated too: the balance read is "the newest entry", so a

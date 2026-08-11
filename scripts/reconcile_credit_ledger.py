@@ -68,6 +68,76 @@ phantom rupees. Their balance is then genuinely negative and the ledger must say
 refusing to record the correction would leave a wallet that reads richer than it is,
 which is the exact condition this script exists to end.
 
+THE INDEX (settled — lift this verbatim into a migration).
+
+Five attempts have now been made to add a unique index here. The first four were all on
+`(tenant_id, ref)` and all correctly refused. The key was wrong, and the shape below is
+what the evidence supports. Every claim in it was measured against a database that had
+just run the suite, by snapshotting the violating groups, running, diffing, and pulling
+the rows — not by reading code.
+
+    CREATE UNIQUE INDEX CONCURRENTLY ux_credit_ledger_tenant_reason_ref
+        ON credit_ledger (tenant_id, reason, ref)
+     WHERE ref IS NOT NULL
+       AND reason IN ('topup', 'usage', 'adjustment')
+       AND occurred_at >= '<LEDGER_UNIQUE_INDEX_CUTOFF>'::timestamptz;
+
+`reason` IS IN THE KEY, and this is the finding the four refusals missed. `ref` is not
+one namespace: a `usage` row carries a call id, a `topup` row carries whatever the bank
+printed, and `TopUpIn.payment_ref` accepts any string of 3 to 120 characters — a 36-char
+UUID among them. The system does not prevent that collision, it TOLERATES it, in three
+places deliberately: `find_topup` scopes to `reason = 'topup'`, `charge_for_call` scopes
+its dedupe to `reason = 'usage'`, and `scan_tenant` above groups by `(ref, reason)`. A
+`UNIQUE (tenant_id, ref)` would turn a tolerated, defended-against collision into an
+IntegrityError on the top-up route — a 500 on a valid payment. That is strictly worse
+than the duplicates it would catch, and it is why the fifth attempt changed the key
+instead of the predicate.
+
+THE PREDICATE, clause by clause:
+
+- `ref IS NOT NULL` — a null ref is "no idempotency key", not a key that collides.
+- `reason IN (...)` — the three reasons that have an idempotency contract TODAY.
+  `refund` is left out on purpose: it has no writer in `apps/` at all, all 527 refund
+  rows carry a NULL ref, and the obvious future shape — several partial refunds against
+  one payment reference — is legitimate and would fire the index. Excluding it costs
+  nothing now (`ref IS NOT NULL` already excludes every one of them) and avoids
+  designing a constraint against a feature nobody has written yet.
+- `occurred_at >= <cutoff>` — the grandfather line. Hard rule 4 forbids deleting the
+  pre-fix residue, and this script does not delete it either: it appends a compensating
+  entry and the duplicate rows REMAIN. So the residue is permanent, and a partial index
+  is the only shape that can ever build. Verified: the same index without the cutoff
+  fails on `(…, topup, UTR-RACE-0)`.
+
+BEFORE IT CAN LAND, three things, none of them optional:
+
+1. **Move the cutoff to your own authoring instant** and re-verify the build. The
+   constant below is a placeholder; a cutoff is only honest if it sits after every
+   duplicate on the target database and at or before deploy.
+2. **Delete the two tripwires in the same commit.** `schema_hardening_2_test.py::
+   test_the_ledger_still_accepts_the_double_credit_its_own_fixtures_write` and
+   `schema_hardening_3_test.py::test_the_reconcilers_over_charge_fixture_still_mints_a_
+   post_cutoff_violation` assert the index is ABSENT, and each mints a duplicate pair
+   per run to prove it. Measured over a full suite run: they are the ONLY writers that
+   put a violation after the cutoff. Both docstrings already say to delete them here.
+   Also drop the note in `billing/models.CreditLedgerEntry` that points at them.
+3. **`CONCURRENTLY`, outside a transaction.** A plain `CREATE UNIQUE INDEX` takes a
+   SHARE lock and blocks every credit write for the length of the build, on a table the
+   post-call pipeline writes to continuously. Alembic runs migrations in a transaction,
+   so this needs `with op.get_context().autocommit_block():` — and note that a
+   CONCURRENTLY build can fail and leave an INVALID index behind, which the downgrade
+   must `DROP INDEX IF EXISTS` unconditionally.
+
+WHAT THE INDEX DOES NOT BUY. Every writer that could produce a duplicate key is already
+serialized by `lock_tenant_credits`, and `tests/credit_ledger_uniqueness_test.py` pins
+that. The index is a backstop against a future writer that forgets the lock, not a fix
+for a live defect — so it is worth having, and not worth breaking a money route for.
+
+DEV DATABASES. This repository's shared dev database carries duplicates the suite wrote
+before the fixtures were pinned, including some stamped in 2027 by a test that has since
+been rewritten not to write them. Those rows cannot be removed (hard rule 4), so the
+build will fail there against any sane cutoff. `make db-reset` before verifying locally;
+production has never run a test and has none of them.
+
 PII: the output is ids and rupee amounts. No organization name, no phone number
 (hard rule 6) — a reconciliation report gets pasted into tickets and chat.
 """
@@ -79,6 +149,7 @@ import asyncio
 import hashlib
 import sys
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Final, Literal
 from uuid import UUID
@@ -98,6 +169,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 COMPENSATION_REASON: Final = "adjustment"
 DUPLICATE_REF_PREFIX: Final = "dedupe"
 META_KIND: Final = "duplicate_ledger_entry"
+
+# The grandfather line for `ux_credit_ledger_tenant_reason_ref` (see THE INDEX, above).
+# Entries at or after it are covered by the unique index; everything before it is the
+# residue this script compensates and hard rule 4 forbids removing.
+#
+# It lives HERE, not only in the migration, because two other places have to agree with
+# it and would otherwise each carry their own copy of the date: the reconciliation
+# suite's residue seed (which must stay strictly BEFORE it, forever) and the test that
+# asserts the index still builds. One constant, three readers.
+LEDGER_UNIQUE_INDEX_CUTOFF: Final = datetime(2026, 8, 12, tzinfo=UTC)
 
 # Enough digest to make two different id-sets colliding a non-event, short enough that
 # the ref stays readable in a terminal next to the reference it corrects.
