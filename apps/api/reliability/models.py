@@ -26,6 +26,15 @@ OUTBOX_STATUSES = ("pending", "published", "failed")
 INBOX_STATUSES = ("processing", "enqueued", "processed", "failed")
 IDEMPOTENCY_STATUSES = ("processing", "completed", "failed")
 LOAD_SHED_MODES = ("normal", "reduced", "emergency", "maintenance")
+# Calevate's own telemarketer registration (SEC-COMP §3). Declared beside the column
+# it constrains so the CHECK and the service that writes it cannot drift apart.
+TM_REGISTRATION_STATUSES: tuple[str, ...] = (
+    "not_registered",
+    "submitted",
+    "active",
+    "suspended",
+    "revoked",
+)
 
 
 class OutboxMessage(PKMixin, Base):
@@ -135,6 +144,16 @@ class PlatformState(Base):
     __table_args__ = (
         CheckConstraint("id = 1", name="singleton"),
         CheckConstraint(f"load_shed_mode IN {LOAD_SHED_MODES!r}", name="load_shed_enum"),
+        CheckConstraint(
+            f"tm_registration_status IN {TM_REGISTRATION_STATUSES!r}", name="tm_status_enum"
+        ),
+        # An active registration that cannot name itself is a claim, not a fact — the
+        # same rule `dlt_registrations` applies to the client's PE.
+        CheckConstraint(
+            "tm_registration_status <> 'active' "
+            "OR (tm_id IS NOT NULL AND tm_registered_at IS NOT NULL)",
+            name="tm_active_is_identified",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False, default=1)
@@ -144,6 +163,19 @@ class PlatformState(Base):
     halt_reason: Mapped[str | None] = mapped_column(Text)
     changed_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     changed_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    # Calevate's OWN telemarketer registration (SEC-COMP §3). One fact for the whole
+    # platform, so it lives here rather than per-tenant: N copies of one registration
+    # eventually disagree, and the launch gate would then depend on which copy it read.
+    # The per-tenant half — the client's Principal Entity — is `dlt_registrations`.
+    tm_registration_status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default="not_registered"
+    )
+    tm_id: Mapped[str | None] = mapped_column(Text)
+    tm_registered_at: Mapped[datetime | None]
+    # When WE last checked with the registrar. A registration can be suspended
+    # underneath us, so "we believed it on this date" is a different fact from
+    # "it was granted on this date".
+    tm_verified_at: Mapped[datetime | None]
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
     )

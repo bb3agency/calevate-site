@@ -446,6 +446,35 @@ class TemplateStatusIn(BaseModel):
     dlt_ref: str | None = Field(default=None, max_length=120)
 
 
+class DltRegistrationIn(BaseModel):
+    """What the registrar says about THIS CLIENT's Principal Entity (SEC-COMP §3).
+
+    Two statuses rather than one `ready` flag, because they fail separately and the
+    next action differs: an unregistered entity is a ₹5,900 registration we execute for
+    them, a missing TM link is an authorisation only they can grant. The launch gate
+    names them separately for the same reason.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["not_started", "submitted", "active", "suspended", "rejected"]
+    tm_link_status: Literal["not_linked", "pending", "active", "revoked"]
+    # The registrar's PE id. Required for `active` by a DB CHECK — an active
+    # registration that cannot say which registration it is, is a claim, not a fact.
+    pe_id: str | None = Field(default=None, max_length=120)
+    entity_name: str | None = Field(default=None, max_length=200)
+    registered_at: datetime | None = None
+
+
+class DltRegistrationOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
+    status: str
+    tm_link_status: str
+    pe_id: str | None
+
+
 @router.post(
     "/tenants/{tenant_id}/numbers",
     response_model=NumberCreatedOut,
@@ -578,6 +607,87 @@ async def set_template_status(
         summary={"status": payload.status},
     )
     return {"status": payload.status}
+
+
+@router.post(
+    "/tenants/{tenant_id}/dlt-registration",
+    response_model=DltRegistrationOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Record the client's DLT Principal Entity registration and its Calevate TM link",
+    description=(
+        "The third registration in the same family as the number header and the voice "
+        "template, and the one the campaign launch gate reads as `pe_registration_*` / "
+        "`tm_link_not_active`. Upserts: re-recording is what happens every time we "
+        "re-verify with the registrar."
+    ),
+)
+async def record_dlt_registration(
+    tenant_id: UUID,
+    payload: DltRegistrationIn,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> DltRegistrationOut:
+    """The operator surface `campaigns.service.record_dlt_registration` was written for.
+
+    It shipped with no route at all — deliberately none for CLIENTS, since a client who
+    could mark their own PE registration `active` would be marking the launch gate green
+    on a registration that does not exist — but with nothing for OPS either, which left
+    the fact settable only by hand-written SQL against production. Same family, same
+    permission and same shape as `set_number_dlt_status` and `set_template_status`
+    above: `admin:tenants`, tenant named in the PATH, work done inside
+    `tenant_session(tenant_id)` so RLS is what isolates it.
+
+    The tenant-in-path form is not a style choice. An admin-realm mutation that infers
+    its tenant from the session is un-callable by construction (D-22 refuses every
+    mutating permission while impersonating, and without the header an admin principal
+    has no tenant at all) — the failure this repo has already hit twice, now pinned by
+    `tests/route_shape_test.py::test_no_admin_realm_mutation_infers_its_tenant_from_the_session`.
+    """
+    if payload.status == "active" and not (payload.pe_id or "").strip():
+        # `ck_dlt_registrations_active_registration_names_its_pe` would refuse this in
+        # the database; caught here so the operator gets a problem+json naming the
+        # missing field instead of a 500 out of an IntegrityError.
+        raise ProblemError(
+            kind="validation",
+            code="pe_registration_id_required",
+            title="A registration number is required",
+            detail="Recording a PE registration as active needs the registrar's PE id.",
+            remediation="Send pe_id with the registration number the registrar issued.",
+        )
+    async with tenant_session(tenant_id) as scoped:
+        await campaigns_service.record_dlt_registration(
+            scoped,
+            tenant_id=tenant_id,
+            pe_id=payload.pe_id,
+            entity_name=payload.entity_name,
+            status=payload.status,
+            tm_link_status=payload.tm_link_status,
+            registered_at=payload.registered_at,
+        )
+    await write_audit(
+        session,
+        action="dlt_registration.recorded",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="dlt_registration",
+        object_id=str(tenant_id),
+        ip=request.client.host if request.client else None,
+        # The registrar's identifiers are the client's own business identity, not PII
+        # under hard rule 6 — and the PE id is the whole point of the audit row: it is
+        # what a regulator asks us to evidence.
+        summary={
+            "status": payload.status,
+            "tm_link_status": payload.tm_link_status,
+            "pe_id": payload.pe_id,
+        },
+    )
+    return DltRegistrationOut(
+        tenant_id=tenant_id,
+        status=payload.status,
+        tm_link_status=payload.tm_link_status,
+        pe_id=payload.pe_id,
+    )
 
 
 __all__ = ["router"]

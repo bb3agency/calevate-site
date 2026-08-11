@@ -1,4 +1,13 @@
-"""Operator endpoints — the big red switch, the outbox DLQ, the audit chain.
+"""Operator endpoints — the big red switch, the outbox DLQ, the audit chain, and
+Calevate's own DLT telemarketer registration.
+
+That last one is a legal fact rather than an operational lever, and it is here because
+it has the same SHAPE as the levers: one value, global, true or false for every tenant
+at the same instant. SEC-COMP §3's first bullet makes it the company-level campaign
+blocker — while it is not `active`, `campaigns.service.launch_blockers` refuses every
+tenant's launch with `tm_registration_missing`, however complete that client's own
+Principal Entity registration is. A per-tenant copy of it would be N copies of one fact
+that eventually disagree, so it lives in `platform_state` beside the halt.
 
 Two properties hold for every route in this file:
 
@@ -18,10 +27,11 @@ reachable by a single unconfirmed POST.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import verify_chain, write_audit
@@ -31,6 +41,7 @@ from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platform_status
 from apps.api.core.rbac import permission_meta
+from apps.api.ops.service import TmRegistration, read_tm_registration, set_tm_registration
 from apps.api.reliability.service import replay_dead_letters
 
 router = APIRouter(prefix="/v1/ops", tags=["ops"])
@@ -38,11 +49,45 @@ router = APIRouter(prefix="/v1/ops", tags=["ops"])
 GlobalSession = Annotated[AsyncSession, Depends(global_db)]
 
 
+class TmRegistrationOut(BaseModel):
+    """Calevate's own telemarketer registration (SEC-COMP §3, company half).
+
+    `is_live` is computed rather than left to the reader: "is `submitted` good enough"
+    is exactly the question a console must not answer for itself, and the launch gate
+    and this response must never disagree about it — both read
+    `ops.service.TmRegistration.is_live`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: str
+    tm_id: str | None
+    registered_at: datetime | None
+    verified_at: datetime | None
+    is_live: bool
+
+
 class PlatformStateOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     load_shed_mode: str
     outbound_halted: bool
+    # The third global switch on this row, and the only one that is a legal fact rather
+    # than an operational one: when it is not live, no tenant may launch a campaign.
+    tm_registration: TmRegistrationOut
+
+
+class TmRegistrationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["not_registered", "submitted", "active", "suspended", "revoked"]
+    # Required in practice for `active` (service + DB CHECK); optional in the schema
+    # because the other four states legitimately have no number yet, or no longer do.
+    tm_id: str | None = Field(default=None, max_length=120)
+    registered_at: datetime | None = None
+    # Same requirement as the load-shed switch: an operator changing a platform-wide
+    # compliance fact says why, in the audit row, at the time.
+    reason: str = Field(min_length=3, max_length=500)
 
 
 class PlatformStateIn(BaseModel):
@@ -78,16 +123,34 @@ def _require_step_up(confirm: str | None, action: str) -> None:
         )
 
 
+def _tm_out(registration: TmRegistration) -> TmRegistrationOut:
+    return TmRegistrationOut(
+        status=registration.status,
+        tm_id=registration.tm_id,
+        registered_at=registration.registered_at,
+        verified_at=registration.verified_at,
+        is_live=registration.is_live,
+    )
+
+
 @router.get(
     "/platform",
     response_model=PlatformStateOut,
     openapi_extra=permission_meta("ops:manage"),
 )
 async def read_platform(
+    session: GlobalSession,
     _: Principal = Depends(requires("ops:manage", realm="admin")),
 ) -> PlatformStateOut:
     status = await get_platform_status(force_refresh=True)
-    return PlatformStateOut(load_shed_mode=status.mode, outbound_halted=status.outbound_halted)
+    # Read from Postgres on this session, never from the load-shed cache: the TM
+    # registration is a compliance fact and a 15-second-stale copy of it is a campaign
+    # that launched after the registrar suspended us.
+    return PlatformStateOut(
+        load_shed_mode=status.mode,
+        outbound_halted=status.outbound_halted,
+        tm_registration=_tm_out(await read_tm_registration(session)),
+    )
 
 
 @router.post(
@@ -130,7 +193,68 @@ async def set_platform(
             "reason": payload.reason,
         },
     )
-    return PlatformStateOut(load_shed_mode=status.mode, outbound_halted=status.outbound_halted)
+    return PlatformStateOut(
+        load_shed_mode=status.mode,
+        outbound_halted=status.outbound_halted,
+        tm_registration=_tm_out(await read_tm_registration(session)),
+    )
+
+
+@router.post(
+    "/platform/tm-registration",
+    response_model=TmRegistrationOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Record Calevate's own DLT telemarketer registration (step-up confirmed, audited)",
+    description=(
+        "The company half of SEC-COMP §3's first bullet. While this is not `active`, "
+        "NO tenant can launch an outbound campaign, however complete their own "
+        "Principal Entity registration is. Inbound answering is unaffected."
+    ),
+)
+async def set_tm_registration_route(
+    payload: TmRegistrationIn,
+    session: GlobalSession,
+    request: Request,
+    principal: Principal = Depends(requires("ops:manage", realm="admin")),
+    x_confirm_action: str | None = Header(default=None),
+) -> TmRegistrationOut:
+    """Step-up confirmed in BOTH directions, with the action naming which one.
+
+    Marking the registration active is the more dangerous write, not the less: it is
+    the one that turns the platform-wide launch gate green, and a stolen admin session
+    that could do it silently would have every tenant dialling on a registration that
+    does not exist. Taking it away halts all outbound launching, which is the big red
+    switch by another route. Neither belongs behind a single unconfirmed POST, so the
+    confirmation is bound to the direction — `record_tm_registration` to make it live,
+    `withdraw_tm_registration` to take it out of `active` — and an operator who meant
+    one cannot perform the other by replaying a header.
+    """
+    action = "record_tm_registration" if payload.status == "active" else "withdraw_tm_registration"
+    _require_step_up(x_confirm_action, action)
+
+    registration = await set_tm_registration(
+        session,
+        status=payload.status,
+        tm_id=payload.tm_id,
+        registered_at=payload.registered_at,
+    )
+    # Same transaction as the write (`global_db` commits at the end of the request):
+    # the row is mutable by design, so `audit_log` is the only history of who changed
+    # a platform-wide compliance fact and why.
+    await write_audit(
+        session,
+        action=f"ops.{action}",
+        actor=principal,
+        object_type="platform_state",
+        object_id="1",
+        ip=request.client.host if request.client else None,
+        summary={
+            "tm_registration_status": registration.status,
+            "tm_id": registration.tm_id,
+            "reason": payload.reason,
+        },
+    )
+    return _tm_out(registration)
 
 
 @router.post(

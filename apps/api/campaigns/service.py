@@ -44,6 +44,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.ingest.service import normalize_phone
+from apps.api.ops.service import TM_REGISTRATION_MISSING_REASON, read_tm_registration
 
 log = get_logger(__name__)
 
@@ -441,7 +442,9 @@ async def launch_blockers(
     Two of §3's conditions were unenforceable before the migrations b8e4c1d70f92 /
     c5a930e6b1d4 gave them somewhere to live: the client's DLT Principal Entity
     registration (+ its Calevate TM link), and the consent provenance of the contact
-    list. Both are asked here, by name.
+    list. Both are asked here, by name. Migration d7f2a3c9b410 added the last piece of
+    that first bullet — CALEVATE's own telemarketer registration, one global row rather
+    than a per-tenant copy — and it is asked here too, as `tm_registration_missing`.
 
     The rules that also live in the per-dial gate (`compliance.service.check_dispatch`)
     are asked HERE TOO, under the same names: an agent that may not place calls, a
@@ -511,11 +514,22 @@ async def launch_blockers(
     if not disclosure or not str(disclosure).strip():
         blockers.append(LaunchBlocker("disclosure_missing", "The agent has no disclosure line."))
 
-    # SEC-COMP §3, first bullet: the client's DLT ENTITY registration. Distinct from
-    # the header (`number_not_registered`) and the template (`dlt_template_*`) checks
-    # below — the registrar issues three registrations and none implies another. A
-    # missing row and a pending one are different facts with different next actions,
-    # so they are different blockers.
+    # SEC-COMP §3, first bullet, COMPANY half: "Calevate TM registration exists AND
+    # this client's PE registration + TM-link are active". Ours comes first because it
+    # is not a fact about this client at all — it is one row in `platform_state`, false
+    # for everybody at once, and a campaign launched while it is not live is not a
+    # client with a paperwork gap, it is US dialling as an unregistered telemarketer.
+    # Reported alongside the client's own blockers rather than short-circuiting them:
+    # a client who fixes their PE registration during our outage should see that
+    # progress, and ops watching a launch preview should see the whole list.
+    if not (await read_tm_registration(session)).is_live:
+        blockers.append(LaunchBlocker("tm_registration_missing", TM_REGISTRATION_MISSING_REASON))
+
+    # SEC-COMP §3, first bullet, CLIENT half: the client's DLT ENTITY registration.
+    # Distinct from the header (`number_not_registered`) and the template
+    # (`dlt_template_*`) checks below — the registrar issues three registrations and
+    # none implies another. A missing row and a pending one are different facts with
+    # different next actions, so they are different blockers.
     registration = (
         await session.execute(
             text("SELECT status, tm_link_status FROM dlt_registrations WHERE tenant_id = :tid"),
