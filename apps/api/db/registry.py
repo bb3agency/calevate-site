@@ -68,8 +68,20 @@ TENANT_TABLES = [
 
 # Tables carrying tenant_id that are deliberately NOT tenant-RLS'd, with reasons —
 # the RLS coverage guardrail requires every exception to be listed here.
+#
+# This dict is the cheapest way to smuggle a tenant table past hard rule 1, so it is
+# fenced on three sides: `check_rls_coverage` rejects an entry whose table no longer
+# exists (a stale exemption hides the next real gap) and one whose reason is too thin
+# to review, and `tests/guardrail_audit_test.py` pins the exact key set — adding an
+# exemption costs a visible diff in a test, not one line here.
 RLS_EXEMPT_TENANT_COLUMNS = {
-    "audit_log": "admin-realm surface reads cross-tenant; itself always audited",
+    "audit_log": (
+        "the hash chain is GLOBAL: every insert reads the previous entry_hash with "
+        "`ORDER BY at DESC LIMIT 1` across all tenants (compliance/audit.py), so a "
+        "tenant policy would silently fork the chain per tenant and make the whole "
+        "ledger unverifiable. Admin-realm surfaces also read it cross-tenant, and "
+        "every such read is itself audited."
+    ),
     "engine_agent_routes": (
         "inbound routing table: an engine webhook arrives with only the VENDOR agent id "
         "and no session, so resolving it to a tenant is inherently cross-tenant. Keeping "
