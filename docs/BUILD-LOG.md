@@ -813,6 +813,36 @@ for US is not the client's to-do); a healthy running campaign stays out. 14-day 
 so the queue does not become wallpaper. 7 tests; 189 in the suite.
 Backend + tests shipped; the client screen is the natural next UI increment.
 
+**38. Outpero-parity sweep — three screens built in parallel + runway framing**
+
+Checked the build against the authenticated teardown (`docs/evidence/
+outpero-teardown-aug2026.md` §5–§8). At parity or ahead on: instant leads, campaigns
+(server-side enforcement vs their self-serve config), inbound (they haven't shipped
+it), AI callback (theirs is a human button), schema-driven CRM, KB workflow, billing,
+webhooks/API contract. This entry closes four of the remaining gaps; three of the
+screens were built by parallel subagents on disjoint files, then integrated.
+
+- **Performance screen** (`/c/{slug}/performance`): connect rate, Calls→Answered→
+  Interested funnel (pure-CSS bars, no chart dep), busiest hours IST, outcome list,
+  7/30/90-day toggle. Consumes the §36 backend; null rates render "no calls yet".
+- **Needs-attention screen** (`/c/{slug}/attention`): the §37 queue rendered with the
+  remedy text as the visually primary line, per-kind chips, 60s refetch.
+- **Leads polish**: status filter chips (fixed D-21 enum) + a List/Board toggle — six
+  kanban columns reusing the exact same status mutation as the table rows. No
+  drag-and-drop; a select per card.
+- **Runway framing** (teardown adopt #8): "About N minutes left this month" on the
+  usage panel. Managed = cap − used; self-serve = wallet ÷ `SELF_SERVE_INR_PER_MIN`
+  (new config key, in `.env.example`, env-parity green) — the SAME number the top-up
+  flow will price from, so the two can never disagree. Two tests.
+
+Still open from the teardown adopt list: branching script builder + adherence slider,
+AI onboarding copilot, test-chat sandbox, voice catalog tiers, ambient sound bed,
+WhatsApp/Calendar in-call actions (need live provider accounts), self-serve
+signup/top-ups. All are screens or provider integrations — none require a migration
+(D-39's split holds).
+
+195 tests.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
@@ -824,5 +854,5 @@ Backend + tests shipped; the client screen is the natural next UI increment.
    margin panels ship; turning a month into a PDF invoice does not).
 4. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (189 tests),
+5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (195 tests),
    `uv run mypy apps packages`, `make guardrails` and `pnpm -C apps/web lint` before changing anything.

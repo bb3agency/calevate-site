@@ -94,5 +94,12 @@ class Settings(BaseSettings):
     # channels) minus inbound_reserve. Values come from engine verification item 8.
     inbound_reserve_ratio: float = Field(default=0.3, ge=0.0, le=1.0)
 
+    # Self-serve list price per calling minute, INR (D-34). One number for the whole
+    # motion until per-tier pricing ships — it exists in config so the runway framing
+    # ("about N minutes left") and the top-up flow price from the SAME source, and so
+    # a price change is a deploy, not a code edit. Managed clients never see it: their
+    # price lives in their `plans` row.
+    self_serve_inr_per_min: Decimal = Decimal("6.00")
+
 
 __all__ = ["EngineName", "Environment", "Settings"]

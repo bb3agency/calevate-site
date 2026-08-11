@@ -195,6 +195,7 @@ export interface UsagePanel {
   cap_minutes: number | null;
   capped: boolean;
   spend_used_inr: string;
+  minutes_left: number | null;
   plan_tier: string;
   credit_balance_inr: string | null;
 }

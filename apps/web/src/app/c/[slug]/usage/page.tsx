@@ -49,6 +49,14 @@ export default function UsagePage({ params }: { params: Promise<{ slug: string }
         </div>
       )}
 
+      {data.minutes_left !== null && (
+        /* Runway framing: "about N minutes left" is what an owner plans around;
+           a rupee balance makes them do the division at the counter. */
+        <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
+          About <strong>{data.minutes_left} minutes</strong> of calling left this month.
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-4">
         <StatTile
           label="Minutes used"

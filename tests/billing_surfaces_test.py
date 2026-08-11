@@ -168,6 +168,35 @@ async def test_the_billing_month_is_ist_not_utc() -> None:
     assert august["minutes_used"] >= Decimal("10.00")
 
 
+async def test_runway_is_cap_minus_used_for_a_managed_client() -> None:
+    """Teardown adopt #8: "about N minutes left" is what an owner plans around."""
+    tenant_id, _ = await _tenant_with_usage(minutes=120)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE plans SET hard_cap_min = 500 WHERE tenant_id = :t"), {"t": tenant_id}
+        )
+        summary = await billing.usage_summary(session, tenant_id=tenant_id)
+    assert summary["minutes_left"] == 380, "500 cap minus 120 used"
+
+
+async def test_runway_prices_a_self_serve_wallet_at_the_list_rate() -> None:
+    from apps.api.billing.service import record_entry
+
+    tenant_id, _ = await _tenant_with_usage(minutes=0, monthly_fee=None)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET plan_tier = 'self_serve' WHERE id = :t"),
+            {"t": tenant_id},
+        )
+        await record_entry(
+            session, tenant_id=tenant_id, delta=Decimal("300.00"), reason="topup", ref="rzp_x"
+        )
+        summary = await billing.usage_summary(session, tenant_id=tenant_id)
+    # ₹300 at the ₹6/min list price (config default) — priced from the SAME number the
+    # top-up flow will use, so the two can never disagree.
+    assert summary["minutes_left"] == 50
+
+
 async def test_money_is_reported_in_paise_not_storage_precision() -> None:
     """NUMERIC(12,4) is how it is stored; two decimals is what a rupee amount means to
     the person reading the invoice. ₹9999.0000 on a screen looks like a bug."""

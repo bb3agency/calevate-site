@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 
 log = get_logger(__name__)
@@ -251,6 +252,26 @@ async def usage_summary(
         )
     ).first()
 
+    # Runway framing (teardown adopt #8): "about N minutes left" is what an owner can
+    # actually plan around; a rupee balance makes them do the division at the counter.
+    # Managed: what remains of the cap. Self-serve: wallet ÷ the list price — priced
+    # from the SAME config number the top-up flow uses, so the two can never disagree.
+    tier = (
+        await session.execute(
+            text("SELECT plan_tier FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+        )
+    ).scalar()
+    minutes_left: int | None = None
+    if tier in ("self_serve", "trial"):
+        balance = await get_balance(session, tenant_id=tenant_id)
+        rate = get_settings().self_serve_inr_per_min
+        if rate > 0 and balance.amount_inr > 0:
+            minutes_left = int(balance.amount_inr / rate)
+        elif balance.amount_inr <= 0:
+            minutes_left = 0
+    elif plan and plan[3] is not None:
+        minutes_left = max(0, int(Decimal(str(plan[3])) - minutes))
+
     return {
         "month": period,
         "minutes_used": minutes,
@@ -266,6 +287,7 @@ async def usage_summary(
             else None
         ),
         "cap_minutes": int(plan[3]) if plan and plan[3] is not None else None,
+        "minutes_left": minutes_left,
         "capped": bool(spend[2]) if spend else False,
         "spend_used_inr": (
             Decimal(str(spend[1])).quantize(Decimal("0.01")) if spend else Decimal("0.00")
