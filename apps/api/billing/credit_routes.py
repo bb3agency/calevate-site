@@ -44,7 +44,6 @@ NOT mounted here — the integrator wires this router into `main.py`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any
@@ -57,6 +56,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.service import (
     LOW_BALANCE_INR,
+    find_topup,
     get_balance,
     lock_tenant_credits,
     record_entry,
@@ -153,12 +153,6 @@ class CreditsOut(Strict):
     entries: list[LedgerEntryOut]
 
 
-@dataclass(frozen=True, slots=True)
-class _ExistingTopUp:
-    id: UUID
-    amount_inr: Decimal
-
-
 async def _assert_tenant_exists(session: AsyncSession, tenant_id: UUID) -> None:
     """A mistyped tenant id must be a 404, not an FK violation rendered as a 500 —
     and on a money route, not a silent zero-balance wallet that looks real."""
@@ -172,21 +166,17 @@ async def _assert_tenant_exists(session: AsyncSession, tenant_id: UUID) -> None:
         raise ProblemError.not_found("Organization")
 
 
-async def _find_topup(session: AsyncSession, *, tenant_id: UUID, ref: str) -> _ExistingTopUp | None:
-    """The idempotency lookup. Scoped to `reason = 'topup'` so a payment reference can
-    never collide with the call id a usage row carries in the same column."""
-    row = (
-        await session.execute(
-            text(
-                "SELECT id, delta FROM credit_ledger WHERE tenant_id = :tid "
-                "AND reason = 'topup' AND ref = :ref ORDER BY occurred_at DESC, id DESC LIMIT 1"
-            ),
-            {"tid": tenant_id, "ref": ref},
-        )
-    ).first()
-    if row is None:
-        return None
-    return _ExistingTopUp(id=UUID(str(row[0])), amount_inr=Decimal(str(row[1])))
+# The idempotency lookup lives in `billing/service.py`, next to `record_entry` and the
+# lock it depends on — this route and the Razorpay receiver used to carry a copy each,
+# which is two places for one invariant to be fixed in. It is bound to a module-local
+# name (rather than called through the import) so this file's concurrency tests can
+# instrument the exact call the route makes.
+#
+# Note the shared function takes `lock_tenant_credits` ITSELF before reading, so the
+# check-then-write ordering cannot be lost by a caller that forgets it. The explicit
+# lock in `record_topup` below is still the meaningful one: it is what covers the
+# INSERT that follows the lookup, not just the lookup.
+_find_topup = find_topup
 
 
 @router.post(
@@ -242,11 +232,11 @@ async def record_topup(
             balance = await get_balance(scoped, tenant_id=tenant_id)
             log.info(
                 "credit_topup_replay",
-                extra={"tenant_id": str(tenant_id), "entry_id": str(existing.id)},
+                extra={"tenant_id": str(tenant_id), "entry_id": str(existing.entry_id)},
             )
             return TopUpOut(
                 tenant_id=tenant_id,
-                entry_id=existing.id,
+                entry_id=existing.entry_id,
                 payment_ref=ref,
                 amount_inr=_paise(existing.amount_inr),
                 balance_inr=_paise(balance.amount_inr),
@@ -277,7 +267,7 @@ async def record_topup(
             actor=principal,
             tenant_id=tenant_id,
             object_type="credit_ledger",
-            object_id=str(written.id),
+            object_id=str(written.entry_id),
             ip=request.client.host if request.client else None,
             summary={
                 "payment_ref": ref,
@@ -288,7 +278,7 @@ async def record_topup(
 
     return TopUpOut(
         tenant_id=tenant_id,
-        entry_id=written.id,
+        entry_id=written.entry_id,
         payment_ref=ref,
         amount_inr=_paise(amount),
         balance_inr=_paise(balance.amount_inr),

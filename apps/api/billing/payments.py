@@ -39,7 +39,10 @@ WHAT IS OURS, AND IS FINISHED
 - **The lock is taken before the lookup.** `lock_tenant_credits` covers the whole
   check-then-write, because two concurrent deliveries of one payment would otherwise
   both read "not credited yet" and both append (billing/service.py's module docstring
-  spells out why a row lock is not a substitute).
+  spells out why a row lock is not a substitute). The lookup itself is
+  `billing.service.find_topup`, which takes that same lock a second time rather than
+  trusting its caller to have taken it first — one query, one lock discipline, shared
+  with the manual UTR route.
 - **`record_entry` is the only writer.** No hand-rolled INSERT: append-only,
   balance-carrying and audited is a property of that function, not of this one.
 - **Money is Decimal end to end** (hard rule 7). Paise arrive as an integer and are
@@ -65,7 +68,13 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.service import Balance, get_balance, lock_tenant_credits, record_entry
+from apps.api.billing.service import (
+    Balance,
+    find_topup,
+    get_balance,
+    lock_tenant_credits,
+    record_entry,
+)
 from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -241,28 +250,6 @@ async def tenant_exists(session: AsyncSession, tenant_id: UUID) -> bool:
     return found is not None
 
 
-async def find_topup(
-    session: AsyncSession, *, tenant_id: UUID, ref: str
-) -> tuple[UUID, Decimal] | None:
-    """The idempotency lookup: has this payment reference already been credited?
-
-    Scoped to `reason = 'topup'` so a payment id can never collide with the call id a
-    usage row carries in the same column. (`billing/credit_routes.py` has the same
-    query for the manual path; both belong in `billing/service.py` next to
-    `record_entry`, which is that file's owner's call to make, not this module's.)
-    """
-    row = (
-        await session.execute(
-            text(
-                "SELECT id, delta FROM credit_ledger WHERE tenant_id = :tid "
-                "AND reason = 'topup' AND ref = :ref ORDER BY occurred_at DESC, id DESC LIMIT 1"
-            ),
-            {"tid": tenant_id, "ref": ref},
-        )
-    ).first()
-    return (UUID(str(row[0])), Decimal(str(row[1]))) if row is not None else None
-
-
 async def credit_captured_payment(
     session: AsyncSession, *, payment: CapturedPayment, ip: str | None = None
 ) -> TopUpResult:
@@ -275,7 +262,8 @@ async def credit_captured_payment(
 
     1. `lock_tenant_credits` FIRST, before the lookup. Two deliveries of one payment
        (the provider's retry racing its own first attempt) would otherwise both read
-       "not credited" and both append.
+       "not credited" and both append. `find_topup` takes the same lock itself, so the
+       ordering holds even for a caller that forgets this line.
     2. the lookup on `ref = payment_id`, which is permanent — unlike an inbox row.
     3. `record_entry`, the only writer, and `write_audit` in the SAME transaction, so
        money that moved without an audit row is not a reachable state.
@@ -284,7 +272,7 @@ async def credit_captured_payment(
 
     existing = await find_topup(session, tenant_id=payment.tenant_id, ref=payment.payment_id)
     if existing is not None:
-        entry_id, amount = existing
+        entry_id, amount = existing.entry_id, existing.amount_inr
         if amount != payment.amount_inr:
             # One payment id, two amounts. Absorbing this as a replay would swallow the
             # difference silently; refusing is how anyone finds out.
@@ -322,7 +310,7 @@ async def credit_captured_payment(
         actor_type="system",
         tenant_id=payment.tenant_id,
         object_type="credit_ledger",
-        object_id=str(written[0]),
+        object_id=str(written.entry_id),
         ip=ip,
         summary={
             "source": PROVIDER,
@@ -333,9 +321,9 @@ async def credit_captured_payment(
     )
     log.info(
         "razorpay_topup_recorded",
-        extra={"tenant_id": str(payment.tenant_id), "entry_id": str(written[0])},
+        extra={"tenant_id": str(payment.tenant_id), "entry_id": str(written.entry_id)},
     )
-    return TopUpResult(entry_id=written[0], balance=balance, recorded=True)
+    return TopUpResult(entry_id=written.entry_id, balance=balance, recorded=True)
 
 
 __all__ = [

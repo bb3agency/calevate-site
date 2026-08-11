@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 import secrets
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Any
@@ -83,6 +84,13 @@ async def assert_slug_available(session: AsyncSession, slug: str) -> None:
         raise ProblemError.conflict("slug_taken", "That slug is already in use.")
 
 
+DEFAULT_PLAN_TIER = "managed"
+
+# Extra writes a caller needs INSIDE the tenant's birth transaction. Called with the
+# open session and the new tenant id, after every row above has been written.
+TenantRootHook = Callable[[AsyncSession, UUID], Awaitable[None]]
+
+
 async def create_organization(
     *,
     name: str,
@@ -91,13 +99,37 @@ async def create_organization(
     billing_email: str | None,
     language: str,
     created_by: UUID | None,
+    plan_tier: str | None = None,
+    owner_user_id: UUID | None = None,
+    on_created: TenantRootHook | None = None,
 ) -> dict[str, Any]:
-    """Wizard steps 1 + 4's skeleton: org, retention defaults, agent draft, schema.
+    """Wizard steps 1 + 4's skeleton: org, retention defaults, agent draft, schema —
+    plus, for the motions that know them at creation time, the PLAN TIER and the OWNER.
 
     Runs in ONE transaction: a half-created tenant (org but no retention policy, or
     agent but no schema) is worse than no tenant, because the pipeline would happily
     process calls for it. A failure at any statement therefore rolls the whole thing
     back and leaves the slug free for the retry.
+
+    `plan_tier` and `owner_user_id` exist so self-serve signup does not have to open a
+    SECOND transaction for the two facts that distinguish its motion (D-34). It used
+    to, and paid for it with a compensating soft-delete on failure — a compensation
+    that can itself fail, and that when it succeeds leaves a shell holding a slug the
+    DB trigger makes immutable. Both facts are ordinary tenant-scoped rows: the tier is
+    a column on the org row itself, and `memberships` is FORCE-RLS'd on `tenant_id`
+    with `WITH CHECK (tenant_id = app.tenant_id)` (migration 8c31d0f4ab27), which the
+    birth transaction's own GUC already satisfies. The USER row lives outside RLS in
+    the global `users` table, but nothing here writes it — the FK is checked by the
+    RI machinery, which is not subject to row security. So the membership genuinely
+    belongs in this transaction; it was never blocked from being here.
+
+    Defaults keep the admin wizard exactly as it was: `managed` tier, and no
+    membership — an operator invites the owner afterwards (FLOWS §2), so there is no
+    user to point at yet.
+
+    `on_created` is the escape hatch for the caller's OWN last write (signup's audit
+    row), so "the tenant exists" and "the tenant's creation was audited" commit or fail
+    together instead of the second being a separate, unprotected step.
 
     The availability probe below runs in its own transaction, one round trip before the
     insert, so two operators creating the same client at once can both pass it. The
@@ -135,6 +167,9 @@ async def create_organization(
             disclosure=disclosure,
             fields=fields,
             created_by=created_by,
+            plan_tier=plan_tier or DEFAULT_PLAN_TIER,
+            owner_user_id=owner_user_id,
+            on_created=on_created,
         )
     except IntegrityError as exc:
         # The probe lost a race with a concurrent create. Reaching the wizard as a 500
@@ -160,6 +195,9 @@ async def create_organization(
         "agent_id": agent_id,
         "extraction_schema_id": schema_id,
         "status": "onboarding",
+        # NOT `plan_tier`: `admin/routes.py` builds an `extra="forbid"` response model
+        # straight from this dict, so a new key here is a 500 on the wizard. Signup
+        # adds the tier to its own return value, where a caller asked for it.
     }
 
 
@@ -176,14 +214,17 @@ async def _write_tenant_root(
     disclosure: str,
     fields: Any,
     created_by: UUID | None,
+    plan_tier: str,
+    owner_user_id: UUID | None,
+    on_created: TenantRootHook | None,
 ) -> None:
     """The single transaction the tenant is born in — see `create_organization`."""
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO organizations (id, name, slug, status, vertical_template, "
-                "billing_email, created_by, created_at, updated_at) VALUES (:id, :name, :slug, "
-                "'onboarding', :vertical, :email, :by, now(), now())"
+                "billing_email, plan_tier, created_by, created_at, updated_at) VALUES (:id, "
+                ":name, :slug, 'onboarding', :vertical, :email, :tier, :by, now(), now())"
             ),
             {
                 "id": tenant_id,
@@ -191,6 +232,7 @@ async def _write_tenant_root(
                 "slug": slug,
                 "vertical": vertical_template,
                 "email": billing_email,
+                "tier": plan_tier,
                 "by": created_by,
             },
         )
@@ -237,6 +279,22 @@ async def _write_tenant_root(
             text("UPDATE agents SET extraction_schema_id = :sid WHERE id = :aid"),
             {"sid": schema_id, "aid": agent_id},
         )
+        if owner_user_id is not None:
+            # `ON CONFLICT DO NOTHING` for the same reason `accept_invitation` has it:
+            # one owner per (tenant, user) whatever the caller retries. The user must
+            # already exist in `users` — the FK says so, and a signup whose Clerk
+            # mirror has not landed yet must fail the whole birth, not create a tenant
+            # nobody can enter.
+            await session.execute(
+                text(
+                    "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, "
+                    "updated_at) VALUES (:id, :tid, :uid, 'owner', now(), now()) "
+                    "ON CONFLICT (tenant_id, user_id) DO NOTHING"
+                ),
+                {"id": uuid7(), "tid": tenant_id, "uid": owner_user_id},
+            )
+        if on_created is not None:
+            await on_created(session, tenant_id)
 
 
 def _default_engine() -> str:
@@ -379,8 +437,10 @@ async def tenant_overview(
 
 
 __all__ = [
+    "DEFAULT_PLAN_TIER",
     "DISCLOSURE_TEMPLATES",
     "INVITE_TTL",
+    "TenantRootHook",
     "accept_invitation",
     "assert_slug_available",
     "create_invitation",

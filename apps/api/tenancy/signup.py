@@ -39,12 +39,14 @@ and the compliance gate already refuses a self-serve tenant with an exhausted wa
 Calling requires a KYC-verified number and, for the first campaign, manual review;
 neither is anything this module can grant.
 
-KNOWN GAP — two transactions, not one. `create_organization` runs (and commits) the
-tenant root, then this module writes the tier and the owner membership in a second
-transaction, because that function takes neither a tier nor an owner. A failure in
-between would leave a managed-tier org with no members, so the failure path
-compensates by soft-deleting it; the real fix is a `plan_tier`/`owner_user_id`
-parameter on `create_organization`, which belongs to that module.
+ONE TRANSACTION (the gap that used to be here). This module once let
+`create_organization` commit the tenant root and then wrote the tier and the owner
+membership in a SECOND transaction, soft-deleting the org if that failed.
+`create_organization` now takes `plan_tier` and `owner_user_id` and writes them in the
+same transaction as the org, and `on_created` puts the audit row there too — so there
+is no half-built state to compensate for, and no compensation that can itself fail.
+The slug a failed attempt asked for is free again for the retry rather than held
+forever by a soft-deleted shell.
 """
 
 from __future__ import annotations
@@ -54,7 +56,7 @@ import time
 from typing import Any, Final, Literal
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service as admin_service
 from apps.api.compliance.audit import write_audit
@@ -63,8 +65,6 @@ from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
-from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session
 
 log = get_logger(__name__)
 
@@ -186,13 +186,35 @@ async def create_self_serve_tenant(
     plan_tier: SelfServeTier,
     ip: str | None = None,
 ) -> dict[str, Any]:
-    """The tenant, its tier and its owner.
+    """The tenant, its tier and its owner — in ONE transaction.
 
-    `create_organization` does the first part and is the arbiter of the slug: it probes
+    `create_organization` does all of it and is the arbiter of the slug: it probes
     `reserved_slugs` and `organizations` under `admin_session` (RLS would hide every
     other tenant's slug otherwise) and translates the unique-index race back into the
     same 409 the probe would have raised. Nothing here re-implements that.
+
+    A tenant on the self-serve tier with no owner, or an owner on a managed-tier org,
+    are both states nothing downstream expects — so neither is reachable: the tier, the
+    membership and the audit row are written inside the transaction that creates the
+    org, and anything that fails takes the whole tenant with it. There is no
+    compensating delete because there is nothing left to compensate for.
     """
+
+    async def _audit(session: AsyncSession, tenant_id: UUID) -> None:
+        """The last write of the birth transaction. `audit_log` is not tenant-RLS'd
+        (migration 05bba2f3c19c) but it IS the same transaction, so a tenant that
+        exists with no record of its creation is not a reachable state."""
+        await write_audit(
+            session,
+            action="organization.self_serve_created",
+            actor_type="user",
+            tenant_id=tenant_id,
+            object_type="organization",
+            object_id=str(tenant_id),
+            ip=ip,
+            summary={"plan_tier": plan_tier, "vertical_template": vertical_template},
+        )
+
     created = await admin_service.create_organization(
         name=name,
         slug=slug,
@@ -203,56 +225,14 @@ async def create_self_serve_tenant(
         # FK, and "who made this" is more useful than a null on the one motion where
         # the answer is not "someone in ops".
         created_by=user_id,
+        plan_tier=plan_tier,
+        owner_user_id=user_id,
+        on_created=_audit,
     )
-    tenant_id: UUID = created["id"]
-
-    try:
-        async with tenant_session(tenant_id) as session:
-            # ONE transaction: a tenant on the self-serve tier with no owner, or an
-            # owner on a managed-tier org, are both states nothing downstream expects.
-            await session.execute(
-                text(
-                    "UPDATE organizations SET plan_tier = :tier, updated_at = now() WHERE id = :t"
-                ),
-                {"tier": plan_tier, "t": tenant_id},
-            )
-            await session.execute(
-                text(
-                    "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, "
-                    "updated_at) VALUES (:i, :t, :u, 'owner', now(), now()) "
-                    "ON CONFLICT (tenant_id, user_id) DO NOTHING"
-                ),
-                {"i": uuid7(), "t": tenant_id, "u": user_id},
-            )
-            await write_audit(
-                session,
-                action="organization.self_serve_created",
-                actor_type="user",
-                tenant_id=tenant_id,
-                object_type="organization",
-                object_id=str(tenant_id),
-                ip=ip,
-                summary={"plan_tier": plan_tier, "vertical_template": vertical_template},
-            )
-    except Exception:
-        # The compensation for the known two-transaction gap (module docstring). A
-        # soft-delete keeps the row — `organizations` is referenced by the agent and
-        # schema just written, and by the audit trail — while taking it out of every
-        # `deleted_at IS NULL` path, so nothing dispatches for a tenant nobody owns.
-        log.exception("self_serve_signup_rollback", extra={"tenant_id": str(tenant_id)})
-        async with tenant_session(tenant_id) as cleanup:
-            await cleanup.execute(
-                text(
-                    "UPDATE organizations SET deleted_at = now(), updated_at = now() "
-                    "WHERE id = :t AND deleted_at IS NULL"
-                ),
-                {"t": tenant_id},
-            )
-        raise
 
     log.info(
         "self_serve_signup",
-        extra={"tenant_id": str(tenant_id), "plan_tier": plan_tier},
+        extra={"tenant_id": str(created["id"]), "plan_tier": plan_tier},
     )
     return {**created, "plan_tier": plan_tier, "role": "owner"}
 

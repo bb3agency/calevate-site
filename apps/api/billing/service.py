@@ -33,7 +33,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 from uuid import UUID
 
 from sqlalchemy import text
@@ -201,6 +201,49 @@ async def record_entry(
         extra={"tenant_id": str(tenant_id), "reason": reason, "balance_after": str(new_balance)},
     )
     return Balance(amount_inr=new_balance, is_low=new_balance < LOW_BALANCE_INR)
+
+
+class TopUpEntry(NamedTuple):
+    """An existing top-up on the ledger. A NamedTuple because both callers of the
+    lookup read it differently — one by name, one positionally — and one shape that
+    answers both beats a second dataclass that has to be kept in step."""
+
+    entry_id: UUID
+    amount_inr: Decimal
+
+
+async def find_topup(session: AsyncSession, *, tenant_id: UUID, ref: str) -> TopUpEntry | None:
+    """Has this payment reference already been credited? THE idempotency lookup for
+    every top-up path — the manual UTR route and the Razorpay receiver both call this
+    one function, so the two cannot drift apart on the next fix.
+
+    **It takes the lock itself, and that is the point.** Both call sites used to carry
+    their own copy of this query and rely on their author remembering to call
+    `lock_tenant_credits` first; a check-then-write outside that lock is precisely how
+    duplicate pairs got onto this ledger, because two concurrent runs both read "not
+    credited yet" and both append. Making the lookup acquire the lock means the
+    ordering is not something a future caller can get wrong: there is no way to reach
+    this read from outside the critical section. `pg_advisory_xact_lock` is re-entrant
+    within a transaction and released at its end, so a caller that also takes the lock
+    explicitly (both do, at the top of their transaction, to cover the writes around
+    this read as well) costs nothing and deadlocks nothing.
+
+    Scoped to `reason = 'topup'` so a payment reference can never collide with the call
+    id a usage row carries in the same column.
+    """
+    await lock_tenant_credits(session, tenant_id)
+    row = (
+        await session.execute(
+            text(
+                "SELECT id, delta FROM credit_ledger WHERE tenant_id = :tid "
+                "AND reason = 'topup' AND ref = :ref ORDER BY occurred_at DESC, id DESC LIMIT 1"
+            ),
+            {"tid": tenant_id, "ref": ref},
+        )
+    ).first()
+    if row is None:
+        return None
+    return TopUpEntry(entry_id=UUID(str(row[0])), amount_inr=Decimal(str(row[1])))
 
 
 async def charge_for_call(
@@ -444,8 +487,10 @@ __all__ = [
     "ROUNDING",
     "Balance",
     "CreditReason",
+    "TopUpEntry",
     "charge_for_call",
     "current_billing_month",
+    "find_topup",
     "get_balance",
     "lock_tenant_credits",
     "margin_for_tenant",
