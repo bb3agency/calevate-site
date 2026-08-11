@@ -52,6 +52,7 @@ forbidden_modules = ["apps"]
 name = "engine isolation: only engine/ may see vendor payload shapes"
 type = "forbidden"
 source_modules = [
+    "apps.api.admin",
     "apps.api.agents",
     "apps.api.billing",
     "apps.api.campaigns",
@@ -59,6 +60,8 @@ source_modules = [
     "apps.api.crm",
     "apps.api.ingest",
     "apps.api.integrations",
+    "apps.api.kb",
+    "apps.api.ops",
     "apps.api.reliability",
     "apps.api.tenancy",
     "apps.api.core",
