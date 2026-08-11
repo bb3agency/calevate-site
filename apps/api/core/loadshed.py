@@ -4,6 +4,14 @@ Three-layer read, cheapest first: a 5s in-process memo → Redis cache → Postg
 (`platform_state`, the durable truth). A Redis flush therefore degrades performance,
 never safety.
 
+**Every cached copy expires, and a copy that does not is not trusted.** The cache used
+to be written with no TTL and invalidated only by a best-effort `DELETE` inside a
+swallowed `except` — so ONE failed round trip, at the exact moment Redis is flaky and
+an operator is pulling the big red switch, made a stale "open" permanent in every
+process: they never consulted the durable row again. Staleness is now bounded by
+`_CACHE_TTL_S + _MEMO_TTL_S`, which is shorter than one campaign dispatch tick, and a
+key with no expiry is treated as a miss because this module never writes one.
+
 ALWAYS_ALLOWED_PREFIXES is the rule that keeps this from being a foot-gun: health,
 auth, engine webhooks and the ops/admin surface are never shed. **The operator must
 never lock themselves out, and provider callbacks must always land** — a dropped
@@ -44,6 +52,12 @@ _SHED_READS: frozenset[LoadShedMode] = frozenset({"maintenance"})
 
 _REDIS_KEY = "calevate:platform_state"
 _MEMO_TTL_S = 5.0
+# How long a cached status may survive without anyone re-reading Postgres. Short on
+# purpose: it is the ceiling on how long a HALT can go unnoticed if its invalidation
+# was lost, and `dispatch_campaign_tick` (every 30s) reads the halt once per tick, so
+# _CACHE_TTL_S + _MEMO_TTL_S must stay under a tick or a tick could dial through it.
+# Cost of the shortness is one small Postgres read per process per TTL — nothing.
+_CACHE_TTL_S = 15
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,8 +78,12 @@ async def get_platform_status(*, force_refresh: bool = False) -> PlatformStatus:
     status: PlatformStatus | None = None
     if not force_refresh:
         try:
-            cached = await get_redis().hgetall(_REDIS_KEY)  # type: ignore[misc]
-            if cached:
+            cached, ttl = await _cache_read()
+            # `ttl <= 0` means the key exists with no expiry (-1) or not at all (-2).
+            # Every write below sets an expiry, so a persistent key is a leftover — the
+            # residue of an invalidation that never landed. Reading Postgres instead is
+            # what stops it being served until someone notices the calls never stopped.
+            if cached and ttl > 0:
                 status = PlatformStatus(
                     mode=_coerce_mode(cached.get("mode")),
                     outbound_halted=cached.get("outbound_halted") == "1",
@@ -76,18 +94,45 @@ async def get_platform_status(*, force_refresh: bool = False) -> PlatformStatus:
     if status is None:
         status = await _read_durable()
         try:
-            await get_redis().hset(  # type: ignore[misc]
-                _REDIS_KEY,
-                mapping={
-                    "mode": status.mode,
-                    "outbound_halted": "1" if status.outbound_halted else "0",
-                },
-            )
+            await _cache_write(status)
         except Exception:
             log.warning("loadshed_cache_write_failed")
 
     _memo = (now, status)
     return status
+
+
+async def _cache_read() -> tuple[dict[str, str], int]:
+    """The cached value AND its remaining life, in one round trip.
+
+    The TTL is read with the value rather than after it because the two together are
+    the trust decision: a value whose key cannot expire is not one this module wrote
+    and finished writing.
+    """
+    async with get_redis().pipeline(transaction=False) as pipe:
+        pipe.hgetall(_REDIS_KEY)
+        pipe.ttl(_REDIS_KEY)
+        cached, ttl = await pipe.execute()
+    return dict(cached or {}), int(ttl)
+
+
+async def _cache_write(status: PlatformStatus) -> None:
+    """Value and expiry in ONE transaction.
+
+    Split into two calls, a crash or a connection drop between them would leave exactly
+    the immortal key this file exists to rule out — so MULTI/EXEC, and every write of
+    `_REDIS_KEY` goes through here.
+    """
+    async with get_redis().pipeline(transaction=True) as pipe:
+        pipe.hset(
+            _REDIS_KEY,
+            mapping={
+                "mode": status.mode,
+                "outbound_halted": "1" if status.outbound_halted else "0",
+            },
+        )
+        pipe.expire(_REDIS_KEY, _CACHE_TTL_S)
+        await pipe.execute()
 
 
 async def _read_durable() -> PlatformStatus:
@@ -117,8 +162,16 @@ def _coerce_mode(value: str | None) -> LoadShedMode:
 async def set_platform_status(
     *, mode: LoadShedMode | None = None, outbound_halted: bool | None = None, actor_id: str | None
 ) -> PlatformStatus:
-    """Write the durable row, then invalidate the cache. Callers MUST have passed the
-    step-up confirmation check (§7) and MUST write an audit_log entry."""
+    """Write the durable row, invalidate the cache, then write the new value THROUGH.
+
+    Callers MUST have passed the step-up confirmation check (§7) and MUST write an
+    audit_log entry.
+
+    Three layers of defence, because a halt that does not stick is the same as no halt:
+    the DELETE makes peers miss immediately, the write-through (`force_refresh` below)
+    puts the new value in the cache before this returns, and the expiry every write
+    carries bounds the damage if BOTH of those fail.
+    """
     global _memo
     sets: list[str] = []
     params: dict[str, object] = {"actor": actor_id}
@@ -145,6 +198,9 @@ async def set_platform_status(
     try:
         await get_redis().delete(_REDIS_KEY)
     except Exception:
+        # Best-effort, and known to be: this is the peers' fast path, never the
+        # guarantee. The guarantee is the write-through on the next line plus the
+        # expiry it carries.
         log.warning("loadshed_cache_invalidate_failed")
     return await get_platform_status(force_refresh=True)
 
