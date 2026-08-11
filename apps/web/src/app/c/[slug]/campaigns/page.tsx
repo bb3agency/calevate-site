@@ -66,6 +66,13 @@ export default function CampaignsPage({ params }: { params: Promise<{ slug: stri
   const [numberId, setNumberId] = useState("");
   const [templateId, setTemplateId] = useState("");
   const [csv, setCsv] = useState("");
+  // Off by default, and "off" means null — not 09:00-21:00 echoed back. The platform
+  // window is enforced by the per-dial compliance gate whether or not a campaign
+  // carries one of its own, so sending it as a campaign setting would misrepresent
+  // a legal bound as something this form chose.
+  const [restrictHours, setRestrictHours] = useState(false);
+  const [windowStart, setWindowStart] = useState("10:00");
+  const [windowEnd, setWindowEnd] = useState("18:00");
 
   const create = useCreateCampaign(session);
   const addContacts = useAddContacts(session, campaignId);
@@ -90,7 +97,6 @@ export default function CampaignsPage({ params }: { params: Promise<{ slug: stri
         </p>
       </div>
 
-      {create.error && <ProblemNotice error={create.error} />}
       {addContacts.error && <ProblemNotice error={addContacts.error} />}
       {launch.error && <ProblemNotice error={launch.error} />}
       {setStatus.error && <ProblemNotice error={setStatus.error} />}
@@ -136,6 +142,9 @@ export default function CampaignsPage({ params }: { params: Promise<{ slug: stri
                   concurrency,
                   number_id: numberId || null,
                   dlt_template_id: templateId || null,
+                  calling_hours: restrictHours
+                    ? { start: windowStart, end: windowEnd }
+                    : null,
                 },
                 { onSuccess: (data) => setCampaignId(data.id) },
               );
@@ -252,6 +261,65 @@ export default function CampaignsPage({ params }: { params: Promise<{ slug: stri
                 calling you.
               </span>
             </label>
+
+            {/* The calling window NARROWS a bound that already exists; it does not set
+                one. 9am-9pm is TRAI law applied to every dial (hard rule 5), so the
+                caption says "never … before 9am or after 9pm" first and offers the
+                narrowing second. Copy that read "choose your calling hours" would
+                imply the client is picking the outer limit, and the first client who
+                typed 08:00 would learn otherwise from a server rejection instead of
+                from the form. */}
+            <fieldset>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={restrictHours}
+                  onChange={(e) => setRestrictHours(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 dark:border-slate-600"
+                />
+                <span className="text-sm text-slate-700 dark:text-slate-300">
+                  Only call during specific hours
+                </span>
+              </label>
+              <p className="mt-1 text-xs text-slate-500">
+                Calls never go out before 9am or after 9pm — this narrows that further.
+              </p>
+
+              {restrictHours && (
+                <div className="mt-2 grid max-w-xs gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                      From
+                    </span>
+                    <input
+                      type="time"
+                      required
+                      value={windowStart}
+                      onChange={(e) => setWindowStart(e.target.value)}
+                      className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                      Until
+                    </span>
+                    <input
+                      type="time"
+                      required
+                      value={windowEnd}
+                      onChange={(e) => setWindowEnd(e.target.value)}
+                      className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    />
+                  </label>
+                </div>
+              )}
+            </fieldset>
+
+            {/* Kept next to the button that causes it: a window the server refuses
+                (too wide, or start after end) comes back as a problem+json with copy
+                that explains the law, and ProblemNotice already renders it. Repeating
+                that rule as client-side validation would let the two drift. */}
+            {create.error && <ProblemNotice error={create.error} />}
 
             <button
               type="submit"

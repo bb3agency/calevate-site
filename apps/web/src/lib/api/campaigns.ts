@@ -35,6 +35,10 @@ export interface NewCampaign {
   number_id?: string | null;
   dlt_template_id?: string | null;
   concurrency?: number;
+  // Omitted/null = "no extra restriction, the platform's 09:00-21:00 IST window
+  // applies". A campaign window may only NARROW that legal bound — the server
+  // rejects anything wider (campaign_window_outside_platform_hours).
+  calling_hours?: { start: string; end: string } | null;
 }
 
 export type CampaignNumber = Schemas["NumberOut"];
