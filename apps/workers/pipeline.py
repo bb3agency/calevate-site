@@ -589,6 +589,95 @@ def _ist_month(moment: datetime) -> str:
     return (moment + timedelta(hours=5, minutes=30)).strftime("%Y-%m")
 
 
+# --- the spend cap ------------------------------------------------------------
+#
+# `spend_state.capped` is the ONLY cap anything enforces: `compliance.check_dispatch`
+# reads that boolean and refuses every outbound call while it is true. Until this
+# statement set it, `plans.hard_cap_min` and `plans.hard_cap_spend` were reported by the
+# usage panel and the admin console and enforced by NOTHING — a runaway campaign would
+# have burned straight through both ceilings.
+#
+# The flag is computed in the SAME statement that accumulates the counters, from the
+# totals that statement is storing. A separate read-then-write would let two calls
+# finishing at once each see a pre-cap total and neither arm the cap.
+#
+# KNOWN RESIDUAL, and it is not fixable from here: this is the ONLY writer of
+# `spend_state` in the codebase, so the flag moves only when a call is METERED. A
+# tenant whose traffic is entirely outbound is capped in July, refused every dial in
+# August, meters nothing, and therefore never rolls over — the rollover below only
+# fires if some call completes. Inbound saves most tenants (the gate is outbound-only,
+# so inbound still meters), but a campaign-only client would be stuck. The durable fix
+# is a month-aware READ in `compliance.spend_capped` — `capped AND month =
+# billing.current_billing_month()` — so a stale month stops being a cap on its own.
+
+# The accumulated totals — reset on a new IST billing month, added to within one.
+_ACC_MINUTES = (
+    "CASE WHEN spend_state.month = EXCLUDED.month "
+    "THEN spend_state.minutes_used + EXCLUDED.minutes_used "
+    "ELSE EXCLUDED.minutes_used END"
+)
+_ACC_SPEND = (
+    "CASE WHEN spend_state.month = EXCLUDED.month "
+    "THEN spend_state.spend_used + EXCLUDED.spend_used "
+    "ELSE EXCLUDED.spend_used END"
+)
+
+
+def _over_cap(minutes_expr: str, spend_expr: str) -> str:
+    """SQL for "these totals have reached one of the plan's ceilings".
+
+    EITHER ceiling closes the gate: a tenant well inside its minute allowance can still
+    be burning money, and a tenant on a cheap voice can run the clock out without ever
+    approaching the rupee ceiling. `>=` because a ceiling that is exactly reached is
+    spent — that is the same arithmetic the usage panel's "minutes left" does when it
+    reports 0.
+
+    A ceiling that is NULL — an unlimited plan, or a tenant with no `plans` row at all,
+    where the scalar subquery yields NULL — must never cap: `COALESCE(x >= NULL, false)`
+    is false, so an absent ceiling is an absent constraint. A missing plan row means the
+    default and never a refusal, which is what the campaign dispatcher does with the
+    same missing row for `concurrency_ceiling`; the alternative reads a new client's
+    empty billing setup as a ceiling of zero and takes their phones down on day one.
+    """
+    return (
+        f"(COALESCE(({minutes_expr}) >= (SELECT hard_cap_min FROM caps), false) "
+        f"OR COALESCE(({spend_expr}) >= (SELECT hard_cap_spend FROM caps), false))"
+    )
+
+
+_SPEND_STATE_UPSERT = f"""
+WITH caps AS (
+    -- `plans` is effective-dated (effective_from/effective_to), so a tenant that ever
+    -- changed plan has SEVERAL rows and a join on tenant_id alone multiplies them.
+    -- NEWEST ROW WINS, which is the rule invoice.py (through billing.usage_summary)
+    -- and the campaign dispatcher already apply to this table — a client must not be
+    -- capped against one plan row and billed against another.
+    SELECT hard_cap_min, hard_cap_spend
+    FROM plans
+    WHERE tenant_id = :tid
+    ORDER BY created_at DESC
+    LIMIT 1
+)
+INSERT INTO spend_state (
+    tenant_id, month, minutes_used, spend_used, capped, created_at, updated_at
+)
+SELECT
+    CAST(:tid AS uuid), CAST(:month AS text),
+    CAST(:minutes AS numeric), CAST(:spend AS numeric),
+    {_over_cap("CAST(:minutes AS numeric)", "CAST(:spend AS numeric)")},
+    now(), now()
+ON CONFLICT (tenant_id) DO UPDATE SET
+    minutes_used = {_ACC_MINUTES},
+    spend_used = {_ACC_SPEND},
+    -- Recomputed, never carried: on a month rollover the counters above reset, and a
+    -- flag left at its old value is a tenant capped in July who can never dial in
+    -- August — the counters would read one minute used and the gate would still refuse.
+    capped = {_over_cap(_ACC_MINUTES, _ACC_SPEND)},
+    month = EXCLUDED.month,
+    updated_at = now()
+"""
+
+
 async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> None:
     """Write the cost ledger. Append-only (hard rule 4), so the guard against a
     double-run is a pre-check, not an upsert: a compensating entry is the only fix
@@ -677,18 +766,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # tenant capped in the old month would stay capped into the new one.
         month = _ist_month(snapshot.ended_at or datetime.now(UTC))
         await session.execute(
-            text(
-                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, capped, "
-                "created_at, updated_at) VALUES (:tid, :month, :minutes, :spend, false, now(), "
-                "now()) ON CONFLICT (tenant_id) DO UPDATE SET "
-                "  minutes_used = CASE WHEN spend_state.month = EXCLUDED.month "
-                "    THEN spend_state.minutes_used + EXCLUDED.minutes_used "
-                "    ELSE EXCLUDED.minutes_used END, "
-                "  spend_used = CASE WHEN spend_state.month = EXCLUDED.month "
-                "    THEN spend_state.spend_used + EXCLUDED.spend_used "
-                "    ELSE EXCLUDED.spend_used END, "
-                "  month = EXCLUDED.month, updated_at = now()"
-            ),
+            text(_SPEND_STATE_UPSERT),
             {
                 "tid": tenant_id,
                 "month": month,

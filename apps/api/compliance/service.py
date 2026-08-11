@@ -33,7 +33,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.service import get_balance, plan_tier_of
+from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
@@ -78,13 +78,27 @@ async def spend_capped(session: AsyncSession, *, tenant_id: UUID) -> bool:
     question (SEC-COMP §3 lists per-tenant caps among the launch blockers). One
     implementation, two callers: a campaign that launches "ready" and is then refused
     on every dial is the shape this prevents.
+
+    **The month is part of the question.** The flag is only ever written by the post-call
+    pipeline's meter, which runs when a call completes — so a capped tenant meters
+    nothing, and the flag cannot clear itself. For a tenant with inbound traffic that
+    resolves on its own (inbound is never gated, so it still meters and rolls the month
+    over). For an outbound-only tenant — a campaign client, exactly the kind that hits a
+    cap — it is a deadlock: capped in July, refused every dial in August, no call ever
+    completes to clear it, forever. Reading the month here makes a stale cap stop being
+    a cap at the billing boundary rather than at the mercy of the next metered call. The
+    same reasoning applies to a raised ceiling: it takes effect immediately instead of
+    on the next call that manages to get through.
     """
     row = (
         await session.execute(
-            text("SELECT capped FROM spend_state WHERE tenant_id = :tid"), {"tid": tenant_id}
+            text("SELECT capped, month FROM spend_state WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
         )
     ).first()
-    return row is not None and bool(row[0])
+    if row is None or not bool(row[0]):
+        return False
+    return str(row[1]) == current_billing_month()
 
 
 async def credits_exhausted(session: AsyncSession, *, tenant_id: UUID) -> bool:

@@ -326,11 +326,19 @@ async def usage_summary(
 
     spend = (
         await session.execute(
-            text("SELECT minutes_used, spend_used, capped FROM spend_state WHERE tenant_id = :tid"),
+            text(
+                "SELECT minutes_used, spend_used, capped, month FROM spend_state "
+                "WHERE tenant_id = :tid"
+            ),
             {"tid": tenant_id},
         )
     ).first()
-    capped = bool(spend[2]) if spend else False
+    # The month is part of the answer, for the same reason it is in
+    # `compliance.service.spend_capped`: the flag is only written when a call completes,
+    # so a capped tenant's row can sit at last month's cap indefinitely. Reporting that
+    # as a live cap would show "capped, 0 minutes left" to a client the gate is now
+    # letting dial — the panel contradicting the system.
+    capped = bool(spend[2]) and str(spend[3]) == current_billing_month() if spend else False
 
     # Runway framing (teardown adopt #8): "about N minutes left" is what an owner can
     # actually plan around; a rupee balance makes them do the division at the counter.
