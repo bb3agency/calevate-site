@@ -41,7 +41,8 @@ pnpm -C apps/web typecheck && pnpm -C apps/web lint
 - `apps/voice-runtime` — latency-critical webhooks + in-call tool endpoints; ack <500ms,
   defer to workers; deployed independently.
 - `apps/workers` — ARQ jobs; idempotent, keyed by call_id; **3 attempts total** (i.e. 2
-  retries — `WORKER_MAX_TRIES`, flat, no backoff curve) + DLQ.
+  retries — `WORKER_MAX_TRIES`; outbound deliveries wait 30s then 120s) + DLQ. A job
+  earns a retry only by raising `arq.Retry`; a plain `raise` is terminal.
 - `packages/shared` — Pydantic models, VoiceEngine Protocol, normalized events.
 
 ## Non-negotiable rules

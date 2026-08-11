@@ -363,13 +363,16 @@ signs) → authenticated Get Execution is the TRUTH → persist CallEvent + turn
 7. outbound CRM sync (`call.completed` through the outbox, D-23) — summary, never transcript
 *Planned, NOT in the shipped pipeline:* embeddings for resolved calls (KB corpus) — M3
 per ROADMAP; `apps/workers/pipeline.py` ends at step 7.
-Retry budget is **3 attempts, flat** — `WORKER_MAX_TRIES` in `apps/api/core/queue.py`,
+Retry budget is **3 attempts** — `WORKER_MAX_TRIES` in `apps/api/core/queue.py`,
 the one number the ARQ worker and the delivery worker's exhaustion check both read.
-**No backoff curve is configured**; a delay/jitter ladder is desirable and unbuilt.
+Outbound deliveries back off **30s then 120s**; a failed recording copy waits 30s.
+Only transport failures, 5xx, 408, 425 and 429 are retried; any other 4xx stops on the
+first attempt as `rejected {code}`. A worker earns a retry only by raising `arq.Retry`
+— a plain `raise` is terminal on the first attempt under arq 0.28.
 DLQ on repeated failure; pipeline lag is a monitored SLO
-(target: lead visible < 2 min after hangup). ⚠ The budget is not reached in practice
-today — under arq 0.28 a plain `raise` is terminal on the first attempt, so a worker must
-raise `arq.Retry` for the ladder above to exist at all. Full note and its consequences:
+(target: lead visible < 2 min after hangup). ⚠ Under arq 0.28 a plain `raise` is
+terminal on the first attempt, so a worker earns the ladder above only by raising
+`arq.Retry`. Full note and the incident it caused:
 FLOWS §6.
 
 ## 9. Metering & Billing

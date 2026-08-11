@@ -185,15 +185,22 @@ async def get_leads(
 
 @router.get(
     "/leads/export.csv",
-    openapi_extra=permission_meta("leads:read"),
-    summary="CSV export — full phone numbers, audit-logged",
+    # `calls:read_raw`, NOT `leads:read`. This is the one route where a client's contact
+    # list leaves us with FULL phone numbers, and the redaction guardrail exempts it on
+    # the stated grounds that it is role-gated and audited. `leads:read` is held by
+    # `staff` — so the "role gate" was every logged-in employee, and the exemption was
+    # describing a control that did not exist. `calls:read_raw` is the permission that
+    # already means "you may see the unmasked artefact, and your having seen it is
+    # recorded": owner in the client realm, superadmin in ours, never staff.
+    openapi_extra=permission_meta("calls:read_raw"),
+    summary="CSV export — full phone numbers, owner-only and audit-logged",
     response_class=Response,
 )
 async def export_leads(
     session: Session,
     request: Request,
     agent_id: UUID | None = None,
-    principal: Principal = Depends(requires("leads:read")),
+    principal: Principal = Depends(requires("calls:read_raw")),
 ) -> Response:
     csv_body = await service.export_leads_csv(session, agent_id=agent_id)
     # An export leaves our redaction behind (SEC-COMP §4 says redaction runs BEFORE any

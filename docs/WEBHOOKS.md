@@ -110,17 +110,20 @@ Three rules that matter:
 
 ### 1.5 Delivery rules
 
-- **Only a 2xx response counts as delivered.** Anything else — including 3xx — is a
-  failure we retry. **Redirects are not followed**: we will not chase a signed body to
-  a host you did not register.
+- **Only a 2xx response counts as delivered.** **Redirects are not followed**: we will
+  not chase a signed body to a host you did not register, so a 3xx is a failure.
 - **Timeout is 10 seconds** per attempt. Respond fast and process async on your side.
-- **Retry ladder: 3 attempts total**, driven by our job queue, with no delay between
-  them. After the 3rd failed attempt the delivery is marked `failed`, we stop, and our
-  on-call is alerted that your integration is broken.
-  *Status: the 3-attempt budget is the contract, but our queue does not yet re-run a
-  failed delivery — today a delivery that fails is marked `failed` on its FIRST attempt.
-  Design for at-least-once and idempotent receipt either way (dedupe on the envelope's
-  `id`, §1.2): when the ladder is switched on, retries will arrive.*
+- **Retry ladder: 3 attempts total**, driven by our job queue, waiting **30 seconds then
+  2 minutes**. After the 3rd failed attempt the delivery is marked `failed`, we stop, and
+  our on-call is alerted that your integration is broken.
+- **Not every failure is retried, and that is deliberate.** A timeout, a connection or
+  TLS failure, a 5xx, a 408, a 425 or a 429 gets the full ladder. **Any other 4xx stops
+  immediately** and is recorded as rejected with your status code: a 401, 404 or 422 is
+  your endpoint telling us the request itself is wrong, and repeating it three times
+  would only delay that verdict and treble the load on a host that is already unhappy.
+  If you want a delivery retried, do not answer 4xx — answer 429 or 503.
+- Design for **at-least-once**: dedupe on the envelope's `id` (§1.2), which stays the
+  same across retries.
 - **One forensic row per delivery** (not per attempt): retries update the same row's
   attempt count and status. `GET /v1/integrations/deliveries` shows the last 50 (up to
   `?limit=200`) with `status` (`delivered` / `failed` / `skipped`), `attempts`,

@@ -5023,7 +5023,7 @@
         "tags": [
           "campaigns"
         ],
-        "x-calevate-permission": "leads:dispatch"
+        "x-calevate-permission": "leads:read"
       }
     },
     "/v1/campaigns/{campaign_id}/pause": {
@@ -5931,11 +5931,11 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "CSV export \u2014 full phone numbers, audit-logged",
+        "summary": "CSV export \u2014 full phone numbers, owner-only and audit-logged",
         "tags": [
           "crm"
         ],
-        "x-calevate-permission": "leads:read"
+        "x-calevate-permission": "calls:read_raw"
       }
     },
     "/v1/leads/{lead_id}": {

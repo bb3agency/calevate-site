@@ -178,12 +178,14 @@ Queue-first, idempotent, replayable — the industry-standard shape, mapped to o
 3. **Persist-then-ack**: write the minimal event row + archive raw payload to object
    storage, ack 2xx < 500ms. Never process inline (hard rule 3).
 4. **Process async**: ARQ jobs keyed by event/call id; every side effect is an upsert
-   or guarded by processed-state; **3 attempts, flat** (`WORKER_MAX_TRIES` in
-   `apps/api/core/queue.py` — no backoff curve is configured; a delay/jitter ladder is
-   wanted but not built); DLQ + Sentry on exhaustion. ⚠ The budget is not reached today
-   — see the KNOWN GAP note in FLOWS §6: a plain `raise` in a worker is terminal on the
-   first attempt under arq 0.28, so "no lost events" currently rests entirely on the
-   reconciliation poller in step 6, not on the retry ladder.
+   or guarded by processed-state; **3 attempts**, outbound deliveries waiting 30s
+   then 120s (`WORKER_MAX_TRIES` in `apps/api/core/queue.py`, `RETRY_BACKOFF_S` in
+   `apps/workers/outbound_webhooks.py`); retried for transport failures / 5xx / 408 /
+   425 / 429 only, any other 4xx stopping immediately as `rejected {code}`; DLQ +
+   Sentry on exhaustion. ⚠ A plain `raise` in a worker is terminal on the first attempt
+   under arq 0.28 — see the note in FLOWS §6 — so a job that wants the ladder must raise
+   `arq.Retry`. The reconciliation poller in step 6 remains the guarantee of record
+   either way (D-31).
 5. **Replay tooling exists BEFORE the first incident** (industry lesson): admin
    surface to inspect webhook_deliveries, re-run a delivery, and re-run a pipeline
    step for a call id. The engine's own per-delivery retry API supplements ours.

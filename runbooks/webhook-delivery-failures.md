@@ -86,12 +86,27 @@ GROUP BY status;
 
 ## 4. ARQ delivery job and its retry ladder
 
-`deliver_outbound_webhook` (`apps/workers/outbound_webhooks.py`) raises on failure —
-raising is how it asks ARQ to retry. `MAX_ATTEMPTS` (= `WORKER_MAX_TRIES`, 3)
-(`apps/api/integrations/service.py`); on the last allowed try the job stops, returns
-`"exhausted after N"`, and fires alert `WORKER_DELIVERY` / `outbound_webhook_exhausted`
-with the tenant id — that alert is the "client's integration is broken and someone has
-to know" signal, so if you're reading this because of that alert, skip to steps 5–6.
+`deliver_outbound_webhook` (`apps/workers/outbound_webhooks.py`) asks for a retry by
+raising `arq.Retry(defer=...)` — and ONLY that. A plain `raise` is terminal on the first
+attempt under arq 0.28, which is exactly how this alert was unreachable for a while;
+if you are changing this worker, that distinction is the whole ladder.
+`MAX_ATTEMPTS` (= `WORKER_MAX_TRIES`, 3) with waits of `RETRY_BACKOFF_S` = 30s then 120s.
+
+**Two terminal strings, and they mean different things:**
+
+- `"exhausted after N"` — we tried the full ladder and the endpoint never answered 2xx.
+  The client's endpoint is down, slow, or refusing us. Steps 5–6.
+- `"rejected {code}"` — the endpoint answered a NON-retryable 4xx (anything except 408,
+  425, 429), so we stopped on the first attempt on purpose. This is the endpoint saying
+  the request itself is wrong: a 401 usually means the client rotated the secret on their
+  side without telling us (see §6 on rotation), a 404 means the URL moved, a 422 means
+  our payload does not match what they now expect — check whether a field mapping was
+  changed. Retrying would not have helped; do not "fix" it by adding retries.
+
+Both fire alert `WORKER_DELIVERY` / `outbound_webhook_exhausted` with the tenant id —
+that alert is the "client's integration is broken and someone has to know" signal, so if
+you're reading this because of that alert, read the return string first to learn which
+of the two you have.
 
 Both ceilings read the SAME constant (`WORKER_MAX_TRIES` in
 `apps/api/core/queue.py`) — they were briefly two numbers (worker said 5, ARQ said 3),

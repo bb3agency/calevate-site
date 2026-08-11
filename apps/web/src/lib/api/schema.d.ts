@@ -1055,7 +1055,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** CSV export — full phone numbers, audit-logged */
+        /** CSV export — full phone numbers, owner-only and audit-logged */
         get: operations["export_leads_v1_leads_export_csv_get"];
         put?: never;
         post?: never;

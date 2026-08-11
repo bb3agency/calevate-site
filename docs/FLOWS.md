@@ -149,21 +149,28 @@ e.g., status hot OR urgency=emergency ⇒ WhatsApp+email to owner within 2 min) 
 resolve_campaign_contact → outbound_sync(call.completed via the outbox, D-23).
 `embed_if_resolved(call corpus)` is M3, NOT in the shipped pipeline
 (`apps/workers/pipeline.py` stops at outbound sync).
-Retry budget: **3 attempts, flat** — one number, `WORKER_MAX_TRIES` in
+Retry budget: **3 attempts** — one number, `WORKER_MAX_TRIES` in
 `apps/api/core/queue.py`, read by the ARQ worker and by the delivery worker's
-exhaustion check. **No backoff curve is configured**; a delay/jitter ladder is wanted
-(it is what makes a retry against a flapping vendor useful) but is not built. DLQ +
-Sentry alert on exhaustion; pipeline lag dashboard.
+exhaustion check. Outbound webhook deliveries wait **30s then 120s**
+(`RETRY_BACKOFF_S` in `apps/workers/outbound_webhooks.py`); a failed recording copy
+waits 30s flat. **Not everything is retried**: transport failures, 5xx, 408, 425 and
+429 get the ladder, while any other 4xx is a verdict on the request — it stops on the
+first attempt and is recorded `rejected {code}`, because retrying a 400 three times
+only delays the verdict and triples load on an unhappy host. DLQ + Sentry alert on
+exhaustion; pipeline lag dashboard.
 
-> ⚠ **KNOWN GAP — the budget is not actually reached today (fix belongs in CODE).**
-> In arq 0.28 `max_tries` only bounds jobs that raise `arq.Retry`/`RetryJob`; a job that
-> raises a plain exception is terminal on its FIRST attempt (verified against the
-> installed worker). No job in `apps/workers` raises `arq.Retry`, so `raise` currently
-> means "give up", not "try again later" — which also means the `attempt >=
-> MAX_ATTEMPTS` branch in `deliver_outbound_webhook`, and its
-> `outbound_webhook_exhausted` alert, cannot fire in production. The flow above is the
-> INTENT and stays the spec; the workers must raise `arq.Retry` (with a defer, which is
-> also where the missing backoff belongs) for it to be true.
+A worker only gets a retry by raising `arq.Retry` — under arq 0.28 a plain `raise`
+finishes the job on the first attempt, so `max_tries` counts nothing for it.
+
+> ⚠ **The arq trap, kept here because it bit us once.** In arq 0.28 `max_tries` only
+> bounds jobs that raise `arq.Retry`/`RetryJob`; a job that raises a plain exception is
+> terminal on its FIRST attempt. For a while no job in `apps/workers` raised `arq.Retry`,
+> so `raise` meant "give up", the `attempt >= MAX_ATTEMPTS` branch in
+> `deliver_outbound_webhook` was dead code, and `outbound_webhook_exhausted` could not
+> fire in production — a client's broken integration would go silently stale. The
+> delivery worker and the recording copy now raise `Retry(defer=...)`, which is also
+> where the backoff lives. Anything NEW that wants a retry must do the same; a plain
+> `raise` is a deliberate "this is permanent", not a retry.
 
 ## 7. Knowledge Update Flow (client-initiated)
 
