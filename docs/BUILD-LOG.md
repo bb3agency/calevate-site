@@ -684,14 +684,61 @@ infer a bare NULL parameter's type, and the full suite caught it on the list pat
 
 150 tests.
 
+**34. Outbound CRM sync — `apps/api/integrations/`, `apps/workers/outbound_webhooks.py`**
+(D-23, SEC-COMP §5)
+
+Leads and call results reach the client's own CRM as they happen, through the outbox
+that already carried notifications. Migration `4be32bf3d12c` adds
+`webhook_deliveries.endpoint_id`; four events ship (`lead.created`, `lead.updated`,
+`call.completed`, `campaign.completed`) with a client-facing config + delivery screen.
+
+- **Nothing is delivered that the domain write did not commit.** `enqueue_event` writes
+  the outbox row in the CALLER's transaction, so "CRM told about a lead that rolled
+  back" is structurally impossible — asserted by a test that raises mid-transaction and
+  finds zero pending deliveries.
+- **The signature covers the timestamp.** `X-Calevate-Signature: t=…,v1=HMAC-SHA256({t}.{body})`.
+  Signing the body alone makes a captured request a bearer token forever; with the
+  timestamp inside the signed string, a receiver that rejects old timestamps also
+  rejects replays, and a valid signature cannot be moved onto a fresh one. The
+  RECEIVER's `verify_signature` ships too, so the tests assert the scheme rather than
+  our implementation of it — and the docs can point at real code.
+- **Phone numbers are masked by default.** Hard rule 6 is about logs, but the same
+  reasoning governs anything crossing our boundary; the raw number is a per-endpoint
+  opt-in recorded in the config row. `call.completed` carries the summary, never the
+  transcript.
+- **One forensic row per delivery, not per attempt.** The delivery id is minted at
+  ENQUEUE — ARQ replays the same payload on retry, so a worker-side id would mint a new
+  one per attempt and a receiver deduplicating on it would treat every retry as new.
+- **`webhook_deliveries` still has no RLS policy** (engine webhooks arrive before the
+  tenant is known — that is why it has none). The client query scopes through
+  `endpoint_id IN (SELECT id FROM outbound_webhooks)`, and *that* table is tenant-RLS'd,
+  so isolation comes from an existing policy rather than a column someone must remember
+  to filter on. Pinned by a two-tenant test.
+- A deactivated endpoint is `skipped`, not retried: the client turned it off, which is
+  a decision, not an outage.
+- The signing secret is returned exactly once, at creation; the list shows an 8-hex
+  fingerprint. A settings page that re-displays a shared secret turns every screenshot
+  into a key disclosure.
+
+Same `LIMIT`-is-not-a-limit defect found in `claim_outbox_batch` and fixed the same way
+(MATERIALIZED CTE + total ordering). Outbox rows enqueued in one transaction share
+`created_at` exactly, so the batch could come back larger than `limit` — a latency
+spike rather than corruption, but `limit` should mean what it says. Now tested, along
+with SKIP LOCKED's real promise: two dispatchers whose transactions OVERLAP never take
+the same message (the sequential version of that test was wrong — a re-seen row is the
+retry path working).
+
+165 tests.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
    which needs client #1 in the room rather than more code) and **OTel spans** (Sentry
    and the Langfuse hook are wired; distributed tracing is not).
-3. Remaining M2 openers: WhatsApp alerts, self-serve signup UI, Razorpay top-ups into
-   `credit_ledger`, outbound CRM sync (D-23).
+2. Remaining M2 openers: WhatsApp alerts, self-serve signup UI, Razorpay top-ups into
+   `credit_ledger`, Google Sheets sync (the other half of D-23 — the `google_sheets`
+   endpoint kind is in the schema and unimplemented), one-click AI callback (D-21).
 4. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (150 tests),
+5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (165 tests),
    `uv run mypy apps packages`, `make guardrails` and `pnpm -C apps/web lint` before changing anything.

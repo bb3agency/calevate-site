@@ -24,6 +24,7 @@ function Nav({ slug }: { slug: string }) {
     { href: `/c/${slug}/leads`, label: "Leads" },
     { href: `/c/${slug}/campaigns`, label: "Campaigns" },
     { href: `/c/${slug}/knowledge`, label: "Knowledge" },
+    { href: `/c/${slug}/integrations`, label: "Integrations" },
   ];
   return (
     <nav className="flex gap-1">

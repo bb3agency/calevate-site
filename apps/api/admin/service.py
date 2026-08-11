@@ -284,7 +284,8 @@ async def tenant_overview(
         await session.execute(
             text(
                 "SELECT id, name, slug, status, vertical_template FROM organizations "
-                "WHERE deleted_at IS NULL AND (CAST(:tid AS uuid) IS NULL OR id = CAST(:tid AS uuid)) "
+                "WHERE deleted_at IS NULL "
+                "  AND (CAST(:tid AS uuid) IS NULL OR id = CAST(:tid AS uuid)) "
                 "ORDER BY created_at DESC"
             ),
             {"tid": tenant_id},

@@ -756,6 +756,71 @@
         "title": "CreateCampaignOut",
         "type": "object"
       },
+      "CreateEndpointIn": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "enum": [
+                "lead.created",
+                "lead.updated",
+                "call.completed",
+                "campaign.completed"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Events",
+            "type": "array"
+          },
+          "url": {
+            "format": "uri",
+            "maxLength": 2083,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ],
+        "title": "CreateEndpointIn",
+        "type": "object"
+      },
+      "CreateEndpointOut": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "events",
+          "secret"
+        ],
+        "title": "CreateEndpointOut",
+        "type": "object"
+      },
       "CreateOrgIn": {
         "additionalProperties": false,
         "properties": {
@@ -926,6 +991,62 @@
         "title": "DashboardOut",
         "type": "object"
       },
+      "DeliveryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
+          },
+          "first_at": {
+            "format": "date-time",
+            "title": "First At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_at": {
+            "format": "date-time",
+            "title": "Last At",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "id",
+          "event_type",
+          "status",
+          "attempts",
+          "first_at",
+          "last_at"
+        ],
+        "title": "DeliveryOut",
+        "type": "object"
+      },
       "DltStatusIn": {
         "additionalProperties": false,
         "properties": {
@@ -943,6 +1064,64 @@
           "dlt_status"
         ],
         "title": "DltStatusIn",
+        "type": "object"
+      },
+      "EndpointOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "secret_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secret Fingerprint"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "events",
+          "active",
+          "secret_fingerprint",
+          "created_at"
+        ],
+        "title": "EndpointOut",
         "type": "object"
       },
       "ExtractionField": {
@@ -3583,6 +3762,186 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/integrations/deliveries": {
+      "get": {
+        "operationId": "list_deliveries_v1_integrations_deliveries_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeliveryOut"
+                  },
+                  "title": "Response List Deliveries V1 Integrations Deliveries Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Recent delivery attempts \u2014 'did it reach my CRM?' answered without support",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/integrations/endpoints": {
+      "get": {
+        "operationId": "list_endpoints_v1_integrations_endpoints_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EndpointOut"
+                  },
+                  "title": "Response List Endpoints V1 Integrations Endpoints Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "List Endpoints",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "org:manage"
+      },
+      "post": {
+        "operationId": "create_endpoint_v1_integrations_endpoints_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEndpointIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateEndpointOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Register a webhook endpoint \u2014 the signing secret is shown once",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/integrations/endpoints/{endpoint_id}": {
+      "delete": {
+        "operationId": "deactivate_endpoint_v1_integrations_endpoints__endpoint_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Deactivate \u2014 kept, not deleted, so the delivery history stays readable",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/integrations/events": {
+      "get": {
+        "operationId": "list_event_types_v1_integrations_events_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "title": "Response List Event Types V1 Integrations Events Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The events an endpoint may subscribe to",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/invitations/accept": {

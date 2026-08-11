@@ -23,6 +23,7 @@ from apps.api.core.settings import runtime_config_missing_keys, validate_bootstr
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
 from apps.workers.dispatcher import dispatch_outbox, report_stalled_pipeline, sweep_expired
 from apps.workers.notifications import notify_hot_lead
+from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from apps.workers.pipeline import ingest_engine_event, reconcile_executions, run_post_call_pipeline
 from apps.workers.retention import apply_retention, execute_deletion_request
 
@@ -32,6 +33,9 @@ FUNCTIONS: list[Any] = [
     ingest_engine_event,
     run_post_call_pipeline,
     notify_hot_lead,
+    # D-23: the client's CRM hears about leads and calls through the same outbox as
+    # every other side effect, so a delivery cannot outlive a rolled-back write.
+    deliver_outbound_webhook,
     # A DPDP erasure is queued rather than run inline: it touches many rows and must
     # survive a request timing out halfway through.
     execute_deletion_request,

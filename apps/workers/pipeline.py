@@ -41,6 +41,7 @@ from apps.api.core.queue import enqueue, job_id_for
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.api.integrations import service as integrations
 from apps.api.reliability.service import enqueue_outbox, mark_inbox_failed, mark_inbox_processed
 from apps.workers.extraction import extract_call
 from apps.workers.redaction import redact
@@ -309,6 +310,28 @@ async def run_post_call_pipeline(ctx: dict[str, Any], payload: dict[str, Any]) -
         await resolve_campaign_contact(
             session, tenant_id=tenant_id, call_id=call_id, call_status=snapshot.status
         )
+
+        # STEP 8 — outbound CRM sync (D-23). Last, and only for a call that actually
+        # completed: an outcome the client's CRM can act on is one where the summary and
+        # extraction above already exist. Enqueued in this transaction, delivered by the
+        # outbox — the same guarantee the notification in step 6 gets.
+        if snapshot.status == "completed":
+            await integrations.enqueue_event(
+                session,
+                tenant_id=tenant_id,
+                event="call.completed",
+                data={
+                    "call_id": str(call_id),
+                    "lead_id": str(lead_id) if lead_id else None,
+                    "direction": direction,
+                    "duration_s": snapshot.duration_s,
+                    "outcome": extraction.outcome_tag if extraction else None,
+                    "sentiment": extraction.sentiment if extraction else None,
+                    # The SUMMARY, never the transcript: a transcript is the most
+                    # sensitive artefact we hold, and it does not leave on a webhook.
+                    "summary": extraction.summary if extraction else None,
+                },
+            )
 
     lag = time.perf_counter() - started
     record_pipeline_lag(lag, stage="post_call")

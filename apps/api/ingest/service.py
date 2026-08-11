@@ -34,6 +34,7 @@ from apps.api.core.alerting import metrics_log
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.api.integrations import service as integrations
 
 log = get_logger(__name__)
 
@@ -175,6 +176,25 @@ async def ingest_lead(
         )
     ).first()
     resolved_lead = UUID(str(row[0])) if row else lead_id
+
+    # D-23: the client's CRM hears about it in the SAME transaction as the lead row —
+    # before the gate, before the dial, because the lead landing is the fact being
+    # reported. Whether we then called them is a separate event.
+    await integrations.enqueue_event(
+        session,
+        tenant_id=config.tenant_id,
+        event="lead.created",
+        data=integrations.lead_payload(
+            {
+                "lead_id": str(resolved_lead),
+                "phone": phone,
+                "name": name,
+                "source": "webhook",
+                "status": "new",
+            },
+            include_raw_phone=False,
+        ),
+    )
 
     # 2. Consent provenance (FLOWS §4): if the config names a consent field, the
     # payload must affirm it. We keep the lead and refuse the CALL.

@@ -570,6 +570,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/integrations/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent delivery attempts — 'did it reach my CRM?' answered without support */
+        get: operations["list_deliveries_v1_integrations_deliveries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Endpoints */
+        get: operations["list_endpoints_v1_integrations_endpoints_get"];
+        put?: never;
+        /** Register a webhook endpoint — the signing secret is shown once */
+        post: operations["create_endpoint_v1_integrations_endpoints_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/endpoints/{endpoint_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deactivate — kept, not deleted, so the delivery history stays readable */
+        delete: operations["deactivate_endpoint_v1_integrations_endpoints__endpoint_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The events an endpoint may subscribe to */
+        get: operations["list_event_types_v1_integrations_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/invitations/accept": {
         parameters: {
             query?: never;
@@ -1046,6 +1115,30 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** CreateEndpointIn */
+        CreateEndpointIn: {
+            /** Events */
+            events: ("lead.created" | "lead.updated" | "call.completed" | "campaign.completed")[];
+            /**
+             * Url
+             * Format: uri
+             */
+            url: string;
+        };
+        /** CreateEndpointOut */
+        CreateEndpointOut: {
+            /** Events */
+            events: string[];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Secret */
+            secret: string;
+            /** Url */
+            url: string;
+        };
         /** CreateOrgIn */
         CreateOrgIn: {
             /** Billing Email */
@@ -1117,6 +1210,30 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /** DeliveryOut */
+        DeliveryOut: {
+            /** Attempts */
+            attempts: number;
+            /** Event Type */
+            event_type: string | null;
+            /**
+             * First At
+             * Format: date-time
+             */
+            first_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Last At
+             * Format: date-time
+             */
+            last_at: string;
+            /** Status */
+            status: string | null;
+        };
         /** DltStatusIn */
         DltStatusIn: {
             /**
@@ -1124,6 +1241,27 @@ export interface components {
              * @enum {string}
              */
             dlt_status: "pending" | "registered" | "blocked";
+        };
+        /** EndpointOut */
+        EndpointOut: {
+            /** Active */
+            active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Events */
+            events: string[];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Secret Fingerprint */
+            secret_fingerprint: string | null;
+            /** Url */
+            url: string | null;
         };
         /** ExtractionField */
         ExtractionField: {
@@ -2668,6 +2806,159 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_deliveries_v1_integrations_deliveries_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_endpoints_v1_integrations_endpoints_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EndpointOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_endpoint_v1_integrations_endpoints_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEndpointIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateEndpointOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    deactivate_endpoint_v1_integrations_endpoints__endpoint_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                endpoint_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_event_types_v1_integrations_events_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string[];
+                    };
                 };
             };
             /** @description RFC-9457 problem+json */

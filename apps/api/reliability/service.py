@@ -225,15 +225,25 @@ async def claim_outbox_batch(
     session: AsyncSession, *, limit: int = OUTBOX_BATCH
 ) -> list[OutboxMessageRow]:
     """Oldest-first claim by conditional UPDATE. `attempt_count` bumps on claim, so a
-    message that keeps killing its worker still walks to the DLQ instead of looping."""
+    message that keeps killing its worker still walks to the DLQ instead of looping.
+
+    MATERIALIZED + a tiebreak on `id` for the same reason as the campaign dispatcher's
+    claim: `WHERE id IN (SELECT ... LIMIT :n FOR UPDATE SKIP LOCKED)` lets the planner
+    rescan the LIMIT subquery per candidate row, and outbox rows enqueued in one
+    transaction share `created_at` to the microsecond — so each rescan breaks the tie
+    differently and the batch comes back larger than `limit`. Here that is a latency
+    spike rather than corruption, but `limit` should mean what it says.
+    """
     rows = (
         await session.execute(
             text(
-                "UPDATE outbox_messages SET attempt_count = attempt_count + 1, "
-                "updated_at = now() WHERE id IN ("
+                "WITH picked AS MATERIALIZED ("
                 "  SELECT id FROM outbox_messages WHERE status = 'pending' "
-                "  ORDER BY created_at LIMIT :limit FOR UPDATE SKIP LOCKED"
-                ") RETURNING id, queue, job, payload, attempt_count"
+                "  ORDER BY created_at, id LIMIT :limit FOR UPDATE SKIP LOCKED"
+                ") "
+                "UPDATE outbox_messages o SET attempt_count = o.attempt_count + 1, "
+                "updated_at = now() FROM picked WHERE o.id = picked.id "
+                "RETURNING o.id, o.queue, o.job, o.payload, o.attempt_count"
             ),
             {"limit": limit},
         )
