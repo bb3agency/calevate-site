@@ -56,6 +56,7 @@ source_modules = [
     "apps.api.billing",
     "apps.api.compliance",
     "apps.api.crm",
+    "apps.api.ingest",
     "apps.api.integrations",
     "apps.api.reliability",
     "apps.api.tenancy",

@@ -96,6 +96,24 @@ async def invite_session(token_hash: str) -> AsyncIterator[AsyncSession]:
 
 
 @asynccontextmanager
+async def ingest_config_session(webhook_id: UUID) -> AsyncIterator[AsyncSession]:
+    """Read-only view of ONE ingest config: the row whose id is in the URL.
+
+    Same doctrine as `invite_session`: the UUID was minted by us and is unguessable,
+    so a session that can read exactly the row it names holds nothing new — and the
+    shared-secret check still stands between that read and any effect
+    (migration d41f88a2c6e9).
+    """
+    maker = get_sessionmaker()
+    async with maker() as session, session.begin():
+        await session.execute(
+            text("SELECT set_config('app.ingest_webhook_id', :wid, true)"),
+            {"wid": str(webhook_id)},
+        )
+        yield session
+
+
+@asynccontextmanager
 async def admin_session() -> AsyncIterator[AsyncSession]:
     """A session that can ENUMERATE tenants — the client directory, nothing more.
 

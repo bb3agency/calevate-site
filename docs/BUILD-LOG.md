@@ -511,6 +511,39 @@ into `users`), posts the emailed token, membership is created. Two structural pi
   is read after the tenant is known instead. Bad/used/expired tokens answer
   identically so guessing reveals nothing.
 
+**30. Instant lead callback — `apps/api/ingest/`** (FLOWS §4, first M2 opener)
+
+`POST /hooks/v1/ingest/{webhook_id}`: a form vendor or Meta webhook posts a lead, the
+lead row ALWAYS lands, and the dial happens only if the compliance gate says yes. The
+ordering is the design: a fast call to a DNC number is a violation with a timestamp,
+and a lost enquiry because the gate said no is unacceptable in the other direction. A
+blocked dispatch leaves a timeline entry naming the exact rule — the feed the M2
+"needs attention" queue will read.
+
+- **Config-driven field mapping** (`inbound_webhooks.mapping`): vendors rename fields
+  without notice, so translation is a config row, not a release. Unmapped fields are
+  dropped — unknown data from an external party does not belong in a lead row.
+- **Phone normalization never guesses a country**: 10-digit Indian mobile shapes get
+  +91; anything else unparseable is a 422, because dialling a wrong-country number on
+  an assumed prefix is worse than losing the lead.
+- **Consent provenance** (FLOWS §4): if the config names a consent field and the
+  payload does not affirm it, the lead is kept and the call refused.
+- **Vendor retries cannot double-dial**: payload-hash dedupe through the same durable
+  inbox as every other webhook.
+- **Speed-to-lead** is a named metric recorder (`speed_to_lead_seconds`, target <60s)
+  from the moment the request arrives.
+- Sixth lookup-before-tenant case, same doctrine (`app.ingest_webhook_id`, migration
+  `d41f88a2c6e9`): the URL's UUID names exactly one config row; reads widened by that
+  row, writes by nothing. The shared secret still stands between the read and any
+  effect. `verify_ingest_secret` is honestly documented as the interim it is (v1
+  compares `secret_ref` directly; the secrets manager + Meta's X-Hub-Signature-256
+  land with DEPLOYMENT §6).
+
+One test-suite lesson recorded: the dispatch tests failed at 05:39 IST because the
+compliance gate correctly refused to dial outside calling hours — the gate working,
+the tests depending on wall-clock. The suite now pins `ist_now` to 11:00 IST and says
+why. 7 tests.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,

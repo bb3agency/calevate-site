@@ -1629,6 +1629,47 @@
         ]
       }
     },
+    "/hooks/v1/ingest/{webhook_id}": {
+      "post": {
+        "operationId": "ingest_hooks_v1_ingest__webhook_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Ingest Hooks V1 Ingest  Webhook Id  Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Per-client lead intake \u2192 compliance-gated instant callback (FLOWS \u00a74)",
+        "tags": [
+          "lead-ingest"
+        ]
+      }
+    },
     "/v1/admin/tenants": {
       "get": {
         "operationId": "list_tenants_v1_admin_tenants_get",

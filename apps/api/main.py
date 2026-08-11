@@ -25,6 +25,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.admin.routes import router as admin_router
     from apps.api.agents.routes import router as agents_router
     from apps.api.crm.routes import router as crm_router
+    from apps.api.ingest.routes import router as ingest_router
     from apps.api.kb.routes import router as kb_router
     from apps.api.ops.routes import router as ops_router
     from apps.api.tenancy.clerk_webhooks import router as clerk_router
@@ -36,6 +37,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(agents_router)
     application.include_router(crm_router)
     application.include_router(kb_router)
+    application.include_router(ingest_router)
     application.include_router(ops_router)
 
 
