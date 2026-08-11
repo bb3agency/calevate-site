@@ -1162,6 +1162,66 @@ and without strictness the pin stops meaning anything the moment someone fixes i
 the caps tests hardcoded July as "this month", which passed only because nothing checked
 the month; they are relative now, so they cannot rot in September.
 
+## §45 — the sweep's fourth and fifth waves: what the truth-telling layers were saying
+
+§43 and §44 fixed things that were wrong. This wave fixed things that were *lying* —
+code that produced an answer, passed its tests, and described a world that was not there.
+
+- **The extractor invented facts about callers, on both paths.** The offline heuristic
+  read a transcript without asking who spoke: `Mee peru cheppandi` (the AGENT asking for
+  a name) filed "Cheppandi" as a caller who does not exist; a caller answering *Ledu* to
+  "callback avasaram unda?" recorded `wants_callback = True`, so the client rings someone
+  who said no — the exact harm the do-not-call machinery exists to prevent; and an enum
+  value of `caller` matched the `caller:` prefix on every line, setting the field on every
+  transcript regardless of content. This is worse than "it is only the offline extractor":
+  it is what CI scores and what every golden-transcript regression is measured against, so
+  fabrication was the yardstick. The model prompt was rewritten around five named rules
+  (WHO SPOKE DECIDES WHAT IS A FACT · A DENIAL IS NOT A CONFIRMATION · ABSENT MEANS NULL ·
+  WHOSE IS IT · VALUES EXACTLY), and `coerce_value` now rejects non-scalars, speaker
+  labels, placeholder strings, and phone-shaped runs in non-phone fields.
+- **One limitation was recorded rather than papered over.** A caller ringing to *ask*
+  whether their booking was cancelled genuinely says the word "cancel", and no word-level
+  rule separates asking from doing. That is a strict xfail against the heuristic, not a
+  passing test with a hedged assertion — and strict means teaching it polarity promotes
+  the test instead of leaving a quiet known gap.
+- **The redactor corrupted the ids it was supposed to leave alone.** uuid_v7 is
+  time-prefixed and therefore digit-dense, so the phone pattern ate call ids and hex
+  digests out of log lines — the audit trail's join keys, destroyed by the control meant
+  to protect the audit trail. Identifiers are now held aside before masking and restored
+  after. A first fix missed hex digests; the test written for it caught that.
+- **`add_to_dnc` had existed since the compliance gate shipped with no production
+  caller.** There was no way to add a number to the do-not-call list. The write path,
+  the check (POST, because the identifier IS the personal data), and the removal now
+  exist — and `is_removable()` is the ONE definition of "may this be undone here",
+  because the first version computed the UI flag from `scope` while the endpoint enforced
+  on `source`, which would have rendered a button that 422s.
+- **The dispatcher and the retention tick were O(all tenants)** — 44.9s → 5.8s and
+  62.0s → 5.9s. At a hundred clients that is not slowness, it is a dispatch window that
+  closes before the campaign starts.
+- **Structural tests, not example tests, where the rule is the thing.**
+  `impersonation_reads_test` asserts over the entire route table that no GET requires a
+  MUTATING permission, with exemptions each required to name a live route.
+  `money_semantics_test` pins `to_paise` returning RUPEES: the name is a lie, the top-up
+  guard compares its result against `MIN_TOPUP_INR = 100.00`, and a well-meaning rename
+  would turn a ₹100 floor into ₹1 with every rounding test still green.
+- **The intake step landed** (§45's one addition rather than correction). FLOWS §1 names
+  its eight fields explicitly, so exactly those eight were built and nothing invented. It
+  writes `prompt_versions.compiled_t0_context` — the column D-39 reserved and no writer
+  had ever filled — and keeps escalation phone numbers OUT of the compiled prompt, since
+  a staff mobile in a system prompt is a number the agent can read out to whoever asks.
+
+**Two mistakes of mine worth leaving in the record.** I diagnosed a failing audit test as
+my own typed-proof change, re-ran the committed version, saw it pass, and called it
+resolved — that was luck; the real cause was the redactor mangling a uuid. And I wrote
+`assert result.get("intent") != "cancel" or True` — an assertion that is always true, the
+precise anti-pattern this whole sweep was hunting.
+
+**The credit-ledger index has now been refused four times over.** Three agents refused it
+for progressively better reasons; two test fixtures that minted violations were fixed, and
+a measurement afterwards still found ~11 fresh violating pairs in ten minutes. At least
+one more minter exists. The refusal stands until it is named — an index that fires in
+production is worse than the duplicates it would have caught.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
