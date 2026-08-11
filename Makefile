@@ -32,7 +32,10 @@ lint:
 	uv run ruff format .
 
 types:
-	uv run mypy .
+	# `apps packages`, not `.` — two conftest.py files with no package __init__
+	# collide under mypy's module resolution, and it stops before checking anything.
+	# This is the exact invocation CI runs.
+	uv run mypy apps packages
 
 test:
 	uv run pytest

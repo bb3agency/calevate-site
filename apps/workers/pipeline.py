@@ -300,6 +300,16 @@ async def run_post_call_pipeline(ctx: dict[str, Any], payload: dict[str, Any]) -
     if lead_id is not None and extraction is not None:
         await _maybe_notify_hot_lead(tenant_id, lead_id, call_id, extraction.data)
 
+    # STEP 7 — if this call was a campaign dial, the outcome closes the contact or puts
+    # it back on the retry ladder (FLOWS §5). Local import: the dispatcher is a worker
+    # peer, and a module-level import would drag it into every pipeline run.
+    from apps.workers.campaign_dispatch import resolve_campaign_contact
+
+    async with tenant_session(tenant_id) as session:
+        await resolve_campaign_contact(
+            session, tenant_id=tenant_id, call_id=call_id, call_status=snapshot.status
+        )
+
     lag = time.perf_counter() - started
     record_pipeline_lag(lag, stage="post_call")
     log.info("pipeline_complete", extra={"call_id": str(call_id), "duration_s": round(lag, 2)})

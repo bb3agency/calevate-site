@@ -544,14 +544,83 @@ compliance gate correctly refused to dial outside calling hours — the gate wor
 the tests depending on wall-clock. The suite now pins `ist_now` to 11:00 IST and says
 why. 7 tests.
 
+**31. Campaigns — `apps/api/campaigns/` + `apps/workers/campaign_dispatch.py`**
+(FLOWS §5, the module hard rule 5 was written about)
+
+Bulk outbound: draft → contacts → launch gate → dispatch ticks → retry ladder →
+completed. Tables `campaigns`, `campaign_contacts`, `dlt_templates` (migration
+`e16c96e68bc5`, RLS + CHECKs in the same migration). Seven endpoints under
+`/v1/campaigns`, all `leads:dispatch` except progress (`leads:read`).
+
+- **The launch gate returns NAMED blockers, not a boolean.** `GET /launch-check`
+  exists so the UI can render the launch button disabled *with reasons*
+  (SURFACES §2b): `agent_not_live`, `disclosure_missing`, `dlt_template_missing`,
+  `dlt_template_not_approved`, `dlt_template_mismatch`, `number_missing`,
+  `number_series_mismatch`, `no_contacts`. Deliberately exhaustive rather than
+  fail-fast — a boolean gate produces a support ticket, a named gate produces a
+  to-do list. `POST /launch` re-runs the identical check and refuses with the same
+  names; the check endpoint is a preview of the gate, never a substitute (pinned by
+  a test that asserts the two lists match).
+- **Series ⇔ classification is enforced, not documented**: 140 dials promotional,
+  160/standard dials service and transactional (DATA-MODEL §6). A mismatch is a DLT
+  violation, so it blocks launch.
+- **Launch scrubs; dispatch enforces.** The DNC scrub at launch marks known-blocked
+  contacts terminally so the "N contacts will be dialled" number the client confirms
+  is true — that is UX honesty. The dispatcher then runs the FULL compliance gate
+  again per contact at dial time, because a number can join the list between launch
+  and dial and hard rule 5 says additions propagate before the next dispatch tick.
+  This loop *is* the tick. A test opts a number out after launch and proves it is
+  never dialled.
+- **Concurrency, in FLOWS §5's order**: platform lines (10, one constant until engine
+  verification item 8) − inbound reserve (30%, min 4) → shared outbound pool; then the
+  tenant's plan ceiling; then the per-campaign slider. One tenant's campaign cannot
+  eat the lines another tenant's receptionist is holding.
+- **Retry ladder**: no-answer/busy/failed → `pending` with spaced backoff
+  (30m, 120m), exhausting to `failed` after `max_attempts`. Blocked-by-hours refunds
+  the attempt — 9–21 IST is a *when*, not a *no*. Blocked-by-DNC is terminal.
+- **`dialing` is a real state with an end.** The dispatcher no longer writes
+  "connected" the moment the engine accepts a dial; the contact stays `dialing` and
+  the post-call pipeline's new STEP 7 (`resolve_campaign_contact`) decides its fate
+  from the call's actual outcome. A 30-minute reaper returns contacts whose call never
+  reported a terminal status to the ladder, so a lost webhook cannot pin a campaign
+  open forever.
+
+Two real bugs the tests found, both worth remembering:
+
+1. **`LIMIT` in `WHERE id IN (SELECT … LIMIT n FOR UPDATE SKIP LOCKED)` is not a
+   limit.** The planner may put that subquery on the inner side of a nested-loop
+   semi-join and rescan it per candidate row. `add_contacts` inserts a whole CSV in
+   one transaction, so every contact shares a `created_at` to the microsecond; each
+   rescan broke the tie differently and returned a different arbitrary pair, and the
+   union blew past the slider — a campaign dialling into the inbound reserve. Fixed
+   with `WITH picked AS MATERIALIZED (… ORDER BY created_at, id LIMIT :n FOR UPDATE
+   SKIP LOCKED) UPDATE … FROM picked`. Pinned by
+   `test_the_tick_dials_up_to_the_campaign_slider_and_no_further` (5 contacts,
+   slider 2).
+2. **Stale call rows silently zeroed the outbound pool.** The global active count
+   included every `queued`/`in_progress` row ever stranded by a lost engine event, so
+   a handful of them would stop every campaign on the platform indefinitely. The count
+   now only sees calls updated within `ACTIVE_CALL_HORIZON` (1 hour) — nothing we bill
+   for runs that long, and the reconciliation poller corrects the rows themselves.
+
+Also fixed: `make types` ran `mypy .`, which dies on the two `conftest.py` files
+colliding under module resolution and checks nothing. It now runs `mypy apps packages`,
+the exact invocation CI uses — `make check` was quietly a no-op for types.
+
+21 campaign tests; 145 in the suite.
+
 ### Where the next session should start
 
-1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
-   which needs client #1 in the room rather than more code), the **client-side KB
-   submission UI** (the API exists; only the admin half has a screen), **OTel spans**
-   (Sentry and the Langfuse hook are wired; distributed tracing is not), and the
-   **OTel spans** (Sentry and the Langfuse hook are wired; distributed tracing is not).
-2. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
+1. **Campaign management UI** (SURFACES §2b) — the API is complete and typed
+   (`pnpm gen:api` snapshot refreshed, 37 paths); no screen exists yet. The
+   launch-check endpoint is designed for it: render the button disabled with the
+   blocker list.
+2. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
+   which needs client #1 in the room rather than more code) and **OTel spans** (Sentry
+   and the Langfuse hook are wired; distributed tracing is not).
+3. Remaining M2 openers: WhatsApp alerts, self-serve signup UI, Razorpay top-ups into
+   `credit_ledger`, outbound CRM sync (D-23).
+4. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-3. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (104 tests), `uv run mypy apps packages` and
-   `make guardrails` before changing anything.
+5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (145 tests),
+   `uv run mypy apps packages` and `make guardrails` before changing anything.

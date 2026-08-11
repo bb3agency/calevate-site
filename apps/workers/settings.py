@@ -20,6 +20,7 @@ from arq import cron
 from apps.api.core.logging import configure_logging, get_logger
 from apps.api.core.queue import redis_settings
 from apps.api.core.settings import runtime_config_missing_keys, validate_bootstrap_env
+from apps.workers.campaign_dispatch import dispatch_campaign_tick
 from apps.workers.dispatcher import dispatch_outbox, report_stalled_pipeline, sweep_expired
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.pipeline import ingest_engine_event, reconcile_executions, run_post_call_pipeline
@@ -43,6 +44,9 @@ CRON_JOBS = [
     # in which a Bolna execution reaches `completed` plus margin.
     cron(reconcile_executions, minute={0, 10, 20, 30, 40, 50}, run_at_startup=True),
     cron(report_stalled_pipeline, minute={5, 35}),
+    # The dispatch tick (FLOWS §5). Hard rule 5's DNC propagation deadline is
+    # 'before the next dispatch tick' — this cron IS that tick.
+    cron(dispatch_campaign_tick, second={0, 30}),
     cron(sweep_expired, hour={3}, minute={17}),
     # Retention is a legal obligation, not a cleanup task: without this the
     # policies we promise in the DPA are only a table (SEC-COMP §4).

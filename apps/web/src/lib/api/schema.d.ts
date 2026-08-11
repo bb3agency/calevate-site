@@ -314,6 +314,125 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Campaign */
+        post: operations["create_campaign_v1_campaigns_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Live progress: dispatched / connected / failed / no-answer (FLOWS §5) */
+        get: operations["progress_v1_campaigns__campaign_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** CSV rows in — deduped, validated, malformed numbers counted not guessed */
+        post: operations["add_contacts_v1_campaigns__campaign_id__contacts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/launch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The compliance gate, then the DNC scrub, then running (hard rule 5) */
+        post: operations["launch_v1_campaigns__campaign_id__launch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/launch-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Why the launch button is disabled, by name (SEC-COMP §3) */
+        get: operations["launch_check_v1_campaigns__campaign_id__launch_check_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause */
+        post: operations["pause_v1_campaigns__campaign_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume */
+        post: operations["resume_v1_campaigns__campaign_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/dashboard": {
         parameters: {
             query?: never;
@@ -549,6 +668,20 @@ export interface components {
              */
             tenant_id: string;
         };
+        /** AddContactsIn */
+        AddContactsIn: {
+            /** Contacts */
+            contacts: components["schemas"]["ContactIn"][];
+        };
+        /** AddContactsOut */
+        AddContactsOut: {
+            /** Added */
+            added: number;
+            /** Duplicate */
+            duplicate: number;
+            /** Malformed */
+            malformed: number;
+        };
         /** AgentOut */
         AgentOut: {
             /** Direction */
@@ -575,6 +708,13 @@ export interface components {
             published: boolean;
             /** Status */
             status: string;
+        };
+        /** BlockerOut */
+        BlockerOut: {
+            /** Reason */
+            reason: string;
+            /** Rule */
+            rule: string;
         };
         /** CallDetailOut */
         CallDetailOut: {
@@ -716,6 +856,51 @@ export interface components {
             /** Idx */
             idx: number;
         };
+        /** ContactIn */
+        ContactIn: {
+            /** Custom */
+            custom?: {
+                [key: string]: string;
+            };
+            /** Name */
+            name?: string | null;
+            /** Phone */
+            phone: string;
+        };
+        /** CreateCampaignIn */
+        CreateCampaignIn: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /**
+             * Classification
+             * @enum {string}
+             */
+            classification: "promotional" | "transactional" | "service";
+            /**
+             * Concurrency
+             * @default 3
+             */
+            concurrency: number;
+            /** Dlt Template Id */
+            dlt_template_id?: string | null;
+            /** Name */
+            name: string;
+            /** Number Id */
+            number_id?: string | null;
+        };
+        /** CreateCampaignOut */
+        CreateCampaignOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+        };
         /** CreateOrgIn */
         CreateOrgIn: {
             /** Billing Email */
@@ -832,6 +1017,22 @@ export interface components {
             /** Token */
             token: string;
         };
+        /** LaunchCheckOut */
+        LaunchCheckOut: {
+            /** Blockers */
+            blockers: components["schemas"]["BlockerOut"][];
+            /** Ready */
+            ready: boolean;
+        };
+        /** LaunchOut */
+        LaunchOut: {
+            /** Dialable */
+            dialable: number;
+            /** Dnc Scrubbed */
+            dnc_scrubbed: number;
+            /** Status */
+            status: string;
+        };
         /**
          * LeadListOut
          * @description The Leads table is schema-driven (TRD §7): the columns travel WITH the rows so
@@ -942,6 +1143,21 @@ export interface components {
             load_shed_mode: string;
             /** Outbound Halted */
             outbound_halted: boolean;
+        };
+        /** ProgressOut */
+        ProgressOut: {
+            /** Concurrency */
+            concurrency: number;
+            /** Contacts */
+            contacts: {
+                [key: string]: number;
+            };
+            /** Launched At */
+            launched_at: string | null;
+            /** Status */
+            status: string;
+            /** Total */
+            total: number;
         };
         /** RecordingLinkOut */
         RecordingLinkOut: {
@@ -1697,6 +1913,233 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallDetailOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_campaign_v1_campaigns_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCampaignIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateCampaignOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    progress_v1_campaigns__campaign_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgressOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_contacts_v1_campaigns__campaign_id__contacts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddContactsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddContactsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    launch_v1_campaigns__campaign_id__launch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaunchOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    launch_check_v1_campaigns__campaign_id__launch_check_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaunchCheckOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    pause_v1_campaigns__campaign_id__pause_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    resume_v1_campaigns__campaign_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
             /** @description RFC-9457 problem+json */

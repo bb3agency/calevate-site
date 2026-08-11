@@ -7,6 +7,7 @@ exhaustive. TENANT_TABLES drives RLS policy creation and the coverage check.
 
 from apps.api.agents import models as agents_models
 from apps.api.billing import models as billing_models
+from apps.api.campaigns import models as campaigns_models
 from apps.api.compliance import models as compliance_models
 from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
@@ -21,6 +22,7 @@ __all__ = [
     "Base",
     "agents_models",
     "billing_models",
+    "campaigns_models",
     "compliance_models",
     "crm_models",
     "integrations_models",
@@ -35,6 +37,9 @@ TENANT_TABLES = [
     "memberships",
     "invitations",
     "agents",
+    "campaigns",
+    "campaign_contacts",
+    "dlt_templates",
     "prompt_versions",
     "extraction_schemas",
     "phone_numbers",
