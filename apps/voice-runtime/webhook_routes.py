@@ -207,19 +207,38 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
         claim = await claim_inbox_event(
             session,
             provider=engine,
-            event_key=event.execution_id,
-            # The hash of the UNIT OF WORK, not of this delivery. The inbox reads a
+            # THE UNIT OF WORK IS THE TRANSITION, NOT THE EXECUTION. Bolna fires one
+            # webhook per status change (queued → in-progress → completed, TRD §5) with
+            # the same execution id each time, and `job_id_for` below already keys the
+            # job on (execution, status). Keying the inbox on the execution alone made
+            # the two disagree: the FIRST transition claimed the row and enqueued, and
+            # every later one — including `completed`, the only transition where cost,
+            # recording and transcript exist — came back `duplicate` and enqueued
+            # nothing. The post-call pipeline then never ran from a webhook at all;
+            # every call waited for the 10-minute reconciliation poller, which makes
+            # FLOWS §3.6 ("lead + summary visible < 2 min after hangup") unmeetable and
+            # quietly turns D-31's "poller = guarantee of record, webhook = low-latency
+            # hint" into "the poller does everything". `pipeline.py` returning
+            # `awaiting_completion:{raw_status}` is the other half of the evidence: it
+            # expects to be called once per transition.
+            event_key=f"{event.execution_id}:{event.raw_status}",
+            # The hash of that unit of work, not of this delivery. The inbox reads a
             # changed hash under an existing key as a doctored replay and answers 409 +
-            # `webhook_payload_mismatch` — but Bolna fires one webhook per status
-            # TRANSITION (queued → in-progress → completed, TRD §5), same execution id,
-            # different body every time. Hashing the delivery therefore raised a
-            # spoofing alarm on every healthy call, and an alarm that always fires is
-            # an alarm nobody reads when a real one arrives.
+            # `webhook_payload_mismatch` — and two deliveries of the SAME transition can
+            # still differ in body (a retry with a fuller payload), so hashing the
+            # delivery raised a spoofing alarm on healthy traffic. An alarm that always
+            # fires is an alarm nobody reads when a real one arrives.
             #
             # Nothing is lost by narrowing it: at an unsigned endpoint the caller
             # controls the entire payload, so a body hash was never evidence of
             # authenticity — the source-IP check is, and the poller is the truth.
-            payload_hash=body_hash({"engine": engine, "execution_id": event.execution_id}),
+            payload_hash=body_hash(
+                {
+                    "engine": engine,
+                    "execution_id": event.execution_id,
+                    "raw_status": event.raw_status,
+                }
+            ),
             event_name=event.raw_status,
         )
         if claim.state == "duplicate":

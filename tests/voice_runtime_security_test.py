@@ -76,7 +76,13 @@ def _event() -> tuple[str, str, dict[str, Any]]:
 
 async def _counts(*, execution_id: str, event_type: str, engine: str = "bolna") -> tuple[int, int]:
     """(inbox rows, forensic delivery rows) — both infra tables, neither tenant-scoped,
-    so `untenanted_session` sees them honestly."""
+    so `untenanted_session` sees them honestly.
+
+    The inbox key is `{execution_id}:{raw_status}`, because the unit of work is the
+    TRANSITION, not the execution: Bolna fires one webhook per status change and the
+    ARQ job id is keyed the same way. Counting by execution id alone would report the
+    row for `queued` while asserting about `completed`.
+    """
     async with untenanted_session() as session:
         inbox = (
             await session.execute(
@@ -84,7 +90,7 @@ async def _counts(*, execution_id: str, event_type: str, engine: str = "bolna") 
                     "SELECT count(*) FROM webhook_inbox_events "
                     "WHERE provider = :p AND event_key = :k"
                 ),
-                {"p": engine, "k": execution_id},
+                {"p": engine, "k": f"{execution_id}:{event_type}"},
             )
         ).scalar()
         deliveries = (
@@ -281,7 +287,7 @@ async def test_a_repeated_delivery_yields_one_inbox_row_and_one_job(
     assert third.json()["status"] == "duplicate", "the inbox claim is the durable dedupe"
 
     inbox, deliveries = await _counts(execution_id=execution_id, event_type=status)
-    assert inbox == 1, "one execution id is one inbox row, however many deliveries arrive"
+    assert inbox == 1, "one TRANSITION is one inbox row, however many deliveries arrive"
     assert deliveries == 1, "and one forensic row, so replays do not inflate the trail"
     assert len(enqueued) == 1, "a duplicate must never reach the queue at all"
 
@@ -292,7 +298,7 @@ async def test_a_repeated_delivery_yields_one_inbox_row_and_one_job(
                     "SELECT status, duplicate_count FROM webhook_inbox_events "
                     "WHERE provider = 'bolna' AND event_key = :k"
                 ),
-                {"k": execution_id},
+                {"k": f"{execution_id}:{status}"},
             )
         ).first()
     assert row is not None
@@ -393,3 +399,56 @@ async def test_an_unknown_engine_agent_ref_is_still_acked() -> None:
         )
     assert unkeyable.status_code == 202
     assert unkeyable.json()["status"] == "ignored"
+
+
+# --- 7. the transition is the unit of work ------------------------------------
+
+
+async def test_each_status_transition_reaches_the_queue_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One call produces several webhooks — queued, then in-progress, then completed —
+    all carrying the same execution id (TRD §5).
+
+    `completed` is the ONLY one that carries cost, recording and transcript, so if the
+    inbox dedupes on the execution id alone, the first transition claims the key and
+    `completed` comes back `duplicate` and never reaches the queue. The post-call
+    pipeline then never runs from a webhook at all: every call waits for the 10-minute
+    reconciliation poller, and FLOWS §3.6's "lead + summary visible < 2 min after
+    hangup" cannot be met. `pipeline.py` returning `awaiting_completion:{raw_status}`
+    says out loud that it expects to be called once per transition.
+
+    So: distinct transitions each enqueue exactly once, and a REPEAT of a transition
+    still does not.
+    """
+    execution_id = f"exec_{uuid.uuid4().hex[:12]}"
+    headers = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
+    transitions = [f"{name}-{uuid.uuid4().hex[:6]}" for name in ("queued", "ringing", "completed")]
+
+    enqueued: list[str | None] = []
+    real_enqueue = webhook_routes.enqueue
+
+    async def _spy(job: str, *args: Any, **kwargs: Any) -> str | None:
+        enqueued.append(str(kwargs.get("job_id")))
+        return await real_enqueue(job, *args, **kwargs)
+
+    monkeypatch.setattr(webhook_routes, "enqueue", _spy)
+
+    async with _client(EDGE_PROXY_IP) as http:
+        for raw_status in transitions:
+            body = {"execution_id": execution_id, "status": raw_status}
+            first = await http.post(HOOK, json=body, headers=headers)
+            assert first.json()["status"] == "accepted", (
+                f"{raw_status} was absorbed as a duplicate of an earlier transition"
+            )
+            # The same transition delivered twice is still one job.
+            repeat = await http.post(HOOK, json=body, headers=headers)
+            assert repeat.json()["status"] == "duplicate"
+
+    assert len(enqueued) == len(transitions), (
+        "every transition must reach the queue exactly once — the completed one most "
+        f"of all: {enqueued}"
+    )
+    for raw_status in transitions:
+        inbox, _deliveries = await _counts(execution_id=execution_id, event_type=raw_status)
+        assert inbox == 1, f"{raw_status} should own exactly one inbox row"
