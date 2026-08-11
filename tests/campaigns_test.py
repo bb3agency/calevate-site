@@ -28,6 +28,7 @@ from apps.api.core.loadshed import set_platform_status
 from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
+from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import (
     ACTIVE_STATUSES,
     dispatch_campaign_tick,
@@ -44,10 +45,33 @@ def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: fixed)
 
 
-# Tenants this module created, and whether the one-time database-wide sweep has run.
+@pytest.fixture(autouse=True)
+def _roomy_platform_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the PLATFORM line pool (FLOWS §5 rule 1) above anything this module dials.
+
+    `_quiesce` settles the calls and campaigns this module created; it cannot settle
+    the ones a SECOND pytest process is creating right now against the same Postgres,
+    and the outbound pool is deliberately platform-wide. At the pilot default of 10
+    lines (6 after the inbound reserve), five in-flight calls belonging to somebody
+    else's run leave a budget of ONE — the tick then claims one contact instead of two,
+    and the DNC-after-launch test below fails on the contact it never reached. That is
+    the dispatcher obeying rule 1 correctly; the test was the thing assuming it had the
+    platform to itself.
+
+    Nothing under test is weakened: rule 1 is asserted nowhere in this module, and the
+    ceilings these tests DO measure — the per-tenant `concurrency_ceiling` (rule 3) and
+    the per-campaign slider (rule 4) — are per tenant and untouched by the pool size.
+    """
+    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10_000)
+
+
+# Tenants this module created, and whether the one-time sweep of earlier runs has run.
 # Both exist so `_quiesce` stays O(this suite) instead of O(every org ever seeded).
 _TENANTS: list[uuid.UUID] = []
 _swept = False
+# When this process started. Anything created after it belongs to a test that is
+# running right now — possibly in another pytest process — and is not ours to cancel.
+_RUN_STARTED_AT = datetime.now(UTC)
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
@@ -177,26 +201,43 @@ async def _sweep(tenants: list[uuid.UUID], keep: tuple[uuid.UUID, ...]) -> None:
 async def _quiesce(*keep: uuid.UUID) -> None:
     """Give the dispatcher a quiet platform to be measured on.
 
-    The outbound pool and the active-call count are deliberately GLOBAL (FLOWS §5 rule
-    1) — one tenant's campaign must not eat the lines another tenant's receptionist
-    needs. That is the behaviour under test, and it also means every dispatcher test is
-    sensitive to campaigns and calls its predecessors left running. So each one first
-    cancels the others' campaigns and settles their calls, keeping only its own.
+    Each dispatcher test first settles the campaigns and calls its predecessors in THIS
+    module left running, keeping only its own, so a tick is measured on the state the
+    test staged rather than on the leftovers of the test before it.
 
-    The first call also sweeps the whole database once, because this suite runs against
-    a persistent dev/CI Postgres that still holds `running` campaigns from earlier runs.
+    The first call additionally sweeps what EARLIER RUNS of this module left behind: a
+    persistent dev/CI Postgres still holds their `running` campaigns. That sweep is
+    scoped two ways, and both are load-bearing:
+
+    - `slug LIKE 'camp-%'` — only tenants this module created. It used to cancel every
+      running campaign in the database, which on a shared Postgres means cancelling
+      whatever ANOTHER pytest process launched a second ago, in the middle of its test.
+    - `created_at < _RUN_STARTED_AT` — only rows that predate this process, so a
+      concurrent run of this same file sweeps its own leftovers and not ours.
+
+    What made the wide sweep unnecessary is `_roomy_platform_pool`: the reason to quiet
+    the whole platform was the shared outbound pool, and pinning that above anything
+    this module dials removes the coupling far more cheaply than cancelling other
+    people's work. (It is also ~14,000 fewer sessions per run.)
     """
     global _swept
     if not _swept:
         async with admin_session() as directory:
-            everyone = (
-                await directory.execute(
-                    text("SELECT id FROM organizations WHERE deleted_at IS NULL")
+            earlier_runs = (
+                (
+                    await directory.execute(
+                        text(
+                            "SELECT id FROM organizations WHERE deleted_at IS NULL "
+                            "AND slug LIKE 'camp-%' AND created_at < :started"
+                        ),
+                        {"started": _RUN_STARTED_AT},
+                    )
                 )
-            ).scalars()
-            await _sweep([uuid.UUID(str(t)) for t in everyone.all()], keep)
+                .scalars()
+                .all()
+            )
+        await _sweep([uuid.UUID(str(t)) for t in earlier_runs], keep)
         _swept = True
-        return
     await _sweep(_TENANTS, keep)
 
 

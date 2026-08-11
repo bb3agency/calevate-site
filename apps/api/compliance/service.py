@@ -46,6 +46,11 @@ log = get_logger(__name__)
 IST = timedelta(hours=5, minutes=30)
 DEFAULT_WINDOW = (time(9, 0), time(21, 0))
 
+# The client-facing wording of the two tenant-level refusals, shared with the campaign
+# launch gate so the same condition never gets explained two different ways.
+SPEND_CAP_REASON = "This account has reached its spending cap for the month."
+NO_CREDITS_REASON = "This account has no calling credit left."
+
 
 @dataclass(frozen=True, slots=True)
 class DispatchDecision:
@@ -64,6 +69,34 @@ def within_calling_hours(
     current = (now_ist or ist_now()).time()
     start, end = window
     return start <= current <= end
+
+
+async def spend_capped(session: AsyncSession, *, tenant_id: UUID) -> bool:
+    """Has this tenant hit its monthly cap? (TRD §9.)
+
+    Split out of `check_dispatch` because the campaign LAUNCH gate asks the identical
+    question (SEC-COMP §3 lists per-tenant caps among the launch blockers). One
+    implementation, two callers: a campaign that launches "ready" and is then refused
+    on every dial is the shape this prevents.
+    """
+    row = (
+        await session.execute(
+            text("SELECT capped FROM spend_state WHERE tenant_id = :tid"), {"tid": tenant_id}
+        )
+    ).first()
+    return row is not None and bool(row[0])
+
+
+async def credits_exhausted(session: AsyncSession, *, tenant_id: UUID) -> bool:
+    """Self-serve/trial only (D-34). A managed client is invoiced against a retainer,
+    so blocking them over a wallet they never bought would be an outage caused by a
+    concept that does not apply to them. Shared with the launch gate for the same
+    reason `spend_capped` is."""
+    tier = await plan_tier_of(session, tenant_id)
+    if tier not in ("self_serve", "trial"):
+        return False
+    balance = await get_balance(session, tenant_id=tenant_id)
+    return balance.is_exhausted
 
 
 async def check_dispatch(
@@ -115,28 +148,20 @@ async def check_dispatch(
             reason="This agent only answers calls; it cannot place them.",
         )
 
-    spend = (
-        await session.execute(
-            text("SELECT capped FROM spend_state WHERE tenant_id = :tid"), {"tid": tenant_id}
-        )
-    ).first()
-    if spend is not None and bool(spend[0]):
+    if await spend_capped(session, tenant_id=tenant_id):
         return DispatchDecision(
             allowed=False,
             rule="spend_cap",
-            reason="This account has reached its spending cap for the month.",
+            reason=SPEND_CAP_REASON,
         )
 
     # Credits gate the self-serve motion only (D-34: one product, two motions).
-    tier = await plan_tier_of(session, tenant_id)
-    if tier in ("self_serve", "trial"):
-        balance = await get_balance(session, tenant_id=tenant_id)
-        if balance.is_exhausted:
-            return DispatchDecision(
-                allowed=False,
-                rule="no_credits",
-                reason="This account has no calling credit left.",
-            )
+    if await credits_exhausted(session, tenant_id=tenant_id):
+        return DispatchDecision(
+            allowed=False,
+            rule="no_credits",
+            reason=NO_CREDITS_REASON,
+        )
 
     if not within_calling_hours():
         return DispatchDecision(
@@ -204,10 +229,14 @@ async def add_to_dnc(
 __all__ = [
     "DEFAULT_WINDOW",
     "IST",
+    "NO_CREDITS_REASON",
+    "SPEND_CAP_REASON",
     "DispatchDecision",
     "add_to_dnc",
     "assert_dispatch_allowed",
     "check_dispatch",
+    "credits_exhausted",
     "ist_now",
+    "spend_capped",
     "within_calling_hours",
 ]

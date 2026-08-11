@@ -6,8 +6,12 @@ check and refuses with the same names — the check endpoint is a preview of the
 never a substitute for it.
 
 D-21's boundary applies: campaign creation and launch are OWNER actions in the client
-realm (`leads:dispatch` — it places calls, so it carries the dispatch permission, not
-a new one).
+realm (`leads:dispatch` — they place calls, so they carry the dispatch permission, not
+a new one). `/launch-check` deliberately does NOT: reading why you cannot dial is not
+the authority to dial, and gating the explanation on the mutating permission hides it
+from read-only impersonation (D-22) — support would see the same disabled button the
+client is phoning about, with no reason next to it. `leads:read` it is; the rule is
+asserted over the whole route table in tests/impersonation_reads_test.py.
 """
 
 from __future__ import annotations
@@ -237,13 +241,13 @@ async def add_contacts(
 @router.get(
     "/{campaign_id}/launch-check",
     response_model=LaunchCheckOut,
-    openapi_extra=permission_meta("leads:dispatch"),
+    openapi_extra=permission_meta("leads:read"),
     summary="Why the launch button is disabled, by name (SEC-COMP §3)",
 )
 async def launch_check(
     campaign_id: UUID,
     session: Session,
-    principal: Principal = Depends(requires("leads:dispatch")),
+    principal: Principal = Depends(requires("leads:read")),
 ) -> LaunchCheckOut:
     assert principal.tenant_id is not None
     blockers = await service.launch_blockers(

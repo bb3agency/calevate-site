@@ -17,7 +17,6 @@ GET that repeats it fails here on the day it is written.
 
 from __future__ import annotations
 
-import pytest
 from apps.api.core.rbac import MUTATING_PERMISSIONS, iter_api_routes
 from apps.api.main import app
 
@@ -40,16 +39,6 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
 }
 
 
-# The one live instance of the bug, carried explicitly rather than silently excluded.
-# `GET /v1/campaigns/{id}/launch-check` requires `leads:dispatch` — the permission to
-# PLACE calls — even though its entire purpose is to render the launch button disabled
-# with reasons. It is pinned by an xfail(strict) test below rather than an exemption, so
-# it turns into a hard failure the moment it is fixed, and this comment cannot outlive
-# the gap. The file is owned by another change in flight; the fix is a two-line
-# permission swap to `leads:read`.
-KNOWN_GAP = "/v1/campaigns/{campaign_id}/launch-check"
-
-
 def _get_routes() -> list[tuple[str, str]]:
     """(path, declared permission) for every GET-only route that declares one."""
     found: list[tuple[str, str]] = []
@@ -66,9 +55,7 @@ def test_no_read_is_gated_on_a_permission_impersonation_refuses() -> None:
     offenders = [
         (path, permission)
         for path, permission in _get_routes()
-        if permission in MUTATING_PERMISSIONS
-        and path not in ADMIN_CONSOLE_GETS
-        and path != KNOWN_GAP
+        if permission in MUTATING_PERMISSIONS and path not in ADMIN_CONSOLE_GETS
     ]
     assert not offenders, (
         "These GETs require a MUTATING permission, so D-22 hides them from read-only "
@@ -101,6 +88,9 @@ def test_the_views_that_explain_a_refusal_are_readable() -> None:
         "/v1/calls/{call_id}/callback",
         "/v1/lead-sources/activity",
         "/v1/integrations/deliveries",
+        # The fourth: it EXISTS to explain a disabled launch button, and it used to
+        # demand the permission to place calls in order to say why you cannot.
+        "/v1/campaigns/{campaign_id}/launch-check",
     ):
         assert path in permissions, f"{path} is missing — did it move?"
         assert permissions[path] not in MUTATING_PERMISSIONS, (
@@ -109,14 +99,16 @@ def test_the_views_that_explain_a_refusal_are_readable() -> None:
         )
 
 
-@pytest.mark.xfail(strict=True, reason="launch-check requires leads:dispatch; fix queued")
 def test_the_launch_check_preview_is_readable_without_the_power_to_dial() -> None:
-    """The clearest instance of the rule: this endpoint EXISTS to explain a disabled
-    button, and it demands the permission to place calls in order to say why you cannot.
+    """`GET /v1/campaigns/{id}/launch-check` now asks for `leads:read`, while
+    `POST /launch` keeps `leads:dispatch`.
 
-    strict=True on purpose — when the permission swap lands, this test starts FAILING
-    as an unexpected pass, and whoever lands it moves the path into the main rule
-    instead of leaving a stale exemption behind.
+    That split is the rule in one endpoint pair: reading why you cannot dial is not the
+    authority to dial. It was carried here as a strict xfail until the permission swap
+    landed; the path is now inside the rule test above and named in the list of
+    refusal-explaining views, so nothing about it depends on an exemption.
     """
     permissions = dict(_get_routes())
-    assert permissions[KNOWN_GAP] not in MUTATING_PERMISSIONS
+    launch_check = "/v1/campaigns/{campaign_id}/launch-check"
+    assert permissions[launch_check] == "leads:read", permissions[launch_check]
+    assert launch_check not in ADMIN_CONSOLE_GETS, "it is a client view, not an ops one"

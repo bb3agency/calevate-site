@@ -54,6 +54,9 @@ PLATFORM_LINES_TOTAL = 10
 MIN_INBOUND_RESERVE = 4
 ACTIVE_STATUSES = ("queued", "ringing", "in_progress")
 
+# What a tenant with no `plans` row is allowed (FLOWS §5 rule 3).
+DEFAULT_CONCURRENCY_CEILING = 10
+
 # A call row is only evidence of an occupied LINE while it is fresh. Rows can strand in
 # `queued`/`in_progress` when an engine event is lost — the reconciliation poller
 # eventually corrects them, but until it does, counting them would let a handful of
@@ -96,29 +99,53 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
     running: list[tuple[UUID, UUID, int, dict[str, Any]]] = []  # (tenant, campaign, slots, retry)
     for tenant_id in tenants:
         async with tenant_session(tenant_id) as session:
-            active = (
+            # Active lines and the plan ceiling in one round trip.
+            #
+            # The ceiling is a SCALAR SUBQUERY, not a join. `plans` carries
+            # effective_from/effective_to, so a tenant that ever changed plan has
+            # several rows — and joining campaigns to plans on tenant_id alone
+            # multiplies every campaign by the client's billing history, dispatching
+            # it once per plan row. The symptom is a campaign dialling twice its slider
+            # because the client upgraded last month. Newest row wins, which is the
+            # rule invoice.py already uses for the same table.
+            row = (
                 await session.execute(
                     text(
-                        "SELECT count(*) FROM calls WHERE direction = 'outbound' "
-                        f"AND status IN {ACTIVE_STATUSES!r} "
-                        f"AND updated_at > now() - interval '{ACTIVE_CALL_HORIZON}'"
-                    )
+                        "SELECT (SELECT count(*) FROM calls WHERE direction = 'outbound' "
+                        f"    AND status IN {ACTIVE_STATUSES!r} "
+                        f"    AND updated_at > now() - interval '{ACTIVE_CALL_HORIZON}'), "
+                        "  (SELECT concurrency_ceiling FROM plans WHERE tenant_id = :tid "
+                        "    ORDER BY created_at DESC LIMIT 1)"
+                    ),
+                    {"tid": tenant_id},
                 )
-            ).scalar()
-            total_active += int(active or 0)
+            ).first()
+            active = int((row[0] if row else 0) or 0)
+            ceiling = int(
+                row[1] if row is not None and row[1] is not None else DEFAULT_CONCURRENCY_CEILING
+            )
+            total_active += active
+
+            # Rule 3 is a TENANT budget, spent ONCE across that tenant's campaigns.
+            # Computing it per campaign let a tenant with two running campaigns claim
+            # twice its ceiling — and the surplus comes out of the shared pool that
+            # keeps another tenant's receptionist answering (rule 1's whole point).
+            # Oldest campaign first, so which one gets the lines is deterministic
+            # rather than whatever order the planner returned.
+            tenant_budget = max(0, ceiling - active)
 
             campaigns = (
                 await session.execute(
                     text(
-                        "SELECT c.id, c.concurrency, c.retry_policy, c.calling_hours, "
-                        "  COALESCE(p.concurrency_ceiling, 10) AS ceiling "
-                        "FROM campaigns c "
-                        "LEFT JOIN plans p ON p.tenant_id = c.tenant_id "
-                        "WHERE c.status = 'running'"
+                        "SELECT c.id, c.concurrency, c.retry_policy, c.calling_hours "
+                        "FROM campaigns c WHERE c.status = 'running' "
+                        "ORDER BY c.created_at, c.id"
                     )
                 )
             ).all()
-            for campaign_id, slider, retry_policy, calling_hours, ceiling in campaigns:
+            for campaign_id, slider, retry_policy, calling_hours in campaigns:
+                if tenant_budget <= 0:
+                    break
                 # Per-campaign calling window (narrowing-only; the create path
                 # refuses anything outside 09:00-21:00 IST, so this can only ever
                 # SHRINK when a campaign dials). Checked BEFORE claiming: a closed
@@ -129,10 +156,10 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
                 # window enforced there regardless — defense in depth.
                 if not campaign_window_open(calling_hours, compliance_service.ist_now()):
                     continue
-                # Rule 3 then rule 4: tenant ceiling bounds the campaign slider.
-                tenant_budget = max(0, int(ceiling) - int(active or 0))
+                # Rule 4 under rule 3: the slider, bounded by what the tenant has left.
                 slots = min(int(slider), tenant_budget)
                 if slots > 0:
+                    tenant_budget -= slots
                     running.append(
                         (UUID(str(tenant_id)), UUID(str(campaign_id)), slots, retry_policy or {})
                     )
@@ -185,6 +212,14 @@ async def _dispatch_for_campaign(
         # campaign dialling past its concurrency slider — i.e. eating the lines another
         # tenant's receptionist is holding. MATERIALIZED forces one evaluation; the
         # tiebreak on `id` makes the order total so the claim is deterministic.
+        #
+        # The campaign's own status is re-read HERE, inside the claiming transaction.
+        # The tick chose this campaign in an earlier, separate transaction; between the
+        # two the client may have hit pause — or a complaint spike / cap breach may
+        # have auto-paused it (FLOWS §5's mid-campaign safeties). A pause that still
+        # dials the contacts the tick had already lined up is a pause the client does
+        # not believe in, and those safeties exist precisely for the moment when
+        # stopping fast matters.
         claimed = (
             await session.execute(
                 text(
@@ -192,6 +227,8 @@ async def _dispatch_for_campaign(
                     "  SELECT id FROM campaign_contacts WHERE campaign_id = :cid "
                     "  AND status = 'pending' "
                     "  AND (next_attempt_at IS NULL OR next_attempt_at <= now()) "
+                    "  AND EXISTS (SELECT 1 FROM campaigns c WHERE c.id = :cid "
+                    "    AND c.status = 'running') "
                     "  ORDER BY created_at, id LIMIT :n FOR UPDATE SKIP LOCKED"
                     ") "
                     "UPDATE campaign_contacts c SET status = 'dialing', "
@@ -385,4 +422,9 @@ async def _record_failure(
     )
 
 
-__all__ = ["PLATFORM_LINES_TOTAL", "dispatch_campaign_tick", "resolve_campaign_contact"]
+__all__ = [
+    "DEFAULT_CONCURRENCY_CEILING",
+    "PLATFORM_LINES_TOTAL",
+    "dispatch_campaign_tick",
+    "resolve_campaign_contact",
+]

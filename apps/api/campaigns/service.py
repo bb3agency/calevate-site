@@ -30,7 +30,13 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.compliance.service import DEFAULT_WINDOW
+from apps.api.compliance.service import (
+    DEFAULT_WINDOW,
+    NO_CREDITS_REASON,
+    SPEND_CAP_REASON,
+    credits_exhausted,
+    spend_capped,
+)
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -224,6 +230,16 @@ async def launch_blockers(
 
     Deliberately exhaustive rather than fail-fast: the client fixes them as a list,
     not one 422 at a time.
+
+    The rules that also live in the per-dial gate (`compliance.service.check_dispatch`)
+    are asked HERE TOO, under the same names: an agent that may not place calls, a
+    tenant at its spend cap, an empty prepaid wallet. Leaving them to dial time
+    produces the worst possible outcome — a `running` campaign whose every contact is
+    claimed, refused, refunded and rescheduled forever. The client watches a campaign
+    that says "running" and never calls anyone, and nothing in the UI says why. The
+    per-number rules (DNC, calling hours) stay at dial time only: they are per contact
+    and per minute, and a campaign launched at 22:00 to dial tomorrow morning is
+    correct, not blocked.
     """
     blockers: list[LaunchBlocker] = []
     row = (
@@ -231,7 +247,9 @@ async def launch_blockers(
             text(
                 "SELECT c.status, c.classification, c.agent_id, c.dlt_template_id, "
                 "  t.status AS template_status, t.classification AS template_cls, "
-                "  n.series, a.status AS agent_status, a.disclosure_line "
+                "  n.series, n.dlt_status AS number_dlt_status, "
+                "  a.status AS agent_status, a.disclosure_line, "
+                "  a.direction AS agent_direction, a.deleted_at AS agent_deleted_at "
                 "FROM campaigns c "
                 "LEFT JOIN dlt_templates t ON t.id = c.dlt_template_id "
                 "LEFT JOIN phone_numbers n ON n.id = c.number_id "
@@ -251,16 +269,38 @@ async def launch_blockers(
         template_status,
         template_cls,
         series,
+        number_dlt_status,
         agent_status,
         disclosure,
+        agent_direction,
+        agent_deleted_at,
     ) = row
 
     if status not in ("draft", "scheduled"):
         blockers.append(LaunchBlocker("status", f"Campaign is {status}, not draft."))
-    if agent_status != "live":
+    # `agent_missing` / `agent_inbound_only` are the gate's own names for these two —
+    # the dispatcher would refuse every single contact with them.
+    if agent_deleted_at is not None:
+        blockers.append(
+            LaunchBlocker("agent_missing", "The agent this campaign uses has been deleted.")
+        )
+    elif agent_status != "live":
         blockers.append(LaunchBlocker("agent_not_live", "The agent must be published first."))
+    if agent_direction == "inbound":
+        blockers.append(
+            LaunchBlocker(
+                "agent_inbound_only",
+                "This agent only answers calls; it cannot place them.",
+            )
+        )
     if not disclosure or not str(disclosure).strip():
         blockers.append(LaunchBlocker("disclosure_missing", "The agent has no disclosure line."))
+
+    # Tenant-level refusals, asked with the same functions the dial-time gate uses.
+    if await spend_capped(session, tenant_id=tenant_id):
+        blockers.append(LaunchBlocker("spend_cap", SPEND_CAP_REASON))
+    if await credits_exhausted(session, tenant_id=tenant_id):
+        blockers.append(LaunchBlocker("no_credits", NO_CREDITS_REASON))
 
     if template_id is None:
         blockers.append(
@@ -280,26 +320,56 @@ async def launch_blockers(
 
     if series is None:
         blockers.append(LaunchBlocker("number_missing", "Attach a calling number."))
-    elif series not in SERIES_FOR_CLASSIFICATION.get(str(classification), ()):
-        allowed = "/".join(SERIES_FOR_CLASSIFICATION.get(str(classification), ()))
-        blockers.append(
-            LaunchBlocker(
-                "number_series_mismatch",
-                f"A {classification} campaign must dial from a {allowed} number, not {series}.",
+    else:
+        if series not in SERIES_FOR_CLASSIFICATION.get(str(classification), ()):
+            allowed = "/".join(SERIES_FOR_CLASSIFICATION.get(str(classification), ()))
+            blockers.append(
+                LaunchBlocker(
+                    "number_series_mismatch",
+                    f"A {classification} campaign must dial from a {allowed} number, not {series}.",
+                )
             )
-        )
+        # The number-side twin of the template check. `dlt_status` moves to `registered`
+        # through an audited admin step for the same reason `set_template_status` does:
+        # dialling from an unregistered header is the misclassification that gets the
+        # traffic dropped as spam and the complaints filed against the client's PE.
+        if number_dlt_status != "registered":
+            blockers.append(
+                LaunchBlocker(
+                    "number_not_registered",
+                    f"This number's DLT registration is {number_dlt_status}; only a "
+                    "registered number may place campaign calls.",
+                )
+            )
 
-    pending = (
+    # Pending AND dialable are different numbers, and the difference is the whole point
+    # of this blocker: the scrub launch is about to run marks every DNC-listed contact
+    # terminally. Counting raw `pending` rows told the client "you have contacts" and
+    # then launched a campaign with `dialable: 0` — a green button over an empty list.
+    counts = (
         await session.execute(
             text(
-                "SELECT count(*) FROM campaign_contacts WHERE campaign_id = :cid "
-                "AND status = 'pending'"
+                "SELECT count(*) AS pending, count(*) FILTER (WHERE NOT EXISTS ("
+                "  SELECT 1 FROM dnc_list d WHERE d.phone_e164 = cc.phone_e164 "
+                "  AND (d.tenant_id = :tid OR d.tenant_id IS NULL)"
+                ")) AS dialable "
+                "FROM campaign_contacts cc WHERE cc.campaign_id = :cid "
+                "AND cc.status = 'pending'"
             ),
-            {"cid": campaign_id},
+            {"cid": campaign_id, "tid": tenant_id},
         )
-    ).scalar()
+    ).first()
+    pending, dialable = (int(counts[0] or 0), int(counts[1] or 0)) if counts else (0, 0)
     if not pending:
         blockers.append(LaunchBlocker("no_contacts", "The campaign has no dialable contacts."))
+    elif not dialable:
+        blockers.append(
+            LaunchBlocker(
+                "all_contacts_dnc",
+                "Every number on this list has opted out of calls, so there is nothing "
+                "left to dial.",
+            )
+        )
 
     return blockers
 
