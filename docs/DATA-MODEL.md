@@ -92,7 +92,13 @@ transcript_turns(id, tenant_id, call_id, idx INT, speaker ENUM[agent,caller], te
   text_redacted TEXT, lang TEXT, start_ms INT, end_ms INT, UNIQUE(call_id,idx))
   -- default read = text_redacted; raw `text` gated by role + audit_log
 call_extractions(id, tenant_id, call_id, schema_version INT, data JSONB,
-  model TEXT, prompt_version INT, valid BOOL, errors JSONB)
+  model TEXT, prompt_version INT, valid BOOL, errors JSONB,
+  UNIQUE(tenant_id, call_id))       -- ONE extraction per call (migration d3b71c9a5e08)
+  -- Both readers already assumed it: the CRM detail takes `ORDER BY created_at DESC
+  -- LIMIT 1` and the retention eraser rewrites "the" extraction for a call. The pipeline
+  -- upsert closes the REPLAY case; only the constraint closes the RACE (an ARQ retry
+  -- overlapping the reconciliation poller). Keyed on tenant_id FIRST so a unique
+  -- violation is only ever reachable against a row your own RLS policy can see.
 ```
 
 ## 5. Leads (mini-CRM)
@@ -119,8 +125,18 @@ campaigns(id, tenant_id, agent_id, name, classification ENUM[promotional,transac
   -- matches classification (140⇔promotional / 160|standard⇔service-transactional), DNC scrub done.
 campaign_contacts(id, tenant_id, campaign_id, phone_e164, name, custom JSONB,
   status ENUM[pending,dialing,connected,no_answer,failed,dnc_blocked,completed],
-  attempts INT, last_attempt_at, dedupe_hash, UNIQUE(campaign_id, phone_e164))
-dnc_list(id, tenant_id NULL, phone_e164, scope ENUM[global,tenant], source, added_at)
+  attempts INT, last_attempt_at, next_attempt_at, last_call_id NULL → calls ON DELETE
+  SET NULL, dedupe_hash, UNIQUE(campaign_id, phone_e164))
+  -- next_attempt_at is what makes the per-CONTACT backoff ladder above real: the
+  -- dispatcher claims "due pending contacts, oldest first" through
+  -- INDEX ix_campaign_contacts_due (campaign_id, status, next_attempt_at).
+dnc_list(id, tenant_id NULL, phone_e164, scope ENUM[global,tenant], source, added_at,
+  CHECK ((scope='global' AND tenant_id IS NULL) OR (scope='tenant' AND tenant_id IS NOT NULL)),
+  UNIQUE(tenant_id, phone_e164))
+  -- ASYMMETRIC RLS, the one deviation from the §1 pattern: the USING (read) clause also
+  -- admits `tenant_id IS NULL` so a globally suppressed number is honoured for everyone,
+  -- while WITH CHECK (write) does not — a tenant must not be able to suppress a number
+  -- for every other client.
 inbound_webhooks(id, tenant_id, source ENUM[meta_lead_ads,website_form,zoho,sheets,custom],
   secret_ref TEXT, agent_id, mapping JSONB, active BOOL)   -- lead-in → instant call
 outbound_webhooks(id, tenant_id, kind ENUM[webhook,google_sheets], url TEXT,
@@ -151,15 +167,30 @@ dlt_templates(id, tenant_id, kind ENUM[voice], classification, body TEXT,
 ```
 kb_sources(id, tenant_id, agent_id, kind ENUM[file,url,text,call_corpus], name, uri,
   status ENUM[uploaded,parsed,pending_approval,approved,rejected,archived],
-  approved_by, version INT)
-kb_documents(id, tenant_id, source_id, title, meta JSONB)
+  submitted_by, approved_by, approved_at, rejection_reason, published_at,
+  is_active BOOL, version INT, UNIQUE(agent_id, name, version))
+  -- A named source is VERSIONED, and publish eligibility is `approved_at IS NOT NULL`,
+  -- not `status = 'approved'`: FLOWS §7's rollback republishes a version that an earlier
+  -- publish ARCHIVED, and gating on the current status refused the only rows the
+  -- recovery path exists for. Rejection never stamps approved_at, so a rejected source
+  -- still cannot reach an agent.
+kb_documents(id, tenant_id, source_id, idx INT, title, content TEXT, meta JSONB,
+  UNIQUE(source_id, idx))          -- idx = chunk order; the chunks ARE the document
+  -- meta is where provider-side ids live (see the D-28 note above). Specifically
+  -- `meta->>'engine_kb_ref'` on idx = 0 holds the ENGINE's handle for this source's
+  -- attached copy — a source is pushed to the engine as one document, so the handle
+  -- hangs off its first chunk. Without it a published version cannot be withdrawn
+  -- (D-41); it is cleared on detach, because a handle left behind after the engine copy
+  -- is gone would make the NEXT publish refuse for a reason that is no longer true.
 kb_chunks(id, tenant_id, agent_id, document_id, content TEXT, tsv tsvector,
   embedding vector(1024), embed_model TEXT, embed_version TEXT,
   chunk_meta JSONB, version INT, is_active BOOL)
 -- INDEX: HNSW ON kb_chunks USING hnsw(embedding vector_cosine_ops); GIN(tsv);
 --        (tenant_id, agent_id, is_active) btree.
 kb_retrieval_logs(id, tenant_id, call_id, query, tier ENUM[t0,t1,t2,t3,t4],
-  top_ids UUID[], top_score REAL, latency_ms INT)   -- powers knowledge-gap reports
+  top_score REAL, latency_ms INT)   -- powers knowledge-gap reports
+  -- `top_ids UUID[]` was specified here and is NOT in the shipped table: it would point
+  -- at kb_chunks rows, which D-28 made contingency. Add it with the chunks, or not at all.
 ```
 
 ## 8. Billing & Metering (append-only)
@@ -173,6 +204,17 @@ plans(id, tenant_id, setup_fee, monthly_fee, included_min INT, overage_rate,
   effective_from, effective_to)
 credit_ledger(id, tenant_id, delta NUMERIC, reason ENUM[topup,usage,adjustment,refund],
   ref, balance_after, occurred_at, meta JSONB)          -- INSERT-only (hard rule 4)
+-- INDEX ix_credit_ledger_tenant_recent (tenant_id, occurred_at DESC, id DESC)
+--   (migration a6f2e84b1d37). The balance is NOT an aggregate — that is why
+--   balance_after is denormalized — so every read is `ORDER BY occurred_at DESC,
+--   id DESC LIMIT 1` on the pre-dispatch path. The `id DESC` tail is load-bearing:
+--   occurred_at is stamped with clock_timestamp(), so "newest" must be a TOTAL order or
+--   two readers disagree about which row it is. `ix_credit_ledger_tenant_id` is now a
+--   redundant prefix and is deliberately NOT dropped in the same release (hard rule 8).
+--   REFUSED in the same migration, and recorded so nobody re-derives it: a partial
+--   UNIQUE(tenant_id, ref) WHERE reason IN ('topup','usage') would make double-crediting
+--   impossible instead of merely unlikely, but existing rows violate it and this is an
+--   append-only ledger — the fix is compensating entries by a person, then the index.
 spend_state(tenant_id PK, month, minutes_used NUMERIC, spend_used NUMERIC, capped BOOL)
   -- read by the COMPLIANCE GATE before every outbound dispatch (fail closed when capped)
   -- — apps/api/compliance/service.py, not voice-runtime; see TRD §9
@@ -209,7 +251,10 @@ retention_policies(id, tenant_id, data_category ENUM[recording,transcript,lead,c
 deletion_requests(id, tenant_id, phone_e164, scope, requested_at, completed_at,
   proof JSONB)                                       -- deletion-with-proof (DPDP)
 audit_log(id, actor_type ENUM[admin,user,system], actor_id, tenant_id, action, object_type,
-  object_id, ip, at)                                 -- INSERT-only; includes recording/raw-transcript reads
+  object_id, ip, at, prev_hash, entry_hash)          -- INSERT-only; includes recording/
+  -- raw-transcript reads. prev_hash/entry_hash are the D-30 hash chain: each entry
+  -- commits to its predecessor, so a deleted or edited row breaks verification
+  -- (`GET /v1/ops/audit/verify`) instead of disappearing quietly.
 webhook_deliveries(id, direction ENUM[in,out], source, event_type, status, attempts,
   signature_valid BOOL, payload_ref, endpoint_id NULL → outbound_webhooks ON DELETE SET NULL,
   first_at, last_at)                 -- ONE row per delivery, not per attempt
@@ -218,8 +263,15 @@ webhook_deliveries(id, direction ENUM[in,out], source, event_type, status, attem
   -- table needs no policy of its own.
 -- Reliability triad (D-30, BACKEND-PATTERNS §4; all claims via conditional-UPDATE CAS):
 outbox_messages(id, queue, job, payload JSONB, status ENUM[pending,published,failed],
-  attempt_count INT, job_id, published_at, last_error)      -- written in the SAME txn
-  -- as the domain write; ARQ dispatcher polls oldest-first; >=5 attempts -> failed(DLQ)
+  attempt_count INT, locked_until, job_id, published_at, last_error)  -- written in the
+  -- SAME txn as the domain write; ARQ dispatcher polls oldest-first; >=5 attempts ->
+  -- failed(DLQ). INDEX ix_outbox_pending (status, created_at) serves the claim.
+  -- locked_until = the claim LEASE (D-42, migration 7c04ab5f9e26), nullable: NULL means
+  -- never claimed or the claim is resolved. It exists because the attempt bump has to
+  -- COMMIT to survive a SIGKILL, and committing releases the FOR UPDATE locks — so
+  -- exclusivity moves onto the row. Claim predicate: `status = 'pending' AND
+  -- (locked_until IS NULL OR locked_until <= now())`. A lapsed lease needs no reaper;
+  -- status keeps its three values, so every existing reader stays correct.
 webhook_inbox_events(id, provider, event_key, payload_hash, status
   ENUM[processing,enqueued,processed,failed], event_name, duplicate_count INT NOT NULL
   DEFAULT 0, enqueued_at, processed_at, last_error,

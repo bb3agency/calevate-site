@@ -117,9 +117,22 @@ class VoiceEngine(Protocol):
     async def start_outbound_call(self, ref, to: E164, ctx: CallContext) -> CallHandle
     async def end_call(self, call_id: str) -> None
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None
-    async def provision_number(self, spec: NumberSpec) -> PhoneNumber
-    async def attach_kb(self, ref, source: KBSourceRef) -> None
-    def verify_webhook(self, headers, body) -> bool  # per-engine: HMAC, or source-IP+dedupe (§5)
+    async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber
+    async def attach_kb(self, ref, source: KBSourceRef) -> EngineKBRef   # the ENGINE's own
+        # handle for its copy (Bolna: rag_id). Returning it is the whole reason a
+        # superseded version can ever be removed — our kb_sources.id addresses nothing on
+        # their side, so an adapter with nothing to return has a KB that can only grow (D-41)
+    async def detach_kb(self, ref, kb: EngineKBRef) -> None   # must be REAL: a no-op turns
+        # publish into a silent lie. Detaching a handle the engine never issued RAISES
+    async def list_kb(self, ref) -> list[EngineKBRef]         # what the agent actually holds —
+        # the only adapter-independent way to prove a detach did anything
+    async def get_execution(self, call_id: str) -> ExecutionSnapshot   # the authenticated
+        # read; THIS, not the webhook, is what we persist
+    async def list_executions(self, *, since: datetime) -> list[ExecutionSnapshot]  # backs the
+        # reconciliation poller (D-31: guarantee of record, not a safety net)
+    def verify_webhook(self, headers, body: bytes, source_ip: str) -> WebhookVerdict
+        # per-engine: HMAC where the engine signs, source-IP + dedupe where it does not (§5).
+        # A verdict, not a bool, so an UNSIGNED accept is recorded as the hint it is
     def parse_webhook(self, payload: dict) -> CallEvent       # → OUR normalized event
 ```
 
@@ -178,8 +191,14 @@ scorecard — D-31]:
 - **Campaign built-ins** (configure, don't rebuild): batch APIs with per-contact retry
   on outcome (no-answer/busy/failed/error/voicemail, ≤3 attempts, spaced delays) —
   exact API mechanics, pacing and limits unpublished (pilot). Built-in KB: rag_id CRUD
-  API (POST/GET/DELETE /knowledgebase), multiple KBs per agent; multilingual mode
-  names Hindi/Tamil — **Telugu KB quality is a pilot gate**. Custom functions follow
+  API (POST /knowledgebase, GET /knowledgebase/all, GET|DELETE /knowledgebase/{rag_id}),
+  multiple KBs per agent; multilingual mode
+  names Hindi/Tamil — **Telugu KB quality is a pilot gate**. The ROUTES and the fact that
+  a KB is addressed by the vendor's `rag_id` are verified from published docs; every
+  BODY on this path is a hand-maintained claim (no OpenAPI spec), including the `rag_id`
+  field name and the list row shape — the two that decide whether D-41's detach works are
+  pilot gate 8 questions: does the list response carry the agent linkage `list_kb`
+  filters on, and does deleting a KB clear the agent's reference to it? Custom functions follow
   the OpenAI function-calling schema (bearer/custom-header auth, pre_call_message
   filler line).
 - **BYOK key custody — where the keys actually live.** First, a terminology fix: in this

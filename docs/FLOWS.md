@@ -177,7 +177,19 @@ finishes the job on the first attempt, so `max_tries` counts nothing for it.
 Client (owner) uploads doc / pastes text / submits URL → parse+chunk → side-by-side
 preview → client submits → admin approve (or auto-approve toggle per client later) →
 version bump → embeddings → T0 recompilation → engine KB sync → regression smoke
-(3 canned questions answered from new content) → live. Rollback = reactivate prior version.
+(3 canned questions answered from new content) → live. Rollback = republish an earlier
+version (the archived row; eligibility is `approved_at IS NOT NULL`, never the current
+`status`, or the recovery path refuses the only rows it exists for).
+
+**Engine KB sync is DETACH-then-attach, and a failed detach aborts the publish (D-41).**
+Archiving a row only changes our tables; what the caller hears is what the ENGINE holds,
+so the superseded version is withdrawn from the agent before the new one is pushed — push
+first and the agent can answer from either version, and a rollback leaves every version
+live at once. If the withdrawal is not confirmed, nothing is published and the previously
+approved version stays live: publishing over a version we could not retract is the defect,
+and dropping the old while publishing nothing is an outage. The ordering costs one gap —
+between detach and attach the agent has no copy of that source and answers T4
+"I don't know" — which is cheaper than a stale price the client is then held to.
 
 ## 8. Billing Cycle
 

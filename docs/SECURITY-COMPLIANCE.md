@@ -56,10 +56,52 @@ A campaign cannot launch unless ALL of:
 | Notice + consent | Client-facing DPA + privacy notice; caller disclosure line; consent_ledger |
 | Purpose limitation | data_category on storage; consent purpose enum; no secondary use of client data (we are Data Processor for clients' caller data; Fiduciary for client-account data — recorded in DPA) |
 | Retention limits | retention_policies per category with TTL enforcement job; recording floor 90 days (TRAI), default 180; BFSI clients configurable ≥ regulator minimum; transcripts/leads default 24 months |
-| Erasure with proof | deletion_requests workflow: locate by phone across calls/turns/leads/recordings → delete/anonymize → write proof JSON (what, where, when, hashes) → certificate to requester; covers our object storage AND engine copies (adapter deletes engine-side records; Bolna's deletion API is undocumented — pilot gate, and a written erasure commitment goes in the Bolna contract) |
+| Erasure with proof | deletion_requests workflow: `POST /v1/compliance/deletion-requests` writes the row and queues the worker in ONE transaction (transactional outbox) → locate by phone across calls/turns/extractions/leads/recordings → delete/anonymize → write proof JSON (what, where, when, hashes) → certificate to requester; covers our object storage AND engine copies (adapter deletes engine-side records; Bolna's deletion API is undocumented — pilot gate, and a written erasure commitment goes in the Bolna contract, so the certificate reports engine-side deletion as `unconfirmed_pending_vendor_api` rather than claiming it). **Recordings under 90 days: see the open decision below — this row and the retention row above point in opposite directions.** |
 | Breach notification | Incident runbook (OPERATIONS.md §7): classify, contain, notify Board + principals per Rules timeline; webhook_deliveries + audit_log provide forensic trail |
 | Security safeguards | §5 below |
 | Cross-border | CAUTION (D-31): Bolna call recordings observed on S3 us-east-1; their Enterprise tier offers full India data-residency (audio, transcripts, logs, in-India inference) — residency posture must be pinned in the Bolna contract and disclosed in the client DPA until then. **Models are all-India BY DEFAULT since D-36** — Sarvam is sovereign and now serves STT, LLM *and* TTS, so no transcript text leaves India on the default stack. This inverts the earlier posture: "all-India" is no longer a client opt-in at a quality tradeoff, it is what ships. Gemini remains a *configurable fallback*; enabling it sends transcript text (never audio) to Google and therefore requires a DPA disclosure and an explicit per-tenant decision — treat switching an agent to Gemini as a residency change, not a config tweak. This is a live differentiator: Outpero's privacy policy admits "some providers may process data on servers located outside India" (evidence/outpero-teardown-aug2026.md §9b) |
+
+**OPEN DECISION — erasure vs. the 90-day recording floor.** Surfaced by the DPDP erasure
+producer (`apps/api/compliance/deletion.py`), stated here rather than resolved, because
+two adjacent rows of the table above point opposite ways for one concrete case: a call
+recording less than 90 days old, whose subject has just asked to be erased.
+
+- **§4 "Erasure with proof"** describes the workflow as covering *recordings*, in our
+  object storage and on the engine.
+- **§1 (TRAI recording rule) and §4's own retention row** record a **90-day minimum
+  retention** of call recordings on Indian infrastructure — a floor the codebase treats
+  as binding in two independent places: a DB CHECK on `retention_policies.ttl_days`, and
+  `apply_retention` clamping every recording TTL to `RECORDING_FLOOR_DAYS = 90`.
+
+Both readings are defensible. *Erasure wins*: DPDP's right is the data principal's, the
+TRAI rule governs a telemarketer's own record-keeping, and a Processor that cannot delete
+on instruction has a compliance gap. *Retention wins*: a statutory retention obligation is
+one of the standard grounds on which an erasure request is lawfully deferred, and
+destroying the recording destroys the evidence that the call itself was compliant.
+
+**What the code does today** — a half-pick nobody appears to have decided:
+`execute_deletion_request` clears `calls.recording_url` **unconditionally, at any age**,
+in the same statement that nulls `from_e164`/`to_e164`/`summary`; the audio bytes are
+removed by the object-store lifecycle rule that follows the retention policy, and that
+rule is floored at 90 days. So the *pointer* goes immediately — nothing in our system can
+reach the audio — while the *bytes* may lawfully survive the request. That position is
+shipped honestly rather than hidden: it is the first entry of `ERASURE_LIMITATIONS`,
+returned on every deletion-request response, naming both sections so whoever hands the
+certificate to a data principal knows they are standing on an unresolved question.
+
+**And the lifecycle rule is not built.** Three modules (`workers/retention.py`,
+`workers/storage.py`, `compliance/deletion.py`) name an object-store lifecycle rule as the
+mechanism that removes the audio; nothing configures one — `infra/` does not exist in the
+repository yet, so there is no Terraform bucket policy to carry it. So today the bytes
+are not deleted by anything — the pointer-clear is the whole of the erasure, and the
+"defensible reading" above is only defensible once that rule exists. Building it is
+prerequisite work for this decision, not a consequence of it.
+
+Resolving it is a decision-log entry against this section (ROADMAP §6), and it needs the
+Bolna erasure commitment from pilot gate 12(f) in hand — an answer that binds our storage
+but not the engine's is not an answer. Until then: do not narrow the certificate's
+limitations text, and do not make the pointer-clear conditional on age without deciding
+this first.
 
 **PII redaction (workers step 2):** regex + validator pass for Aadhaar (Verhoeff), PAN,
 card (Luhn), OTP patterns, plus LLM-assisted pass for spoken-out numbers; produces

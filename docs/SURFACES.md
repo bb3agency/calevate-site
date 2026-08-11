@@ -111,8 +111,10 @@ same client app** — a self-serve org is the same `organizations` row with a di
 
 **Where we deliberately go further** (teardown §9d table): HMAC-signed webhooks with
 timestamp + replay protection (they use a URL-path token and an *optional* header);
-outbox-backed delivery (publish retried up to `OUTBOX_MAX_ATTEMPTS` = 5 by the dispatcher
-— per-delivery retry is the open gap in §3.1), a delivery log and **replay** (they fire
+outbox-backed delivery (publish retried up to `OUTBOX_MAX_ATTEMPTS` = 5 by the dispatcher,
+plus a per-delivery ladder of `WORKER_MAX_TRIES` = 3 attempts at 30s/120s — no longer a
+gap: the delivery worker raises `arq.Retry(defer=…)`, see §3.1 and the FLOWS §6 note), a
+delivery log and **replay** (they fire
 once and can arrive with null fields); a **published, versioned** outbound payload schema
 (theirs is undocumented); **a direct lead-ingest endpoint** —
 `POST /hooks/v1/ingest/{webhook_id}` with per-endpoint secret, field mapping and a
@@ -154,7 +156,19 @@ Admin realm (`/admin/…`)
 Compliance API (client realm)
 - **DNC**: `GET|POST /v1/dnc`, `POST /v1/dnc/check`, `DELETE /v1/dnc/{entry_id}`.
 - **DPDP subject export**: `POST /v1/compliance/subject-export`.
+- **DPDP erasure**: `POST /v1/compliance/deletion-requests` (201; idempotent per open
+  request — a duplicate is a 200-shaped body with `already_open`, not a 409) and
+  `GET /v1/compliance/deletion-requests/{request_id}` for the proof certificate. Filing
+  and status reads carry DIFFERENT permissions on purpose: filing is mutating, so D-22
+  refuses it to an impersonating admin; a status read discloses no personal data and
+  stays available to them. Every response carries the erasure's stated limitations
+  (SEC-COMP §4). Both surfaces speak `subject_ref`, never the phone number.
 - **Voice catalog**: `GET /v1/agents/voices` (D-36's premium/value ladder as data).
+
+Shared shape across all three compliance surfaces: a phone number is submitted in a POST
+body and everything afterwards is keyed by an opaque id, never `GET /…/{phone}`. The
+identifier IS the personal data, and a number in a URL lands in access logs, proxy logs,
+referrers and browser history (hard rule 6).
 
 ## 3. Integration Layer (our site ⇄ engine [Bolna, D-31]) — DECIDED doctrine
 
@@ -198,8 +212,9 @@ Queue-first, idempotent, replayable — the industry-standard shape, mapped to o
 Outbound webhooks (us → client tools, D-23) mirror the same doctrine from the sender
 side: our envelope, HMAC signing, the same flat 3-attempt ladder (`MAX_ATTEMPTS` is
 `WORKER_MAX_TRIES` — deliberately ONE budget so the last try knows it is the last and the
-`outbound_webhook_exhausted` alert has a moment to fire; ⚠ blocked by the same FLOWS §6
-gap, so that alert cannot fire yet), delivery log (webhook_deliveries direction=out, one
+`outbound_webhook_exhausted` alert has a moment to fire; the FLOWS §6 arq trap that made
+that alert unreachable is FIXED — `deliver_outbound_webhook` raises `arq.Retry(defer=…)`,
+so the ladder walks and the exhaustion branch is live), delivery log (webhook_deliveries direction=out, one
 row per delivery with `endpoint_id`), and a per-endpoint disable switch on repeated
 failure. The client-facing form of these rules is WEBHOOKS §1.5.
 
