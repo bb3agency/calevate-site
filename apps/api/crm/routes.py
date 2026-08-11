@@ -26,6 +26,8 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.crm import service
 from apps.api.crm.schemas import (
+    CallbackEligibilityOut,
+    CallbackOut,
     CallDetailOut,
     CallLeadIn,
     CallLeadOut,
@@ -314,6 +316,125 @@ async def call_lead(
             response_status=200,
             response_payload=result.model_dump(),
         )
+    return result
+
+
+@router.get(
+    "/calls/{call_id}/callback",
+    response_model=CallbackEligibilityOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Whether this call may be followed up, and why not (D-21)",
+)
+async def callback_eligibility(
+    call_id: UUID,
+    session: Session,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> CallbackEligibilityOut:
+    """A GET so the button renders disabled-with-a-reason on page load.
+
+    Both the eligibility rules AND the compliance gate are evaluated, because a call
+    that is eligible on our rules can still be un-dialable right now (outside calling
+    hours, DNC, spend cap) — and "the button is greyed out and I do not know why" is
+    the exact failure SURFACES §2b exists to prevent.
+    """
+    assert principal.tenant_id is not None
+    try:
+        plan = await service.plan_callback(session, call_id)
+    except ProblemError as problem:
+        if problem.kind != "business_rule":
+            raise
+        return CallbackEligibilityOut(eligible=False, reason=problem.detail, rule=problem.code)
+
+    decision = await check_dispatch(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=plan.agent_id,
+        phone_e164=plan.phone_e164,
+    )
+    if not decision.allowed:
+        return CallbackEligibilityOut(eligible=False, reason=decision.reason, rule=decision.rule)
+    return CallbackEligibilityOut(eligible=True, follow_up_number=plan.depth + 1)
+
+
+@router.post(
+    "/calls/{call_id}/callback",
+    response_model=CallbackOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="AI callback with prior-call context (D-21) — same gate, bounded chain",
+)
+async def call_back(
+    call_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> CallbackOut:
+    """Re-dispatch the same agent to the same lead, carrying what happened last time.
+
+    Idempotency keys off the CALL, not a client-supplied header: the natural key for
+    "follow up this call" is the call itself, and a double-click must not ring a
+    customer twice even from two browser tabs.
+    """
+    assert principal.tenant_id is not None
+    plan = await service.plan_callback(session, call_id)
+
+    claim = await claim_idempotency(
+        session,
+        scope=scope_key(tenant_id=principal.tenant_id, user_id=principal.user_id),
+        route="/v1/calls/{call_id}/callback",
+        method="POST",
+        key=str(call_id),
+        request_hash=body_hash({"call_id": str(call_id)}),
+    )
+    if claim.state == "replay" and claim.response_payload:
+        return CallbackOut.model_validate(claim.response_payload)
+
+    decision = await check_dispatch(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=plan.agent_id,
+        phone_e164=plan.phone_e164,
+    )
+    if not decision.allowed:
+        result = CallbackOut(
+            status="blocked", blocked_reason=decision.reason, blocked_rule=decision.rule
+        )
+        await complete_idempotency(
+            session,
+            record_id=claim.record_id,
+            response_status=200,
+            response_payload=result.model_dump(),
+        )
+        return result
+
+    from apps.api.agents.service import dispatch_call
+
+    handle = await dispatch_call(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=plan.agent_id,
+        lead_id=plan.lead_id,
+        phone_e164=plan.phone_e164,
+        lead_name=plan.lead_name,
+        context_note=plan.context_note,
+    )
+    await service.link_callback(session, handle=handle, parent_call_id=call_id)
+    await write_audit(
+        session,
+        action="call.callback_dispatched",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="call",
+        object_id=str(call_id),
+        ip=request.client.host if request.client else None,
+        summary={"follow_up_number": plan.depth + 1},
+    )
+    result = CallbackOut(status="queued", call_handle=handle, follow_up_number=plan.depth + 1)
+    await complete_idempotency(
+        session,
+        record_id=claim.record_id,
+        response_status=200,
+        response_payload=result.model_dump(),
+    )
     return result
 
 

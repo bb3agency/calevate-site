@@ -80,6 +80,11 @@ class Call(PKMixin, TimestampMixin, Base):
     summary: Mapped[str | None] = mapped_column(Text)
     campaign_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))  # FK lands M2
     lead_id: Mapped[UUID | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"))
+    # D-21 M2: the call this one follows up. Bounds the callback chain — see migration
+    # efb47868ec59 for why an unbounded one is a compliance problem, not a UX one.
+    callback_of_call_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("calls.id", ondelete="RESTRICT")
+    )
     # {stt_ms, llm_ttft_ms, tts_ttfa_ms, turn_p50, turn_p95}
     latency: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     engine_payload_ref: Mapped[str | None] = mapped_column(Text)  # raw vendor payload (debug only)

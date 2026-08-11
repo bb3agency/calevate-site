@@ -22,6 +22,8 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
+import type { components } from "./schema";
+
 import {
   apiRequest,
   type CallDetail,
@@ -142,6 +144,40 @@ export function useCallLead(session: Session) {
         idempotencyKey: crypto.randomUUID(),
       }),
     onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
+    },
+  });
+}
+
+/**
+ * D-21 M2: follow up a call that ended without a resolution.
+ *
+ * Eligibility is a QUERY, not a post-click surprise — the call detail screen renders
+ * the button disabled with the reason beside it, the same doctrine the campaign
+ * launch check follows. The server re-runs both the eligibility rules and the
+ * compliance gate on POST; this is a preview of that answer, never a substitute.
+ */
+export function useCallbackEligibility(session: Session, callId: string) {
+  return useQuery({
+    queryKey: ["callback-check", callId],
+    queryFn: () =>
+      apiRequest<components["schemas"]["CallbackEligibilityOut"]>(
+        session,
+        `/v1/calls/${callId}/callback`,
+      ),
+    enabled: Boolean(callId),
+  });
+}
+
+export function useCallBack(session: Session, callId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<components["schemas"]["CallbackOut"]>(session, `/v1/calls/${callId}/callback`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["callback-check", callId] });
       void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
     },
   });

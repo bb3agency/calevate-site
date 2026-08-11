@@ -114,6 +114,25 @@ class CallLeadOut(Strict):
     blocked_rule: str | None = None
 
 
+class CallbackOut(Strict):
+    """D-21 M2. `eligible` is a first-class answer, not an error: the call detail
+    screen renders the button disabled with `blocked_reason` rather than hiding it,
+    which is what SURFACES §2b asks of every gated action."""
+
+    status: Literal["queued", "blocked"]
+    call_handle: str | None = None
+    blocked_reason: str | None = None
+    blocked_rule: str | None = None
+    follow_up_number: int | None = None
+
+
+class CallbackEligibilityOut(Strict):
+    eligible: bool
+    reason: str | None = None
+    rule: str | None = None
+    follow_up_number: int | None = None
+
+
 class DashboardOut(Strict):
     calls_today: int
     calls_7d: int
@@ -132,6 +151,8 @@ __all__ = [
     "CallLeadIn",
     "CallLeadOut",
     "CallSummaryOut",
+    "CallbackEligibilityOut",
+    "CallbackOut",
     "DashboardOut",
     "LeadListOut",
     "LeadOut",

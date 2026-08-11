@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import io
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -435,16 +436,163 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
     )
 
 
+# D-21 M2: a callback is a call whose reason is another call. Both numbers below are
+# deliberately conservative, and both are about the person being rung rather than about
+# us: three chained callbacks is already a robot that has phoned someone three times
+# about one enquiry, and a follow-up a fortnight later is a cold call wearing a
+# follow-up's clothes.
+MAX_CALLBACK_DEPTH = 2
+CALLBACK_WINDOW_DAYS = 7
+# Outcomes a callback makes sense for. `resolved` is excluded on purpose: the whole
+# point of recording an outcome is that we then act differently on it.
+CALLBACK_OUTCOMES = ("needs_follow_up", "dropped")
+CALLBACK_STATUSES = ("no_answer", "busy", "voicemail", "completed")
+
+
+@dataclass(frozen=True, slots=True)
+class CallbackPlan:
+    """Everything the dispatch needs, plus the reason it is allowed."""
+
+    lead_id: UUID
+    agent_id: UUID
+    phone_e164: str
+    lead_name: str | None
+    context_note: str
+    depth: int
+
+
+async def plan_callback(session: AsyncSession, call_id: UUID) -> CallbackPlan:
+    """Decide whether this call may be followed up, and with what context.
+
+    Refuses by NAMED rule rather than a bare 422, for the same reason the campaign
+    launch gate does: the button needs to explain itself (SURFACES §2b).
+
+    The context handed to the agent is OUR summary, never the transcript. A transcript
+    is the most sensitive artefact we hold; a summary is what a human colleague would
+    be told before picking up the phone, and it is what the extraction step already
+    produced and the client already reads.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT c.lead_id, c.agent_id, c.status, c.outcome_tag, c.summary, "
+                "  c.created_at, c.callback_of_call_id, l.phone_e164, l.name, a.direction "
+                "FROM calls c "
+                "LEFT JOIN leads l ON l.id = c.lead_id "
+                "JOIN agents a ON a.id = c.agent_id "
+                "WHERE c.id = :cid"
+            ),
+            {"cid": call_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Call")
+    (
+        lead_id,
+        agent_id,
+        status,
+        outcome,
+        summary,
+        created_at,
+        parent,
+        phone,
+        lead_name,
+        direction,
+    ) = row
+
+    if lead_id is None or phone is None:
+        raise ProblemError.business_rule(
+            "callback_no_lead",
+            "This call is not linked to a lead, so there is no one to call back.",
+        )
+    if status not in CALLBACK_STATUSES:
+        raise ProblemError.business_rule(
+            "callback_call_unfinished",
+            "This call has not finished yet.",
+            remediation="Wait for the call to end, then try again.",
+        )
+    if status == "completed" and outcome not in CALLBACK_OUTCOMES:
+        raise ProblemError.business_rule(
+            "callback_not_needed",
+            f"This call was marked {outcome or 'resolved'}, so no follow-up is due.",
+        )
+    if direction == "inbound":
+        # The agent that ANSWERS is not necessarily configured to place calls, and
+        # dispatching through it would fail at the gate anyway — say so here instead.
+        raise ProblemError.business_rule(
+            "callback_agent_inbound_only",
+            "This agent only answers calls; it cannot place a callback.",
+        )
+
+    age_days = (datetime.now(UTC) - created_at).days if created_at else 0
+    if age_days > CALLBACK_WINDOW_DAYS:
+        raise ProblemError.business_rule(
+            "callback_too_old",
+            f"This call was {age_days} days ago; a follow-up now would read as a cold call.",
+            remediation="Call the lead directly from the Leads table instead.",
+        )
+
+    depth = 0
+    cursor = parent
+    while cursor is not None and depth < 10:
+        depth += 1
+        cursor = (
+            await session.execute(
+                text("SELECT callback_of_call_id FROM calls WHERE id = :cid"), {"cid": cursor}
+            )
+        ).scalar()
+    if depth >= MAX_CALLBACK_DEPTH:
+        raise ProblemError.business_rule(
+            "callback_chain_exhausted",
+            "We have already followed up on this conversation twice.",
+            remediation="A person should make the next call.",
+        )
+
+    note = (
+        f"This is a follow-up to an earlier call. What happened last time: {str(summary).strip()}"
+        if summary
+        else "This is a follow-up to an earlier call that ended without a resolution."
+    )
+    return CallbackPlan(
+        lead_id=UUID(str(lead_id)),
+        agent_id=UUID(str(agent_id)),
+        phone_e164=str(phone),
+        lead_name=lead_name,
+        context_note=note,
+        depth=depth,
+    )
+
+
+async def link_callback(session: AsyncSession, *, handle: str, parent_call_id: UUID) -> None:
+    """Stamp the new call as a follow-up of the old one, by engine handle.
+
+    Separate from `dispatch_call` on purpose: that function is the ONE outbound entry
+    point and must not grow a parameter per caller (D-21 button, campaigns, webhooks).
+    """
+    await session.execute(
+        text(
+            "UPDATE calls SET callback_of_call_id = :parent, updated_at = now() "
+            "WHERE engine_call_id = :handle"
+        ),
+        {"parent": parent_call_id, "handle": handle},
+    )
+
+
 __all__ = [
+    "CALLBACK_OUTCOMES",
+    "MAX_CALLBACK_DEPTH",
+    "CallbackPlan",
     "dashboard",
     "export_leads_csv",
     "get_call",
     "get_lead",
     "lead_columns",
     "lead_phone",
+    "link_callback",
     "list_calls",
     "list_leads",
     "mask_phone",
+    "plan_callback",
     "recording_key_for",
     "update_lead",
 ]

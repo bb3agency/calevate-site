@@ -730,6 +730,38 @@ retry path working).
 
 165 tests.
 
+**35. One-click AI callback — `apps/api/crm/` + the call detail screen** (D-21 M2 half)
+
+"Trigger an AI callback on needs-follow-up calls": the agent is re-dispatched to the
+same lead carrying what happened last time. `GET /v1/calls/{id}/callback` answers
+whether it may happen and why not; `POST` does it. Migration `efb47868ec59` adds
+`calls.callback_of_call_id`.
+
+**Almost all of this feature is refusals, and that is the design.** A robot ringing a
+customer again and again because each call ended inconclusively is the harm TRAI's
+rules exist to prevent, so the bounds are code, not policy:
+
+- **The chain is capped at two follow-ups**, which is what `callback_of_call_id` is
+  for — without the link the bound is unenforceable, so a test dispatches a real
+  callback and walks the chain to exhaustion.
+- **Seven-day freshness window.** A follow-up a fortnight later is a cold call wearing
+  a follow-up's clothes, and the refusal says so.
+- `resolved` is not followed up (the point of recording an outcome is acting
+  differently on it); an unfinished call is refused; a call with no lead has nobody to
+  ring; an inbound-only agent is told so here rather than failing at the gate.
+- The context handed to the agent is OUR summary, never the transcript — asserted by a
+  test that plants an Aadhaar-shaped line in the transcript and checks it does not
+  travel. A call with no summary still opens coherently instead of saying "None".
+- Idempotency keys off the CALL rather than a client header: the natural key for
+  "follow up this call" is the call, and two browser tabs must not ring a customer
+  twice.
+
+The eligibility GET evaluates the compliance gate too, so the button is disabled with
+the *real* reason — verified in the browser at 07:00 IST, where it correctly reads
+"Outbound calls are only placed between 9:00 and 21:00 IST".
+
+174 tests.
+
 ### Where the next session should start
 
 1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
@@ -737,8 +769,9 @@ retry path working).
    and the Langfuse hook are wired; distributed tracing is not).
 2. Remaining M2 openers: WhatsApp alerts, self-serve signup UI, Razorpay top-ups into
    `credit_ledger`, Google Sheets sync (the other half of D-23 — the `google_sheets`
-   endpoint kind is in the schema and unimplemented), one-click AI callback (D-21).
+   endpoint kind is in the schema and unimplemented), billing surfaces (usage panel,
+   margin panel, invoices).
 4. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
    number provisioning, transfer, the test-call gate, real latency numbers.
-5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (165 tests),
+5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (174 tests),
    `uv run mypy apps packages`, `make guardrails` and `pnpm -C apps/web lint` before changing anything.

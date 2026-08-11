@@ -524,6 +524,116 @@
         "title": "CallSummaryOut",
         "type": "object"
       },
+      "CallbackEligibilityOut": {
+        "additionalProperties": false,
+        "properties": {
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "follow_up_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Number"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          }
+        },
+        "required": [
+          "eligible"
+        ],
+        "title": "CallbackEligibilityOut",
+        "type": "object"
+      },
+      "CallbackOut": {
+        "additionalProperties": false,
+        "description": "D-21 M2. `eligible` is a first-class answer, not an error: the call detail\nscreen renders the button disabled with `blocked_reason` rather than hiding it,\nwhich is what SURFACES \u00a72b asks of every gated action.",
+        "properties": {
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "blocked_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Rule"
+          },
+          "call_handle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Handle"
+          },
+          "follow_up_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Number"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "blocked"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "CallbackOut",
+        "type": "object"
+      },
       "CampaignSummaryOut": {
         "additionalProperties": false,
         "properties": {
@@ -3264,6 +3374,86 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/calls/{call_id}/callback": {
+      "get": {
+        "description": "A GET so the button renders disabled-with-a-reason on page load.\n\nBoth the eligibility rules AND the compliance gate are evaluated, because a call\nthat is eligible on our rules can still be un-dialable right now (outside calling\nhours, DNC, spend cap) \u2014 and \"the button is greyed out and I do not know why\" is\nthe exact failure SURFACES \u00a72b exists to prevent.",
+        "operationId": "callback_eligibility_v1_calls__call_id__callback_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallbackEligibilityOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether this call may be followed up, and why not (D-21)",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      },
+      "post": {
+        "description": "Re-dispatch the same agent to the same lead, carrying what happened last time.\n\nIdempotency keys off the CALL, not a client-supplied header: the natural key for\n\"follow up this call\" is the call itself, and a double-click must not ring a\ncustomer twice even from two browser tabs.",
+        "operationId": "call_back_v1_calls__call_id__callback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "AI callback with prior-call context (D-21) \u2014 same gate, bounded chain",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:dispatch"
       }
     },
     "/v1/calls/{call_id}/recording": {

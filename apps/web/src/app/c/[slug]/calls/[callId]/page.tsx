@@ -13,7 +13,7 @@ import {
   formatIST,
 } from "@/components/ui";
 import { devSession } from "@/lib/api/client";
-import { useCall } from "@/lib/api/hooks";
+import { useCall, useCallBack, useCallbackEligibility } from "@/lib/api/hooks";
 
 export default function CallDetailPage({
   params,
@@ -23,6 +23,8 @@ export default function CallDetailPage({
   const { slug, callId } = use(params);
   const session = devSession(slug);
   const call = useCall(session, callId);
+  const eligibility = useCallbackEligibility(session, callId);
+  const callback = useCallBack(session, callId);
 
   if (call.isLoading) return <Skeleton rows={8} />;
   if (call.error) return <ProblemNotice error={call.error} onRetry={() => call.refetch()} />;
@@ -42,6 +44,50 @@ export default function CallDetailPage({
           {detail.caller_masked ?? "—"}
         </span>
       </div>
+
+      {callback.error && <ProblemNotice error={callback.error} />}
+
+      {/* D-21 M2. Rendered whenever the API has an opinion — disabled WITH the reason
+          rather than hidden, so "why can't I follow this up?" is answered on screen.
+          The refusals are mostly protective (we have already followed up twice; the
+          call is a fortnight old), and a client who cannot see them assumes a bug. */}
+      {eligibility.data && (
+        <Card title="Follow up">
+          {callback.data?.status === "queued" ? (
+            <p className="text-sm text-emerald-700 dark:text-emerald-400">
+              Calling back now — follow-up #{callback.data.follow_up_number}. It will
+              appear in your calls list in a moment.
+            </p>
+          ) : eligibility.data.eligible ? (
+            <div className="space-y-2">
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                Our agent will call back and pick up where this conversation stopped.
+              </p>
+              <button
+                type="button"
+                disabled={callback.isPending}
+                onClick={() => callback.mutate()}
+                className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+              >
+                {callback.isPending ? "Calling…" : "Call back with AI"}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                {eligibility.data.reason}
+              </p>
+              <button
+                type="button"
+                disabled
+                className="cursor-not-allowed rounded-md bg-slate-200 px-4 py-1.5 text-sm font-medium text-slate-500 dark:bg-slate-800"
+              >
+                Call back with AI
+              </button>
+            </div>
+          )}
+        </Card>
+      )}
 
       {detail.summary && (
         <Card title="Summary">

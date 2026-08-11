@@ -365,6 +365,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls/{call_id}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether this call may be followed up, and why not (D-21)
+         * @description A GET so the button renders disabled-with-a-reason on page load.
+         *
+         *     Both the eligibility rules AND the compliance gate are evaluated, because a call
+         *     that is eligible on our rules can still be un-dialable right now (outside calling
+         *     hours, DNC, spend cap) — and "the button is greyed out and I do not know why" is
+         *     the exact failure SURFACES §2b exists to prevent.
+         */
+        get: operations["callback_eligibility_v1_calls__call_id__callback_get"];
+        put?: never;
+        /**
+         * AI callback with prior-call context (D-21) — same gate, bounded chain
+         * @description Re-dispatch the same agent to the same lead, carrying what happened last time.
+         *
+         *     Idempotency keys off the CALL, not a client-supplied header: the natural key for
+         *     "follow up this call" is the call itself, and a double-click must not ring a
+         *     customer twice even from two browser tabs.
+         */
+        post: operations["call_back_v1_calls__call_id__callback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls/{call_id}/recording": {
         parameters: {
             query?: never;
@@ -1022,6 +1055,38 @@ export interface components {
             status: string;
             /** Summary */
             summary?: string | null;
+        };
+        /** CallbackEligibilityOut */
+        CallbackEligibilityOut: {
+            /** Eligible */
+            eligible: boolean;
+            /** Follow Up Number */
+            follow_up_number?: number | null;
+            /** Reason */
+            reason?: string | null;
+            /** Rule */
+            rule?: string | null;
+        };
+        /**
+         * CallbackOut
+         * @description D-21 M2. `eligible` is a first-class answer, not an error: the call detail
+         *     screen renders the button disabled with `blocked_reason` rather than hiding it,
+         *     which is what SURFACES §2b asks of every gated action.
+         */
+        CallbackOut: {
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /** Blocked Rule */
+            blocked_rule?: string | null;
+            /** Call Handle */
+            call_handle?: string | null;
+            /** Follow Up Number */
+            follow_up_number?: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "blocked";
         };
         /** CampaignSummaryOut */
         CampaignSummaryOut: {
@@ -2401,6 +2466,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallDetailOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    callback_eligibility_v1_calls__call_id__callback_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallbackEligibilityOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    call_back_v1_calls__call_id__callback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallbackOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
