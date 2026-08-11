@@ -12,7 +12,10 @@ there are three ways raw text reaches a browser:
 1. **Declared fields** — walk every response model reachable from the live OpenAPI
    schema, TRANSITIVELY: a model is not safe because the model that nests it is. The
    previous version only inspected the models `$ref`-ed directly by the response, so a
-   raw field one level down was invisible.
+   raw field one level down was invisible. Fields whose name matches a pattern but
+   whose value is the redacted view are exempted ONE AT A TIME in `KNOWN_SAFE_FIELDS`
+   (`Model.field`) — never by model, which would exempt the next field somebody adds
+   to it as well.
 2. **Free-form passthroughs** — a `dict[str, Any]` field is an undeclared response
    model; whatever the query put in it ships. Existing ones are acknowledged by name
    with a reason, so a NEW one is a deliberate, reviewable act.
@@ -48,6 +51,20 @@ RAW_PII_FIELDS: frozenset[str] = frozenset(
         "raw_text",
         "text_raw",
         "transcript_text",
+        # DERIVED transcript text is still transcript text. `calls.summary` is stored
+        # unredacted and is model-written prose about the conversation — the offline
+        # extractor's is a transcript line copied VERBATIM — so a response model that
+        # declares `summary` is declaring a field that can carry a caller's phone
+        # number. This list not naming it is why the calls list shipped that column raw
+        # to every `calls:read` holder while the check reported OK. `call_summary` is
+        # the name the next panel is likely to reach for.
+        #
+        # NOT `notes`: an admin's note on a prompt version or a top-up is prose a
+        # colleague typed about our own records, and a pattern that fires on it teaches
+        # readers to add exemptions rather than to look. Every entry here has to mean
+        # "a caller's own words could be in this".
+        "summary",
+        "call_summary",
         # The engine's own recording URL is vendor-scoped and long-lived; clients get a
         # short-lived presigned link to OUR copy instead.
         "recording_url",
@@ -67,9 +84,31 @@ ALLOWED_ROUTES: dict[str, str] = {
     ),
 }
 
-# Response models whose raw-looking field is not raw. `TranscriptTurnOut.text` holds
-# `text_redacted` by default and carries a `redacted` flag saying which it is.
-KNOWN_SAFE_MODELS: frozenset[str] = frozenset({"TranscriptTurnOut"})
+# Fields whose NAME matches a pattern above but whose VALUE is the redacted view, each
+# with the reason and — more usefully — the test that proves it.
+#
+# Keyed `Model.field`, never by model. A model-level exemption is a hole shaped like the
+# next field somebody adds: exempting `CallSummaryOut` for the sake of `summary` would
+# have blinded this check to a `from_e164` appearing beside it, which is precisely the
+# regression `guardrail_audit_test` mutates the live schema to catch. This registry is a
+# NAMING exemption only — a static schema walk cannot see whether a value was redacted,
+# so each entry names the runtime test that can.
+KNOWN_SAFE_FIELDS: dict[str, str] = {
+    "TranscriptTurnOut.text": (
+        "holds `text_redacted` by default and carries a `redacted` flag saying which it "
+        "is; raw only from the allowlisted route (tests/api_security_test.py)"
+    ),
+    "CallSummaryOut.summary": (
+        "transcript-derived prose put through the same `redact()` pass as "
+        "`text_redacted` by `crm.service.redacted_summary`; the list has no raw variant "
+        "at all (tests/call_summary_redaction_test.py)"
+    ),
+    "CallDetailOut.summary": (
+        "same pass as its own transcript turns, and raw ONLY when the detail is served "
+        "by the allowlisted raw-transcript route, which is role-checked and audited "
+        "(tests/call_summary_redaction_test.py)"
+    ),
+}
 
 # `dict[str, Any]` response fields: the serializer cannot vouch for their contents, so
 # each one is acknowledged here with the reason it is not a redaction bypass.
@@ -137,8 +176,14 @@ def _is_freeform_object(schema: Any) -> bool:
     )
 
 
-def check(spec: dict[str, Any]) -> list[str]:
-    """Schema-level exposure: declared raw fields and undeclared passthroughs."""
+def check(spec: dict[str, Any], safe_fields: dict[str, str] | None = None) -> list[str]:
+    """Schema-level exposure: declared raw fields and undeclared passthroughs.
+
+    `safe_fields` is injectable for the same reason `check_allowlist`'s allowlist is: a
+    guardrail whose exemptions cannot be taken away in a test is a guardrail nobody can
+    prove still sees anything.
+    """
+    known_safe = KNOWN_SAFE_FIELDS if safe_fields is None else safe_fields
     schemas = spec.get("components", {}).get("schemas", {})
     offenders: list[str] = []
 
@@ -152,10 +197,12 @@ def check(spec: dict[str, Any]) -> list[str]:
                 if not str(status).startswith("2"):
                     continue
                 for model_name in sorted(reachable_models(response, schemas)):
-                    if model_name in KNOWN_SAFE_MODELS:
-                        continue
                     properties = schemas.get(model_name, {}).get("properties", {})
-                    exposed = RAW_PII_FIELDS & set(properties)
+                    exposed = {
+                        field
+                        for field in RAW_PII_FIELDS & set(properties)
+                        if f"{model_name}.{field}" not in known_safe
+                    }
                     if exposed:
                         offenders.append(
                             f"{method.upper()} {path} → {model_name} exposes {sorted(exposed)}"
@@ -179,9 +226,10 @@ def check_registry_freshness(spec: dict[str, Any]) -> list[str]:
     for path in sorted(ALLOWED_ROUTES):
         if path not in spec.get("paths", {}):
             failures.append(f"ALLOWED_ROUTES entry {path} matches no route — remove it")
-    for model in sorted(KNOWN_SAFE_MODELS):
-        if model not in schemas:
-            failures.append(f"KNOWN_SAFE_MODELS entry {model} no longer exists — remove it")
+    for key in sorted(KNOWN_SAFE_FIELDS):
+        model, _, field = key.partition(".")
+        if field not in schemas.get(model, {}).get("properties", {}):
+            failures.append(f"KNOWN_SAFE_FIELDS entry {key} no longer exists — remove it")
     for key in sorted(ACKNOWLEDGED_PASSTHROUGH):
         model, _, field = key.partition(".")
         if field not in schemas.get(model, {}).get("properties", {}):
@@ -297,7 +345,8 @@ def main() -> int:
     print(
         f"REDACTION EXPOSURE: OK ({len(ALLOWED_ROUTES)} role-gated exceptions verified "
         f"role-checked + audited, {len(RAW_PII_FIELDS)} field patterns checked "
-        f"transitively, {len(ACKNOWLEDGED_PASSTHROUGH)} acknowledged passthroughs)"
+        f"transitively, {len(KNOWN_SAFE_FIELDS)} redacted-value fields, "
+        f"{len(ACKNOWLEDGED_PASSTHROUGH)} acknowledged passthroughs)"
     )
     return 0
 

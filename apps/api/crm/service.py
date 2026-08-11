@@ -34,6 +34,13 @@ from apps.api.crm.schemas import (
 )
 from apps.api.db.result import rowcount_of
 
+# The SAME pass that produced `text_redacted` — see `redacted_summary`. Imported at
+# module scope unlike `apps.workers.storage` in routes.py: `redaction` is pure regex
+# with no third-party import behind it, so it costs nothing at cold start, and a lazy
+# import of the function that enforces hard rule 5 is a function that is easy to
+# forget to call.
+from apps.workers.redaction import redact
+
 MAX_PAGE = 200
 
 # Read off the response model's own Literal rather than retyped here, so the six
@@ -54,6 +61,60 @@ def mask_phone(value: str | None) -> str | None:
     if not value:
         return None
     return f"••••••{value[-2:]}" if len(value) > 2 else "••"
+
+
+def redacted_summary(value: str | None) -> str | None:
+    """`calls.summary` through the SAME redaction pass that produced `text_redacted`.
+
+    THE DEFECT. `summary` is written to the calls row unredacted
+    (`workers/pipeline._persist_extraction`) and it is transcript-derived prose: the
+    offline extractor's is a transcript line copied VERBATIM, and the model path is no
+    safer, because the prompt asks for two sentences with nothing constraining what may
+    appear inside them — which is exactly what `compliance/export.py` says about this
+    column when it masks foreign numbers out of it before a subject access request
+    ships. Returned raw by the list and the detail, it let a `staff` reader — the role
+    DATA-MODEL §2 defines as "no raw transcripts" — read transcript content off the
+    ordinary calls screen with no `calls:read_raw` check and no `audit_log` row. That is
+    hard rule 5, and every other surface carrying this column already redacted it on the
+    way out: the `call.completed` webhook, the hot-lead notification, the DPDP export.
+    The screen the client actually looks at was the one that did not.
+
+    THREE FIXES WERE AVAILABLE. This is the one that keeps the product.
+
+    - *Gate the raw summary behind `calls:read_raw` + audit*, like the raw transcript.
+      Correct for the artefact, wrong for the surface: staff are the people who work the
+      calls queue, and a list of rows with an empty summary column is not a scannable
+      list — it is a screen that has to be clicked through one call at a time. It would
+      also read as a data loss to every client, for a column they see all day. Note that
+      this option is not LOST: `get_call(raw=True)` returns the summary unredacted, so
+      the audited raw-transcript route already IS the "see everything" path, and it is
+      role-checked and audit-logged exactly as hard rule 5 requires.
+    - *Stop the extractor producing verbatim summaries.* Necessary-looking and
+      insufficient: it fixes neither the model path (free prose can quote a number the
+      caller read out) nor the rows already stored — the breach is in data at rest, and
+      a fix that only changes future extraction leaves every existing summary exposed
+      behind a backfill migration. It would also change what the deterministic offline
+      baseline emits, which is what the eval ratchet scores.
+    - *Redact on the way out* — this one. The rule's own line is `text` vs
+      `text_redacted`, and the redacted transcript is what a `calls:read` holder is
+      already entitled to see. Putting the summary through the very same `redact()` call
+      puts it on the permitted side of that exact line: the summary can now say no more
+      than the redacted transcript it was derived from, and it stays a summary — prose,
+      readable, scannable — because redaction is surgical about phone numbers, Aadhaar,
+      PAN, cards, OTPs, emails and spoken digit runs, and leaves the sentence alone.
+
+    It is a per-field judgement, not a blanket one, and the field beside it proves that:
+    `LeadOut.data` is deliberately NOT redacted, because the client defined those
+    extraction fields to capture this caller and masking them would delete the product.
+    A summary is prose nobody specified; a captured field is prose somebody asked for.
+
+    Cost, stated plainly: a caller who dictates a number now reads as
+    `[phone ••23]` on the list. The owner who needs the digits has the audited route,
+    and the lead's own number is on the row already.
+    """
+    if not value:
+        return value
+    return redact(value).text
 
 
 # --- calls --------------------------------------------------------------------
@@ -101,7 +162,9 @@ async def list_calls(
             duration_s=r[8],
             outcome_tag=r[9],
             sentiment=r[10],
-            summary=r[11],
+            # There is no raw variant of the LIST — no route, no permission, no audit
+            # row — so this one is redacted unconditionally.
+            summary=redacted_summary(r[11]),
             lead_id=r[12],
         )
         for r in rows
@@ -109,9 +172,16 @@ async def list_calls(
 
 
 async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -> CallDetailOut:
-    """`raw=True` returns unredacted transcript text. The CALLER is responsible for the
-    role check and the audit_log write — this function does not decide policy, it just
-    stops the default path from ever reaching the raw column."""
+    """`raw=True` returns unredacted transcript text AND the unredacted summary. The
+    CALLER is responsible for the role check and the audit_log write — this function
+    does not decide policy, it just stops the default path from ever reaching the raw
+    column.
+
+    `summary` moves with the transcript rather than having a switch of its own: it is
+    derived from the transcript (`redacted_summary` states the reasoning), so a reader
+    entitled to one is entitled to the other, and a reader entitled to neither must not
+    be handed one of them through the back door.
+    """
     row = (
         await session.execute(
             text(
@@ -157,7 +227,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         duration_s=row[8],
         outcome_tag=row[9],
         sentiment=row[10],
-        summary=row[11],
+        summary=row[11] if raw else redacted_summary(row[11]),
         lead_id=row[12],
         has_recording=bool(row[13]),
         disclosure_played=row[14],
@@ -664,6 +734,15 @@ async def plan_callback(session: AsyncSession, call_id: UUID) -> CallbackPlan:
     is the most sensitive artefact we hold; a summary is what a human colleague would
     be told before picking up the phone, and it is what the extraction step already
     produced and the client already reads.
+
+    REDACTED, and this one leaves the building twice. The note is rendered into the
+    outbound agent's prompt, so it goes to the engine as text and can then come out of
+    the AI's mouth on the phone: an unredacted summary is how a follow-up call ends up
+    reading a caller's own Aadhaar back to them. SEC-COMP §4 puts redaction before
+    anything transcript-derived leaves us, and the two other outbound uses of this
+    column — the `call.completed` webhook and the hot-lead notification — already do
+    this. Nothing worth saying to the agent is lost: the person it is about to ring is
+    the person whose number would have been in there.
     """
     row = (
         await session.execute(
@@ -741,9 +820,10 @@ async def plan_callback(session: AsyncSession, call_id: UUID) -> CallbackPlan:
             remediation="A person should make the next call.",
         )
 
+    safe_summary = redacted_summary(str(summary).strip()) if summary else None
     note = (
-        f"This is a follow-up to an earlier call. What happened last time: {str(summary).strip()}"
-        if summary
+        f"This is a follow-up to an earlier call. What happened last time: {safe_summary}"
+        if safe_summary
         else "This is a follow-up to an earlier call that ended without a resolution."
     )
     return CallbackPlan(
@@ -792,5 +872,6 @@ __all__ = [
     "mask_phone",
     "plan_callback",
     "recording_key_for",
+    "redacted_summary",
     "update_lead",
 ]

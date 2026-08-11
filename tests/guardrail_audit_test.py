@@ -384,6 +384,38 @@ class TestRedactionExposure:
         offenders = check_redaction_exposure.check(spec)
         assert any("TurnAnnotationOut" in o for o in offenders)
 
+    def test_catches_the_call_summary_when_its_exemption_is_taken_away(
+        self, live_spec: dict[str, Any]
+    ) -> None:
+        """`summary` is transcript-DERIVED prose, and this check had never heard of the
+        name — so a `staff` reader could pull a caller's spoken phone number off the
+        calls list through it while the guardrail reported OK
+        (tests/call_summary_redaction_test.py).
+
+        The mutation here is the exemption, not the schema: the field is legitimately
+        declared and legitimately named, and the ONLY thing keeping the check green is
+        the `KNOWN_SAFE_FIELDS` entry saying the value has been through `redact()`.
+        Removing it must bring the field back into view, or the entry is load-bearing
+        for nothing and the next `summary`-shaped field ships unseen.
+        """
+        offenders = check_redaction_exposure.check(live_spec, safe_fields={})
+        assert any("CallSummaryOut" in o and "summary" in o for o in offenders)
+        assert any("CallDetailOut" in o and "summary" in o for o in offenders)
+
+    def test_a_safe_field_exemption_does_not_blind_the_rest_of_its_model(
+        self, live_spec: dict[str, Any]
+    ) -> None:
+        """The reason exemptions are `Model.field` and never `Model`. `TranscriptTurnOut`
+        used to be exempt WHOLESALE for the sake of one field, so a raw phone number
+        added beside it would have shipped green."""
+        spec = copy.deepcopy(live_spec)
+        spec["components"]["schemas"]["TranscriptTurnOut"]["properties"]["caller_e164"] = {
+            "type": "string"
+        }
+        offenders = check_redaction_exposure.check(spec)
+        assert any("TranscriptTurnOut" in o and "caller_e164" in o for o in offenders)
+        assert not any("'text'" in o for o in offenders), "the exempt field stays exempt"
+
     def test_catches_a_new_freeform_dict_passthrough(self, live_spec: dict[str, Any]) -> None:
         """`dict[str, Any]` is an undeclared response model: whatever the query put in
         it ships, redaction included."""
@@ -438,7 +470,11 @@ class TestRedactionExposure:
             "/v1/calls/{call_id}/transcript/raw",
             "/v1/leads/export.csv",
         }
-        assert set(check_redaction_exposure.KNOWN_SAFE_MODELS) == {"TranscriptTurnOut"}
+        assert set(check_redaction_exposure.KNOWN_SAFE_FIELDS) == {
+            "TranscriptTurnOut.text",
+            "CallSummaryOut.summary",
+            "CallDetailOut.summary",
+        }
         assert set(check_redaction_exposure.ACKNOWLEDGED_PASSTHROUGH) == {
             "LeadOut.data",
             "CallDetailOut.extraction",

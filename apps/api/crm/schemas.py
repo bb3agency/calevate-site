@@ -8,6 +8,12 @@ cannot accidentally ship it to a browser.
 Two fields are deliberately absent from every default response:
 - `transcript_turns[].text` (raw) — `text_redacted` is the default view (hard rule 5).
 - the engine's recording URL — clients get a short-lived presigned link to OUR copy.
+
+A third is present but never raw: `summary` is transcript-DERIVED prose, so the service
+puts it through the same `redact()` pass as `text_redacted` before it is serialized
+(`crm.service.redacted_summary`). A field name here is not evidence of what the value
+holds, which is why the redaction guardrail names `CallSummaryOut.summary` explicitly
+and `tests/call_summary_redaction_test.py` is what proves the claim.
 """
 
 from __future__ import annotations
@@ -49,6 +55,9 @@ class CallSummaryOut(Strict):
     duration_s: int | None = None
     outcome_tag: str | None = None
     sentiment: str | None = None
+    # REDACTED prose, not the stored column: the summary is derived from the transcript
+    # (the offline extractor's is a transcript line verbatim), so it ships through the
+    # same pass as `text_redacted`. Raw only from the audited raw-transcript route.
     summary: str | None = None
     lead_id: UUID | None = None
 

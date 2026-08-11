@@ -262,6 +262,16 @@ class OfflineExtractor:
         all_lines = [ln for ln in transcript.splitlines() if ln.strip()]
         return {
             **data,
+            # A TRANSCRIPT LINE, VERBATIM — speaker prefix and all. That is honest for a
+            # deterministic baseline ("reads what the transcript literally says") and it
+            # is why `calls.summary` is treated as transcript-derived text on every exit
+            # rather than as a safely abstracted field: the API read path redacts it
+            # (`crm.service.redacted_summary`), the outbound webhook redacts it
+            # (`workers/pipeline`), the hot-lead notification redacts it
+            # (`notifications._compose`) and the DPDP export masks foreign numbers out of
+            # it (`compliance/export`). Making this abstractive would NOT retire any of
+            # those: the model path writes free prose that can quote a number the caller
+            # read out, and every summary already stored would keep whatever it holds.
             "summary": (all_lines[-1][:200] if all_lines else "No transcript available."),
             "sentiment": "negative" if any(w in lowered for w in self._NEGATIVE) else "neutral",
             "outcome_tag": (
