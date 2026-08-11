@@ -12,7 +12,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from apps.api.admin import service as admin_service
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers.retention import (
     RECORDING_FLOOR_DAYS,
     REDACTED_MARK,
@@ -34,6 +34,22 @@ async def _tenant_with_old_call(days_ago: int, phone: str) -> tuple[uuid.UUID, u
     tenant_id, agent_id = created["id"], created["agent_id"]
     call_id = uuid.uuid4()
     when = datetime.now(UTC) - timedelta(days=days_ago)
+
+    # THE ONLY CHANGE THIS SUITE NEEDED when the sweep stopped walking every
+    # organization: `apply_retention` now resolves its tenants from `engine_agent_routes`
+    # (the same global bridge the poller and the stall alarm use — no RLS exemption, no
+    # admin role), so a fixture tenant with call rows and no published agent is a shape
+    # production cannot produce. `publish_agent` writes this row in the same transaction
+    # as `agents.engine_agent_ref`, which is why a call can only exist where it does.
+    # No assertion below was weakened; the fixture was made realistic.
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
+                "active, created_at, updated_at) VALUES ('fake', :ref, :t, :a, true, now(), now())"
+            ),
+            {"ref": f"ret_{call_id.hex[:12]}", "t": tenant_id, "a": agent_id},
+        )
 
     async with tenant_session(tenant_id) as session:
         await session.execute(

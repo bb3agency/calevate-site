@@ -20,6 +20,20 @@ the dispatch tick.
 
 Claiming is CAS: `pending → dialing` by conditional UPDATE with SKIP LOCKED, so N
 dispatcher processes never double-dial a contact.
+
+COST SHAPE. A tick is one transaction and one query per tenant in
+`_dispatchable_tenants()` — tenants with a published agent — plus one transaction per
+campaign it actually dials for. It used to be one transaction and two queries per
+ORGANIZATION (15,941 sessions / 47,825 queries / 44.9s on the development database, for
+a job scheduled every 30 seconds). What is left is proportional to tenants that have
+ever published an agent, NOT to tenants with a running campaign, because rules 1+2 need
+the platform-wide count of active outbound lines and `calls` is FORCE-RLS'd: the count
+only exists inside a tenant session. Closing that last gap is a TENANCY change, not a
+refactor, and needs a decision-log entry plus a migration — either a GUC that widens
+`campaigns`/`calls` by a status-and-count read the way `app.user_id` widens
+`memberships`, or an ops-owned global index of (tenant, running campaigns, live lines)
+maintained by the campaign lifecycle and the call state transitions. Neither belongs in
+this module alone.
 """
 
 from __future__ import annotations
@@ -43,7 +57,7 @@ from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.result import rowcount_of
-from apps.api.db.session import admin_session, tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 
 log = get_logger(__name__)
 
@@ -63,6 +77,50 @@ DEFAULT_CONCURRENCY_CEILING = 10
 # stale rows permanently zero the outbound pool and silently stop every campaign on the
 # platform. Nothing we bill for runs an hour, so an hour is comfortably past "live".
 ACTIVE_CALL_HORIZON = "1 hour"
+
+
+async def _dispatchable_tenants() -> list[UUID]:
+    """Every tenant a tick could possibly dial for, or hold an outbound line for.
+
+    THE SHAPE OF THE TICK IS THIS FUNCTION. It used to be `SELECT id FROM organizations`
+    under `admin_session`, because `admin_session` can enumerate tenants but cannot read
+    `campaigns` across them — so the tick opened one transaction per ORGANIZATION every
+    30 seconds. Measured on the development database: 15,941 tenant sessions, 47,825
+    queries, 44.9s — a tick that cannot finish inside its own 30s interval. An overrun
+    tick does not dial slowly; the next tick's due contacts pile up behind it and the
+    campaign silently stops dialling.
+
+    `engine_agent_routes` is the SAME non-tenant-scoped bridge `_callable_tenants` in
+    `dispatcher.py` and `ingest_engine_event` use, and it exists precisely so a
+    cross-tenant resolution needs no RLS exemption (hard rule 1, `db/registry.py`). It
+    is a proven SUPERSET of what this tick needs, on both counts:
+
+    - a campaign cannot launch unless its agent is `live` (`launch_blockers`'
+      `agent_not_live`), and `publish_agent` writes the route row in the SAME
+      transaction that sets `status = 'live'` — so every tenant with a running campaign
+      has a route;
+    - an outbound `calls` row is only ever created for a published agent, so every
+      tenant that can occupy a line has a route too, and the platform-wide active count
+      (rules 1+2) stays complete.
+
+    Unfiltered on `active`, like `dispatcher.py`: an agent unpublished mid-campaign
+    still leaves live calls to count. Ordered so the order in which tenants compete for
+    the shared pool is stable across ticks rather than planner-dependent.
+
+    This is a narrowing, not the end state — see the module docstring's note on what a
+    tick proportional to RUNNING CAMPAIGNS would still need.
+    """
+    async with untenanted_session() as session:
+        rows = (
+            (
+                await session.execute(
+                    text("SELECT DISTINCT tenant_id FROM engine_agent_routes ORDER BY 1")
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return [UUID(str(row)) for row in rows]
 
 
 def _outbound_pool() -> int:
@@ -87,19 +145,19 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
         alert("WORKER_STALL", "outbound_pool_empty", detail="reserve >= total lines")
         return "no_outbound_pool"
 
-    # Global active count first: the pool is shared across ALL tenants.
-    async with admin_session() as directory:
-        tenants = (
-            (await directory.execute(text("SELECT id FROM organizations WHERE deleted_at IS NULL")))
-            .scalars()
-            .all()
-        )
+    # Global active count first: the pool is shared across ALL tenants — but only
+    # tenants that can hold a line or run a campaign are worth asking (see
+    # `_dispatchable_tenants`).
+    tenants = await _dispatchable_tenants()
 
     total_active = 0
     running: list[tuple[UUID, UUID, int, dict[str, Any]]] = []  # (tenant, campaign, slots, retry)
     for tenant_id in tenants:
         async with tenant_session(tenant_id) as session:
-            # Active lines and the plan ceiling in one round trip.
+            # Active lines, the plan ceiling AND this tenant's running campaigns in ONE
+            # round trip. Two statements per tenant was the other half of the cost: the
+            # transaction is per tenant either way, so the campaign list rides along as
+            # a third scalar subquery instead of a second query.
             #
             # The ceiling is a SCALAR SUBQUERY, not a join. `plans` carries
             # effective_from/effective_to, so a tenant that ever changed plan has
@@ -115,7 +173,16 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
                         f"    AND status IN {ACTIVE_STATUSES!r} "
                         f"    AND updated_at > now() - interval '{ACTIVE_CALL_HORIZON}'), "
                         "  (SELECT concurrency_ceiling FROM plans WHERE tenant_id = :tid "
-                        "    ORDER BY created_at DESC LIMIT 1)"
+                        "    ORDER BY created_at DESC LIMIT 1), "
+                        # Same reason this is a SUBQUERY and not a join to the two
+                        # above: `campaigns` joined to `plans` is exactly the multiplication
+                        # described above. `ORDER BY` inside the aggregate keeps the
+                        # oldest-campaign-first rule the tenant budget below depends on.
+                        "  (SELECT coalesce(json_agg(json_build_object("
+                        "       'id', c.id, 'concurrency', c.concurrency, "
+                        "       'retry_policy', c.retry_policy, 'calling_hours', c.calling_hours"
+                        "     ) ORDER BY c.created_at, c.id), '[]'::json) "
+                        "   FROM campaigns c WHERE c.status = 'running')"
                     ),
                     {"tid": tenant_id},
                 )
@@ -125,6 +192,9 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
                 row[1] if row is not None and row[1] is not None else DEFAULT_CONCURRENCY_CEILING
             )
             total_active += active
+            campaigns: list[dict[str, Any]] = list(row[2] or []) if row is not None else []
+            if not campaigns:
+                continue
 
             # Rule 3 is a TENANT budget, spent ONCE across that tenant's campaigns.
             # Computing it per campaign let a tenant with two running campaigns claim
@@ -134,16 +204,11 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
             # rather than whatever order the planner returned.
             tenant_budget = max(0, ceiling - active)
 
-            campaigns = (
-                await session.execute(
-                    text(
-                        "SELECT c.id, c.concurrency, c.retry_policy, c.calling_hours "
-                        "FROM campaigns c WHERE c.status = 'running' "
-                        "ORDER BY c.created_at, c.id"
-                    )
-                )
-            ).all()
-            for campaign_id, slider, retry_policy, calling_hours in campaigns:
+            for campaign in campaigns:
+                campaign_id = campaign["id"]
+                slider = campaign["concurrency"]
+                retry_policy = campaign["retry_policy"]
+                calling_hours = campaign["calling_hours"]
                 if tenant_budget <= 0:
                     break
                 # Per-campaign calling window (narrowing-only; the create path
