@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.admin import service
+from apps.api.admin import intake, service
 from apps.api.agents import service as agents_service
 from apps.api.billing import service as billing
 from apps.api.campaigns import service as campaigns_service
@@ -198,6 +198,109 @@ async def invite_member(
         summary={"role": payload.role},
     )
     return InviteOut(token=token, expires_in_hours=int(service.INVITE_TTL.total_seconds() // 3600))
+
+
+class IntakeOut(BaseModel):
+    """What the step did, not what it was told.
+
+    `regenerated=false` means the answers matched what the agent already carries and no
+    prompt version was minted — the honest result of an operator reopening the step and
+    saving it unchanged, and the one FLOWS §1's "every step idempotent" asks for.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    prompt_version: int | None
+    regenerated: bool
+    kb_source_id: UUID | None
+
+
+class IntakeStateOut(BaseModel):
+    """What reopening the step can prefill. The prose answers come back as the compiled
+    block, not as the fields that produced them — nothing stores those (see
+    `admin/intake.py`), and a form that pretended otherwise would silently drop the
+    services table on the next save."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    business_hours: dict[str, dict[str, str] | None]
+    escalation_contacts: list[dict[str, str | None]]
+    languages: list[str]
+    compiled_t0_context: str | None
+
+
+@router.post(
+    "/tenants/{tenant_id}/agents/{agent_id}/intake",
+    response_model=IntakeOut,
+    openapi_extra=permission_meta("agents:write"),
+    summary="Wizard step 3 — the client's business facts (FLOWS §1 step 3)",
+    description=(
+        "Compiles the answers into the agent's [T0 FACTS] block, stores the block as "
+        "`prompt_versions.compiled_t0_context` (D-39), seeds the knowledge base with "
+        "the same facts awaiting approval, and re-publishes a live agent. Idempotent: "
+        "unchanged answers mint no new prompt version."
+    ),
+)
+async def record_intake(
+    tenant_id: UUID,
+    agent_id: UUID,
+    payload: intake.IntakeFacts,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("agents:write", realm="admin")),
+) -> IntakeOut:
+    """Admin realm, tenant in the PATH, work inside `tenant_session` — the house
+    pattern for an admin mutation (D-22; `route_shape_test` pins the general rule).
+
+    `agents:write` rather than `admin:tenants`: what this endpoint ultimately changes is
+    the agent's prompt and knowledge, which is the same authority the publish and KB
+    approval routes above carry.
+    """
+    async with tenant_session(tenant_id) as scoped:
+        result = await intake.record_intake(
+            scoped,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            facts=payload,
+            recorded_by=principal.user_id,
+        )
+    await write_audit(
+        session,
+        action="agent.intake_recorded",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="agent",
+        object_id=str(agent_id),
+        ip=request.client.host if request.client else None,
+        # COUNTS, never the answers: services and FAQs are the client's business detail
+        # and the escalation contacts are phone numbers (hard rule 6).
+        summary={
+            "regenerated": result["regenerated"],
+            "prompt_version": result["prompt_version"],
+            "services": len(payload.services),
+            "faqs": len(payload.faqs),
+        },
+    )
+    return IntakeOut.model_validate(result)
+
+
+@router.get(
+    "/tenants/{tenant_id}/agents/{agent_id}/intake",
+    response_model=IntakeStateOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="Reopen the intake step — what is durably stored, and only that",
+)
+async def read_intake(
+    tenant_id: UUID,
+    agent_id: UUID,
+    _: Principal = Depends(requires("agents:read", realm="admin")),
+) -> IntakeStateOut:
+    """No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's
+    scope directly rather than opening the cross-tenant directory it does not need."""
+    async with tenant_session(tenant_id) as scoped:
+        state = await intake.read_intake(scoped, agent_id=agent_id)
+    return IntakeStateOut.model_validate(state)
 
 
 @router.post(

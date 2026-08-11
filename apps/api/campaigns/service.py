@@ -771,21 +771,48 @@ async def set_template_status(
 
 
 async def list_campaigns(session: AsyncSession) -> list[dict[str, Any]]:
-    """Newest first, with the two counts the list actually needs.
+    """Newest first, with the two counts the list actually needs — and the one blocker
+    the list cannot otherwise see.
 
     Counting in the query rather than per row: a client with thirty campaigns should
     cost one round trip, and `connected` is the only per-status number worth showing
     before you open one.
+
+    `consent_provenance_blocker` is that round trip's other job. Without it the campaign
+    screen knew a row was a `draft` and nothing about its consent, so it had two bad
+    options: warn about EVERY draft ("some of these may be blocked"), or run the full
+    launch gate once per row to find out. It is DERIVED, and it is named rather than
+    boolean, for three reasons:
+
+    - the raw `consent_source` invites `if (consent_source) ok` — which renders a
+      purchased list, the one answer the gate refuses outright, as answered and fine;
+    - a boolean collapses two states with DIFFERENT remedies into one. "Nobody has said
+      yet" is answerable by the client in the provenance form; "this list was bought" is
+      a policy refusal no form can clear. A list that shows the same badge for both
+      sends half its clicks to a form that cannot help;
+    - the values are the launch gate's OWN rule names, so the list links to the same
+      wording `/launch-check` renders. A third vocabulary for the same fact is how two
+      screens start disagreeing in front of a client.
+
+    NULL for anything past `draft`/`scheduled`, and that is not a shortcut: provenance
+    is answerable only while a campaign is a draft (`declare_consent_provenance`), so
+    flagging a running campaign that predates the columns would put a to-do on the list
+    with no way to do it.
     """
     rows = (
         await session.execute(
             text(
                 "SELECT c.id, c.name, c.classification, c.status, c.launched_at, c.created_at, "
                 "  count(cc.id) AS contacts, "
-                "  count(cc.id) FILTER (WHERE cc.status = 'connected') AS connected "
+                "  count(cc.id) FILTER (WHERE cc.status = 'connected') AS connected, "
+                "  CASE WHEN c.status IN ('draft', 'scheduled') THEN CASE "
+                "    WHEN c.consent_source IS NULL THEN 'consent_provenance_missing' "
+                "    WHEN c.consent_source = ANY(:refused) THEN 'consent_source_refused' "
+                "  END END AS consent_provenance_blocker "
                 "FROM campaigns c LEFT JOIN campaign_contacts cc ON cc.campaign_id = c.id "
                 "GROUP BY c.id ORDER BY c.created_at DESC LIMIT 100"
-            )
+            ),
+            {"refused": list(REFUSED_CONSENT_SOURCES)},
         )
     ).all()
     return [
@@ -798,6 +825,7 @@ async def list_campaigns(session: AsyncSession) -> list[dict[str, Any]]:
             "created_at": r[5],
             "contacts": int(r[6] or 0),
             "connected": int(r[7] or 0),
+            "consent_provenance_blocker": r[8],
         }
         for r in rows
     ]

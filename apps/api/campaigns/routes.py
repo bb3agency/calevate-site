@@ -134,6 +134,21 @@ class ProgressOut(Strict):
 
 
 class CampaignSummaryOut(Strict):
+    """One row of the campaign list.
+
+    `consent_provenance_blocker` is the only DERIVED field here, and it is derived on
+    purpose (see `service.list_campaigns` for the full argument): it answers "what does
+    this row need" rather than "what did they answer", so the list cannot mistake a
+    purchased list — recorded, refused, unfixable — for an answered one. It is a named
+    rule rather than a boolean because the two values have different remedies: the
+    client can clear `consent_provenance_missing` in the provenance form, and nobody can
+    clear `consent_source_refused`. The names are the launch gate's own, so the list and
+    `/launch-check` explain the same fact with the same words.
+
+    NULL means "nothing to do here", which covers both an answered draft and every
+    campaign past the point where provenance can still be recorded.
+    """
+
     id: UUID
     name: str
     classification: str
@@ -142,6 +157,11 @@ class CampaignSummaryOut(Strict):
     connected: int
     launched_at: datetime | None
     created_at: datetime
+    # A Literal, not `str | None`: the generated TypeScript client then offers the two
+    # real values, and a screen switching on them cannot invent a third.
+    consent_provenance_blocker: (
+        Literal["consent_provenance_missing", "consent_source_refused"] | None
+    ) = None
 
 
 class NumberOut(Strict):
