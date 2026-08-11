@@ -68,7 +68,25 @@ class Plan(PKMixin, TimestampMixin, Base):
 
 
 class SpendState(TimestampMixin, Base):
-    """Read by voice-runtime & campaign engine BEFORE dispatch — fail closed when capped."""
+    """Per-tenant monthly counters; `capped` is the cap the compliance gate enforces.
+
+    The ONE reader that can stop a call is `compliance.service.check_dispatch`, which
+    every outbound path goes through — the campaign dispatch worker, the "call this
+    lead" button and the instant-lead-callback webhook all call it. `apps/voice-runtime`
+    reads NOTHING here (it acks a webhook and defers to ARQ — hard rule 3), so nobody
+    should build on the idea that the runtime enforces spend. The remaining readers are
+    reporting only: the client usage panel, the admin tenant detail and the attention
+    queue.
+
+    Inbound is deliberately outside all of it: the gate is outbound-only, because the
+    caller initiated an inbound call and capping it would be an outage, not a control.
+
+    `minutes_used`/`spend_used` are maintained by the post-call pipeline's upsert.
+    NOTE, because it is not obvious from either side: **nothing in the codebase sets
+    `capped = true`**, and the pipeline's month-rollover branch resets the counters but
+    not this flag. Until a writer exists, `plans.hard_cap_min`/`hard_cap_spend` are
+    reported by the usage panel but enforced by nothing.
+    """
 
     __tablename__ = "spend_state"
 

@@ -20,10 +20,14 @@ the RBAC boot assertion gets exercised against it.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 from decimal import Decimal
+from typing import Any
 
+import pytest
 from apps.api.admin import service as admin_service
+from apps.api.billing import credit_routes
 from apps.api.billing.credit_routes import router as credit_router
 from apps.api.billing.service import record_entry
 from apps.api.core.errors import install_error_handlers
@@ -187,22 +191,65 @@ async def test_the_same_payment_reference_credits_exactly_once() -> None:
     assert entries[0] == ("topup", Decimal("1000.0000"), "UTR-DUPLICATE-1")
 
 
-async def test_two_operators_recording_one_payment_at_once_credit_it_once() -> None:
+async def test_two_operators_recording_one_payment_at_once_credit_it_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The reason the advisory lock is taken BEFORE the lookup: without it both
-    requests read "no such reference" and both insert."""
+    requests read "no such reference" and both insert.
+
+    The overlap is FORCED rather than hoped for. `asyncio.gather` on two posts does not
+    reliably interleave: with the route's lock removed, the plain-gather shape still
+    reported "one entry" on one run in six — it was passing without exercising the race
+    at all, which is a test that will keep passing after the lock is deleted. So the
+    second operator is released only once the first is inside the critical section, and
+    the MECHANISM is asserted alongside the outcome: while the first request holds the
+    lock, the second must not be able to reach the reference lookup at all.
+    """
     token = await _make_admin()
     tenant_id = await _tenant()
     payload = {"amount_inr": "750.00", "payment_ref": "UTR-RACE-7"}
 
-    async def post() -> int:
+    first_looked = asyncio.Event()
+    second_looked = asyncio.Event()
+    seen: dict[str, bool] = {}
+    holder: asyncio.Task[Any] | None = None
+    real_find = credit_routes._find_topup
+
+    async def traced(session: Any, *, tenant_id: uuid.UUID, ref: str) -> Any:
+        nonlocal holder
+        task = asyncio.current_task()
+        if holder is None:
+            holder = task
+            found = await real_find(session, tenant_id=tenant_id, ref=ref)
+            first_looked.set()
+            # If the lock does its job the second request cannot get here, so this
+            # times out — that timeout IS the passing case, and the sample below is
+            # taken while the first request still holds its transaction open.
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(second_looked.wait(), timeout=1.0)
+            seen["second_looked_while_first_open"] = second_looked.is_set()
+            return found
+        if task is not holder:
+            second_looked.set()
+        return await real_find(session, tenant_id=tenant_id, ref=ref)
+
+    monkeypatch.setattr(credit_routes, "_find_topup", traced)
+
+    async def post(second: bool) -> int:
+        if second:
+            await first_looked.wait()
         async with _client() as http:
             response = await http.post(
                 f"/v1/admin/tenants/{tenant_id}/credits", headers=_headers(token), json=payload
             )
         return response.status_code
 
-    statuses = await asyncio.gather(post(), post())
+    statuses = await asyncio.gather(post(False), post(True))
     assert statuses == [200, 200], statuses
+    assert seen.get("second_looked_while_first_open") is False, (
+        "the second operator read the reference while the first was still open — the "
+        "advisory lock is not covering the check-then-write"
+    )
 
     entries = await _ledger(tenant_id)
     assert len(entries) == 1, f"exactly one credit for one payment, got {entries}"

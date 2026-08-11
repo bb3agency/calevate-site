@@ -55,7 +55,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.service import LOW_BALANCE_INR, get_balance, record_entry
+from apps.api.billing.service import (
+    LOW_BALANCE_INR,
+    get_balance,
+    lock_tenant_credits,
+    record_entry,
+    to_paise,
+)
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
@@ -74,15 +80,14 @@ router = APIRouter(prefix="/v1/admin/tenants/{tenant_id}/credits", tags=["admin"
 CreditsWrite = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 CreditsRead = Annotated[Principal, Depends(requires("billing:read", realm="admin"))]
 
-PAISE = Decimal("0.01")
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 
-
-def _paise(value: Decimal) -> Decimal:
-    """NUMERIC(12,4) is the storage precision; two decimals is what a rupee amount
-    means to the person reading it. Quantize at the boundary only (billing.service)."""
-    return value.quantize(PAISE)
+# NUMERIC(12,4) is the storage precision; two decimals is what a rupee amount means to
+# the person reading it. `billing.service.to_paise` is the ONE rounding function in the
+# system (half-up, explicit) — this module re-exported a second, context-dependent copy
+# of it, which is how two surfaces end up rounding the same rupee two ways.
+_paise = to_paise
 
 
 class Strict(BaseModel):
@@ -217,13 +222,12 @@ async def record_topup(
     async with tenant_session(tenant_id) as scoped:
         await _assert_tenant_exists(scoped, tenant_id)
         # Serialize check-then-write against every other credit write for this tenant,
-        # on the SAME key `record_entry` uses. Acquired BEFORE the lookup: two
-        # operators recording one UTR at the same moment would otherwise both read
-        # "not present" and both insert. Released at transaction end.
-        await scoped.execute(
-            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": f"credit:{tenant_id}"},
-        )
+        # through the SAME function `record_entry` and `charge_for_call` use — one
+        # definition of the lock key, so no writer can be accidentally left outside it.
+        # Acquired BEFORE the lookup: two operators recording one UTR at the same
+        # moment would otherwise both read "not present" and both insert. Released at
+        # transaction end.
+        await lock_tenant_credits(scoped, tenant_id)
 
         existing = await _find_topup(scoped, tenant_id=tenant_id, ref=ref)
         if existing is not None:

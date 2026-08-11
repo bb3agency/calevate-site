@@ -5,9 +5,18 @@ future PDF/UI renders, not the PDF itself. It is built on top of `usage_summary`
 (never a parallel query set), so the invoice can never disagree with the usage panel
 the client already saw: one computation, two presentations.
 
-Money is NUMERIC/Decimal INR end to end (hard rule 7); every money field is quantized
-to paise (``Decimal("0.01")``) at this boundary, because two decimals is what a rupee
-amount means to the person reading the invoice.
+Money is NUMERIC/Decimal INR end to end (hard rule 7); every money field is rounded by
+``service.to_paise`` — one function, one explicit mode (half-up) — because two decimals
+is what a rupee amount means to the person reading the invoice, and which way ₹18.045
+goes is a decision, not a default.
+
+Two arithmetic promises the client can check by hand:
+
+- every line multiplies out (``qty * unit_inr`` rounds to ``amount_inr``), which is why
+  the overage RATE is published at its true precision rather than rounded like a rupee
+  amount — see ``service.rate_to_display``;
+- ``subtotal`` is the sum of the line amounts and nothing else, GST is applied at
+  exactly one place, and ``total = subtotal + gst``. No ₹0.01 appears from anywhere.
 """
 
 from __future__ import annotations
@@ -22,14 +31,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.errors import ProblemError
 
-from .service import usage_summary
+from .service import to_paise, usage_summary
 
 # 18% GST on SaaS/telecom services. Whether that lands as IGST or a CGST+SGST split is
 # an invoicing detail the accountant owns — the ledger's job is the base amount and the
 # rate applied. A constant (greppable by name) until pricing config ships.
 GST_RATE_PCT = Decimal("18")
-
-_PAISE = Decimal("0.01")
 
 
 async def build_invoice(
@@ -67,12 +74,15 @@ async def build_invoice(
         raise ProblemError.not_found("Organization")
 
     line_items: list[dict[str, Any]] = []
-    monthly_fee = usage["monthly_fee_inr"]  # already paise-quantized, None without a plan fee
+    monthly_fee = usage["monthly_fee_inr"]  # already paise-rounded, None without a plan fee
     if monthly_fee is not None:
         line_items.append(
             {
                 "description": "Monthly plan fee",
-                "qty": 1,
+                # Decimal, not int: every quantity on this document sits beside money
+                # and is serialized the same way, so a consumer never gets a bare JSON
+                # number on one line and a string on the next.
+                "qty": Decimal("1"),
                 "unit_inr": monthly_fee,
                 "amount_inr": monthly_fee,
             }
@@ -81,19 +91,11 @@ async def build_invoice(
     overage_minutes: Decimal = usage["overage_minutes"]
     overage_cost: Decimal = usage["overage_cost_inr"]
     if overage_minutes > 0 and overage_cost > 0:
-        # `usage_summary` exposes the overage COST, not the rate; the line description
-        # needs the rate. Read it rather than re-deriving cost ÷ minutes, which would
-        # re-round a number the client can check against their plan.
-        rate_raw = (
-            await session.execute(
-                text(
-                    "SELECT overage_rate FROM plans WHERE tenant_id = :tid "
-                    "ORDER BY created_at DESC LIMIT 1"
-                ),
-                {"tid": tenant_id},
-            )
-        ).scalar()
-        rate = Decimal(str(rate_raw or 0)).quantize(_PAISE)
+        # The rate comes from `usage_summary`, which is the computation that PRICED the
+        # overage. Re-reading `plans` here was a second query with its own
+        # `ORDER BY created_at DESC LIMIT 1` — two plan rows sharing a created_at and
+        # the invoice could quote a rate it did not bill at. One source, one rate.
+        rate: Decimal = usage["overage_rate_inr"]
         line_items.append(
             {
                 "description": f"Extra calling minutes ({overage_minutes} min at ₹{rate}/min)",
@@ -103,9 +105,9 @@ async def build_invoice(
             }
         )
 
-    subtotal = sum((item["amount_inr"] for item in line_items), start=Decimal("0")).quantize(_PAISE)
-    gst = (subtotal * GST_RATE_PCT / Decimal("100")).quantize(_PAISE)
-    total = (subtotal + gst).quantize(_PAISE)
+    subtotal = to_paise(sum((item["amount_inr"] for item in line_items), start=Decimal("0")))
+    gst = to_paise(subtotal * GST_RATE_PCT / Decimal("100"))
+    total = to_paise(subtotal + gst)
 
     return {
         "invoice_number": f"CAL-{period.replace('-', '')}-{tenant_id.hex[:8]}",
