@@ -26,9 +26,10 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, NoReturn
 from uuid import UUID
 
+from arq import Retry
 from calevate_shared.engine import ExecutionSnapshot
 from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from sqlalchemy import text
@@ -36,10 +37,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.service import charge_for_call, plan_tier_of
 from apps.api.core.alerting import alert, record_pipeline_lag, record_reconciliation_repair
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import enqueue, job_id_for
+from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
 from apps.api.db.base import uuid7
-from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.integrations import service as integrations
@@ -91,6 +92,84 @@ async def _resolve_agent(
 
 # --- job 1: ingest ------------------------------------------------------------
 
+# The same ladder, and the same reasoning, as `outbound_webhooks.RETRY_BACKOFF_S`: one
+# entry shorter than the budget because the last attempt has nothing after it, and real
+# backoff rather than a flat re-poll — an engine that is restarting wants half a minute,
+# and an engine that is genuinely down should not be re-hit every few seconds.
+RETRY_BACKOFF_S: tuple[float, ...] = (30.0, 120.0)
+
+# Engine failures where an IDENTICAL retry can still succeed, which is the only kind
+# worth a rung on the ladder. `engine_unreachable` is the transport never completing
+# (DNS, refused, timeout, TLS) — the adapter's own equivalent of "no status at all" —
+# and `engine_rate_limited` is `kind="transient"`, which the error ladder defines as
+# "identical retry can work".
+#
+# Deliberately NOT here: `engine_rejected`. That is the engine answering, and its answer
+# is a verdict on the request — most often a 404 for an execution it has never heard of
+# (a replayed webhook, a hand-typed id, an execution on another account). Re-fetching it
+# fails identically three times, thirty seconds and two minutes apart, and the only thing
+# the ladder buys is a later terminal alert. The adapter collapses 4xx and 5xx into that
+# one code, so a genuine engine-side 500 is not retried here either; the reconciliation
+# poller (D-31) is what re-drives it, and it is the guarantee of record regardless.
+TRANSIENT_ENGINE_CODES = frozenset({"engine_unreachable", "engine_rate_limited"})
+
+
+def _retry_after(attempt: int) -> float:
+    index = min(attempt, len(RETRY_BACKOFF_S)) - 1
+    return RETRY_BACKOFF_S[max(index, 0)]
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """Is another attempt capable of a different outcome?
+
+    A `ProblemError` is the engine layer's considered verdict, so it is read as one. Any
+    OTHER exception is our own infrastructure failing mid-job — a database blip, a Redis
+    hiccup — and those are blips by nature; a genuine bug retries three times and stops,
+    which is a cheap price for not dropping an at-most-once call on a transient fault.
+    """
+    if isinstance(exc, ProblemError):
+        return exc.kind == "transient" or exc.code in TRANSIENT_ENGINE_CODES
+    return True
+
+
+async def _abandon_ingest(
+    *, inbox_row_id: Any, exc: Exception, attempt: int, execution_id: str
+) -> NoReturn:
+    """Record the failure on the inbox row, then either ask for a retry or stop loudly.
+
+    **`arq.Retry`, not a bare `raise`.** arq 0.28 retries a job only for `Retry`,
+    `RetryJob` or `CancelledError`; every other exception sets `finish=True` and the job
+    leaves the queue after ONE attempt (`arq/worker.py`, the `else` branch in `run_job`'s
+    handler). This function used to signal "try again later" by re-raising whatever it
+    caught, so `WorkerSettings.max_tries = 3` was decorative here and a fetch that failed
+    on a network blip was a call that only the 10-minute poller could recover.
+
+    The inbox row is marked FAILED either way, which is what makes the key re-claimable:
+    `claim_inbox_event` re-claims a `failed` row by CAS, so neither a blip nor a terminal
+    rejection may permanently poison an at-most-once event key.
+    """
+    if inbox_row_id:
+        async with untenanted_session() as session:
+            await mark_inbox_failed(
+                session, row_id=UUID(str(inbox_row_id)), error=type(exc).__name__
+            )
+    if _is_transient(exc) and attempt < WORKER_MAX_TRIES:
+        raise Retry(defer=_retry_after(attempt)) from exc
+    # Give up loudly, whether the budget ran out or the engine rejected the read
+    # outright. A silent stop is indistinguishable from "no events happened", and this
+    # one costs a call: the poller only re-drives executions the engine will still list.
+    alert(
+        "WORKER_TERMINAL",
+        "engine_ingest_abandoned",
+        detail=(
+            f"{type(exc).__name__} after {attempt} attempt(s)"
+            if _is_transient(exc)
+            else f"{type(exc).__name__} is permanent, not retried"
+        ),
+        execution_id=execution_id,
+    )
+    raise exc
+
 
 async def ingest_engine_event(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Enqueued by the voice-runtime receiver and by the reconciliation poller.
@@ -98,21 +177,26 @@ async def ingest_engine_event(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     Does the minimum that must happen synchronously with the event: fetch the truth,
     resolve the tenant, upsert the call row so the dashboard's live tile is right, and
     hand off to the heavy pipeline only once the engine says the call is complete.
+
+    **The inbox row is closed LAST.** `processed` is what makes the webhook permanently
+    deduped, so it may only be written once every side effect this job owes has actually
+    been queued. Marking it before the enqueue meant a crash in between left the event
+    deduped forever and the pipeline never queued — bounded by the poller, but backwards.
     """
     engine_name = str(payload.get("engine") or "fake")
     execution_id = str(payload["execution_id"])
     inbox_row_id = payload.get("inbox_row_id")
+    # arq's number, never ours: a `job_try` we injected could only confirm that an `if`
+    # compares two integers correctly, not that the ladder above it exists.
+    attempt = int(ctx.get("job_try", 1))
 
     engine = get_engine()
     try:
         snapshot = await engine.get_execution(execution_id)
     except Exception as exc:
-        if inbox_row_id:
-            async with untenanted_session() as session:
-                await mark_inbox_failed(
-                    session, row_id=UUID(str(inbox_row_id)), error=type(exc).__name__
-                )
-        raise
+        await _abandon_ingest(
+            inbox_row_id=inbox_row_id, exc=exc, attempt=attempt, execution_id=execution_id
+        )
 
     # The snapshot's ref wins over the webhook's: the fetch is the truth (D-31), and
     # the poller path has no webhook payload at all.
@@ -138,23 +222,36 @@ async def ingest_engine_event(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     tenant_id, agent_id = resolved
     call_id = await _upsert_call(tenant_id, agent_id, snapshot)
 
+    if snapshot.billable_ready:
+        try:
+            await enqueue(
+                POSTCALL_JOB,
+                {
+                    "tenant_id": str(tenant_id),
+                    "call_id": str(call_id),
+                    "engine": engine_name,
+                    "execution_id": execution_id,
+                },
+                job_id=job_id_for(POSTCALL_JOB, str(call_id)),
+            )
+        except Exception as exc:
+            # The inbox row is still `enqueued`, not `processed`, so this is recoverable:
+            # marking it failed hands the key back to `claim_inbox_event`'s CAS and the
+            # retry below re-drives the whole job. The reverse order — closing the row
+            # first — turned this same failure into a permanently deduped webhook with
+            # no pipeline behind it.
+            await _abandon_ingest(
+                inbox_row_id=inbox_row_id, exc=exc, attempt=attempt, execution_id=execution_id
+            )
+        outcome = "pipeline_enqueued"
+    else:
+        outcome = f"awaiting_completion:{snapshot.raw_status}"
+
+    # LAST: everything this job owed is queued, so the event may now be closed.
     if inbox_row_id:
         async with untenanted_session() as session:
             await mark_inbox_processed(session, row_id=UUID(str(inbox_row_id)))
-
-    if snapshot.billable_ready:
-        await enqueue(
-            POSTCALL_JOB,
-            {
-                "tenant_id": str(tenant_id),
-                "call_id": str(call_id),
-                "engine": engine_name,
-                "execution_id": execution_id,
-            },
-            job_id=job_id_for(POSTCALL_JOB, str(call_id)),
-        )
-        return "pipeline_enqueued"
-    return f"awaiting_completion:{snapshot.raw_status}"
+    return outcome
 
 
 async def _upsert_call(tenant_id: UUID, agent_id: UUID, snapshot: ExecutionSnapshot) -> UUID:
@@ -395,41 +492,41 @@ async def _persist_extraction(
     """One call has ONE extraction, however many times the pipeline runs.
 
     A re-run is normal here — a webhook that arrives after the poller already resolved
-    the call re-enters the pipeline (D-31) — so this is an update-or-insert rather than
-    the plain INSERT it used to be, which filed a second extraction per replay and left
-    the CRM with two answers and no way to say which one it read.
+    the call re-enters the pipeline (D-31) — so this is an upsert rather than the plain
+    INSERT it used to be, which filed a second extraction per replay and left the CRM
+    with two answers and no way to say which one it read.
 
-    `call_extractions` has no unique key on `call_id` (DATA-MODEL §4), so this is a
-    read-modify-write and not `ON CONFLICT`. Two pipeline runs racing on the same call
-    could still both insert; what keeps them serialized today is the ARQ job id, which
-    is keyed on the call. The durable fix is a unique index and that is a migration.
+    It is a single `ON CONFLICT (tenant_id, call_id) DO UPDATE`, which closes the RACE
+    as well as the replay: migration `d3b71c9a5e08` made that pair unique, so two
+    pipeline runs on one call — an ARQ retry overlapping the reconciliation poller — can
+    no longer both read "no row" and both insert. The read-modify-write this replaces
+    depended on the ARQ job id (keyed on the call) to serialize them, which is a Redis
+    convention rather than a database fact.
     """
     async with tenant_session(tenant_id) as session:
-        params = {
-            "tid": tenant_id,
-            "cid": call_id,
-            "ver": schema_version,
-            "data": _json(extraction.data),
-            "valid": extraction.valid,
-            "errors": _json(extraction.errors) if extraction.errors else None,
-        }
-        updated = await session.execute(
+        await session.execute(
             text(
-                "UPDATE call_extractions SET schema_version = :ver, data = CAST(:data AS jsonb), "
-                "valid = :valid, errors = CAST(:errors AS jsonb), updated_at = now() "
-                "WHERE call_id = :cid AND tenant_id = :tid"
+                "INSERT INTO call_extractions (id, tenant_id, call_id, schema_version, data, "
+                "model, valid, errors, created_at, updated_at) VALUES (:id, :tid, :cid, :ver, "
+                "CAST(:data AS jsonb), :model, :valid, CAST(:errors AS jsonb), now(), now()) "
+                "ON CONFLICT (tenant_id, call_id) DO UPDATE SET "
+                "  schema_version = EXCLUDED.schema_version, "
+                "  data = EXCLUDED.data, "
+                "  valid = EXCLUDED.valid, "
+                "  errors = EXCLUDED.errors, "
+                "  updated_at = now()"
             ),
-            params,
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "cid": call_id,
+                "ver": schema_version,
+                "data": _json(extraction.data),
+                "model": None,
+                "valid": extraction.valid,
+                "errors": _json(extraction.errors) if extraction.errors else None,
+            },
         )
-        if rowcount_of(updated) == 0:
-            await session.execute(
-                text(
-                    "INSERT INTO call_extractions (id, tenant_id, call_id, schema_version, data, "
-                    "model, valid, errors, created_at, updated_at) VALUES (:id, :tid, :cid, :ver, "
-                    "CAST(:data AS jsonb), :model, :valid, CAST(:errors AS jsonb), now(), now())"
-                ),
-                {**params, "id": uuid7(), "model": None},
-            )
         await session.execute(
             text(
                 "UPDATE calls SET summary = :summary, sentiment = :sentiment, "

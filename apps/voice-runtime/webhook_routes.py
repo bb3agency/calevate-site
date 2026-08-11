@@ -49,6 +49,28 @@ router = APIRouter(prefix="/hooks/v1", tags=["engine-webhooks"])
 
 # Redis fast-path dedupe. The inbox row is the durable truth; this just keeps a burst
 # of duplicates from touching Postgres at all.
+#
+# **THE KEY IS WRITTEN AFTER THE TRANSACTION COMMITS, NEVER BEFORE IT.** It used to be a
+# SETNX taken up front, which made the fast path MORE durable than the fact it stands
+# for: if the durable claim or the enqueue then failed, the transaction rolled back and
+# the key survived for its full hour — so every retry of that event was answered
+# `duplicate` with no inbox row and no job behind it. At an at-most-once endpoint that is
+# an event we told the vendor we accepted and then dropped, recoverable only by the
+# 10-minute poller.
+#
+# Deleting the key on the failure path was the other candidate and is weaker: a
+# compensating action shares a fate with the thing it compensates for, and the failures
+# worth defending against here — a killed process, a severed Redis connection — are
+# exactly the ones that would eat the delete too. Writing the key only once the row and
+# the job exist needs nothing to go right afterwards.
+#
+# What the split costs: a read on the way in and a write on the way out instead of one
+# SETNX, and deliveries that arrive WHILE the first one's transaction is still open now
+# reach the durable claim instead of being absorbed here. That claim is where they
+# belong — it is the layer that actually decides — and every delivery after the first
+# commit (which is the entire real duplicate population, since Bolna does not retry and
+# duplicates come from replays and poller rediscoveries later in time) is still absorbed
+# without touching Postgres.
 _DEDUPE_TTL_S = 3600
 INGEST_JOB = "ingest_engine_event"
 
@@ -82,6 +104,33 @@ def _ack(response: Response, started: float, engine: str, body: dict[str, str]) 
         alert("ROUTE_HANDLER", "webhook_ack_slow", detail=f"{elapsed:.0f}ms", engine=engine)
     response.headers["X-Ack-Ms"] = f"{elapsed:.1f}"
     return body
+
+
+async def _fast_path_seen(redis_key: str, *, engine: str) -> bool:
+    """Has this exact delivery already been handled to completion? A READ, never a write.
+
+    Redis being unavailable degrades correctly and deliberately: we answer "not seen" and
+    fall through to the durable claim, which is the dedupe that carries the guarantee.
+    """
+    try:
+        return await get_redis().get(redis_key) is not None
+    except Exception:  # Redis down: fall through to the durable claim, never 500
+        log.warning("webhook_fastpath_unavailable", extra={"engine": engine})
+        return False
+
+
+async def _remember_fast_path(redis_key: str, *, engine: str) -> None:
+    """Record that this delivery is settled — called only after the claim has COMMITTED.
+
+    Best effort by design: a key we failed to write costs one extra Postgres round trip
+    on the next copy of this delivery, which is the cheap direction to be wrong in. The
+    expensive direction — a key we wrote for work that never landed — is what the
+    post-commit placement removes.
+    """
+    try:
+        await get_redis().set(redis_key, "1", ex=_DEDUPE_TTL_S)
+    except Exception:
+        log.warning("webhook_fastpath_unavailable", extra={"engine": engine})
 
 
 async def _read_bounded(request: Request) -> bytes | None:
@@ -192,17 +241,15 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
 
     payload_digest = body_hash(payload)
     redis_key = f"calevate:wh:{engine}:{event.execution_id}:{payload_digest[:16]}"
-    try:
-        if not await get_redis().set(redis_key, "1", nx=True, ex=_DEDUPE_TTL_S):
-            return _ack(
-                response,
-                started,
-                engine,
-                {"status": "duplicate", "execution_id": event.execution_id},
-            )
-    except Exception:  # Redis down: fall through to the durable claim, never 500
-        log.warning("webhook_fastpath_unavailable", extra={"engine": engine})
+    if await _fast_path_seen(redis_key, engine=engine):
+        return _ack(
+            response,
+            started,
+            engine,
+            {"status": "duplicate", "execution_id": event.execution_id},
+        )
 
+    job_id: str | None = None
     async with untenanted_session() as session:
         claim = await claim_inbox_event(
             session,
@@ -241,45 +288,55 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
             ),
             event_name=event.raw_status,
         )
-        if claim.state == "duplicate":
-            return _ack(
-                response,
-                started,
-                engine,
-                {"status": "duplicate", "execution_id": event.execution_id},
+        claimed = claim.state != "duplicate"
+
+        if claimed:
+            # The minimal event row: forensic trail only (SEC-COMP §4). `signature_valid`
+            # records what evidence we actually had, so a later investigation can tell an
+            # IP-allowlisted event from a signed one.
+            await session.execute(
+                text(
+                    "INSERT INTO webhook_deliveries (id, direction, source, event_type, "
+                    "status, attempts, signature_valid, first_at, last_at, created_at) VALUES "
+                    "(:id, 'in', :source, :event_type, 'received', 1, :sig, now(), now(), now())"
+                ),
+                {
+                    "id": uuid7(),
+                    "source": engine,
+                    "event_type": event.raw_status,
+                    "sig": verdict.method == "hmac",
+                },
             )
 
-        # The minimal event row: forensic trail only (SEC-COMP §4). `signature_valid`
-        # records what evidence we actually had, so a later investigation can tell an
-        # IP-allowlisted event from a signed one.
-        await session.execute(
-            text(
-                "INSERT INTO webhook_deliveries (id, direction, source, event_type, status, "
-                "attempts, signature_valid, first_at, last_at, created_at) VALUES "
-                "(:id, 'in', :source, :event_type, 'received', 1, :sig, now(), now(), now())"
-            ),
-            {
-                "id": uuid7(),
-                "source": engine,
-                "event_type": event.raw_status,
-                "sig": verdict.method == "hmac",
-            },
-        )
+            # Keyed by the natural key, so a duplicate webhook and a poller rediscovery
+            # collapse into one job before any worker runs.
+            job_id = await enqueue(
+                INGEST_JOB,
+                {
+                    "engine": engine,
+                    "execution_id": event.execution_id,
+                    "raw_status": event.raw_status,
+                    "engine_agent_ref": event.engine_agent_ref,
+                    "inbox_row_id": str(claim.row_id),
+                },
+                job_id=job_id_for(INGEST_JOB, engine, event.execution_id, event.raw_status),
+            )
+            await mark_inbox_enqueued(session, row_id=claim.row_id)
 
-        # Keyed by the natural key, so a duplicate webhook and a poller rediscovery
-        # collapse into one job before any worker runs.
-        job_id = await enqueue(
-            INGEST_JOB,
-            {
-                "engine": engine,
-                "execution_id": event.execution_id,
-                "raw_status": event.raw_status,
-                "engine_agent_ref": event.engine_agent_ref,
-                "inbox_row_id": str(claim.row_id),
-            },
-            job_id=job_id_for(INGEST_JOB, engine, event.execution_id, event.raw_status),
+    # PAST THE COMMIT. Everything the key stands for is now durable — the inbox row, the
+    # forensic row, the job — so the key cannot outlive a transaction that failed: an
+    # exception above propagates and never reaches this line. Reached on the duplicate
+    # branch too, because a delivery the inbox has already settled is exactly the thing
+    # the next copy should be spared a Postgres round trip for.
+    await _remember_fast_path(redis_key, engine=engine)
+
+    if not claimed:
+        return _ack(
+            response,
+            started,
+            engine,
+            {"status": "duplicate", "execution_id": event.execution_id},
         )
-        await mark_inbox_enqueued(session, row_id=claim.row_id)
 
     return _ack(
         response,
