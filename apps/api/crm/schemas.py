@@ -146,7 +146,113 @@ class DashboardOut(Strict):
     minutes_used_month: Decimal | None = None
 
 
+# --- panels that used to answer `dict[str, Any]` --------------------------------
+#
+# These three returned an untyped dict, which meant OpenAPI advertised
+# `additionalProperties: true` with no properties at all. Two things followed, and the
+# second is the one that mattered: the frontend hand-wrote its own interfaces (free to
+# drift), and `scripts/check_redaction_exposure.py` — which reads response MODELS — had
+# nothing to read, so a field that later carried a raw phone or a transcript line would
+# have shipped past the guardrail green. Every field below is declared, so it is now
+# inspectable; none is a free-form dict, so none needs an ACKNOWLEDGED_PASSTHROUGH entry.
+#
+# No field carries a default: the services always emit every key, so a missing one is a
+# bug that should surface as a loud 500 rather than a silently invented value.
+
+
+class PerformanceFunnelOut(Strict):
+    """Calls → connected conversations → LEADS that moved past `new` (crm/performance.py
+    states each definition; `qualified` is lead-level on purpose)."""
+
+    calls: int
+    connected: int
+    qualified: int
+
+
+class PerformanceOut(Strict):
+    days: int
+    funnel: PerformanceFunnelOut
+    # None, never 0, when the denominator is zero: "0% connected" and "no calls yet"
+    # are different facts and the screen must keep them apart.
+    connect_rate_pct: int | None
+    qualify_rate_pct: int | None
+    inbound: int
+    outbound: int
+    avg_duration_s: int | None
+    # Outcome tag, or the bare status when a call was never tagged → count. Typed
+    # VALUES, so this is a map and not the free-form passthrough the redaction
+    # guardrail has to be told about.
+    outcomes: dict[str, int]
+    # Always exactly 24 buckets, index = IST hour; silent hours are 0, not absent.
+    busiest_hours_ist: list[int]
+
+
+AttentionKind = Literal["lead_blocked", "delivery_failed", "campaign_stalled", "kb_rejected"]
+
+
+class AttentionItemOut(Strict):
+    """One thing the platform refused to do quietly (crm/attention.py).
+
+    `title` and `detail` are already client-safe prose: a blocked lead is named by its
+    lead NAME, falling back to a MASKED number, never a raw one.
+    """
+
+    kind: AttentionKind
+    id: str
+    title: str
+    detail: str
+    # The machine name of the rule that fired ("dnc"), or the campaign status for a
+    # stalled campaign. None for the sources that have no rule (deliveries, knowledge).
+    rule: str | None
+    occurred_at: datetime
+    # Realm-relative link to the screen where the fix lives, e.g. "/leads".
+    href: str | None
+
+
+class AttentionOut(Strict):
+    total: int
+    # kind → count, for the nav badge. Only the kinds present appear.
+    counts: dict[str, int]
+    items: list[AttentionItemOut]
+
+
+class UsagePanelOut(Strict):
+    """GET /v1/usage — this month's usage and what it costs (SURFACES §2b).
+
+    **Every money field is a STRING.** The values are `Decimal` all the way through
+    billing (hard rule 7) and the route stringifies them at the boundary, because a
+    JSON float cannot hold a rupee amount exactly. They must stay strings to the
+    screen; `Number()` on INR is how ₹10,159.00 becomes ₹10,158.999999999998.
+
+    Our supplier cost (`unit_cost_paid`) is deliberately absent — that is the admin
+    margin panel, and a client who can see it is a client negotiating against it.
+    """
+
+    month: str
+    minutes_used: str
+    calls: int
+    included_minutes: int
+    overage_minutes: str
+    overage_cost_inr: str
+    # The rate the overage was actually priced at, published so the invoice does not
+    # re-read `plans` and risk quoting a different row.
+    overage_rate_inr: str
+    # None until the client has a plan row with a fee (mid-onboarding is a real state).
+    monthly_fee_inr: str | None
+    cap_minutes: int | None
+    minutes_left: int | None
+    capped: bool
+    spend_used_inr: str
+    plan_tier: str
+    # Credits only mean something for the self-serve motion (D-34); None for a managed
+    # client, whose ₹0 wallet would otherwise invite a support ticket.
+    credit_balance_inr: str | None
+
+
 __all__ = [
+    "AttentionItemOut",
+    "AttentionKind",
+    "AttentionOut",
     "CallDetailOut",
     "CallLeadIn",
     "CallLeadOut",
@@ -158,6 +264,9 @@ __all__ = [
     "LeadOut",
     "LeadStatus",
     "LeadUpdateIn",
+    "PerformanceFunnelOut",
+    "PerformanceOut",
     "RecordingLinkOut",
     "TranscriptTurnOut",
+    "UsagePanelOut",
 ]

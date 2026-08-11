@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
@@ -347,8 +347,30 @@ async def publish_kb(
     return PublishOut(source_id=source_id, version=version, status="live")
 
 
+class MarginOut(BaseModel):
+    """Per-client margin (D-12).
+
+    Every money field is a STRING: the values are `Decimal` (hard rule 7) and the route
+    stringifies them at the boundary, because a JSON float cannot hold a rupee amount
+    exactly. They must stay strings all the way to the screen.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    month: str
+    minutes_used: str
+    calls: int
+    revenue_inr: str
+    cost_inr: str
+    margin_inr: str
+    # None rather than "0.0" when nothing has been billed: "0% margin" and "nothing
+    # billed yet" are different facts, and an operator acts differently on each.
+    margin_pct: str | None
+
+
 @router.get(
     "/tenants/{tenant_id}/margin",
+    response_model=MarginOut,
     openapi_extra=permission_meta("billing:read"),
     summary="Revenue vs OUR cost for one client (D-12) — the number G2 gates on",
 )
@@ -357,7 +379,7 @@ async def tenant_margin(
     session: AdminSession,
     month: str | None = None,
     _: Principal = Depends(requires("billing:read", realm="admin")),
-) -> dict[str, Any]:
+) -> MarginOut:
     """Admin realm only. `unit_cost_paid` is our supplier pricing — it is the reason
     this lives here and not beside the client's usage panel.
 
@@ -369,7 +391,9 @@ async def tenant_margin(
     async with tenant_session(tenant_id) as scoped:
         margin = await billing.margin_for_tenant(scoped, tenant_id=tenant_id, month=month)
     del session
-    return {k: (str(v) if isinstance(v, Decimal) else v) for k, v in margin.items()}
+    return MarginOut.model_validate(
+        {k: (str(v) if isinstance(v, Decimal) else v) for k, v in margin.items()}
+    )
 
 
 # --------------------------------------------------------- campaign prerequisites

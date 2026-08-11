@@ -198,6 +198,102 @@
         "title": "AgentOut",
         "type": "object"
       },
+      "AttentionItemOut": {
+        "additionalProperties": false,
+        "description": "One thing the platform refused to do quietly (crm/attention.py).\n\n`title` and `detail` are already client-safe prose: a blocked lead is named by its\nlead NAME, falling back to a MASKED number, never a raw one.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "href": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Href"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "lead_blocked",
+              "delivery_failed",
+              "campaign_stalled",
+              "kb_rejected"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "title",
+          "detail",
+          "rule",
+          "occurred_at",
+          "href"
+        ],
+        "title": "AttentionItemOut",
+        "type": "object"
+      },
+      "AttentionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AttentionItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "counts",
+          "items"
+        ],
+        "title": "AttentionOut",
+        "type": "object"
+      },
       "BlockerOut": {
         "additionalProperties": false,
         "properties": {
@@ -1275,6 +1371,168 @@
         "title": "DashboardOut",
         "type": "object"
       },
+      "DeletionRequestAcceptedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "already_open": {
+            "title": "Already Open",
+            "type": "boolean"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "proof": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proof"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_ref": {
+            "title": "Subject Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "subject_ref",
+          "status",
+          "requested_at",
+          "completed_at",
+          "proof",
+          "limitations",
+          "already_open"
+        ],
+        "title": "DeletionRequestAcceptedOut",
+        "type": "object"
+      },
+      "DeletionRequestIn": {
+        "additionalProperties": false,
+        "description": "`extra=\"forbid\"` so a caller cannot smuggle a second selector \u2014 a lead id, a\nnarrower `scope` \u2014 into a request whose whole security argument is \"one phone\nnumber\". `scope` in particular is refused rather than ignored: the worker honours no\nnarrower scope, so accepting one would record a promise nothing keeps.",
+        "properties": {
+          "phone": {
+            "maxLength": 20,
+            "minLength": 8,
+            "pattern": "^\\+[1-9]\\d{7,18}$",
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone"
+        ],
+        "title": "DeletionRequestIn",
+        "type": "object"
+      },
+      "DeletionRequestOut": {
+        "additionalProperties": false,
+        "description": "The response model IS the output whitelist (BACKEND-PATTERNS \u00a71), and what it\nleaves out is the point: there is no `phone_e164` field, so the number the row keeps\ncannot reach a client through this surface.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "proof": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proof"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_ref": {
+            "title": "Subject Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "subject_ref",
+          "status",
+          "requested_at",
+          "completed_at",
+          "proof",
+          "limitations"
+        ],
+        "title": "DeletionRequestOut",
+        "type": "object"
+      },
       "DeliveryOut": {
         "additionalProperties": false,
         "properties": {
@@ -1512,6 +1770,89 @@
         "title": "ExtractionField",
         "type": "object"
       },
+      "IngestActivityItemOut": {
+        "additionalProperties": false,
+        "description": "One inbound source's rolled-up delivery record from the durable inbox.\n\nDeclared rather than left as an untyped dict: an undeclared response is invisible\nto `scripts/check_redaction_exposure.py`, which inspects response MODELS \u2014 and a\ndelivery record sits one careless `SELECT *` away from the sender's payload.",
+        "properties": {
+          "deduplicated": {
+            "title": "Deduplicated",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "event": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event"
+          },
+          "first_at": {
+            "format": "date-time",
+            "title": "First At",
+            "type": "string"
+          },
+          "last_at": {
+            "format": "date-time",
+            "title": "Last At",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "accepted",
+              "rejected",
+              "processing"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "event",
+          "outcome",
+          "deduplicated",
+          "error",
+          "first_at",
+          "last_at"
+        ],
+        "title": "IngestActivityItemOut",
+        "type": "object"
+      },
+      "IngestActivityOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IngestActivityItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "IngestActivityOut",
+        "type": "object"
+      },
       "InviteIn": {
         "additionalProperties": false,
         "properties": {
@@ -1553,6 +1894,151 @@
           "expires_in_hours"
         ],
         "title": "InviteOut",
+        "type": "object"
+      },
+      "InvoiceLineItemOut": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_inr": {
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "qty": {
+            "title": "Qty",
+            "type": "string"
+          },
+          "unit_inr": {
+            "title": "Unit Inr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "qty",
+          "unit_inr",
+          "amount_inr"
+        ],
+        "title": "InvoiceLineItemOut",
+        "type": "object"
+      },
+      "InvoiceOrganizationOut": {
+        "additionalProperties": false,
+        "properties": {
+          "billing_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Billing Email"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "billing_email"
+        ],
+        "title": "InvoiceOrganizationOut",
+        "type": "object"
+      },
+      "InvoiceOut": {
+        "additionalProperties": false,
+        "description": "The structured statement a future PDF/UI renders (billing/invoice.py).\n\nMoney is a string throughout for the reason hard rule 7 exists: these are exact\nNUMERIC rupee amounts, and a JSON float cannot hold them. `qty * unit_inr` must\nstill reproduce `amount_inr` when a client checks it by hand, which is why the\noverage rate is published at its true precision rather than rounded like a rupee.",
+        "properties": {
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "gst_inr": {
+            "title": "Gst Inr",
+            "type": "string"
+          },
+          "gst_rate_pct": {
+            "title": "Gst Rate Pct",
+            "type": "string"
+          },
+          "invoice_number": {
+            "title": "Invoice Number",
+            "type": "string"
+          },
+          "line_items": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceLineItemOut"
+            },
+            "title": "Line Items",
+            "type": "array"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "organization": {
+            "$ref": "#/components/schemas/InvoiceOrganizationOut"
+          },
+          "subtotal_inr": {
+            "title": "Subtotal Inr",
+            "type": "string"
+          },
+          "total_inr": {
+            "title": "Total Inr",
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/InvoiceUsageOut"
+          }
+        },
+        "required": [
+          "invoice_number",
+          "month",
+          "generated_at",
+          "organization",
+          "line_items",
+          "subtotal_inr",
+          "gst_rate_pct",
+          "gst_inr",
+          "total_inr",
+          "usage"
+        ],
+        "title": "InvoiceOut",
+        "type": "object"
+      },
+      "InvoiceUsageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "included_minutes": {
+            "title": "Included Minutes",
+            "type": "integer"
+          },
+          "minutes_used": {
+            "title": "Minutes Used",
+            "type": "string"
+          }
+        },
+        "required": [
+          "minutes_used",
+          "calls",
+          "included_minutes"
+        ],
+        "title": "InvoiceUsageOut",
         "type": "object"
       },
       "LaunchCheckOut": {
@@ -1829,6 +2315,58 @@
         "title": "LedgerEntryOut",
         "type": "object"
       },
+      "MarginOut": {
+        "additionalProperties": false,
+        "description": "Per-client margin (D-12).\n\nEvery money field is a STRING: the values are `Decimal` (hard rule 7) and the route\nstringifies them at the boundary, because a JSON float cannot hold a rupee amount\nexactly. They must stay strings all the way to the screen.",
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "cost_inr": {
+            "title": "Cost Inr",
+            "type": "string"
+          },
+          "margin_inr": {
+            "title": "Margin Inr",
+            "type": "string"
+          },
+          "margin_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Pct"
+          },
+          "minutes_used": {
+            "title": "Minutes Used",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "revenue_inr": {
+            "title": "Revenue Inr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "minutes_used",
+          "calls",
+          "revenue_inr",
+          "cost_inr",
+          "margin_inr",
+          "margin_pct"
+        ],
+        "title": "MarginOut",
+        "type": "object"
+      },
       "MeOut": {
         "additionalProperties": false,
         "properties": {
@@ -1990,6 +2528,111 @@
           "status"
         ],
         "title": "OrganizationOut",
+        "type": "object"
+      },
+      "PerformanceFunnelOut": {
+        "additionalProperties": false,
+        "description": "Calls \u2192 connected conversations \u2192 LEADS that moved past `new` (crm/performance.py\nstates each definition; `qualified` is lead-level on purpose).",
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "integer"
+          },
+          "qualified": {
+            "title": "Qualified",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "calls",
+          "connected",
+          "qualified"
+        ],
+        "title": "PerformanceFunnelOut",
+        "type": "object"
+      },
+      "PerformanceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "avg_duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Duration S"
+          },
+          "busiest_hours_ist": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Busiest Hours Ist",
+            "type": "array"
+          },
+          "connect_rate_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connect Rate Pct"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "funnel": {
+            "$ref": "#/components/schemas/PerformanceFunnelOut"
+          },
+          "inbound": {
+            "title": "Inbound",
+            "type": "integer"
+          },
+          "outbound": {
+            "title": "Outbound",
+            "type": "integer"
+          },
+          "outcomes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Outcomes",
+            "type": "object"
+          },
+          "qualify_rate_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualify Rate Pct"
+          }
+        },
+        "required": [
+          "days",
+          "funnel",
+          "connect_rate_pct",
+          "qualify_rate_pct",
+          "inbound",
+          "outbound",
+          "avg_duration_s",
+          "outcomes",
+          "busiest_hours_ist"
+        ],
+        "title": "PerformanceOut",
         "type": "object"
       },
       "PlatformStateIn": {
@@ -2864,6 +3507,114 @@
         "title": "TranscriptTurnOut",
         "type": "object"
       },
+      "UsagePanelOut": {
+        "additionalProperties": false,
+        "description": "GET /v1/usage \u2014 this month's usage and what it costs (SURFACES \u00a72b).\n\n**Every money field is a STRING.** The values are `Decimal` all the way through\nbilling (hard rule 7) and the route stringifies them at the boundary, because a\nJSON float cannot hold a rupee amount exactly. They must stay strings to the\nscreen; `Number()` on INR is how \u20b910,159.00 becomes \u20b910,158.999999999998.\n\nOur supplier cost (`unit_cost_paid`) is deliberately absent \u2014 that is the admin\nmargin panel, and a client who can see it is a client negotiating against it.",
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "cap_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap Minutes"
+          },
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "credit_balance_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Balance Inr"
+          },
+          "included_minutes": {
+            "title": "Included Minutes",
+            "type": "integer"
+          },
+          "minutes_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minutes Left"
+          },
+          "minutes_used": {
+            "title": "Minutes Used",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "monthly_fee_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Fee Inr"
+          },
+          "overage_cost_inr": {
+            "title": "Overage Cost Inr",
+            "type": "string"
+          },
+          "overage_minutes": {
+            "title": "Overage Minutes",
+            "type": "string"
+          },
+          "overage_rate_inr": {
+            "title": "Overage Rate Inr",
+            "type": "string"
+          },
+          "plan_tier": {
+            "title": "Plan Tier",
+            "type": "string"
+          },
+          "spend_used_inr": {
+            "title": "Spend Used Inr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "minutes_used",
+          "calls",
+          "included_minutes",
+          "overage_minutes",
+          "overage_cost_inr",
+          "overage_rate_inr",
+          "monthly_fee_inr",
+          "cap_minutes",
+          "minutes_left",
+          "capped",
+          "spend_used_inr",
+          "plan_tier",
+          "credit_balance_inr"
+        ],
+        "title": "UsagePanelOut",
+        "type": "object"
+      },
       "Voice": {
         "additionalProperties": false,
         "description": "One selectable voice. Doubles as the API response model \u2014 the catalog IS the\ncontract, so there is nothing to keep in sync.",
@@ -3480,6 +4231,58 @@
         "x-calevate-permission": "agents:write"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish": {
+      "post": {
+        "description": "The tenant is named in the path because an admin principal has no tenant of its own and the one way it could get one \u2014 impersonation \u2014 is read-only by D-22. Sending `X-Impersonate-Org` to this endpoint is still refused; publish from the admin console instead.",
+        "operationId": "publish_v1_admin_tenants__tenant_id__agents__agent_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/apps__api__agents__routes__PublishOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Create/update the agent on the engine and record its routing (admin realm, D-21)",
+        "tags": [
+          "agents",
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/credits": {
       "get": {
         "operationId": "read_credits_v1_admin_tenants__tenant_id__credits_get",
@@ -3829,9 +4632,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Tenant Invoice V1 Admin Tenants  Tenant Id  Invoice Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/InvoiceOut"
                 }
               }
             },
@@ -4057,9 +4858,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Tenant Margin V1 Admin Tenants  Tenant Id  Margin Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/MarginOut"
                 }
               }
             },
@@ -4298,46 +5097,6 @@
         "x-calevate-permission": "agents:read"
       }
     },
-    "/v1/agents/{agent_id}/publish": {
-      "post": {
-        "operationId": "publish_v1_agents__agent_id__publish_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/apps__api__agents__routes__PublishOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Create/update the agent on the engine and record its routing (admin only)",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "agents:write"
-      }
-    },
     "/v1/agents/{agent_id}/voice": {
       "patch": {
         "description": "Writes `agents.tts_voice` (and the matching `tts_provider`) and audits it. It does NOT reach the voice engine: `publish_agent` re-reads both columns, so a live agent keeps its old voice until the next publish \u2014 see `republish_required` in the response. An id outside the catalog is refused with `unknown_voice`.",
@@ -4412,9 +5171,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Attention V1 Attention Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/AttentionOut"
                 }
               }
             },
@@ -5114,6 +5871,86 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/compliance/deletion-requests": {
+      "post": {
+        "description": "Write the request, queue the erasure, record that it was asked for.\n\nA number we hold nothing about is accepted just the same, and produces an\nempty-but-valid certificate. The client cannot know in advance whether they hold\nanything, and \"we found nothing\" is a complete answer to an erasure request that\nthey are entitled to be able to give in writing.",
+        "operationId": "request_erasure_v1_compliance_deletion_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeletionRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionRequestAcceptedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "File a DPDP erasure request for one phone number \u2014 queued, audited, proved",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/compliance/deletion-requests/{request_id}": {
+      "get": {
+        "description": "The answer to \"has my data been erased?\", without a support ticket.\n\nRLS scopes the lookup, so another tenant's request is not found \u2014 the same answer a\nnonexistent id gets, deliberately.",
+        "operationId": "read_request_v1_compliance_deletion_requests__request_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionRequestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Has this erasure been executed? Returns the proof certificate once it has",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/v1/compliance/subject-export": {
       "post": {
         "description": "Build the document, record that it was built, return it.\n\nA number we hold nothing about returns an empty-but-valid document, not a 404 \u2014\nand it is audited just the same. \"We hold no data about you\" is itself a disclosure\nthe client made to a data principal, and the useful question six months later is\n\"who asked, and what were they told?\", which has an answer either way.",
@@ -5720,9 +6557,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Ingest Activity V1 Lead Sources Activity Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/IngestActivityOut"
                 }
               }
             },
@@ -6078,6 +6913,7 @@
     },
     "/v1/me": {
       "get": {
+        "description": "`requires(\"org:read\")`, not `current_any`: the declaration in `openapi_extra`\nabove and the dependency here must name the same permission.\n\nNothing about who gets in changes \u2014 `requires()` defaults to `realm=\"any\"` and so\nresolves the identical principal, `org:read` is not in `MUTATING_PERMISSIONS` so an\nimpersonating admin is still admitted (D-22), and every role the DB enums allow\nholds `org:read`. What changes is that the route now enforces what it advertises,\nwhich is the property `assert_policy_registry_complete` checks at boot and\n`tests/authz_audit_test.py` asserts for every route at once. A declaration with no\nlock behind it reads as protected in the OpenAPI schema and the generated TS\nclient; this was the last route where that was true.",
         "operationId": "me_v1_me_get",
         "responses": {
           "200": {
@@ -6262,9 +7098,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Performance Panel V1 Performance Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PerformanceOut"
                 }
               }
             },
@@ -6311,9 +7145,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Usage Panel V1 Usage Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/UsagePanelOut"
                 }
               }
             },

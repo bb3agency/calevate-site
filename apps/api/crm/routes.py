@@ -12,7 +12,7 @@ raw transcript, recording link, and "call this lead".
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Annotated, Any
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -30,6 +30,7 @@ from apps.api.crm import service
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.performance import performance
 from apps.api.crm.schemas import (
+    AttentionOut,
     CallbackEligibilityOut,
     CallbackOut,
     CallDetailOut,
@@ -40,7 +41,9 @@ from apps.api.crm.schemas import (
     LeadListOut,
     LeadOut,
     LeadUpdateIn,
+    PerformanceOut,
     RecordingLinkOut,
+    UsagePanelOut,
 )
 from apps.api.reliability.service import (
     body_hash,
@@ -332,6 +335,7 @@ async def call_lead(
 
 @router.get(
     "/performance",
+    response_model=PerformanceOut,
     openapi_extra=permission_meta("calls:read"),
     summary="Connect rate, funnel, outcomes, busiest hours IST (teardown §5 floor)",
 )
@@ -339,12 +343,16 @@ async def performance_panel(
     session: Session,
     days: int = 30,
     _: Principal = Depends(requires("calls:read")),
-) -> dict[str, Any]:
-    return await performance(session, days=days)
+) -> PerformanceOut:
+    # `model_validate`, not a passthrough: the model is `extra="forbid"`, so a key the
+    # service grows without the schema growing with it fails HERE, loudly, instead of
+    # reaching a browser as a field no generated type knows about.
+    return PerformanceOut.model_validate(await performance(session, days=days))
 
 
 @router.get(
     "/attention",
+    response_model=AttentionOut,
     openapi_extra=permission_meta("leads:read"),
     summary="Everything that stopped, and what to do about it (SURFACES §2b)",
 )
@@ -354,15 +362,16 @@ async def attention(
     # request, and `min(limit, 100)` turns a negative one into a silently short queue.
     limit: int = Query(50, ge=1, le=100),
     _: Principal = Depends(requires("leads:read")),
-) -> dict[str, Any]:
+) -> AttentionOut:
     """`leads:read`, not an owner permission: staff work this queue — it is the daily
     operational surface, and gating it on billing-grade permissions would put the work
     on the one person least likely to be doing it."""
-    return await attention_queue(session, limit=min(limit, 100))
+    return AttentionOut.model_validate(await attention_queue(session, limit=min(limit, 100)))
 
 
 @router.get(
     "/usage",
+    response_model=UsagePanelOut,
     openapi_extra=permission_meta("billing:read"),
     summary="This month's usage and what it costs (SURFACES §2b)",
 )
@@ -370,21 +379,27 @@ async def usage_panel(
     session: Session,
     month: str | None = None,
     principal: Principal = Depends(requires("billing:read")),
-) -> dict[str, Any]:
+) -> UsagePanelOut:
     """`billing:read`, which staff do not have (SEC-COMP §5) — spend is an owner's
     business. Our supplier cost never appears here; that is the admin margin panel."""
     assert principal.tenant_id is not None
     summary = await billing.usage_summary(session, tenant_id=principal.tenant_id, month=month)
     balance = await billing.get_balance(session, tenant_id=principal.tenant_id)
     tier = await billing.plan_tier_of(session, principal.tenant_id)
-    return {
-        **{k: (str(v) if isinstance(v, Decimal) else v) for k, v in summary.items()},
-        "plan_tier": tier,
-        # Credits only mean something for the self-serve motion (D-34); showing a
-        # managed client a ₹0 wallet would invite a support ticket about a concept
-        # that does not apply to them.
-        "credit_balance_inr": str(balance.amount_inr) if tier in ("self_serve", "trial") else None,
-    }
+    return UsagePanelOut.model_validate(
+        {
+            # Decimal → string, never float (hard rule 7). The model declares each of
+            # these `str` for the same reason.
+            **{k: (str(v) if isinstance(v, Decimal) else v) for k, v in summary.items()},
+            "plan_tier": tier,
+            # Credits only mean something for the self-serve motion (D-34); showing a
+            # managed client a ₹0 wallet would invite a support ticket about a concept
+            # that does not apply to them.
+            "credit_balance_inr": (
+                str(balance.amount_inr) if tier in ("self_serve", "trial") else None
+            ),
+        }
+    )
 
 
 @router.get(

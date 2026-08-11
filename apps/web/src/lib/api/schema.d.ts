@@ -162,6 +162,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create/update the agent on the engine and record its routing (admin realm, D-21)
+         * @description The tenant is named in the path because an admin principal has no tenant of its own and the one way it could get one — impersonation — is read-only by D-22. Sending `X-Impersonate-Org` to this endpoint is still refused; publish from the admin console instead.
+         */
+        post: operations["publish_v1_admin_tenants__tenant_id__agents__agent_id__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/credits": {
         parameters: {
             query?: never;
@@ -439,23 +459,6 @@ export interface paths {
         get: operations["get_agent_v1_agents__agent_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/publish": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create/update the agent on the engine and record its routing (admin only) */
-        post: operations["publish_v1_agents__agent_id__publish_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -753,6 +756,54 @@ export interface paths {
         put?: never;
         /** Resume */
         post: operations["resume_v1_campaigns__campaign_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/deletion-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * File a DPDP erasure request for one phone number — queued, audited, proved
+         * @description Write the request, queue the erasure, record that it was asked for.
+         *
+         *     A number we hold nothing about is accepted just the same, and produces an
+         *     empty-but-valid certificate. The client cannot know in advance whether they hold
+         *     anything, and "we found nothing" is a complete answer to an erasure request that
+         *     they are entitled to be able to give in writing.
+         */
+        post: operations["request_erasure_v1_compliance_deletion_requests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/deletion-requests/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Has this erasure been executed? Returns the proof certificate once it has
+         * @description The answer to "has my data been erased?", without a support ticket.
+         *
+         *     RLS scopes the lookup, so another tenant's request is not found — the same answer a
+         *     nonexistent id gets, deliberately.
+         */
+        get: operations["read_request_v1_compliance_deletion_requests__request_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1107,7 +1158,20 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Who am I, in which account, with what permissions */
+        /**
+         * Who am I, in which account, with what permissions
+         * @description `requires("org:read")`, not `current_any`: the declaration in `openapi_extra`
+         *     above and the dependency here must name the same permission.
+         *
+         *     Nothing about who gets in changes — `requires()` defaults to `realm="any"` and so
+         *     resolves the identical principal, `org:read` is not in `MUTATING_PERMISSIONS` so an
+         *     impersonating admin is still admitted (D-22), and every role the DB enums allow
+         *     holds `org:read`. What changes is that the route now enforces what it advertises,
+         *     which is the property `assert_policy_registry_complete` checks at boot and
+         *     `tests/authz_audit_test.py` asserts for every route at once. A declaration with no
+         *     lock behind it reads as protected in the OpenAPI schema and the generated TS
+         *     client; this was the last route where that was true.
+         */
         get: operations["me_v1_me_get"];
         put?: never;
         post?: never;
@@ -1291,6 +1355,46 @@ export interface components {
             published: boolean;
             /** Status */
             status: string;
+        };
+        /**
+         * AttentionItemOut
+         * @description One thing the platform refused to do quietly (crm/attention.py).
+         *
+         *     `title` and `detail` are already client-safe prose: a blocked lead is named by its
+         *     lead NAME, falling back to a MASKED number, never a raw one.
+         */
+        AttentionItemOut: {
+            /** Detail */
+            detail: string;
+            /** Href */
+            href: string | null;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected";
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Rule */
+            rule: string | null;
+            /** Title */
+            title: string;
+        };
+        /** AttentionOut */
+        AttentionOut: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Items */
+            items: components["schemas"]["AttentionItemOut"][];
+            /** Total */
+            total: number;
         };
         /** BlockerOut */
         BlockerOut: {
@@ -1679,6 +1783,80 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /** DeletionRequestAcceptedOut */
+        DeletionRequestAcceptedOut: {
+            /** Already Open */
+            already_open: boolean;
+            /** Completed At */
+            completed_at: string | null;
+            /** Limitations */
+            limitations: string[];
+            /** Proof */
+            proof: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "completed";
+            /** Subject Ref */
+            subject_ref: string;
+        };
+        /**
+         * DeletionRequestIn
+         * @description `extra="forbid"` so a caller cannot smuggle a second selector — a lead id, a
+         *     narrower `scope` — into a request whose whole security argument is "one phone
+         *     number". `scope` in particular is refused rather than ignored: the worker honours no
+         *     narrower scope, so accepting one would record a promise nothing keeps.
+         */
+        DeletionRequestIn: {
+            /** Phone */
+            phone: string;
+        };
+        /**
+         * DeletionRequestOut
+         * @description The response model IS the output whitelist (BACKEND-PATTERNS §1), and what it
+         *     leaves out is the point: there is no `phone_e164` field, so the number the row keeps
+         *     cannot reach a client through this surface.
+         */
+        DeletionRequestOut: {
+            /** Completed At */
+            completed_at: string | null;
+            /** Limitations */
+            limitations: string[];
+            /** Proof */
+            proof: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "completed";
+            /** Subject Ref */
+            subject_ref: string;
+        };
         /** DeliveryOut */
         DeliveryOut: {
             /** Attempts */
@@ -1777,6 +1955,44 @@ export interface components {
              */
             type: "text" | "number" | "bool" | "enum" | "date";
         };
+        /**
+         * IngestActivityItemOut
+         * @description One inbound source's rolled-up delivery record from the durable inbox.
+         *
+         *     Declared rather than left as an untyped dict: an undeclared response is invisible
+         *     to `scripts/check_redaction_exposure.py`, which inspects response MODELS — and a
+         *     delivery record sits one careless `SELECT *` away from the sender's payload.
+         */
+        IngestActivityItemOut: {
+            /** Deduplicated */
+            deduplicated: number;
+            /** Error */
+            error: string | null;
+            /** Event */
+            event: string | null;
+            /**
+             * First At
+             * Format: date-time
+             */
+            first_at: string;
+            /**
+             * Last At
+             * Format: date-time
+             */
+            last_at: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "accepted" | "rejected" | "processing";
+            /** Source */
+            source: string;
+        };
+        /** IngestActivityOut */
+        IngestActivityOut: {
+            /** Items */
+            items: components["schemas"]["IngestActivityItemOut"][];
+        };
         /** InviteIn */
         InviteIn: {
             /**
@@ -1797,6 +2013,64 @@ export interface components {
             expires_in_hours: number;
             /** Token */
             token: string;
+        };
+        /** InvoiceLineItemOut */
+        InvoiceLineItemOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Description */
+            description: string;
+            /** Qty */
+            qty: string;
+            /** Unit Inr */
+            unit_inr: string;
+        };
+        /** InvoiceOrganizationOut */
+        InvoiceOrganizationOut: {
+            /** Billing Email */
+            billing_email: string | null;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /**
+         * InvoiceOut
+         * @description The structured statement a future PDF/UI renders (billing/invoice.py).
+         *
+         *     Money is a string throughout for the reason hard rule 7 exists: these are exact
+         *     NUMERIC rupee amounts, and a JSON float cannot hold them. `qty * unit_inr` must
+         *     still reproduce `amount_inr` when a client checks it by hand, which is why the
+         *     overage rate is published at its true precision rather than rounded like a rupee.
+         */
+        InvoiceOut: {
+            /** Generated At */
+            generated_at: string;
+            /** Gst Inr */
+            gst_inr: string;
+            /** Gst Rate Pct */
+            gst_rate_pct: string;
+            /** Invoice Number */
+            invoice_number: string;
+            /** Line Items */
+            line_items: components["schemas"]["InvoiceLineItemOut"][];
+            /** Month */
+            month: string;
+            organization: components["schemas"]["InvoiceOrganizationOut"];
+            /** Subtotal Inr */
+            subtotal_inr: string;
+            /** Total Inr */
+            total_inr: string;
+            usage: components["schemas"]["InvoiceUsageOut"];
+        };
+        /** InvoiceUsageOut */
+        InvoiceUsageOut: {
+            /** Calls */
+            calls: number;
+            /** Included Minutes */
+            included_minutes: number;
+            /** Minutes Used */
+            minutes_used: string;
         };
         /** LaunchCheckOut */
         LaunchCheckOut: {
@@ -1900,6 +2174,30 @@ export interface components {
             /** Ref */
             ref: string | null;
         };
+        /**
+         * MarginOut
+         * @description Per-client margin (D-12).
+         *
+         *     Every money field is a STRING: the values are `Decimal` (hard rule 7) and the route
+         *     stringifies them at the boundary, because a JSON float cannot hold a rupee amount
+         *     exactly. They must stay strings all the way to the screen.
+         */
+        MarginOut: {
+            /** Calls */
+            calls: number;
+            /** Cost Inr */
+            cost_inr: string;
+            /** Margin Inr */
+            margin_inr: string;
+            /** Margin Pct */
+            margin_pct: string | null;
+            /** Minutes Used */
+            minutes_used: string;
+            /** Month */
+            month: string;
+            /** Revenue Inr */
+            revenue_inr: string;
+        };
         /** MeOut */
         MeOut: {
             /** Impersonating */
@@ -1957,6 +2255,41 @@ export interface components {
             status: string;
             /** Vertical Template */
             vertical_template?: string | null;
+        };
+        /**
+         * PerformanceFunnelOut
+         * @description Calls → connected conversations → LEADS that moved past `new` (crm/performance.py
+         *     states each definition; `qualified` is lead-level on purpose).
+         */
+        PerformanceFunnelOut: {
+            /** Calls */
+            calls: number;
+            /** Connected */
+            connected: number;
+            /** Qualified */
+            qualified: number;
+        };
+        /** PerformanceOut */
+        PerformanceOut: {
+            /** Avg Duration S */
+            avg_duration_s: number | null;
+            /** Busiest Hours Ist */
+            busiest_hours_ist: number[];
+            /** Connect Rate Pct */
+            connect_rate_pct: number | null;
+            /** Days */
+            days: number;
+            funnel: components["schemas"]["PerformanceFunnelOut"];
+            /** Inbound */
+            inbound: number;
+            /** Outbound */
+            outbound: number;
+            /** Outcomes */
+            outcomes: {
+                [key: string]: number;
+            };
+            /** Qualify Rate Pct */
+            qualify_rate_pct: number | null;
         };
         /** PlatformStateIn */
         PlatformStateIn: {
@@ -2282,6 +2615,48 @@ export interface components {
             start_ms?: number | null;
             /** Text */
             text: string;
+        };
+        /**
+         * UsagePanelOut
+         * @description GET /v1/usage — this month's usage and what it costs (SURFACES §2b).
+         *
+         *     **Every money field is a STRING.** The values are `Decimal` all the way through
+         *     billing (hard rule 7) and the route stringifies them at the boundary, because a
+         *     JSON float cannot hold a rupee amount exactly. They must stay strings to the
+         *     screen; `Number()` on INR is how ₹10,159.00 becomes ₹10,158.999999999998.
+         *
+         *     Our supplier cost (`unit_cost_paid`) is deliberately absent — that is the admin
+         *     margin panel, and a client who can see it is a client negotiating against it.
+         */
+        UsagePanelOut: {
+            /** Calls */
+            calls: number;
+            /** Cap Minutes */
+            cap_minutes: number | null;
+            /** Capped */
+            capped: boolean;
+            /** Credit Balance Inr */
+            credit_balance_inr: string | null;
+            /** Included Minutes */
+            included_minutes: number;
+            /** Minutes Left */
+            minutes_left: number | null;
+            /** Minutes Used */
+            minutes_used: string;
+            /** Month */
+            month: string;
+            /** Monthly Fee Inr */
+            monthly_fee_inr: string | null;
+            /** Overage Cost Inr */
+            overage_cost_inr: string;
+            /** Overage Minutes */
+            overage_minutes: string;
+            /** Overage Rate Inr */
+            overage_rate_inr: string;
+            /** Plan Tier */
+            plan_tier: string;
+            /** Spend Used Inr */
+            spend_used_inr: string;
         };
         /**
          * Voice
@@ -2719,6 +3094,38 @@ export interface operations {
             };
         };
     };
+    publish_v1_admin_tenants__tenant_id__agents__agent_id__publish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["apps__api__agents__routes__PublishOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_credits_v1_admin_tenants__tenant_id__credits_get: {
         parameters: {
             query?: {
@@ -2949,9 +3356,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["InvoiceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -3088,9 +3493,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MarginOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -3266,37 +3669,6 @@ export interface operations {
             };
         };
     };
-    publish_v1_agents__agent_id__publish_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["apps__api__agents__routes__PublishOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     set_agent_voice_v1_agents__agent_id__voice_patch: {
         parameters: {
             query?: never;
@@ -3349,9 +3721,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AttentionOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -3868,6 +4238,70 @@ export interface operations {
             };
         };
     };
+    request_erasure_v1_compliance_deletion_requests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeletionRequestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletionRequestAcceptedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_request_v1_compliance_deletion_requests__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletionRequestOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     subject_export_v1_compliance_subject_export_post: {
         parameters: {
             query?: never;
@@ -4360,9 +4794,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["IngestActivityOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -4746,9 +5178,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["PerformanceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -4779,9 +5209,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["UsagePanelOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

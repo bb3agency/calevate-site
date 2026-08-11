@@ -13,7 +13,8 @@ stamped here and threaded through rather than measured inside the service.
 from __future__ import annotations
 
 import time
-from typing import Annotated, Any
+from datetime import datetime
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -116,8 +117,38 @@ class TestWebhookIn(BaseModel):
     payload: dict[str, Any]
 
 
+class IngestActivityItemOut(BaseModel):
+    """One inbound source's rolled-up delivery record from the durable inbox.
+
+    Declared rather than left as an untyped dict: an undeclared response is invisible
+    to `scripts/check_redaction_exposure.py`, which inspects response MODELS — and a
+    delivery record sits one careless `SELECT *` away from the sender's payload.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str
+    # `webhook_inbox_events.event_name` is a nullable column: a row written by a
+    # provider that sends no event name has none, and inventing "" would be a lie.
+    event: str | None
+    # The three words the SURFACES spec uses, not our internal inbox enum.
+    outcome: Literal["accepted", "rejected", "processing"]
+    # Vendor retries we absorbed without ringing the customer twice.
+    deduplicated: int
+    error: str | None
+    first_at: datetime
+    last_at: datetime
+
+
+class IngestActivityOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[IngestActivityItemOut]
+
+
 @sources_router.get(
     "/activity",
+    response_model=IngestActivityOut,
     openapi_extra=permission_meta("org:read"),
     summary="Every inbound delivery: accepted / deduplicated / rejected (SURFACES §2b)",
 )
@@ -131,7 +162,7 @@ async def ingest_activity(
     # was reaching us at all. The dry-run POST below stays on `org:manage`: it is an
     # action taken on the client's behalf, not a view of their data.
     _: Principal = Depends(requires("org:read")),
-) -> dict[str, Any]:
+) -> IngestActivityOut:
     """Reads the same durable inbox the dedupe writes, so this view costs nothing new.
 
     `duplicate_count` is the column that answers the classic support thread: the form
@@ -141,7 +172,7 @@ async def ingest_activity(
     hooks = (await session.execute(text("SELECT id, source FROM inbound_webhooks"))).all()
     sources = {f"ingest:{row[0]}": str(row[1]) for row in hooks}
     if not sources:
-        return {"items": []}
+        return IngestActivityOut(items=[])
 
     rows = (
         await session.execute(
@@ -153,25 +184,25 @@ async def ingest_activity(
             {"providers": list(sources.keys()), "limit": min(limit, 200)},
         )
     ).all()
-    return {
-        "items": [
-            {
-                "source": sources.get(str(r[0]), "unknown"),
-                "event": r[1],
+    return IngestActivityOut(
+        items=[
+            IngestActivityItemOut(
+                source=sources.get(str(r[0]), "unknown"),
+                event=r[1],
                 # The three words the SURFACES spec uses, not our internal enum.
-                "outcome": (
+                outcome=(
                     "rejected"
                     if r[2] == "failed"
                     else ("accepted" if r[2] in ("processed", "enqueued") else "processing")
                 ),
-                "deduplicated": int(r[3] or 0),
-                "error": r[4],
-                "first_at": r[5],
-                "last_at": r[6],
-            }
+                deduplicated=int(r[3] or 0),
+                error=r[4],
+                first_at=r[5],
+                last_at=r[6],
+            )
             for r in rows
         ]
-    }
+    )
 
 
 @sources_router.post(
