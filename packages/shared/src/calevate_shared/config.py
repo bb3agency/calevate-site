@@ -104,6 +104,24 @@ class Settings(BaseSettings):
     whatsapp_template_hot_lead: str = "calevate_hot_lead_v1"
     whatsapp_template_locale: str = "en"
 
+    # Google Sheets delivery for outbound CRM sync (D-23, `outbound_webhooks.kind =
+    # 'google_sheets'`). Same seam as `whatsapp_provider` and for the same reason: no
+    # Google service account is provisioned and no adapter has been written against
+    # one, so `console` is the local dev sink (refused outside APP_ENV=local) and any
+    # other name resolves to `provider_not_implemented` and refuses to append rather
+    # than pretending. Unset falls back to the dev sink locally and a refusal
+    # everywhere else.
+    #
+    # This exists as CONFIG rather than as `app_env == "local"` — which is what
+    # selection used to key off — because "are we on a laptop" is not a statement about
+    # Google Sheets, and the client-facing config surface has to gate on something that
+    # is. `apps/api/integrations/routes.py` refuses to create a sheets endpoint when
+    # this says the deployment cannot deliver to one.
+    #
+    # NOT the credential. The service account is a secrets-manager reference on the
+    # endpoint row (`outbound_webhooks.secret_ref`) — key material never lives here.
+    google_sheets_provider: str | None = None
+
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     sentry_dsn: str | None = None

@@ -1337,6 +1337,50 @@
         "title": "CreateOrgOut",
         "type": "object"
       },
+      "CreateSheetEndpointIn": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "enum": [
+                "lead.created",
+                "lead.updated",
+                "call.completed",
+                "campaign.completed"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Events",
+            "type": "array"
+          },
+          "spreadsheet": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Spreadsheet",
+            "type": "string"
+          },
+          "worksheet": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worksheet"
+          }
+        },
+        "required": [
+          "spreadsheet",
+          "events"
+        ],
+        "title": "CreateSheetEndpointIn",
+        "type": "object"
+      },
       "CreditsOut": {
         "additionalProperties": false,
         "properties": {
@@ -1921,6 +1965,10 @@
             "title": "Id",
             "type": "string"
           },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
           "secret_fingerprint": {
             "anyOf": [
               {
@@ -1946,6 +1994,7 @@
         },
         "required": [
           "id",
+          "kind",
           "url",
           "events",
           "active",
@@ -3908,6 +3957,54 @@
           "next_step"
         ],
         "title": "SetVoiceOut",
+        "type": "object"
+      },
+      "SheetEndpointOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "credential_attached": {
+            "title": "Credential Attached",
+            "type": "boolean"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "spreadsheet_id": {
+            "title": "Spreadsheet Id",
+            "type": "string"
+          },
+          "worksheet": {
+            "title": "Worksheet",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "spreadsheet_id",
+          "worksheet",
+          "events",
+          "active",
+          "credential_attached"
+        ],
+        "title": "SheetEndpointOut",
         "type": "object"
       },
       "SignupIn": {
@@ -7939,6 +8036,45 @@
           }
         },
         "summary": "Register a webhook endpoint \u2014 the signing secret is shown once",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/integrations/endpoints/sheets": {
+      "post": {
+        "description": "Deliver events to a Google Sheet. Accepts the sheet's URL or document id and the events to subscribe to. Refused with `sheets_delivery_unavailable` on accounts where Google Sheets delivery is not enabled, so an endpoint is never created that cannot receive rows. The Google credential is attached by Calevate, never sent here: until it is, `credential_attached` is false and attempts appear as failures on your delivery screen.",
+        "operationId": "create_sheets_endpoint_v1_integrations_endpoints_sheets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSheetEndpointIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SheetEndpointOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Register a Google Sheets endpoint \u2014 refused where Sheets delivery does not exist",
         "tags": [
           "integrations"
         ],

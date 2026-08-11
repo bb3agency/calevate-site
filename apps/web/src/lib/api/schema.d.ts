@@ -1108,6 +1108,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/integrations/endpoints/sheets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register a Google Sheets endpoint — refused where Sheets delivery does not exist
+         * @description Deliver events to a Google Sheet. Accepts the sheet's URL or document id and the events to subscribe to. Refused with `sheets_delivery_unavailable` on accounts where Google Sheets delivery is not enabled, so an endpoint is never created that cannot receive rows. The Google credential is attached by Calevate, never sent here: until it is, `credential_attached` is false and attempts appear as failures on your delivery screen.
+         */
+        post: operations["create_sheets_endpoint_v1_integrations_endpoints_sheets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/integrations/endpoints/{endpoint_id}": {
         parameters: {
             query?: never;
@@ -1974,6 +1994,15 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** CreateSheetEndpointIn */
+        CreateSheetEndpointIn: {
+            /** Events */
+            events: ("lead.created" | "lead.updated" | "call.completed" | "campaign.completed")[];
+            /** Spreadsheet */
+            spreadsheet: string;
+            /** Worksheet */
+            worksheet?: string | null;
+        };
         /** CreditsOut */
         CreditsOut: {
             /** Balance Inr */
@@ -2224,6 +2253,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Kind */
+            kind: string;
             /** Secret Fingerprint */
             secret_fingerprint: string | null;
             /** Url */
@@ -2976,6 +3007,26 @@ export interface components {
             /** Republish Required */
             republish_required: boolean;
             voice: components["schemas"]["Voice"];
+        };
+        /** SheetEndpointOut */
+        SheetEndpointOut: {
+            /** Active */
+            active: boolean;
+            /** Credential Attached */
+            credential_attached: boolean;
+            /** Events */
+            events: string[];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Spreadsheet Id */
+            spreadsheet_id: string;
+            /** Worksheet */
+            worksheet: string;
         };
         /** SignupIn */
         SignupIn: {
@@ -5541,6 +5592,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreateEndpointOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_sheets_endpoint_v1_integrations_endpoints_sheets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSheetEndpointIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SheetEndpointOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

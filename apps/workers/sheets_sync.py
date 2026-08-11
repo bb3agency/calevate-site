@@ -64,6 +64,15 @@ VALUE_INPUT_OPTION = "RAW"
 NO_CREDENTIALS_REASON = "no_google_credentials"
 NO_CREDENTIAL_REF_REASON = "no_credential_ref"
 NO_SPREADSHEET_REASON = "no_spreadsheet_configured"
+# `GOOGLE_SHEETS_PROVIDER=console` outside local: operator error of the kind that
+# reports success forever.
+DEV_SINK_OUTSIDE_LOCAL_REASON = "dev_sink_refused_outside_local"
+# A provider name with no adapter behind it. Suffixed with the name so the alert says
+# which one was expected — the name is OUR config, not vendor prose.
+PROVIDER_NOT_IMPLEMENTED_REASON = "provider_not_implemented"
+
+# The one provider name that resolves to a transport today. Not a vendor: the dev sink.
+CONSOLE_PROVIDER = "console"
 
 
 # --- the request ----------------------------------------------------------------
@@ -164,17 +173,50 @@ class UnconfiguredSheetsTransport:
 
 
 def get_sheets_transport() -> SheetsTransport:
-    """Selected by environment, exactly like `transport.get_transport()`.
+    """Selected by config, exactly like `whatsapp.get_whatsapp_transport()`.
 
-    There is no `GOOGLE_SHEETS_PROVIDER` setting to consult, and that is the honest
-    state rather than an oversight: a provider name would imply an adapter behind it,
-    and none exists. Local gets the dev sink so the mapping, the ladder and the delivery
-    log are exercisable offline; every other environment gets a refusal until a service
-    account is provisioned and an adapter is written against it.
+    `google_sheets_provider` is the seam where a real adapter lands. Any name other
+    than the dev sink resolves to `provider_not_implemented`, on purpose: setting
+    `GOOGLE_SHEETS_PROVIDER=gspread` today must fail loudly rather than look configured.
+
+    This used to read `app_env == "local"` and nothing else, which was honest about the
+    transport but useless to everything else — "are we on a laptop" is not a statement
+    about Google Sheets, so no client-facing surface could gate on it, and the config
+    file could not record that a deployment had been given an adapter. The environment
+    is now only the FALLBACK, and it is explicit: unset means the dev sink locally and
+    a refusal everywhere else.
     """
-    if get_settings().app_env == "local":
+    settings = get_settings()
+    provider = (settings.google_sheets_provider or "").strip().lower()
+
+    if provider == CONSOLE_PROVIDER:
+        if settings.app_env != "local":
+            # An explicit dev sink outside local is operator error, and it is the kind
+            # that reports every lead appended forever. Refuse it rather than swallow
+            # rows into a terminal nobody reads.
+            return UnconfiguredSheetsTransport(DEV_SINK_OUTSIDE_LOCAL_REASON)
+        return ConsoleSheetsTransport()
+    if provider:
+        return UnconfiguredSheetsTransport(f"{PROVIDER_NOT_IMPLEMENTED_REASON}:{provider}")
+    if settings.app_env == "local":
         return ConsoleSheetsTransport()
     return UnconfiguredSheetsTransport(NO_CREDENTIALS_REASON)
+
+
+def sheets_delivery_available() -> bool:
+    """Can THIS deployment append to a sheet at all?
+
+    Asked by the config surface (`POST /v1/integrations/endpoints/sheets`) so that a
+    client is never handed an endpoint nothing can deliver to. It is deliberately the
+    SAME selector the worker calls rather than a second read of the same settings: a
+    config screen that decided for itself whether sheets work would eventually disagree
+    with the worker, and the disagreement would read as "the screen says configured and
+    the spreadsheet stays empty" — the exact defect this module exists to kill.
+
+    It answers for the TRANSPORT only. Whether a particular endpoint has a credential
+    reference is a property of that row, checked in `append_event`.
+    """
+    return not isinstance(get_sheets_transport(), UnconfiguredSheetsTransport)
 
 
 # --- the mapping + the one call the delivery worker makes ------------------------
@@ -247,9 +289,12 @@ def _refused(reason: str) -> service.DeliveryResult:
 
 __all__ = [
     "CHANNEL",
+    "CONSOLE_PROVIDER",
+    "DEV_SINK_OUTSIDE_LOCAL_REASON",
     "NO_CREDENTIALS_REASON",
     "NO_CREDENTIAL_REF_REASON",
     "NO_SPREADSHEET_REASON",
+    "PROVIDER_NOT_IMPLEMENTED_REASON",
     "VALUE_INPUT_OPTION",
     "AppendResult",
     "AppendStatus",
@@ -259,4 +304,5 @@ __all__ = [
     "UnconfiguredSheetsTransport",
     "append_event",
     "get_sheets_transport",
+    "sheets_delivery_available",
 ]
