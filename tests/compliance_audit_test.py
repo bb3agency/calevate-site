@@ -38,7 +38,7 @@ from apps.api.campaigns import service as campaigns
 from apps.api.compliance.service import add_to_dnc, check_dispatch
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
 from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
@@ -83,13 +83,39 @@ async def _tenant(*, direction: str = "outbound") -> tuple[uuid.UUID, uuid.UUID]
         created_by=None,
     )
     tenant_id, agent_id = created["id"], created["agent_id"]
+    ref = f"fakeagent_audit_{uuid.uuid4().hex[:8]}"
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "UPDATE agents SET status = 'live', direction = :dir, "
                 "engine_agent_ref = :ref WHERE id = :a"
             ),
-            {"dir": direction, "ref": f"fakeagent_audit_{uuid.uuid4().hex[:8]}", "a": agent_id},
+            {"dir": direction, "ref": ref, "a": agent_id},
+        )
+        # The launch gate now requires a live DLT Principal Entity registration and TM
+        # link (SEC-COMP §3). These fixtures predate it, so they supply one — the gate
+        # is not softened to fit a fixture that was written before the rule existed.
+        await campaigns.record_dlt_registration(
+            session,
+            tenant_id=tenant_id,
+            pe_id=f"1102{uuid.uuid4().int % 10**9:09d}",
+            entity_name="Audit Motors Pvt Ltd",
+            status="active",
+            tm_link_status="active",
+            registered_at=datetime.now(UTC) - timedelta(days=30),
+        )
+    # The engine route row. `publish_agent` writes this in the SAME transaction that
+    # sets `agents.status = 'live'`, so a live agent without one is a shape production
+    # cannot produce — and the dispatcher now resolves its tenant worklist from this
+    # table rather than walking every organization, so a fixture that skips it is
+    # simply invisible to the tick.
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
+                "active, created_at, updated_at) VALUES ('fake', :r, :t, :a, true, now(), now())"
+            ),
+            {"r": ref, "t": tenant_id, "a": agent_id},
         )
     return tenant_id, agent_id
 
@@ -135,6 +161,10 @@ async def _campaign(
         number_id=number_id,
         dlt_template_id=template_id,
         concurrency=slider,
+        # Where the contact list came from — the gate refuses a campaign that cannot
+        # say. "existing_customer" is the honest answer for invented fixture contacts.
+        consent_source="existing_customer",
+        consent_collected_at=datetime.now(UTC) - timedelta(days=7),
     )
     await campaigns.add_contacts(
         session,

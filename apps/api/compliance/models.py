@@ -19,9 +19,17 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from apps.api.db.base import Base, PKMixin
+from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 CONSENT_PURPOSES = ("recording", "callback", "marketing")
+# DLT Principal Entity registration, as the registrar's own lifecycle (SEC-COMP §1/§3).
+# `not_started` exists so a row can say "we have not begun" without being absent —
+# absence and "pending" are different facts to an operator chasing an onboarding step.
+PE_REGISTRATION_STATUSES = ("not_started", "submitted", "active", "suspended", "rejected")
+# The PE→TM authorisation: the client (PE) naming Calevate (TM) as permitted to place
+# calls on their behalf. Separate from the PE's own status because it fails separately:
+# a perfectly registered entity that never linked us is a different to-do item.
+TM_LINK_STATUSES = ("not_linked", "pending", "active", "revoked")
 CONSENT_STATUSES = ("granted", "declined", "withdrawn")
 DATA_CATEGORIES = ("recording", "transcript", "lead", "consent_log")
 RETENTION_ACTIONS = ("delete", "anonymize")
@@ -78,6 +86,51 @@ class DncEntry(PKMixin, Base):
     source: Mapped[str | None] = mapped_column(Text)
     added_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class DltRegistration(PKMixin, TimestampMixin, Base):
+    """Whether this client may lawfully have calls placed on their behalf (SEC-COMP §3).
+
+    The DLT role model, per §3: the **client is the Principal Entity (PE)** and
+    **Calevate is the registered Telemarketer (TM)** linked to them. Three registrations
+    exist at the registrar and only two of them had a home in this schema —
+    `phone_numbers.dlt_status` (the header) and `dlt_templates.status` (the voice
+    template). This is the third and the widest: the ENTITY. A registered header on an
+    unregistered entity is still unregistered traffic, dropped at the network as spam,
+    with the complaints filed against the client.
+
+    One row per tenant (UNIQUE on tenant_id): a business is one Principal Entity. The
+    row is MUTABLE — a registration is suspended and restored over its life — so this
+    is deliberately not an append-only ledger; `audit_log` carries who changed it.
+
+    NOT modelled here: Calevate's OWN TM registration, which §3 also names. That is a
+    company-level fact, true or false for every tenant at once, and it belongs with the
+    other global switches in `platform_state` (DATA-MODEL §9a), not in a per-tenant
+    table where it would be stored N times and disagree with itself.
+    """
+
+    __tablename__ = "dlt_registrations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id"),
+        CheckConstraint(f"status IN {PE_REGISTRATION_STATUSES!r}", name="status_enum"),
+        CheckConstraint(f"tm_link_status IN {TM_LINK_STATUSES!r}", name="tm_link_status_enum"),
+        # An `active` registration that cannot name its PE id is not a registration,
+        # it is a claim. The id is what an operator checks against the registrar.
+        CheckConstraint(
+            "status <> 'active' OR (pe_id IS NOT NULL AND registered_at IS NOT NULL)",
+            name="active_registration_names_its_pe",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    pe_id: Mapped[str | None] = mapped_column(Text)  # the registrar's Principal Entity id
+    entity_name: Mapped[str | None] = mapped_column(Text)  # as registered, not as branded
+    status: Mapped[str] = mapped_column(String, nullable=False, server_default="not_started")
+    tm_link_status: Mapped[str] = mapped_column(String, nullable=False, server_default="not_linked")
+    registered_at: Mapped[datetime | None]
+    verified_at: Mapped[datetime | None]  # when WE last checked it against the registrar
 
 
 class RetentionPolicy(PKMixin, Base):

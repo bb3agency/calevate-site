@@ -103,8 +103,37 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
             ),
             {"r": ref, "t": tenant_id, "a": agent_id},
         )
+    # A live PE registration and TM link. The launch gate now refuses a tenant without
+    # one (SEC-COMP §3), which is correct — a campaign dialled from an unregistered
+    # Principal Entity is the misclassification that gets the traffic filed as spam
+    # against the CLIENT. These fixtures predate the requirement, so they have to supply
+    # it rather than the gate being softened to accommodate them.
+    async with tenant_session(tenant_id) as session:
+        await service.record_dlt_registration(
+            session,
+            tenant_id=tenant_id,
+            pe_id=f"1102{uuid.uuid4().int % 10**9:09d}",
+            entity_name="Camp Motors Pvt Ltd",
+            status="active",
+            tm_link_status="active",
+            registered_at=datetime.now(UTC) - timedelta(days=30),
+        )
     _TENANTS.append(tenant_id)
     return tenant_id, agent_id
+
+
+async def _create_campaign(session: Any, **kwargs: Any) -> uuid.UUID:
+    """`create_campaign` with the consent provenance the launch gate now requires.
+
+    A default here rather than at eight call sites, and a default in the TEST rather
+    than in the service: the gate refusing a campaign that cannot say where its list
+    came from is the behaviour we want (SEC-COMP §3), so the fixtures supply an answer
+    instead of the requirement being softened to fit them. Any test that wants the
+    missing-provenance case passes `consent_source=None` explicitly.
+    """
+    kwargs.setdefault("consent_source", "existing_customer")
+    kwargs.setdefault("consent_collected_at", datetime.now(UTC) - timedelta(days=7))
+    return await service.create_campaign(session, **kwargs)
 
 
 async def _number(session: Any, tenant_id: uuid.UUID, series: str) -> uuid.UUID:
@@ -160,7 +189,7 @@ async def _ready_campaign(
         template_id = await _template(
             session, tenant_id, template_classification or classification, template_status
         )
-        campaign_id = await service.create_campaign(
+        campaign_id = await _create_campaign(
             session,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -169,6 +198,12 @@ async def _ready_campaign(
             number_id=number_id,
             dlt_template_id=template_id,
             concurrency=concurrency,
+            # Where this list came from. The gate refuses a campaign that cannot say,
+            # and "existing_customer" is the honest answer for a fixture whose contacts
+            # are invented — not the most permissive value, but the one that matches
+            # what the test is pretending to be.
+            consent_source="existing_customer",
+            consent_collected_at=datetime.now(UTC) - timedelta(days=7),
         )
         if phones:
             await service.add_contacts(
@@ -247,7 +282,7 @@ async def _quiesce(*keep: uuid.UUID) -> None:
 async def test_contact_upload_dedupes_and_counts_malformed_without_guessing() -> None:
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
-        campaign_id = await service.create_campaign(
+        campaign_id = await _create_campaign(
             session,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -317,7 +352,7 @@ async def test_the_launch_gate_names_every_blocker_at_once() -> None:
         await session.execute(
             text("UPDATE agents SET status = 'draft' WHERE id = :a"), {"a": agent_id}
         )
-        campaign_id = await service.create_campaign(
+        campaign_id = await _create_campaign(
             session,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -812,7 +847,7 @@ async def test_a_registered_template_starts_submitted_and_only_admin_approval_mo
             body="Hello from {#var#}, calling about your enquiry with us.",
             dlt_ref=None,
         )
-        campaign_id = await service.create_campaign(
+        campaign_id = await _create_campaign(
             session,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -944,7 +979,7 @@ async def _windowed_campaign(
     async with tenant_session(tenant_id) as session:
         number_id = await _number(session, tenant_id, "140")
         template_id = await _template(session, tenant_id, "promotional", "approved")
-        campaign_id = await service.create_campaign(
+        campaign_id = await _create_campaign(
             session,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -971,7 +1006,7 @@ async def test_a_window_outside_platform_hours_is_rejected_and_inside_is_stored(
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         with pytest.raises(ProblemError) as excinfo:
-            await service.create_campaign(
+            await _create_campaign(
                 session,
                 tenant_id=tenant_id,
                 agent_id=agent_id,
@@ -986,7 +1021,7 @@ async def test_a_window_outside_platform_hours_is_rejected_and_inside_is_stored(
         assert excinfo.value.kind == "validation"
 
         # Entirely inside the platform window: accepted and stored verbatim.
-        campaign_id = await service.create_campaign(
+        campaign_id = await _create_campaign(
             session,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -1086,7 +1121,7 @@ async def test_a_backwards_or_malformed_window_is_rejected() -> None:
     async with tenant_session(tenant_id) as session:
         for window in bad_windows:
             with pytest.raises(ProblemError) as excinfo:
-                await service.create_campaign(
+                await _create_campaign(
                     session,
                     tenant_id=tenant_id,
                     agent_id=agent_id,

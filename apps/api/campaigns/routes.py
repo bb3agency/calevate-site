@@ -53,6 +53,25 @@ class CallingHoursIn(Strict):
     end: str = Field(pattern=_HHMM)
 
 
+class ConsentProvenanceIn(Strict):
+    """Where this list's consent came from, and when (SEC-COMP §3).
+
+    `source` is a Literal, not a string: the wire type IS the enum, so the generated
+    TypeScript client offers a client the five real answers instead of a free-text box
+    somebody types "yes" into. `purchased_list` is offered because the gate has to be
+    able to refuse it by name — see campaigns/models.py.
+    """
+
+    source: Literal[
+        "existing_customer",
+        "inbound_enquiry",
+        "web_form_optin",
+        "offline_form_optin",
+        "purchased_list",
+    ]
+    collected_at: datetime
+
+
 class CreateCampaignIn(Strict):
     agent_id: UUID
     name: str = Field(min_length=2, max_length=120)
@@ -62,6 +81,10 @@ class CreateCampaignIn(Strict):
     concurrency: int = Field(default=3, ge=1, le=10)
     # None = "the platform window" — clients narrow it, never widen it.
     calling_hours: CallingHoursIn | None = None
+    # Optional to CREATE, mandatory to LAUNCH. An older frontend can still draft a
+    # campaign; nothing it drafts can dial until the provenance question is answered,
+    # because the gate — not this schema — is where the requirement is enforced.
+    consent_provenance: ConsentProvenanceIn | None = None
 
 
 class CreateCampaignOut(Strict):
@@ -212,8 +235,52 @@ async def create_campaign(
         dlt_template_id=payload.dlt_template_id,
         concurrency=payload.concurrency,
         calling_hours=payload.calling_hours.model_dump() if payload.calling_hours else None,
+        consent_source=payload.consent_provenance.source if payload.consent_provenance else None,
+        consent_collected_at=(
+            payload.consent_provenance.collected_at if payload.consent_provenance else None
+        ),
     )
     return CreateCampaignOut(id=campaign_id, status="draft")
+
+
+@router.post(
+    "/{campaign_id}/consent-provenance",
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Where this list's consent came from (SEC-COMP §3) — draft campaigns only",
+)
+async def declare_consent_provenance(
+    campaign_id: UUID,
+    payload: ConsentProvenanceIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> dict[str, str]:
+    """The answer path for a draft created before the provenance columns existed.
+
+    Audited: a client's assertion about where five thousand phone numbers came from is
+    exactly the kind of statement that has to be attributable later — it is the record
+    §3's "refused, in writing" refers to. `leads:dispatch`, not a read permission,
+    because declaring provenance is what unlocks dialling.
+    """
+    assert principal.tenant_id is not None
+    await service.declare_consent_provenance(
+        session,
+        tenant_id=principal.tenant_id,
+        campaign_id=campaign_id,
+        consent_source=payload.source,
+        consent_collected_at=payload.collected_at,
+    )
+    await write_audit(
+        session,
+        action="campaign.consent_provenance_declared",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="campaign",
+        object_id=str(campaign_id),
+        ip=request.client.host if request.client else None,
+        summary={"source": payload.source, "collected_at": payload.collected_at.isoformat()},
+    )
+    return {"status": "recorded"}
 
 
 @router.post(

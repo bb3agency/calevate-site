@@ -23,13 +23,15 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, time
+from datetime import UTC, datetime, time
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.campaigns.models import CONSENT_SOURCES, REFUSED_CONSENT_SOURCES
+from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
 from apps.api.compliance.service import (
     DEFAULT_WINDOW,
     NO_CREDITS_REASON,
@@ -54,6 +56,25 @@ SERIES_FOR_CLASSIFICATION: dict[str, tuple[str, ...]] = {
 }
 
 DEFAULT_RETRY_POLICY: dict[str, Any] = {"max_attempts": 3, "backoff_minutes": [30, 120]}
+
+# The client-facing wording of the two provenance refusals and the two DLT-entity ones,
+# kept beside each other so the same condition is never explained two different ways.
+NO_PROVENANCE_REASON = (
+    "Record where this list's consent came from and when it was collected. A list we "
+    "cannot trace to a consent cannot be dialled."
+)
+PURCHASED_LIST_REASON = (
+    "This list is recorded as purchased. Calevate does not dial bought or rented "
+    "contact lists — there is no consent artefact behind them (policy, SEC-COMP §3)."
+)
+PE_MISSING_REASON = (
+    "This business is not yet registered as a DLT Principal Entity. Outbound campaigns "
+    "cannot launch until it is; answering inbound calls is unaffected."
+)
+TM_LINK_REASON = (
+    "Your DLT Principal Entity has not authorised Calevate as its telemarketer. "
+    "Outbound campaigns cannot launch until that link is active."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +130,62 @@ def _validated_window(calling_hours: dict[str, Any]) -> dict[str, str]:
     return {"start": start.strftime("%H:%M"), "end": end.strftime("%H:%M")}
 
 
+def _validated_provenance(
+    consent_source: str | None, consent_collected_at: datetime | None
+) -> tuple[str | None, datetime | None]:
+    """Validate consent provenance at the write paths, so the column can only ever hold
+    an answer the gate can CHECK (SEC-COMP §3).
+
+    `(None, None)` is legal and means "nobody has said yet" — the honest state of every
+    campaign that predates the columns, and of a draft whose owner has not been asked.
+    The gate refuses it by name; what it must never do is confuse it with an answer.
+
+    Everything else is refused HERE rather than at launch, because a provenance the gate
+    would have to interpret is exactly what §3's "source + date" is written to avoid:
+
+    - a source outside the enum — free text is a box someone types "yes" into;
+    - half an answer — a source with no date cannot be aged against a consent since
+      withdrawn, and a date with no source names nothing;
+    - a collection date in the future, which is not a record of anything that happened.
+    """
+    if (consent_source is None) != (consent_collected_at is None):
+        raise ProblemError(
+            kind="validation",
+            code="consent_provenance_incomplete",
+            title="Incomplete consent provenance",
+            detail="Consent provenance needs both a source and the date it was collected.",
+        )
+    if consent_source is None or consent_collected_at is None:
+        return None, None
+    if consent_source not in CONSENT_SOURCES:
+        raise ProblemError(
+            kind="validation",
+            code="consent_source_invalid",
+            title="Unrecognised consent source",
+            detail=f"A consent source must be one of: {', '.join(CONSENT_SOURCES)}.",
+            fields=[
+                {
+                    "field": "consent_source",
+                    "rule": "enum",
+                    "message": "pick the basis this list was collected under",
+                }
+            ],
+        )
+    collected = consent_collected_at
+    if collected.tzinfo is None:
+        # UTC in the DB, IST at the edge (conventions): a naive datetime here would be
+        # compared against an aware `now()` and raise, so it is pinned, not guessed at.
+        collected = collected.replace(tzinfo=UTC)
+    if collected > datetime.now(UTC):
+        raise ProblemError(
+            kind="validation",
+            code="consent_collected_in_future",
+            title="Consent collected in the future",
+            detail="A consent collection date records something that already happened.",
+        )
+    return consent_source, collected
+
+
 def campaign_window_open(calling_hours: dict[str, Any] | None, now_ist: datetime) -> bool:
     """Is this campaign's OWN window open right now (IST)?
 
@@ -140,20 +217,34 @@ async def create_campaign(
     dlt_template_id: UUID | None,
     concurrency: int,
     calling_hours: dict[str, Any] | None = None,
+    consent_source: str | None = None,
+    consent_collected_at: datetime | None = None,
 ) -> UUID:
+    """Create a draft campaign.
+
+    Consent provenance (SEC-COMP §3) is accepted here and OPTIONAL here, which is a
+    deliberate split of concerns: a draft may be assembled before the client has dug
+    out when their list was collected, but it cannot LAUNCH without saying — the gate
+    is the enforcement point, not this function. Making it mandatory at creation would
+    also make the requirement depend on which version of the frontend the browser
+    happens to be running; making it mandatory at the gate makes it depend on nothing.
+    """
     # Validated HERE, at the only write path, so the column can never hold a window
     # the dispatcher would have to second-guess. None = "platform window applies".
     window = _validated_window(calling_hours) if calling_hours is not None else None
+    source, collected_at = _validated_provenance(consent_source, consent_collected_at)
     campaign_id = uuid7()
     await session.execute(
         text(
             "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, number_id, "
             "dlt_template_id, status, concurrency, retry_policy, calling_hours, "
-            "created_at, updated_at) "
+            "consent_source, consent_collected_at, created_at, updated_at) "
             "VALUES (:id, :tid, :aid, :name, :cls, :nid, :dlt, 'draft', :conc, "
-            "CAST(:retry AS jsonb), CAST(:window AS jsonb), now(), now())"
+            "CAST(:retry AS jsonb), CAST(:window AS jsonb), :source, :collected, now(), now())"
         ),
         {
+            "source": source,
+            "collected": collected_at,
             "id": campaign_id,
             "tid": tenant_id,
             "aid": agent_id,
@@ -223,6 +314,122 @@ async def add_contacts(
     return {"added": added, "malformed": malformed, "duplicate": duplicate}
 
 
+async def declare_consent_provenance(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    campaign_id: UUID,
+    consent_source: str,
+    consent_collected_at: datetime,
+) -> None:
+    """Answer §3's provenance question for a campaign that was created without it.
+
+    This is what stops the migration that added the columns from bricking every draft
+    that predates them: a client answers, and the same campaign — its contacts, its
+    schedule, its template — launches. Recreating a five-thousand-row list to record a
+    date would be a data-loss workaround dressed up as a compliance control.
+
+    DRAFT ONLY, and that is the whole integrity of the mechanism. If provenance could
+    be edited on a `running` campaign, the sequence "dial first, pick a lawful-sounding
+    source afterwards" would be available, and the declaration would document nothing.
+    """
+    source, collected_at = _validated_provenance(consent_source, consent_collected_at)
+    if source is None or collected_at is None:  # pragma: no cover - guarded above
+        raise ProblemError(
+            kind="validation",
+            code="consent_provenance_incomplete",
+            title="Incomplete consent provenance",
+            detail="Consent provenance needs both a source and the date it was collected.",
+        )
+    result = await session.execute(
+        text(
+            "UPDATE campaigns SET consent_source = :source, consent_collected_at = :collected, "
+            "updated_at = now() WHERE id = :cid AND tenant_id = :tid "
+            "AND status IN ('draft', 'scheduled')"
+        ),
+        {"source": source, "collected": collected_at, "cid": campaign_id, "tid": tenant_id},
+    )
+    if rowcount_of(result) == 0:
+        # Zero rows is two different facts; a client fixes only one of them.
+        status = (
+            await session.execute(
+                text("SELECT status FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+            )
+        ).scalar()
+        if status is None:
+            raise ProblemError.not_found("Campaign")
+        raise ProblemError.business_rule(
+            "campaign_not_draft",
+            "Consent provenance can only be recorded while the campaign is a draft.",
+        )
+
+
+async def record_dlt_registration(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    pe_id: str | None,
+    entity_name: str | None,
+    status: str,
+    tm_link_status: str,
+    registered_at: datetime | None = None,
+) -> None:
+    """Record what the DLT registrar says about this client's Principal Entity.
+
+    An OPERATOR path, deliberately with no client-facing route — the same reason
+    `set_template_status` is one. A client who could mark their own PE registration
+    `active` would be marking the launch gate green on a registration that does not
+    exist, which is precisely the failure the gate is there to catch. It lives beside
+    `register_dlt_template` / `set_template_status` because it is the third member of
+    the same family (entity, header, template) and they are read by the same gate.
+
+    Upsert on `tenant_id`: a business is one Principal Entity, and re-recording is what
+    happens every time we re-verify — hence `verified_at = now()`, which is when WE
+    last looked rather than what we last hoped.
+    """
+    if status not in PE_REGISTRATION_STATUSES:
+        raise ProblemError(
+            kind="validation",
+            code="pe_registration_status_invalid",
+            title="Unrecognised registration status",
+            detail=(
+                f"A PE registration status must be one of: {', '.join(PE_REGISTRATION_STATUSES)}."
+            ),
+        )
+    if tm_link_status not in TM_LINK_STATUSES:
+        raise ProblemError(
+            kind="validation",
+            code="tm_link_status_invalid",
+            title="Unrecognised TM link status",
+            detail=f"A TM link status must be one of: {', '.join(TM_LINK_STATUSES)}.",
+        )
+    # An `active` row must carry a registration date (DB CHECK). If the operator did not
+    # supply one, the moment we recorded it is the honest answer — decided here rather
+    # than in a SQL CASE, which would have to re-read :st and leaves the driver deducing
+    # two different types for one parameter.
+    registered = registered_at or (datetime.now(UTC) if status == "active" else None)
+    await session.execute(
+        text(
+            "INSERT INTO dlt_registrations (id, tenant_id, pe_id, entity_name, status, "
+            "tm_link_status, registered_at, verified_at, created_at, updated_at) VALUES "
+            "(:id, :tid, :pe, :ent, :st, :tm, :reg, now(), now(), now()) "
+            "ON CONFLICT (tenant_id) DO UPDATE SET pe_id = EXCLUDED.pe_id, "
+            "entity_name = EXCLUDED.entity_name, status = EXCLUDED.status, "
+            "tm_link_status = EXCLUDED.tm_link_status, "
+            "registered_at = EXCLUDED.registered_at, verified_at = now(), updated_at = now()"
+        ),
+        {
+            "id": uuid7(),
+            "tid": tenant_id,
+            "pe": pe_id,
+            "ent": entity_name,
+            "st": status,
+            "tm": tm_link_status,
+            "reg": registered,
+        },
+    )
+
+
 async def launch_blockers(
     session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
 ) -> list[LaunchBlocker]:
@@ -230,6 +437,11 @@ async def launch_blockers(
 
     Deliberately exhaustive rather than fail-fast: the client fixes them as a list,
     not one 422 at a time.
+
+    Two of §3's conditions were unenforceable before the migrations b8e4c1d70f92 /
+    c5a930e6b1d4 gave them somewhere to live: the client's DLT Principal Entity
+    registration (+ its Calevate TM link), and the consent provenance of the contact
+    list. Both are asked here, by name.
 
     The rules that also live in the per-dial gate (`compliance.service.check_dispatch`)
     are asked HERE TOO, under the same names: an agent that may not place calls, a
@@ -249,7 +461,8 @@ async def launch_blockers(
                 "  t.status AS template_status, t.classification AS template_cls, "
                 "  n.series, n.dlt_status AS number_dlt_status, "
                 "  a.status AS agent_status, a.disclosure_line, "
-                "  a.direction AS agent_direction, a.deleted_at AS agent_deleted_at "
+                "  a.direction AS agent_direction, a.deleted_at AS agent_deleted_at, "
+                "  c.consent_source, c.consent_collected_at "
                 "FROM campaigns c "
                 "LEFT JOIN dlt_templates t ON t.id = c.dlt_template_id "
                 "LEFT JOIN phone_numbers n ON n.id = c.number_id "
@@ -274,6 +487,8 @@ async def launch_blockers(
         disclosure,
         agent_direction,
         agent_deleted_at,
+        consent_source,
+        _consent_collected_at,
     ) = row
 
     if status not in ("draft", "scheduled"):
@@ -295,6 +510,45 @@ async def launch_blockers(
         )
     if not disclosure or not str(disclosure).strip():
         blockers.append(LaunchBlocker("disclosure_missing", "The agent has no disclosure line."))
+
+    # SEC-COMP §3, first bullet: the client's DLT ENTITY registration. Distinct from
+    # the header (`number_not_registered`) and the template (`dlt_template_*`) checks
+    # below — the registrar issues three registrations and none implies another. A
+    # missing row and a pending one are different facts with different next actions,
+    # so they are different blockers.
+    registration = (
+        await session.execute(
+            text("SELECT status, tm_link_status FROM dlt_registrations WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        )
+    ).first()
+    if registration is None:
+        blockers.append(LaunchBlocker("pe_registration_missing", PE_MISSING_REASON))
+    else:
+        pe_status, tm_link_status = registration
+        if pe_status != "active":
+            blockers.append(
+                LaunchBlocker(
+                    "pe_registration_not_active",
+                    f"This business's DLT Principal Entity registration is "
+                    f"{str(pe_status).replace('_', ' ')}; only an active registration may "
+                    "place campaign calls. Inbound answering is unaffected.",
+                )
+            )
+        # Sequential, not exhaustive, and only here: a TM link to an entity that is not
+        # registered cannot be active either, and telling a client to chase an
+        # authorisation for a registration they do not yet have sends them to the wrong
+        # desk. Every OTHER blocker in this function is reported independently.
+        elif tm_link_status != "active":
+            blockers.append(LaunchBlocker("tm_link_not_active", TM_LINK_REASON))
+
+    # SEC-COMP §3, fourth bullet: consent provenance for the list. NULL is "nobody has
+    # said", which is what every campaign predating the columns honestly reports —
+    # refused by name rather than defaulted into a consent nobody gave.
+    if consent_source is None:
+        blockers.append(LaunchBlocker("consent_provenance_missing", NO_PROVENANCE_REASON))
+    elif consent_source in REFUSED_CONSENT_SOURCES:
+        blockers.append(LaunchBlocker("consent_source_refused", PURCHASED_LIST_REASON))
 
     # Tenant-level refusals, asked with the same functions the dial-time gate uses.
     if await spend_capped(session, tenant_id=tenant_id):
@@ -565,15 +819,21 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
 
 __all__ = [
     "DEFAULT_RETRY_POLICY",
+    "NO_PROVENANCE_REASON",
+    "PE_MISSING_REASON",
+    "PURCHASED_LIST_REASON",
     "SERIES_FOR_CLASSIFICATION",
+    "TM_LINK_REASON",
     "LaunchBlocker",
     "add_contacts",
     "campaign_progress",
     "campaign_window_open",
     "create_campaign",
+    "declare_consent_provenance",
     "launch_blockers",
     "launch_campaign",
     "list_campaigns",
+    "record_dlt_registration",
     "register_dlt_template",
     "set_campaign_status",
     "set_template_status",

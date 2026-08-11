@@ -29,6 +29,24 @@ from sqlalchemy.orm import Mapped, mapped_column
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 CAMPAIGN_CLASSIFICATIONS = ("promotional", "transactional", "service")
+# Where a contact list's consent came from (SEC-COMP §3). An ENUM, not free text:
+# the gate has to be able to CHECK the answer, and "consent obtained :)" typed into a
+# text box checks as easily as it lies. Each member names a lawful basis a client can
+# actually point at an artefact for.
+#
+# `purchased_list` is in the list ON PURPOSE. §3 refuses a purchased list "in writing,
+# as policy" — a refusal that can only be written if the client can say the word. An
+# enum containing only acceptable answers does not prevent purchased lists; it just
+# moves them behind whichever member sounds closest, where nothing can see them.
+CONSENT_SOURCES = (
+    "existing_customer",  # prior transaction/relationship with the client
+    "inbound_enquiry",  # they called, messaged or filled the client's enquiry form
+    "web_form_optin",  # explicit tick-box on the client's own web form
+    "offline_form_optin",  # paper form, event registration, in-store signup
+    "purchased_list",  # bought or rented from a broker — refused at the gate
+)
+# Sources the launch gate refuses outright rather than merely recording.
+REFUSED_CONSENT_SOURCES = ("purchased_list",)
 CAMPAIGN_STATUSES = ("draft", "scheduled", "running", "paused", "completed", "cancelled")
 CONTACT_STATUSES = (
     "pending",
@@ -52,6 +70,19 @@ class Campaign(PKMixin, TimestampMixin, Base):
         # Per-campaign concurrency slider, bounded by the plan ceiling at launch time
         # (FLOWS §5 rule 4); the DB bound is the absolute sanity limit.
         CheckConstraint("concurrency BETWEEN 1 AND 10", name="concurrency_range"),
+        # NULL is a legal value — it means "nobody has said yet", which is exactly what
+        # every campaign that predates these columns can honestly claim. What is NOT
+        # legal is a source outside the enum...
+        CheckConstraint(
+            f"consent_source IS NULL OR consent_source IN {CONSENT_SOURCES!r}",
+            name="consent_source_enum",
+        ),
+        # ...or half an answer. A source with no date cannot be aged against a consent
+        # that has since been withdrawn, and a date with no source names nothing.
+        CheckConstraint(
+            "(consent_source IS NULL) = (consent_collected_at IS NULL)",
+            name="consent_provenance_complete",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -76,6 +107,12 @@ class Campaign(PKMixin, TimestampMixin, Base):
     calling_hours: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     engine_campaign_ref: Mapped[str | None] = mapped_column(Text)
     launched_at: Mapped[datetime | None]
+    # Consent provenance for THIS campaign's contact list (SEC-COMP §3). It sits on the
+    # campaign rather than in `consent_ledger` because the ledger answers a different
+    # question at a different time: per phone, per call, AFTER the conversation. The
+    # gate has to ask before the first ring, about the list as a whole.
+    consent_source: Mapped[str | None] = mapped_column(String)
+    consent_collected_at: Mapped[datetime | None]
 
 
 class CampaignContact(PKMixin, TimestampMixin, Base):

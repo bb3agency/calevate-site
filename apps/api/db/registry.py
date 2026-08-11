@@ -57,6 +57,9 @@ TENANT_TABLES = [
     # standard tenant_id = GUC form would hide global entries from every tenant, and a
     # nationally suppressed number would keep getting dialled.
     "dnc_list",
+    # The client's DLT Principal Entity registration + its Calevate TM link. Tenant
+    # data (their registrar ids), read by the campaign launch gate (SEC-COMP §3).
+    "dlt_registrations",
     "retention_policies",
     "deletion_requests",
     "inbound_webhooks",
