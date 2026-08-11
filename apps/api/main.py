@@ -34,6 +34,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.compliance.deletion_routes import router as deletion_router
     from apps.api.compliance.dnc_routes import router as dnc_router
     from apps.api.compliance.export_routes import router as subject_export_router
+    from apps.api.compliance.registration_routes import router as dlt_registration_router
     from apps.api.crm.routes import router as crm_router
     from apps.api.ingest.routes import router as ingest_router
     from apps.api.ingest.routes import sources_router as lead_sources_router
@@ -64,6 +65,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(dnc_router)
     application.include_router(subject_export_router)
     application.include_router(deletion_router)
+    application.include_router(dlt_registration_router)
     application.include_router(signup_router)
     application.include_router(topups_router)
     application.include_router(razorpay_router)
