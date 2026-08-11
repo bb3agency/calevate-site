@@ -13,6 +13,7 @@ adapter cannot pass unchanged, the contract is wrong or the adapter is leaking.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
 
@@ -57,25 +58,53 @@ BOLNA_COMPLETED: dict[str, Any] = {
 }
 
 
-def _bolna_handler(request: httpx.Request) -> httpx.Response:
-    path = request.url.path
-    if path == "/v2/agent" and request.method == "POST":
-        return httpx.Response(200, json={"agent_id": "agent_xyz"})
-    if path.startswith("/v2/agent/") and request.method == "PUT":
-        return httpx.Response(200, json={"status": "ok"})
-    if path == "/call" and request.method == "POST":
-        body = json.loads(request.content or b"{}")
-        assert body["recipient_phone_number"].startswith("+"), "E.164 only"
-        return httpx.Response(200, json={"execution_id": "exec_abc123"})
-    if path == "/knowledgebase":
-        return httpx.Response(200, json={"rag_id": "kb_1"})
-    if path.startswith("/executions/") and path.endswith("/stop"):
-        return httpx.Response(200, json={"status": "stopped"})
-    if path == "/executions":
-        return httpx.Response(200, json={"data": [BOLNA_COMPLETED]})
-    if path.startswith("/executions/"):
-        return httpx.Response(200, json=BOLNA_COMPLETED)
-    return httpx.Response(404, json={"error": "not found"})
+def _bolna_handler() -> Callable[[httpx.Request], httpx.Response]:
+    """A stub of their API, built fresh per engine so each test gets clean vendor state.
+
+    The knowledge-base routes are STATEFUL on purpose. A stub that answered every
+    `POST /knowledgebase` with the same `rag_id` and every `DELETE` with 200 would let
+    an adapter that never detaches anything sail through the suite — the exact defect
+    the KB clause exists to catch. So this keeps a store: creates mint distinct ids,
+    the listing reflects it, and deleting an id the store does not hold 404s, which is
+    what their `rag_id`-addressed CRUD API (TRD §5) does.
+    """
+    knowledge_bases: dict[str, dict[str, Any]] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/v2/agent" and request.method == "POST":
+            return httpx.Response(200, json={"agent_id": "agent_xyz"})
+        if path.startswith("/v2/agent/") and request.method == "PUT":
+            return httpx.Response(200, json={"status": "ok"})
+        if path == "/call" and request.method == "POST":
+            body = json.loads(request.content or b"{}")
+            assert body["recipient_phone_number"].startswith("+"), "E.164 only"
+            return httpx.Response(200, json={"execution_id": "exec_abc123"})
+        if path == "/knowledgebase" and request.method == "POST":
+            body = json.loads(request.content or b"{}")
+            rag_id = f"kb_{len(knowledge_bases) + 1}"
+            knowledge_bases[rag_id] = {
+                "rag_id": rag_id,
+                "agent_id": body.get("agent_id"),
+                "name": body.get("name"),
+            }
+            return httpx.Response(200, json={"rag_id": rag_id})
+        if path == "/knowledgebase/all" and request.method == "GET":
+            return httpx.Response(200, json={"data": list(knowledge_bases.values())})
+        if path.startswith("/knowledgebase/") and request.method == "DELETE":
+            rag_id = path.rsplit("/", 1)[-1]
+            if knowledge_bases.pop(rag_id, None) is None:
+                return httpx.Response(404, json={"error": "unknown rag_id"})
+            return httpx.Response(200, json={"status": "deleted"})
+        if path.startswith("/executions/") and path.endswith("/stop"):
+            return httpx.Response(200, json={"status": "stopped"})
+        if path == "/executions":
+            return httpx.Response(200, json={"data": [BOLNA_COMPLETED]})
+        if path.startswith("/executions/"):
+            return httpx.Response(200, json=BOLNA_COMPLETED)
+        return httpx.Response(404, json={"error": "not found"})
+
+    return handler
 
 
 def make_engine(engine_id: str) -> VoiceEngine:
@@ -86,7 +115,7 @@ def make_engine(engine_id: str) -> VoiceEngine:
         fx_rate=Decimal("88.00"),
         client=httpx.AsyncClient(
             base_url="https://api.bolna.ai",
-            transport=httpx.MockTransport(_bolna_handler),
+            transport=httpx.MockTransport(_bolna_handler()),
         ),
     )
 

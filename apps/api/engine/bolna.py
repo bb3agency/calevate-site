@@ -44,6 +44,7 @@ from calevate_shared.engine import (
     CallHandle,
     CostBreakdown,
     EngineAgentRef,
+    EngineKBRef,
     ExecutionSnapshot,
     KBSourceRef,
     NumberSpec,
@@ -309,6 +310,11 @@ class BolnaEngine:
                 detail="The voice platform could not complete this operation.",
                 failure_stage="CORE_LOGIC",
             )
+        if not response.content:
+            # A successful DELETE may answer 204/empty. `response.json()` raises on an
+            # empty body, and a delete that "failed" only because the vendor said
+            # nothing is the worst possible lie on this particular path.
+            return {}
         payload = response.json()
         return payload if isinstance(payload, dict) else {"data": payload}
 
@@ -420,15 +426,76 @@ class BolnaEngine:
             detail="Numbers are provisioned with the telephony provider directly (M1).",
         )
 
-    async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> None:
+    # --- knowledge base ------------------------------------------------------
+    #
+    # Their surface, and how far each part of it is actually verified (TRD §5 records
+    # it as "rag_id CRUD API (POST/GET/DELETE /knowledgebase)", and their published API
+    # reference indexes POST /knowledgebase, GET /knowledgebase/all,
+    # GET /knowledgebase/{rag_id}, DELETE /knowledgebase/{rag_id}):
+    #
+    # * VERIFIED from published docs — the ROUTES and the fact that a knowledge base is
+    #   addressed by the vendor's own `rag_id`. Note what that rules out: our
+    #   `kb_sources.id` is not a key on their side, so `DELETE /knowledgebase/<our uuid>`
+    #   would 404 forever while looking like a working detach. The id we delete by must
+    #   be the one POST handed back, which is why `attach_kb` now returns it.
+    # * UNVERIFIED until the pilot — every BODY on this path. Bolna publishes no OpenAPI
+    #   spec, so the create payload here, the `rag_id` field name in its response, and
+    #   the row shape of the list are hand-maintained claims (the module docstring's
+    #   standing warning). Two specifically to settle at gate 8:
+    #     (a) does the list response carry the agent linkage this filters on? Our account
+    #         holds every tenant's agents, so `list_kb` filters STRICTLY — a row that
+    #         does not name this agent is not attributed to it.
+    #     (b) does deleting the knowledge base also drop the agent's reference to it, or
+    #         does the agent config keep a dangling `rag_id`? If the latter, detach grows
+    #         a second call (an agent update) — it does NOT become optional.
+
+    async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
         """Built-in KB (`rag_id`). Under BYOK the KB is NOT a model slot (D-33): this
         is a document push, and multilingual mode is IMMUTABLE at KB creation — Telugu
-        retrieval quality is pilot gate 8."""
-        await self._request(
+        retrieval quality is pilot gate 8.
+
+        The returned handle is the ONLY way this document can ever be removed again, so
+        a response we cannot read a handle out of is a failure, not a success: treating
+        it as one would attach text nobody can retract.
+        """
+        data = await self._request(
             "POST",
             "/knowledgebase",
             json={"agent_id": ref, "name": source.title, "text": source.text},
         )
+        rag_id = data.get("rag_id") or data.get("id")
+        if not isinstance(rag_id, str) or not rag_id:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_bad_response",
+                title="Voice engine returned an unusable response",
+                detail="The voice platform did not return a knowledge base id.",
+            )
+        return rag_id
+
+    async def detach_kb(self, ref: EngineAgentRef, kb: EngineKBRef) -> None:
+        """`DELETE /knowledgebase/{rag_id}`.
+
+        No swallowing of the vendor's 404: an id we cannot delete is an id we cannot
+        prove is gone, and the caller's next act is to publish a replacement.
+        """
+        await self._request("DELETE", f"/knowledgebase/{kb}")
+
+    async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
+        data = await self._request("GET", "/knowledgebase/all")
+        rows = data.get("data")
+        if not isinstance(rows, list):
+            rows = data.get("knowledgebases")
+        if not isinstance(rows, list):
+            return []
+        handles: list[EngineKBRef] = []
+        for row in rows:
+            if not isinstance(row, dict) or str(row.get("agent_id") or "") != ref:
+                continue
+            rag_id = row.get("rag_id") or row.get("id")
+            if isinstance(rag_id, str) and rag_id:
+                handles.append(rag_id)
+        return handles
 
     # --- reading the truth ---------------------------------------------------
 

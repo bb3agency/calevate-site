@@ -248,11 +248,89 @@ async def test_unknown_vendor_status_degrades_to_failed(engine: VoiceEngine) -> 
     assert event.status == "failed"
 
 
-async def test_attach_kb_accepts_our_source_ref(engine: VoiceEngine) -> None:
+async def test_attach_kb_accepts_our_source_ref_and_returns_a_handle(
+    engine: VoiceEngine,
+) -> None:
     """Under BYOK the KB is not a model slot (D-33) — it is a document push, and the
-    approval gate stays ours."""
+    approval gate stays ours.
+
+    The handle is the load-bearing part. The engine names its own copy of the document;
+    an adapter that pushes text and returns nothing has attached something that can
+    never be taken back, and "publish v2" becomes "add v2 next to v1".
+    """
     ref = await engine.create_agent(_agent_config())
-    await engine.attach_kb(
+    handle = await engine.attach_kb(
         ref,
         KBSourceRef(kb_id="kb_1", title="Clinic hours", text="Mon-Sat 9am-8pm", language="te-IN"),
+    )
+    assert isinstance(handle, str) and handle, "an attached source must be addressable"
+
+
+async def test_detach_kb_actually_removes_exactly_the_source_it_names(
+    engine: VoiceEngine,
+) -> None:
+    """The clause that makes `detach_kb` mean something.
+
+    What breaks without it: FLOWS §7 says publishing a version supersedes the previous
+    one, and rollback reactivates a prior version. Both are OUR bookkeeping. What the
+    caller hears is whatever the ENGINE holds — so if `detach_kb` is a no-op, a client
+    approves v2 and the agent goes on quoting v1's prices, with every one of our screens
+    reporting success. That is the approval gate failing at the only point it exists to
+    protect, and no test above this one can see it: `attach_kb` still returned, the
+    tables still flipped, the publish still 200'd.
+
+    So the removal is observed, never assumed. `list_kb` is read BEFORE and AFTER, and
+    the two handles make it a real test rather than a smoke test: an adapter whose
+    `detach_kb` does nothing fails on the first assertion, and one that responds by
+    wiping the agent's whole knowledge base fails on the second — a KB that empties
+    itself on every publish is the same outage as a KB that never shrinks, arriving
+    from the other side.
+    """
+    ref = await engine.create_agent(_agent_config())
+    superseded = await engine.attach_kb(
+        ref, KBSourceRef(kb_id="kb_detach_v1", title="Fees", text="A consultation costs 500.")
+    )
+    kept = await engine.attach_kb(
+        ref, KBSourceRef(kb_id="kb_detach_other", title="Parking", text="Parking is free.")
+    )
+    assert superseded != kept, "two sources must not share one handle — one cannot be removed"
+    assert {superseded, kept} <= set(await engine.list_kb(ref)), (
+        "an attached source must be visible to `list_kb`, or a detach can never be proven"
+    )
+
+    await engine.detach_kb(ref, superseded)
+
+    remaining = await engine.list_kb(ref)
+    assert superseded not in remaining, (
+        "`detach_kb` returned without removing anything — the superseded version is "
+        "still what the agent answers from"
+    )
+    assert kept in remaining, "detach removed a source it was not asked to remove"
+
+
+async def test_a_detach_that_did_not_happen_is_reported_rather_than_swallowed(
+    engine: VoiceEngine,
+) -> None:
+    """The second half of the same promise, aimed at the adapter that means well.
+
+    `try: delete() except: pass` passes the clause above (it does remove things when the
+    vendor is up) and is still the bug: when the engine is down or the handle is stale,
+    it reports success for a removal that never happened, and the publisher — whose very
+    next act is to attach the replacement — has no way to know. An unknown handle is the
+    one case a test can stage without breaking the transport, so it stands in for the
+    whole class: a detach the adapter cannot show it performed must raise.
+
+    An adapter whose vendor deletes idempotently satisfies this by reading the handle
+    back before or after (Bolna documents `GET /knowledgebase/{rag_id}` for exactly
+    that) — the contract asks for evidence, not for a particular status code.
+    """
+    ref = await engine.create_agent(_agent_config())
+    reported: Exception | None = None
+    try:
+        await engine.detach_kb(ref, "kb_this_engine_never_issued")
+    except Exception as exc:  # adapters raise our ProblemError; the type is theirs
+        reported = exc
+    assert reported is not None, (
+        "detaching a handle this engine never issued was reported as a success — "
+        "the caller cannot distinguish a removal from a silent no-op"
     )

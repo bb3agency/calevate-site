@@ -18,7 +18,7 @@ import re
 from typing import Any
 from uuid import UUID
 
-from calevate_shared.engine import KBSourceRef
+from calevate_shared.engine import KBSourceRef, VoiceEngine
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -199,12 +199,208 @@ async def reject_source(session: AsyncSession, *, source_id: UUID, reason: str) 
         raise ProblemError.conflict("kb_not_pending", "This source is not awaiting approval.")
 
 
+async def _chunks_of(session: AsyncSession, source_id: UUID) -> list[str]:
+    """The approved chunks of one source, in reading order — one engine document."""
+    rows = (
+        await session.execute(
+            text("SELECT content FROM kb_documents WHERE source_id = :sid ORDER BY idx"),
+            {"sid": source_id},
+        )
+    ).scalars()
+    return [str(chunk) for chunk in rows]
+
+
+async def _engine_kb_ref(session: AsyncSession, source_id: UUID) -> str | None:
+    """The engine's handle for this source's attached copy, or None if nothing of ours
+    is attached. See `_remember_engine_kb_ref` for why it lives where it lives."""
+    value = (
+        await session.execute(
+            text(
+                "SELECT meta ->> 'engine_kb_ref' FROM kb_documents "
+                "WHERE source_id = :sid AND idx = 0"
+            ),
+            {"sid": source_id},
+        )
+    ).scalar()
+    return str(value) if value else None
+
+
+async def _remember_engine_kb_ref(
+    session: AsyncSession, source_id: UUID, engine_kb_ref: str | None
+) -> None:
+    """Record (or clear) the engine's handle for a source.
+
+    It lives in `kb_documents.meta` because that is where the migration that created
+    these tables put it: "Provider-side document and namespace ids land in
+    `kb_documents.meta`, which is also what lets a DPDP erasure prove it removed both
+    copies." A source is pushed to the engine as ONE document, so the handle hangs off
+    its first chunk. No column is added for it — a new column is a migration, and this
+    fix is not worth coupling to one when the designed home already exists.
+
+    Clearing on detach is not tidiness: a handle left behind after the engine copy is
+    gone is a handle a later publish would try to delete, and that publish would then
+    refuse for a reason that is no longer true.
+    """
+    if engine_kb_ref is None:
+        await session.execute(
+            text(
+                "UPDATE kb_documents SET meta = coalesce(meta, '{}'::jsonb) - 'engine_kb_ref', "
+                "updated_at = now() WHERE source_id = :sid AND idx = 0"
+            ),
+            {"sid": source_id},
+        )
+        return
+    await session.execute(
+        text(
+            "UPDATE kb_documents SET meta = coalesce(meta, '{}'::jsonb) || "
+            "jsonb_build_object('engine_kb_ref', to_jsonb(cast(:ref as text))), "
+            "updated_at = now() WHERE source_id = :sid AND idx = 0"
+        ),
+        {"sid": source_id, "ref": engine_kb_ref},
+    )
+
+
+async def _superseded_versions(
+    session: AsyncSession, *, agent_id: UUID, name: str, keep: UUID
+) -> list[tuple[UUID, str | None]]:
+    """The live versions of this named source that publishing `keep` replaces, each with
+    the engine handle we recorded for it. Normally exactly one; a list because "exactly
+    one" is an invariant we enforce, not one we may assume while enforcing it."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id FROM kb_sources WHERE agent_id = :aid AND name = :name "
+                "AND is_active = true AND id <> :sid"
+            ),
+            {"aid": agent_id, "name": name, "sid": keep},
+        )
+    ).scalars()
+    live = [UUID(str(row)) for row in rows]
+    return [(source_id, await _engine_kb_ref(session, source_id)) for source_id in live]
+
+
+async def _detach_superseded(
+    session: AsyncSession,
+    engine: VoiceEngine,
+    engine_ref: str,
+    source_id: UUID,
+    engine_kb_ref: str | None,
+) -> None:
+    """Withdraw one superseded version from the engine, or refuse to publish.
+
+    **The decision this function encodes: a detach that fails ABORTS the publish, and
+    the previously approved version stays live.** The two alternatives are both worse.
+    Continuing anyway is the defect being fixed — two versions attached, the agent free
+    to answer from the older one, our tables reporting success. Detaching-and-carrying-on
+    in the other direction (drop the old, publish nothing) would leave the client with no
+    knowledge at all, which is an outage we caused to avoid an inconsistency.
+
+    Refusing keeps the client whole: their agent still answers, from text a human
+    approved. What they lose is the UPDATE, and they are told so, with a retry that
+    costs nothing — the engine is idempotent from our side here because we have not
+    attached anything yet. `kind` is inherited from the adapter's own error so a rate
+    limit stays retryable and a rejection stays not.
+
+    A version we have no handle for is the same refusal for the same reason: we cannot
+    remove what we cannot address, so we must not publish over it. (Only versions
+    published before this path existed can be in that state; the remediation is to
+    withdraw the stale copy on the engine side once, not to weaken this.)
+    """
+    if engine_kb_ref is None:
+        log.warning("kb_engine_ref_unknown", extra={"source_id": str(source_id)})
+        raise ProblemError(
+            kind="business_rule",
+            code="kb_engine_ref_unknown",
+            title="The live version cannot be withdrawn",
+            detail=(
+                "We have no record of how the currently live version is filed on the "
+                "voice platform, so it cannot be removed before publishing this one."
+            ),
+            remediation=(
+                "Nothing changed — the live version is still the approved one. "
+                "Ask support to withdraw the stale copy on the voice platform first."
+            ),
+        )
+    try:
+        await engine.detach_kb(engine_ref, engine_kb_ref)
+    except ProblemError as exc:
+        log.warning(
+            "kb_detach_failed", extra={"source_id": str(source_id), "engine_code": exc.code}
+        )
+        raise ProblemError(
+            kind=exc.kind,
+            code="kb_detach_failed",
+            title="The previous version could not be withdrawn",
+            detail=(
+                "The voice platform did not confirm removal of the version this one "
+                "replaces, so publishing would leave both live."
+            ),
+            remediation=(
+                "Nothing changed — the previously approved version is still live. "
+                "Try publishing again."
+            ),
+        ) from exc
+    await _remember_engine_kb_ref(session, source_id, None)
+
+
+async def _reattach_after_failed_publish(
+    engine: VoiceEngine,
+    engine_ref: str,
+    name: str,
+    detached: list[tuple[UUID, str | None]],
+    chunks_of: dict[UUID, list[str]],
+) -> None:
+    """Close the gap the detach-first ordering opens when the ATTACH then fails.
+
+    At this point the agent holds no copy of this source. The previous version's text is
+    still in our tables and is still approved, so putting it back restores a state a
+    human signed off on — the client keeps a working knowledge base and loses only the
+    update.
+
+    What deliberately is NOT done here: recording the new handle. The caller re-raises,
+    the transaction rolls back, and any write here would roll back with it — so our
+    tables keep pointing at the handle that was just deleted. That is the intended
+    residue: the NEXT publish tries to detach a handle the engine no longer has, and
+    refuses loudly (`kb_detach_failed`) instead of quietly stacking two versions. A loud
+    stop an operator can clear beats a silent divergence nobody sees.
+    """
+    for source_id, _ in detached:
+        try:
+            await engine.attach_kb(
+                engine_ref,
+                KBSourceRef(
+                    kb_id=str(source_id),
+                    title=name,
+                    text="\n\n".join(chunks_of.get(source_id, [])),
+                ),
+            )
+        except Exception:
+            # Nothing left to try: the engine is refusing both directions. Say so at
+            # ERROR — this agent now has NO knowledge for this source and only an
+            # operator can put it back.
+            log.error("kb_left_detached", extra={"source_id": str(source_id)})
+        else:
+            log.info("kb_restored_after_failed_publish", extra={"source_id": str(source_id)})
+
+
 async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: UUID) -> int:
     """Push an APPROVED source to the engine KB and make it the active version.
 
-    Order matters: the engine push happens BEFORE the local activation flip. If the
-    engine rejects it, nothing in our state claims the agent knows something it does
-    not — the opposite order would leave a client's dashboard confidently wrong.
+    Order matters, in two directions:
+
+    1. The engine work happens BEFORE the local activation flip. If the engine rejects
+       it, nothing in our state claims the agent knows something it does not — the
+       opposite order would leave a client's dashboard confidently wrong.
+    2. The superseded version is DETACHED before the new one is attached. Archiving a
+       row only changes our tables; what the caller hears is what the engine holds. Push
+       first and there is a window — or, when the detach never happens at all, a
+       permanent state — in which the agent can answer from either version, and a
+       rollback leaves every version live at once. A client approved v2; the agent
+       quoting v1's prices is the divergence the approval gate exists to prevent.
+
+    That ordering costs a gap: between the detach and the attach the agent has no copy
+    of this source and answers "I don't know" (T4 refuse-and-escalate). One request of
+    silence is the cheaper failure — a stale price is a quote the client is then held to.
 
     Eligibility is `approved_at IS NOT NULL`, not `status = 'approved'`, because
     FLOWS §7's rollback is republishing a version this same function ARCHIVED when its
@@ -238,21 +434,34 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
             "Publish the agent to the voice platform before adding knowledge.",
         )
 
-    chunks = (
-        (
-            await session.execute(
-                text("SELECT content FROM kb_documents WHERE source_id = :sid ORDER BY idx"),
-                {"sid": source_id},
-            )
-        )
-        .scalars()
-        .all()
-    )
+    chunks = await _chunks_of(session, source_id)
 
-    await get_engine().attach_kb(
-        engine_ref,
-        KBSourceRef(kb_id=str(source_id), title=str(name), text="\n\n".join(chunks)),
+    engine = get_engine()
+    superseded = await _superseded_versions(
+        session, agent_id=agent_id, name=str(name), keep=source_id
     )
+    # Read the fallback text BEFORE anything is withdrawn: if the attach fails we have to
+    # put these versions back, and a query issued after the failure is a query issued on
+    # a session that may itself be the thing that failed.
+    previous_chunks = {
+        previous_id: await _chunks_of(session, previous_id) for previous_id, _ in superseded
+    }
+
+    for previous_id, previous_kb_ref in superseded:
+        await _detach_superseded(session, engine, engine_ref, previous_id, previous_kb_ref)
+
+    try:
+        attached_ref = await engine.attach_kb(
+            engine_ref,
+            KBSourceRef(kb_id=str(source_id), title=str(name), text="\n\n".join(chunks)),
+        )
+    except Exception:
+        await _reattach_after_failed_publish(
+            engine, engine_ref, str(name), superseded, previous_chunks
+        )
+        raise
+
+    await _remember_engine_kb_ref(session, source_id, attached_ref)
 
     # Archive the previous active version of this named source, then activate this one.
     # Rollback (FLOWS §7) is re-running publish on the archived row, which is why the

@@ -524,14 +524,6 @@ async def test_only_one_version_of_a_named_source_is_ever_live() -> None:
     assert active == 1
 
 
-@pytest.mark.xfail(
-    reason=(
-        "KNOWN DEFECT, not fixable inside apps/api/kb: the VoiceEngine protocol has "
-        "attach_kb and no detach/replace, so archiving a version in our tables leaves "
-        "the superseded text attached to the engine agent. Reported with a fix sketch."
-    ),
-    strict=True,
-)
 async def test_the_engine_kb_matches_what_is_approved_and_active() -> None:
     """What the agent actually says is what the ENGINE holds, not what our table says.
 

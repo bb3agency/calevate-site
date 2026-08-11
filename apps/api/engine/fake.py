@@ -28,6 +28,7 @@ from calevate_shared.engine import (
     CallHandle,
     CostBreakdown,
     EngineAgentRef,
+    EngineKBRef,
     ExecutionSnapshot,
     KBSourceRef,
     NumberSpec,
@@ -35,6 +36,8 @@ from calevate_shared.engine import (
     WebhookVerdict,
 )
 from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
+
+from apps.api.core.errors import ProblemError
 
 # A short code-mixed exchange: Telugu with English clinical terms, which is what
 # real calls sound like and what the extraction fixtures must cope with.
@@ -125,8 +128,42 @@ class FakeEngine:
             series=spec.series,
         )
 
-    async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> None:
-        self._kb.setdefault(ref, []).append(source)
+    # --- knowledge base ------------------------------------------------------
+    #
+    # `_kb` holds what the agent would actually retrieve from, so the KB tests can read
+    # it the way a caller would hear it. Handles are derived from (agent ref, our
+    # kb_id) rather than stored, which keeps them stable across a re-attach — a real
+    # engine mints a fresh id instead, and no caller may assume either, which is why
+    # the handle is opaque in the contract.
+
+    def _kb_handle(self, ref: EngineAgentRef, kb_id: str) -> EngineKBRef:
+        return self._stable_id("fakekb", ref, kb_id)
+
+    async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
+        attached = self._kb.get(ref, [])
+        # Re-attaching the SAME source replaces it. Appending a second copy would make
+        # the fake engine the one place where a duplicate is normal, and the duplicate
+        # is precisely the defect the rest of this file has to be able to expose.
+        self._kb[ref] = [s for s in attached if s.kb_id != source.kb_id] + [source]
+        return self._kb_handle(ref, source.kb_id)
+
+    async def detach_kb(self, ref: EngineAgentRef, kb: EngineKBRef) -> None:
+        attached = self._kb.get(ref, [])
+        remaining = [s for s in attached if self._kb_handle(ref, s.kb_id) != kb]
+        if len(remaining) == len(attached):
+            # Mirrors the vendor's 404 on `DELETE /knowledgebase/{rag_id}`. A fake that
+            # shrugged here would let the publisher believe it had removed text that is
+            # still being read out on live calls.
+            raise ProblemError(
+                kind="dependency",
+                code="engine_rejected",
+                title="Voice engine rejected the request",
+                detail="The voice platform does not hold that knowledge base.",
+            )
+        self._kb[ref] = remaining
+
+    async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
+        return [self._kb_handle(ref, source.kb_id) for source in self._kb.get(ref, [])]
 
     # --- reading the truth ---------------------------------------------------
 

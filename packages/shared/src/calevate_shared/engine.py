@@ -25,6 +25,11 @@ from calevate_shared.events import CallDirection, CallEvent, CallStatus, Transcr
 E164 = str
 EngineAgentRef = str
 CallHandle = str
+# The engine's own handle for ONE attached knowledge source — opaque to us, exactly
+# like `EngineAgentRef`. It is the vendor's id (Bolna: `rag_id`), so only an adapter
+# ever interprets it; everything above stores it and hands it back. Our `kb_sources.id`
+# cannot serve here: the engine has never seen it, so it addresses nothing on their side.
+EngineKBRef = str
 
 NumberSeries = Literal["140", "160", "standard"]
 
@@ -171,7 +176,45 @@ class VoiceEngine(Protocol):
 
     async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber: ...
 
-    async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> None: ...
+    async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
+        """Push an approved source and return the engine's handle for it.
+
+        Returning the handle is the whole reason a superseded version can ever be
+        removed: the engine names its copy, we do not. An adapter that has nothing
+        to return is an adapter whose KB can only ever grow.
+        """
+        ...
+
+    async def detach_kb(self, ref: EngineAgentRef, kb: EngineKBRef) -> None:
+        """Remove ONE attached source — the counterpart without which `attach_kb` is a
+        one-way door.
+
+        FLOWS §7 makes a knowledge version a governed object: a human approves it, and
+        publishing v2 supersedes v1. Without this method "supersede" only ever happened
+        in OUR tables, so the agent kept answering from v1 — the published KB diverging
+        from the approved one, which is the single thing the approval gate exists to
+        prevent. (After a rollback it was worse: every version was live at once.)
+
+        It must be REAL. An adapter that accepts the call and does nothing turns the
+        publish path into a silent lie, and nothing downstream can detect it — which is
+        why the conformance suite observes the removal through `list_kb` rather than
+        trusting the call to have happened.
+
+        Detaching a handle the engine does not have must RAISE, not pass quietly: the
+        publisher's next step is to attach the replacement, and it is entitled to know
+        whether the old text is really gone before it does.
+        """
+        ...
+
+    async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
+        """The handles currently attached to this agent.
+
+        The engine — not our table — is what the caller actually hears, so "does the
+        published KB match what was approved?" is only answerable by reading the engine
+        back. It is also the only adapter-independent way to prove a `detach_kb` did
+        anything at all.
+        """
+        ...
 
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:
         """The authenticated read. This — not the webhook — is what we persist."""
@@ -199,6 +242,7 @@ __all__ = [
     "CallHandle",
     "CostBreakdown",
     "EngineAgentRef",
+    "EngineKBRef",
     "ExecutionSnapshot",
     "KBSourceRef",
     "ModelConfig",
