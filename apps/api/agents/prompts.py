@@ -17,7 +17,9 @@ ordering argument as `kb.publish_source`). Draft agents skip the engine entirely
 
 Notes live in the real `notes` column (migration 2faa301dc488): operator-facing
 metadata about a version, kept apart from `compiled_t0_context`, which D-39 reserves
-for the T0 compiler's build artifact.
+for the T0 compiler's build artifact — that compiler is `agents/t0.py`, and it mints
+its versions through `insert_prompt_version` below rather than through an INSERT of
+its own.
 """
 
 from __future__ import annotations
@@ -58,7 +60,7 @@ def _is_live(status: str, engine_agent_ref: str | None) -> bool:
     return status == "live" and bool(engine_agent_ref)
 
 
-async def _insert_version_and_point(
+async def insert_prompt_version(
     session: AsyncSession,
     *,
     tenant_id: UUID,
@@ -66,12 +68,23 @@ async def _insert_version_and_point(
     body: str,
     notes: str | None,
     created_by: UUID | None,
+    compiled_t0_context: str | None = None,
 ) -> int:
     """INSERT the next version and move the agent's pointer to it. Never an UPDATE of
     an existing version row — that is the immutability invariant, enforced by shape.
 
     `published_at` is set at insert: pointing the agent at a version IS publishing it
     here (creation and activation are one step, unlike the KB's approval gate).
+
+    `compiled_t0_context` is the T0 compiler's build artifact (D-39) and is stamped at
+    INSERT for the same reason: writing it onto an existing row afterwards would rewrite
+    what an earlier publish said. It stays None for a hand-written version — the writer
+    supplied a body, not a compiled block, and claiming otherwise would make
+    `agents/t0.py` recompile from an artifact nobody built.
+
+    Public because it is the one place a `prompt_versions` row may be born:
+    `agents/t0.py`'s recompile mints versions too (FLOWS §7), and a second insert
+    statement is a second chance to forget the pointer, the UNIQUE race or the artifact.
     """
     current = (
         await session.execute(
@@ -85,8 +98,9 @@ async def _insert_version_and_point(
         await session.execute(
             text(
                 "INSERT INTO prompt_versions (id, tenant_id, agent_id, version, body, "
-                "notes, created_by, published_at, created_at, updated_at) "
-                "VALUES (:id, :tid, :aid, :version, :body, :notes, :by, now(), now(), now())"
+                "compiled_t0_context, notes, created_by, published_at, created_at, updated_at) "
+                "VALUES (:id, :tid, :aid, :version, :body, :compiled, :notes, :by, now(), "
+                "now(), now())"
             ),
             {
                 "id": version_id,
@@ -94,6 +108,7 @@ async def _insert_version_and_point(
                 "aid": agent_id,
                 "version": version,
                 "body": body,
+                "compiled": compiled_t0_context,
                 "notes": notes,
                 "by": created_by,
             },
@@ -130,7 +145,7 @@ async def write_prompt_version(
 ) -> int:
     """New immutable version; the agent points at it; a LIVE agent is re-published."""
     status, engine_ref = await _agent_state(session, agent_id)
-    version = await _insert_version_and_point(
+    version = await insert_prompt_version(
         session,
         tenant_id=tenant_id,
         agent_id=agent_id,
@@ -197,7 +212,7 @@ async def rollback_prompt(
     ).first()
     if target is None:
         raise ProblemError.not_found("Prompt version")
-    new_version = await _insert_version_and_point(
+    new_version = await insert_prompt_version(
         session,
         tenant_id=tenant_id,
         agent_id=agent_id,
@@ -214,4 +229,9 @@ async def rollback_prompt(
     return new_version
 
 
-__all__ = ["list_prompt_versions", "rollback_prompt", "write_prompt_version"]
+__all__ = [
+    "insert_prompt_version",
+    "list_prompt_versions",
+    "rollback_prompt",
+    "write_prompt_version",
+]

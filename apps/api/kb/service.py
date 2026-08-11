@@ -1,7 +1,7 @@
 """KB ingestion, approval and publish (FLOWS §7).
 
     client submits text/url → chunk → PREVIEW → admin approves → version bump →
-    engine KB sync → live.   Rollback = reactivate the prior version.
+    engine KB sync → T0 recompilation → live.   Rollback = reactivate the prior version.
 
 The approval gate is the point. A client editing what their agent says is a client
 editing a legal instrument — the agent speaks on their behalf under their PE
@@ -22,6 +22,7 @@ from calevate_shared.engine import KBSourceRef, VoiceEngine
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.t0 import KnowledgeFact, recompile_t0
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -518,6 +519,33 @@ async def _reattach_after_failed_publish(
             log.info("kb_restored_after_failed_publish", extra={"source_id": str(source_id)})
 
 
+async def active_knowledge(session: AsyncSession, *, agent_id: UUID) -> list[KnowledgeFact]:
+    """Everything this agent currently knows because a human approved and published it.
+
+    The live version of each named source, whole and in reading order, ordered by name
+    so the T0 compiler produces a stable block: ordering by `published_at` would
+    reshuffle every fact each time one unrelated source was updated, minting a prompt
+    version that changed nothing but line order.
+
+    This is the half of the recompile that belongs to the KB — "what is live" is a
+    question about `kb_sources.is_active`, which only `publish_source` ever sets — and
+    it is the whole coupling. The block's FORMAT belongs to `agents/t0.py`, so nothing
+    here knows what a prompt looks like and nothing there queries these tables.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT s.name, string_agg(d.content, ' ' ORDER BY d.idx) "
+                "FROM kb_sources s JOIN kb_documents d ON d.source_id = s.id "
+                "WHERE s.agent_id = :aid AND s.is_active = true "
+                "GROUP BY s.id, s.name ORDER BY s.name"
+            ),
+            {"aid": agent_id},
+        )
+    ).all()
+    return [KnowledgeFact(name=str(row[0]), text=str(row[1] or "")) for row in rows]
+
+
 async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: UUID) -> int:
     """Push an APPROVED source to the engine KB and make it the active version.
 
@@ -555,6 +583,17 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     step rewrites `status`, so the recovery path refused the only rows it exists for.
     Approval is a fact about a version that a later publish cannot erase; rejection
     never sets `approved_at`, so a rejected source still cannot reach an agent.
+
+    3. T0 is RECOMPILED at the end, once the activation flip has decided what is live
+       (FLOWS §7: "version bump → embeddings → T0 recompilation → engine KB sync"; the
+       engine sync moved ahead of it when D-41 made the withdrawal a precondition, so
+       the two steps are ordered by what each one reads rather than by the doc's line
+       order). Without this the whole publish changed only what the agent could
+       RETRIEVE: `agents/t0.py` compiles the newly approved facts into the prompt's
+       [T0 FACTS] block as a NEW prompt version, which is the tier TRD §6 says answers
+       ~80% of questions at zero latency. It re-publishes the agent only if the agent
+       is already live — a client publishing an FAQ must not promote an agent past
+       FLOWS §1 step 7's human sign-off.
 
     What this function still cannot make atomic, stated so nobody assumes otherwise: the
     engine calls are not in the transaction, so a COMMIT that fails after a successful
@@ -658,7 +697,26 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         ),
         {"sid": source_id},
     )
-    log.info("kb_published", extra={"source_id": str(source_id), "version": version})
+
+    # T0 recompilation (FLOWS §7, TRD §6). LAST, and after the activation flip, because
+    # `active_knowledge` reads exactly what the flip just decided — computing it earlier
+    # would compile the set this publish is replacing. `recompile_t0` mints a NEW prompt
+    # version (never edits the live one) and returns None when the block is unchanged,
+    # so a rollback onto the version already live stays free.
+    prompt_version = await recompile_t0(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        knowledge=await active_knowledge(session, agent_id=agent_id),
+    )
+    log.info(
+        "kb_published",
+        extra={
+            "source_id": str(source_id),
+            "version": version,
+            "prompt_version": prompt_version,
+        },
+    )
     return int(version)
 
 
@@ -692,6 +750,7 @@ async def list_sources(session: AsyncSession, *, status: str | None = None) -> l
 
 __all__ = [
     "MAX_CHUNK_CHARS",
+    "active_knowledge",
     "approve_source",
     "chunk_text",
     "list_sources",

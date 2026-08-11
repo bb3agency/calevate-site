@@ -6,7 +6,10 @@ here rather than in a paragraph nobody re-reads:
 
 * **T0 compiled context** is real and is exercised below. `apps/api/admin/intake.py`
   compiles the client's own business facts into a `[T0 FACTS]` block, splices it into
-  the prompt body and stores it as `prompt_versions.compiled_t0_context` (D-39).
+  the prompt body and stores it as `prompt_versions.compiled_t0_context` (D-39), and
+  `apps/api/agents/t0.py` REGENERATES that block on every knowledge publish — the
+  second half of TRD §6's sentence, which used to be doc-only and is now the second
+  test below. `tests/t0_recompile_test.py` holds the rest of that behaviour.
 * **T1/T2 (cache + speculative)** are deliberately unbuilt, in TRD §6's own words: "only
   relevant once in-call retrieval moves to the provider". D-33 keeps in-call retrieval
   on the engine's built-in KB for v1, so there is nothing for a cache tier to sit in
@@ -18,13 +21,14 @@ here rather than in a paragraph nobody re-reads:
   and must not happen by drift.
 * **T4 refuse-and-escalate** is a PROMPT instruction (docs/PROMPT-GUIDE.md §1) with no
   code behind it, and its measurement — the knowledge-gap report TRD §6 promises, built
-  on `kb_retrieval_logs` — has no producer at all. That is pinned as a strict xfail:
-  the table is declared, migrated, RLS'd and indexed, and nothing in the system has ever
-  written a row to it.
+  on `kb_retrieval_logs` — has no producer and cannot have one yet. That is now a
+  DATED, ARGUED gap rather than an xfail waiting to flip, because the blocker is not
+  our code: see `test_the_knowledge_gap_report_has_no_producer_and_cannot_yet` below
+  and the note on `apps/api/kb/models.py:KbRetrievalLog`.
 
-The two xfails are pins in the sense pyproject's `xfail_strict` comment describes. Each
-one fails the day it starts passing, so whoever closes the gap is told to delete the
-marker instead of leaving a comment that outlives the thing it describes.
+The pins here are pins in the sense pyproject's `xfail_strict` comment describes: each
+one fails the day the world changes under it, so whoever closes a gap is told to delete
+the marker instead of leaving a comment that outlives the thing it describes.
 """
 
 from __future__ import annotations
@@ -32,7 +36,6 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-import pytest
 from apps.api.admin import intake
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
@@ -74,23 +77,22 @@ async def test_t0_context_is_compiled_from_the_clients_own_facts_and_stored() ->
     assert "Root canal" in compiled, "a fact the client typed reached the compiled block"
 
 
-# --- T0 regeneration: promised by both docs, implemented by neither path -------------
+# --- T0 regeneration: promised by both docs, and now done by the publish path --------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GAP: TRD §6 says T0 is 'regenerated on KB change' and FLOWS §7 puts 'T0 "
-        "recompilation' between the version bump and the engine KB sync. "
-        "`apps/api/kb/service.publish_source` mints no prompt version and touches no "
-        "prompt: T0 is regenerated only by the intake step "
-        "(`apps/api/admin/intake.py:record_intake`). Approving new knowledge therefore "
-        "changes what the agent can RETRIEVE and never what it knows at zero latency — "
-        "the tier that TRD §6 says answers ~80% of questions. Closing this belongs in "
-        "`apps/api/agents` + `apps/api/kb` together; delete this marker when it lands."
-    ),
-)
 async def test_publishing_knowledge_recompiles_the_t0_block() -> None:
+    """TRD §6's "regenerated on KB change", asserted at the artifact FLOWS §7 names.
+
+    This was a strict xfail: `publish_source` minted no prompt version and touched no
+    prompt, so approving new knowledge changed what the agent could RETRIEVE (T3, inside
+    the engine per D-33) and never what it knows at zero latency — the tier TRD §6 says
+    answers ~80% of questions. A client saw "published" and the agent kept answering
+    from the block compiled at onboarding.
+
+    Two assertions, because either alone would pass on a broken implementation: a NEW
+    version (an in-place edit of the live version would satisfy "the facts are there"
+    while breaking FLOWS §7's rollback), carrying the newly approved facts.
+    """
     tenant_id, agent_id = await _tenant_with_published_agent()
     before = await _prompt_versions(agent_id, tenant_id)
 
@@ -156,19 +158,48 @@ def _app_sources_naming(table: str) -> list[str]:
     return hits
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GAP: TRD §6 makes T4 misses the input to the knowledge-gap report — 'T4 misses "
-        "are what a client should add next' (`apps/api/kb/models.py:KbRetrievalLog`). "
-        "`kb_retrieval_logs` is declared, migrated, indexed and RLS'd, and NOTHING "
-        "writes or reads it. T4 itself exists only as a prompt instruction "
-        "(docs/PROMPT-GUIDE.md §1), so today a client is never told which questions "
-        "their agent could not answer. A producer needs the engine to report retrieval "
-        "outcomes (pilot gate 8); delete this marker when one exists."
-    ),
-)
-def test_the_knowledge_gap_report_has_a_producer() -> None:
-    assert _app_sources_naming("kb_retrieval_logs"), (
-        "kb_retrieval_logs has no writer and no reader anywhere in apps/"
+def test_the_knowledge_gap_report_has_no_producer_and_cannot_yet() -> None:
+    """The gap, dated 2026-08-11, and the argument for why it is not code we can write.
+
+    TRD §6 makes T4 misses the input to the knowledge-gap report — "T4 misses are what a
+    client should add next" — and `kb_retrieval_logs` is declared, migrated, indexed and
+    RLS'd with nothing writing or reading it. This used to be a strict xfail, i.e. a bet
+    that the producer was merely unbuilt. It is not: the producer cannot exist yet, for
+    reasons that live outside this repository, and an xfail that can only flip when a
+    VENDOR changes is a pin nobody can act on.
+
+    1. **We never observe a retrieval.** D-33 keeps in-call retrieval inside the
+       engine's own KB, and neither surface the engine gives us carries a retrieval
+       outcome: `CallEvent` (webhook) is call lifecycle, `ExecutionSnapshot` (the
+       authenticated fetch that is the truth) is status, cost, recording, transcript and
+       `engine_extracted`. There is no query, no tier, no score, no retrieval latency in
+       either. Whether Bolna can ever report one is pilot gate 8 — TRD §6 marks the
+       surrounding behaviour UNVERIFIED for the same reason.
+    2. **The obvious substitute is worse than nothing.** Inferring "the agent said it
+       didn't know" from post-call transcripts would fill `query` with raw caller
+       utterances in a table that has no `text_redacted` counterpart and no redaction
+       path (hard rule 5 makes redacted the default everywhere transcripts are served),
+       and would put guesses in `tier`, `top_score` and `latency_ms` — columns that
+       describe a retrieval that did not happen on our side. A report built on that
+       would tell a client which questions we THINK went unanswered, in a table whose
+       column names claim measurement.
+    3. **The reader has no home yet either.** TRD §6 assigns knowledge-gap analysis to
+       the managed RAG/memory service, and the provider is blocked behind the D-28
+       bake-off gate (runs with M2, "before any CRM feature depends on the provider").
+
+    So the honest state is: the table stays, unwritten, as the shape the report will
+    take; the doc's promise is deferred, not quietly satisfied by a table-filler. This
+    test fails the day a producer appears — delete it then, and pin the producer's
+    behaviour instead — and also the day the dated note vanishes from the model, which
+    is what stops an inert table from losing its explanation.
+    """
+    assert _app_sources_naming("kb_retrieval_logs") == [], (
+        "something now names kb_retrieval_logs: if it is a real producer of retrieval "
+        "outcomes, delete this test and pin the producer; if it is a transcript-derived "
+        "guess, see argument (2) above"
+    )
+    model_source = (REPO_ROOT / "apps" / "api" / "kb" / "models.py").read_text()
+    assert "GAP (2026-08-11)" in model_source, (
+        "the dated gap note on KbRetrievalLog is the only place the table explains why "
+        "it is empty; a table with no rows and no explanation gets filled by guesswork"
     )

@@ -89,7 +89,26 @@ class KbDocument(PKMixin, TimestampMixin, Base):
 
 class KbRetrievalLog(PKMixin, Base):
     """Powers the knowledge-gap report (TRD §6): T4 misses are what a client should add
-    next. Stores the QUERY, never the caller — it is a content signal, not a call record."""
+    next. Stores the QUERY, never the caller — it is a content signal, not a call record.
+
+    **GAP (2026-08-11): nothing writes this table, and nothing can yet.** Recorded here
+    rather than in a ticket because the table is the only thing that outlives the
+    discussion. In-call retrieval happens inside the engine (D-33), and neither surface
+    the engine gives us reports an outcome: `CallEvent` is call lifecycle,
+    `ExecutionSnapshot` is status/cost/recording/transcript. No query, no tier, no
+    score. Whether the engine can ever report one is pilot gate 8.
+
+    The substitute — inferring a miss from a post-call transcript — is refused on two
+    counts: `query` would hold raw caller utterances in a table with no `text_redacted`
+    counterpart (hard rule 5), and `tier`/`top_score`/`latency_ms` would carry invented
+    values for a retrieval we did not perform. The reader is deferred for a third
+    reason: TRD §6 puts knowledge-gap analysis on the managed RAG/memory service, whose
+    provider is blocked behind the D-28 bake-off gate.
+
+    Closing it: a producer becomes possible when pilot gate 8 shows the engine reporting
+    retrieval outcomes, or when the D-28 provider serves in-call retrieval and we see
+    the queries ourselves. `tests/kb_tiers_test.py` fails the day either lands.
+    """
 
     __tablename__ = "kb_retrieval_logs"
     __table_args__ = (CheckConstraint("tier IN ('t0','t1','t2','t3','t4')", name="tier_enum"),)
