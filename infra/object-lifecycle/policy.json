@@ -1,0 +1,34 @@
+{
+  "Rules": [
+    {
+      "ID": "recordings-growth-ceiling-not-retention",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "recordings/"
+      },
+      "Expiration": {
+        "Days": 2555
+      }
+    },
+    {
+      "ID": "engine-payloads-debug-artifacts",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "engine-payloads/"
+      },
+      "Expiration": {
+        "Days": 90
+      }
+    },
+    {
+      "ID": "abort-incomplete-multipart-uploads",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": ""
+      },
+      "AbortIncompleteMultipartUpload": {
+        "DaysAfterInitiation": 7
+      }
+    }
+  ]
+}
