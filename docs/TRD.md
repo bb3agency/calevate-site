@@ -48,6 +48,12 @@ crm, analytics, billing, kb, integrations, compliance, audit.
 - **Storage:** R2/Spaces, SSE encryption, presigned URLs (5-min TTL), never public.
 - **Observability:** OpenTelemetry traces; Sentry (errors); **Langfuse** (LLM traces,
   prompt versions, per-call token cost, latency breakdown); PostHog (product analytics).
+  Shipped in `apps/api/core/observability.py`, all of it config-gated (no keys ⇒ no-op):
+  the trace crosses the queue boundary — the W3C traceparent rides in the ARQ job payload
+  (`TRACE_KWARG = "_calevate_traceparent"`) so voice-runtime → ARQ → worker → adapter is
+  ONE trace and "where did the two minutes go?" is answerable. Span attributes are an
+  ALLOWLIST (`ALLOWED_SPAN_ATTRIBUTES`), not a denylist, and every value must be id-shaped
+  by the logger's own `redact_text` — a denylist on a tracing API fails open (hard rule 6).
 - **IaC/CI:** Terraform; GitHub Actions (lint, typecheck, tests, migrations, deploy);
   Dependabot + secret scanning + SAST.
 
@@ -362,10 +368,28 @@ vertical templates (clinic, real_estate, insurance, education) pre-fill it.
 One schema drives, with zero code: (a) the post-call extraction prompt (generated),
 (b) Pydantic validation of the LLM's structured output (retry on schema failure),
 (c) Leads table columns, (d) filters, (e) CSV export, (f) hot-lead rules.
-Extraction runs POST-CALL in workers (never in-call): input = full transcript; model =
-Gemini Flash-Lite structured output; cost ≈ ₹0.02–0.05/call. Same pass also emits:
-sentiment, summary, resolved|needs_follow_up tag, out_of_scope flags, callback intent.
-Every extraction stores prompt_version + model for auditability.
+Extraction runs POST-CALL in workers (never in-call): input = full transcript; cost
+≈ ₹0.02–0.05/call. Same pass also emits: sentiment, summary, resolved|needs_follow_up tag,
+out_of_scope flags, callback intent. Every extraction stores prompt_version + model for
+auditability. **Model, as shipped**: `workers/extraction.get_extractor()` picks by config
+and there is NO silent failover between providers — Sarvam (`sarvam-m`) when a Sarvam key
+is present, Gemini (`gemini-2.5-flash-lite`) when only a Gemini key is, and an offline
+heuristic runner otherwise, which is what keeps the regression harness's baseline stable.
+D-36 makes Sarvam the default; the §5 note that Gemini "remains the reference for the
+post-call extraction path" is about which baseline is measured, not about which model the
+pipeline reaches for.
+
+The generated prompt (`packages/shared/.../extraction.build_extraction_prompt`, shared with
+the regression harness so the scored prompt IS the shipped one) carries **five named rule
+blocks**, each closing an observed extraction failure: **WHO SPOKE DECIDES WHAT IS A
+FACT** — the transcript is one labelled turn per line, every field is a fact about the
+CALLER, so only `caller:` lines are evidence and an `agent:` question, menu or read-back is
+never an answer; **A DENIAL IS NOT A CONFIRMATION** — "ledu"/"vaddu"/"kaadu"/"nahi"/"no"
+means refused, which is `false` for a bool field and `null` for every other; **ABSENT MEANS
+NULL** — never guess, and never write "N/A"/"unknown"/"none"; **WHOSE IS IT** — a detail
+belonging to a relative or colleague is not the caller's own; **VALUES, EXACTLY** — quote
+the caller, keep the script and the caller's own relative time, digits in the order spoken
+and `null` if one digit is unclear, enum values verbatim and only when meant.
 
 ## 8. Post-Call Pipeline (workers; idempotent; keyed by call_id)
 

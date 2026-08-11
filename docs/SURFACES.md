@@ -152,6 +152,20 @@ Admin realm (`/admin/…`)
 - **Credit top-up** (`POST|GET /v1/admin/tenants/{tenant_id}/credits`) — admin-recorded
   today; the self-serve wallet UI in §2b is still M2.
 - **Ops** (`/admin/ops`; `/v1/ops/platform`, `/v1/ops/outbox/replay`, `/v1/ops/audit/verify`).
+- **Calevate's own TM registration** (`POST /v1/ops/platform/tm-registration`, `ops:manage`)
+  — the company half of SEC-COMP §3's first bullet, recorded on `platform_state` (D-43)
+  and returned by `GET /v1/ops/platform`. Step-up confirmed in BOTH directions, with the
+  header naming which one: `X-Confirm-Action: record_tm_registration` to make it live,
+  `withdraw_tm_registration` to take it out of `active`. Audited in the same transaction
+  as the write. While it is not `active`, NO tenant can launch an outbound campaign,
+  however complete their own PE registration is; inbound answering is unaffected.
+- **Client DLT Principal Entity registration**
+  (`POST /v1/admin/tenants/{tenant_id}/dlt-registration`, `admin:tenants`) — upsert; the
+  fact `launch_blockers` reads as `pe_registration_*` / `tm_link_not_active`. Deliberately
+  has no client-realm twin: a client who could mark their own PE registration `active`
+  would be marking the launch gate green on a registration that does not exist. Tenant in
+  the PATH, not inferred from the session — an admin-realm mutation that infers its tenant
+  is un-callable by construction under D-22.
 
 Compliance API (client realm)
 - **DNC**: `GET|POST /v1/dnc`, `POST /v1/dnc/check`, `DELETE /v1/dnc/{entry_id}`.
@@ -164,6 +178,43 @@ Compliance API (client realm)
   stays available to them. Every response carries the erasure's stated limitations
   (SEC-COMP §4). Both surfaces speak `subject_ref`, never the phone number.
 - **Voice catalog**: `GET /v1/agents/voices` (D-36's premium/value ladder as data).
+- **Consent provenance for a campaign list**:
+  `POST /v1/campaigns/{campaign_id}/consent-provenance` (`leads:dispatch`, drafts only,
+  audited) — SEC-COMP §3's fourth bullet, and the answer path for a draft created before
+  the columns existed. It refuses on a non-draft campaign, so a declaration cannot be
+  back-filled after the dialling it was supposed to authorise.
+
+Self-serve + payments (D-34/D-39) — **read the caveat, this is not a working checkout**
+- **Signup**: `POST /v1/auth/signup` (201). Under `rbac.PUBLIC_PREFIXES`, which is the
+  honest classification: no permission can gate a caller who has no organization yet. The
+  locks are a verified Clerk identity, a quota of 5 signups per user and 30 per IP per hour
+  consumed on every
+  ATTEMPT (a refused slug is not free — free failures are what make a limiter enumerable),
+  and two switches: `self_serve_signup_enabled`, which **defaults to OFF** (R-11's kill
+  switch — public tenant creation should be something someone switched on), and the
+  platform load-shed mode, which `/v1/auth` is otherwise exempt from because that
+  exemption is right for signing IN and wrong for signing UP. Creates the organization, its
+  receptionist agent, its extraction schema and its retention policies, and makes the
+  caller the owner; `plan_tier` is `self_serve` or `trial` — `managed` is the invoiced
+  motion and is not self-assignable. The wallet starts empty, so the compliance gate
+  refuses outbound until it is topped up, and the response says so in `next_steps`.
+- **Top-up intent**: `POST /v1/billing/topups/intent` (`org:manage` — spending the client's
+  money is not a read, and being mutating is what makes D-22 refuse it to an impersonating
+  admin). Prices the top-up (₹100–₹100,000), binds it to the session's tenant, and refuses
+  a `managed` tenant (`topup_not_available`) or a deployment with no key
+  (`payments_not_configured`). **NOT IMPLEMENTED: server-side order creation.** Creating
+  the provider-side order needs API credentials this deployment does not hold, so the
+  response carries `provider_order_id: null` and `provider_order_pending: true` — the gap
+  is in the contract rather than discovered at integration time. There is no checkout that
+  can be opened from this response today.
+- **Payment webhook**: `POST /hooks/v1/razorpay` → one `credit_ledger` entry, signature
+  verified before anything is read, inbox-claimed on `payment.captured:<payment id>` and
+  idempotent on the ledger `ref` under the per-tenant credit lock. Never load-shed (a
+  payment landing during degraded mode is still a payment); fails CLOSED with no secret
+  configured. **The signing scheme and every payload path it reads are UNVERIFIED against
+  a live Razorpay account** (`billing/payments.py` marks each one) — if they are wrong,
+  every event is refused and nothing is credited. Treat the pair above as scaffolding with
+  an honest hole in it, not as a payment flow.
 
 Shared shape across all three compliance surfaces: a phone number is submitted in a POST
 body and everything afterwards is keyed by an opaque id, never `GET /…/{phone}`. The

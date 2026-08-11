@@ -39,15 +39,36 @@ Telemarketer (TM)** linked to each client PE. Calevate's TM registration (requir
 entity — Risk R-01) is the company-level blocker; each client's PE registration
 (~₹5,900 first TSP) is an onboarding-wizard step we execute for them (part of setup fee).
 
-A campaign cannot launch unless ALL of:
+A campaign cannot launch unless ALL of — each bullet now naming the blocker
+`campaigns.service.launch_blockers` returns, so a screen, a test and this section can
+cite the same string:
 - Calevate TM registration exists AND this client's PE registration + TM-link are active
-  (inbound-only operation is the interim mode while pending).
+  (inbound-only operation is the interim mode while pending). Ours is
+  **`tm_registration_missing`**, read from `platform_state` (D-43) — one row, false for
+  every tenant at once, and reported alongside the client's own blockers rather than
+  short-circuiting them. Theirs is **`pe_registration_missing`** (no row at all) or
+  **`pe_registration_not_active`**, and then **`tm_link_not_active`**. Those last two are
+  the only sequential pair in the function: a TM link to an entity that is not registered
+  cannot be active either, and telling a client to chase an authorisation for a
+  registration they do not yet have sends them to the wrong desk.
 - `campaigns.classification` set; number series matches (promotional⇔140; transactional/
-  service⇔160/standard); voice `dlt_templates.status='approved'` and linked.
-- Contact list DNC-scrubbed (national DND + tenant dnc_list) with scrub timestamp.
+  service⇔160/standard — `number_series_mismatch`, `number_missing`); the number's own DLT
+  header registered (`number_not_registered`); voice `dlt_templates.status='approved'` and
+  linked, for this classification (`dlt_template_missing`, `dlt_template_not_approved`,
+  `dlt_template_mismatch`). Three registrations, and none implies another.
+- Contact list DNC-scrubbed (national DND + tenant dnc_list) with scrub timestamp; a list
+  with nothing left after the scrub is `all_contacts_dnc`, an empty one `no_contacts`.
 - Consent provenance recorded for the list (source + date) — a purchased list with no
-  consent artefacts is refused, in writing, as policy.
-- Per-tenant caps (`spend_state`) not exceeded.
+  consent artefacts is refused, in writing, as policy. **`consent_provenance_missing`**
+  when nobody has said (`campaigns.consent_source IS NULL`, which is what every campaign
+  predating the columns honestly reports) and **`consent_source_refused`** when the answer
+  is `purchased_list`. The enum deliberately INCLUDES `purchased_list`: the refusal this
+  bullet promises can only be written if the client can say the word, and an enum stocked
+  only with acceptable answers does not stop purchased lists — it hides them behind
+  whichever member sounds nearest. Declared through
+  `POST /v1/campaigns/{campaign_id}/consent-provenance` (drafts only, audited).
+- Per-tenant caps (`spend_state`) not exceeded (`spend_cap`), and the prepaid wallet not
+  exhausted (`no_credits`).
 
 ## 4. Data Protection (DPDP) — Feature Map
 
@@ -56,7 +77,7 @@ A campaign cannot launch unless ALL of:
 | Notice + consent | Client-facing DPA + privacy notice; caller disclosure line; consent_ledger |
 | Purpose limitation | data_category on storage; consent purpose enum; no secondary use of client data (we are Data Processor for clients' caller data; Fiduciary for client-account data — recorded in DPA) |
 | Retention limits | retention_policies per category with TTL enforcement job; recording floor 90 days (TRAI), default 180; BFSI clients configurable ≥ regulator minimum; transcripts/leads default 24 months |
-| Erasure with proof | deletion_requests workflow: `POST /v1/compliance/deletion-requests` writes the row and queues the worker in ONE transaction (transactional outbox) → locate by phone across calls/turns/extractions/leads/recordings → delete/anonymize → write proof JSON (what, where, when, hashes) → certificate to requester; covers our object storage AND engine copies (adapter deletes engine-side records; Bolna's deletion API is undocumented — pilot gate, and a written erasure commitment goes in the Bolna contract, so the certificate reports engine-side deletion as `unconfirmed_pending_vendor_api` rather than claiming it). **Recordings under 90 days: see the open decision below — this row and the retention row above point in opposite directions.** |
+| Erasure with proof | deletion_requests workflow: `POST /v1/compliance/deletion-requests` writes the row and queues the worker in ONE transaction (transactional outbox) → locate by phone across calls/turns/extractions/leads/recordings → delete/anonymize → write proof JSON (what, where, when, hashes) **and clear `phone_e164` in that same UPDATE**, so a completed request is not the last surviving copy of the number it certifies as erased (D-44; `subject_ref`, the same hash the proof and the subject-access export use, is what remains) → certificate to requester; covers our object storage AND engine copies (adapter deletes engine-side records; Bolna's deletion API is undocumented — pilot gate, and a written erasure commitment goes in the Bolna contract, so the certificate reports engine-side deletion as `unconfirmed_pending_vendor_api` rather than claiming it). **Recordings under 90 days: see the open decision below — this row and the retention row above point in opposite directions.** |
 | Breach notification | Incident runbook (OPERATIONS.md §7): classify, contain, notify Board + principals per Rules timeline; webhook_deliveries + audit_log provide forensic trail |
 | Security safeguards | §5 below |
 | Cross-border | CAUTION (D-31): Bolna call recordings observed on S3 us-east-1; their Enterprise tier offers full India data-residency (audio, transcripts, logs, in-India inference) — residency posture must be pinned in the Bolna contract and disclosed in the client DPA until then. **Models are all-India BY DEFAULT since D-36** — Sarvam is sovereign and now serves STT, LLM *and* TTS, so no transcript text leaves India on the default stack. This inverts the earlier posture: "all-India" is no longer a client opt-in at a quality tradeoff, it is what ships. Gemini remains a *configurable fallback*; enabling it sends transcript text (never audio) to Google and therefore requires a DPA disclosure and an explicit per-tenant decision — treat switching an agent to Gemini as a residency change, not a config tweak. This is a live differentiator: Outpero's privacy policy admits "some providers may process data on servers located outside India" (evidence/outpero-teardown-aug2026.md §9b) |
@@ -89,19 +110,49 @@ shipped honestly rather than hidden: it is the first entry of `ERASURE_LIMITATIO
 returned on every deletion-request response, naming both sections so whoever hands the
 certificate to a data principal knows they are standing on an unresolved question.
 
-**And the lifecycle rule is not built.** Three modules (`workers/retention.py`,
-`workers/storage.py`, `compliance/deletion.py`) name an object-store lifecycle rule as the
-mechanism that removes the audio; nothing configures one — `infra/` does not exist in the
-repository yet, so there is no Terraform bucket policy to carry it. So today the bytes
-are not deleted by anything — the pointer-clear is the whole of the erasure, and the
-"defensible reading" above is only defensible once that rule exists. Building it is
-prerequisite work for this decision, not a consequence of it.
+**And the lifecycle rule does not do what those modules assume.** Three modules
+(`workers/retention.py`, `workers/storage.py`, `compliance/deletion.py`) name an
+object-store lifecycle rule as the mechanism that removes the audio. `infra/` now carries
+one (`infra/object-lifecycle/`) — but read what it is: a bucket-wide, prefix-scoped
+CEILING (`recordings/` expire at 2555 days, `engine-payloads/` at 90, incomplete
+multipart uploads aborted at 7), floored so it can never fire below the 90-day TRAI
+minimum or below the longest TTL any tenant has configured. A bucket rule is static and
+prefix-scoped while `retention_policies` is per tenant and editable at runtime, so it
+CANNOT "follow the retention policy" — it exists to bound growth, not to expire a
+tenant's recordings on that tenant's clock. So the position is unchanged where it counts:
+the pointer-clear is still the whole of the erasure, no per-tenant mechanism deletes
+recording bytes, and the "defensible reading" above still rests on a mechanism nobody has
+built. Building it stays prerequisite work for this decision, not a consequence of it.
 
 Resolving it is a decision-log entry against this section (ROADMAP §6), and it needs the
 Bolna erasure commitment from pilot gate 12(f) in hand — an answer that binds our storage
 but not the engine's is not an answer. Until then: do not narrow the certificate's
 limitations text, and do not make the pointer-clear conditional on age without deciding
 this first.
+
+**OPEN QUESTION — the retention defaults in this document and the ones in the seed do not
+match, and neither matches the other.** Surfaced by the retention sweep, stated here
+rather than resolved because it is a policy call, not a code fix.
+
+- §4's retention row above says **transcripts/leads default to 24 months** (730 days), and
+  recordings to a **default of 180** over the 90-day TRAI floor.
+- `scripts/seed.DEFAULT_RETENTION_POLICIES` — the rows a new tenant actually gets, and the
+  rows the nightly sweep obeys — are **transcript 365 days**, **lead 1095 days**,
+  **recording 90 days**, consent_log 2555 days.
+
+So a transcript is deleted at half the documented age and a lead is kept at one and a half
+times it. This matters beyond tidiness: the client-facing **DPA quotes this document**,
+while `apply_retention` obeys the rows — so today we tell clients one retention period and
+run another, in both directions. It cannot be settled by picking whichever number is in
+front of you: the seed values are a defensible split (a lead is the CRM record the client
+bought and keeps using; a transcript is raw personal data with a shorter useful life),
+and 24 months for both is what has been promised in writing.
+
+**Who must decide: the founder**, because it is a commitment to clients and a DPA edit,
+not an implementation detail. Whichever way it goes, both places change in the same
+release — this section, and `DEFAULT_RETENTION_POLICIES` — and the change is recorded as a
+decision-log entry (ROADMAP §6). Existing tenants' rows are their own decision: a policy
+row already agreed with a client is not silently re-timed by a seed change.
 
 **PII redaction (workers step 2):** regex + validator pass for Aadhaar (Verhoeff), PAN,
 card (Luhn), OTP patterns, plus LLM-assisted pass for spoken-out numbers; produces
@@ -118,8 +169,12 @@ Identity & access
 - Admin impersonation (D-22): READ-ONLY "view as client" — a scoped read-only session
   against the client realm, never a client credential; session start + every page view
   audit-logged (actor=admin_user, tenant, at, ip). No mutations while impersonating.
-- Invitations: 72h single-use signed tokens, hash-at-rest, burned on use; account creation
-  only via invitation (no self-serve signup v1).
+- Invitations: 72h single-use signed tokens, hash-at-rest, burned on use. **"Account
+  creation only via invitation" is no longer true of the client realm** — D-34/D-39 put
+  self-serve in scope and `POST /v1/auth/signup` ships (SURFACES §2c): a Clerk-verified
+  user with no organization creates their own tenant, rate-limited by a signup quota, with
+  `plan_tier` restricted to `self_serve`/`trial`. The ADMIN realm stays invite-only with
+  Clerk signup disabled (D-37), which is where that rule still holds.
 
 Data
 - Postgres RLS FORCEd on all tenant tables; app sets tenant GUC from verified session;

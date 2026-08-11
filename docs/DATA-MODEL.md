@@ -120,7 +120,22 @@ campaigns(id, tenant_id, agent_id, name, classification ENUM[promotional,transac
   schedule JSONB, concurrency INT CHECK (1..10), retry_policy JSONB,   -- shipped default:
     -- {max_attempts: 3, backoff_minutes: [30, 120]} — this per-CONTACT ladder is the one
     -- place backoff actually exists; the ARQ job ladder is flat (FLOWS §6)
-  calling_hours JSONB, engine_campaign_ref TEXT, launched_at)
+  calling_hours JSONB, engine_campaign_ref TEXT, launched_at,
+  consent_source TEXT NULL CHECK (consent_source IS NULL OR consent_source IN
+    ('existing_customer','inbound_enquiry','web_form_optin','offline_form_optin',
+     'purchased_list')),
+  consent_collected_at NULL,
+  CHECK ((consent_source IS NULL) = (consent_collected_at IS NULL)))
+  -- consent provenance for the LIST (SEC-COMP §3, migration b8e4c1d70f92): where these
+  -- numbers came from and when. An enum, not free text, so the gate can refuse a value
+  -- BY NAME (`consent_source_refused`) and the DPDP self-assessment is a GROUP BY.
+  -- `purchased_list` is deliberately IN the enum — §3 promises a refusal in writing and
+  -- a refusal can only be written if the client can say the word. Nullable with no
+  -- backfill: a campaign predating the columns says NULL, which is the truth (nobody
+  -- asked), and is BLOCKED at launch (`consent_provenance_missing`) rather than
+  -- defaulted into a consent nobody gave. Answered afterwards through
+  -- `POST /v1/campaigns/{id}/consent-provenance`, drafts only. Source and date travel
+  -- together or not at all — a date with no source names nothing.
   -- launch is BLOCKED unless: entity DLT-registered, template approved, number series
   -- matches classification (140⇔promotional / 160|standard⇔service-transactional), DNC scrub done.
 campaign_contacts(id, tenant_id, campaign_id, phone_e164, name, custom JSONB,
@@ -215,6 +230,12 @@ credit_ledger(id, tenant_id, delta NUMERIC, reason ENUM[topup,usage,adjustment,r
 --   UNIQUE(tenant_id, ref) WHERE reason IN ('topup','usage') would make double-crediting
 --   impossible instead of merely unlikely, but existing rows violate it and this is an
 --   append-only ledger — the fix is compensating entries by a person, then the index.
+--   That correction path now exists (`scripts/reconcile_credit_ledger.py`, dry-run by
+--   default, `--apply` to write; compensating `adjustment` entries through
+--   `record_entry` under the tenant credit lock, never an UPDATE or DELETE). The index
+--   is still REFUSED: the violating pairs are manufactured faster than they are
+--   corrected while the test suite runs, so it lands only after a reconciled database
+--   and a fixture that seeds its residue backdated rather than by double-crediting.
 spend_state(tenant_id PK, month, minutes_used NUMERIC, spend_used NUMERIC, capped BOOL)
   -- read by the COMPLIANCE GATE before every outbound dispatch (fail closed when capped)
   -- — apps/api/compliance/service.py, not voice-runtime; see TRD §9
@@ -243,13 +264,59 @@ invoices(id, tenant_id, period, lines JSONB, subtotal, gst, total,
 ## 9. Compliance & Audit
 
 ```
+dlt_registrations(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT, pe_id TEXT,
+  entity_name TEXT, status ENUM[not_started,submitted,active,suspended,rejected]
+  NOT NULL DEFAULT 'not_started',
+  tm_link_status ENUM[not_linked,pending,active,revoked] NOT NULL DEFAULT 'not_linked',
+  registered_at, verified_at,
+  CHECK (status <> 'active' OR (pe_id IS NOT NULL AND registered_at IS NOT NULL)))
+  -- The CLIENT half of SEC-COMP §3's first bullet: the DLT Principal Entity, read by
+  -- `launch_blockers` as `pe_registration_missing` / `pe_registration_not_active` /
+  -- `tm_link_not_active`. The THIRD registration in the family — the header
+  -- (`phone_numbers.dlt_status`) and the voice template (`dlt_templates.status`) are the
+  -- other two, and none implies another. PE status and TM-link status stay two columns
+  -- because they fail separately and the client's next action differs. Mutable by
+  -- design (a registration is suspended and restored over its life); who changed it is
+  -- `audit_log`'s job. Standard §1 RLS, created in migration c5a930e6b1d4 with the
+  -- table. `verified_at` = when WE last confirmed it with the registrar.
 consent_ledger(id, tenant_id, call_id, phone_e164, purpose ENUM[recording,callback,marketing],
   status ENUM[granted,declined,withdrawn], captured_at, evidence JSONB)   -- immutable
 retention_policies(id, tenant_id, data_category ENUM[recording,transcript,lead,consent_log],
   ttl_days INT CHECK (ttl_days >= 90 WHERE data_category='recording'),   -- TRAI 90-day floor
   action ENUM[delete,anonymize])
-deletion_requests(id, tenant_id, phone_e164, scope, requested_at, completed_at,
-  proof JSONB)                                       -- deletion-with-proof (DPDP)
+  -- SEEDED defaults (`scripts/seed.DEFAULT_RETENTION_POLICIES`): recording 90/delete,
+  -- transcript 365/anonymize, lead 1095/anonymize, consent_log 2555/anonymize. These
+  -- do NOT match the numbers SEC-COMP §4 prints — see the open question recorded there;
+  -- the DPA quotes the doc and the sweep obeys these rows.
+  -- The sweep also ages out the DERIVED copies of the same personal data, classified by
+  -- WHAT THEY ARE and then timed by the tenant's own policy row
+  -- (`workers/retention.DERIVED_COPIES`): `calls.summary` is a retelling of the
+  -- conversation, so it runs on the TRANSCRIPT clock; `call_extractions.data` is
+  -- structured CRM of the same class as `leads.data`, so it runs on the LEAD clock and
+  -- deliberately outlives the transcript. Nothing personal outlives its category, and
+  -- no CRM field is deleted earlier than the category the client agreed to.
+deletion_requests(id, tenant_id, phone_e164 NULL, subject_ref TEXT NOT NULL, scope,
+  requested_at, completed_at, proof JSONB,           -- deletion-with-proof (DPDP)
+  CHECK (completed_at IS NOT NULL OR phone_e164 IS NOT NULL),   -- an OPEN request
+    -- always names its subject: it is the worker's only handle on them
+  CHECK (subject_ref IS NOT NULL))
+-- UNIQUE INDEX uq_deletion_requests_open_subject (tenant_id, phone_e164)
+--   WHERE completed_at IS NULL (migration e2c47b90d5a1) — one OPEN request per subject.
+--   The predicate is the point: erasure is not terminal for a phone number, so a second
+--   genuine request next month must still be possible. Leading with tenant_id keeps a
+--   unique violation reachable only against a row your own policy can see.
+-- INDEX ix_deletion_requests_tenant_subject (tenant_id, subject_ref).
+  -- phone_e164 is nullable since migration f4a8e1c07b62 (D-44) and is CLEARED in the
+  -- same UPDATE that stamps completed_at + proof, so a completed request is no longer
+  -- the last surviving copy of the number it certifies as erased — no retention policy
+  -- sweeps this table. It cannot be cleared earlier: the worker resolves the subject
+  -- FROM the row. The column is NOT dropped (hard rule 8, two-step).
+  -- subject_ref = sha256(number)[:32], the identical construction to the erasure
+  -- proof's `subject_hash` and the subject-access export's `subject_ref`, which is why
+  -- all three line up. It answers "have we already erased this person?" to a reader who
+  -- already holds the number, and nothing to one who does not. A BEFORE INSERT trigger
+  -- (`deletion_requests_subject_ref`) fills it from phone_e164 when the writer did not,
+  -- and never overwrites — the application stays the author, the trigger is the floor.
 audit_log(id, actor_type ENUM[admin,user,system], actor_id, tenant_id, action, object_type,
   object_id, ip, at, prev_hash, entry_hash)          -- INSERT-only; includes recording/
   -- raw-transcript reads. prev_hash/entry_hash are the D-30 hash chain: each entry
@@ -308,8 +375,25 @@ engine_agent_routes(engine, engine_agent_ref, tenant_id, agent_id, active,
   -- engines during a migration and must resolve independently.
 platform_state(id PK CHECK (id = 1), load_shed_mode
   ENUM[normal,reduced,emergency,maintenance], outbound_halted BOOL, halt_reason,
-  changed_by, changed_at, updated_at)
+  changed_by, changed_at, updated_at,
+  tm_registration_status TEXT NOT NULL DEFAULT 'not_registered'
+    CHECK (tm_registration_status IN
+           ('not_registered','submitted','active','suspended','revoked')),
+  tm_id TEXT, tm_registered_at, tm_verified_at,
+  CHECK (tm_registration_status <> 'active'
+         OR (tm_id IS NOT NULL AND tm_registered_at IS NOT NULL)))
   -- Single-row global switchboard: the load-shed mode AND the big red switch.
+  -- tm_* = CALEVATE's own DLT telemarketer registration (D-43, migration
+  -- d7f2a3c9b410) — the company half of SEC-COMP §3's first bullet, read by
+  -- `launch_blockers` as `tm_registration_missing`. ONE fact about one entity (us), so
+  -- it is not copied per tenant: N copies drift and the gate could not say which row is
+  -- the platform. `tm_registered_at` is the registrar's date, `tm_verified_at` is when
+  -- WE last looked (same reason `dlt_registrations.verified_at` exists). The second
+  -- CHECK is why the seed says `not_registered`: seeding `active` would mean inventing
+  -- a registration number. Read by `ops/service.read_tm_registration` on the CALLER's
+  -- session — deliberately NOT through `core.loadshed`'s cache (a compliance fact
+  -- checked once per launch must not be 15s stale) and fail-CLOSED on a missing row,
+  -- the opposite of that cache's deliberate fail-open.
   -- BACKEND-PATTERNS §6 requires the load-shed mode to be DURABLE in Postgres (Redis is
   -- only its cache) so a Redis flush cannot silently re-open a service an operator shut.
   -- The outbound halt shares the row because it answers the same question — "is the
@@ -323,6 +407,10 @@ audit_log  -- (defined in §9) exempt because the admin realm reads cross-tenant
 
 - Alembic; every migration reversible; RLS policies live in migrations (not ad-hoc).
 - CHECK constraints mirror Pydantic enums; JSONB validated at API boundary.
-- Nightly job: retention TTL enforcement + deletion_requests execution + proof write.
+- Nightly job: retention TTL enforcement (calls/turns/extractions/leads, plus the derived
+  copies in §9) + deletion_requests execution + proof write. Its worklist comes from
+  `engine_agent_routes`, the global bridge table — NOT from enumerating `organizations`,
+  which made the tick's cost grow with the client list instead of with the data. Every
+  write still happens inside `tenant_session`, so no RLS exemption and no admin role.
 - Backups: PITR + nightly snapshot; restore drill quarterly (OPERATIONS.md §6).
 - Seed data: reserved_slugs, vertical extraction templates, default retention policies.
