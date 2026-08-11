@@ -10,23 +10,34 @@ admin application's JWKS and can only produce an admin principal; client tokens 
 same. A token minted for one realm is not a token for the other.
 
 Local development: when `APP_ENV=local` AND the realm has no Clerk secret configured,
-a `Bearer dev:<realm>:<clerk_user_id>` token is accepted. Both conditions are
-required, so staging/prod (which always carry Clerk keys, enforced by
-`runtime_config_missing_keys`) can never fall into this path.
+a `Bearer dev:<realm>:<clerk_user_id>` token is accepted. A deployment that declares
+itself `staging` or `prod` can never reach this path, whatever else is misconfigured
+(asserted in `tests/authz_audit_test.py`).
+
+⚠ It is `app_env` that carries that weight, and `Settings.app_env` DEFAULTS to
+`"local"` (packages/shared/config.py). A deployment that simply never sets `APP_ENV`
+therefore accepts dev tokens — and cannot be caught by `runtime_config_missing_keys`,
+which skips its Clerk-key checks under the same `app_env == "local"` branch, so
+`/healthz/ready` reports healthy. The two guards fail together on one missing
+variable. The fix is to drop the default so the environment must be stated; that
+belongs to the Settings type, not here.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
+import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, cast
 from uuid import UUID
 
-import httpx
 import jwt
 from fastapi import Depends, Request
 from jwt import PyJWKClient
+from jwt.exceptions import PyJWKClientConnectionError
 from sqlalchemy import text
 
 from apps.api.core.context import (
@@ -48,6 +59,13 @@ CLERK_LEEWAY_S = 30
 
 _jwk_clients: dict[str, PyJWKClient] = {}
 
+# A Clerk publishable key is `pk_test_`/`pk_live_` + base64 of the application's
+# Frontend API host with a trailing `$`.
+_PUBLISHABLE_PREFIXES = ("pk_test_", "pk_live_")
+_HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
+# Header values arrive latin-1-decoded, so a raw control byte survives as a character.
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
 
 @dataclass(frozen=True, slots=True)
 class VerifiedToken:
@@ -56,14 +74,44 @@ class VerifiedToken:
     realm: Realm
 
 
-def _jwks_url(secret_key: str) -> str:
-    """Clerk's JWKS lives on the instance's Frontend API host. The publishable key
-    encodes that host; the secret key does not, so we read it from settings — the
-    custom domain is `accounts.calevate.tech` (D-37)."""
-    del secret_key
+def _host_from_publishable_key(key: str | None) -> str | None:
+    """The Frontend API host a Clerk publishable key encodes, or None if it encodes
+    nothing we recognise (unset, a placeholder, a secret key pasted by mistake)."""
+    if not key:
+        return None
+    encoded = next((key[len(p) :] for p in _PUBLISHABLE_PREFIXES if key.startswith(p)), None)
+    if not encoded:
+        return None
+    try:
+        decoded = base64.b64decode(encoded + "=" * (-len(encoded) % 4)).decode("ascii")
+    except (binascii.Error, ValueError):
+        return None
+    host = decoded.rstrip("$").lower()
+    return host if _HOSTNAME_RE.match(host) else None
+
+
+def jwks_url(realm: Realm) -> str:
+    """Where THIS realm's signing keys live.
+
+    The realms are two separate Clerk applications (TRD §11, D-37) and each publishes
+    its JWKS on its OWN Frontend API host. Resolving both to one host would make the
+    separation nominal: the admin verifier would accept a signature minted for the
+    client application, leaving `admin_users` membership as the only thing between a
+    client token and the admin console — an authorization check standing in for an
+    authentication one.
+
+    The publishable key encodes its application's host, which is why both keys are in
+    Settings. `clerk_frontend_api` remains the fallback for a single-application or
+    custom-domain deployment, which is what it always described.
+    """
     settings = get_settings()
-    host = settings.clerk_frontend_api or "accounts.calevate.tech"
-    return f"https://{host}/.well-known/jwks.json"
+    publishable = (
+        settings.clerk_admin_publishable_key
+        if realm == "admin"
+        else settings.clerk_client_publishable_key
+    )
+    host = _host_from_publishable_key(publishable) or settings.clerk_frontend_api
+    return f"https://{host or 'accounts.calevate.tech'}/.well-known/jwks.json"
 
 
 def _jwk_client(realm: Realm) -> PyJWKClient:
@@ -81,7 +129,7 @@ def _jwk_client(realm: Realm) -> PyJWKClient:
                 title="Authentication is not configured",
                 detail="This deployment has no Clerk credentials for that realm.",
             )
-        _jwk_clients[realm] = PyJWKClient(_jwks_url(secret), cache_keys=True)
+        _jwk_clients[realm] = PyJWKClient(jwks_url(realm), cache_keys=True)
     return _jwk_clients[realm]
 
 
@@ -123,9 +171,26 @@ async def verify_token(token: str, realm: Realm) -> VerifiedToken:
         )
     except ProblemError:
         raise
-    except (jwt.InvalidTokenError, httpx.HTTPError) as exc:
-        # Never echo the reason to the caller: "expired" vs "bad signature" is a
-        # probing oracle. It is logged (redacted) for support.
+    except (PyJWKClientConnectionError, OSError) as exc:
+        # Clerk is unreachable. That is OUR dependency failing, not the caller's
+        # session expiring: answering 401 would sign everybody out during an outage,
+        # and letting it escape (which it did — `PyJWKClient` fetches over urllib, so
+        # the old `httpx.HTTPError` clause never matched) turned every request into a
+        # 500 plus an alert.
+        log.warning("jwks_unavailable", extra={"realm": realm, "reason": type(exc).__name__})
+        raise ProblemError(
+            kind="dependency",
+            code="auth_provider_unavailable",
+            title="Sign-in is temporarily unavailable",
+            detail="We could not reach the sign-in service.",
+            remediation="Retry in a few seconds.",
+        ) from exc
+    except jwt.PyJWTError as exc:
+        # `jwt.PyJWTError`, not `jwt.InvalidTokenError`: `PyJWKClientError` (raised for
+        # an unknown `kid` — exactly what a token from the OTHER realm looks like) is a
+        # sibling of InvalidTokenError, not a subclass, so it used to escape as a 500.
+        # Never echo the reason to the caller: "expired" vs "bad signature" vs "unknown
+        # key" is a probing oracle. It is logged (redacted) for support.
         log.warning("token_rejected", extra={"realm": realm, "reason": type(exc).__name__})
         raise ProblemError.unauthorized("Your session is not valid. Sign in again.") from exc
 
@@ -133,7 +198,8 @@ async def verify_token(token: str, realm: Realm) -> VerifiedToken:
     if isinstance(exp, int) and exp + CLERK_LEEWAY_S < int(time.time()):
         raise ProblemError.unauthorized("Your session has expired.")
     subject = claims.get("sub")
-    if not isinstance(subject, str):
+    if not isinstance(subject, str) or _CONTROL_CHARS.search(subject):
+        # The subject becomes a SQL parameter two calls from here. See `_bearer`.
         raise ProblemError.unauthorized()
     email = claims.get("email")
     return VerifiedToken(
@@ -146,7 +212,17 @@ def _bearer(request: Request) -> str:
     scheme, _, token = header.partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise ProblemError.unauthorized()
-    return token.strip()
+    token = token.strip()
+    if not token or _CONTROL_CHARS.search(token):
+        # A credential is ASCII-printable — a JWT is base64url, a dev token is
+        # `dev:<realm>:<clerk-user-id>` — so a control byte is not a token that failed
+        # to verify. It matters because the token's subject travels into a SQL
+        # parameter: `Bearer dev:client:a\x00b` reached the `users` lookup and psycopg
+        # refused it ("PostgreSQL text fields cannot contain NUL"), which is a 500 and
+        # an alert, on every authenticated endpoint, for any unauthenticated caller.
+        # Rejected here, at the boundary, so every path downstream is spared the case.
+        raise ProblemError.unauthorized()
+    return token
 
 
 # --- Principal resolution -----------------------------------------------------
@@ -226,6 +302,14 @@ async def _load_admin_principal(verified: VerifiedToken, impersonate_slug: str |
 
         tenant_id: UUID | None = None
         if impersonate_slug:
+            # `admin:impersonate` gates the ACT of entering a tenant, not just the
+            # `/v1/admin/tenants/{id}/impersonate` call that announces it — that
+            # endpoint mints no credential, so nothing forced a caller through it and
+            # the permission named after the act did not gate the act. Checked before
+            # the slug lookup so an admin without it cannot use 404-vs-403 to probe
+            # which client slugs exist.
+            if not role_has(role, "admin:impersonate"):
+                raise ProblemError.forbidden("This account may not view client accounts.")
             org = (
                 await session.execute(
                     text("SELECT id FROM organizations WHERE slug = :slug AND deleted_at IS NULL"),
@@ -297,9 +381,25 @@ async def current_any(request: Request) -> Principal:
     return await current_principal(request)
 
 
+class PermissionDependency(Protocol):
+    """A route dependency that CARRIES the permission it enforces.
+
+    `permission_meta()` writes the permission into `openapi_extra` for the docs and the
+    generated client; these attributes let the boot registry (rbac §7) check that the
+    declared permission is the one the route actually verifies. Without them the
+    registry can only read the label, never the lock — and a route that declares a
+    permission and forgets the dependency passes a green boot assertion.
+    """
+
+    calevate_permission: Permission
+    calevate_realm: str
+
+    def __call__(self, request: Request) -> Awaitable[Principal]: ...
+
+
 def requires(
     permission: Permission, *, realm: Literal["client", "admin", "any"] = "any"
-) -> Callable[[Request], Awaitable[Principal]]:
+) -> PermissionDependency:
     """Route dependency factory. Pair with `permission_meta(permission)` in
     `openapi_extra` so the boot assertion can see the declaration."""
 
@@ -320,7 +420,10 @@ def requires(
             )
         return principal
 
-    return _dep
+    dep = cast(PermissionDependency, _dep)
+    dep.calevate_permission = permission
+    dep.calevate_realm = realm
+    return dep
 
 
 async def tenant_of(principal: Principal = Depends(current_any)) -> UUID:
@@ -338,11 +441,13 @@ async def tenant_of(principal: Principal = Depends(current_any)) -> UUID:
 __all__ = [
     "IMPERSONATE_HEADER",
     "ORG_HEADER",
+    "PermissionDependency",
     "VerifiedToken",
     "current_admin",
     "current_any",
     "current_identity",
     "current_principal",
+    "jwks_url",
     "requires",
     "tenant_of",
     "verify_token",

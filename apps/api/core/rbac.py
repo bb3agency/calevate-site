@@ -19,6 +19,7 @@ from collections.abc import Iterable, Iterator
 from typing import Literal
 
 from fastapi import FastAPI
+from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute
 
 Permission = Literal[
@@ -125,6 +126,15 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
 )
 
 
+# The attribute `auth.requires()` stamps on the dependency it returns, and the names of
+# the dependencies that resolve an identity without checking a permission. Read by
+# attribute rather than imported, because `core.auth` imports THIS module.
+PERMISSION_ATTR = "calevate_permission"
+IDENTITY_DEPENDENCIES: frozenset[str] = frozenset(
+    {"current_any", "current_admin", "current_principal", "current_identity"}
+)
+
+
 def role_has(role: str, permission: Permission) -> bool:
     return permission in ROLE_PERMISSIONS.get(role, frozenset())
 
@@ -159,18 +169,60 @@ def iter_api_routes(app: FastAPI) -> Iterator[APIRoute]:
     yield from _walk(app.routes)
 
 
+def route_enforcement(route: APIRoute) -> tuple[frozenset[str], bool]:
+    """What a route ACTUALLY checks: (permissions verified, is an identity resolved).
+
+    Walks the whole dependency tree, so a permission reached through a shared
+    `Annotated[...]` alias or a router-level `dependencies=[...]` counts the same as
+    one written on the handler.
+    """
+    permissions: set[str] = set()
+    identified = False
+
+    def _walk(dependant: Dependant) -> None:
+        nonlocal identified
+        call = dependant.call
+        if call is not None:
+            enforced = getattr(call, PERMISSION_ATTR, None)
+            if isinstance(enforced, str):
+                permissions.add(enforced)
+                identified = True
+            elif getattr(call, "__name__", "") in IDENTITY_DEPENDENCIES:
+                identified = True
+        for sub in dependant.dependencies:
+            _walk(sub)
+
+    _walk(route.dependant)
+    return frozenset(permissions), identified
+
+
 def assert_policy_registry_complete(app: FastAPI) -> None:
     """Called from `main.py` after routers are mounted. Every non-public route must
-    carry `permission` in its `openapi_extra` (set by the `requires()` dependency)."""
+    DECLARE a permission in its `openapi_extra` and actually enforce it.
+
+    Declaring is not enforcing. `permission_meta()` writes a string; the lock is
+    `Depends(requires(...))`, and the two are written on separate lines of the same
+    decorator — so the failure mode this guards is a route that carries the label with
+    no lock behind it, or a label that names a different permission than the lock
+    checks. Both read as protected in the OpenAPI schema, the generated TS client and
+    any review that greps for `permission_meta`.
+    """
     offenders: list[str] = []
     checked = 0
     for route in iter_api_routes(app):
         if any(route.path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
             continue
         checked += 1
+        name = f"{sorted(route.methods or [])} {route.path}"
         declared = (route.openapi_extra or {}).get("x-calevate-permission")
         if not declared:
-            offenders.append(f"{sorted(route.methods or [])} {route.path}")
+            offenders.append(name)
+            continue
+        enforced, identified = route_enforcement(route)
+        if not identified:
+            offenders.append(f"{name} declares {declared} but authenticates nobody")
+        elif enforced and declared not in enforced:
+            offenders.append(f"{name} declares {declared} but enforces {sorted(enforced)}")
     if checked == 0:
         # A registry that checks nothing is worse than no registry: it reads as a
         # passing guardrail. If route discovery ever breaks again, fail loudly.
@@ -195,7 +247,9 @@ def permission_meta(permission: Permission) -> dict[str, object]:
 
 
 __all__ = [
+    "IDENTITY_DEPENDENCIES",
     "MUTATING_PERMISSIONS",
+    "PERMISSION_ATTR",
     "PUBLIC_PREFIXES",
     "ROLE_PERMISSIONS",
     "MissingPolicyError",
@@ -204,4 +258,5 @@ __all__ = [
     "iter_api_routes",
     "permission_meta",
     "role_has",
+    "route_enforcement",
 ]

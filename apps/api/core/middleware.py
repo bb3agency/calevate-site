@@ -21,7 +21,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from apps.api.core.context import IMPERSONATE_HEADER, ORG_HEADER, correlation_id_var
+from apps.api.core.context import (
+    IMPERSONATE_HEADER,
+    ORG_HEADER,
+    correlation_id_var,
+    principal_var,
+)
 from apps.api.core.errors import PROBLEM_CONTENT_TYPE, ProblemError
 from apps.api.core.loadshed import get_platform_status, is_shed
 from apps.api.core.logging import get_logger
@@ -43,6 +48,20 @@ SECURITY_HEADERS = {
 }
 
 Handler = Callable[[Request], Awaitable[Response]]
+
+
+def _headers(scope: Scope) -> dict[str, str]:
+    """Raw ASGI headers as a lowercase dict, decoded the way HTTP actually defines them.
+
+    `latin-1`, NOT `utf-8`. Header field values are ISO-8859-1 on the wire (RFC 9110
+    §5.5) and every ASGI server hands them over as raw bytes; Starlette's own `Headers`
+    decodes `latin-1` for exactly this reason. Three middlewares here used the default
+    `bytes.decode()`, so one non-UTF-8 byte in ANY header — trivially sent, by anyone,
+    authenticated or not — raised inside the middleware chain. A middleware that raises
+    is a 500 BEFORE routing: every endpoint at once, including `/healthz` and the
+    never-shed `/hooks` surface an engine calls. latin-1 cannot fail: every byte maps.
+    """
+    return {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
 
 
 def _problem_response(exc: ProblemError, path: str) -> JSONResponse:
@@ -80,7 +99,15 @@ class SecurityHeadersMiddleware:
 
 class CorrelationIdMiddleware:
     """Accept `X-Correlation-Id` else generate; echo it; bind it to the contextvar so
-    every log line, problem body and audit row carries the same id (§3)."""
+    every log line, problem body and audit row carries the same id (§3).
+
+    It also opens and closes the OTHER request-scoped contextvar, `principal_var`. The
+    auth dependency sets that one and nothing reset it, so anywhere requests share a
+    task — an in-process ASGI transport, a test client — the next request began holding
+    the previous caller's identity. Same failure the transaction-local GUCs are written
+    to avoid, and it belongs at the same boundary: whatever sets request state, this is
+    where the request ends.
+    """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -90,9 +117,12 @@ class CorrelationIdMiddleware:
             await self.app(scope, receive, send)
             return
 
-        headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+        headers = _headers(scope)
         correlation_id = headers.get(CORRELATION_HEADER.lower()) or uuid.uuid4().hex
         token = correlation_id_var.set(correlation_id)
+        # Explicitly cleared on the way IN as well: a request that never authenticates
+        # must not read as the previous one.
+        principal_token = principal_var.set(None)
         started = time.perf_counter()
         status_holder: dict[str, int] = {}
 
@@ -119,6 +149,7 @@ class CorrelationIdMiddleware:
                 },
             )
             correlation_id_var.reset(token)
+            principal_var.reset(principal_token)
 
 
 class BodyLimitMiddleware:
@@ -131,7 +162,7 @@ class BodyLimitMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
-            headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+            headers = _headers(scope)
             declared = headers.get("content-length")
             if declared and declared.isdigit() and int(declared) > self.max_bytes:
                 problem = ProblemError(
@@ -220,7 +251,7 @@ class RateLimitMiddleware:
             return
 
         prefix, limit, window = profile
-        headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+        headers = _headers(scope)
         auth = headers.get("authorization", "")
         # Fingerprint, never the token itself — tokens must not reach Redis or logs.
         identity = (
