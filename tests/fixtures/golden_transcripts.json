@@ -8,12 +8,21 @@
     "",
     "They are written in the CODE-MIXED romanized form Sarvam Saaras returns — Telugu",
     "grammar with English nouns — because that is what the pipeline receives. A fixture",
-    "written in clean English would pass while the product failed.",
+    "written in clean English would pass while the product failed. One case is in native",
+    "Telugu script and one is Hindi-mixed, because Hyderabad SMBs get both.",
     "",
     "`expect` is what MUST be captured. `expect_absent` is the harder half: fields a",
     "model must NOT invent when the caller never said them. D-36 accepts that Sarvam's",
     "Telugu extraction quality is UNMEASURED and keeps Gemini configurable until these",
-    "fixtures say otherwise — so this file is that gate."
+    "fixtures say otherwise — so this file is that gate.",
+    "",
+    "The failure the harness exists to stop is a WRONG value, not a missing one: an SMB",
+    "acts on the CRM row, not on the call, so a callback number filed one digit off is",
+    "worse than a blank field. scripts/eval.py scores those as different kinds and only",
+    "the missing kind is ever baselineable.",
+    "",
+    "EVERY phone number here is synthetic (repeated-digit runs), never a real person's,",
+    "and every name is a common given name with no surname tying it to anyone."
   ],
   "schema": [
     {
@@ -57,6 +66,29 @@
       "label": "Callback requested",
       "type": "bool",
       "description": "true only if the caller asked to be called back"
+    },
+    {
+      "key": "callback_number",
+      "label": "Callback number",
+      "type": "text",
+      "description": "the 10-digit number the caller asked to be reached on, digits only, no +91"
+    },
+    {
+      "key": "callback_time",
+      "label": "Callback time",
+      "type": "text",
+      "description": "when the caller asked to be called back, in the caller's own words"
+    },
+    {
+      "key": "number_belongs_to",
+      "label": "Whose number",
+      "type": "enum",
+      "enum_values": [
+        "self",
+        "relative",
+        "third_party"
+      ],
+      "description": "whose phone the callback number is — only if the caller said so"
     }
   ],
   "cases": [
@@ -80,7 +112,10 @@
         "party_size": 2
       },
       "expect_absent": [
-        "urgency"
+        "urgency",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
       ],
       "expect_outcome": "resolved"
     },
@@ -99,7 +134,10 @@
         "urgency": "emergency"
       },
       "expect_absent": [
-        "party_size"
+        "party_size",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
       ],
       "expect_outcome": "resolved",
       "note": "Barge-in truncates the disclosure line. The compliance assertion is that it STARTED, not that it finished — the caller interrupting is not our violation."
@@ -120,7 +158,10 @@
       },
       "expect_absent": [
         "party_size",
-        "urgency"
+        "urgency",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
       ],
       "expect_outcome": "resolved"
     },
@@ -140,7 +181,10 @@
       },
       "expect_absent": [
         "party_size",
-        "intent"
+        "intent",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
       ],
       "expect_outcome": "needs_follow_up",
       "note": "The model must NOT force `intent` into an enum value the caller never expressed — an invented 'enquiry' here is the failure this case exists to catch."
@@ -160,7 +204,10 @@
         "name",
         "party_size",
         "urgency",
-        "wants_callback"
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
       ],
       "expect_outcome": "resolved",
       "requires_dnc": true,
@@ -179,7 +226,10 @@
       "expect": {},
       "expect_absent": [
         "name",
-        "party_size"
+        "party_size",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
       ],
       "expect_outcome": "resolved",
       "must_redact": [
@@ -187,6 +237,184 @@
         "234123412346"
       ],
       "note": "The spoken-digit case is the one a pure regex cannot see, and Indian callers do it constantly."
+    },
+    {
+      "id": "callback_number_spoken_digits",
+      "scenario": 1,
+      "title": "Callback number read aloud digit by digit — the row the SMB acts on",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Naa peru Kiran. Doctor appointment book cheyali.",
+        "agent: Tappakunda. Mee number cheppandi, malli confirm chestamu.",
+        "caller: Tommidi tommidi tommidi tommidi tommidi tommidi tommidi tommidi tommidi tommidi.",
+        "agent: Dhanyavadalu. Eppudu call cheyamantaru?",
+        "caller: Repu udayam pathi gantalaku call cheyandi."
+      ],
+      "expect": {
+        "name": "Kiran",
+        "intent": "book",
+        "callback_number": "9999999999",
+        "callback_time": "repu udayam pathi gantalaku",
+        "number_belongs_to": "self",
+        "wants_callback": true
+      },
+      "expect_absent": [
+        "party_size",
+        "urgency"
+      ],
+      "expect_outcome": "needs_follow_up",
+      "must_redact": [
+        "9999999999"
+      ],
+      "note": "The number is spoken as Telugu digit words, which is how Indian callers read a number down the phone. Two independent things are gated here: extraction must recover the digits, and redaction must not leave them recoverable in text_redacted. A transposed or hallucinated digit is a capture_wrong — never baselineable."
+    },
+    {
+      "id": "relative_number_attribution",
+      "scenario": 4,
+      "title": "The number given belongs to a relative, not the caller",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Naa peru Padma. Maa ammaki appointment kavali.",
+        "agent: Sare. Ee number ke call cheyala?",
+        "caller: Kaadu, naa koduku number ki cheyandi — enimidi enimidi enimidi enimidi enimidi enimidi enimidi enimidi enimidi enimidi.",
+        "agent: Ardhamayindi, aa number ki call chestamu."
+      ],
+      "expect": {
+        "name": "Padma",
+        "intent": "book",
+        "callback_number": "8888888888",
+        "number_belongs_to": "relative"
+      },
+      "expect_absent": [
+        "party_size",
+        "urgency",
+        "callback_time"
+      ],
+      "expect_outcome": "resolved",
+      "must_redact": [
+        "8888888888"
+      ],
+      "note": "Attribution is the whole case. Filing the son's number as the patient's own is not a rounding error — staff ring the wrong person about someone else's medical appointment. `number_belongs_to` must be `relative`, and `self` here is a capture_wrong, not a miss."
+    },
+    {
+      "id": "hindi_mixed_callback_time",
+      "scenario": 4,
+      "title": "Hindi-mixed caller — a relative callback time (“kal subah”)",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Haan ji, main abhi busy hoon. Kal subah call kijiye.",
+        "agent: Theek hai, kal subah call karenge.",
+        "caller: Mera naam Imran hai."
+      ],
+      "expect": {
+        "name": "Imran",
+        "callback_time": "kal subah",
+        "wants_callback": true
+      },
+      "expect_absent": [
+        "party_size",
+        "urgency",
+        "intent",
+        "callback_number",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "needs_follow_up",
+      "note": "Hyderabad SMBs take Hindi calls on the same number as Telugu ones. A relative time must survive as the caller's own words — resolving “kal subah” to a wrong absolute timestamp is worse than leaving it verbatim, and inventing an `intent` the caller never expressed is the restraint half."
+    },
+    {
+      "id": "wrong_number_call",
+      "scenario": 4,
+      "title": "Wrong number — nothing to file, and nothing may be invented",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Sorry andi, meeru thappu number ki chesaru. Idi clinic kaadu.",
+        "agent: Kshaminchandi, ibbandi ki chinthisthunnanu."
+      ],
+      "expect": {},
+      "expect_absent": [
+        "name",
+        "intent",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "dropped",
+      "note": "A wrong-number call must produce an EMPTY lead. Every field invented here is a row a salesperson will work and a person who never called being rung back — exactly the restraint failure that looks like good capture on a dashboard."
+    },
+    {
+      "id": "hostile_caller_complaint",
+      "scenario": 5,
+      "title": "Hostile caller — an angry complaint, still no invented fields",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Emiti idi? Ninna nenu vachina doctor ledu, naa time waste ayindi. Naaku complaint cheyali!",
+        "agent: Kshaminchandi. Mee complaint ni manager ki pampistanu.",
+        "caller: Naa డబ్బు refund kavali, inka em vaddu."
+      ],
+      "expect": {
+        "intent": "complaint"
+      },
+      "expect_absent": [
+        "name",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "needs_follow_up",
+      "note": "An angry call is where a model most wants to be helpful and fill in blanks. Anger is not urgency: tagging `urgency=emergency` off a raised voice mis-sorts a clinic's triage queue, so it sits in expect_absent."
+    },
+    {
+      "id": "silent_call",
+      "scenario": 2,
+      "title": "Silence — the caller says nothing and the line drops",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "agent: Hello? Nenu vinapadutunnana?",
+        "agent: Ok, malli try chestanu."
+      ],
+      "expect": {},
+      "expect_absent": [
+        "name",
+        "intent",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "dropped",
+      "note": "The empty-transcript case. An extractor that returns a plausible lead from a call with zero caller turns is fabricating outright, and this is the cheapest place to catch it."
+    },
+    {
+      "id": "telugu_script_booking",
+      "scenario": 1,
+      "title": "Native Telugu script — not everything arrives romanized",
+      "transcript": [
+        "agent: నమస్కారం, ఇది Sunrise Clinic AI assistant. ఈ కాల్ record అవుతుంది.",
+        "caller: నా పేరు స్వాతి. మూడు గురి అపాయింట్మెంట్ కావాలి.",
+        "agent: సరే, రేపు సాయంత్రం ఖాళీ ఉంది."
+      ],
+      "expect": {
+        "name": "స్వాతి",
+        "intent": "book",
+        "party_size": 3
+      },
+      "expect_absent": [
+        "urgency",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "resolved",
+      "note": "Saaras returns romanized text today, but agent-uploaded KB text, WhatsApp replies and a future STT swap all arrive in script. The offline extractor is ASCII-only and misses all three fields here — a capture_miss, which is exactly what a baseline is for. What it must NOT do is invent."
     }
   ]
 }

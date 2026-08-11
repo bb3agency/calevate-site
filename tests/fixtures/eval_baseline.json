@@ -1,8 +1,37 @@
 {
-  "_doc": "Known-failing regression cases per extraction model. The gate is a RATCHET: a case listed here is allowed to fail, and anything not listed is not. Removing entries is progress; adding one is a decision that needs a reason in the PR.",
-  "offline-heuristic": [
-    "core5_happy_path",
-    "core5_out_of_scope",
-    "core5_tool_call"
-  ]
+  "_doc": "Known-failing regression cases per extraction model, as {case_id: [waived failure kinds]}. The gate is a RATCHET: only the kinds listed here are forgiven, and only these kinds are forgivable at all \u2014 ['capture_miss', 'outcome', 'schema', 'unspecified']. A capture_wrong/restraint/compliance/redaction/fixture failure is never waivable on any model: filing a wrong value, inventing one, skipping the disclosure or leaking PII is not a model tier, it is a defect. Removing entries is progress; adding one needs a reason in the PR.",
+  "offline-heuristic": {
+    "callback_number_spoken_digits": [
+      "capture_miss",
+      "outcome"
+    ],
+    "core5_happy_path": [
+      "capture_miss"
+    ],
+    "core5_out_of_scope": [
+      "capture_miss"
+    ],
+    "core5_tool_call": [
+      "capture_miss"
+    ],
+    "hindi_mixed_callback_time": [
+      "capture_miss",
+      "outcome"
+    ],
+    "hostile_caller_complaint": [
+      "outcome"
+    ],
+    "relative_number_attribution": [
+      "capture_miss"
+    ],
+    "silent_call": [
+      "outcome"
+    ],
+    "telugu_script_booking": [
+      "capture_miss"
+    ],
+    "wrong_number_call": [
+      "outcome"
+    ]
+  }
 }
