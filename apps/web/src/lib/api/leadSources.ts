@@ -65,6 +65,33 @@ export function useIngestActivity(session: Session): UseQueryResult<IngestActivi
   });
 }
 
+/**
+ * Callback URL, verify token and capability for a Meta Lead Ads source.
+ *
+ * `MetaSetupOut` from the generated schema — not a hand-written twin, because the
+ * field this screen most needs to be right about is `lead_retrieval_available`, and a
+ * local interface is exactly how a `false` becomes an optional `undefined` that reads
+ * as "fine".
+ *
+ * **A mutation, deliberately, for a call that reads nothing.** The endpoint is a POST
+ * because the RESPONSE carries a credential (the `hub.verify_token`) — the mirror of
+ * `/v1/dnc/check`, which is a POST because the REQUEST does. Modelling it as a query
+ * would have this page fetch a credential on every mount, cache it, refetch it on
+ * window focus and keep it in memory behind whatever the user navigated to next. A
+ * mutation fetches it once, when someone explicitly asks for it, and forgets it when
+ * the screen unmounts.
+ */
+export type MetaSetup = Schemas["MetaSetupOut"];
+
+export function useMetaSetup(session: Session) {
+  return useMutation({
+    mutationFn: (webhookId: string) =>
+      apiRequest<MetaSetup>(session, `/v1/lead-sources/${webhookId}/meta/setup`, {
+        method: "POST",
+      }),
+  });
+}
+
 export function useTestWebhook(session: Session) {
   return useMutation({
     // No cache invalidation on success: the dry-run writes nothing server-side

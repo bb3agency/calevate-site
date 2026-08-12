@@ -34,6 +34,11 @@ function Nav({ slug }: { slug: string }) {
     { href: `/c/${slug}/leads`, label: "Leads" },
     { href: `/c/${slug}/campaigns`, label: "Campaigns" },
     { href: `/c/${slug}/do-not-call`, label: "Do not call" },
+    // Next to Do-not-call because they are the same kind of thing — the two records
+    // that decide whether a person may be contacted — and deliberately not merged
+    // with it: one governs calls, the other messages, and DPDP §6 purpose limitation
+    // is exactly the rule that says one may not stand in for the other.
+    { href: `/c/${slug}/messaging-consent`, label: "Messaging consent" },
     { href: `/c/${slug}/knowledge`, label: "Knowledge" },
     { href: `/c/${slug}/integrations`, label: "Integrations" },
     { href: `/c/${slug}/lead-sources`, label: "Lead sources" },
