@@ -26,6 +26,7 @@ invisible to it.
 from apps.api.core.bootstrap import create_app
 from apps.api.core.errors import install_error_handlers
 from fastapi import FastAPI
+from tool_routes import router as tool_router
 from webhook_routes import router as webhook_router
 
 app: FastAPI = create_app(
@@ -39,3 +40,7 @@ app: FastAPI = create_app(
 )
 install_error_handlers(app)
 app.include_router(webhook_router)
+# In-call tools (SEC-COMP §2.3's opt-out). Mounted here rather than in `apps/api`
+# because it is on the caller's audio path: the engine invokes it mid-call and the
+# 500ms discipline above applies to it exactly as it does to the webhook receiver.
+app.include_router(tool_router)

@@ -29,6 +29,7 @@ from apps.api.core.settings import runtime_config_missing_keys, validate_bootstr
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
 from apps.workers.dispatcher import dispatch_outbox, report_stalled_pipeline, sweep_expired
 from apps.workers.notifications import notify_hot_lead
+from apps.workers.optout import record_in_call_optout
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from apps.workers.pipeline import ingest_engine_event, reconcile_executions, run_post_call_pipeline
 from apps.workers.retention import apply_retention, execute_deletion_request
@@ -64,6 +65,11 @@ FUNCTIONS: list[Any] = [
         # `tests/job_registration_test.py` is the guard; this pair is why it exists.
         notify_hot_lead_whatsapp,
         escalate_campaign_contact,
+        # Hard rule 5's fast half: voice-runtime acks the engine's opt-out tool call and
+        # queues this. Unregistered, the caller's request would be acked to the vendor,
+        # dropped by arq, and only recovered by the post-call transcript pass minutes
+        # later — the exact silent-degradation shape `job_registration_test.py` guards.
+        record_in_call_optout,
     )
 ]
 

@@ -150,6 +150,30 @@ def _resolved_relative_time(raw: dict[str, Any], transcript: str) -> dict[str, A
     return raw
 
 
+def _first_match_wins(raw: dict[str, Any], transcript: str) -> dict[str, Any]:
+    """The extractor as it behaved before it learned that a later clause can revoke an
+    earlier one: the first name and the first enum value that matched, whatever the
+    caller said afterwards. Reproduced as OUTPUT here, exactly like `_wrong_name` above,
+    because the point is that the SUITE catches it — a self-corrected name and a
+    replaced requirement come back confidently wrong rather than empty.
+    """
+    if "kaadu kaadu" in transcript and raw.get("name"):
+        raw["name"] = "Ravi"
+    if "saripodu" in transcript and raw.get("bhk_size"):
+        raw["bhk_size"] = "2BHK"
+    return raw
+
+
+def _a_denial_read_as_a_statement(raw: dict[str, Any], transcript: str) -> dict[str, Any]:
+    """The other half of the same rule: the caller says do NOT cancel and asks where the
+    site is, and both words are filed as facts about them."""
+    if "cancel cheyakandi" in transcript:
+        raw["intent"] = "cancel"
+    if "site address" in transcript:
+        raw["site_visit_interest"] = True
+    return raw
+
+
 def _only_baselined_cases(raw: dict[str, Any], transcript: str) -> dict[str, Any]:
     """Corrupt ONLY the cases the baseline already forgives.
 
@@ -171,6 +195,8 @@ DEGRADATIONS: list[tuple[str, Mutator, str]] = [
     ("the right value in the wrong column", _wrong_column, ev.CAPTURE_WRONG),
     ("a lead confabulated from silence", _lead_from_silence, ev.RESTRAINT),
     ("a relative time resolved to the wrong day", _resolved_relative_time, ev.CAPTURE_WRONG),
+    ("the first match kept over the caller's correction", _first_match_wins, ev.CAPTURE_WRONG),
+    ("a denial read as a statement", _a_denial_read_as_a_statement, ev.RESTRAINT),
     ("corruption confined to baselined cases", _only_baselined_cases, ev.RESTRAINT),
 ]
 

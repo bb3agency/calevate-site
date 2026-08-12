@@ -171,6 +171,22 @@ def _keyable(value: str) -> str | None:
     return value
 
 
+def execution_key(payload: dict[str, Any]) -> str | None:
+    """The execution id a payload can be keyed by, or None if it names none we can store.
+
+    Split out of `extract` so the in-call tool route (`tool_routes.py`) can ask the same
+    question without the status half — a tool call carries no lifecycle status, and
+    inventing one for it would put a fictional transition into a dedupe key. Three
+    spellings are accepted because the tool payload's shape is an ASSUMPTION about the
+    engine's custom-function mechanism (OPERATIONS §2 gate 8), not a verified contract;
+    the webhook path has always accepted the first two.
+    """
+    value = payload.get("execution_id") or payload.get("id") or payload.get("call_id")
+    if not isinstance(value, str):
+        return None
+    return _keyable(value)
+
+
 def extract(payload: dict[str, Any]) -> IntakeEvent | None:
     """Pull the dedupe key and the status. Returns None when the payload carries no
     execution id — an event we cannot key is an event we cannot dedupe, and processing
@@ -181,10 +197,7 @@ def extract(payload: dict[str, Any]) -> IntakeEvent | None:
     it, alert `webhook_unkeyable`, and let the 10-minute reconciliation poller be the
     truth (D-31). That is a deliberate answer; a 500 out of the database driver is not.
     """
-    execution_id = payload.get("execution_id") or payload.get("id")
-    if not isinstance(execution_id, str):
-        return None
-    keyed_id = _keyable(execution_id)
+    keyed_id = execution_key(payload)
     if keyed_id is None:
         return None
     raw_status = _keyable(str(payload.get("status") or "unknown").lower())
@@ -211,6 +224,7 @@ __all__ = [
     "IntakeEvent",
     "IntakeVerdict",
     "client_ip",
+    "execution_key",
     "extract",
     "is_trusted_peer",
     "source_ips_from_settings",

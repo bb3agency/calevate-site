@@ -35,6 +35,23 @@ WHERE phone_e164 = :phone;
 - **A row with `scope = 'tenant'`** — that tenant only. `source` is the answer to "who
   put it there": `call_optout` (the caller asked during a call), `customer_request`
   (they told the client, who added it), `manual` (someone typed it in), `regulator`.
+
+`call_optout` rows are written by the system, not by a person (D-56): either the agent's
+in-call tool fired, or the post-call transcript pass matched the caller's words. Both
+leave the SAME evidence, and it is the thing to quote in a reply —
+
+```sql
+SELECT captured_at, call_id, evidence
+FROM consent_ledger
+WHERE tenant_id = :tenant_id AND phone_e164 = :phone
+  AND purpose = 'marketing' AND status = 'withdrawn'
+ORDER BY captured_at DESC;
+```
+
+`evidence->>'detected_by'` is `in_call_tool` or `post_call_transcript`,
+`evidence->>'rule'` names the phrase rule that matched, and `evidence->>'matched'` is the
+caller's own words. The row is append-only (hard rule 4), so it cannot have been edited
+after the fact — which is the point of quoting it.
 - **No row** — the number is not suppressed. Skip to §4; this is a "never recorded"
   case, not a "recorded and ignored" case.
 
@@ -130,7 +147,8 @@ Everything that touched the suppression is in `audit_log` (INSERT-only, hash-cha
 SELECT at, action, actor_type, actor_id, object_id
 FROM audit_log
 WHERE tenant_id = :tenant_id
-  AND action IN ('dnc.added', 'dnc.removed', 'campaign.launched')
+  AND action IN ('dnc.added', 'dnc.removed', 'campaign.launched',
+                 'compliance.call_optout_recorded')
 ORDER BY at DESC
 LIMIT 50;
 ```

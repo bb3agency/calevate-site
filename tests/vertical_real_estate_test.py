@@ -30,6 +30,7 @@ This file guards both artefacts against the two ways they rot:
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any, ClassVar
@@ -268,10 +269,14 @@ async def test_losing_the_denial_rule_fails_the_declined_site_visit(monkeypatch:
     """ "Ippudu vaddu, site visit avasaram ledu" contains the words site and visit. An
     extractor matching words instead of meaning marks the visit accepted, and a sales
     team drives to Manikonda for a caller who said no."""
-    monkeypatch.setattr(extraction_module.OfflineExtractor, "_DENIAL", ())
+    monkeypatch.setattr(extraction_module.OfflineExtractor, "_NEGATION_RE", re.compile(r"(?!x)x"))
     regressed, kinds = await _gate(extraction_module.OfflineExtractor())
     assert "re_undecided_declines_site_visit" in regressed
     assert ev.RESTRAINT in kinds
+    # And the requirement the caller REPLACED, which the same rule decides: with no
+    # negation trigger, "2BHK saripodu" stops being a rejection and the household is
+    # filed under the size they just ruled out (`capture_wrong`, never waivable).
+    assert "re_spouse_takes_the_phone" in regressed
 
 
 async def test_the_undegraded_real_estate_suite_matches_its_baseline() -> None:

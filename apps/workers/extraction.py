@@ -31,6 +31,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Protocol
 
 import httpx
@@ -148,12 +151,134 @@ class GeminiExtractor:
         return _first_json_object(str(parts[0].get("text", "")) if parts else "")
 
 
+@dataclass(frozen=True)
+class _Mention:
+    """One place the caller names a candidate value, and whether they stood by it.
+
+    `order` is (turn, clause, offset within the clause) — the position of the words in
+    the call. It is what turns "the caller's LAST word on it" into a comparison rather
+    than a guess, and it is why a mention is a record and not a boolean.
+    """
+
+    order: tuple[int, int, int]
+    value: str
+    asserted: bool
+
+
+#: Words in a field LABEL that describe the column rather than the thing the caller
+#: talks about. "Callback requested" is a column; what a caller says is "callback".
+#: Stripping them is what lets the probe be the WHOLE subject ("site visit") instead of
+#: its first word ("site") — see `_subject_pattern`.
+_LABEL_STATE_WORDS = frozenset(
+    {
+        "a",
+        "agreed",
+        "an",
+        "booked",
+        "concern",
+        "confirmed",
+        "consent",
+        "flag",
+        "given",
+        "interest",
+        "interested",
+        "is",
+        "needed",
+        "preference",
+        "raised",
+        "request",
+        "requested",
+        "required",
+        "status",
+        "the",
+        "want",
+        "wanted",
+        "wants",
+        "was",
+        "yes",
+    }
+)
+
+
+def _always(value: str) -> Callable[[re.Match[str]], str]:
+    """A `value_of` for the fields whose candidate value is fixed by the pattern that
+    found it — an enum member, or the single subject of a bool."""
+    return lambda _match: value
+
+
+@lru_cache(maxsize=512)
+def _word_pattern(phrase: str) -> re.Pattern[str]:
+    """`phrase` as whole words, whitespace-flexible.
+
+    Word boundaries, not substrings: substring matching made the enum value `other`
+    match inside "brother" and `caller` match the speaker prefix on every line. `\\b`
+    is avoided because enum values legitimately end in punctuation ("4BHK+"), where it
+    would flip meaning; the explicit lookarounds do not.
+    """
+    words = phrase.split()
+    joined = r"\s+".join(re.escape(word) for word in words)
+    return re.compile(rf"(?<!\w){joined}(?!\w)", re.IGNORECASE)
+
+
+@lru_cache(maxsize=512)
+def _subject_pattern(label: str) -> re.Pattern[str] | None:
+    """What a caller has to say for this bool field's SUBJECT to have been mentioned.
+
+    The label is a column name of the shape "<subject> <state>": strip the state words
+    and the whole remainder must be spoken. "Site visit" keeps both words, so "mee site
+    address cheppandi" — a caller asking where the site is — no longer sets
+    `site_visit_interest`; "Callback requested" keeps "callback", so the caller saying
+    "callback kavali" still does.
+
+    LIMIT, stated rather than hidden: a client whose label carries subject words the
+    caller never speaks ("Site visit kavala") now captures nothing where the old
+    first-word probe captured something. That direction is deliberate — a miss is
+    `capture_miss` (waivable, a weaker reader), a wrong `true` is `restraint`/
+    `capture_wrong` (never waivable, and it sends a sales team to meet nobody).
+    """
+    words = [w for w in re.findall(r"[\w']+", label.lower()) if w not in _LABEL_STATE_WORDS]
+    if not words:
+        # A label that is nothing but state words ("Interested?"). Fall back to its
+        # first word rather than probing on the empty string, which would match every
+        # turn ever spoken.
+        words = re.findall(r"[\w']+", label.lower())[:1]
+    if not words:
+        return None
+    return _word_pattern(" ".join(words))
+
+
 class OfflineExtractor:
     """Deterministic, no network. Reads what the transcript literally says.
 
     It is not a stub: it implements the one rule the prompt insists on — never invent
     a value that was not said — so a schema field with no evidence comes back null and
     the pipeline's null-handling is exercised for real in local runs and CI.
+
+    **Every field is decided by one scan** (`_mentions` + `_settled`), whatever its
+    type: find each place the caller names a candidate value, drop the ones a negation
+    or an enquiry in the same clause disqualifies, and let the caller's LAST word on
+    each value decide whether it stands. Four separate defects — a denied enum filed
+    anyway, a superseded requirement beating the one the caller settled on, a
+    self-corrected name kept in its first version, a topic word read as a consent —
+    were four faces of "the first thing that matched wins, and nothing later can
+    revoke it". They are fixed once, here, so a fifth field type cannot reintroduce it
+    by taking its own shortcut.
+
+    **What this cannot see**, stated because an honest limit beats a claim of
+    comprehension, and because the next reader will otherwise assume the scan
+    understands more than it does:
+
+    - a negation more than one clause away from what it negates ("3BHK kavali. Antha
+      budget ledu andi." does not retract the size, and a bare "kaadu kaadu" clause
+      retracts nothing by itself — `_settled`'s last-word rule covers the common
+      correction shape instead);
+    - irony, sarcasm, and a hypothetical ("2BHK aithe baagundedi");
+    - a correction the caller makes in a LATER CALL — every scan here is one
+      transcript, and reconciling a lead across calls is the CRM's job, not this one's;
+    - a value the caller never speaks in the words the schema uses (Telugu numerals, a
+      budget said as "yabhai lakshalu"), which stays a miss, as it was before;
+    - the pronoun a correction hangs on: "adi kaadu, rendodi" ("not that one, the
+      second") names no value this scan can match.
     """
 
     model_name = "offline-heuristic"
@@ -168,10 +293,43 @@ class OfflineExtractor:
     )
     _NEGATIVE = ("complaint", "angry", "worst", "refund", "cheating", "bad")
     _CALLBACK = ("call me back", "callback", "malli call", "tarvata call")
-    # Denials, Telugu and English. A probe word appearing in the same turn as one of
-    # these is a caller REFUSING the thing, which is the opposite of the fact we would
-    # otherwise record.
-    _DENIAL = ("ledu", "vaddu", "avasaram ledu", "no ", "not ", "don't", "dont", "never")
+    # Negation triggers, Telugu · Hindi · English, word-bounded. A candidate value named
+    # inside a clause that carries one of these is a caller REFUSING or RETRACTING the
+    # thing, which is the opposite of the fact we would otherwise record.
+    #
+    # Word boundaries, not the substring test this list used to carry (which is why it
+    # needed the trailing spaces in "no " and "not "): `no` sits inside half the English
+    # lexicon and `not` inside "note", and a false negation DISCARDS a fact the caller
+    # really stated.
+    #
+    # The cost of that choice, stated: Telugu also fuses negation into the verb
+    # ("konaledu" = did not buy, "raledu" = did not come), and only the standalone forms
+    # below are caught. A fused negation reads as an assertion of whatever else is in
+    # the clause — which is why the list carries the standalone words a caller uses to
+    # REFUSE or RETRACT, the two cases that put a wrong value in a client's CRM.
+    _NEGATION_RE = re.compile(
+        r"(?<!\w)(?:"
+        r"ledu|ledhu|leedu|"  # "there is none" / "did not" — "avasaram ledu"
+        r"vaddu|vaddhu|vaddandi|voddu|"  # "I don't want it"
+        r"kaadu|kaadhu|kadu|"  # "it is not that" — the Telugu self-correction marker
+        r"saripodu|saripodhu|saripoledu|"  # "that will not do"
+        r"nahi|nahin|mat|"  # Hindi
+        r"no|not|never|"
+        r"don'?t|doesn'?t|didn'?t|won'?t|can'?t|cannot"
+        r")(?!\w)"
+        # The Telugu PROHIBITIVE is a suffix, not a word: "cheyakandi" (do not do it),
+        # "ravaddu" (do not come), "cheyyoddu". Without this, "appointment cancel
+        # cheyakandi" reads as a cancellation — the most expensive false positive in
+        # the clinic vertical.
+        r"|(?<!\w)\w+(?:akandi|akande|avaddu|oddu)(?!\w)",
+        re.IGNORECASE,
+    )
+    # Clause boundaries — NegEx's "termination terms", as punctuation plus the two
+    # contrastive conjunctions this product's transcripts actually use.
+    # (dashes as escapes: a literal em/en dash in source is a lint-flagged homoglyph)
+    _CLAUSE_SPLIT_RE = re.compile(
+        "[,;.!?\u2026\u2014\u2013]+|\\s+(?:--|kaani|kani|but|however)\\s+", re.IGNORECASE
+    )
     # "Did my booking get cancelled?" is not a cancellation. A caller who rings to ASK
     # about something says its name just as plainly as one who did it, so the word alone
     # cannot separate them — but the ASKING can be recognised, and that is a different
@@ -227,29 +385,114 @@ class OfflineExtractor:
         # returning nothing, but that is a transcript we cannot attribute.
         return [line.strip() for line in transcript.splitlines() if line.strip()]
 
-    @staticmethod
-    def _denied(turn: str, probe: str) -> bool:
-        """Is the probe word denied in the turn that contains it?"""
-        lowered = turn.lower()
-        return any(marker in lowered for marker in OfflineExtractor._DENIAL)
+    @classmethod
+    def _clauses(cls, turn: str) -> list[str]:
+        """One turn split into the units a negation can reach across.
 
-    @staticmethod
-    def _asked_about(turn: str) -> bool:
-        """Is this turn the caller ENQUIRING rather than stating?
+        This is the scope rule, and it is the one place worth departing from the
+        established approach. NegEx (Chapman et al. 2001, and ConText after it) scopes a
+        trigger over a fixed window — the current version, to the end of the SENTENCE
+        unless a termination term ("but", "however") cuts it short — and its documented
+        weakness is exactly that: with several candidate values inside one window it
+        negates them all. That failure is not hypothetical here. "Manaki 3BHK ne kavali,
+        2BHK saripodu" is one sentence holding both the requirement and its rejected
+        alternative, and a sentence-wide scope files neither.
 
-        Turn-level, like `_denied`, and for the same reason: the evidence and its
-        qualifier live in one breath. "Naa booking cancel aipoyinda ani adagataniki call
-        chesanu" is one turn, and splitting it would leave the word `cancel` standing
-        alone as a fact the caller never asserted.
+        So the scope is the CLAUSE: punctuation and a contrastive conjunction terminate
+        it, as in NegEx, but they also START the next scope rather than merely ending
+        the trigger's reach. What the departure buys is the clause above — the shape
+        Telugu callers state a correction in — and it costs the ability to see a
+        negation that sits in a clause of its own ("Iddaru... kaadu kaadu, muggurum"),
+        which the last-word-wins rule in `_settled` covers instead.
         """
-        return OfflineExtractor._ASKING_RE.search(turn) is not None
+        return [clause.strip() for clause in cls._CLAUSE_SPLIT_RE.split(turn) if clause.strip()]
+
+    @classmethod
+    def _negated(cls, clause: str) -> bool:
+        """Does this clause carry a negation trigger?
+
+        Direction-blind, unlike NegEx's pre/post-trigger split, because this product is
+        code-mixed: Telugu and Hindi are verb-final and negate AFTER the thing ("site
+        visit vaddu", "2BHK saripodu"), English negates before it ("don't send"), and
+        one clause here routinely holds both languages. Within a clause this short the
+        direction carries no information the clause boundary does not already carry.
+        """
+        return cls._NEGATION_RE.search(clause) is not None
 
     @staticmethod
-    def _says(turn: str, needle: str) -> bool:
-        """Word-boundary containment. Substring matching made `other` match inside
-        "brother" and `caller` match the speaker prefix on every single line."""
-        pattern = rf"(?<!\w){re.escape(needle)}(?!\w)"
-        return re.search(pattern, turn, re.IGNORECASE) is not None
+    def _asked_about(clause: str) -> bool:
+        """Is this clause the caller ENQUIRING rather than stating?
+
+        Clause-level, like `_negated`: the evidence and its qualifier live in one
+        breath. "Naa booking cancel aipoyinda ani adagataniki call chesanu" is one
+        clause — the matrix verb "adagataniki chesanu" governs the embedded complement
+        inside it — so the word `cancel` never stands alone as a fact.
+
+        It was turn-level until the scan below became the one path every field takes,
+        and a turn-wide enquiry frame then swallowed the name in "Naa peru Naresh,
+        doctor timings adagataniki chesanu": the caller enquired about the timings and
+        STATED their name in the same turn. Both readings cannot be right, and the
+        clause is the unit the qualifier actually attaches to.
+
+        LIMIT: an enquiry frame that reaches across a comma into a later clause is not
+        seen.
+        """
+        return OfflineExtractor._ASKING_RE.search(clause) is not None
+
+    @classmethod
+    def _mentions(
+        cls,
+        caller_turns: list[str],
+        pattern: re.Pattern[str],
+        value_of: Callable[[re.Match[str]], str],
+    ) -> list[_Mention]:
+        """Every place the caller names a candidate value, in the order they said it.
+
+        The one scan behind every field type. `pattern` says what a mention looks like
+        and `value_of` says which value that mention is about — a name, an enum member,
+        or the single subject of a bool. Whether the caller MEANT it is decided here and
+        only here: an enquiry in the clause means nothing in it was asserted at all, a
+        negation in the clause means the value was asserted and then refused.
+
+        The difference matters for `_settled`: an enquiry is not evidence either way, so
+        it is skipped rather than recorded as a retraction — asking about a site visit
+        neither books one nor cancels the one you agreed to a moment ago.
+        """
+        found: list[_Mention] = []
+        for turn_index, turn in enumerate(caller_turns):
+            for clause_index, clause in enumerate(cls._clauses(turn)):
+                if cls._asked_about(clause):
+                    continue
+                asserted = not cls._negated(clause)
+                for match in pattern.finditer(clause):
+                    found.append(
+                        _Mention(
+                            order=(turn_index, clause_index, match.start()),
+                            value=value_of(match),
+                            asserted=asserted,
+                        )
+                    )
+        return found
+
+    @staticmethod
+    def _settled(mentions: list[_Mention]) -> str | None:
+        """The value the caller left standing, or None if they left none.
+
+        THE property this extractor was missing, in four lines: for each candidate
+        value the caller's LAST word on it decides whether it stands, and the field
+        takes the last value still standing. Per-VALUE, deliberately — a caller
+        rejecting 2BHK has not withdrawn the 3BHK they asked for in the same breath,
+        while a caller who says "vaddu" about the one subject a bool field has really
+        has withdrawn it.
+
+        Nothing here can invent: with no mentions, or none that survived, the field is
+        absent exactly as before.
+        """
+        latest: dict[str, _Mention] = {}
+        for mention in sorted(mentions, key=lambda m: m.order):
+            latest[mention.value] = mention
+        standing = [m for m in latest.values() if m.asserted]
+        return max(standing, key=lambda m: m.order).value if standing else None
 
     async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:
         caller_turns = self._caller_turns(transcript)
@@ -259,36 +502,38 @@ class OfflineExtractor:
 
         for field in spec.fields:
             if field.type == "bool":
-                probe = field.label.lower().split()[0]
-                if not probe:
+                probe = _subject_pattern(field.label)
+                if probe is None:
                     continue
-                # True only when the CALLER says it and does not deny it in the same
-                # breath. Silence stays null: this extractor's one rule is never to
-                # invent a value that was not said, and "false" is a value.
-                affirmed = [
-                    turn
-                    for turn in caller_turns
-                    if self._says(turn, probe)
-                    and not self._denied(turn, probe)
-                    and not self._asked_about(turn)
-                ]
-                if affirmed:
+                # A bool has ONE candidate value, so every mention is about the same
+                # thing and the caller's last word on it decides. True only when they
+                # said it and left it standing; silence and a refusal both stay null,
+                # because this extractor never invents a value that was not said and
+                # "false" is a value.
+                if self._settled(self._mentions(caller_turns, probe, _always("affirmed"))):
                     data[field.key] = True
                 continue
             if field.key in ("name", "caller_name", "patient_name"):
-                match = self._NAME_RE.search(caller_text)
-                if match:
-                    data[field.key] = match.group(1).strip().title()
+                # Each spoken name is its own candidate value, so a caller who corrects
+                # themselves ("naa peru Ravi, kaadu kaadu — naa peru Raviteja") is filed
+                # under the correction rather than against it.
+                name = self._settled(
+                    self._mentions(
+                        caller_turns, self._NAME_RE, lambda m: m.group(1).strip().title()
+                    )
+                )
+                if name:
+                    data[field.key] = name
                 continue
             if field.type == "enum" and field.enum_values:
-                value = next(
-                    (
-                        v
-                        for v in field.enum_values
-                        if any(self._says(t, v) and not self._asked_about(t) for t in caller_turns)
-                    ),
-                    None,
-                )
+                mentions = [
+                    mention
+                    for enum_value in field.enum_values
+                    for mention in self._mentions(
+                        caller_turns, _word_pattern(enum_value), _always(enum_value)
+                    )
+                ]
+                value = self._settled(mentions)
                 if value:
                     data[field.key] = value
 

@@ -88,6 +88,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from apps.api.compliance.optout import detect_opt_out
 from apps.workers.extraction import extract_call, get_extractor
 from apps.workers.redaction import redact, spoken_digit_runs
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec
@@ -249,6 +250,16 @@ def _value_matches(field: ExtractionField | None, expected: Any, actual: Any) ->
     return expected_text in actual_text
 
 
+@dataclass(frozen=True, slots=True)
+class _SpokenTurn:
+    """`detect_opt_out` reads a speaker and a text; the fixtures carry `"caller: ..."`
+    strings. This is the two-field adapter its Protocol was written for, so the harness
+    scores the SAME function the pipeline runs rather than a copy of its rules."""
+
+    speaker: str
+    text: str
+
+
 def _turns(case: dict[str, Any], prefixes: tuple[str, ...]) -> list[str]:
     """The lowercased turns spoken by one side, prefix stripped. Same attribution rule
     as `OfflineExtractor._caller_turns`: an unprefixed line is nobody's evidence."""
@@ -297,6 +308,32 @@ def _check_compliance(case: dict[str, Any], result: CaseResult) -> None:
         any(m in turn for m in DNC_ACK_MARKERS) for turn in turns
     ):
         result.fail(COMPLIANCE, "a do-not-call request was made but never acknowledged")
+
+    # …and the half that scores OUR CODE rather than the reference answer. The line
+    # above has always checked that the agent SAID the number was suppressed, which is
+    # a sentence somebody typed into a fixture; this asks whether the suppression path
+    # would actually fire, by running the real detector over the real caller turns
+    # (`apps/api/compliance/optout.py`, D-56). Both directions, because a detector that
+    # fires on everything passes the first half and suppresses a client's whole list:
+    # every `requires_dnc` case must be detected and no other case may be.
+    #
+    # `compliance` is an unwaivable kind by design (it is our code, not the model's), so
+    # a phrase list widened until it catches ordinary speech cannot be baselined away.
+    detected = detect_opt_out(
+        [_SpokenTurn("caller", turn) for turn in _turns(case, CALLER_PREFIXES)]
+    )
+    if case.get("requires_dnc") and detected is None:
+        result.fail(
+            COMPLIANCE,
+            "the caller asks to be removed and our detector does not see it — nothing "
+            "would reach dnc_list (hard rule 5)",
+        )
+    if not case.get("requires_dnc") and detected is not None:
+        result.fail(
+            COMPLIANCE,
+            f"our detector reads an opt-out ({detected.rule}) from a caller who did not "
+            "ask for one — this suppresses a lead the client paid for",
+        )
 
 
 def _recoverable_digits(text: str) -> set[str]:

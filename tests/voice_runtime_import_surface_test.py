@@ -238,6 +238,10 @@ ALLOWED_THIRD_PARTY: frozenset[str] = frozenset(
         # The service's own modules (importable only via --app-dir; D-18).
         "main",
         "webhook_routes",
+        # The in-call tool endpoints (D-56's opt-out). It imports `webhook_routes`'
+        # ack/bounded-read helpers and `engine_intake`'s source check and nothing else —
+        # deliberately, because it runs while a caller is on the line.
+        "tool_routes",
         "engine_intake",
         # The web layer.
         "fastapi",

@@ -218,21 +218,26 @@ async def _remember_fast_path(redis_key: str, *, engine: str) -> None:
         log.warning("webhook_fastpath_unavailable", extra={"engine": engine})
 
 
-async def _read_bounded(request: Request) -> bytes | None:
+async def _read_bounded(request: Request, *, limit: int = _MAX_BODY_BYTES) -> bytes | None:
     """The raw body, or None if the caller exceeded the cap.
 
     Streamed rather than `await request.body()` so an oversized POST is abandoned after
     a megabyte instead of after all of it. The declared length is checked first, which
     turns the common case into a rejection that reads nothing at all.
+
+    `limit` defaults to this endpoint's megabyte and is overridden by the in-call tool
+    route (`tool_routes.py`), whose bodies are three fields: the megabyte is sized for a
+    transcript-bearing webhook, and every endpoint should refuse at ITS own plausible
+    size rather than at the largest one in the service.
     """
     declared = request.headers.get("content-length")
-    if declared is not None and declared.isdigit() and int(declared) > _MAX_BODY_BYTES:
+    if declared is not None and declared.isdigit() and int(declared) > limit:
         return None
     chunks: list[bytes] = []
     size = 0
     async for chunk in request.stream():
         size += len(chunk)
-        if size > _MAX_BODY_BYTES:
+        if size > limit:
             return None
         chunks.append(chunk)
     return b"".join(chunks)

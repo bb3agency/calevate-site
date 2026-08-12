@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.billing.caps import CAPS_CTE, over_cap_sql
 from apps.api.billing.rates import billable_tier
 from apps.api.billing.service import charge_for_call, plan_tier_of
+from apps.api.compliance.optout import DETECTED_POST_CALL, detect_opt_out, record_call_optout
 from apps.api.core.alerting import alert, record_pipeline_lag, record_reconciliation_repair
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -384,6 +385,21 @@ async def run_post_call_pipeline(ctx: dict[str, Any], payload: dict[str, Any]) -
         transcript_text = await _persist_transcript(tenant_id, call_id, snapshot)
         set_span_attributes(stage, turn_count=len(snapshot.transcript or []))
 
+    # STEP 2b — an opt-out the caller spoke becomes a suppression, BEFORE extraction.
+    #
+    # Order is the point: extraction is a model round trip with a 30-second timeout and
+    # an ARQ retry behind it, and hard rule 5's deadline ("before the next dispatch
+    # tick") is 30 seconds. Suppressing after the slowest stage in the pipeline would
+    # spend the entire budget on a step this one does not need.
+    #
+    # This is the BRACES. The belt is the in-call tool (voice-runtime `/tools/v1/opt-out`
+    # → `workers.optout.record_in_call_optout`), which fires while the caller is still on
+    # the line; this pass runs on every completed call whether or not the model invoked
+    # it. `compliance/optout.py` argues why both exist and what each one misses.
+    with span("pipeline.opt_out", call_id=str(call_id)) as stage:
+        outcome = await _maybe_record_opt_out(tenant_id, call_id, snapshot)
+        set_span_attributes(stage, outcome=outcome)
+
     # STEP 3 — extraction against the agent's schema.
     spec, schema_version, agent_id, direction = await _load_call_context(tenant_id, call_id)
     needs_extraction = bool(spec.fields or transcript_text)
@@ -556,6 +572,46 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
                 },
             )
     return "\n".join(lines)
+
+
+async def _maybe_record_opt_out(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> str:
+    """ "Don't call me again", said on this call, becomes a `dnc_list` row.
+
+    Returns what happened, for the stage span: `none` (nobody asked), `recorded`, or
+    `already` (a previous run of this pipeline, or the in-call tool, got there first) —
+    the three answers an operator asking "why was this number not suppressed" needs to
+    tell apart, and they are indistinguishable from the outside.
+
+    THE PHONE IS THE OTHER PARTY, on the same rule `_upsert_lead` uses: the caller on
+    inbound, the recipient on outbound. Suppressing the wrong end would put OUR OWN
+    number on a tenant's do-not-call list and stop every outbound call they place.
+    """
+    if not snapshot.transcript:
+        return "none"
+    signal = detect_opt_out(snapshot.transcript)
+    if signal is None:
+        return "none"
+    subject = snapshot.from_e164 if snapshot.direction == "inbound" else snapshot.to_e164
+    if not subject:
+        # A completed call whose other end we cannot key. Loud, because the caller DID
+        # ask and this is the one failure on this path that leaves them dialable.
+        alert(
+            "WORKER_TERMINAL",
+            "opt_out_unattributable",
+            detail=f"direction={snapshot.direction}",
+            call_id=str(call_id),
+        )
+        return "unattributable"
+    async with tenant_session(tenant_id) as session:
+        record = await record_call_optout(
+            session,
+            tenant_id=tenant_id,
+            raw_phone=subject,
+            call_id=call_id,
+            detected_by=DETECTED_POST_CALL,
+            signal=signal,
+        )
+    return "recorded" if record.evidence_written else "already"
 
 
 async def _persist_extraction(

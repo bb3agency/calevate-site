@@ -27,6 +27,14 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
    call continues, ledger row written.
 3. **Opt-out honored live**: "don't call me again" ⇒ tool adds to tenant `dnc_list`
    within the call; propagates to campaigns immediately (target ≤ minutes, not the 4h norm).
+   Built in TWO layers with one write path (D-56, `apps/api/compliance/optout.py`): the
+   in-call tool (`POST /tools/v1/{engine}/opt-out` in voice-runtime → the
+   `record_in_call_optout` job) is this bullet as written, and the post-call pipeline's
+   transcript pass is the layer under it — because the tool depends on the model
+   invoking it and on Bolna's custom-function behaviour, which is still an OPERATIONS §2
+   gate rather than a verified vendor fact. TRAI's own ceiling is "near real time, and
+   in no case beyond twenty-four hours"; hard rule 5's "before the next dispatch tick"
+   (30s) is the stricter number we hold ourselves to.
 4. **No cross-sell on service calls**: topic-fencing config on 160-series/service agents;
    regression scenario asserts the agent refuses promotional turns.
 5. **Calling hours**: campaign engine enforces permitted windows; per-tenant timezone.

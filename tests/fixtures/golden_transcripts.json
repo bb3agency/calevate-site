@@ -3233,6 +3233,130 @@
       ],
       "expect_outcome": "resolved",
       "note": "The enquiry-versus-assertion distinction in the real-estate vocabulary: a prospective buyer asking about delays becomes an escalated complaint from an existing customer if the words are read without the verb 'adagataniki'."
+    },
+    {
+      "id": "cl_do_not_cancel_the_appointment",
+      "vertical": "clinic",
+      "scenario": 3,
+      "title": "'Cancel cheyakandi' — the caller is asking us NOT to cancel",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Naa peru Harika. Naa appointment cancel cheyakandi, adi alaage unchandi.",
+        "agent: Sare, mee appointment alaage untundi. Emi marchaledu.",
+        "caller: Dhanyavadalu."
+      ],
+      "expect": {
+        "name": "Harika"
+      },
+      "expect_absent": [
+        "intent",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to",
+        "budget_lakhs",
+        "preferred_location",
+        "bhk_size",
+        "timeline",
+        "site_visit_interest"
+      ],
+      "expect_outcome": "resolved",
+      "note": "The Telugu prohibitive is a SUFFIX ('cheyakandi' = do not do it), so a reader looking for standalone denial words sees only the verb 'cancel' and files intent=cancel — cancelling a real appointment off a caller's instruction to leave it alone. The most expensive restraint failure in this vertical, and the case that promoted the denial rule from booleans to every field."
+    },
+    {
+      "id": "cl_self_corrected_name",
+      "vertical": "clinic",
+      "scenario": 1,
+      "title": "The caller corrects their own name — the SECOND version is theirs",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Naa peru Ravi, kaadu kaadu... naa peru Raviteja andi.",
+        "caller: Repu appointment book cheyandi.",
+        "agent: Sare, repu udayam 10 gantalaku pettanu."
+      ],
+      "expect": {
+        "name": "Raviteja",
+        "intent": "book"
+      },
+      "expect_absent": [
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to",
+        "budget_lakhs",
+        "preferred_location",
+        "bhk_size",
+        "timeline",
+        "site_visit_interest"
+      ],
+      "expect_outcome": "resolved",
+      "note": "Self-correction is ordinary phone speech, and 'Ravi' is a real prefix of 'Raviteja', so a reader that stops at the first match is confidently wrong rather than empty — staff then greet the caller by a name they retracted. The sibling of cl_book_self_corrected_party_size, on the field a human reads first."
+    },
+    {
+      "id": "re_spouse_takes_the_phone",
+      "vertical": "real_estate",
+      "scenario": 2,
+      "title": "The phone changes hands and the requirement is replaced — 2BHK is ruled out",
+      "transcript": [
+        "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record avutundi.",
+        "caller: 2BHK gurinchi adagataniki chesanu... maa aavida matladatharu.",
+        "caller: Naa peru Swapna. Manaki 3BHK ne kavali, 2BHK saripodu.",
+        "agent: Ardhamayindi, 3BHK details pampistanu."
+      ],
+      "expect": {
+        "name": "Swapna",
+        "bhk_size": "3BHK"
+      },
+      "expect_absent": [
+        "intent",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to",
+        "budget_lakhs",
+        "preferred_location",
+        "timeline",
+        "site_visit_interest"
+      ],
+      "expect_outcome": "resolved",
+      "note": "Both sizes are spoken in the same call and one of them is explicitly ruled out in the same breath as the other is asked for, so a whole-sentence denial rule files neither and a first-match rule files the rejected one. A wrong size sends this household every listing they just eliminated."
+    },
+    {
+      "id": "re_site_address_is_not_a_visit",
+      "vertical": "real_estate",
+      "scenario": 4,
+      "title": "Asking where the site is has agreed to nothing",
+      "transcript": [
+        "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record avutundi.",
+        "caller: Naa peru Bhaskar. Mee site address cheppandi, nenu maps lo chusukuntanu.",
+        "agent: Kokapet lo Neopolis road lo undi. Address WhatsApp lo pampanaa?",
+        "caller: Sare, pampandi."
+      ],
+      "expect": {
+        "name": "Bhaskar"
+      },
+      "expect_absent": [
+        "site_visit_interest",
+        "intent",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to",
+        "budget_lakhs",
+        "preferred_location",
+        "bhk_size",
+        "timeline"
+      ],
+      "expect_outcome": "resolved",
+      "note": "'site' alone is a topic word; the field is a consent to a site VISIT, which is the conversion event a builder staffs a Sunday around. A true here sends a sales team to meet nobody, and no denial appears anywhere in the turn for a denial rule to catch — the mention has to be of the whole thing, not of its first word."
     }
   ]
 }
