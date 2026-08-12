@@ -160,7 +160,11 @@ def _coerce_mode(value: str | None) -> LoadShedMode:
 
 
 async def set_platform_status(
-    *, mode: LoadShedMode | None = None, outbound_halted: bool | None = None, actor_id: str | None
+    *,
+    mode: LoadShedMode | None = None,
+    outbound_halted: bool | None = None,
+    halt_reason: str | None = None,
+    actor_id: str | None,
 ) -> PlatformStatus:
     """Write the durable row, invalidate the cache, then write the new value THROUGH.
 
@@ -171,6 +175,20 @@ async def set_platform_status(
     the DELETE makes peers miss immediately, the write-through (`force_refresh` below)
     puts the new value in the cache before this returns, and the expiry every write
     carries bounds the damage if BOTH of those fail.
+
+    `halt_reason` MOVES WITH THE SWITCH and only with the switch. It is written in the
+    same UPDATE as `outbound_halted` (one row, one statement — a second write could
+    leave a halt with no reason or a reason with no halt), it is CLEARED on release
+    because a reason sitting beside `outbound_halted = false` is read as current by
+    everyone who did not read this file, and a request that does not carry
+    `outbound_halted` at all leaves it untouched — tightening load-shedding during an
+    incident must not erase why dialling stopped. The permanent history is `audit_log`;
+    this column answers only "why is outbound stopped RIGHT NOW".
+
+    It is not returned in `PlatformStatus` deliberately: this dataclass is the hot-path
+    shed decision, cached in Redis and read on every request, and the reason is only
+    ever for a human. `ops.service.read_halt_state` reads it durably, uncached, on the
+    caller's session — the same argument `read_tm_registration` makes.
     """
     global _memo
     sets: list[str] = []
@@ -181,6 +199,15 @@ async def set_platform_status(
     if outbound_halted is not None:
         sets.append("outbound_halted = :halted")
         params["halted"] = outbound_halted
+        sets.append("halt_reason = :halt_reason")
+        params["halt_reason"] = (halt_reason or None) if outbound_halted else None
+        if outbound_halted and not (halt_reason or "").strip():
+            # Reachable only from inside the process (test harnesses halt this way):
+            # `ops.routes.PlatformStateIn` makes the reason mandatory at the boundary,
+            # so no operator can produce this. Logged rather than raised because
+            # refusing a HALT is the one failure this module must never invent — a
+            # switch that will not throw is worse than one thrown without a note.
+            log.warning("platform_halted_without_reason", extra={"actor_id": actor_id})
     if not sets:
         return await get_platform_status()
 

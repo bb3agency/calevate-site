@@ -45,6 +45,7 @@ from apps.api.compliance.service import (
     NO_CREDITS_REASON,
     SPEND_CAP_REASON,
     credits_exhausted,
+    kyc_blocker,
     spend_capped,
 )
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
@@ -706,6 +707,14 @@ async def launch_blockers(
     blockers.extend(await _entity_blockers(session, tenant_id=tenant_id, facts=facts))
 
     # Tenant-level refusals, asked with the same functions the dial-time gate uses.
+    # KYC first, for the reason `check_dispatch` orders it first: telling an unverified
+    # account to top up when topping up will not let them dial is a worse answer than
+    # no answer. Not in `_entity_blockers` despite being an entity question, because
+    # that helper is shared with `dispatch_blockers` and `check_dispatch` already asks
+    # this per dial — asking twice is how two gates start disagreeing.
+    blocked_on_kyc = await kyc_blocker(session, tenant_id=tenant_id)
+    if blocked_on_kyc is not None:
+        blockers.append(LaunchBlocker(*blocked_on_kyc))
     if await spend_capped(session, tenant_id=tenant_id):
         blockers.append(LaunchBlocker("spend_cap", SPEND_CAP_REASON))
     if await credits_exhausted(session, tenant_id=tenant_id):

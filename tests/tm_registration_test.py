@@ -388,8 +388,14 @@ async def test_ops_can_read_and_record_the_platform_tm_registration() -> None:
 
     assert before.status_code == 200, before.text
     # The switchboard read carries all three global facts, so one request answers "may
-    # this platform work right now" completely.
-    assert set(before.json()) == {"load_shed_mode", "outbound_halted", "tm_registration"}
+    # this platform work right now" completely — and, since the halt is one of them,
+    # WHY not (`halt_reason`, null unless outbound is halted; `platform_halt_test.py`).
+    assert set(before.json()) == {
+        "load_shed_mode",
+        "outbound_halted",
+        "halt_reason",
+        "tm_registration",
+    }
 
     assert recorded.status_code == 200, recorded.text
     body = recorded.json()

@@ -24,14 +24,23 @@ the admin realm's MFA lands (TRD §2). It is here now because adding it later wo
 mean changing the callers, and because a switch this size should never have been
 reachable by a single unconfirmed POST.
 
-**How specific the confirmation is varies, and the variation is deliberate.** §7 asks
-for it to be bound to the SPECIFIC action. `set_platform` binds it only to the
-direction and shares one string between a routine load-shed change and releasing the
-halt — a known gap, recorded at the call site, whose fix has to move the admin console
-and a runbook in the same change. Everything added since binds tighter, and the
-spend-cap recompute binds tightest: its confirmation carries the tenant id, so a header
-an operator sent for one client cannot be replayed against another. Tighter is free on
-a new route with no callers to migrate; the gap above is what it costs to retrofit.
+**Every confirmation on this router is bound to the action AND its target**, which is
+what §7 asks for and what the spend-cap recompute has always done (its string carries
+the tenant id, so a header an operator sent for one client cannot be replayed against
+another). `set_platform` used to be the exception: one string, `set_platform_state`,
+covered both releasing a global outbound halt and a routine load-shed tweak, so a
+header captured for the Tuesday change satisfied the switch. It now names the exact
+transition — `halt_outbound`, `release_outbound`, `set_load_shed:<mode>`, and the two
+joined for a request that does both — built in ONE place, `platform_confirmation`,
+which the runbooks quote and a test pins.
+
+That was a BREAKING change to an ops surface and was made deliberately rather than
+grandfathered: the old string's whole problem was that it authorised more than the
+operator meant, so keeping it accepted "for compatibility" would have kept the hole
+open under a different name. Two callers moved with it — the admin console's
+`useSetPlatformState` and `runbooks/campaign-stall.md` §1 — and the refusal names the
+header to send in its `remediation`, so an operator with an old curl is one paste from
+recovering rather than one grep.
 
 Most routes here move ONE global row and take `global_db`. The spend-cap recompute is
 the exception: it works on a named tenant's `spend_state`, which is RLS'd, so it names
@@ -47,7 +56,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
@@ -61,7 +70,12 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platform_status
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
-from apps.api.ops.service import TmRegistration, read_tm_registration, set_tm_registration
+from apps.api.ops.service import (
+    TmRegistration,
+    read_halt_state,
+    read_tm_registration,
+    set_tm_registration,
+)
 from apps.api.reliability.service import replay_dead_letters
 
 router = APIRouter(prefix="/v1/ops", tags=["ops"])
@@ -92,6 +106,11 @@ class PlatformStateOut(BaseModel):
 
     load_shed_mode: str
     outbound_halted: bool
+    # WHY outbound is stopped, for the person who found it stopped. Null whenever
+    # `outbound_halted` is false, and the pair always comes from one row read
+    # (`ops.service.read_halt_state`) so the dashboard cannot show a halt from one
+    # instant next to a reason from another.
+    halt_reason: str | None
     # The third global switch on this row, and the only one that is a legal fact rather
     # than an operational one: when it is not live, no tenant may launch a campaign.
     tm_registration: TmRegistrationOut
@@ -115,7 +134,21 @@ class PlatformStateIn(BaseModel):
 
     load_shed_mode: LoadShedMode | None = None
     outbound_halted: bool | None = None
-    reason: str
+    # REQUIRED, and required with content: a halt nobody explained is a halt nobody can
+    # safely lift, and whoever finds it at 3am has to decide whether the condition still
+    # holds. Same bounds as `TmRegistrationIn.reason` — one shape for one idea. When the
+    # request halts, this string is what lands in `platform_state.halt_reason`.
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _not_whitespace(cls, value: str) -> str:
+        """`min_length` alone accepts `"   "`, which passes the check and answers
+        nothing. Stripped here so the column holds the reason as it will be read."""
+        stripped = value.strip()
+        if len(stripped) < 3:
+            raise ValueError("a reason is required — say what stopped, and why")
+        return stripped
 
 
 class ReplayOut(BaseModel):
@@ -171,6 +204,48 @@ def _require_step_up(confirm: str | None, action: str) -> None:
         )
 
 
+def platform_confirmation(*, outbound_halted: bool | None, load_shed_mode: str | None) -> str:
+    """The step-up string for ONE state transition of the global row.
+
+    A named function for the same reason `spend_cap_confirmation` is one: these strings
+    are an ops PROCEDURE. `runbooks/calls-stopped.md` §1 and `runbooks/campaign-stall.md`
+    §1 print what an operator types mid-incident, and `tests/platform_halt_test.py` pins
+    every literal — so changing the shape has to be a deliberate edit that fails a test,
+    not a quiet reformat that leaves both runbooks instructing operators to send a header
+    the API refuses.
+
+    WHY THREE STRINGS AND NOT ONE. §7 wants the confirmation bound to the specific
+    action. Halting every tenant's outbound dialling, releasing that halt, and moving
+    the load-shed mode are three different decisions with three different blast radii,
+    and one shared string meant a header captured for the smallest authorised the
+    largest. The load-shed string carries its TARGET MODE for the same reason the
+    spend-cap string carries its tenant: `reduced` is a routine change and `maintenance`
+    sheds reads, and consent to one is not consent to the other.
+
+    A request that does both halves needs both halves confirmed, joined in a fixed order
+    (the halt first — it is the half that must be read before it is sent). Joining
+    rather than accepting either alone is the conservative reading: a combined request
+    is strictly more dangerous than either part.
+    """
+    parts: list[str] = []
+    if outbound_halted is not None:
+        parts.append("halt_outbound" if outbound_halted else "release_outbound")
+    if load_shed_mode is not None:
+        parts.append(f"set_load_shed:{load_shed_mode}")
+    if not parts:
+        # No transition, so there is nothing for a confirmation to be bound to. This
+        # body used to reach `set_platform_status`, change nothing and still write an
+        # audit row — a recorded platform change nobody made.
+        raise ProblemError(
+            kind="validation",
+            code="platform_state_no_change",
+            title="Nothing to change",
+            detail="This request changes neither the load-shed mode nor the outbound halt.",
+            remediation="Send load_shed_mode, outbound_halted, or both.",
+        )
+    return "+".join(parts)
+
+
 def _tm_out(registration: TmRegistration) -> TmRegistrationOut:
     return TmRegistrationOut(
         status=registration.status,
@@ -194,9 +269,15 @@ async def read_platform(
     # Read from Postgres on this session, never from the load-shed cache: the TM
     # registration is a compliance fact and a 15-second-stale copy of it is a campaign
     # that launched after the registrar suspended us.
+    #
+    # The halt and its reason come from ONE row read for the same reason they are
+    # written in one statement — this is the screen an operator reads mid-incident, and
+    # "halted" beside a reason from a different instant is worse than either alone.
+    halt = await read_halt_state(session)
     return PlatformStateOut(
         load_shed_mode=status.mode,
-        outbound_halted=status.outbound_halted,
+        outbound_halted=halt.outbound_halted,
+        halt_reason=halt.reason,
         tm_registration=_tm_out(await read_tm_registration(session)),
     )
 
@@ -214,36 +295,64 @@ async def set_platform(
     principal: Principal = Depends(requires("ops:manage", realm="admin")),
     x_confirm_action: str | None = Header(default=None),
 ) -> PlatformStateOut:
-    # KNOWN GAP (audited, not fixed here): releasing the halt shares the generic
-    # `set_platform_state` confirmation and audit action with a routine load-shed
-    # change, so BACKEND-PATTERNS §7's "bound to the specific action" only really holds
-    # for pulling the switch, not for lifting it. Splitting it out needs the admin
-    # console (apps/web/src/lib/api/admin.ts) and runbooks/campaign-stall.md to move in
-    # the same change, or the un-halt button and the documented incident step both 403.
-    action = "halt_outbound" if payload.outbound_halted else "set_platform_state"
-    _require_step_up(x_confirm_action, action)
+    """Bound to the transition, and the reason lands where the dashboard reads it.
+
+    THE CONFIRMATION. `platform_confirmation` names the exact move being made — see its
+    docstring for why one string across three moves was a hole rather than a
+    convenience. This is a BREAKING change to an ops surface and is meant to be: the old
+    `set_platform_state` header now authorises nothing, in either direction, and the
+    refusal carries the header that would have worked.
+
+    THE REASON. `halt_reason` is written in the same statement as `outbound_halted`
+    (`core.loadshed.set_platform_status`) and cleared on release. Until now the reason
+    went only into `write_audit`'s `summary` — and `audit_log` HAS NO SUMMARY COLUMN
+    (`compliance/audit.py`: the sanitised summary goes to the log stream keyed by entry
+    id), so the one question an operator asks first was answerable only by someone who
+    knew to grep the right log stream. The column is the live answer; `audit_log`
+    remains the history of who moved it and when.
+
+    ONE AUDIT ROW PER TRANSITION. A request that halts AND sheds performed two actions,
+    and one row named after the more dramatic of them would make "when did we last halt
+    everyone" a full-text hunt through a generic action. The rows are written on
+    `global_db`, which commits at the end of the request, so they land together.
+    """
+    confirmation = platform_confirmation(
+        outbound_halted=payload.outbound_halted, load_shed_mode=payload.load_shed_mode
+    )
+    _require_step_up(x_confirm_action, confirmation)
 
     status = await set_platform_status(
         mode=payload.load_shed_mode,
         outbound_halted=payload.outbound_halted,
+        halt_reason=payload.reason,
         actor_id=str(principal.user_id) if principal.user_id else None,
     )
-    await write_audit(
-        session,
-        action=f"ops.{action}",
-        actor=principal,
-        object_type="platform_state",
-        object_id="1",
-        ip=request.client.host if request.client else None,
-        summary={
-            "load_shed_mode": status.mode,
-            "outbound_halted": status.outbound_halted,
-            "reason": payload.reason,
-        },
-    )
+    halt = await read_halt_state(session)
+    ip = request.client.host if request.client else None
+    if payload.outbound_halted is not None:
+        await write_audit(
+            session,
+            action="ops.halt_outbound" if payload.outbound_halted else "ops.release_outbound",
+            actor=principal,
+            object_type="platform_state",
+            object_id="1",
+            ip=ip,
+            summary={"outbound_halted": halt.outbound_halted, "reason": payload.reason},
+        )
+    if payload.load_shed_mode is not None:
+        await write_audit(
+            session,
+            action="ops.set_load_shed",
+            actor=principal,
+            object_type="platform_state",
+            object_id="1",
+            ip=ip,
+            summary={"load_shed_mode": status.mode, "reason": payload.reason},
+        )
     return PlatformStateOut(
         load_shed_mode=status.mode,
-        outbound_halted=status.outbound_halted,
+        outbound_halted=halt.outbound_halted,
+        halt_reason=halt.reason,
         tm_registration=_tm_out(await read_tm_registration(session)),
     )
 
@@ -457,4 +566,4 @@ async def verify_audit_chain(
     return ChainVerifyOut(ok=ok, first_bad_entry_id=bad)
 
 
-__all__ = ["router", "spend_cap_confirmation"]
+__all__ = ["platform_confirmation", "router", "spend_cap_confirmation"]

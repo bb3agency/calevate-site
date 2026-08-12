@@ -630,10 +630,11 @@ async def test_pulling_the_big_red_switch_needs_its_own_confirmation() -> None:
     global row shared with every other suite, so this test proves the guard without
     ever moving the switch.
 
-    It covers the HALT direction only. Releasing the halt shares the generic
-    `set_platform_state` confirmation — a real gap, reported rather than fixed here,
-    because closing it means changing the admin console and the incident runbook in
-    the same commit.
+    It covers the HALT direction only, which is now one of three: releasing the halt and
+    changing the load-shed mode have their own strings, and the generic
+    `set_platform_state` this test sends as `mismatched` authorises nothing at all any
+    more. `tests/platform_halt_test.py` owns that matrix (and the halt reason); this
+    case stays here because it is the one an outbound-safety reader looks for first.
     """
     token = await _make_admin()
     async with _client() as http:

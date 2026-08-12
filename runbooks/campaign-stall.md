@@ -21,21 +21,38 @@ touching a single campaign (`apps/workers/campaign_dispatch.py`).
 1. Ask the API (never shed — `/v1/ops` is in `ALWAYS_ALLOWED_PREFIXES`,
    `apps/api/core/loadshed.py`): `GET /v1/ops/platform` with an admin-realm principal
    holding `ops:manage` (`apps/api/ops/routes.py`). Response:
-   `{"load_shed_mode": "...", "outbound_halted": true|false}`.
+   `{"load_shed_mode": "...", "outbound_halted": true|false, "halt_reason": "..."|null}`.
 2. Or read the durable truth directly — one row, id 1:
 
    ```sql
-   SELECT load_shed_mode, outbound_halted, changed_by, changed_at
+   SELECT load_shed_mode, outbound_halted, halt_reason, changed_by, changed_at
    FROM platform_state WHERE id = 1;
    ```
 
-3. `outbound_halted = true` → someone pulled the switch. Check `audit_log` for the
-   `ops.halt_outbound` entry (who and why — `reason` is required in the payload) BEFORE
-   considering un-halting. Un-halt is `POST /v1/ops/platform` with body
-   `{"outbound_halted": false, "reason": "..."}` and header
-   `X-Confirm-Action: set_platform_state` — step-up confirmed and audited
-   (`apps/api/ops/routes.py`). Never flip the row with SQL: that skips the cache
-   invalidation in `set_platform_status` and the audit entry.
+3. `outbound_halted = true` → someone pulled the switch. **`halt_reason` says why**, in
+   the words of whoever pulled it; it is required to halt and cleared on release, so a
+   non-null value here is always about the halt in force right now. Read it before
+   considering un-halting — the question is whether that condition still holds.
+   `audit_log` supplies the rest: `ops.halt_outbound` names WHO and WHEN. (It does not
+   carry the reason text: `audit_log` has no summary column, and `write_audit`'s summary
+   goes to the log stream keyed by entry id — which is exactly why the reason now lives
+   on the row.) Un-halt is:
+
+   ```
+   POST /v1/ops/platform
+   X-Confirm-Action: release_outbound
+   {"outbound_halted": false, "reason": "engine recovered, dialling resumed"}
+   ```
+
+   **The confirmation header names the transition, and only that transition**
+   (`platform_confirmation`, `apps/api/ops/routes.py`): `halt_outbound` to pull the
+   switch, `release_outbound` to lift it, `set_load_shed:<mode>` to move the load-shed
+   mode, and the two joined with `+` (halt half first) for a request that does both —
+   e.g. `release_outbound+set_load_shed:normal`. The older `set_platform_state` header
+   authorises nothing now, in either direction; if you send it you get 403
+   `step_up_required` whose `remediation` prints the exact header to repeat with. Never
+   flip the row with SQL: that skips the cache invalidation in `set_platform_status`,
+   the audit entry, and the reason.
 4. Note the read path is memo (5s) → Redis (`calevate:platform_state`) → Postgres
    (`apps/api/core/loadshed.py`). Worst-case staleness after an un-halt is seconds, not
    minutes — if dialling doesn't resume within two ticks, keep going down this list.

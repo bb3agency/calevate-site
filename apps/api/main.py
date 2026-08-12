@@ -32,11 +32,13 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.payment_routes import router as topups_router
     from apps.api.billing.payment_routes import webhook_router as razorpay_router
     from apps.api.billing.routes import router as billing_admin_router
+    from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
     from apps.api.compliance.consent_routes import router as messaging_consent_router
     from apps.api.compliance.deletion_routes import router as deletion_router
     from apps.api.compliance.dnc_routes import router as dnc_router
     from apps.api.compliance.export_routes import router as subject_export_router
+    from apps.api.compliance.kyc_routes import router as kyc_router
     from apps.api.compliance.registration_routes import router as dlt_registration_router
     from apps.api.crm.routes import router as crm_router
     from apps.api.ingest.routes import router as ingest_router
@@ -63,6 +65,9 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(publishing_router)
     application.include_router(agents_router)
     application.include_router(campaigns_router)
+    # `/v1/numbers/purchase` — its own prefix, so nothing above can swallow it. It lives
+    # in the campaigns package because that module owns `phone_numbers`.
+    application.include_router(numbers_router)
     application.include_router(crm_router)
     application.include_router(kb_router)
     application.include_router(ingest_router)
@@ -78,6 +83,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(messaging_consent_router)
     application.include_router(deletion_router)
     application.include_router(dlt_registration_router)
+    application.include_router(kyc_router)
     application.include_router(signup_router)
     # Both are literal paths under `/v1/billing` and neither carries a `{param}` at
     # that position, so declaration order is not load-bearing between them — but caps

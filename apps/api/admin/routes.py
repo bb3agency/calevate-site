@@ -26,6 +26,7 @@ from apps.api.agents import service as agents_service
 from apps.api.billing import service as billing
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance.audit import write_audit
+from apps.api.compliance.kyc import record_kyc
 from apps.api.core.auth import requires
 from apps.api.core.context import IMPERSONATE_HEADER, Principal
 from apps.api.core.deps import admin_db, db, global_db
@@ -576,6 +577,60 @@ class DltRegistrationIn(BaseModel):
     registered_at: datetime | None = None
 
 
+class KycRecordIn(BaseModel):
+    """What an operator recorded after verifying a business's identity (R-11).
+
+    Deliberately NOT a document upload. Indian business-connection KYC is satisfied
+    against the entity's registry documents (DoT's Aug-2023/May-2024 business-connection
+    instructions — see `apps/api/compliance/kyc.py` for the sources), and the documents
+    themselves belong with the licensee's Customer Acquisition Form, not in our
+    database. What we keep is the REFERENCE: which registry, which identifier, who
+    signed, and where the pack is filed. There is no field here that could carry an
+    Aadhaar or a personal PAN, and a DB CHECK stands behind that.
+
+    `verified_at` is absent on purpose and is stamped by the database. An operator who
+    could supply the date a verification happened could supply any date, and the whole
+    value of that column to an auditor is that it records when the system observed the
+    fact — `dlt_registrations.verified_at` means the same thing for the same reason.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["not_started", "submitted", "in_review", "verified", "rejected", "expired"]
+    entity_type: (
+        Literal[
+            "sole_proprietorship",
+            "partnership",
+            "llp",
+            "private_limited",
+            "public_limited",
+            "trust_or_society",
+            "huf",
+        ]
+        | None
+    ) = None
+    # Entity registries only. Aadhaar and personal PAN are not members and never will
+    # be: this record must not become a store of natural persons' identity documents.
+    document_kind: (
+        Literal["cin", "llpin", "gstin", "udyam", "shop_establishment", "trade_licence"] | None
+    ) = None
+    document_ref: str | None = Field(default=None, max_length=64)
+    signatory_name: str | None = Field(default=None, max_length=200)
+    # Where the verification pack lives — a ticket id or an object key, never a
+    # credential and never a document.
+    evidence_ref: str | None = Field(default=None, max_length=200)
+    rejection_reason: str | None = Field(default=None, max_length=500)
+
+
+class KycRecordOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
+    status: str
+    document_kind: str | None
+    document_ref: str | None
+
+
 class DltRegistrationOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -797,6 +852,103 @@ async def record_dlt_registration(
         status=payload.status,
         tm_link_status=payload.tm_link_status,
         pe_id=payload.pe_id,
+    )
+
+
+@router.post(
+    "/tenants/{tenant_id}/kyc",
+    response_model=KycRecordOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Record the outcome of verifying this business's identity (R-11's last gate)",
+    description=(
+        "Records what Calevate verified about a client's business, against which "
+        "registry document, and who verified it. Upserts: re-recording is what happens "
+        "on every re-verification. Only a `verified` record opens number provisioning "
+        "(every plan tier) and outbound dialling for a self-serve account. There is "
+        "deliberately no client-facing twin — a business that could mark its own "
+        "identity verified would be marking the telecom gate green on a check nobody "
+        "performed."
+    ),
+)
+async def record_kyc_verification(
+    tenant_id: UUID,
+    payload: KycRecordIn,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> KycRecordOut:
+    """Ops's half of SURFACES §2b's "Number purchase + KYC: gated".
+
+    Same family, same permission and same shape as `record_dlt_registration` above:
+    `admin:tenants`, tenant named in the PATH — an admin-realm mutation that infers its
+    tenant from the session is un-callable by construction under D-22 — and the work
+    done inside `tenant_session(tenant_id)` so RLS is what isolates it.
+
+    The two pre-emptive validations below duplicate CHECK constraints on purpose: the
+    database is the enforcement, and these exist so an operator gets a problem+json
+    naming the missing field instead of a 500 out of an IntegrityError. Same device
+    `record_dlt_registration` uses for `pe_registration_id_required`.
+    """
+    if payload.status == "verified" and not (payload.document_ref or "").strip():
+        raise ProblemError(
+            kind="validation",
+            code="kyc_document_required",
+            title="A verified record must name what was verified",
+            detail=(
+                "Recording a business as verified needs the registry document it was "
+                "verified against."
+            ),
+            remediation="Send document_kind and document_ref (e.g. the CIN or GSTIN).",
+        )
+    if payload.status == "rejected" and not (payload.rejection_reason or "").strip():
+        raise ProblemError(
+            kind="validation",
+            code="kyc_rejection_reason_required",
+            title="A rejection must say why",
+            detail=(
+                "A rejected verification with no reason recorded is a support ticket "
+                "nobody can close."
+            ),
+            remediation="Send rejection_reason describing what was missing or wrong.",
+        )
+
+    async with tenant_session(tenant_id) as scoped:
+        await record_kyc(
+            scoped,
+            tenant_id=tenant_id,
+            status=payload.status,
+            entity_type=payload.entity_type,
+            document_kind=payload.document_kind,
+            document_ref=payload.document_ref,
+            signatory_name=payload.signatory_name,
+            evidence_ref=payload.evidence_ref,
+            rejection_reason=payload.rejection_reason,
+            verified_by_admin_id=principal.user_id,
+        )
+    await write_audit(
+        session,
+        action="kyc.recorded",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="kyc_record",
+        object_id=str(tenant_id),
+        ip=request.client.host if request.client else None,
+        # The registry identifier is the client's own business identity, published in a
+        # public register — not PII under hard rule 6, and it is the whole point of the
+        # audit row: it is what a regulator asks us to evidence. `signatory_name` is
+        # deliberately NOT copied here; the name of a natural person adds nothing an
+        # auditor needs and the audit log is read cross-tenant.
+        summary={
+            "status": payload.status,
+            "document_kind": payload.document_kind,
+            "document_ref": payload.document_ref,
+        },
+    )
+    return KycRecordOut(
+        tenant_id=tenant_id,
+        status=payload.status,
+        document_kind=payload.document_kind,
+        document_ref=payload.document_ref,
     )
 
 

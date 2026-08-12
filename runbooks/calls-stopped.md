@@ -56,15 +56,25 @@ the platform is in maintenance mode.
 GET /v1/ops/platform
 → {"load_shed_mode": "normal",
    "outbound_halted": false,
+   "halt_reason": null,
    "tm_registration": {"status": "active", "tm_id": "...", "registered_at": "...",
                        "verified_at": "...", "is_live": true}}
 ```
 
-Read all three fields, not just the first.
+Read all four fields, not just the first.
 
 - **`outbound_halted: true`** — the big red switch. Nobody dials, no tenant, no path.
   The dispatch tick returns `halted_by_big_red_switch` and touches nothing. Go to
   `campaign-stall.md` §1 for the audited un-halt; do not flip the row with SQL.
+- **`halt_reason`** — WHY it was halted, in the words of whoever halted it. It is
+  required to halt, so it is null while `outbound_halted` is true only for a halt thrown
+  before this field was wired (fall back to `audit_log` for those), and it is
+  **cleared on release**, so it is never anything else while outbound is running: a
+  reason beside a running platform would read as current and send you after last week's
+  incident. Read it BEFORE deciding whether the condition still holds — that decision is
+  the whole reason the field exists, and a halt lifted because nobody could find out why
+  it was pulled is the failure this replaced. The permanent history of who halted, when
+  and why is `audit_log` (`ops.halt_outbound` / `ops.release_outbound`).
 - **`load_shed_mode` not `normal`** — this is subtler than it looks and is the one
   people get wrong. Load-shedding is an **HTTP** control (`LoadShedMiddleware`,
   `apps/api/core/middleware.py`). `reduced`, `emergency` and `maintenance` all shed

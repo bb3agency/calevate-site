@@ -535,6 +535,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/kyc": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record the outcome of verifying this business's identity (R-11's last gate)
+         * @description Records what Calevate verified about a client's business, against which registry document, and who verified it. Upserts: re-recording is what happens on every re-verification. Only a `verified` record opens number provisioning (every plan tier) and outbound dialling for a self-serve account. There is deliberately no client-facing twin — a business that could mark its own identity verified would be marking the telecom gate green on a check nobody performed.
+         */
+        post: operations["record_kyc_verification_v1_admin_tenants__tenant_id__kyc_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/margin": {
         parameters: {
             query?: never;
@@ -1154,6 +1174,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/compliance/kyc": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This account's identity verification — absence is data, not a 404
+         * @description What Calevate has verified about this business, and whether that is enough to buy a phone number. Read-only: Indian telecom rules make the subscriber's identity something the provider verifies, never something the subscriber asserts, so verification is recorded by Calevate operations. A business with nothing on file yet gets `recorded: false` and a 200.
+         */
+        get: operations["read_kyc_record_v1_compliance_kyc_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/compliance/messaging-consent": {
         parameters: {
             query?: never;
@@ -1619,6 +1659,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/numbers/purchase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Buy a phone number — gated on verified KYC, and not implemented yet
+         * @description Requests a phone number for this account. Refused with `kyc_not_verified` until Calevate has verified the business's identity — Indian telecom rules require the subscriber of a connection to be identified, and that applies to every account on every plan. A verified account is then refused with `number_provisioning_not_configured`, because this deployment holds no telephony-provider credentials and no provisioning adapter exists: numbers are provisioned by Calevate operations today. Neither refusal writes anything.
+         */
+        post: operations["purchase_number_v1_numbers_purchase_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/audit/verify": {
         parameters: {
             query?: never;
@@ -1663,7 +1723,29 @@ export interface paths {
         /** Read Platform */
         get: operations["read_platform_v1_ops_platform_get"];
         put?: never;
-        /** Load-shed mode and the big red switch (step-up confirmed, audited) */
+        /**
+         * Load-shed mode and the big red switch (step-up confirmed, audited)
+         * @description Bound to the transition, and the reason lands where the dashboard reads it.
+         *
+         *     THE CONFIRMATION. `platform_confirmation` names the exact move being made — see its
+         *     docstring for why one string across three moves was a hole rather than a
+         *     convenience. This is a BREAKING change to an ops surface and is meant to be: the old
+         *     `set_platform_state` header now authorises nothing, in either direction, and the
+         *     refusal carries the header that would have worked.
+         *
+         *     THE REASON. `halt_reason` is written in the same statement as `outbound_halted`
+         *     (`core.loadshed.set_platform_status`) and cleared on release. Until now the reason
+         *     went only into `write_audit`'s `summary` — and `audit_log` HAS NO SUMMARY COLUMN
+         *     (`compliance/audit.py`: the sanitised summary goes to the log stream keyed by entry
+         *     id), so the one question an operator asks first was answerable only by someone who
+         *     knew to grep the right log stream. The column is the live answer; `audit_log`
+         *     remains the history of who moved it and when.
+         *
+         *     ONE AUDIT ROW PER TRANSITION. A request that halts AND sheds performed two actions,
+         *     and one row named after the more dramatic of them would make "when did we last halt
+         *     everyone" a full-text hunt through a generic action. The rows are written on
+         *     `global_db`, which commits at the end of the request, so they land together.
+         */
         post: operations["set_platform_v1_ops_platform_post"];
         delete?: never;
         options?: never;
@@ -2948,6 +3030,42 @@ export interface components {
             /** Minutes Used */
             minutes_used: string;
         };
+        /**
+         * KycRecordIn
+         * @description What an operator recorded after verifying a business's identity (R-11).
+         *
+         *     Deliberately NOT a document upload. Indian business-connection KYC is satisfied
+         *     against the entity's registry documents (DoT's Aug-2023/May-2024 business-connection
+         *     instructions — see `apps/api/compliance/kyc.py` for the sources), and the documents
+         *     themselves belong with the licensee's Customer Acquisition Form, not in our
+         *     database. What we keep is the REFERENCE: which registry, which identifier, who
+         *     signed, and where the pack is filed. There is no field here that could carry an
+         *     Aadhaar or a personal PAN, and a DB CHECK stands behind that.
+         *
+         *     `verified_at` is absent on purpose and is stamped by the database. An operator who
+         *     could supply the date a verification happened could supply any date, and the whole
+         *     value of that column to an auditor is that it records when the system observed the
+         *     fact — `dlt_registrations.verified_at` means the same thing for the same reason.
+         */
+        KycRecordIn: {
+            /** Document Kind */
+            document_kind?: ("cin" | "llpin" | "gstin" | "udyam" | "shop_establishment" | "trade_licence") | null;
+            /** Document Ref */
+            document_ref?: string | null;
+            /** Entity Type */
+            entity_type?: ("sole_proprietorship" | "partnership" | "llp" | "private_limited" | "public_limited" | "trust_or_society" | "huf") | null;
+            /** Evidence Ref */
+            evidence_ref?: string | null;
+            /** Rejection Reason */
+            rejection_reason?: string | null;
+            /** Signatory Name */
+            signatory_name?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "not_started" | "submitted" | "in_review" | "verified" | "rejected" | "expired";
+        };
         /** LaneOut */
         LaneOut: {
             /** Field */
@@ -3193,6 +3311,29 @@ export interface components {
             /** Series */
             series: string;
         };
+        /**
+         * NumberPurchaseIn
+         * @description What a purchase needs from the client, and nothing it does not.
+         *
+         *     `series` is DLT's number-class distinction (DATA-MODEL §6): 140 dials promotions,
+         *     160/standard dials service and transactional. It is asked here rather than assigned
+         *     later because a number's series is fixed at purchase and a mismatch with the
+         *     campaign's classification is a DLT violation the launch gate then has to refuse
+         *     (`number_series_mismatch`).
+         *
+         *     `city` is required because Exotel's own onboarding requires the KYC address proof to
+         *     reflect the city the number is bought in — a number bought against an address in
+         *     another city is one the operator will not issue, whatever we record here.
+         */
+        NumberPurchaseIn: {
+            /** City */
+            city: string;
+            /**
+             * Series
+             * @enum {string}
+             */
+            series: "140" | "160" | "standard";
+        };
         /** OrganizationOut */
         OrganizationOut: {
             /**
@@ -3327,6 +3468,8 @@ export interface components {
         };
         /** PlatformStateOut */
         PlatformStateOut: {
+            /** Halt Reason */
+            halt_reason: string | null;
             /** Load Shed Mode */
             load_shed_mode: string;
             /** Outbound Halted */
@@ -4005,6 +4148,20 @@ export interface components {
             /** Notes */
             notes?: string | null;
         };
+        /** KycRecordOut */
+        apps__api__admin__routes__KycRecordOut: {
+            /** Document Kind */
+            document_kind: string | null;
+            /** Document Ref */
+            document_ref: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
         /** PublishOut */
         apps__api__admin__routes__PublishOut: {
             /**
@@ -4028,6 +4185,42 @@ export interface components {
             engine_agent_ref: string;
             /** Status */
             status: string;
+        };
+        /**
+         * KycRecordOut
+         * @description This account's identity verification, as ops last recorded it.
+         *
+         *     Every field except `recorded`, `is_verified` and `number_purchase_available` is
+         *     nullable, because all of them are genuinely absent before anything is filed.
+         *     `is_verified` is computed server-side for the same reason `PeRegistrationOut`'s
+         *     `is_active` is: "is `in_review` good enough" is a question the console must not
+         *     answer for itself, and this response and the dispatch gate must never disagree.
+         */
+        apps__api__compliance__kyc_routes__KycRecordOut: {
+            /** Document Kind */
+            document_kind: string | null;
+            /** Document Ref */
+            document_ref: string | null;
+            /** Entity Type */
+            entity_type: string | null;
+            /** Evidence Ref */
+            evidence_ref: string | null;
+            /** Is Verified */
+            is_verified: boolean;
+            /** Number Purchase Available */
+            number_purchase_available: boolean;
+            /** Recorded */
+            recorded: boolean;
+            /** Rejection Reason */
+            rejection_reason: string | null;
+            /** Signatory Name */
+            signatory_name: string | null;
+            /** Status */
+            status: string | null;
+            /** Submitted At */
+            submitted_at: string | null;
+            /** Verified At */
+            verified_at: string | null;
         };
     };
     responses: never;
@@ -5063,6 +5256,41 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_kyc_verification_v1_admin_tenants__tenant_id__kyc_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KycRecordIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["apps__api__admin__routes__KycRecordOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -6158,6 +6386,35 @@ export interface operations {
             };
         };
     };
+    read_kyc_record_v1_compliance_kyc_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["apps__api__compliance__kyc_routes__KycRecordOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     record_v1_compliance_messaging_consent_post: {
         parameters: {
             query?: never;
@@ -7014,6 +7271,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    purchase_number_v1_numbers_purchase_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NumberPurchaseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
             /** @description RFC-9457 problem+json */

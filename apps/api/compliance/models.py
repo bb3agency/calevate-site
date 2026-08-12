@@ -54,6 +54,32 @@ PE_REGISTRATION_STATUSES = ("not_started", "submitted", "active", "suspended", "
 # calls on their behalf. Separate from the PE's own status because it fails separately:
 # a perfectly registered entity that never linked us is a different to-do item.
 TM_LINK_STATUSES = ("not_linked", "pending", "active", "revoked")
+# Subscriber KYC for a telecom connection (migration a3f6b1e02d95). The lifecycle of
+# OUR verification, not a registrar's: `submitted` is the client having given us
+# something, `in_review` an operator working it, `verified` the only state that opens
+# number provisioning. `expired` exists because a verification goes stale — an entity
+# is struck off, a GST registration is cancelled — and "was true in 2026" is not the
+# question the gate asks.
+KYC_STATUSES = ("not_started", "submitted", "in_review", "verified", "rejected", "expired")
+# The one state that satisfies the gate. Named so the gate, the route and the CHECK
+# cannot drift into three different spellings of the same idea.
+KYC_VERIFIED = "verified"
+# How the subscribing business is constituted. Drives WHICH document we should be
+# looking at (a proprietorship has no CIN), and it is what the licensee's CAF asks.
+KYC_ENTITY_TYPES = (
+    "sole_proprietorship",
+    "partnership",
+    "llp",
+    "private_limited",
+    "public_limited",
+    "trust_or_society",
+    "huf",
+)
+# ENTITY registries only — see the migration. Every member identifies a BUSINESS in a
+# public register; none identifies a natural person, which is what keeps `document_ref`
+# out of DPDP scope and out of hard rule 6's reach. Aadhaar and personal PAN are absent
+# on purpose and there is a CHECK constraint standing behind that absence.
+KYC_DOCUMENT_KINDS = ("cin", "llpin", "gstin", "udyam", "shop_establishment", "trade_licence")
 CONSENT_STATUSES = ("granted", "declined", "withdrawn")
 DATA_CATEGORIES = ("recording", "transcript", "lead", "consent_log")
 RETENTION_ACTIONS = ("delete", "anonymize")
@@ -190,6 +216,92 @@ class DltRegistration(PKMixin, TimestampMixin, Base):
     tm_link_status: Mapped[str] = mapped_column(String, nullable=False, server_default="not_linked")
     registered_at: Mapped[datetime | None]
     verified_at: Mapped[datetime | None]  # when WE last checked it against the registrar
+
+
+class KycRecord(PKMixin, TimestampMixin, Base):
+    """Whether we know who this business is, to the standard a telecom connection needs.
+
+    The last R-11 mitigation (BRD §245) and SURFACES §2b's last self-serve bullet:
+    "Number purchase + KYC: gated; calling stays disabled until verification clears."
+
+    **Not the same fact as `DltRegistration`, and deliberately not overlapping it.** PE
+    registration proves the client may have commercial calls sent under their headers
+    and templates, verified by an access provider on a DLT portal. This proves that a
+    named person at Calevate checked this business's identity against a named document
+    before a *connection* was provisioned for them — the DoT business-connection regime
+    (CIN/licence + address + GST + end-user list), which attaches to the number, not to
+    the message. The two ask for overlapping documents and are held by different
+    parties for different purposes; neither satisfies the other. Sources are in
+    `apps/api/compliance/kyc.py`.
+
+    One row per tenant, MUTABLE, absent from `APPEND_ONLY_TABLES` — same reasoning as
+    `DltRegistration`: a verification is cleared and later expires, the gate reads the
+    current state on every provisioning attempt, and `audit_log` carries who changed it.
+
+    **No identity document is stored here.** `document_ref` is a public business-registry
+    identifier and `evidence_ref` is a reference to where the pack is filed. The CHECK
+    constraints mirror migration a3f6b1e02d95 and the migration is the source of truth
+    (DATA-MODEL §10).
+    """
+
+    __tablename__ = "kyc_records"
+    __table_args__ = (
+        UniqueConstraint("tenant_id"),
+        CheckConstraint(f"status IN {KYC_STATUSES!r}", name="status_enum"),
+        CheckConstraint(
+            f"entity_type IS NULL OR entity_type IN {KYC_ENTITY_TYPES!r}", name="entity_type_enum"
+        ),
+        CheckConstraint(
+            f"document_kind IS NULL OR document_kind IN {KYC_DOCUMENT_KINDS!r}",
+            name="document_kind_enum",
+        ),
+        # The four questions an auditor asks — what, against what, by whom, when — as a
+        # constraint rather than a convention. A `verified` row that cannot answer them
+        # is a claim, not evidence.
+        CheckConstraint(
+            "status <> 'verified' OR (document_kind IS NOT NULL AND document_ref IS NOT NULL "
+            "AND verified_by_admin_id IS NOT NULL AND verified_at IS NOT NULL)",
+            name="verified_names_its_evidence",
+        ),
+        # The question a support person asks. "Rejected, no reason recorded" is the
+        # ticket nobody can close.
+        CheckConstraint(
+            "status <> 'rejected' OR rejection_reason IS NOT NULL",
+            name="rejected_names_its_reason",
+        ),
+        # Backstop, not the control: no permitted registry identifier is twelve bare
+        # digits, so a value shaped like an Aadhaar is someone pasting personal data
+        # into a business field, refused at the moment of the mistake.
+        CheckConstraint(
+            "document_ref IS NULL OR document_ref !~ '^[0-9]{12}$'",
+            name="document_ref_is_not_an_aadhaar",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String, nullable=False, server_default="not_started")
+    entity_type: Mapped[str | None] = mapped_column(Text)
+    document_kind: Mapped[str | None] = mapped_column(Text)
+    # The public registry identifier — CIN/LLPIN/GSTIN/Udyam. Never a scan, never a
+    # natural person's document number.
+    document_ref: Mapped[str | None] = mapped_column(Text)
+    # Who signed for the entity. A name, so support knows whom to call back; their
+    # identity document stays with the licensee's CAF and never lands here.
+    signatory_name: Mapped[str | None] = mapped_column(Text)
+    # WHERE the verification pack is filed (ticket id / object key). A reference, on the
+    # same principle as `outbound_webhooks.secret_ref`: the pointer travels, the
+    # document does not.
+    evidence_ref: Mapped[str | None] = mapped_column(Text)
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    # BY WHOM. An `admin_users.id`, not a free-text name: an auditor asks who, and a
+    # string nobody can resolve to a person is not an answer.
+    verified_by_admin_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="RESTRICT")
+    )
+    submitted_at: Mapped[datetime | None]
+    verified_at: Mapped[datetime | None]
 
 
 class RetentionPolicy(PKMixin, Base):

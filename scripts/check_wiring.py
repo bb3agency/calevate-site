@@ -104,16 +104,6 @@ UNWIRED_BASELINE: dict[str, str] = {
         "`calling_hours` and launches on demand — there is no scheduling surface in "
         "either realm yet (SURFACES §4); closes with scheduled launch"
     ),
-    "Plan.effective_from": (
-        "plan validity window. Both `invoice.py` and the dispatch ceiling resolve a "
-        "tenant's plan as the NEWEST row instead (see the scalar-subquery note in "
-        "apps/workers/campaign_dispatch.py) — a real gap: a future-dated plan would "
-        "bill early. Closes when plan resolution reads the window rather than the order"
-    ),
-    "Plan.effective_to": (
-        "the other half of the same window, unread for the same reason and closed by "
-        "the same change"
-    ),
     "Lead.assigned_to": (
         "lead ownership. No assignment surface exists in either realm — CRM is "
         "read+export in M2 (SURFACES §3); closes with the assignment action"
@@ -126,11 +116,6 @@ UNWIRED_BASELINE: dict[str, str] = {
     "WebhookDelivery.payload_ref": (
         "object-storage key for the delivered body. Deliveries record status/attempts "
         "and the body is not retained yet (D-23); closes with delivery-body retention"
-    ),
-    "PlatformState.halt_reason": (
-        "why the big red switch was thrown. `ops` flips `outbound_halted` and writes "
-        "the reason to `audit_log` instead, so the reason is recorded but not on the "
-        "row the dashboard reads; closes when the ops halt endpoint sets both"
     ),
     "KbRetrievalLog.query": (
         "deliberate and dated — see the class docstring in apps/api/kb/models.py. It "

@@ -110,6 +110,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql, warn_no_plan_in_effect
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -123,16 +124,18 @@ EFFECTIVE_CAP_SPEND_SQL = "LEAST(hard_cap_spend, client_cap_spend)"
 
 # The body of the `caps` CTE every cap reader opens with. `plans` is effective-dated,
 # so a tenant that ever changed plan has SEVERAL rows and a join on tenant_id alone
-# multiplies them — NEWEST ROW WINS, the rule `invoice.py`, the campaign dispatcher and
-# the meter already apply to this table. Exported so the meter and this module cannot
-# end up capping against different rows.
-CAPS_CTE = f"""
-    SELECT {EFFECTIVE_CAP_MIN_SQL} AS cap_min, {EFFECTIVE_CAP_SPEND_SQL} AS cap_spend
-    FROM plans
-    WHERE tenant_id = :tid
-    ORDER BY created_at DESC
-    LIMIT 1
-"""
+# multiplies them — the row that binds is the one whose VALID-TIME WINDOW contains the
+# instant being judged (`billing/plans.py`), which for a ceiling is always NOW: a cap
+# decides whether this dial may happen, and this dial is happening now. It is emphatically
+# not "the newest row", which is what this expression said until effective dating was
+# wired and is how a ceiling agreed for next month could stop today's calling.
+#
+# `now()` is transaction-start time, so the meter's upsert judges its counters and its
+# ceiling at one consistent instant rather than two. Exported so the meter and this
+# module cannot end up capping against different rows.
+CAPS_CTE = plan_in_effect_sql(
+    f"{EFFECTIVE_CAP_MIN_SQL} AS cap_min, {EFFECTIVE_CAP_SPEND_SQL} AS cap_spend", at=NOW_SQL
+)
 
 
 def over_cap_sql(minutes_expr: str, spend_expr: str) -> str:
@@ -190,21 +193,27 @@ class CapView:
         return effective_cap(self.admin_cap_spend, self.client_cap_spend)
 
 
-_PLAN_CAPS_SELECT = (
-    "SELECT id, hard_cap_min, hard_cap_spend, client_cap_min, client_cap_spend "
-    "FROM plans WHERE tenant_id = :tid ORDER BY created_at DESC LIMIT 1"
+_PLAN_CAPS_SELECT = plan_in_effect_sql(
+    "id, hard_cap_min, hard_cap_spend, client_cap_min, client_cap_spend", at=NOW_SQL
 )
 
 
 async def read_caps(session: AsyncSession, *, tenant_id: UUID) -> CapView:
-    """The newest plan row's caps, or an all-NULL view when there is no plan row.
+    """The caps on the plan IN EFFECT NOW, or an all-NULL view when none is.
 
     No plan row is a real state — nothing in the codebase creates one, so an
     admin-onboarded tenant has one only if an operator wrote it by hand. It reads as
     "no constraint from either side", which is what the meter already concludes.
+
+    A tenant whose plan WINDOW has closed with no successor reads the same way, and
+    that is the one case worth a log line rather than a silent shrug: it is a
+    misconfiguration (an `effective_to` written without an `effective_from` to follow
+    it) and its symptom is a ceiling quietly ceasing to bind. `warn_no_plan_in_effect`
+    costs one indexed count and only on the path where there is already no plan.
     """
     row = (await session.execute(text(_PLAN_CAPS_SELECT), {"tid": tenant_id})).first()
     if row is None:
+        await warn_no_plan_in_effect(session, tenant_id=tenant_id)
         return CapView(None, None, None, None)
     return CapView(
         admin_cap_min=int(row[1]) if row[1] is not None else None,
@@ -347,13 +356,19 @@ async def apply_client_caps(
     expressible without a second verb. Clearing is not raising past the admin: it
     returns the client to the admin's ceiling, which is where they started.
 
-    The write updates the NEWEST plan row, or mints one when the tenant has none. A
-    later plan row inserted by an operator does NOT inherit the client's cap, and that
-    is deliberate: `plans` is effective-dated and every reader in the codebase takes
-    the newest row, so a new row is a new agreement — carrying a client's old
-    self-imposed limit into it would apply a number to terms they never saw. What the
-    client set is still on the row it was set against, which is where an operator can
-    read it.
+    The write updates the plan row IN EFFECT NOW, or mints one when none is. A later
+    plan row inserted by an operator does NOT inherit the client's cap, and that is
+    deliberate: `plans` is effective-dated, so a new row is a new agreement — carrying
+    a client's old self-imposed limit into it would apply a number to terms they never
+    saw. What the client set is still on the row it was set against, which is where an
+    operator can read it.
+
+    The minted row is deliberately WINDOWLESS (`effective_from`/`effective_to` NULL =
+    "since forever, until further notice"), which is what an open-ended arrangement is
+    and what every plan row in the database already looks like. One consequence to know:
+    a tenant whose only plan row has EXPIRED gets a fresh windowless row here carrying
+    nothing but their own caps — the client keeps their stop button, and the expired
+    commercial terms stay expired rather than being resurrected by a cap change.
 
     The flag recompute is the reason this is not two statements in the route: a cap
     accepted whose gate is not armed is a cap that does nothing until the next call

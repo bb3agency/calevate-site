@@ -155,7 +155,13 @@ export function useSetPlatformState() {
         // Step-up confirmation (BACKEND-PATTERNS §7): the header must echo the action.
         // It is not a second factor and does not pretend to be — it stops the accidental
         // and the drive-by, and Clerk re-auth replaces it when admin MFA lands.
-        confirmAction: outboundHalted ? "halt_outbound" : "set_platform_state",
+        //
+        // Names the exact TRANSITION, not the endpoint (`ops/routes.py:
+        // platform_confirmation`). The old `set_platform_state` covered halting,
+        // releasing and every load-shed change with one string, so a header captured for
+        // a routine shedding tweak authorised lifting the global outbound halt. This
+        // call never sends `load_shed_mode`, so those strings are not needed here.
+        confirmAction: outboundHalted ? "halt_outbound" : "release_outbound",
       }),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "platform"] }),
   });

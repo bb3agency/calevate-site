@@ -170,6 +170,15 @@ class Settings(BaseSettings):
     # selector; the only name with anything behind it today is `razorpay`, and any
     # other name resolves to `provider_not_implemented` rather than looking configured.
     payment_provider: str | None = None
+    # WHICH telephony vendor may sell this deployment a phone number (D-05: Exotel, with
+    # Vobiz for the 140-series). Config rather than an inference from a credential, for
+    # the same reason `payment_provider` is: a key is not a statement that the
+    # capability exists. NO ADAPTER EXISTS FOR ANY VALUE — `apps/api/campaigns/
+    # provisioning.py` owns the one selector and `PROVISIONING_IMPLEMENTED` is False —
+    # so this setting currently decides only WHICH refusal an operator sees. A name
+    # outside {exotel, vobiz} resolves to `provider_not_implemented` rather than looking
+    # configured.
+    number_provider: str | None = None
     # The PUBLIC key id, handed to the browser's checkout. Unset = the top-up intent
     # answers "payments not configured" rather than returning an unusable intent.
     razorpay_key_id: str | None = None

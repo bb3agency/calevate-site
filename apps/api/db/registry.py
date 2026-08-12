@@ -60,6 +60,10 @@ TENANT_TABLES = [
     # The client's DLT Principal Entity registration + its Calevate TM link. Tenant
     # data (their registrar ids), read by the campaign launch gate (SEC-COMP §3).
     "dlt_registrations",
+    # Subscriber KYC for a telecom connection (R-11's last mitigation). Tenant data —
+    # the business's own registry identifiers — read by the number-provisioning gate and
+    # by the dispatch gate for self-serve tenants.
+    "kyc_records",
     "retention_policies",
     "deletion_requests",
     "inbound_webhooks",

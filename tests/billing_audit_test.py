@@ -100,6 +100,31 @@ async def _tenant(plan_tier: str = "self_serve") -> tuple[uuid.UUID, uuid.UUID]:
     return tenant_id, agent_id
 
 
+async def _verify_kyc(tenant_id: uuid.UUID) -> None:
+    """Clear this tenant's subscriber KYC (migration a3f6b1e02d95), so a wallet test
+    reaches the wallet question instead of stopping at the identity one."""
+    from apps.api.compliance.kyc import record_kyc
+
+    admin_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
+                "VALUES (:id, :cid, 'Ops', 'superadmin', now(), now())"
+            ),
+            {"id": admin_id, "cid": f"admin_{uuid.uuid4().hex[:12]}"},
+        )
+    async with tenant_session(tenant_id) as session:
+        await record_kyc(
+            session,
+            tenant_id=tenant_id,
+            status="verified",
+            document_kind="cin",
+            document_ref="U74999TG2026PTC000002",
+            verified_by_admin_id=admin_id,
+        )
+
+
 async def _seed_usage(
     tenant_id: uuid.UUID,
     agent_id: uuid.UUID,
@@ -699,6 +724,10 @@ async def test_an_exhausted_wallet_reads_the_same_on_the_panel_and_at_the_gate()
     """Self-serve: `Balance.is_exhausted` (`<= 0`) is what the gate enforces, so the
     panel must not show minutes to an account that cannot dial."""
     tenant_id, agent_id = await _tenant("self_serve")
+    # Identity before money: `check_dispatch` asks about subscriber KYC before the
+    # wallet for a self-serve tenant (migration a3f6b1e02d95), so a test about the
+    # WALLET has to clear the identity gate first — exactly as production does.
+    await _verify_kyc(tenant_id)
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET status = 'live', direction = 'outbound' WHERE id = :a"),

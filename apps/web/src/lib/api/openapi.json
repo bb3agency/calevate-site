@@ -3048,6 +3048,116 @@
         "title": "InvoiceUsageOut",
         "type": "object"
       },
+      "KycRecordIn": {
+        "additionalProperties": false,
+        "description": "What an operator recorded after verifying a business's identity (R-11).\n\nDeliberately NOT a document upload. Indian business-connection KYC is satisfied\nagainst the entity's registry documents (DoT's Aug-2023/May-2024 business-connection\ninstructions \u2014 see `apps/api/compliance/kyc.py` for the sources), and the documents\nthemselves belong with the licensee's Customer Acquisition Form, not in our\ndatabase. What we keep is the REFERENCE: which registry, which identifier, who\nsigned, and where the pack is filed. There is no field here that could carry an\nAadhaar or a personal PAN, and a DB CHECK stands behind that.\n\n`verified_at` is absent on purpose and is stamped by the database. An operator who\ncould supply the date a verification happened could supply any date, and the whole\nvalue of that column to an auditor is that it records when the system observed the\nfact \u2014 `dlt_registrations.verified_at` means the same thing for the same reason.",
+        "properties": {
+          "document_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cin",
+                  "llpin",
+                  "gstin",
+                  "udyam",
+                  "shop_establishment",
+                  "trade_licence"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Kind"
+          },
+          "document_ref": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ref"
+          },
+          "entity_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "sole_proprietorship",
+                  "partnership",
+                  "llp",
+                  "private_limited",
+                  "public_limited",
+                  "trust_or_society",
+                  "huf"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Type"
+          },
+          "evidence_ref": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Ref"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "signatory_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signatory Name"
+          },
+          "status": {
+            "enum": [
+              "not_started",
+              "submitted",
+              "in_review",
+              "verified",
+              "rejected",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "KycRecordIn",
+        "type": "object"
+      },
       "LaneOut": {
         "additionalProperties": false,
         "properties": {
@@ -3692,6 +3802,33 @@
         "title": "NumberOut",
         "type": "object"
       },
+      "NumberPurchaseIn": {
+        "additionalProperties": false,
+        "description": "What a purchase needs from the client, and nothing it does not.\n\n`series` is DLT's number-class distinction (DATA-MODEL \u00a76): 140 dials promotions,\n160/standard dials service and transactional. It is asked here rather than assigned\nlater because a number's series is fixed at purchase and a mismatch with the\ncampaign's classification is a DLT violation the launch gate then has to refuse\n(`number_series_mismatch`).\n\n`city` is required because Exotel's own onboarding requires the KYC address proof to\nreflect the city the number is bought in \u2014 a number bought against an address in\nanother city is one the operator will not issue, whatever we record here.",
+        "properties": {
+          "city": {
+            "maxLength": 64,
+            "minLength": 2,
+            "title": "City",
+            "type": "string"
+          },
+          "series": {
+            "enum": [
+              "140",
+              "160",
+              "standard"
+            ],
+            "title": "Series",
+            "type": "string"
+          }
+        },
+        "required": [
+          "series",
+          "city"
+        ],
+        "title": "NumberPurchaseIn",
+        "type": "object"
+      },
       "OrganizationOut": {
         "additionalProperties": false,
         "properties": {
@@ -4082,6 +4219,8 @@
             "title": "Outbound Halted"
           },
           "reason": {
+            "maxLength": 500,
+            "minLength": 3,
             "title": "Reason",
             "type": "string"
           }
@@ -4095,6 +4234,17 @@
       "PlatformStateOut": {
         "additionalProperties": false,
         "properties": {
+          "halt_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Halt Reason"
+          },
           "load_shed_mode": {
             "title": "Load Shed Mode",
             "type": "string"
@@ -4110,6 +4260,7 @@
         "required": [
           "load_shed_mode",
           "outbound_halted",
+          "halt_reason",
           "tm_registration"
         ],
         "title": "PlatformStateOut",
@@ -5892,6 +6043,50 @@
         "title": "WritePromptIn",
         "type": "object"
       },
+      "apps__api__admin__routes__KycRecordOut": {
+        "additionalProperties": false,
+        "properties": {
+          "document_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Kind"
+          },
+          "document_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ref"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "status",
+          "document_kind",
+          "document_ref"
+        ],
+        "title": "KycRecordOut",
+        "type": "object"
+      },
       "apps__api__admin__routes__PublishOut": {
         "additionalProperties": false,
         "properties": {
@@ -5940,6 +6135,141 @@
           "status"
         ],
         "title": "PublishOut",
+        "type": "object"
+      },
+      "apps__api__compliance__kyc_routes__KycRecordOut": {
+        "additionalProperties": false,
+        "description": "This account's identity verification, as ops last recorded it.\n\nEvery field except `recorded`, `is_verified` and `number_purchase_available` is\nnullable, because all of them are genuinely absent before anything is filed.\n`is_verified` is computed server-side for the same reason `PeRegistrationOut`'s\n`is_active` is: \"is `in_review` good enough\" is a question the console must not\nanswer for itself, and this response and the dispatch gate must never disagree.",
+        "properties": {
+          "document_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Kind"
+          },
+          "document_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ref"
+          },
+          "entity_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Type"
+          },
+          "evidence_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Ref"
+          },
+          "is_verified": {
+            "title": "Is Verified",
+            "type": "boolean"
+          },
+          "number_purchase_available": {
+            "title": "Number Purchase Available",
+            "type": "boolean"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "signatory_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signatory Name"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          }
+        },
+        "required": [
+          "recorded",
+          "status",
+          "entity_type",
+          "document_kind",
+          "document_ref",
+          "signatory_name",
+          "evidence_ref",
+          "rejection_reason",
+          "submitted_at",
+          "verified_at",
+          "is_verified",
+          "number_purchase_available"
+        ],
+        "title": "KycRecordOut",
         "type": "object"
       }
     }
@@ -7477,6 +7807,57 @@
         "x-calevate-permission": "agents:write"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/kyc": {
+      "post": {
+        "description": "Records what Calevate verified about a client's business, against which registry document, and who verified it. Upserts: re-recording is what happens on every re-verification. Only a `verified` record opens number provisioning (every plan tier) and outbound dialling for a self-serve account. There is deliberately no client-facing twin \u2014 a business that could mark its own identity verified would be marking the telecom gate green on a check nobody performed.",
+        "operationId": "record_kyc_verification_v1_admin_tenants__tenant_id__kyc_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KycRecordIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/apps__api__admin__routes__KycRecordOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record the outcome of verifying this business's identity (R-11's last gate)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/margin": {
       "get": {
         "description": "Admin realm only. `unit_cost_paid` is our supplier pricing \u2014 it is the reason\nthis lives here and not beside the client's usage panel.\n\nRuns under a tenant-scoped session because `usage_events` is RLS'd and stays that\nway: `app.admin` opens the client DIRECTORY, never their data (migration\nb57e2f9c4a13). An operator reads one client's numbers by entering that client's\nscope deliberately, exactly like impersonation does for pages.",
@@ -8904,6 +9285,35 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/compliance/kyc": {
+      "get": {
+        "description": "What Calevate has verified about this business, and whether that is enough to buy a phone number. Read-only: Indian telecom rules make the subscriber's identity something the provider verifies, never something the subscriber asserts, so verification is recorded by Calevate operations. A business with nothing on file yet gets `recorded: false` and a 200.",
+        "operationId": "read_kyc_record_v1_compliance_kyc_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/apps__api__compliance__kyc_routes__KycRecordOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This account's identity verification \u2014 absence is data, not a 404",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/v1/compliance/messaging-consent": {
       "post": {
         "description": "Appends one row to the consent ledger. A withdrawal is a new row with `status: withdrawn`, never an edit of the opt-in it supersedes. A grant must carry evidence, and your own staff may only record an opt-OUT.",
@@ -10083,6 +10493,49 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/numbers/purchase": {
+      "post": {
+        "description": "Requests a phone number for this account. Refused with `kyc_not_verified` until Calevate has verified the business's identity \u2014 Indian telecom rules require the subscriber of a connection to be identified, and that applies to every account on every plan. A verified account is then refused with `number_provisioning_not_configured`, because this deployment holds no telephony-provider credentials and no provisioning adapter exists: numbers are provisioned by Calevate operations today. Neither refusal writes anything.",
+        "operationId": "purchase_number_v1_numbers_purchase_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NumberPurchaseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Purchase Number V1 Numbers Purchase Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Buy a phone number \u2014 gated on verified KYC, and not implemented yet",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/ops/audit/verify": {
       "get": {
         "operationId": "verify_audit_chain_v1_ops_audit_verify_get",
@@ -10167,6 +10620,7 @@
         "x-calevate-permission": "ops:manage"
       },
       "post": {
+        "description": "Bound to the transition, and the reason lands where the dashboard reads it.\n\nTHE CONFIRMATION. `platform_confirmation` names the exact move being made \u2014 see its\ndocstring for why one string across three moves was a hole rather than a\nconvenience. This is a BREAKING change to an ops surface and is meant to be: the old\n`set_platform_state` header now authorises nothing, in either direction, and the\nrefusal carries the header that would have worked.\n\nTHE REASON. `halt_reason` is written in the same statement as `outbound_halted`\n(`core.loadshed.set_platform_status`) and cleared on release. Until now the reason\nwent only into `write_audit`'s `summary` \u2014 and `audit_log` HAS NO SUMMARY COLUMN\n(`compliance/audit.py`: the sanitised summary goes to the log stream keyed by entry\nid), so the one question an operator asks first was answerable only by someone who\nknew to grep the right log stream. The column is the live answer; `audit_log`\nremains the history of who moved it and when.\n\nONE AUDIT ROW PER TRANSITION. A request that halts AND sheds performed two actions,\nand one row named after the more dramatic of them would make \"when did we last halt\neveryone\" a full-text hunt through a generic action. The rows are written on\n`global_db`, which commits at the end of the request, so they land together.",
         "operationId": "set_platform_v1_ops_platform_post",
         "parameters": [
           {

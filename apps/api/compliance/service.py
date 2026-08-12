@@ -15,6 +15,13 @@ Checks, in the order that fails cheapest-first:
    Checked for `self_serve`/`trial` only: a managed client is invoiced against a
    retainer, and blocking their calls over a credit balance they never bought would be
    an outage caused by a concept that does not apply to them.
+2c. **Subscriber KYC** — a self-serve tenant whose business identity we have not
+   verified cannot dial (R-11's last mitigation; SURFACES §2b, FLOWS §2). Also
+   `self_serve`/`trial` only, and `apps/api/compliance/kyc.py` argues at length why
+   that is the right line and where the residual risk is: a managed tenant's identity
+   was verified out of band before we bought their number, and is already gated at
+   dial time by `pe_registration_*`. Provisioning a NEW number is gated for every
+   tier — that gate is in `campaigns/provisioning.py` and has no tier test at all.
 3. **Calling hours** — per-tenant window in IST (SEC-COMP §3).
 4. **DNC** — global + tenant entries, read LIVE. Additions must take effect before the
    next dispatch tick (hard rule 5), so this must never be cached.
@@ -34,6 +41,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
+from apps.api.compliance.kyc import KYC_MISSING_REASON, kyc_not_verified_reason, read_kyc
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
@@ -113,6 +121,36 @@ async def credits_exhausted(session: AsyncSession, *, tenant_id: UUID) -> bool:
     return balance.is_exhausted
 
 
+# The tiers whose identity we have not verified out of band. `credits_exhausted` draws
+# the same line for the same shape of reason, and it is named ONCE so the two predicates
+# cannot drift into disagreeing about which motion a tenant is on.
+SELF_SERVE_TIERS = ("self_serve", "trial")
+
+
+async def kyc_blocker(session: AsyncSession, *, tenant_id: UUID) -> tuple[str, str] | None:
+    """`(rule, reason)` if subscriber KYC blocks this tenant's outbound, else None.
+
+    Returns the PAIR rather than a bool because the two failures are different facts
+    with different next actions — nothing filed at all, versus filed and not cleared —
+    and both the dial gate and the launch preview must name them identically. Split out
+    here, and not inlined into `check_dispatch`, for exactly the reason `spend_capped`
+    is: `campaigns.service.launch_blockers` asks the same question, and a campaign that
+    launches "ready" and is then refused on every dial is the shape that produces.
+
+    Self-serve and trial only. The argument for that line — including why a tier-blind
+    DIAL gate would block every existing client without closing the risk, while the
+    tier-blind PROVISIONING gate does close it — is in `apps/api/compliance/kyc.py`.
+    """
+    if await plan_tier_of(session, tenant_id) not in SELF_SERVE_TIERS:
+        return None
+    record = await read_kyc(session, tenant_id=tenant_id)
+    if not record.recorded:
+        return ("kyc_missing", KYC_MISSING_REASON)
+    if not record.is_verified:
+        return ("kyc_not_verified", kyc_not_verified_reason(str(record.status)))
+    return None
+
+
 async def check_dispatch(
     session: AsyncSession,
     *,
@@ -161,6 +199,14 @@ async def check_dispatch(
             rule="agent_inbound_only",
             reason="This agent only answers calls; it cannot place them.",
         )
+
+    # Before the money questions on purpose: "we do not know who you are" outranks "you
+    # have run out of credit", and answering in the other order would tell an unverified
+    # account to top up when topping up will not let them dial.
+    blocked_on_kyc = await kyc_blocker(session, tenant_id=tenant_id)
+    if blocked_on_kyc is not None:
+        rule, reason = blocked_on_kyc
+        return DispatchDecision(allowed=False, rule=rule, reason=reason)
 
     if await spend_capped(session, tenant_id=tenant_id):
         return DispatchDecision(
@@ -244,6 +290,7 @@ __all__ = [
     "DEFAULT_WINDOW",
     "IST",
     "NO_CREDITS_REASON",
+    "SELF_SERVE_TIERS",
     "SPEND_CAP_REASON",
     "DispatchDecision",
     "add_to_dnc",
@@ -251,6 +298,7 @@ __all__ = [
     "check_dispatch",
     "credits_exhausted",
     "ist_now",
+    "kyc_blocker",
     "spend_capped",
     "within_calling_hours",
 ]

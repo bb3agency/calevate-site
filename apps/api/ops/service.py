@@ -1,4 +1,10 @@
-"""Calevate's own DLT telemarketer registration — the platform-level compliance fact.
+"""The reads behind the ops switchboard: the big red switch's REASON, and Calevate's own
+DLT telemarketer registration — the platform-level compliance fact.
+
+Both live on `platform_state`, both are read here rather than through `core.loadshed`'s
+cache, and for the same reason: that cache exists to make a per-request shed decision
+cheap, and neither of these is a per-request decision. See `read_halt_state` and the
+registration note below.
 
 SEC-COMP §3's first bullet has two halves and they live in two different places:
 
@@ -57,6 +63,46 @@ TM_REGISTRATION_MISSING_REASON = (
     "agents keep answering inbound calls normally. Nothing to do at your end — we are "
     "on it."
 )
+
+
+@dataclass(frozen=True, slots=True)
+class HaltState:
+    """The big red switch and the note pinned to it, read from the same row.
+
+    `reason` is None whenever `outbound_halted` is false — BY CONSTRUCTION, not by
+    convention (see `read_halt_state`). "Why are we not dialling" only has an answer
+    while we are not dialling, and a leftover string beside a running platform is a
+    worse lie than an empty field: it reads as current, and an operator acting on last
+    week's incident is the failure this pairing exists to prevent.
+    """
+
+    outbound_halted: bool
+    reason: str | None
+
+
+async def read_halt_state(session: AsyncSession) -> HaltState:
+    """Both halves of the switch in ONE row read, on the caller's connection.
+
+    Not from `core.loadshed`'s cache, and not as two reads. The cache is the hot-path
+    shed decision with a deliberate 15-second window (right for a mode consulted on
+    every request); this is the incident answer a human is reading, and it must not be
+    able to show a halt from one instant beside a reason from another. One row, one
+    statement, no skew — the same reasoning as `read_tm_registration` above.
+
+    Fails to "not halted" on a missing row, matching `loadshed._read_durable`'s
+    deliberate fail-OPEN rather than this module's fail-CLOSED registration read: a
+    fresh database has never been halted, and inventing a halt out of an absent seed row
+    would be a self-inflicted outage.
+    """
+    row = (
+        await session.execute(
+            text("SELECT outbound_halted, halt_reason FROM platform_state WHERE id = 1")
+        )
+    ).first()
+    if row is None:
+        return HaltState(outbound_halted=False, reason=None)
+    halted = bool(row[0])
+    return HaltState(outbound_halted=halted, reason=(row[1] or None) if halted else None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,7 +218,9 @@ async def set_tm_registration(
 __all__ = [
     "TM_REGISTRATION_MISSING_REASON",
     "TM_REGISTRATION_STATUSES",
+    "HaltState",
     "TmRegistration",
+    "read_halt_state",
     "read_tm_registration",
     "set_tm_registration",
 ]

@@ -40,6 +40,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.caps import EFFECTIVE_CAP_MIN_SQL, EFFECTIVE_CAP_SPEND_SQL
+from apps.api.billing.plans import (
+    month_pricing_instant,
+    parse_billing_month,
+    plan_in_effect_sql,
+    warn_no_plan_in_effect,
+)
 from apps.api.billing.rates import TtsTier, tier_correction_inr
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -417,6 +423,10 @@ async def usage_summary(
     because a client cannot act on "llm_tok_out" and does not buy tokens from us.
     """
     period = month or current_billing_month()
+    # WHICH INSTANT THIS MONTH IS PRICED AT, resolved (and the month validated) BEFORE
+    # any query runs — a month we cannot parse is a month we cannot pick a plan for, and
+    # a 422 up front beats a ₹0.00 statement for `?month=july`.
+    priced_at = month_pricing_instant(period)
     row = (
         await session.execute(
             # `tenant_id` is named in the predicate, not left to RLS alone: the plan,
@@ -440,6 +450,11 @@ async def usage_summary(
     minutes = to_paise(Decimal(str(row[0] if row else 0)))
     calls = int(row[1] or 0) if row else 0
 
+    # WHICH PLAN PRICES THIS MONTH. Not the newest row — the row whose valid-time
+    # window contains `priced_at` (`billing/plans.py`). For a closed month that instant
+    # is the month's last, so a re-rendered July invoice quotes July's terms however
+    # many times a plan has changed since; for the current month it is now, so terms
+    # dated to start later this month do not price today.
     plan = (
         await session.execute(
             text(
@@ -447,13 +462,19 @@ async def usage_summary(
                 # `billing/caps.py` — so the panel reports the ceiling that actually
                 # binds. Reporting the admin's while the client's is stricter would show
                 # a client headroom the gate will refuse them.
-                "SELECT monthly_fee, included_min, overage_rate, "
-                f"  {EFFECTIVE_CAP_MIN_SQL}, {EFFECTIVE_CAP_SPEND_SQL}, overage_rate_value "
-                "FROM plans WHERE tenant_id = :tid ORDER BY created_at DESC LIMIT 1"
+                plan_in_effect_sql(
+                    "monthly_fee, included_min, overage_rate, "
+                    f"{EFFECTIVE_CAP_MIN_SQL}, {EFFECTIVE_CAP_SPEND_SQL}, overage_rate_value"
+                )
             ),
-            {"tid": tenant_id},
+            {"tid": tenant_id, "at": priced_at},
         )
     ).first()
+    if plan is None:
+        # Distinguishes "this tenant has no plan" (normal — nothing creates one) from
+        # "this tenant HAS plans and none covers the month we are pricing", which is an
+        # operator error that would otherwise show up only as a mysteriously free month.
+        await warn_no_plan_in_effect(session, tenant_id=tenant_id, at=priced_at)
     included = int(plan[1] or 0) if plan else 0
     overage_rate = Decimal(str(plan[2])) if plan and plan[2] is not None else Decimal("0")
     # NULL is not zero: "this plan quotes no separate value rate" (bill everything at
@@ -585,6 +606,9 @@ async def tier_usage(
     three buckets always add up to that panel's `minutes_used` for the same month.
     """
     period = month or current_billing_month()
+    # Validated for the same reason `usage_summary` validates it, and by the same
+    # function: two panels reading one ledger must not disagree about what a month is.
+    parse_billing_month(period)
     minutes, cost = await _tier_totals(session, tenant_id=tenant_id, month=period)
 
     return {

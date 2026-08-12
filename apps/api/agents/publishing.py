@@ -83,6 +83,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_MIN_S
 from apps.api.agents.service import effective_call_cap, publish_agent
+from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.billing.service import to_paise
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -293,8 +294,11 @@ async def _overage_rate(session: AsyncSession, tenant_id: UUID) -> Decimal | Non
             text(
                 # GREATEST ignores NULLs, so a plan quoting only one rate answers with
                 # it — the same reason `billing/caps.py` uses LEAST for the cap pair.
-                "SELECT GREATEST(overage_rate, overage_rate_value) FROM plans "
-                "WHERE tenant_id = :tid ORDER BY created_at DESC LIMIT 1"
+                #
+                # Resolved through `plan_in_effect_sql` rather than "newest row wins":
+                # a quote is a promise about the NEXT call, so it must price on the plan
+                # in force now, not on one an operator has staged for next month.
+                plan_in_effect_sql("GREATEST(overage_rate, overage_rate_value)", at=NOW_SQL)
             ),
             {"tid": tenant_id},
         )

@@ -133,8 +133,40 @@ async def test_the_ledger_is_append_only() -> None:
             )
 
 
+async def _verify_kyc(tenant_id: uuid.UUID) -> None:
+    """Clear this tenant's subscriber KYC (migration a3f6b1e02d95).
+
+    Needed because `check_dispatch` asks about identity BEFORE money for self-serve
+    tenants — telling an unverified account to top up when topping up will not let them
+    dial is a worse answer than the right one. So a test about the WALLET has to get
+    past the identity gate first, exactly as production does.
+    """
+    from apps.api.compliance.kyc import record_kyc
+    from apps.api.db.session import untenanted_session
+
+    admin_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
+                "VALUES (:id, :cid, 'Ops', 'superadmin', now(), now())"
+            ),
+            {"id": admin_id, "cid": f"admin_{uuid.uuid4().hex[:12]}"},
+        )
+    async with tenant_session(tenant_id) as session:
+        await record_kyc(
+            session,
+            tenant_id=tenant_id,
+            status="verified",
+            document_kind="cin",
+            document_ref="U74999TG2026PTC000001",
+            verified_by_admin_id=admin_id,
+        )
+
+
 async def test_an_empty_wallet_blocks_dispatch_for_a_self_serve_tenant() -> None:
     tenant_id = await _tenant("self_serve")
+    await _verify_kyc(tenant_id)
     async with tenant_session(tenant_id) as session:
         agent_id = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar()
         await session.execute(

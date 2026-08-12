@@ -111,6 +111,29 @@ same client app** — a self-serve org is the same `organizations` row with a di
     anywhere in the codebase** — TRD §10.1's bands are unmeasured, so the number is a
     founder decision, not a derivation.
 - **Number purchase + KYC**: gated; calling stays disabled until verification clears.
+  **SHIPPED** (migration `a3f6b1e02d95`, `kyc_records`). Two gates, and they answer the
+  plan-tier question differently on purpose — the argument is in
+  `apps/api/compliance/kyc.py`, with the DoT/TRAI sources it rests on. **Dialling** is
+  gated for `self_serve`/`trial` only, exactly as `credits_exhausted` is:
+  `compliance.service.check_dispatch` refuses with `kyc_missing` / `kyc_not_verified`
+  and `campaigns.service.launch_blockers` previews the same names, while a managed
+  tenant's identity was verified out of band before we bought their number and is
+  already gated by `pe_registration_*`. **Buying a number** —
+  `POST /v1/numbers/purchase` (`org:manage`) — is gated for **every** tier, because the
+  DoT business-connection obligation attaches to the connection and a control keyed on
+  an admin-settable column is a control one support ticket from being switched off.
+  Inbound is untouched (D-38): the gate is outbound-only and inbound never enters it.
+  Ops records the verification through `POST /v1/admin/tenants/{tenant_id}/kyc`
+  (`admin:tenants`, audited); the client reads their own state at
+  `GET /v1/compliance/kyc` (`org:read`, absence is a 200 with `recorded: false`), and
+  there is deliberately no client-realm write. **NOT IMPLEMENTED: provisioning itself.**
+  D-05's vendors are a decision, not a credential — no telephony account, no adapter —
+  so a verified account's purchase is refused with `number_provisioning_not_configured`
+  and `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False` is the greppable
+  constant. Numbers are provisioned by operations out of band today. **No identity
+  document is stored anywhere**: `kyc_records` keeps a public business-registry
+  identifier and a reference to where the pack is filed, and a CHECK constraint refuses
+  a value shaped like an Aadhaar.
 
 **Patterns worth adopting (evidence: teardown §9c/§9d — all verified in their product)**
 - **"Needs attention" queue** — leads on hold or awaiting retry, with early release. This

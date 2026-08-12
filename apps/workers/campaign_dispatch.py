@@ -59,6 +59,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from apps.api.agents.service import dispatch_call
+from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.campaigns.service import campaign_window_open, dispatch_blockers
 
 # Module import (not `from ... import ist_now`) so tests that pin the compliance
@@ -186,8 +187,10 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
                         "SELECT (SELECT count(*) FROM calls WHERE direction = 'outbound' "
                         f"    AND status IN {ACTIVE_STATUSES!r} "
                         f"    AND updated_at > now() - interval '{ACTIVE_CALL_HORIZON}'), "
-                        "  (SELECT concurrency_ceiling FROM plans WHERE tenant_id = :tid "
-                        "    ORDER BY created_at DESC LIMIT 1), "
+                        # The plan IN EFFECT, not the newest row: a ceiling staged for
+                        # next month must not throttle this month's dialling, and one
+                        # whose window has closed must not keep granting lines.
+                        f"  ({plan_in_effect_sql('concurrency_ceiling', at=NOW_SQL)}), "
                         # Same reason this is a SUBQUERY and not a join to the two
                         # above: `campaigns` joined to `plans` is exactly the multiplication
                         # described above. `ORDER BY` inside the aggregate keeps the
