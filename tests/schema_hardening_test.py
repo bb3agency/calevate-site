@@ -29,7 +29,8 @@ import asyncio
 import json
 import uuid
 from datetime import timedelta
-from typing import Any
+from decimal import Decimal
+from typing import Any, NamedTuple
 
 import pytest
 from apps.api.db.base import uuid7
@@ -37,6 +38,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.reliability import service as rel
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 RUN = uuid.uuid4().hex[:12]
 
@@ -292,52 +294,242 @@ async def test_the_extraction_key_leads_with_the_tenant_so_it_cannot_leak() -> N
 # =============================================== 2. the credit balance read and its index
 
 
-async def test_the_balance_read_walks_its_index_instead_of_sorting() -> None:
-    """`_newest_balance` is on the pre-dispatch path of every top-up and every per-call
-    charge. With only `ix_credit_ledger_tenant_id` the plan finds a tenant's rows and
-    then SORTS all of them to answer LIMIT 1 — a full sort of a client's ledger history
-    to read one number, which gets slower every month they stay with us.
+# The read this section is about, character for character as `apps/api/billing/
+# service.py::_newest_balance` issues it. If that ORDER BY ever changes, this string has
+# to change with it — and the test below then measures the NEW read against the index,
+# which is the only comparison worth making.
+BALANCE_READ = (
+    "SELECT balance_after FROM credit_ledger WHERE tenant_id = :tid "
+    "ORDER BY occurred_at DESC, id DESC LIMIT 1"
+)
 
-    `enable_seqscan = off` makes the assertion about the ORDERING rather than about how
-    big this particular table happens to be today: with a seq scan off the table, any
-    index the planner picks other than this one still has to sort. So "no Sort node" is
-    exactly the property the index was added for. Pre-migration this test fails with a
-    Sort in the plan.
+# Two ledgers, three orders of magnitude apart: the measurement is the DIFFERENCE between
+# them, so `LONG_LEDGER` only has to be big enough that "the plan read the whole ledger"
+# and "the plan read one row" can never be mistaken for each other. Nothing here is
+# committed (see `_measure_balance_read`), so the size costs a few milliseconds per run
+# rather than a permanently fatter shared table.
+LONG_LEDGER = 2000
+SHORT_LEDGER = 2
+
+# The two entries that share one `occurred_at`. Balances far above any generated row's,
+# so the number the read returns names WHICH entry it walked to.
+TIE_LOSER = Decimal("90001.0000")
+TIE_WINNER = Decimal("90002.0000")
+
+
+def _plan_nodes(node: dict[str, Any], depth: int = 0) -> list[dict[str, Any]]:
+    """Every node of an EXPLAIN (FORMAT JSON) plan tree, parents before children.
+
+    FORMAT JSON rather than the default text because the assertions below are about node
+    TYPES and ACTUAL ROW COUNTS, and reading those out of indented prose with `in` is how
+    a plan assertion ends up matching the word "Sort" inside `Sort Key:` — or missing an
+    `Incremental Sort` because the string it was looking for was an index name.
     """
-    async with untenanted_session() as session:
-        plan = "\n".join(
-            str(r[0])
-            for r in (
-                await session.execute(
-                    text(
-                        "EXPLAIN SELECT balance_after FROM credit_ledger WHERE tenant_id = :tid "
-                        "ORDER BY occurred_at DESC, id DESC LIMIT 1"
-                    ),
-                    {"tid": uuid7()},
-                )
-            ).all()
-        )
-        await session.execute(text("SET LOCAL enable_seqscan = off"))
-        forced = "\n".join(
-            str(r[0])
-            for r in (
-                await session.execute(
-                    text(
-                        "EXPLAIN SELECT balance_after FROM credit_ledger WHERE tenant_id = :tid "
-                        "ORDER BY occurred_at DESC, id DESC LIMIT 1"
-                    ),
-                    {"tid": uuid7()},
-                )
-            ).all()
-        )
+    nodes = [{**node, "_depth": depth}]
+    for child in node.get("Plans", []):
+        nodes.extend(_plan_nodes(child, depth + 1))
+    return nodes
 
-    assert "ix_credit_ledger_tenant_recent" in forced, (
-        f"the balance read must reach the newest entry through its own index:\n{forced}"
+
+def _plan_summary(nodes: list[dict[str, Any]]) -> str:
+    """The plan as a few readable lines — what ran, and how many rows it touched.
+
+    A failure here is read by a human deciding whether an index regressed, and
+    `json.dumps` of an ANALYZE/BUFFERS tree buries that in 200 lines of block counters.
+    """
+    lines = []
+    for n in nodes:
+        via = f" using {n['Index Name']}" if n.get("Index Name") else ""
+        on = f" on {n['Relation Name']}" if n.get("Relation Name") else ""
+        lines.append(
+            f"{'  ' * int(n['_depth'])}-> {n['Node Type']}{via}{on} "
+            f"(actual rows={n.get('Actual Rows')}, cost={n.get('Total Cost')}, "
+            f"buffers={n.get('Shared Hit Blocks', 0) + n.get('Shared Read Blocks', 0)})"
+        )
+    return "\n".join(lines)
+
+
+async def _explain_balance_read(
+    session: AsyncSession, tenant_id: uuid.UUID, *, forced: bool = False
+) -> tuple[list[dict[str, Any]], str]:
+    """Run the balance read under EXPLAIN (ANALYZE) and return (plan nodes, plan text).
+
+    `forced=True` first tells the planner that sorting and seq-scanning are unattractive
+    (`enable_sort`/`enable_seqscan` are DISCOURAGEMENTS, not prohibitions — PostgreSQL
+    "cannot suppress explicit sorts entirely", it only avoids them where another method
+    exists, https://www.postgresql.org/docs/16/runtime-config-query.html). That is
+    precisely what makes them a usable probe: if a Sort node SURVIVES being made
+    astronomically expensive, no index can carry this ordering — which is the regression
+    this section exists to catch, and it reads the same on any data volume.
+
+    `jit = off` because PG16 prices a discouraged node at disable_cost = 1e10, and a plan
+    costed in the billions trips the JIT thresholds; the failure case would otherwise
+    spend seconds compiling the plan it is about to fail on.
+    """
+    if forced:
+        await session.execute(text("SET LOCAL jit = off"))
+        await session.execute(text("SET LOCAL enable_sort = off"))
+        await session.execute(text("SET LOCAL enable_seqscan = off"))
+    root = (
+        await session.execute(
+            text(f"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {BALANCE_READ}"), {"tid": tenant_id}
+        )
+    ).scalar()
+    assert root, "EXPLAIN returned nothing"
+    nodes = _plan_nodes(root[0]["Plan"])
+    return nodes, _plan_summary(nodes)
+
+
+def _rows_examined(nodes: list[dict[str, Any]], plan_text: str) -> int:
+    """Rows the plan actually pulled OFF `credit_ledger` — the number the index is
+    supposed to hold at 1 no matter how long the ledger is."""
+    scans = [n for n in nodes if n.get("Relation Name") == "credit_ledger"]
+    assert len(scans) == 1, f"expected exactly one scan of credit_ledger:\n{plan_text}"
+    return int(scans[0]["Actual Rows"])
+
+
+class BalanceRead(NamedTuple):
+    """One tenant's balance read, measured rather than described."""
+
+    entries: int
+    rows_examined: int
+    sort_nodes: list[str]
+    answer: Decimal | None
+    forced_plan: str
+    planners_own_choice: str
+
+
+async def _measure_balance_read(entries: int) -> BalanceRead:
+    """Build a tenant with `entries` ledger rows, read its balance under EXPLAIN, and
+    ABANDON the whole thing.
+
+    The ledger is never committed. Hard rule 4 forbids UPDATE and DELETE on
+    `credit_ledger` — the `credit_ledger_append_only` trigger enforces it at the database
+    — so a test that committed thousands of rows on every run would fatten the shared
+    database forever with no way to clean up after itself. A rollback is not a deletion:
+    these rows were never facts. Everything the measurement needs (the index, the
+    planner, the executor) is fully live inside the transaction that wrote them.
+    """
+    tenant_id = uuid7()
+    async with tenant_session(tenant_id) as s:
+        await s.execute(
+            text(
+                "INSERT INTO organizations (id, name, slug, status, created_at, updated_at) "
+                "VALUES (:id, 'Ledger growth', :slug, 'active', now(), now())"
+            ),
+            {"id": tenant_id, "slug": f"sh-grow-{tenant_id.hex[:12]}"},
+        )
+        await s.execute(
+            text(
+                "INSERT INTO credit_ledger (id, tenant_id, delta, reason, ref, balance_after, "
+                "occurred_at, created_at) SELECT gen_random_uuid(), :tid, 1.0000, 'topup', "
+                "NULL, g, now() - make_interval(secs => g), now() "
+                "FROM generate_series(1, :n) g"
+            ),
+            {"tid": tenant_id, "n": entries},
+        )
+        # Two entries sharing one `occurred_at`, newest last: `id DESC` is then the only
+        # thing that can say which of them the balance is. uuid7 ids ascend with time, so
+        # the second insert is both the later write and the greater key.
+        for balance in (TIE_LOSER, TIE_WINNER):
+            await s.execute(
+                text(
+                    "INSERT INTO credit_ledger (id, tenant_id, delta, reason, ref, "
+                    "balance_after, occurred_at, created_at) VALUES (:id, :tid, 1.0000, "
+                    "'topup', NULL, :bal, now(), now())"
+                ),
+                {"id": uuid7(), "tid": tenant_id, "bal": balance},
+            )
+
+        # Unforced FIRST: `SET LOCAL` lasts the rest of the transaction, so once the
+        # planner has been told sorting is expensive there is no way back to its own
+        # opinion within this ledger.
+        _, unforced_text = await _explain_balance_read(s, tenant_id)
+        forced, forced_text = await _explain_balance_read(s, tenant_id, forced=True)
+        answer = (await s.execute(text(BALANCE_READ), {"tid": tenant_id})).scalar()
+        await s.rollback()
+
+    return BalanceRead(
+        entries=entries + 2,
+        rows_examined=_rows_examined(forced, forced_text),
+        sort_nodes=[n["Node Type"] for n in forced if "Sort" in str(n["Node Type"])],
+        answer=Decimal(answer) if answer is not None else None,
+        forced_plan=forced_text,
+        planners_own_choice=unforced_text,
     )
-    assert "Sort" not in forced, f"the index must CARRY the ordering, not feed a sort:\n{forced}"
-    # Reported, not asserted: on an empty-ish table the planner may legitimately prefer a
-    # seq scan. What must not happen is that it has no ordered index available at all.
-    assert plan, "EXPLAIN returned nothing"
+
+
+async def test_the_balance_read_does_not_get_slower_as_the_ledger_grows() -> None:
+    """THE property `ix_credit_ledger_tenant_recent` was added for: reading a wallet
+    balance costs the same on a client's first day and on their thousandth.
+
+    `_newest_balance` is on the pre-dispatch path of every top-up and every per-call
+    charge. With only `ix_credit_ledger_tenant_id` the plan finds a tenant's rows and
+    then sorts ALL of them to answer LIMIT 1 — a full sort of a ledger history to read
+    one number. The index whose keys are `(tenant_id, occurred_at DESC, id DESC)` turns
+    that into a walk that stops at the first row.
+
+    Measured, not named. The earlier version of this test asserted that the string
+    `ix_credit_ledger_tenant_recent` appeared in an `EXPLAIN` of a RANDOM tenant id with
+    no rows, and it failed whenever the planner priced the two indexes within a hair of
+    each other (8.17 vs 8.18) — which it does exactly when it estimates one row, because
+    sorting one row IS free and the choice genuinely does not matter there. A test that
+    fails on a plan that is not slow, for a tenant that does not exist, teaches people to
+    ignore it. So this asserts what a client would feel:
+
+    - **no Sort node survives** `enable_sort = off` — i.e. an index really does carry
+      `occurred_at DESC, id DESC` for a tenant. Node TYPE, not index name: `Incremental
+      Sort` (what an index missing the `id DESC` tail produces) counts as a sort, and the
+      day this index is replaced by a better one the property is still met.
+    - **rows examined stays at 1** on a ledger of 2000 entries, and is the SAME number as
+      on a ledger of four. That is "does not get slower as the ledger grows" written as an
+      observation rather than a hope, and it is what actually failed in the degenerate
+      case: with the index dropped, the same read pulled all 2002 rows to return one.
+    - **the newest entry is the one returned**, including when two entries share an
+      `occurred_at` — the `id DESC` tail is what makes "newest" a total order, and an
+      index that dropped it would still pass a Sort-node check on distinct timestamps.
+
+    The planner's UNforced choice is captured and reported, never asserted: on a table
+    whose statistics say one row per tenant (a fresh test database, or any database the
+    app role cannot ANALYZE — PG16 restricts that to the owner) preferring a sort is
+    correct, and on a ledger with real statistics the same planner picks the index by a
+    factor of 120 (4.19 vs 504.51 on an 18k-row ledger, measured). Asserting on it would
+    be asserting on the statistics, not on the schema.
+
+    Nothing here is committed. The ledger is built inside one transaction and the
+    transaction is ABANDONED — hard rule 4 forbids UPDATE and DELETE on `credit_ledger`
+    (the `credit_ledger_append_only` trigger enforces it at the database), so a test that
+    inserted 2000 committed rows on every run would grow the shared database forever with
+    no way to clean up. A rollback is not a deletion: those rows were never facts.
+    """
+    grown = await _measure_balance_read(LONG_LEDGER)
+    fresh = await _measure_balance_read(SHORT_LEDGER)
+
+    assert not grown.sort_nodes, (
+        "no index carries the balance read's ordering: with sorting priced at "
+        f"disable_cost the plan STILL sorts ({grown.sort_nodes}) and pulled "
+        f"{grown.rows_examined} rows off a {grown.entries}-entry ledger to return one "
+        "number. Reading a wallet balance now costs the client's history, and it gets "
+        f"worse every month they stay:\n{grown.forced_plan}"
+    )
+    assert grown.rows_examined == 1, (
+        f"the balance read pulled {grown.rows_examined} rows off a {grown.entries}-entry "
+        "ledger to return one — the index is not carrying the ordering to its first "
+        f"row:\n{grown.forced_plan}"
+    )
+    assert grown.rows_examined == fresh.rows_examined, (
+        f"a {grown.entries}-entry ledger costs {grown.rows_examined} rows and a "
+        f"{fresh.entries}-entry one costs {fresh.rows_examined}: the read scales with a "
+        f"client's history, which is the whole thing the index is for:\n{grown.forced_plan}"
+    )
+    assert grown.answer == TIE_WINNER, (
+        "`newest` must be a TOTAL order: two entries share one occurred_at and the read "
+        f"returned {grown.answer!r} rather than the entry with the greater id — the "
+        "`id DESC` tail of the index (and of the ORDER BY) is what settles the tie"
+    )
+    # Reported, never asserted (see the docstring): the planner's own pick depends on
+    # this table's statistics, which no test controls and the app role cannot refresh.
+    assert grown.planners_own_choice, "EXPLAIN returned nothing"
 
 
 async def test_the_credit_ledger_cannot_be_deduplicated_by_deletion() -> None:
