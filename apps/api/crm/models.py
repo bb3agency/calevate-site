@@ -102,8 +102,11 @@ class TranscriptTurn(PKMixin, TimestampMixin, Base):
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
+    # No `index=True`: UNIQUE(call_id, idx) leads with `call_id`, so it answers every
+    # predicate a single-column index would, and the single-column one was costing an
+    # index insertion per turn on the post-call pipeline for nothing (b9e5d2c74a18).
     call_id: Mapped[UUID] = mapped_column(
-        ForeignKey("calls.id", ondelete="RESTRICT"), nullable=False, index=True
+        ForeignKey("calls.id", ondelete="RESTRICT"), nullable=False
     )
     idx: Mapped[int] = mapped_column(Integer, nullable=False)
     speaker: Mapped[str] = mapped_column(String, nullable=False)

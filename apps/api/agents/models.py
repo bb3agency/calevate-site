@@ -107,8 +107,11 @@ class PromptVersion(PKMixin, TimestampMixin, Base):
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
+    # No `index=True`: UNIQUE(agent_id, version) leads with `agent_id`, and at the
+    # version counts this table reaches no query in the repo named the single-column
+    # index even before it was dropped (b9e5d2c74a18).
     agent_id: Mapped[UUID] = mapped_column(
-        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False, index=True
+        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
@@ -132,8 +135,9 @@ class ExtractionSchema(PKMixin, TimestampMixin, Base):
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
+    # No `index=True`: UNIQUE(agent_id, version) leads with `agent_id` (b9e5d2c74a18).
     agent_id: Mapped[UUID] = mapped_column(
-        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False, index=True
+        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     fields: Mapped[list[object]] = mapped_column(JSONB, nullable=False)

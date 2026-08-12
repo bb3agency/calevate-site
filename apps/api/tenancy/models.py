@@ -82,8 +82,13 @@ class Membership(PKMixin, TimestampMixin, Base):
         CheckConstraint(f"role IN {MEMBER_ROLES!r}", name="role_enum"),
     )
 
+    # No `index=True` on `tenant_id`: UNIQUE(tenant_id, user_id) leads with it. This
+    # table's RLS policy is the asymmetric `tenant_id = ... OR user_id = ...`, so both
+    # arms of the BitmapOr still need an index and both still have one — the tenant arm
+    # from the unique constraint, the user arm from `ix_memberships_user_id` below,
+    # which is NOT redundant and must stay (b9e5d2c74a18).
     tenant_id: Mapped[UUID] = mapped_column(
-        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
     )
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
