@@ -25,6 +25,11 @@ dev = [
     "httpx>=0.28",
     "pre-commit>=4.0",
     "import-linter>=2.1",
+    # The coverage ratchet's measurement (D-29 `coverage:ratchet`). `coverage` itself,
+    # not `pytest-cov`: the plugin is a wrapper around `coverage run -m pytest`, which is
+    # one Makefile line, and this way the gate adds exactly ONE package with no runtime
+    # dependencies of its own on 3.12 rather than a package plus its own flag surface.
+    "coverage>=7.10",
 ]
 
 # --- import-linter (guardrail: engine isolation, hard rule 2) -----------------
@@ -153,3 +158,31 @@ markers = [
     "rls: cross-tenant isolation tests; must return zero rows",
     "conformance: VoiceEngine adapter conformance suite",
 ]
+
+# --- coverage.py (input to the coverage ratchet, D-29) ------------------------
+# Deliberately tiny. Every knob here can make the ratcheted number easier, so the only
+# ones set are the ones that make it MEAN something:
+#
+#   branch  — the rules this repo guards are rules about the branch NOT taken (the
+#             tenant that does not match, the consent that is absent, the ack that
+#             arrives twice). Line coverage is satisfied by executing an `if` once.
+#   source  — the two Python trees, named rather than inferred, so a module NO test
+#             imports is still reported (at 0%) instead of vanishing from the report and
+#             taking its uncovered lines with it.
+#   omit    — test files only. Measuring the tests' own coverage measures nothing.
+#
+# There is no `fail_under`: a percentage threshold is the "target" D-29 rules out. The
+# gate is scripts/check_coverage_ratchet.py, which counts uncovered units per hard-rule
+# surface. See its docstring for why, and for why `# pragma: no cover` inside a guarded
+# surface buys nothing there.
+[tool.coverage.run]
+branch = true
+source = ["apps", "packages"]
+# CI and a laptop check out to different absolute paths; the baseline is one file for
+# both, so the report has to key on repo-relative names.
+relative_files = true
+omit = ["*_test.py", "*/tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

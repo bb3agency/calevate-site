@@ -4,7 +4,8 @@
 # in the repo root would make `make guardrails` print "nothing to be done" and exit 0:
 # the CI gate reporting success without running a single check.
 .PHONY: help dev up down check lint lint-check types test db-reset eval eval-ci \
-        gen-api conformance smoke guardrails web-check
+        gen-api conformance smoke guardrails web-check coverage-ratchet \
+        coverage-ratchet-accept
 
 # `check` fans out to prerequisites that share one database and one working tree.
 # Under `make -j` they would interleave — guardrails reading a schema another target
@@ -19,12 +20,13 @@ help:  ## List targets
 	@echo '  make down        - stop local infra'
 	@echo '  make dev         - run all four services'
 	@echo '  make lint        - ruff check --fix + format; rewrites files'
-	@echo '  make check       - lint-check, mypy, pytest, guardrails, eval, web [CI gate]'
+	@echo '  make check       - lint-check, mypy, pytest+ratchet, guardrails, eval, web [CI gate]'
 	@echo '  make web-check   - frontend typecheck + vitest suite'
 	@echo '  make db-reset    - drop, migrate, seed'
 	@echo '  make eval CLIENT=slug - regression harness (core5)'
 	@echo '  make gen-api     - OpenAPI snapshot -> typed TS client'
 	@echo '  make guardrails  - executable governance (D-29)'
+	@echo '  make coverage-ratchet - suite under coverage + the per-surface ratchet [CI gate]'
 	@echo '  make conformance - both engine adapters'
 
 up:  ## Local infra
@@ -60,10 +62,33 @@ types:
 test:
 	uv run pytest
 
+## D-29's `coverage:ratchet`. ONE suite run, instrumented — not a second suite on top
+## of `make test`, which is what "must not double the suite" rules out. `make check`
+## calls this INSTEAD OF `test` for that reason; plain `make test` stays uninstrumented
+## because the loop a developer runs fifty times a day should not pay for a gate that
+## only has to be right once per push.
+##
+## The check scores whatever `.coverage` holds, so the run has to be the whole suite and
+## has to be THIS run — `blind_spots()` refuses a measurement that is stale, filtered, or
+## missing branch data rather than reporting a fictional regression.
+coverage-ratchet:  ## Full suite under coverage, then the per-surface ratchet [CI gate]
+	uv run coverage run -m pytest -q
+	uv run python -m scripts.check_coverage_ratchet
+
+coverage-ratchet-accept:  ## Lock in an improvement: rewrite the baseline (shrink-only)
+	# The ONLY writer of tests/fixtures/coverage_baseline.json. It refuses to raise a
+	# budget without a RAISED_BUDGETS waiver in the script, so this command can lock in
+	# progress and can never quietly forgive a regression.
+	uv run coverage run -m pytest -q
+	uv run python -m scripts.check_coverage_ratchet --update-baseline
+
 smoke:  ## tenant -> agent -> signed webhook -> lead with extraction
 	uv run pytest -m smoke
 
-check: lint-check types test guardrails eval-ci web-check  ## Full CI gate (mirrors .github/workflows/ci.yml)
+# `coverage-ratchet` stands where `test` used to: it RUNS the suite (once, instrumented)
+# and then scores it, exactly as CI does. Listing `test` as well would run the suite
+# twice for one gate.
+check: lint-check types coverage-ratchet guardrails eval-ci web-check  ## Full CI gate (mirrors .github/workflows/ci.yml)
 
 web-check:  ## Frontend gate: typecheck, lint, vitest (CI adds `next build` on top)
 	# Cheapest answer first, same order as the backend half of this gate. The SUITE is
