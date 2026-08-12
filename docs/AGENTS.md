@@ -67,8 +67,14 @@ pnpm -C apps/web typecheck && pnpm -C apps/web lint
 Working is the floor, not the target — this is multi-tenant SaaS holding other
 businesses' customer data under Indian telecom and privacy law.
 
-- Follow the established, documented pattern over a clever local invention; if this repo
-  already solved a problem, follow that solution. Two ways of doing one thing is a defect.
+- Know the established pattern, then beat it if you can. The widely-used one is the
+  DEFAULT, not a ceiling: reach for it when you have no reason to do better, invent when
+  you do — but know the standard and why it exists before departing, say what the
+  departure buys, and hold the invention to a higher bar (at least as correct under
+  failure, no harder for the next reader, covered by a test that fails if it regresses).
+  Nothing may break to accommodate it.
+- One way per problem: follow this repo's existing solution or REPLACE it, moving the old
+  callers in the same change. Two ways of doing one thing is where drift starts.
 - **Search the web whenever you are not certain, and you are less certain than you feel.**
   Training cutoffs go stale: library APIs, security guidance, framework idioms and
   regulatory detail all move. Search before using an unfamiliar library (or a familiar

@@ -93,10 +93,17 @@ businesses' customer data under Indian telecom and privacy law — the code has 
 the kind a competent reviewer at a serious company would sign off, not the kind that
 passes its own test.
 
-- **Follow the established standard, not your recollection of it.** Prefer the boring,
-  documented, widely-used pattern over a clever local invention. If this repo already
-  solved a problem once, follow that solution; a second way of doing one thing is a
-  defect even when both work.
+- **Know the established standard, then beat it if you can.** The widely-used pattern is
+  the DEFAULT, not a ceiling — reach for it when you have no reason to do better, and
+  invent when you do. A better idea is welcome; an uninformed one is not, so know what
+  the standard is and why it exists before departing from it, and say in the code what
+  the departure buys. The bar on an invention is higher, not closed: it must be at least
+  as correct under failure, no harder for the next reader, and covered by a test that
+  fails if it regresses. **Nothing may break to accommodate it.**
+- **One way per problem, and migrate rather than accumulate.** If this repo already
+  solved something, follow that solution or replace it — two ways of doing one thing is
+  a defect even when both work, and the second one is where the drift starts. Replacing
+  means the old callers move too, in the same change.
 - **SEARCH THE WEB WHENEVER YOU ARE NOT CERTAIN — and you are less certain than you
   feel.** Your training has a cutoff; library APIs, security guidance, framework
   idioms and regulatory detail all move. Search before: using an unfamiliar library or
