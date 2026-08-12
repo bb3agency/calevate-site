@@ -113,9 +113,11 @@ deploy; any new variable is added to `.env.example` + `packages/shared/config.py
 `make up` / `make down` (compose infra) · `make dev` (all four services from ONE shell —
 plain `&` backgrounding, no honcho/process manager, so a crashed service dies quietly;
 use four terminals when you need to watch one) · `make check` (= lint + types + test +
-**guardrails** + web typecheck — the CI gate) · `make guardrails` (executable governance,
-§2: `lint-imports`, env-parity, RLS coverage, ledger immutability, redaction exposure,
-OpenAPI freshness) · `make lint` · `make types` (`mypy apps packages`, not `.`) ·
+**guardrails** + eval-ci + **web-check** — the CI gate) · `make guardrails` (executable
+governance, §2, seven checks: `lint-imports`, env-parity, RLS coverage, ledger
+immutability, redaction exposure, OpenAPI freshness, wiring) · `make web-check`
+(frontend: typecheck + lint + vitest; `next build` is CI-only) ·
+`make lint` · `make types` (`mypy apps packages`, not `.`) ·
 `make test` · `make smoke` · `make db-reset` · `make eval CLIENT=<slug>` (regression
 harness core5) · `make gen-api` (OpenAPI → typed TS client) · `make conformance` (both
 engine adapters).

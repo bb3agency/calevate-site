@@ -277,7 +277,21 @@ Admin realm (`/admin/…`)
   `verified` row that cannot answer them unstorable. Deliberately no client-realm twin:
   under the Telecom Act the subscriber's identity is something the provider verifies,
   never something the subscriber asserts.
-- **First-campaign review release** (`POST /v1/admin/tenants/{tenant_id}/first-campaign-review`,
+- **The hold queue** (`/admin/holds`; `GET /v1/admin/compliance/holds`) — the ops work
+  list of accounts waiting on a human, covering BOTH R-11 human-decision gates (KYC and
+  the first-campaign review), oldest signup first because that is the triage order. It is
+  also surfaced on the tenant directory, so the screen an operator already reads carries
+  the flag. Built with **no RLS policy widened**: the directory under the admin session,
+  then each tenant's own session asking the ordinary gate (`apps/api/admin/holds.py`
+  argues the alternatives). `org:read`, not `admin:tenants` — D-22 forbids gating a GET on
+  a permission read-only impersonation refuses, and the realm is what separates admin from
+  client here. The row carries the account, its motion, its signup instant and the rule
+  names, and deliberately NO reason text, signatory or document reference: the rejection
+  reason interpolates an operator's free text, which belongs nowhere near the widest-read
+  list in the console (hard rule 6). Read-only and unaudited by design — every decision
+  taken from it writes its own entry.
+- **First-campaign review release** (`/admin/tenants/{id}/first-campaign-review`;
+  `POST /v1/admin/tenants/{tenant_id}/first-campaign-review`,
   `admin:tenants`, audited, tenant in the PATH) — R-11's last mitigation and the ops half
   of it (D-51). `approved` releases the ACCOUNT, not the campaign: this rule never blocks
   another of its campaigns afterwards. `rejected` keeps it held and shows the client the

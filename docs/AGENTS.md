@@ -30,12 +30,13 @@ Checks that must pass before any commit:
 uv run ruff check . && uv run ruff format --check .
 uv run mypy .                 # strict
 uv run pytest                 # includes RLS + engine-conformance suites
-pnpm -C apps/web typecheck && pnpm -C apps/web lint
+make guardrails               # executable governance (ENGINEERING-PRACTICES §2)
+make web-check                # frontend: typecheck + lint + vitest (D-53)
 ```
 
 ## Structure
 
-- `apps/web` — Next.js; `(admin)` and `(client)` route groups; separate Clerk apps; typed
+- `apps/web` — Next.js; `/admin` and `/c/<slug>` route trees; separate Clerk apps; typed
   API client via `pnpm gen:api` (never hand-write fetchers).
 - `apps/api` — modular monolith; modules own their tables; no cross-module SQL.
 - `apps/voice-runtime` — latency-critical webhooks + in-call tool endpoints; ack <500ms,

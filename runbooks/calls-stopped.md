@@ -131,8 +131,14 @@ constraint from that side", never zero (`billing/caps.py`).
   — refused, not silently clamped.
 - **`plan_cap_*` is the smaller one** — this is ours. There is no route that writes
   `hard_cap_min` / `hard_cap_spend`; raising a plan ceiling is a hand-written UPDATE on
-  the audited admin path against the tenant's **newest** `plans` row (`plans` is
-  effective-dated and every reader in the codebase takes `ORDER BY created_at DESC LIMIT 1`).
+  the audited admin path against the tenant's **plan IN EFFECT** — which since D-46 is
+  the row whose `[effective_from, effective_to)` window contains the instant, not simply
+  the newest row (`plan_in_effect_sql`, `apps/api/billing/plans.py`). Match that predicate
+  when you pick the row: a tenant with a price change staged for next month has more than
+  one, and updating the wrong one moves a ceiling that is not binding today. If
+  `GET /v1/billing/caps` reports all-NULL ceilings for a tenant that has plan rows, the
+  window has closed with no successor — that is the `warn_no_plan_in_effect` case, and the
+  fix is a successor row or clearing `effective_to`, not a cap edit.
   **That UPDATE is half the job** — finish it with the recompute below, or the client
   stays stopped on a ceiling they are no longer over.
 - **`capped: true`** — outbound is refused right now with rule `spend_cap`. Inbound is
@@ -444,8 +450,9 @@ is better than a "we're looking into it" that turns into a week.
 - **Never treat `tm_registration_status` as a per-tenant fact.** It is one row, id 1, and
   moving it moves every client at once.
 - **Never quote a client's minutes or spend from the `plans` row alone.** A tenant that
-  has changed plan has several rows; every reader takes the newest. A join on
-  `tenant_id` alone multiplies them.
+  has changed plan has several rows, and every reader resolves the one whose effective
+  window contains the instant being priced (D-46) — so a figure read off "the" plan row
+  can be next month's price or last quarter's. A join on `tenant_id` alone multiplies them.
 - **Never select `phone_e164` or transcript text while investigating** (hard rule 6). If
   you need to refer to one subject in writing, use the hashed `subject_ref` the export
   and erasure paths already share.

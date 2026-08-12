@@ -154,15 +154,16 @@ oiled).
 one differs from a summary below, the runbook is the authority.
 
 - **"Our calls have stopped"** — `runbooks/calls-stopped.md`. The ordered diagnostic for
-  the ten conditions behind one symptom: big red switch, load-shed mode, Calevate's own
+  the eleven conditions behind one symptom: big red switch, load-shed mode, Calevate's own
   TM registration (blocks every tenant at once), the admin spend cap, the client's own
   spend cap, `spend_state.capped` and the trap in clearing it, an empty prepaid wallet,
-  the client's PE registration + TM link, subscriber KYC (`self_serve`/`trial` only), and
-  the campaign's consent provenance, template, number or a DNC hit. Marks which of these a
-  client can self-serve out of. **Not yet covered there and it should be**: the
-  first-campaign manual-review hold (D-51), an eleventh cause for `self_serve`/`trial`
-  tenants, refusing at launch AND at every dispatch tick as
-  `first_campaign_review_pending` / `first_campaign_review_rejected`.
+  the client's PE registration + TM link, subscriber KYC (`self_serve`/`trial` only), the
+  campaign's consent provenance, template, number or a DNC hit, and the first-campaign
+  manual-review hold (D-51) — `self_serve`/`trial` only, refusing at launch AND at every
+  dispatch tick as `first_campaign_review_pending` / `first_campaign_review_rejected`.
+  The two human-decision holds share one step, which opens with the queue
+  (`GET /v1/admin/compliance/holds`) because that answers "is a human the blocker?" for
+  every account at once. Marks which of these a client can self-serve out of.
 - **Campaign is not dialling** — `runbooks/campaign-stall.md`. The dispatcher's own
   failure modes: tick verdicts, line-pool exhaustion, per-tenant ceiling, contact states,
   the per-dial gate.
@@ -227,3 +228,16 @@ engine verification scorecard passed · agent passed test-call gate + regression
 disclosure + consent verified on a real recording · caps set · backups verified ·
 alerts firing to Sri's phone · client owner trained on Leads table (15-min session) ·
 DPA + privacy notice signed · invoice template ready.
+
+**Two of those items have a pass condition that deployed code does not satisfy on its
+own**, stated here because both have previously been read as done:
+
+- **Backups verified** = `runbooks/backup-restore-drill.md` has PASSED once, with the
+  record committed to `docs/evidence/`. The existence of `infra/backup/` does not tick it:
+  nothing in that tree has been applied and no wal-g command has ever been run, so until a
+  drill record exists the §5 RPO is a design intent rather than a measurement.
+- **Alerts firing to Sri's phone** = `ALERTS_EMAIL` plus a reachable SMTP host in the
+  environment, on the app hosts AND on the database host (where the same configuration is
+  what lets the backup relay page). A service booting without them says so — see §4 — and
+  local delivery success is transport acceptance, not receipt, so the proof is a probe
+  message landing in a real inbox.
