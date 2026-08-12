@@ -45,6 +45,25 @@ _DIGIT_WORDS: dict[str, str] = {
     "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
     "sunna": "0", "okati": "1", "rendu": "2", "moodu": "3", "naalugu": "4",
     "aidu": "5", "aaru": "6", "edu": "7", "enimidi": "8", "tommidi": "9",
+    # Hindi, in the Latin transliterations an STT actually emits. Their absence was a
+    # LIVE hard-rule-6 leak, not a gap in coverage: `redact` runs on every transcript
+    # regardless of vertical or extractor, so a Hindi-speaking caller reading a number
+    # digit-by-digit had it survive into `text_redacted` — the field every API response
+    # defaults to — while the same caller in Telugu was masked. D-36's stack is
+    # Telugu-FIRST, not Telugu-only, and this receiver takes Hindi calls today.
+    #
+    # Spelling varies by transliterator, so the common variants are all mapped; a wrong
+    # extra spelling costs nothing, a missing one costs a phone number. `zero` is
+    # already above and `sifar` is the Urdu-inflected form heard in the north.
+    "shunya": "0", "sunya": "0", "sifar": "0",
+    "ek": "1", "do": "2", "teen": "3", "tin": "3", "chaar": "4", "char": "4",
+    "paanch": "5", "panch": "5", "chhe": "6", "che": "6", "chah": "6", "chhah": "6",
+    "saat": "7", "sat": "7", "aath": "8", "ath": "8", "nau": "9",
+    # Deliberately NOT mapped: "no" (a colloquial 9). The six-word run is what makes the
+    # other English collisions ("do", "che", "sat", "char", "tin") safe — nobody says six
+    # of those in a row without reading out a number — but "no no no no no no" is exactly
+    # what a frustrated caller says, and masking a refusal as a phone number would hide
+    # the turn a DNC opt-out lives in.
 }  # fmt: skip
 _SPOKEN_RUN_MIN = 6
 

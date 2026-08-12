@@ -64,6 +64,29 @@ def test_spoken_digits_in_english_and_telugu_are_caught() -> None:
     assert "spoken_digits" in result.kinds
 
 
+def test_spoken_digits_in_hindi_are_caught_too() -> None:
+    """The leak this replaces: Telugu was mapped and Hindi was not, so the SAME caller
+    reading the SAME number was masked in one language and printed in the other — into
+    `text_redacted`, the field every API response defaults to. Found by the red-team
+    eval set, not by inspection, because nothing in the tree stated the map's scope.
+    """
+    result = redact("mera number nau nau aath saat chhe paanch chaar teen do ek hai")
+    assert "spoken_digits" in result.kinds
+    assert "nau nau" not in result.text
+
+    # Transliteration is not standardised, so the common variants map to the same digit.
+    assert spoken_digit_runs("tin char panch che sat ath")[0][2] == "345678"
+
+
+def test_a_run_of_refusals_is_not_mistaken_for_a_number() -> None:
+    """`no` is a colloquial nine and is deliberately unmapped. Six of the other English
+    collisions in a row means somebody is reading out a number; six `no`s means somebody
+    is saying no — and masking that turn would hide the sentence a DNC opt-out lives in.
+    """
+    assert not spoken_digit_runs("no no no no no no mujhe nahi chahiye")
+    assert not spoken_digit_runs("do you want me to do this or do that")
+
+
 def test_short_number_words_are_left_alone() -> None:
     """'rendu three o'clock' is speech, not a phone number."""
     assert not spoken_digit_runs("rendu three o'clock ki vasthanu")
