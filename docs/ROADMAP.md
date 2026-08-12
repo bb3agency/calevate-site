@@ -148,8 +148,26 @@ for 7 consecutive days; zero cross-tenant test failures.
   writes the flag directly, closing the dead end where a client raised past their ceiling
   stayed stopped until they acted themselves or the IST month rolled over.
 - Admin polish: onboarding wizard complete, client health overview, prompt rollback UI.
-  — client health overview and prompt rollback UI **shipped** (BUILD-LOG §33, §40,
-  §41). The **intake step shipped as an API** (BUILD-LOG §45;
+  — prompt rollback UI **shipped** (BUILD-LOG §33, §40, §41), and the **client health
+  overview now genuinely has** — this line previously claimed it on the strength of
+  `GET /v1/admin/tenants`, which is the client DIRECTORY (roster + counters) and answers
+  "who are my clients", not "which of them is about to churn". Both surfaces carried the
+  title; only one carries it now, and the directory's summary was renamed rather than left
+  to compete. The board is `GET /v1/admin/client-health` (`org:read`, admin realm,
+  `/admin/health`): an EXCEPTION report of live accounts with at least one signal, most
+  broken first, and an account with nothing wrong is absent rather than green. FIVE
+  signals, each one an operator can act on today — `calls_stopped`, `outbound_blocked`
+  (composed from the dial gate's own predicates, so it cannot disagree with the refusal
+  the client sees), `spend_cap_near`, `deliveries_failing`, `knowledge_waiting`. Latency
+  and answer-rate tiles from SURFACES §1 are deliberately NOT on it: `calls.latency` was
+  dropped in `f1a7c39d5be2` and D-49 removed the trace config, so neither can be observed
+  honestly and a tile would be a fabricated number. The call trend carries a `basis`
+  (`measured` | `too_new` | `no_baseline`) for the same reason `after_hours_basis` exists,
+  because "your calls collapsed" said about a four-day-old account is an accusation the
+  data does not support. Cross-tenant with NO RLS policy widened: the directory under
+  `app.admin`, then each tenant's own session (`admin/health.py` states the measured cost,
+  ~6.5ms per account, rather than asserting it is cheap). The **intake step shipped as an
+  API** (BUILD-LOG §45;
   `GET|POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake`, FLOWS §1's eight
   fields and no invented ninth, writing the `compiled_t0_context` D-39 had reserved) —
   but the WIZARD still shows only steps 1 and 8: intake, number provisioning and the

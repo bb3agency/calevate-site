@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.campaigns.models import CONSENT_SOURCES, REFUSED_CONSENT_SOURCES
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
+from apps.api.compliance.registration import pe_registration_blocker
 from apps.api.compliance.service import (
     DEFAULT_WINDOW,
     NO_CREDITS_REASON,
@@ -78,14 +79,10 @@ PURCHASED_LIST_REASON = (
     "This list is recorded as purchased. Calevate does not dial bought or rented "
     "contact lists — there is no consent artefact behind them (policy, SEC-COMP §3)."
 )
-PE_MISSING_REASON = (
-    "This business is not yet registered as a DLT Principal Entity. Outbound campaigns "
-    "cannot launch until it is; answering inbound calls is unaffected."
-)
-TM_LINK_REASON = (
-    "Your DLT Principal Entity has not authorised Calevate as its telemarketer. "
-    "Outbound campaigns cannot launch until that link is active."
-)
+# The two DLT-entity reasons moved to `compliance/registration.py`, next to the read of
+# `dlt_registrations` and the predicate that emits them — this module held a second
+# `SELECT status, tm_link_status` of its own, and one condition with two spellings is the
+# drift `_entity_blockers` below now avoids by asking `pe_registration_blocker`.
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,33 +170,13 @@ async def _entity_blockers(
     # SEC-COMP §3, first bullet, CLIENT half: the client's DLT ENTITY registration.
     # Distinct from the header (`number_not_registered`) and the template
     # (`dlt_template_*`) checks — the registrar issues three registrations and none
-    # implies another. A missing row and a pending one are different facts with
-    # different next actions, so they are different blockers.
-    registration = (
-        await session.execute(
-            text("SELECT status, tm_link_status FROM dlt_registrations WHERE tenant_id = :tid"),
-            {"tid": tenant_id},
-        )
-    ).first()
-    if registration is None:
-        blockers.append(LaunchBlocker("pe_registration_missing", PE_MISSING_REASON))
-    else:
-        pe_status, tm_link_status = registration
-        if pe_status != "active":
-            blockers.append(
-                LaunchBlocker(
-                    "pe_registration_not_active",
-                    f"This business's DLT Principal Entity registration is "
-                    f"{str(pe_status).replace('_', ' ')}; only an active registration may "
-                    "place campaign calls. Inbound answering is unaffected.",
-                )
-            )
-        # Sequential, not exhaustive, and only here: a TM link to an entity that is not
-        # registered cannot be active either, and telling a client to chase an
-        # authorisation for a registration they do not yet have sends them to the wrong
-        # desk. Every OTHER blocker in this family is reported independently.
-        elif tm_link_status != "active":
-            blockers.append(LaunchBlocker("tm_link_not_active", TM_LINK_REASON))
+    # implies another. Asked through `pe_registration_blocker`, exactly as the KYC and
+    # first-campaign conditions below are asked through theirs: the condition is a fact
+    # about the TENANT, so the launch gate, the dispatch tick and the operator console
+    # all read one implementation rather than each carrying its own SQL.
+    blocked_on_pe = await pe_registration_blocker(session, tenant_id=tenant_id)
+    if blocked_on_pe is not None:
+        blockers.append(LaunchBlocker(*blocked_on_pe))
 
     # SEC-COMP §3, fourth bullet: consent provenance for the list. NULL is "nobody has
     # said", which is what every campaign predating the columns honestly reports —
@@ -991,10 +968,8 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
 __all__ = [
     "DEFAULT_RETRY_POLICY",
     "NO_PROVENANCE_REASON",
-    "PE_MISSING_REASON",
     "PURCHASED_LIST_REASON",
     "SERIES_FOR_CLASSIFICATION",
-    "TM_LINK_REASON",
     "LaunchBlocker",
     "add_contacts",
     "campaign_progress",

@@ -229,6 +229,30 @@ Client realm (`/c/<slug>/…`)
   **`/usage`** (usage panel + the §2b client cap editor).
 
 Admin realm (`/admin/…`)
+- **The client health board** (`/admin/health`; `GET /v1/admin/client-health`) — §1's
+  "tenant health board", built as an EXCEPTION REPORT rather than the per-client tile grid
+  that inventory imagined. Only accounts with at least one live signal appear, most broken
+  first; an account with nothing wrong is absent, which is what keeps it from becoming a
+  second client directory (`GET /v1/admin/tenants` is the roster, and its summary now says
+  so — both surfaces used to claim the title "client health overview"). FIVE signals, each
+  actionable the day it appears: `calls_stopped`, `outbound_blocked`, `spend_cap_near`,
+  `deliveries_failing`, `knowledge_waiting`. `outbound_blocked` is COMPOSED from the
+  predicates that refuse the dial (`read_tenant_holds`, `pe_registration_blocker`,
+  `spend_capped`, `credits_exhausted`) rather than a second copy of their conditions, so
+  the board cannot tell an operator an account is fine while the client is staring at a
+  refusal — and its causes carry the gates' own rule names, never their `reason` prose,
+  which interpolates an operator's free text (hard rule 6, same line `admin/holds.py`
+  draws). **§1's latency p50/p95 and answer-rate tiles are deliberately NOT built**:
+  `calls.latency` was dropped in migration `f1a7c39d5be2` and D-49 removed the trace
+  config, so neither is observable today and a tile would be a fabricated number on the
+  screen operators trust most. The call trend carries a `basis` — `measured`, `too_new` or
+  `no_baseline` — for the reason `after_hours_basis` exists, and the console has exactly
+  one reader of it (`trendClaim`) which returns a union, so no code path can format a
+  percentage the data does not support. `org:read`, not `admin:tenants` (D-22), realm-
+  separated, unaudited by design like the hold queue, and cross-tenant with **no RLS policy
+  widened**: the directory under `app.admin`, then each tenant's own session. Money is a
+  string on the wire. The R-11 holds appear only as CAUSES and link to the hold queue's own
+  remedy screens rather than being re-implemented here.
 - **Prompt history + rollback** per agent (`/admin/tenants/{id}/agents/{agentId}/prompt`;
   `GET|POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt`, `…/prompt/rollback`).
   Rollback is copy-forward, never pointer-rewind (FLOWS §7).

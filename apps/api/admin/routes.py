@@ -105,7 +105,13 @@ class InviteOut(BaseModel):
     "/tenants",
     response_model=list[TenantSummary],
     openapi_extra=permission_meta("admin:tenants"),
-    summary="Client health overview (cross-tenant by design, audited surface)",
+    # NOT "the client health overview" any more. This is the client DIRECTORY — the
+    # roster, with the counters an operator wants beside a name — and it carried that
+    # other title while nothing else did. `GET /v1/admin/client-health` is the health
+    # overview now (`admin/health.py`), and it answers a different question: not "who are
+    # my clients" but "which of them is about to churn or break". Two surfaces sharing
+    # one name is how a reader ends up on the wrong one.
+    summary="Client directory — every account, with the counters that sit beside a name",
 )
 async def list_tenants(
     session: AdminSession, _: Principal = Depends(requires("admin:tenants", realm="admin"))
@@ -117,7 +123,7 @@ async def list_tenants(
     "/tenants/{tenant_id}",
     response_model=TenantSummary,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="One client's health — the detail screen should not fetch the whole list",
+    summary="One client's directory record — the detail screen should not fetch the list",
 )
 async def get_tenant(
     tenant_id: UUID,

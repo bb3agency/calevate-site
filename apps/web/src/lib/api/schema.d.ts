@@ -172,6 +172,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/client-health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Client health overview — accounts about to churn or break, worst first
+         * @description Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT — this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`.
+         */
+        get: operations["read_client_health_v1_admin_client_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/compliance/holds": {
         parameters: {
             query?: never;
@@ -199,7 +219,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Client health overview (cross-tenant by design, audited surface) */
+        /** Client directory — every account, with the counters that sit beside a name */
         get: operations["list_tenants_v1_admin_tenants_get"];
         put?: never;
         /** New-client wizard step 1 — org, retention defaults, agent draft, schema */
@@ -217,7 +237,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** One client's health — the detail screen should not fetch the whole list */
+        /** One client's directory record — the detail screen should not fetch the list */
         get: operations["get_tenant_v1_admin_tenants__tenant_id__get"];
         put?: never;
         post?: never;
@@ -2353,6 +2373,48 @@ export interface components {
             idx: number;
         };
         /**
+         * ClientHealthOut
+         * @description One line of the board. Accounts and their state — never a person, never a number
+         *     anyone could be dialled on.
+         */
+        ClientHealthOut: {
+            /** Calls 7D */
+            calls_7d: number;
+            /**
+             * Calls Basis
+             * @enum {string}
+             */
+            calls_basis: "measured" | "too_new" | "no_baseline";
+            /** Calls Prev 7D */
+            calls_prev_7d: number;
+            /** Last Call At */
+            last_call_at: string | null;
+            /** Name */
+            name: string;
+            /** Plan Tier */
+            plan_tier: string;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "stop" | "warn";
+            /** Signals */
+            signals: components["schemas"]["HealthSignalOut"][];
+            /** Slug */
+            slug: string;
+            /** Spend Cap Inr */
+            spend_cap_inr: string | null;
+            /** Spend Used Inr */
+            spend_used_inr: string;
+            /** Status */
+            status: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
          * ConsentProvenanceIn
          * @description Where this list's consent came from, and when (SEC-COMP §3).
          *
@@ -2927,6 +2989,26 @@ export interface components {
             rule: string | null;
             /** Status */
             status: string | null;
+        };
+        /**
+         * HealthSignalOut
+         * @description One thing wrong with one account, in machine names only.
+         */
+        HealthSignalOut: {
+            /**
+             * Causes
+             * @default []
+             */
+            causes: string[];
+            /** Count */
+            count?: number | null;
+            /** Rule */
+            rule: string;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "stop" | "warn";
         };
         /**
          * HeldTenantOut
@@ -4611,6 +4693,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebhookAck"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_client_health_v1_admin_client_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientHealthOut"][];
                 };
             };
             /** @description RFC-9457 problem+json */

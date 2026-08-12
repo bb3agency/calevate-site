@@ -1252,6 +1252,109 @@
         "title": "ChunkOut",
         "type": "object"
       },
+      "ClientHealthOut": {
+        "additionalProperties": false,
+        "description": "One line of the board. Accounts and their state \u2014 never a person, never a number\nanyone could be dialled on.",
+        "properties": {
+          "calls_7d": {
+            "title": "Calls 7D",
+            "type": "integer"
+          },
+          "calls_basis": {
+            "enum": [
+              "measured",
+              "too_new",
+              "no_baseline"
+            ],
+            "title": "Calls Basis",
+            "type": "string"
+          },
+          "calls_prev_7d": {
+            "title": "Calls Prev 7D",
+            "type": "integer"
+          },
+          "last_call_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plan_tier": {
+            "title": "Plan Tier",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "stop",
+              "warn"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "signals": {
+            "items": {
+              "$ref": "#/components/schemas/HealthSignalOut"
+            },
+            "title": "Signals",
+            "type": "array"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "spend_cap_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spend Cap Inr"
+          },
+          "spend_used_inr": {
+            "title": "Spend Used Inr",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "name",
+          "slug",
+          "plan_tier",
+          "status",
+          "severity",
+          "signals",
+          "calls_7d",
+          "calls_prev_7d",
+          "calls_basis",
+          "last_call_at",
+          "spend_used_inr",
+          "spend_cap_inr"
+        ],
+        "title": "ClientHealthOut",
+        "type": "object"
+      },
       "ConsentProvenanceIn": {
         "additionalProperties": false,
         "description": "Where this list's consent came from, and when (SEC-COMP \u00a73).\n\n`source` is a Literal, not a string: the wire type IS the enum, so the generated\nTypeScript client offers a client the five real answers instead of a free-text box\nsomebody types \"yes\" into. `purchased_list` is offered because the gate has to be\nable to refuse it by name \u2014 see campaigns/models.py.",
@@ -2680,6 +2783,49 @@
           "decided_at"
         ],
         "title": "FirstCampaignHoldOut",
+        "type": "object"
+      },
+      "HealthSignalOut": {
+        "additionalProperties": false,
+        "description": "One thing wrong with one account, in machine names only.",
+        "properties": {
+          "causes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Causes",
+            "type": "array"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "stop",
+              "warn"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule",
+          "severity"
+        ],
+        "title": "HealthSignalOut",
         "type": "object"
       },
       "HeldTenantOut": {
@@ -6816,6 +6962,39 @@
         ]
       }
     },
+    "/v1/admin/client-health": {
+      "get": {
+        "description": "Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT \u2014 this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`.",
+        "operationId": "read_client_health_v1_admin_client_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ClientHealthOut"
+                  },
+                  "title": "Response Read Client Health V1 Admin Client Health Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Client health overview \u2014 accounts about to churn or break, worst first",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/v1/admin/compliance/holds": {
       "get": {
         "description": "Every self-serve account that cannot dial until someone at Calevate acts, oldest signup first: identity verification not recorded, or the first campaign not yet released. An account held by both gates appears once with both rules. Clearing a gate removes the account from this list. Read-only \u2014 the decisions are recorded through the audited routes on each account.",
@@ -6874,7 +7053,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Client health overview (cross-tenant by design, audited surface)",
+        "summary": "Client directory \u2014 every account, with the counters that sit beside a name",
         "tags": [
           "admin"
         ],
@@ -6950,7 +7129,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "One client's health \u2014 the detail screen should not fetch the whole list",
+        "summary": "One client's directory record \u2014 the detail screen should not fetch the list",
         "tags": [
           "admin"
         ],

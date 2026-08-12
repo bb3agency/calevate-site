@@ -65,6 +65,20 @@ class PeRegistration:
         return self.status == "active" and self.tm_link_status == "active"
 
 
+# The client-facing wording of the two DLT-entity refusals that are fixed text. They
+# used to live in `campaigns/service.py` beside the provenance reasons; they moved here
+# with the predicate below, so the strings and the condition that emits them are one
+# artefact rather than two that have to be kept in step by hand.
+PE_MISSING_REASON = (
+    "This business is not yet registered as a DLT Principal Entity. Outbound campaigns "
+    "cannot launch until it is; answering inbound calls is unaffected."
+)
+TM_LINK_REASON = (
+    "Your DLT Principal Entity has not authorised Calevate as its telemarketer. "
+    "Outbound campaigns cannot launch until that link is active."
+)
+
+
 NOT_RECORDED = PeRegistration(
     recorded=False,
     status=None,
@@ -106,4 +120,51 @@ async def read_pe_registration(session: AsyncSession, *, tenant_id: UUID) -> PeR
     )
 
 
-__all__ = ["NOT_RECORDED", "PeRegistration", "read_pe_registration"]
+async def pe_registration_blocker(
+    session: AsyncSession, *, tenant_id: UUID
+) -> tuple[str, str] | None:
+    """`(rule, reason)` if this client's DLT entity blocks their outbound, else None.
+
+    SEC-COMP §3's first bullet, CLIENT half — the same shape `kyc_blocker` and
+    `first_campaign_hold_blocker` return, so every caller composes them identically.
+
+    It lives HERE rather than inside `campaigns.service._entity_blockers`, where it was
+    written, because the condition is a fact about the TENANT and not about a campaign:
+    the launch gate asks it, the dispatch tick asks it, and the operator console's health
+    board asks it of a client with no campaign at all. `_entity_blockers` held its own
+    `SELECT status, tm_link_status FROM dlt_registrations`, which was a SECOND spelling of
+    the read `read_pe_registration` above already owned — two queries that had to be kept
+    in step by hand for one condition. Moving the predicate collapses them: there is now
+    one read of the table and one place the three rule names are decided.
+    (`tests/consent_provenance_test.py` and `tests/tm_registration_test.py` pin all three
+    names, so a mistake in this move is loud rather than silent.)
+
+    Sequential, not exhaustive, and only for the TM link: a link to an entity that is not
+    registered cannot be active either, and telling a client to chase an authorisation for
+    a registration they do not yet have sends them to the wrong desk. A missing row and a
+    pending one stay different blockers, because the registrar and the client are
+    different next actions.
+    """
+    registration = await read_pe_registration(session, tenant_id=tenant_id)
+    if not registration.recorded:
+        return ("pe_registration_missing", PE_MISSING_REASON)
+    if registration.status != "active":
+        return (
+            "pe_registration_not_active",
+            f"This business's DLT Principal Entity registration is "
+            f"{str(registration.status).replace('_', ' ')}; only an active registration "
+            "may place campaign calls. Inbound answering is unaffected.",
+        )
+    if registration.tm_link_status != "active":
+        return ("tm_link_not_active", TM_LINK_REASON)
+    return None
+
+
+__all__ = [
+    "NOT_RECORDED",
+    "PE_MISSING_REASON",
+    "TM_LINK_REASON",
+    "PeRegistration",
+    "pe_registration_blocker",
+    "read_pe_registration",
+]

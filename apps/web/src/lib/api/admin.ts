@@ -24,6 +24,11 @@ import {
   type FirstCampaignDecisionOut,
   type FirstCampaignHold,
 } from "./firstCampaign";
+import {
+  CLIENT_HEALTH_PATH,
+  CLIENT_HEALTH_QUERY_KEY,
+  type ClientHealth,
+} from "./clientHealth";
 import { HOLDS_PATH, HOLDS_QUERY_KEY, type HeldTenant } from "./holds";
 import { KYC_PATH, toRecordBody, type KycRecord, type KycRecordIn } from "./kyc";
 import type { components } from "./schema";
@@ -81,6 +86,30 @@ export function useHeldTenants(): UseQueryResult<HeldTenant[]> {
     queryKey: HOLDS_QUERY_KEY,
     queryFn: () => apiRequest<HeldTenant[]>(adminSession(), HOLDS_PATH),
     refetchInterval: 60_000,
+  });
+}
+
+/**
+ * The client health board — every account with something wrong, worst first.
+ *
+ * `adminSession()`, not `viewAsSession()`: this is a CROSS-tenant read no single tenant's
+ * session can answer, and D-22's read-through-impersonation split is about a tenant's own
+ * data. `org:read` rather than `admin:tenants` for the reason `useHeldTenants` states
+ * (`health_routes.py`: reading a triage list is not acting on it), so both admin roles can
+ * open the board while every remedy on it keeps its own permission.
+ *
+ * **Two minutes, not one.** The hold queue polls at sixty seconds because it is a shared
+ * work list two operators race on. This is not: it is a judgement about the last SEVEN
+ * DAYS, so nothing on it changes inside a minute, and it is materially more expensive —
+ * the server walks each live tenant's own RLS session and `admin/health.py` records the
+ * measurement (~6.5ms per account) rather than asserting it is cheap. Polling this as hard
+ * as the queue would buy no freshness and cost real database time.
+ */
+export function useClientHealth(): UseQueryResult<ClientHealth[]> {
+  return useQuery({
+    queryKey: CLIENT_HEALTH_QUERY_KEY,
+    queryFn: () => apiRequest<ClientHealth[]>(adminSession(), CLIENT_HEALTH_PATH),
+    refetchInterval: 120_000,
   });
 }
 

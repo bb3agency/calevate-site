@@ -216,14 +216,18 @@ describe("the type-aware ban on reading a copy table with a wire string", () => 
   let program: ts.Program;
 
   beforeAll(() => {
-    // The REAL tsconfig, so the scan sees what `pnpm typecheck` sees. Roughly two
-    // seconds, paid once for the file.
+    // The REAL tsconfig, so the scan sees what `pnpm typecheck` sees. Paid once for the
+    // file — a few seconds on an idle machine, but it is a whole-program build and it
+    // grows with the tree, so the timeout is explicit and generous rather than left at
+    // vitest's 10s default. It hit that default the first time this repo added a route
+    // group and a test suite in the same afternoon, and a guard that fails on a busy
+    // machine is a guard somebody deletes.
     const configPath = resolve(WEB_ROOT, "tsconfig.json");
     const config = ts.readConfigFile(configPath, ts.sys.readFile);
     expect(config.error, "tsconfig.json did not parse").toBeUndefined();
     const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, WEB_ROOT);
     program = ts.createProgram(parsed.fileNames, { ...parsed.options, noEmit: true });
-  });
+  }, 120_000);
 
   it("flags the fixture's banned reads — including the one behind a local alias", () => {
     const fixture = program.getSourceFile(resolve(WEB_ROOT, FIXTURE));

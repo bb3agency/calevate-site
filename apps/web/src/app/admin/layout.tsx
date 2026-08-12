@@ -20,6 +20,12 @@ import { Providers } from "@/app/providers";
 
 const NAV = [
   { href: "/admin", label: "Clients" },
+  // The health board, in the shell rather than only linked from a client row, and for the
+  // reason the hold queue is: the account quietly failing is precisely the one nobody
+  // navigates to, so discovery must not depend on already knowing which client to open
+  // (admin/health.py). Second in the list, beside Clients, because "which of my clients is
+  // in trouble" is the question an operator opens this console with.
+  { href: "/admin/health", label: "Client health" },
   // The work list, in the shell rather than only linked from a client row: an account
   // held on a gate nobody has looked at is precisely the one nobody navigates to, so
   // discovery cannot depend on already knowing which client to open (admin/holds.py).

@@ -395,7 +395,13 @@ async def accept_invitation(session: AsyncSession, *, raw_token: str, user_id: U
 async def tenant_overview(
     session: AsyncSession, *, tenant_id: UUID | None = None
 ) -> list[dict[str, Any]]:
-    """The admin's client-health list.
+    """The admin's client DIRECTORY — every account, with the counters that belong beside
+    a name.
+
+    NOT the health overview: that is `admin/health.py`, and it answers the other question
+    ("which client is about to churn or break") as a ranked exception report. This one is
+    the roster, and it stays deliberately dumb — counts, not judgements — because an
+    operator looking up a client should not have to read a verdict to find a slug.
 
     Two passes, deliberately. The DIRECTORY (names, slugs, status) comes from the
     `app.admin` session, which widens `organizations` and nothing else. The COUNTS come
