@@ -163,6 +163,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply the staged script to live calls (admin realm, D-21/D-22)
+         * @description The explicit publish §2b asks for. Audited with version NUMBERS only.
+         *
+         *     `apply_to_live` opens the tenant's own RLS scope and reaches the engine, so it
+         *     stays OUTSIDE the audit session's transaction: a slow vendor call must not hold
+         *     the audit row's transaction open, and the audit entry should describe what
+         *     actually happened.
+         */
+        post: operations["apply_v1_admin_tenants__tenant_id__agents__agent_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-cap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set the per-agent max call length — the cost-runaway guard (§2b:107)
+         * @description Applies immediately: a live agent is re-published in the same transaction, so a cap that only lands in our table cannot be displayed as if it were enforced. `null` restores the platform default; it never means unlimited. Out-of-range values are refused with `call_cap_out_of_range`.
+         */
+        patch: operations["set_call_cap_v1_admin_tenants__tenant_id__agents__agent_id__call_cap_patch"];
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {
         parameters: {
             query?: never;
@@ -240,6 +285,26 @@ export interface paths {
          * @description The tenant is named in the path because an admin principal has no tenant of its own and the one way it could get one — impersonation — is read-only by D-22. Sending `X-Impersonate-Org` to this endpoint is still refused; publish from the admin console instead.
          */
         post: operations["publish_v1_admin_tenants__tenant_id__agents__agent_id__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discard the staged script; the draft returns to what callers hear
+         * @description Moves a POINTER. No `prompt_versions` row is written or deleted, so the discarded version stays readable in the history and its number is never reused.
+         */
+        post: operations["undo_v1_admin_tenants__tenant_id__agents__agent_id__undo_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -503,6 +568,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/lanes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which agent settings apply immediately and which wait for Apply (§2b)
+         * @description Static data: no DB, no engine, no tenant scoping — the split is the same for
+         *     every client, which is the point of publishing it rather than describing it.
+         */
+        get: operations["list_lanes_v1_agents_lanes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/voices": {
         parameters: {
             query?: never;
@@ -541,6 +627,26 @@ export interface paths {
         };
         /** Get Agent */
         get: operations["get_agent_v1_agents__agent_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What is staged but not live, and what one capped call costs
+         * @description Backs the unsaved-changes banner. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).
+         */
+        get: operations["pending_v1_agents__agent_id__pending_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1566,6 +1672,30 @@ export interface components {
             status: string;
         };
         /**
+         * ApplyIn
+         * @description `expected_version` is the CAS token (BACKEND-PATTERNS §5): the staged version
+         *     the operator actually looked at. Optional, because a caller with no screen has
+         *     nothing to be stale about — but a UI that omits it is choosing last-write-wins.
+         */
+        ApplyIn: {
+            /** Expected Version */
+            expected_version?: number | null;
+        };
+        /** ApplyOut */
+        ApplyOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Applied */
+            applied: boolean;
+            /** Engine Synced */
+            engine_synced: boolean;
+            /** Live Version */
+            live_version: number;
+        };
+        /**
          * AttentionItemOut
          * @description One thing the platform refused to do quietly (crm/attention.py).
          *
@@ -1618,6 +1748,24 @@ export interface components {
             address: string;
             /** Label */
             label: string;
+        };
+        /** CallCapOut */
+        CallCapOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Effective Call Cap S */
+            effective_call_cap_s: number;
+            /** Engine Synced */
+            engine_synced: boolean;
+            /** Is Platform Default */
+            is_platform_default: boolean;
+            /** Max Call Duration S */
+            max_call_duration_s: number | null;
+            /** Worst Case Call Cost Inr */
+            worst_case_call_cost_inr: string | null;
         };
         /** CallDetailOut */
         CallDetailOut: {
@@ -2597,6 +2745,34 @@ export interface components {
             /** Minutes Used */
             minutes_used: string;
         };
+        /** LaneOut */
+        LaneOut: {
+            /** Field */
+            field: string;
+            /** Lane */
+            lane: string;
+            /** Precedence */
+            precedence: number;
+            /** Why */
+            why: string;
+        };
+        /**
+         * LanesOut
+         * @description The split, as data. A UI that paraphrases this is how "voice applies
+         *     immediately" becomes a support ticket.
+         */
+        LanesOut: {
+            /** Call Cap Default S */
+            call_cap_default_s: number;
+            /** Call Cap Max S */
+            call_cap_max_s: number;
+            /** Call Cap Min S */
+            call_cap_min_s: number;
+            /** Lanes */
+            lanes: components["schemas"]["LaneOut"][];
+            /** Precedence Rule */
+            precedence_rule: string;
+        };
         /** LaunchCheckOut */
         LaunchCheckOut: {
             /** Blockers */
@@ -2813,6 +2989,50 @@ export interface components {
             /** Verified At */
             verified_at: string | null;
         };
+        /** PendingChangeOut */
+        PendingChangeOut: {
+            /** Field */
+            field: string;
+            /** Headline */
+            headline: string;
+            /** Lane */
+            lane: string;
+            /** Live Version */
+            live_version: number | null;
+            /**
+             * Staged At
+             * Format: date-time
+             */
+            staged_at: string;
+            /** Staged Version */
+            staged_version: number;
+            /** Why */
+            why: string;
+        };
+        /** PendingOut */
+        PendingOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Status */
+            agent_status: string;
+            /** Call Cap Is Platform Default */
+            call_cap_is_platform_default: boolean;
+            /** Effective Call Cap S */
+            effective_call_cap_s: number;
+            /** Has Pending */
+            has_pending: boolean;
+            /** Pending */
+            pending: components["schemas"]["PendingChangeOut"][];
+            /** Precedence Rule */
+            precedence_rule: string;
+            /** Published */
+            published: boolean;
+            /** Worst Case Call Cost Inr */
+            worst_case_call_cost_inr: string | null;
+        };
         /**
          * PerformanceFunnelOut
          * @description Calls → connected conversations → LEADS that moved past `new` (crm/performance.py
@@ -2974,6 +3194,15 @@ export interface components {
             notes?: string | null;
             /** Price Inr */
             price_inr?: string | null;
+        };
+        /**
+         * SetCallCapIn
+         * @description `null` clears the override and restores the platform default. It is NOT
+         *     unlimited — there is no way to express an uncapped agent, by design.
+         */
+        SetCallCapIn: {
+            /** Max Call Duration S */
+            max_call_duration_s?: number | null;
         };
         /**
          * SetVoiceIn
@@ -3349,6 +3578,20 @@ export interface components {
             start_ms?: number | null;
             /** Text */
             text: string;
+        };
+        /** UndoOut */
+        UndoOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Discarded Version */
+            discarded_version: number | null;
+            /** Live Version */
+            live_version: number | null;
+            /** Undone */
+            undone: boolean;
         };
         /**
          * UsagePanelOut
@@ -3771,6 +4014,78 @@ export interface operations {
             };
         };
     };
+    apply_v1_admin_tenants__tenant_id__agents__agent_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_call_cap_v1_admin_tenants__tenant_id__agents__agent_id__call_cap_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetCallCapIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallCapOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_get: {
         parameters: {
             query?: never;
@@ -3962,6 +4277,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["apps__api__agents__routes__PublishOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    undo_v1_admin_tenants__tenant_id__agents__agent_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UndoOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -4493,6 +4840,35 @@ export interface operations {
             };
         };
     };
+    list_lanes_v1_agents_lanes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LanesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_voices_v1_agents_voices_get: {
         parameters: {
             query?: never;
@@ -4540,6 +4916,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    pending_v1_agents__agent_id__pending_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

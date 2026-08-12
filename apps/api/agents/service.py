@@ -9,10 +9,37 @@ resolver cannot map.
 the D-21 Leads button today, campaigns and lead-callback webhooks in M2 — goes through
 it, so the pre-dispatch call row, the metering hook and the audit trail exist exactly
 once rather than three times.
+
+WHICH PROMPT A PUBLISH SENDS (SURFACES §2b two-speed publishing)
+---------------------------------------------------------------
+`_load_agent` reads the APPLIED pointer, `COALESCE(live_prompt_id, system_prompt_id)`,
+not the draft one. That single change is what makes a fast lane expressible at all:
+this function sends ONE `AgentConfig` carrying script and voice and cap together, so
+before `live_prompt_id` existed there was no way to push a voice change without also
+pushing whatever unapproved script sat in `system_prompt_id`. It is exactly why
+`voice_routes.py` refuses to publish and returns `republish_required` instead.
+
+The COALESCE is safe rather than lenient, and the invariant that makes it safe lives
+in `prompts.insert_prompt_version`: the one statement that can create a divergence
+between the two pointers also materializes `live_prompt_id` in the same UPDATE. So
+`live_prompt_id IS NULL` only ever means "the two pointers agree", never "the draft is
+ahead" — which is also true of every row that predates the pointer (migration
+a4e7b2c95d18 backfilled them) and of every row `admin/intake.py` writes.
+
+THE CALL CAP (SURFACES §2b:107)
+-------------------------------
+`_to_config` fills `AgentConfig.max_call_duration_s` from the agent row. The field and
+its vendor mapping already existed — `engine/bolna.py` renders it as the vendor's
+`task_config.call_terminate` — and nothing filled it, so every agent on the platform
+published the Pydantic default and no client could change it. Publish time is where
+the guard is enforced because the engine is the only party that can hang up a call:
+we are not in the audio path (hard rule 3), and an inbound runaway is never dispatched
+by us at all, so a dispatch-side check would leave the receptionist motion unguarded.
 """
 
 from __future__ import annotations
 
+from typing import cast
 from uuid import UUID
 
 from calevate_shared.engine import AgentConfig, CallContext, ModelConfig
@@ -20,6 +47,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.models import CALL_CAP_DEFAULT_S
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -30,14 +58,27 @@ from apps.api.engine import get_engine
 log = get_logger(__name__)
 
 
+def effective_call_cap(max_call_duration_s: int | None) -> int:
+    """The cap an agent is actually published with.
+
+    NULL on the column means "the platform default", NEVER "unlimited" — the whole
+    point of the guard is that there is no way to express an uncapped agent. The
+    resolution lives here, in one function, so that a second reader cannot decide the
+    sentinel means something else.
+    """
+    return CALL_CAP_DEFAULT_S if max_call_duration_s is None else max_call_duration_s
+
+
 async def _load_agent(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> dict[str, object]:
     row = (
         await session.execute(
             text(
                 "SELECT a.id, a.name, a.direction, a.language_primary, a.disclosure_line, "
                 "a.stt_provider, a.stt_model, a.llm_model, a.tts_provider, a.tts_voice, "
-                "a.engine, a.engine_agent_ref, a.status, pv.body "
-                "FROM agents a LEFT JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
+                "a.engine, a.engine_agent_ref, a.status, pv.body, a.max_call_duration_s "
+                "FROM agents a LEFT JOIN prompt_versions pv "
+                # The APPLIED pointer, not the draft one — see the module docstring.
+                "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
             {"aid": agent_id},
@@ -60,6 +101,7 @@ async def _load_agent(session: AsyncSession, tenant_id: UUID, agent_id: UUID) ->
         "engine_agent_ref": row[11],
         "status": row[12],
         "prompt": row[13],
+        "max_call_duration_s": row[14],
     }
 
 
@@ -82,6 +124,11 @@ def _to_config(tenant_id: UUID, agent: dict[str, object]) -> AgentConfig:
             tts_voice=agent["tts_voice"],
         ),
         webhook_url=f"{settings.webhook_base_url}/hooks/v1/engine/{settings.engine}",
+        # The cost-runaway guard. Resolved here rather than defaulted in the model, so
+        # an agent that has never been given a cap is still published with one.
+        max_call_duration_s=effective_call_cap(
+            cast(int | None, agent.get("max_call_duration_s")),
+        ),
     )
 
 
@@ -239,4 +286,10 @@ async def set_number_dlt_status(session: AsyncSession, *, number_id: UUID, dlt_s
         raise ProblemError.not_found("Number")
 
 
-__all__ = ["dispatch_call", "provision_number", "publish_agent", "set_number_dlt_status"]
+__all__ = [
+    "dispatch_call",
+    "effective_call_cap",
+    "provision_number",
+    "publish_agent",
+    "set_number_dlt_status",
+]

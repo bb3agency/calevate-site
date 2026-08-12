@@ -24,6 +24,7 @@ def _mount_routers(application: FastAPI) -> None:
     """Imports are local so a router import error names the module that broke."""
     from apps.api.admin.routes import router as admin_router
     from apps.api.agents.prompt_routes import router as prompt_admin_router
+    from apps.api.agents.publishing_routes import router as publishing_router
     from apps.api.agents.routes import router as agents_router
     from apps.api.agents.voice_routes import router as voice_router
     from apps.api.billing.credit_routes import router as credits_admin_router
@@ -55,6 +56,9 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/agents/{agent_id}` would otherwise swallow `/v1/agents/voices` and reject it
     # as a malformed UUID. Same hazard `campaigns/routes.py` calls out for `/numbers`.
     application.include_router(voice_router)
+    # Before `agents_router`: `/v1/agents/lanes` is a literal path and
+    # `/v1/agents/{agent_id}` would swallow it if the parameterised router won.
+    application.include_router(publishing_router)
     application.include_router(agents_router)
     application.include_router(campaigns_router)
     application.include_router(crm_router)

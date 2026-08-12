@@ -245,6 +245,8 @@ class _AgentState:
     engine_agent_ref: str | None
     body: str | None
     compiled: str | None
+    # SURFACES §2b: is a hand-written script edit staged behind "Apply to live calls"?
+    script_staged: bool
 
 
 async def _agent_state(session: AsyncSession, agent_id: UUID) -> _AgentState:
@@ -256,7 +258,8 @@ async def _agent_state(session: AsyncSession, agent_id: UUID) -> _AgentState:
     row = (
         await session.execute(
             text(
-                "SELECT a.name, a.status, a.engine_agent_ref, pv.body, pv.compiled_t0_context "
+                "SELECT a.name, a.status, a.engine_agent_ref, pv.body, pv.compiled_t0_context, "
+                "(a.system_prompt_id IS DISTINCT FROM a.live_prompt_id) "
                 "FROM agents a LEFT JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
@@ -271,6 +274,7 @@ async def _agent_state(session: AsyncSession, agent_id: UUID) -> _AgentState:
         engine_agent_ref=row[2],
         body=row[3],
         compiled=row[4],
+        script_staged=bool(row[5]),
     )
 
 
@@ -316,6 +320,17 @@ async def recompile_t0(
         log.info("t0_unchanged", extra={"agent_id": str(agent_id)})
         return None
 
+    # Training is a FAST-lane change (SURFACES §2b:101: "voice, extraction fields and
+    # training apply immediately"), so a recompile applies itself — EXCEPT when a
+    # hand-written script edit is already staged behind Apply. It has to be an
+    # exception rather than a rule, because the two changes share one column: the
+    # block is spliced into the DRAFT body, so applying it would publish the staged
+    # script along with it — precisely the blast-radius accident §2b:101 exists to
+    # prevent. Deferring costs one retrieval hop and no knowledge: the same sources
+    # were attached to the engine's KB by the same publish, so what does not reach T0
+    # is still answerable at T3 (see WHAT DOES NOT FIT above). `pending_state` reports
+    # the deferral so a client is told, rather than left to notice.
+    applies_now = not agent.script_staged
     version = await insert_prompt_version(
         session,
         tenant_id=tenant_id,
@@ -329,9 +344,10 @@ async def recompile_t0(
         notes=_NOTES,
         created_by=created_by,
         compiled_t0_context=compiled.block,
+        apply_live=applies_now,
     )
 
-    live = agent.status == "live" and bool(agent.engine_agent_ref)
+    live = agent.status == "live" and bool(agent.engine_agent_ref) and applies_now
     if live:
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
 
@@ -347,6 +363,7 @@ async def recompile_t0(
             "skipped": compiled.skipped,
             "chars": len(compiled.block),
             "live": live,
+            "staged_behind_script": agent.script_staged,
         },
     )
     return version

@@ -198,6 +198,56 @@
         "title": "AgentOut",
         "type": "object"
       },
+      "ApplyIn": {
+        "additionalProperties": false,
+        "description": "`expected_version` is the CAS token (BACKEND-PATTERNS \u00a75): the staged version\nthe operator actually looked at. Optional, because a caller with no screen has\nnothing to be stale about \u2014 but a UI that omits it is choosing last-write-wins.",
+        "properties": {
+          "expected_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          }
+        },
+        "title": "ApplyIn",
+        "type": "object"
+      },
+      "ApplyOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "engine_synced": {
+            "title": "Engine Synced",
+            "type": "boolean"
+          },
+          "live_version": {
+            "title": "Live Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent_id",
+          "applied",
+          "live_version",
+          "engine_synced"
+        ],
+        "title": "ApplyOut",
+        "type": "object"
+      },
       "AttentionItemOut": {
         "additionalProperties": false,
         "description": "One thing the platform refused to do quietly (crm/attention.py).\n\n`title` and `detail` are already client-safe prose: a blocked lead is named by its\nlead NAME, falling back to a MASKED number, never a raw one.",
@@ -334,6 +384,61 @@
           "address"
         ],
         "title": "Branch",
+        "type": "object"
+      },
+      "CallCapOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "effective_call_cap_s": {
+            "title": "Effective Call Cap S",
+            "type": "integer"
+          },
+          "engine_synced": {
+            "title": "Engine Synced",
+            "type": "boolean"
+          },
+          "is_platform_default": {
+            "title": "Is Platform Default",
+            "type": "boolean"
+          },
+          "max_call_duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Call Duration S"
+          },
+          "worst_case_call_cost_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worst Case Call Cost Inr"
+          }
+        },
+        "required": [
+          "agent_id",
+          "max_call_duration_s",
+          "effective_call_cap_s",
+          "is_platform_default",
+          "engine_synced",
+          "worst_case_call_cost_inr"
+        ],
+        "title": "CallCapOut",
         "type": "object"
       },
       "CallDetailOut": {
@@ -2803,6 +2908,73 @@
         "title": "InvoiceUsageOut",
         "type": "object"
       },
+      "LaneOut": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "lane": {
+            "title": "Lane",
+            "type": "string"
+          },
+          "precedence": {
+            "title": "Precedence",
+            "type": "integer"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "lane",
+          "precedence",
+          "why"
+        ],
+        "title": "LaneOut",
+        "type": "object"
+      },
+      "LanesOut": {
+        "additionalProperties": false,
+        "description": "The split, as data. A UI that paraphrases this is how \"voice applies\nimmediately\" becomes a support ticket.",
+        "properties": {
+          "call_cap_default_s": {
+            "title": "Call Cap Default S",
+            "type": "integer"
+          },
+          "call_cap_max_s": {
+            "title": "Call Cap Max S",
+            "type": "integer"
+          },
+          "call_cap_min_s": {
+            "title": "Call Cap Min S",
+            "type": "integer"
+          },
+          "lanes": {
+            "items": {
+              "$ref": "#/components/schemas/LaneOut"
+            },
+            "title": "Lanes",
+            "type": "array"
+          },
+          "precedence_rule": {
+            "title": "Precedence Rule",
+            "type": "string"
+          }
+        },
+        "required": [
+          "precedence_rule",
+          "lanes",
+          "call_cap_default_s",
+          "call_cap_min_s",
+          "call_cap_max_s"
+        ],
+        "title": "LanesOut",
+        "type": "object"
+      },
       "LaunchCheckOut": {
         "additionalProperties": false,
         "properties": {
@@ -3394,6 +3566,124 @@
         "title": "PeRegistrationOut",
         "type": "object"
       },
+      "PendingChangeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "lane": {
+            "title": "Lane",
+            "type": "string"
+          },
+          "live_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Version"
+          },
+          "staged_at": {
+            "format": "date-time",
+            "title": "Staged At",
+            "type": "string"
+          },
+          "staged_version": {
+            "title": "Staged Version",
+            "type": "integer"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "lane",
+          "staged_version",
+          "live_version",
+          "staged_at",
+          "headline",
+          "why"
+        ],
+        "title": "PendingChangeOut",
+        "type": "object"
+      },
+      "PendingOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_status": {
+            "title": "Agent Status",
+            "type": "string"
+          },
+          "call_cap_is_platform_default": {
+            "title": "Call Cap Is Platform Default",
+            "type": "boolean"
+          },
+          "effective_call_cap_s": {
+            "title": "Effective Call Cap S",
+            "type": "integer"
+          },
+          "has_pending": {
+            "title": "Has Pending",
+            "type": "boolean"
+          },
+          "pending": {
+            "items": {
+              "$ref": "#/components/schemas/PendingChangeOut"
+            },
+            "title": "Pending",
+            "type": "array"
+          },
+          "precedence_rule": {
+            "title": "Precedence Rule",
+            "type": "string"
+          },
+          "published": {
+            "title": "Published",
+            "type": "boolean"
+          },
+          "worst_case_call_cost_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worst Case Call Cost Inr"
+          }
+        },
+        "required": [
+          "agent_id",
+          "agent_status",
+          "published",
+          "has_pending",
+          "pending",
+          "effective_call_cap_s",
+          "call_cap_is_platform_default",
+          "worst_case_call_cost_inr",
+          "precedence_rule"
+        ],
+        "title": "PendingOut",
+        "type": "object"
+      },
       "PerformanceFunnelOut": {
         "additionalProperties": false,
         "description": "Calls \u2192 connected conversations \u2192 LEADS that moved past `new` (crm/performance.py\nstates each definition; `qualified` is lead-level on purpose).",
@@ -3890,6 +4180,27 @@
           "name"
         ],
         "title": "ServiceItem",
+        "type": "object"
+      },
+      "SetCallCapIn": {
+        "additionalProperties": false,
+        "description": "`null` clears the override and restores the platform default. It is NOT\nunlimited \u2014 there is no way to express an uncapped agent, by design.",
+        "properties": {
+          "max_call_duration_s": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 60.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Call Duration S"
+          }
+        },
+        "title": "SetCallCapIn",
         "type": "object"
       },
       "SetVoiceIn": {
@@ -4830,6 +5141,50 @@
         "title": "TranscriptTurnOut",
         "type": "object"
       },
+      "UndoOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "discarded_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discarded Version"
+          },
+          "live_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Version"
+          },
+          "undone": {
+            "title": "Undone",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agent_id",
+          "undone",
+          "discarded_version",
+          "live_version"
+        ],
+        "title": "UndoOut",
+        "type": "object"
+      },
       "UsagePanelOut": {
         "additionalProperties": false,
         "description": "GET /v1/usage \u2014 this month's usage and what it costs (SURFACES \u00a72b).\n\n**Every money field is a STRING.** The values are `Decimal` all the way through\nbilling (hard rule 7) and the route stringifies them at the boundary, because a\nJSON float cannot hold a rupee amount exactly. They must stay strings to the\nscreen; `Number()` on INR is how \u20b910,159.00 becomes \u20b910,158.999999999998.\n\nOur supplier cost (`unit_cost_paid`) is deliberately absent \u2014 that is the admin\nmargin panel, and a client who can see it is a client negotiating against it.",
@@ -5480,6 +5835,130 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/apply": {
+      "post": {
+        "description": "The explicit publish \u00a72b asks for. Audited with version NUMBERS only.\n\n`apply_to_live` opens the tenant's own RLS scope and reaches the engine, so it\nstays OUTSIDE the audit session's transaction: a slow vendor call must not hold\nthe audit row's transaction open, and the audit entry should describe what\nactually happened.",
+        "operationId": "apply_v1_admin_tenants__tenant_id__agents__agent_id__apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Apply the staged script to live calls (admin realm, D-21/D-22)",
+        "tags": [
+          "agents",
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-cap": {
+      "patch": {
+        "description": "Applies immediately: a live agent is re-published in the same transaction, so a cap that only lands in our table cannot be displayed as if it were enforced. `null` restores the platform default; it never means unlimited. Out-of-range values are refused with `call_cap_out_of_range`.",
+        "operationId": "set_call_cap_v1_admin_tenants__tenant_id__agents__agent_id__call_cap_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCallCapIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallCapOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set the per-agent max call length \u2014 the cost-runaway guard (\u00a72b:107)",
+        "tags": [
+          "agents",
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {
       "get": {
         "description": "No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's\nscope directly rather than opening the cross-tenant directory it does not need.",
@@ -5808,6 +6287,58 @@
           }
         },
         "summary": "Create/update the agent on the engine and record its routing (admin realm, D-21)",
+        "tags": [
+          "agents",
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/undo": {
+      "post": {
+        "description": "Moves a POINTER. No `prompt_versions` row is written or deleted, so the discarded version stays readable in the history and its number is never reused.",
+        "operationId": "undo_v1_admin_tenants__tenant_id__agents__agent_id__undo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UndoOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Discard the staged script; the draft returns to what callers hear",
         "tags": [
           "agents",
           "admin"
@@ -6607,6 +7138,35 @@
         "x-calevate-permission": "agents:read"
       }
     },
+    "/v1/agents/lanes": {
+      "get": {
+        "description": "Static data: no DB, no engine, no tenant scoping \u2014 the split is the same for\nevery client, which is the point of publishing it rather than describing it.",
+        "operationId": "list_lanes_v1_agents_lanes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LanesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Which agent settings apply immediately and which wait for Apply (\u00a72b)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
     "/v1/agents/voices": {
       "get": {
         "description": "Static data, deliberately: no DB, no engine call, no tenant scoping.\n\nClient-realm readable on purpose \u2014 a client is legally the Principal Entity and\nshould be able to see what their own agent sounds like, exactly as they can read\nits disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to\n`realm=\"any\"`, so an admin (including one impersonating, since this is a read) gets\nthe same list \u2014 one catalog, no realm-specific truth.\n\nEntries carry `verified: false` until the Bolna pilot confirms each string is\nselectable (OPERATIONS \u00a72 gate 3); render that, do not hide it.",
@@ -6674,6 +7234,47 @@
           }
         },
         "summary": "Get Agent",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/{agent_id}/pending": {
+      "get": {
+        "description": "Backs the unsaved-changes banner. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).",
+        "operationId": "pending_v1_agents__agent_id__pending_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What is staged but not live, and what one capped call costs",
         "tags": [
           "agents"
         ],
