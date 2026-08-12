@@ -70,6 +70,19 @@ answer is a 503 and the poller, never a false ack. The scaling lever if it ever 
 processes and pool size, which is why this file asserts the round-trip count — the thing
 a code change can regress — and not a millisecond.
 
+FOLLOW-UP (D-55): the finding above was diagnosed rather than left standing, and the
+guessed lever was half right. The process is CPU-saturated on ONE core at ~250 acks/s,
+so `ack ≈ in-flight ÷ 250` — Little's Law, which is precisely why the distribution is
+flat. Pool EXHAUSTION was not it (instrumented checkout wait: p50 0.1ms at 192
+concurrent; pools of 8, 16 and 32 measured identically). The pool did hold one real
+defect: connections above `pool_size` are single-use, so the receiver was opening ~34
+fresh Postgres backends per second and paying a SCRAM handshake for each — fixed in
+`apps/api/db/session.py` (`max_overflow=0`, +20% throughput). The remainder is a
+process-count rule, now written where an operator will find it (DEPLOYMENT §2a), and
+its deterministic half is asserted in `tests/voice_runtime_ack_budget_test.py` §1b.
+Nothing in this file changed: the numbers above are the pre-D-55 measurements and are
+left as recorded.
+
 RESEARCH (checked Aug 2026, because "concurrent test" is easy to write and easy to get
 wrong):
 

@@ -82,6 +82,77 @@ Directory layout: `/var/www/calevate/` = monorepo git root (our apps/ layout ins
 `/var/www/calevate/storage/` for any local artifacts. Ports: web 3000, api 8000,
 voice-runtime 8100 (container-internal = host, single-tenant VPS so no slot offsets).
 
+## 2a. Process count and connection budget (D-55 — the ack budget is a SIZING rule)
+
+Hard rule 3's `ack < 500ms` is not a property of the handler alone. The handler's cost
+is pinned and small (3 database statements + 2 Redis ops per delivery,
+`tests/voice_runtime_ack_budget_test.py`); what breaches the budget is **how many
+deliveries share one event loop**. Measured, not assumed (methodology and full numbers
+in D-55):
+
+> A voice-runtime process is CPU-saturated on ONE core from about 8 concurrent
+> deliveries upward — ~3.5ms of CPU per delivery, spread across psycopg, SQLAlchemy,
+> Starlette, redis-py and asyncio with no single hotspot. So it behaves as a single
+> server queue and latency follows Little's Law:
+>
+>     ack_p50  ≈  in-flight deliveries  ÷  acks-per-second per process
+
+On the measurement host (4 vCPU, Postgres on the same box, uvicorn + uvloop, one
+worker) that rate was **≈250 acks/s per process**, and the measured latencies fit:
+
+| in flight | 25 | 50 | 100 | 150 |
+|---|---|---|---|---|
+| measured ack p50 | 63–85ms | 168–186ms | 275–422ms | 531–589ms |
+
+**The rule.** Let `T` = acks/s for ONE process on the target host. Then
+
+    max in-flight per process for a 500ms ack  =  0.5 x T        (≈125 at T=250)
+    processes needed                           =  peak in-flight ÷ (0.5 x T)
+    plan at half that ceiling                  →  processes = peak ÷ (0.25 x T)
+
+D-32 records Bolna at **100 concurrent on Pilots and 250+ in production** — one
+campaign's calls hanging up together is exactly a burst of in-flight deliveries. So:
+
+| environment | peak in flight | processes | why |
+|---|---|---|---|
+| staging / pilot | 100 | **2** | one process meets 500ms only at p50 with no headroom |
+| production | 250 | **4** | 62 in flight each → ~250ms p50, half the budget spent |
+
+Run it as `uvicorn main:app --app-dir apps/voice-runtime --workers N`. **Never more
+workers than vCPU** — each one saturates a core, so oversubscribing trades throughput
+for context switching. 4 workers therefore implies a ≥4 vCPU host; on a smaller box the
+honest answer is fewer workers and a lower supported concurrency, not more workers.
+Confirmed rather than assumed: at 100 in flight, one worker gave p50 275–422ms / max
+640ms, two workers gave **p50 33ms / p95 ~200ms / max 318ms**.
+
+**Re-measure on the target host before quoting T.** The shape generalises, the number
+does not — it is a CPU rate and it moves with the CPU. The reproducible procedure is in
+D-55; `X-Ack-Ms` on every response and the `webhook_ack_ms` metric are the instrument,
+so this can be measured in staging with real traffic and no extra tooling.
+
+**Connection budget.** Every process builds its own pool, so the cluster total is
+`DB_POOL_SIZE x processes` and it must fit under Postgres `max_connections`. There is no
+overflow (`apps/api/db/session.py` — overflow connections are single-use and cost ~6ms
+of CPU each to re-authenticate under `scram-sha-256`, which is latency taken straight out
+of the ack budget). Size each pool by Little's Law again: measured connection HOLD time
+per delivery is ~10ms uncontended and ~35ms with the loop busy, so a process running at
+250 acks/s keeps `250 x 0.035 ≈ 9` connections busy. 12 is that with headroom; going far
+beyond it buys nothing but Postgres backends.
+
+| service | processes | `DB_POOL_SIZE` | connections |
+|---|---|---|---|
+| voice-runtime | 4 | 12 | 48 |
+| api | 2 | 16 | 32 |
+| workers (ARQ) | 1 | 16 | 16 |
+| migrations, psql, ops | — | — | ~5 |
+| **total** | | | **~101** |
+
+PostgreSQL's default `max_connections = 100` (minus 3 superuser-reserved) cannot hold
+that, so **set `max_connections = 200` on the VPS** alongside the §2 baseline — or cut
+the pools, but do the arithmetic first and re-check it whenever a worker count changes.
+A pool exhausted at the receiver is not a slow ack: it is a 503 at the durable deadline
+and a call that waits for the 10-minute poller.
+
 ## 3. CI/CD (raghava model, adapted)
 
 **CI workflow** (`.github/workflows/ci.yml`, ubuntu-latest): services postgres:16

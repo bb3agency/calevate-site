@@ -26,6 +26,23 @@ class Settings(BaseSettings):
     alembic_database_url: str | None = None
     redis_url: str
 
+    # Persistent Postgres connections THIS PROCESS may hold. Per process, not per
+    # deployable: every uvicorn worker and every ARQ worker builds its own engine, so
+    # the cluster's connection budget is `db_pool_size x (all processes)` and it has to
+    # fit under the server's `max_connections` (DEPLOYMENT §2a does that arithmetic).
+    #
+    # It is a setting rather than a constant because the right value differs by
+    # deployable — the webhook receiver holds a connection for ~15ms, an admin request
+    # for far longer — and re-sizing a pool during an incident must be an environment
+    # change and a restart, not a deploy of the latency-critical service.
+    #
+    # The default is 16 because that is exactly the ceiling the code already had
+    # (SQLAlchemy's default 5 + 10 overflow = 15, plus one), so no deployment loses
+    # capacity by adopting it; what changes is that all 16 are POOLED instead of five
+    # pooled and ten churning. `apps/api/db/session.py` argues why the overflow is the
+    # expensive half.
+    db_pool_size: int = Field(default=16, ge=1)
+
     object_store_endpoint: str
     object_store_bucket: str
 

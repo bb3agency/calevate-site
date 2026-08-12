@@ -6,7 +6,7 @@ the call. The service already MEASURES the budget on every response (`X-Ack-Ms`,
 `record_webhook_ack_ms`, an alert past 500ms). Measurement is not enforcement, and
 `tests/voice_runtime_security_test.py` says out loud why it declines to assert a
 millisecond bound: a CI box under load makes that flaky, and flaky latency assertions
-get deleted. That is right, and it leaves two questions it does not answer.
+get deleted. That is right, and it leaves three questions it does not answer.
 
 **1. What does the handler actually DO per request?** A wall-clock number is noise on
 shared hardware; a ROUND-TRIP COUNT is exact, reproducible and is what the wall clock is
@@ -23,7 +23,14 @@ client `socket_timeout=2`. Postgres had no such bound: a claim against an unresp
 database waited forever, holding the request, its connection and its worker slot, on the
 one service whose whole design premise is that it never stalls.
 
-The rule both halves serve: **a failure to do the work must not produce an ack.** An
+**3. What does the handler cost the process it SHARES with every other delivery?** The
+per-request ledger above is per request; the budget is spent by all of them at once on
+one event loop. §1b pins the part of that which is a code property — a warm receiver
+opens no new database connections — and leaves the part that is a deployment decision
+(how many processes carry 250 concurrent deliveries) to DEPLOYMENT §2a, where an
+operator can act on it. D-55 has the measurements behind both.
+
+The rule the first two halves serve: **a failure to do the work must not produce an ack.** An
 error tells the vendor nothing useful (it does not retry) but it tells US the truth, and
 the 10-minute reconciliation poller — the guarantee of record — recovers the event. An
 ack over lost work is unrecoverable by anything except that same poller, and it is
@@ -32,19 +39,25 @@ invisible while it happens.
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import engine_intake
 import pytest
 import webhook_routes
 from apps.api.core.redis import get_redis
+from apps.api.db import session as db_session
 from apps.api.db.session import get_engine, untenanted_session
+from calevate_shared.config import Settings
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app
 from sqlalchemy import event, text
+from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.pool import AsyncAdaptedQueuePool, QueuePool
 
 ENGINE_EGRESS_IP = "198.51.100.7"
 ATTACKER_IP = "203.0.113.9"
@@ -236,6 +249,201 @@ async def test_an_unkeyable_payload_costs_nothing_but_is_still_timed(trips: _Tri
     assert trips.statements == []
     assert trips.redis_ops == []
     assert "X-Ack-Ms" in ignored.headers
+
+
+# --- 1b. what the handler must NOT pay for, at width -------------------------
+#
+# `tests/webhook_storm_test.py` measured the ack under concurrency and found a convoy:
+# server-measured `X-Ack-Ms` p50 110ms at 1 in flight, 669ms at 96, 1389ms at 384, flat
+# distribution. The diagnosis (D-55) is that the receiver is CPU-bound on ONE event loop
+# at ~250 acks/s per process, so `latency ≈ in-flight / 250` — Little's Law, not a lock
+# and not pool exhaustion. Most of that is a sizing rule (DEPLOYMENT §2a), and a sizing
+# rule cannot be asserted here.
+#
+# ONE PIECE OF IT WAS A DEFECT, AND IT IS THE PIECE THESE TESTS PIN. The pool ran on
+# SQLAlchemy's defaults (`pool_size=5, max_overflow=10`), and overflow connections are
+# SINGLE USE — the pool closes them on return. Measured at 100 concurrent deliveries
+# against a real uvicorn: **186 fresh Postgres backends for 1448 requests, 34 new
+# connections per second**, each costing ~6ms of this process's CPU to re-authenticate
+# (scram-sha-256 = PBKDF2). ~20% of the one core the process has, spent on nothing.
+#
+# WHY THESE ASSERTIONS AND NOT A MILLISECOND BOUND. A wall-clock assertion under
+# concurrency measures the CI runner; `voice_runtime_security_test.py` and the storm file
+# both refuse to write one, and they are right. A COUNT OF CONNECTIONS OPENED is exact on
+# any machine at any speed, it is the mechanism the latency was made of, and it goes red
+# the moment somebody restores an overflow or swaps the engine construction.
+
+
+async def test_a_warm_receiver_opens_no_new_database_connections_under_load() -> None:
+    """The ack path must never pay connection setup. Not "rarely" — never, once warm.
+
+    A fresh backend costs a TCP connect, a SCRAM handshake (PBKDF2 at both ends) and the
+    driver's startup exchange: ~6ms of CPU on the single event loop that also has to ack
+    every other webhook in flight. On an at-most-once endpoint that CPU is latency, and
+    latency is lost calls.
+
+    THE POOL IS DELIBERATELY TINY HERE, built through the real `get_engine`. The property
+    only exists at widths that EXCEED the pool, and reaching past a 16-connection pool
+    would need a storm of a couple of hundred deliveries — minutes of CI for a fact a
+    two-connection pool demonstrates in a second. The pool size is the variable; the
+    engine construction under test is the shipped one, which is the half that matters.
+
+    With `max_overflow=0` a caller past the ceiling waits on the pool's `asyncio.Queue`
+    — it yields the loop and reuses a connection a moment later — instead of opening one
+    it will immediately throw away. "Waited" and "churned" look identical in a latency
+    graph and are opposite in cost, which is exactly why this is asserted as a count.
+    """
+    opened: list[int] = []
+
+    def _on_connect(_dbapi: Any, _record: Any) -> None:
+        opened.append(1)
+
+    async with _engine_with_pool_size(2) as engine:
+        event.listen(engine.sync_engine, "connect", _on_connect)
+        try:
+            # Warm: fill the pool to its ceiling, so what follows measures steady state
+            # rather than the first requests of a cold process.
+            await _concurrent_deliveries(6)
+            opened.clear()
+            await _concurrent_deliveries(12)
+        finally:
+            event.remove(engine.sync_engine, "connect", _on_connect)
+
+    assert opened == [], (
+        f"a warm receiver opened {len(opened)} new Postgres connection(s) while serving "
+        "12 deliveries through a 2-connection pool — it should have QUEUED on the pool "
+        "instead. Each of those costs a SCRAM handshake on the event loop that owes "
+        "every other delivery a sub-500ms ack: check max_overflow is still 0 (D-55)"
+    )
+
+
+async def test_the_pool_is_sized_with_no_single_use_overflow_and_a_bounded_wait() -> None:
+    """The configuration the test above depends on, asserted directly.
+
+    Without this, the churn test could be satisfied by making the pool enormous, which
+    trades one failure (CPU burnt on handshakes) for a worse one (a connection budget
+    that overruns Postgres `max_connections` and takes down every deployable at once).
+    Three properties, each load-bearing:
+
+    - `max_overflow == 0` — no single-use connections, the finding above;
+    - the pool is SIZED from config, so an operator can re-size it per deployable
+      (DEPLOYMENT §2a) without deploying the latency-critical service;
+    - `pool_timeout` is bounded — SQLAlchemy's default is thirty seconds, which is a
+      request the vendor gave up on long ago and only the connection is still waiting
+      for — and it sits ABOVE the receiver's durable deadline ON PURPOSE. Whichever
+      bound fires first decides the answer, and the deadline has a designed one: 503,
+      `webhook_claim_timeout`, roll back, leave the key claimable for the poller. A
+      `QueuePool limit reached` escaping first would be the same outage wearing a 500.
+    """
+    pool = get_engine().sync_engine.pool
+    assert isinstance(pool, QueuePool | AsyncAdaptedQueuePool), type(pool)
+    assert pool._max_overflow == 0, (
+        "overflow connections are single-use: the pool closes them on return, so under "
+        "sustained load this is a re-authentication treadmill, not a burst valve "
+        "(sqlalchemy/sqlalchemy#11707)"
+    )
+    assert pool.size() == Settings().db_pool_size, (
+        "the pool must take its ceiling from DB_POOL_SIZE — re-sizing per deployable is "
+        "an environment change, not a deploy of voice-runtime"
+    )
+    assert webhook_routes._DURABLE_DEADLINE_S < pool.timeout() <= 10, (
+        f"pool_timeout={pool.timeout()}s must be bounded (SQLAlchemy defaults to 30s) and "
+        f"must sit above the {webhook_routes._DURABLE_DEADLINE_S}s durable deadline, so the "
+        "deadline — which has a designed answer — is what a saturated pool meets first"
+    )
+
+
+async def test_the_connection_is_returned_before_the_last_redis_write() -> None:
+    """The pool is held for the CLAIM, not for the handler.
+
+    After the transaction commits the handler still does one Redis round trip
+    (`_remember_fast_path`). Holding a Postgres connection across it would extend every
+    delivery's occupancy by a whole network round trip for work the database is not part
+    of — at 250 acks/s that is pool occupancy bought for nothing, and it is the kind of
+    thing that gets added by accident when someone moves a line inside the `async with`.
+
+    Asserted as an ORDER of events, which is exact, rather than as a duration.
+    """
+    engine = get_engine().sync_engine
+    order: list[str] = []
+
+    def _on_checkin(_dbapi: Any, _record: Any) -> None:
+        order.append("db_checkin")
+
+    real_remember = webhook_routes._remember_fast_path
+
+    async def _spy_remember(*args: Any, **kwargs: Any) -> None:
+        order.append("fastpath_write")
+        await real_remember(*args, **kwargs)
+
+    event.listen(engine, "checkin", _on_checkin)
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(webhook_routes, "_remember_fast_path", _spy_remember)
+            execution_id, status, _ = _event()
+            async with _client() as http:
+                response = await http.post(HOOK, json=_body(execution_id, status), headers=HEADERS)
+    finally:
+        event.remove(engine, "checkin", _on_checkin)
+
+    assert response.json()["status"] == "accepted"
+    assert order == ["db_checkin", "fastpath_write"], (
+        f"the connection must be back in the pool before the post-commit Redis write, saw {order}"
+    )
+
+
+@asynccontextmanager
+async def _engine_with_pool_size(size: int) -> AsyncIterator[AsyncEngine]:
+    """Rebuild the PROCESS engine through `get_engine` with a different pool ceiling.
+
+    Through `get_engine`, not `create_async_engine`, so what is exercised is the shipped
+    construction — a test that built its own engine would keep passing after somebody
+    changed the real one, which is the only failure this file is here to catch.
+
+    The engine is a process-wide singleton shared by the whole session, so the previous
+    one is disposed on the way in and rebuilt on the way out; nothing else in this suite
+    holds a session across a test boundary.
+    """
+    module_settings = Settings()
+    previous = db_session._engine
+    if previous is not None:
+        await previous.dispose()
+    db_session._engine = None
+    db_session._sessionmaker = None
+    try:
+        yield get_engine(Settings(**{**module_settings.model_dump(), "db_pool_size": size}))
+    finally:
+        rebuilt = db_session._engine
+        if rebuilt is not None:
+            await rebuilt.dispose()
+        db_session._engine = None
+        db_session._sessionmaker = None
+        get_engine()
+
+
+async def _concurrent_deliveries(width: int) -> None:
+    """`width` distinct deliveries released at one event-loop tick.
+
+    `asyncio.Barrier` rather than plain task creation for the reason
+    `tests/webhook_storm_test.py` documents: without it each task reaches its first
+    await before the next begins, so nothing ever contends for a connection and the
+    thing under test never happens.
+    """
+    token = uuid.uuid4().hex[:10]
+    gate = asyncio.Barrier(width)
+
+    async def _one(index: int) -> None:
+        async with _client() as http:
+            await gate.wait()
+            await http.post(
+                HOOK,
+                json=_body(f"exec_pool_{token}_{index:03d}", f"completed-pool-{token}"),
+                headers=HEADERS,
+            )
+
+    async with asyncio.TaskGroup() as group:
+        for index in range(width):
+            group.create_task(_one(index))
 
 
 # --- 2. a dependency that stops answering ------------------------------------

@@ -29,6 +29,24 @@ from sqlalchemy.ext.asyncio import (
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
+# How long a caller may wait for a pooled connection before being told there is none.
+#
+# A constant rather than a setting, unlike `db_pool_size`: the size is a capacity
+# decision an operator makes per deployable, this is a doctrine the whole repo already
+# shares — every wait on this path is bounded (`core/queue.py`'s `conn_timeout=2`,
+# `core/redis.py`'s `socket_timeout=2`, the receiver's `_DURABLE_DEADLINE_S`). Five
+# seconds is well past any healthy checkout (the receiver holds a connection for ~10ms
+# uncontended, ~35ms with the loop busy)
+# and well under SQLAlchemy's 30-second default, which is long enough that the caller
+# has already given up and only the connection is still waiting.
+#
+# It is deliberately ABOVE the receiver's `_DURABLE_DEADLINE_S` (2s), not below it.
+# Whichever bound fires first decides what a saturated pool looks like, and the deadline
+# has a designed answer — 503, `webhook_claim_timeout`, transaction rolled back, key left
+# claimable for the reconciliation poller. `QueuePool limit reached` arriving first would
+# be the same outage as an unhandled 500 with no alert of its own.
+_POOL_TIMEOUT_S = 5.0
+
 
 def get_engine(settings: Settings | None = None) -> AsyncEngine:
     """The process-wide engine.
@@ -53,12 +71,52 @@ def get_engine(settings: Settings | None = None) -> AsyncEngine:
     `exc.statement` are still populated on the exception object, so a debugger keeps
     full access; only the *rendered* string drops them. Alembic builds its own engine
     (`alembic/env.py`) and is unaffected, so migration review keeps its parameter echo.
+
+    THE POOL IS SIZED, NOT DEFAULTED, AND IT HAS NO OVERFLOW — measured, not assumed.
+
+    SQLAlchemy's defaults are `pool_size=5, max_overflow=10`, and the overflow is the
+    expensive half: connections above `pool_size` are SINGLE USE — the pool closes them
+    on return rather than keeping them (the maintainer's own answer to this exact
+    question is "avoid the overflow and make the pool size bigger. This avoids single
+    use connections", sqlalchemy/sqlalchemy#11707, and the docs describe overflow as
+    burst capacity beyond the persistent pool,
+    https://docs.sqlalchemy.org/en/20/core/pooling.html). Under sustained load that is
+    not a burst valve, it is a treadmill: measured on the webhook receiver at 100
+    concurrent deliveries, the process burned **186 fresh Postgres backends for 1448
+    requests (34 new connections/second)** while never exceeding 15 concurrent. Each of
+    those costs ~6ms of CPU IN THIS PROCESS — `password_encryption = scram-sha-256`
+    means every new connection runs PBKDF2 — so ~20% of the one core an asyncio process
+    has was being spent re-authenticating connections it had just thrown away, on the
+    service whose entire budget is 500ms (hard rule 3).
+
+    `max_overflow=0` therefore, and the persistent pool carries the whole ceiling. The
+    ceiling is unchanged at first (16 ≈ the old 5+10), so nothing loses capacity; what
+    a caller past the ceiling now meets is a QUEUE — an `asyncio.Queue` inside the pool,
+    which yields the event loop — instead of a connection storm. That queue is bounded
+    by `pool_timeout`: waiting 30 seconds (the default) for a connection is not a slow
+    request, it is a request that should already have failed, and on the receiver it
+    would sit inside `_DURABLE_DEADLINE_S` anyway.
+
+    Overflow is safe to remove only because no code path here holds two sessions at
+    once: every `async with *_session()` block closes before the next opens (checked
+    across apps/api and apps/workers), so a pool at its ceiling cannot deadlock against
+    itself.
+
+    `pool_pre_ping` stays. It costs one round trip per checkout — measured at ~0.5ms of
+    the ~3.5ms of CPU this process spends per webhook, i.e. ~12% of its throughput
+    (232 → 265 acks/s at 128 in flight when disabled) — and it is what keeps a connection
+    severed by an idle NAT/firewall from surfacing as a failed ack on an at-most-once
+    endpoint that never gets a retry (D-31). `pool_recycle` was the alternative and is
+    weaker: it guesses an interval instead of asking.
     """
     global _engine, _sessionmaker
     if _engine is None:
         cfg = settings or Settings()  # env-sourced
         _engine = create_async_engine(
             cfg.database_url,
+            pool_size=cfg.db_pool_size,
+            max_overflow=0,
+            pool_timeout=_POOL_TIMEOUT_S,
             pool_pre_ping=True,
             hide_parameters=True,
         )

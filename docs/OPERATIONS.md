@@ -153,6 +153,26 @@ Lead visible post-hangup ≤ 2 min (99%); webhook ack < 500ms; dashboard p95 < 8
 voice p50 ≤ 1.1s; monthly voice-runtime availability 99.5%. Review monthly; tighten with
 scale.
 
+**`webhook_ack_slow` is usually a CAPACITY alert, not a bug (D-55).** The receiver's
+per-delivery cost is fixed and asserted in CI; what moves the ack is how many deliveries
+are in flight on one process, and `ack_p50 ≈ in-flight ÷ acks-per-second-per-process`
+(≈250/s on the measurement host). A burst of them at the end of a campaign — 250 calls
+hanging up together — is the designed shape of the traffic, not an incident. So triage in
+this order:
+
+1. **Is it wide or is it slow?** A FLAT distribution (p50 ≈ p95 ≈ max) is a queue: too
+   many deliveries per process. A long tail with a normal p50 is a dependency —
+   the `webhook.inbox_claim` span says which.
+2. **Wide → add processes**, using the arithmetic and the connection budget in
+   DEPLOYMENT §2a. It is a `--workers` change and a restart of one deployable, and
+   voice-runtime's deploy is deliberately decoupled from `api` for exactly this.
+3. **Nothing is dropped while you decide.** The 500ms budget is the alert; the 2-second
+   `_DURABLE_DEADLINE_S` is the abandon, and past it the answer is a 503 and the
+   reconciliation poller (D-31), never a false ack.
+4. `webhook_claim_timeout` in the same window means the deadline IS firing — that is no
+   longer a capacity warning, it is calls waiting on the 10-minute poller. Treat as an
+   incident.
+
 ## 6. Routine Ops Calendar
 
 Daily: alert triage; pipeline DLQ empty; spend anomalies. Weekly: regression nightly
