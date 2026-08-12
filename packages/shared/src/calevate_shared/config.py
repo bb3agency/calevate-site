@@ -91,6 +91,17 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
     notifications_from: str | None = None
 
+    # WHERE OPERATOR ALERTS GO (OPERATIONS §4; §8's pre-launch gate "alerts firing to
+    # Sri's phone"). `apps/api/core/alerting.py` delivers through the SAME transport as
+    # hot-lead notifications — one thing to configure, one thing to be broken.
+    #
+    # Unset means alerts are logged and delivered NOWHERE, which is the right local and
+    # test default and is announced at boot (`alert_delivery_unconfigured`) rather than
+    # discovered during an incident. Setting it is the pre-launch gate; a phone gets the
+    # alert through its mail app until a BSP is chosen and the WhatsApp seam in
+    # `apps/workers/whatsapp.py` can carry the second channel §4 also promises.
+    alerts_email: str | None = None
+
     # WhatsApp transport for hot-lead alerts (ROADMAP M2). OFF by default and it must
     # stay off until the human checklist in workers/whatsapp.py is done: WABA + business
     # verification, an APPROVED template, and a recorded per-tenant opt-in (which needs
@@ -122,13 +133,34 @@ class Settings(BaseSettings):
     # endpoint row (`outbound_webhooks.secret_ref`) — key material never lives here.
     google_sheets_provider: str | None = None
 
-    langfuse_public_key: str | None = None
-    langfuse_secret_key: str | None = None
+    # NO LANGFUSE OR POSTHOG KEYS HERE, DELIBERATELY. Both existed as settings with no
+    # client anywhere in the tree: they would have been no-ops WITH real credentials,
+    # and a settings field that looks like a credential is a claim that something is
+    # wired. The next person reads `LANGFUSE_SECRET_KEY` in `.env.example`, fills it in,
+    # and believes per-call token cost is being recorded. It is not. Removed rather than
+    # faked, per TRD §2's own correction ("Langfuse is a SEAM ... PostHog is a config key
+    # with no client either").
+    #
+    # TO RESTORE LANGFUSE: it is a vendor decision plus credentials, not a wiring job.
+    # The v3 Python SDK is an OpenTelemetry SDK — `Langfuse(public_key=..., secret_key=
+    # ..., host=...)` then `get_client()`, exporting spans to a Langfuse project
+    # (https://github.com/langfuse/langfuse-python, https://pypi.org/project/langfuse/).
+    # That makes it a SECOND tracing pipeline next to the OTel one this repo already
+    # ships, so the decision is (a) a Langfuse project + keys, (b) a Decision-Log entry
+    # choosing it over exporting the existing OTel spans to a Langfuse OTLP endpoint,
+    # and (c) a call site — `apps/workers/extraction.py` is the only place that talks to
+    # an LLM, and its payload must go through `observability.redact_trace_payload`
+    # (hard rule 6) before it leaves the process.
+    #
+    # TO RESTORE POSTHOG: product analytics is a BROWSER concern and never belonged in
+    # backend Settings. It restores as `NEXT_PUBLIC_POSTHOG_KEY` in `apps/web`, with a
+    # DPDP sub-processor entry and the same field masking the teardown note records for
+    # the competitor (docs/evidence/outpero-teardown-aug2026.md §9) — not as a Python
+    # config field.
     sentry_dsn: str | None = None
     # Stamped onto every error so a report names the deploy that produced it.
     # CI sets it from the commit sha; unset is fine and reads as 'dev'.
     release_version: str = "dev"
-    posthog_key: str | None = None
 
     # OpenTelemetry (TRD §2). Base URL of an OTLP/HTTP collector — the exporter appends
     # `/v1/traces`. UNSET IS THE LOCAL DEFAULT AND MEANS NO TRACING AT ALL: no SDK

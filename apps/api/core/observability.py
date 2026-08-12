@@ -12,8 +12,15 @@ the pipeline. So `scrub_event` runs on every event before it leaves the process,
 reuses the SAME redaction functions the logger uses rather than a second, drifting
 copy.
 
-Langfuse (LLM traces) gets the same treatment: TRD §2 wants per-call token cost and
-latency, SEC-COMP §4 says traces are scrubbed. `redact_trace_payload` is the seam.
+Langfuse (LLM traces) gets the same treatment — except that **THERE IS NO LANGFUSE
+CLIENT IN THIS DEPLOYMENT AND NOTHING CALLS `redact_trace_payload` IN PRODUCTION
+CODE.** It is a pure function with tests, kept because it is the pre-agreed shape of
+the hook hard rule 6 names ("Langfuse traces go through the redaction hook") and
+because it is the one seam every LLM trace would pass through. The two config keys
+that made it LOOK wired (`LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`) are gone; what
+restoring the integration takes is written down in `calevate_shared/config.py`. Read
+this as: per-call token cost and the latency breakdown TRD §2 lists are NOT being
+recorded today.
 
 The tracing half (TRD §2 "OpenTelemetry traces") exists to answer ONE question: when
 "lead visible within 2 minutes of hangup" (OPERATIONS §5) is missed, WHERE did the time
@@ -39,6 +46,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from apps.api.core.alerting import configure_alerts
 from apps.api.core.logging import REDACT_KEYS, get_logger, redact_mapping, redact_text
 from apps.api.core.settings import get_settings
 
@@ -102,6 +110,13 @@ def _iter_stacktraces(event: dict[str, Any]) -> list[dict[str, Any]]:
 def redact_trace_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """The Langfuse hook (CLAUDE.md hard rule 6: "Langfuse traces go through the
     redaction hook").
+
+    **NO PRODUCTION CALLER TODAY — this is a seam, and saying so is the point.** There
+    is no Langfuse client, no credentials and no Decision-Log entry choosing Langfuse
+    over exporting the existing OTel spans to it; `apps/workers/extraction.py` is the
+    only module that talks to an LLM and it emits no trace. The function stays (pure,
+    tested, and the single place the correlation below can live) but nothing here
+    should be read as "LLM traces are being recorded".
 
     An LLM trace is the single richest PII object we produce — it contains the prompt,
     which contains the transcript. Same redaction primitives as the logger so the two
@@ -706,6 +721,23 @@ def init_observability(service: str) -> str:
     errors are actually going anywhere."""
     settings = get_settings()
     enabled: list[str] = []
+
+    # Which process this is, stamped into every alert subject. Done here because this
+    # is the one function every service already calls with its own name, and "which
+    # process" is the first question an operator asks at 3am.
+    configure_alerts(service=service)
+    if settings.alerts_email:
+        enabled.append("alerts:email")
+        if settings.app_env != "local" and not settings.smtp_host:
+            # A recipient with nothing to carry the mail: `get_transport()` is the
+            # authority on selection and will hand back `NullTransport`, which refuses
+            # loudly — but it refuses at 3am, and this refuses at boot.
+            log.warning("alert_delivery_has_no_transport", extra={"service": service})
+    elif settings.app_env != "local":
+        # Not a crash: a service whose job is answering calls must boot without a
+        # mailbox. But a deployment where alerts reach nobody is OPERATIONS §8's
+        # pre-launch gate failing, and it says so at boot rather than at 3am.
+        log.warning("alert_delivery_unconfigured", extra={"service": service})
 
     if settings.sentry_dsn:
         try:

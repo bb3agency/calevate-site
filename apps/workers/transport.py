@@ -1,5 +1,13 @@
 """Email transport for notifications (ROADMAP M1: "email first, WhatsApp next").
 
+TWO CONSUMERS, ONE TRANSPORT. Hot-lead notifications (`workers/notifications.py`) and
+OPERATOR ALERTS (`apps/api/core/alerting.py`, OPERATIONS §4) both send through here.
+A second delivery mechanism for alerts would be a second thing to configure and a
+second thing to be broken on the night it is needed. The alerting path calls `send()`
+from its own daemon thread — this module stays synchronous and blocking, which is what
+lets it be a plain SMTP client, and callers on a latency budget defer rather than
+adapt it.
+
 Three implementations behind one Protocol, selected by config:
 
 - **`SmtpTransport`** — the real one. Any provider with SMTP works, which keeps the
