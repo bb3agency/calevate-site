@@ -126,19 +126,38 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "required": False,
         },
     ],
+    # Vertical #2 (ROADMAP §3). The extraction schema is only half of a dressed
+    # template — the other half is the per-vertical regression suite OPERATIONS §3
+    # asks for, which lives in `tests/fixtures/golden_transcripts.json` as the
+    # `re_*` cases. A field added here without a fixture that exercises it is a
+    # column no model is ever scored on; `tests/vertical_real_estate_test.py`
+    # fails when the two drift apart.
     "real_estate": [
         {
-            "key": "budget",
-            "label": "Budget",
+            # `budget_lakhs`, not `budget`: hard rule 7 money is NUMERIC INR, and a
+            # bare "50" in a column called Budget is fifty rupees to one reader and
+            # fifty lakhs to the next. The unit belongs in the key, the label AND
+            # the description, because the description is the instruction the
+            # extraction model is given (TRD §7) and the label is the CRM column
+            # header the client reads.
+            "key": "budget_lakhs",
+            "label": "Budget (lakhs)",
             "type": "number",
-            "description": "Property budget in lakhs",
+            "description": (
+                "Budget in LAKHS of rupees: '50 lakhs' is 50, '1.2 crore' is 120. "
+                "Never rupees, never a range — take the upper figure the caller "
+                "states, and leave it empty if they state none."
+            ),
             "required": True,
         },
         {
             "key": "preferred_location",
             "label": "Location",
             "type": "text",
-            "description": "Area/locality the caller wants",
+            "description": (
+                "Area/locality the CALLER wants, in their own words (Kondapur, "
+                "Gachibowli). Never a locality only the agent named."
+            ),
             "required": True,
         },
         {
@@ -146,20 +165,31 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "label": "BHK",
             "type": "enum",
             "enum_values": ["1BHK", "2BHK", "3BHK", "4BHK+"],
+            "description": (
+                "Flat size the caller asked for. Not one the agent offered, and not "
+                "one they rejected."
+            ),
             "required": False,
         },
         {
             "key": "timeline",
             "label": "Timeline",
             "type": "text",
-            "description": "When they intend to buy",
+            "description": (
+                "When they intend to buy or need possession, in the caller's own "
+                "words ('aaru nelalo', 'next year') — never resolved to a date."
+            ),
             "required": False,
         },
         {
             "key": "site_visit_interest",
             "label": "Site visit",
             "type": "bool",
-            "description": "Whether they agreed to a site visit",
+            "description": (
+                "true ONLY if the caller agreed to a site visit. A refusal "
+                "('vaddu', 'avasaram ledu') is not a yes, and neither is the agent "
+                "offering one."
+            ),
             "required": False,
         },
     ],

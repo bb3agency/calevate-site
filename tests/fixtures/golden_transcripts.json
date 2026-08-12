@@ -22,7 +22,18 @@
     "the missing kind is ever baselineable.",
     "",
     "EVERY phone number here is synthetic (repeated-digit runs), never a real person's,",
-    "and every name is a common given name with no surname tying it to anyone."
+    "and every name is a common given name with no surname tying it to anyone.",
+    "",
+    "TWO VERTICALS live in one file. The `core5_*` and clinic cases speak to Sunrise",
+    "Clinic; the `re_*` cases are the real-estate suite OPERATIONS §3 asks for (\"add",
+    "per-vertical ... as the suite grows\") and cover the same mandatory five scenarios",
+    "in the vocabulary a Hyderabad property call actually uses: budget in lakhs,",
+    "locality, BHK, possession, site visit. The `schema` below is therefore the UNION",
+    "of both column sets — the harness runs one spec across every case, and a field a",
+    "case never mentions is a restraint assertion for free. The real-estate half of the",
+    "schema is copied verbatim from `scripts/seed.py` VERTICAL_TEMPLATES['real_estate'],",
+    "so the suite scores the template we actually ship rather than a paraphrase of it;",
+    "`tests/vertical_real_estate_test.py` fails if the two drift apart."
   ],
   "schema": [
     {
@@ -89,6 +100,47 @@
         "third_party"
       ],
       "description": "whose phone the callback number is — only if the caller said so"
+    },
+    {
+      "key": "budget_lakhs",
+      "label": "Budget (lakhs)",
+      "type": "number",
+      "description": "Budget in LAKHS of rupees: '50 lakhs' is 50, '1.2 crore' is 120. Never rupees, never a range — take the upper figure the caller states, and leave it empty if they state none.",
+      "required": false
+    },
+    {
+      "key": "preferred_location",
+      "label": "Location",
+      "type": "text",
+      "description": "Area/locality the CALLER wants, in their own words (Kondapur, Gachibowli). Never a locality only the agent named.",
+      "required": false
+    },
+    {
+      "key": "bhk_size",
+      "label": "BHK",
+      "type": "enum",
+      "enum_values": [
+        "1BHK",
+        "2BHK",
+        "3BHK",
+        "4BHK+"
+      ],
+      "description": "Flat size the caller asked for. Not one the agent offered, and not one they rejected.",
+      "required": false
+    },
+    {
+      "key": "timeline",
+      "label": "Timeline",
+      "type": "text",
+      "description": "When they intend to buy or need possession, in the caller's own words ('aaru nelalo', 'next year') — never resolved to a date.",
+      "required": false
+    },
+    {
+      "key": "site_visit_interest",
+      "label": "Site visit",
+      "type": "bool",
+      "description": "true ONLY if the caller agreed to a site visit. A refusal ('vaddu', 'avasaram ledu') is not a yes, and neither is the agent offering one.",
+      "required": false
     }
   ],
   "cases": [
@@ -415,6 +467,224 @@
       ],
       "expect_outcome": "resolved",
       "note": "Saaras returns romanized text today, but agent-uploaded KB text, WhatsApp replies and a future STT swap all arrive in script. The offline extractor is ASCII-only and misses all three fields here — a capture_miss, which is exactly what a baseline is for. What it must NOT do is invent."
+    },
+    {
+      "id": "re_qualification_happy_path",
+      "scenario": 1,
+      "title": "Real estate — a buyer qualified end to end (budget, locality, BHK, possession, site visit)",
+      "transcript": [
+        "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record avutundi.",
+        "caller: Namaskaram. Naa peru Srinivas. Kondapur lo flat konali ani chustunnanu.",
+        "agent: Tappakunda Srinivas garu. Budget entha varaku anukuntunnaru?",
+        "caller: Naa budget 50 lakhs varaku.",
+        "agent: 2BHK aa, 3BHK aa?",
+        "caller: 2BHK chalu. Aaru nelalo possession kavali.",
+        "agent: Site visit ki vastara?",
+        "caller: Avunu, site visit ki vastanu. Weekend lo book cheyandi."
+      ],
+      "expect": {
+        "name": "Srinivas",
+        "intent": "book",
+        "budget_lakhs": 50,
+        "preferred_location": "Kondapur",
+        "bhk_size": "2BHK",
+        "timeline": "aaru nelalo",
+        "site_visit_interest": true
+      },
+      "expect_absent": [
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "resolved",
+      "note": "The five fields the real_estate vertical template exists to fill, in one call. `budget_lakhs` is 50 because the caller said fifty LAKHS — 5000000 or 50 rupees in that column is a capture_wrong, and a CRM full of that is the reason the unit is in the key, the label and the description."
+    },
+    {
+      "id": "re_barge_in_site_visit",
+      "scenario": 2,
+      "title": "Real estate — barge-in: the caller cuts the disclosure off to demand a site visit",
+      "transcript": [
+        "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record",
+        "caller: Aa aa, site visit gurinche call chesanu, repu ravali!",
+        "agent: Ardhamayindi. Repu 11 gantalaku site visit fix chestanu.",
+        "caller: Naa peru Ramya. 3BHK kavali."
+      ],
+      "expect": {
+        "name": "Ramya",
+        "bhk_size": "3BHK",
+        "site_visit_interest": true
+      },
+      "expect_absent": [
+        "budget_lakhs",
+        "preferred_location",
+        "timeline",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "resolved",
+      "note": "Same rule as the clinic barge-in: the compliance assertion is that the disclosure STARTED. The vertical half is that a caller who volunteers only a size and a visit must not acquire a budget or a locality on the way to the CRM."
+    },
+    {
+      "id": "re_site_visit_slot_confirmed",
+      "scenario": 3,
+      "title": "Real estate — tool-call correctness: a real site-visit slot, confirmed by the caller",
+      "transcript": [
+        "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record avutundi.",
+        "caller: Naa peru Praveen. Gachibowli lo 3BHK kosam site visit book cheyali.",
+        "agent: Repu saayantram 5 gantalaku slot khali undi. Confirm cheyana?",
+        "caller: Avunu, confirm cheyandi. Naa budget 80 lakhs varaku."
+      ],
+      "expect": {
+        "name": "Praveen",
+        "intent": "book",
+        "bhk_size": "3BHK",
+        "preferred_location": "Gachibowli",
+        "budget_lakhs": 80,
+        "site_visit_interest": true
+      },
+      "expect_absent": [
+        "timeline",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "resolved",
+      "note": "The booking half of the vertical: a site visit is the conversion event a real-estate client pays for, so the slot the agent offered and the caller confirmed is the one thing that must never be invented. `timeline` stays empty — a possession timeline is not a visit time, and filling it from 'repu saayantram' is the wrong-column failure."
+    },
+    {
+      "id": "re_home_loan_out_of_scope",
+      "scenario": 4,
+      "title": "Real estate — out of scope (T4): loan EMI question refused, callback taken",
+      "transcript": [
+        "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record avutundi.",
+        "caller: Home loan EMI entha padutundi, bank interest rate entha?",
+        "agent: Kshaminchandi, aa vivaram naa daggara ledu. Mimmalni malli call cheyamantara?",
+        "caller: Avunu, tarvata call cheyandi. Naa peru Vamsi."
+      ],
+      "expect": {
+        "name": "Vamsi",
+        "wants_callback": true
+      },
+      "expect_absent": [
+        "budget_lakhs",
+        "preferred_location",
+        "bhk_size",
+        "timeline",
+        "site_visit_interest",
+        "intent",
+        "urgency",
+        "party_size",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "needs_follow_up",
+      "note": "T4 in this vertical is almost always finance: EMI, interest rate, registration charges. Those are numbers the agent must never invent (PROMPT-GUIDE §1 truth boundary), and an EMI question is not a budget — `budget_lakhs` filled from 'EMI entha' is exactly the plausible-guess column-poisoning this suite exists to catch."
+    },
+    {
+      "id": "re_promo_dnc_optout",
+      "scenario": 5,
+      "title": "Real estate — outbound promo call, opt-out honored, nothing filed from the agent's pitch",
+      "transcript": [
+        "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record avutundi. Kokapet lo kotha 2BHK flats gurinchi cheptunnanu.",
+        "caller: Naaku ee flats vaddu, inka call cheyakandi. Remove my number.",
+        "agent: Ardhamayindi, mee number ni do-not-call list lo pettanu. Kshaminchandi.",
+        "caller: Sare."
+      ],
+      "expect": {},
+      "expect_absent": [
+        "name",
+        "intent",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to",
+        "budget_lakhs",
+        "preferred_location",
+        "bhk_size",
+        "timeline",
+        "site_visit_interest"
+      ],
+      "expect_outcome": "resolved",
+      "requires_dnc": true,
+      "note": "Outbound promotion is where this vertical lives (140-series, DLT), so the opt-out case is a real-estate case, not a clinic one. The AGENT names Kokapet and 2BHK and the caller names nothing: every one of those in `expect_absent` is a speaker-attribution assertion, and filing the pitch back as the caller's requirement would build a lead — and a next dispatch — out of a person who just said stop."
+    },
+    {
+      "id": "re_whatsapp_number_spoken_digits",
+      "scenario": 1,
+      "title": "Real estate — the callback number read aloud in Telugu digit words",
+      "transcript": [
+        "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record avutundi.",
+        "caller: Naa peru Harika. Miyapur lo 2BHK kavali, budget 45 lakhs.",
+        "agent: Site visit details WhatsApp lo pampistanu. Mee number cheppandi.",
+        "caller: Edu edu edu edu edu edu edu edu edu edu.",
+        "agent: Dhanyavadalu, note chesukunnanu.",
+        "caller: Tarvata call cheyandi, repu udayam."
+      ],
+      "expect": {
+        "name": "Harika",
+        "bhk_size": "2BHK",
+        "budget_lakhs": 45,
+        "preferred_location": "Miyapur",
+        "callback_number": "7777777777",
+        "callback_time": "repu udayam",
+        "wants_callback": true
+      },
+      "expect_absent": [
+        "timeline",
+        "urgency",
+        "party_size",
+        "number_belongs_to",
+        "site_visit_interest"
+      ],
+      "expect_outcome": "needs_follow_up",
+      "must_redact": [
+        "7777777777"
+      ],
+      "note": "'Edu' is seven. Ten of them is a phone number no regex sees, and it is how a site-visit number gets given. Two independent gates, as in the clinic case: extraction must recover the digits, redaction must leave none of them in text_redacted. `site_visit_interest` is absent on purpose — the AGENT mentioned the site visit, the caller only gave a number."
+    },
+    {
+      "id": "re_undecided_declines_site_visit",
+      "scenario": 4,
+      "title": "Real estate — the caller declines the site visit and has no budget yet",
+      "transcript": [
+        "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record avutundi.",
+        "caller: Naa peru Anitha. Manikonda lo 3BHK flat kosam chustunnanu.",
+        "agent: Manikonda project lo 3BHK unnayi. Site visit fix cheyana?",
+        "caller: Ippudu vaddu, site visit avasaram ledu.",
+        "caller: Budget inka decide cheyaledu, tarvata cheptanu."
+      ],
+      "expect": {
+        "name": "Anitha",
+        "bhk_size": "3BHK",
+        "preferred_location": "Manikonda"
+      },
+      "expect_absent": [
+        "site_visit_interest",
+        "budget_lakhs",
+        "timeline",
+        "intent",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "resolved",
+      "note": "The denial case for this vertical. 'Ippudu vaddu, site visit avasaram ledu' contains the words site and visit, so an extractor reading words instead of meaning files `site_visit_interest=true` and a sales team drives to Manikonda for nobody. A caller who says they have not decided a budget has no budget — 'undecided' is null, never a guess."
     }
   ]
 }
