@@ -48,7 +48,13 @@ function promptPath(tenantId: string, agentId: string): string {
   return `/v1/admin/tenants/${tenantId}/agents/${agentId}/prompt`;
 }
 
-function historyKey(tenantId: string, agentId: string) {
+/**
+ * Exported because `publishing.ts` has to invalidate it: applying or undoing a staged
+ * script moves which version is live, and `active` on every row of this list is that
+ * pointer. Two modules writing the same key literal is how one of them ends up
+ * invalidating nothing after a rename.
+ */
+export function promptHistoryKey(tenantId: string, agentId: string) {
   return ["admin", "prompt", tenantId, agentId] as const;
 }
 
@@ -57,7 +63,7 @@ export function usePromptHistory(
   agentId: string,
 ): UseQueryResult<PromptVersion[]> {
   return useQuery({
-    queryKey: historyKey(tenantId, agentId),
+    queryKey: promptHistoryKey(tenantId, agentId),
     queryFn: () =>
       apiRequest<PromptVersion[]>(adminSession(), promptPath(tenantId, agentId)),
     enabled: Boolean(tenantId) && Boolean(agentId),
@@ -76,7 +82,7 @@ export function useWritePrompt(
         body: payload,
       }),
     onSuccess: () =>
-      void client.invalidateQueries({ queryKey: historyKey(tenantId, agentId) }),
+      void client.invalidateQueries({ queryKey: promptHistoryKey(tenantId, agentId) }),
   });
 }
 
@@ -97,6 +103,6 @@ export function useRollbackPrompt(
         { method: "POST", body: { version } },
       ),
     onSuccess: () =>
-      void client.invalidateQueries({ queryKey: historyKey(tenantId, agentId) }),
+      void client.invalidateQueries({ queryKey: promptHistoryKey(tenantId, agentId) }),
   });
 }

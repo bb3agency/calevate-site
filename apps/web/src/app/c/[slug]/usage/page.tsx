@@ -9,7 +9,7 @@ import {
   isPrepaid,
   useTopUpIntent,
 } from "@/lib/api/billing";
-import { useCaps, useSetCaps, type Caps } from "@/lib/api/caps";
+import { useCaps, useSetCaps } from "@/lib/api/caps";
 import { useClientSession } from "@/lib/api/session";
 import { useUsage, useWriteAccess } from "@/lib/api/hooks";
 import type { Session } from "@/lib/api/client";

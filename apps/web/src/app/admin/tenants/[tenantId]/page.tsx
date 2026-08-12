@@ -235,8 +235,9 @@ export default function TenantDetailPage({
   );
 }
 
-/** The tenant's agents, each linking to its prompt history — the entry point the
- * rollback screen needs, since a prompt belongs to an agent, not to the tenant. */
+/** The tenant's agents, each linking to its prompt history, the Apply/Undo controls
+ * and the call cap — the entry point those screens need, since a prompt belongs to an
+ * agent, not to the tenant. */
 function AgentsPanel({ tenantId, slug }: { tenantId: string; slug: string }) {
   const agents = useTenantAgents(slug);
   if (!agents.data?.length) return null;
@@ -257,7 +258,7 @@ function AgentsPanel({ tenantId, slug }: { tenantId: string; slug: string }) {
               href={`/admin/tenants/${tenantId}/agents/${agent.id}/prompt`}
               className="ml-auto rounded-md border border-slate-700 px-2 py-0.5 text-xs"
             >
-              Prompt history
+              Prompt &amp; publishing
             </Link>
           </li>
         ))}

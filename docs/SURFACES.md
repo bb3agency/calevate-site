@@ -159,7 +159,13 @@ Client realm (`/c/<slug>/…`)
 - **Leads** with a **list ⇄ board toggle** — the board is one column per D-21 status,
   so the "work the pipeline stage by stage" pattern is built, not pending.
 - **`/performance`** (`GET /v1/performance`) · **`/attention`** (`GET /v1/attention` — the
-  §2b "needs attention" queue, shipped) · **`/agents`** (read-only agent roster) ·
+  §2b "needs attention" queue, shipped) · **`/agents`** (read-only agent roster, plus the
+  §2b **unsaved-changes banner** from `GET /v1/agents/{agent_id}/pending`, the
+  **precedence rule** and lane table from `GET /v1/agents/lanes`, and the cost-runaway
+  guard read as "longest one call may run / most one call can cost" — `null`
+  `worst_case_call_cost_inr` renders as "we cannot say yet", never ₹0. Apply and Undo are
+  deliberately absent here: both are admin-realm, because the staged script is authored
+  admin-realm) ·
   **`/lead-sources`** (`GET /v1/lead-sources/activity`, `POST /v1/lead-sources/{id}/test` —
   the §2b webhook-activity view and its no-call "test webhook", shipped) ·
   **`/integrations`** (endpoints + delivery log) · `/calls`, `/campaigns`, `/knowledge`,
@@ -169,6 +175,12 @@ Admin realm (`/admin/…`)
 - **Prompt history + rollback** per agent (`/admin/tenants/{id}/agents/{agentId}/prompt`;
   `GET|POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt`, `…/prompt/rollback`).
   Rollback is copy-forward, never pointer-rewind (FLOWS §7).
+- **Two-speed publishing controls**, on that same page: **Apply to live calls** /
+  **Undo** (`POST …/apply` with the staged version as the CAS token, `POST …/undo`) and
+  the **per-agent call cap** (`PATCH …/call-cap`, applies immediately — a live agent is
+  re-published in the same transaction). The version list distinguishes *staged* from
+  *live*: `active` on a history row is the DRAFT pointer, and the live version number
+  comes from the pending read.
 - **Printable invoice statement** (`/admin/tenants/{id}/invoice`;
   `GET /v1/admin/tenants/{tenant_id}/invoice`) — a white, print-first document. It is a
   DERIVED statement, not a stored row (see DATA-MODEL §8).
