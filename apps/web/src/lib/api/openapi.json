@@ -4834,6 +4834,70 @@
         "title": "SourceOut",
         "type": "object"
       },
+      "SpendCapRecomputeOut": {
+        "additionalProperties": false,
+        "description": "What the flag was, what it is now, and the numbers that decided it.\n\nAn operator running this mid-incident needs to know not just whether the tenant is\nreleased but WHY \u2014 a recompute that leaves `capped` true has done its job and the\nceiling is simply still below the spend. Reporting the counters and the effective\nceiling next to the flag is what turns \"it did not work\" into \"the ceiling is 2 and\nthey have used 3\".",
+        "properties": {
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "capped_before": {
+            "title": "Capped Before",
+            "type": "boolean"
+          },
+          "effective_cap_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Cap Minutes"
+          },
+          "effective_cap_spend_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Cap Spend Inr"
+          },
+          "minutes_used": {
+            "title": "Minutes Used",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "spend_used_inr": {
+            "title": "Spend Used Inr",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "month",
+          "capped_before",
+          "capped",
+          "minutes_used",
+          "spend_used_inr",
+          "effective_cap_minutes",
+          "effective_cap_spend_inr"
+        ],
+        "title": "SpendCapRecomputeOut",
+        "type": "object"
+      },
       "StaffMember": {
         "additionalProperties": false,
         "description": "`pronunciation` is not decoration \u2014 PROMPT-GUIDE \u00a73 requires proper nouns to be\nspelled phonetically in [T0 FACTS], because a mispronounced doctor's name is the\nfirst thing a caller notices.",
@@ -10208,6 +10272,63 @@
           }
         },
         "summary": "Record Calevate's own DLT telemarketer registration (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/tenants/{tenant_id}/spend-cap/recompute": {
+      "post": {
+        "description": "Recomputes `spend_state.capped` from the minutes and spend ALREADY metered this month against the ceiling now in force. Use it after raising `plans.hard_cap_min` / `hard_cap_spend` for a capped client: the flag is a derived column and raising the ceiling does not by itself release the gate. It never sets the flag directly and never moves a counter, so a tenant still over their ceiling stays capped. Inbound calling is unaffected either way.",
+        "operationId": "recompute_spend_cap_v1_ops_tenants__tenant_id__spend_cap_recompute_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpendCapRecomputeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Re-derive a tenant's spend cap flag from their counters (step-up confirmed, audited)",
         "tags": [
           "ops"
         ],

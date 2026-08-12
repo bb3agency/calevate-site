@@ -48,6 +48,27 @@ DISCLOSURE_TEMPLATES = {
 }
 
 
+async def tenant_exists(session: AsyncSession, tenant_id: UUID) -> bool:
+    """Is this a live organization? The one definition, so every surface that names a
+    tenant in its path answers a mistyped uuid the same way.
+
+    Soft-deleted counts as absent: `deleted_at` is set by the erasure path and a tenant
+    on its way out must not be creditable, cappable or dialable. Callers turn a False
+    into `ProblemError.not_found("Organization")` — a 404 rather than an FK violation
+    rendered as a 500, or worse a cheerful 200 describing a tenant that is not there.
+
+    It lives here, with `create_organization`, because organizations are this module's
+    subject; the billing routes that ask it are callers, not owners.
+    """
+    found = (
+        await session.execute(
+            text("SELECT 1 FROM organizations WHERE id = :tid AND deleted_at IS NULL"),
+            {"tid": tenant_id},
+        )
+    ).first()
+    return found is not None
+
+
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40]
     return slug or "client"

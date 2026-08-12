@@ -123,26 +123,31 @@ class SpendState(TimestampMixin, Base):
     ceiling arms it (`hard_cap_min` or `hard_cap_spend`); a tenant with no plan row or a
     NULL ceiling is never capped.
 
-    **Two writers, and the second one exists because the first cannot clear the flag.**
+    **Three writers, and the other two exist because the meter cannot clear the flag.**
     The meter is the writer that ARMS it, and a capped tenant meters nothing — so on the
     meter alone the flag can never clear itself. Both readers therefore check `month` as
     well: a cap belonging to a closed billing month is not a cap, without which an
     outbound-only tenant capped in July would be refused every dial in August with no
     call able to complete and clear it.
 
-    `billing.caps.apply_client_caps` is the second writer. It recomputes `capped` from
-    the counters ALREADY in the row — it writes only the flag, only for the current
-    month, and never moves a total — so a client who lowers their own cap is stopped on
-    the next dial rather than the dial after the next call happens to meter, and a client
-    who raises it is released the same way. Both writers derive the flag from the one
-    shared `over_cap_sql`, which is what stops two writers becoming two definitions.
+    The other two both go through `billing.caps.recompute_capped`, which recomputes
+    `capped` from the counters ALREADY in the row — writing only the flag, only for the
+    current month, never moving a total:
 
-    Known dead end, not yet closed: ops has no writer at all. Raising `plans.hard_cap_*`
-    through the audited admin path does not recompute the flag, so a capped
-    outbound-only tenant stays blocked until the client themselves calls
-    `PUT /v1/billing/caps` — which `org:manage` being in MUTATING_PERMISSIONS stops an
-    impersonating admin doing for them — or the IST month rolls over. An ops-realm
-    recompute is what closes it; `runbooks/calls-stopped.md` documents the workaround.
+    - the CLIENT's `PUT /v1/billing/caps` (`caps.apply_client_caps`), so a client who
+      lowers their own cap is stopped on the next dial rather than the dial after the
+      next call happens to meter, and a client who raises it is released the same way;
+    - OPS's `POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute` (step-up confirmed
+      per tenant, audited), which is what an operator runs after raising
+      `plans.hard_cap_*` on the audited admin path. Raising a ceiling does not by itself
+      release a derived flag, and the client's route needs `org:manage` — in
+      MUTATING_PERMISSIONS, so an impersonating admin (D-22) cannot press it for them —
+      which used to leave a capped outbound-only tenant stopped until they acted or the
+      IST month rolled over. `runbooks/calls-stopped.md` §2 walks the procedure.
+
+    All three derive the flag from the one shared `over_cap_sql`, which is what stops
+    three writers becoming three definitions. There is deliberately no writer anywhere
+    that sets `capped` directly.
     """
 
     __tablename__ = "spend_state"
@@ -217,8 +222,14 @@ class CreditLedgerEntry(PKMixin, Base):
         ),
     )
 
+    # NO `index=True`, deliberately: the composite above already leads with this column,
+    # so a single-column index on it is a strict PREFIX and adds nothing a query can
+    # use. Migration e7c3d10a9f52 dropped `ix_credit_ledger_tenant_id` for that reason
+    # (step two of a6f2e84b1d37's two-step deprecation, hard rule 8), and `index=True`
+    # left here would have autogenerate recreate it at the next revision. On an
+    # append-only table a second index is a write cost with no read to pay it back.
     tenant_id: Mapped[UUID] = mapped_column(
-        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
     )
     # Signed: a top-up is positive, usage is negative. One column, one sign convention,
     # no "type flips the meaning" bug at 2am.

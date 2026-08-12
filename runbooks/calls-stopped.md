@@ -34,9 +34,9 @@ text or extraction payloads into a ticket or a terminal you will paste from
 | 1 | Big red switch | `platform_state.outbound_halted` | ops only, audited |
 | 2 | Load-shed mode | `platform_state.load_shed_mode` | ops only, audited |
 | 3 | Calevate's TM registration | `platform_state.tm_registration_status` | ops only — blocks EVERY tenant's campaign |
-| 4 | Admin spend cap | `plans.hard_cap_min` / `hard_cap_spend` | ops only (no route — SQL on the audited path) |
+| 4 | Admin spend cap | `plans.hard_cap_min` / `hard_cap_spend` | ops only (SQL on the audited path, then the recompute in step 2) |
 | 5 | The client's OWN spend cap | `plans.client_cap_min` / `client_cap_spend` | **client, immediately** |
-| 6 | The cap flag itself | `spend_state.capped` | see step 3 — this is the one with a trap in it |
+| 6 | The cap flag itself | `spend_state.capped` | ops (`POST /v1/ops/tenants/{id}/spend-cap/recompute`) or the client — see step 2 |
 | 7 | Prepaid wallet empty | `credit_ledger` balance, self-serve/trial only | client (top-up) or ops |
 | 8 | The client's PE registration / TM link | `dlt_registrations` | ops record it; the registrar decides it |
 | 9 | Consent provenance, template, number, DNC | `campaigns.consent_source`, `dlt_templates`, `phone_numbers`, `dnc_list` | mixed — see step 4 |
@@ -117,27 +117,57 @@ constraint from that side", never zero (`billing/caps.py`).
   `hard_cap_min` / `hard_cap_spend`; raising a plan ceiling is a hand-written UPDATE on
   the audited admin path against the tenant's **newest** `plans` row (`plans` is
   effective-dated and every reader in the codebase takes `ORDER BY created_at DESC LIMIT 1`).
+  **That UPDATE is half the job** — finish it with the recompute below, or the client
+  stays stopped on a ceiling they are no longer over.
 - **`capped: true`** — outbound is refused right now with rule `spend_cap`. Inbound is
   unaffected.
 
-**The trap in this step.** `spend_capped()` reads the `spend_state.capped` boolean, not
-the ceilings (`apps/api/compliance/service.py`). The flag is written by the post-call
-meter and by `apply_client_caps`, and by nothing else. So **raising the admin ceiling in
-SQL does not clear the flag.** A capped outbound-only tenant meters nothing, so nothing
-recomputes it, and the client stays stopped after you thought you had fixed it. Two
-things do clear it, and one of them is not "wait":
+**The trap in this step, and the button that clears it.** `spend_capped()` reads the
+`spend_state.capped` boolean, not the ceilings (`apps/api/compliance/service.py`). So
+**raising the admin ceiling in SQL does not by itself clear the flag** — it is a derived
+column, a capped outbound-only tenant meters nothing, and nothing recomputes it as a
+side effect of the UPDATE. If you raise `hard_cap_*` and walk away, the client is still
+stopped.
 
-1. **the client** issues `PUT /v1/billing/caps` — any valid body, including one that
-   changes nothing. `apply_client_caps` recomputes `capped` from the counters already in
-   the row against the new effective ceiling, in the same transaction. It has to be them:
-   `PUT` needs `org:manage`, which is in `MUTATING_PERMISSIONS`, so an impersonating admin
-   (D-22) cannot do it for them from a client screen;
-2. the billing month rolls over. `spend_capped` compares `spend_state.month` against
-   `current_billing_month()` (IST), so a flag belonging to a closed month is not a cap.
+Three things recompute it, and one of them is not "wait":
+
+1. **ops**, immediately, on the audited path:
+
+   ```
+   POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute
+   X-Confirm-Action: recompute_spend_cap:{tenant_id}
+   → {"tenant_id": "...", "month": "2026-08",
+      "capped_before": true, "capped": false,
+      "minutes_used": "812.00", "spend_used_inr": "5002.40",
+      "effective_cap_minutes": 5000, "effective_cap_spend_inr": "8000.00"}
+   ```
+
+   `ops:manage`, admin realm, step-up confirmed and audited as `ops.recompute_spend_cap`
+   (`apps/api/ops/routes.py`). The confirmation header carries the TENANT ID — one
+   captured for another client will not work here, by design. Like everything under
+   `/v1/ops` it is never load-shed, so it answers in `maintenance` too.
+
+   **Run it AFTER raising the ceiling, not instead of.** It re-derives the flag from the
+   counters already in the row against the ceiling now in force; it does not un-cap. If
+   the response comes back `"capped": true`, compare `minutes_used` / `spend_used_inr`
+   against the two `effective_cap_*` fields in that same response — the ceiling is still
+   the smaller number and the tenant is correctly capped. Note `effective_cap_*` is
+   `LEAST(plan, client)`, so a client cap below the one you just raised will keep them
+   stopped and only they can move it (route 2 below);
+2. **the client** issues `PUT /v1/billing/caps` — any valid body, including one that
+   changes nothing. `apply_client_caps` runs the same recompute in the same transaction.
+   This is the only route that clears a CLIENT-set cap: `PUT` needs `org:manage`, which
+   is in `MUTATING_PERMISSIONS`, so an impersonating admin (D-22) cannot do it for them
+   from a client screen;
+3. the billing month rolls over. `spend_capped` compares `spend_state.month` against
+   `current_billing_month()` (IST), so a flag belonging to a closed month is not a cap —
+   which is also why the ops recompute reports `capped: false` and writes nothing for a
+   tenant whose row still carries a closed month.
 
 Do **not** UPDATE `spend_state.capped` by hand to unstick it. It is a derived counter
-column with exactly two writers sharing one expression (`over_cap_sql`); a third writer
-is how the meter and the gate start disagreeing.
+column with three writers sharing one expression (`over_cap_sql` — the meter, the
+client's cap route and the ops recompute); a writer that sets the flag directly is how
+the meter and the gate start disagreeing.
 
 ## 3. Cause 7 — the prepaid wallet
 
@@ -257,7 +287,9 @@ is better than a "we're looking into it" that turns into a week.
 - **Never UPDATE `spend_state.capped`, `platform_state` or a campaign's `status` by
   hand.** Each has an audited write path and a cache to invalidate; the SQL skips both.
   For `spend_state` specifically the flag is derived — the correct lever is the cap, and
-  the recompute rides with it.
+  the recompute rides with it: move the ceiling, then run
+  `POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute` (step 2). There is a route for
+  this now, so there is no longer any reason to reach for the UPDATE.
 - **Never introduce a bypass**, not for a demo, not for one tenant, not for an hour.
   There is no bypass flag on the compliance gate by design (`compliance/service.py` —
   "no bypass flag, not even for testing"), and a TM registration that is not live means

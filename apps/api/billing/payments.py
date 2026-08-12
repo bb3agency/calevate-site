@@ -94,7 +94,6 @@ from decimal import Decimal
 from typing import Any, Final
 from uuid import UUID
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.service import (
@@ -368,16 +367,6 @@ def extract_captured_payment(envelope: Any) -> CapturedPayment:
     )
 
 
-async def tenant_exists(session: AsyncSession, tenant_id: UUID) -> bool:
-    found = (
-        await session.execute(
-            text("SELECT 1 FROM organizations WHERE id = :tid AND deleted_at IS NULL"),
-            {"tid": tenant_id},
-        )
-    ).first()
-    return found is not None
-
-
 async def credit_captured_payment(
     session: AsyncSession, *, payment: CapturedPayment, ip: str | None = None
 ) -> TopUpResult:
@@ -476,6 +465,5 @@ __all__ = [
     "paise_to_inr",
     "payment_capability",
     "payments_not_configured",
-    "tenant_exists",
     "verify_signature",
 ]

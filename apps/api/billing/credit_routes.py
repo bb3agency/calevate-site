@@ -54,6 +54,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.admin.service import tenant_exists
 from apps.api.billing.service import (
     LOW_BALANCE_INR,
     find_topup,
@@ -155,14 +156,13 @@ class CreditsOut(Strict):
 
 async def _assert_tenant_exists(session: AsyncSession, tenant_id: UUID) -> None:
     """A mistyped tenant id must be a 404, not an FK violation rendered as a 500 —
-    and on a money route, not a silent zero-balance wallet that looks real."""
-    found = (
-        await session.execute(
-            text("SELECT 1 FROM organizations WHERE id = :tid AND deleted_at IS NULL"),
-            {"tid": tenant_id},
-        )
-    ).first()
-    if found is None:
+    and on a money route, not a silent zero-balance wallet that looks real.
+
+    The predicate itself is `admin.service.tenant_exists`, shared with the Razorpay
+    receiver and the ops spend-cap recompute: three surfaces that name a tenant in a
+    path had three copies of one SELECT, which is three places for "soft-deleted counts
+    as absent" to be fixed in."""
+    if not await tenant_exists(session, tenant_id):
         raise ProblemError.not_found("Organization")
 
 

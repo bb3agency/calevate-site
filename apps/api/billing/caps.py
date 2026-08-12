@@ -69,15 +69,29 @@ mid-campaign by typing a number, and a campaign already dispatching will be refu
 call by call. `PUT /v1/billing/caps` says so in its response (`capped`, from `capped_now`) rather
 than leaving the client to discover it from an empty call list.
 
-TWO WRITERS OF `spend_state.capped`, AND WHY THAT IS SAFE
+THREE WRITERS OF `spend_state.capped`, AND WHY THAT IS SAFE
 -----------------------------------------------------------
-Until now the post-call meter (`workers/pipeline.py`) was the only writer, and its
-docstring says so. This module is the second, and it writes ONLY the flag, only for the
-CURRENT billing month, and only from counters it does not touch. The two cannot
-disagree about what "over cap" means because they share one expression — `over_cap_sql`
-below — rather than each carrying a copy. `spend_state` is a counter table, not a
-ledger: hard rule 4 governs `usage_events`, `consent_ledger`, `credit_ledger` and
-`audit_log`, and none of them is written here.
+The post-call meter (`workers/pipeline.py`) is the writer that ARMS the flag. The other
+two are in this module and both go through `recompute_capped` below: the client's own
+`PUT /v1/billing/caps` (via `apply_client_caps`) and the ops-realm
+`POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute`. Neither writes anything but the
+flag, neither writes it for any month but the current one, and neither touches a
+counter. The three cannot disagree about what "over cap" means because they share one
+expression — `over_cap_sql` below — rather than each carrying a copy. `spend_state` is
+a counter table, not a ledger: hard rule 4 governs `usage_events`, `consent_ledger`,
+`credit_ledger` and `audit_log`, and none of them is written here.
+
+THE OPS WRITER EXISTS BECAUSE THE OTHER TWO CANNOT REACH THE CASE
+------------------------------------------------------------------
+A capped tenant meters nothing, so the meter can never clear what it armed; and the
+client's route needs `org:manage`, which is in `MUTATING_PERMISSIONS`, so an
+impersonating admin (D-22) cannot press that button for them. Raising
+`plans.hard_cap_*` on the audited admin path therefore left a capped OUTBOUND-ONLY
+tenant blocked until the client acted or the IST month rolled over —
+`runbooks/calls-stopped.md` §2 documents the incident that found it. The ops route is
+the third writer and it is the SAME recompute, not a new one: an ops console that could
+set the flag directly would be the writer that finally makes the meter and the gate
+disagree.
 
 A stale month is left ALONE rather than recomputed. `compliance.spend_capped` already
 treats a flag belonging to a closed month as no cap at all, so rewriting it would move
@@ -232,6 +246,68 @@ WHERE tenant_id = :tid AND month = :month
 RETURNING capped
 """
 
+_SPEND_STATE_SELECT = (
+    "SELECT minutes_used, spend_used, capped, month FROM spend_state WHERE tenant_id = :tid"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SpendCounters:
+    """This month's metered totals and the flag the gate reads.
+
+    A row stamped with a CLOSED month reads as zeros and not-capped, which is not a
+    convenience: `compliance.spend_capped` compares `spend_state.month` against the
+    current IST billing month, so last month's flag is already not a cap and last
+    month's totals are already not this month's spend. Reporting them as though they
+    were would show a client a spend they have not made and a ceiling nothing is
+    enforcing.
+    """
+
+    minutes_used: Decimal
+    spend_used: Decimal
+    capped: bool
+
+
+NO_SPEND_THIS_MONTH = SpendCounters(Decimal("0"), Decimal("0"), False)
+
+
+async def read_spend_counters(session: AsyncSession, *, tenant_id: UUID) -> SpendCounters:
+    """The CURRENT billing month's counters, or zeros when the row is absent or stale."""
+    from apps.api.billing.service import current_billing_month
+
+    row = (await session.execute(text(_SPEND_STATE_SELECT), {"tid": tenant_id})).first()
+    if row is None or str(row[3]) != current_billing_month():
+        return NO_SPEND_THIS_MONTH
+    return SpendCounters(Decimal(str(row[0])), Decimal(str(row[1])), bool(row[2]))
+
+
+async def recompute_capped(session: AsyncSession, *, tenant_id: UUID) -> bool | None:
+    """Re-derive `spend_state.capped` from the counters already in the row.
+
+    THE one place the flag is written outside the meter. Both non-meter writers — the
+    client's cap change and the ops recompute — call this rather than each issuing an
+    UPDATE, so "over cap" has one definition across three writers (see the module
+    docstring).
+
+    Returns the flag as it now stands, or `None` when there is no row for the CURRENT
+    billing month — a tenant that has metered nothing this month, or whose row still
+    belongs to a closed one. That is a real and distinct answer, not an error: nothing
+    is capped, nothing needed writing, and a stale row is deliberately left alone
+    because `spend_capped` already reads its month.
+    """
+    # Imported HERE, not at module scope: `billing.service.usage_summary` reads the
+    # effective-cap expression from this module, so a top-level import in either
+    # direction closes a cycle. One function-local import beats a second definition of
+    # the IST billing month, which is the only other way out.
+    from apps.api.billing.service import current_billing_month
+
+    result = await session.execute(
+        text(_RECOMPUTE_CAPPED), {"tid": tenant_id, "month": current_billing_month()}
+    )
+    value = result.scalar()
+    return bool(value) if value is not None else None
+
+
 # A plan row that exists only to carry the client's own caps. Every other column is
 # left NULL — which is what `usage_summary`, the dispatcher and the meter already read
 # when there is no plan row at all, so minting one changes no price and no ceiling.
@@ -300,17 +376,7 @@ async def apply_client_caps(
             {"plan_id": row[0], "cap_min": cap_min, "cap_spend": cap_spend},
         )
 
-    # Imported HERE, not at module scope: `billing.service.usage_summary` reads the
-    # effective-cap expression from this module, so a top-level import in either
-    # direction closes a cycle. One function-local import beats a second definition of
-    # the IST billing month, which is the only other way out.
-    from apps.api.billing.service import current_billing_month
-
-    capped = (
-        await session.execute(
-            text(_RECOMPUTE_CAPPED), {"tid": tenant_id, "month": current_billing_month()}
-        )
-    ).scalar()
+    capped = await recompute_capped(session, tenant_id=tenant_id)
 
     log.info(
         "client_caps_set",
@@ -331,10 +397,14 @@ __all__ = [
     "CAPS_CTE",
     "EFFECTIVE_CAP_MIN_SQL",
     "EFFECTIVE_CAP_SPEND_SQL",
+    "NO_SPEND_THIS_MONTH",
     "CapView",
     "CapWriteResult",
+    "SpendCounters",
     "apply_client_caps",
     "effective_cap",
     "over_cap_sql",
     "read_caps",
+    "read_spend_counters",
+    "recompute_capped",
 ]

@@ -41,14 +41,12 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Annotated, Any
-from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.caps import CapView, apply_client_caps, read_caps
+from apps.api.billing.caps import CapView, apply_client_caps, read_caps, read_spend_counters
 from apps.api.billing.service import current_billing_month, to_paise
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import requires
@@ -130,29 +128,6 @@ class CapsOut(Strict):
     capped: bool
 
 
-async def _spend_state(session: AsyncSession, tenant_id: UUID) -> tuple[Decimal, Decimal, bool]:
-    """(minutes_used, spend_used, capped) for the CURRENT billing month.
-
-    A row stamped with a closed month reads as zeros and not capped, for exactly the
-    reason `compliance.spend_capped` reads the month: the meter is the only thing that
-    rolls the counters over, so last month's totals sit in the row until some call
-    completes. Reporting them as this month's would show a client a spend they have not
-    made and a cap that is not being enforced.
-    """
-    row = (
-        await session.execute(
-            text(
-                "SELECT minutes_used, spend_used, capped, month FROM spend_state "
-                "WHERE tenant_id = :tid"
-            ),
-            {"tid": tenant_id},
-        )
-    ).first()
-    if row is None or str(row[3]) != current_billing_month():
-        return Decimal("0"), Decimal("0"), False
-    return Decimal(str(row[0])), Decimal(str(row[1])), bool(row[2])
-
-
 def _render(caps: CapView, *, minutes: Decimal, spend: Decimal, capped: bool) -> CapsOut:
     def money(value: Decimal | None) -> str | None:
         return str(to_paise(value)) if value is not None else None
@@ -182,8 +157,16 @@ async def get_caps(session: Session, principal: CapsRead) -> CapsOut:
     (D-22), and spend is an owner's business rather than staff's (SEC-COMP §5)."""
     assert principal.tenant_id is not None
     caps = await read_caps(session, tenant_id=principal.tenant_id)
-    minutes, spend, capped = await _spend_state(session, principal.tenant_id)
-    return _render(caps, minutes=minutes, spend=spend, capped=capped)
+    # The shared reader in `caps.py`: this screen and the ops recompute must agree about
+    # what "this month" means and about a stale row reading as zeros, and one function
+    # is how that stops being a coincidence.
+    counters = await read_spend_counters(session, tenant_id=principal.tenant_id)
+    return _render(
+        caps,
+        minutes=counters.minutes_used,
+        spend=counters.spend_used,
+        capped=counters.capped,
+    )
 
 
 @router.put(
@@ -240,8 +223,16 @@ async def set_caps(payload: CapsIn, session: Session, principal: CapsWrite) -> C
             "capped_now": result.capped_now,
         },
     )
-    minutes, spend, _ = await _spend_state(session, tenant_id)
-    return _render(result.caps, minutes=minutes, spend=spend, capped=result.capped_now)
+    counters = await read_spend_counters(session, tenant_id=tenant_id)
+    return _render(
+        result.caps,
+        minutes=counters.minutes_used,
+        spend=counters.spend_used,
+        # The flag AFTER this write, from the recompute itself rather than from a second
+        # read: same transaction either way, but this is the value the client is being
+        # told they caused.
+        capped=result.capped_now,
+    )
 
 
 __all__ = ["MAX_CLIENT_CAP_MIN", "MAX_CLIENT_CAP_SPEND_INR", "CapsIn", "CapsOut", "router"]

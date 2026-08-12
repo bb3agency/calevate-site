@@ -38,6 +38,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from apps.api.admin.service import tenant_exists
 from apps.api.billing.payments import (
     CAPTURED_EVENT,
     NOTES_TENANT_KEY,
@@ -50,7 +51,6 @@ from apps.api.billing.payments import (
     find_topup,
     payment_capability,
     payments_not_configured,
-    tenant_exists,
     verify_signature,
 )
 from apps.api.billing.service import get_balance, plan_tier_of, to_paise

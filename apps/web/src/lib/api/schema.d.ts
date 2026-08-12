@@ -1691,6 +1691,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/tenants/{tenant_id}/spend-cap/recompute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-derive a tenant's spend cap flag from their counters (step-up confirmed, audited)
+         * @description Recomputes `spend_state.capped` from the minutes and spend ALREADY metered this month against the ceiling now in force. Use it after raising `plans.hard_cap_min` / `hard_cap_spend` for a capped client: the flag is a derived column and raising the ceiling does not by itself release the gate. It never sets the flag directly and never moves a counter, so a tenant still over their ceiling stays capped. Inbound calling is unaffected either way.
+         */
+        post: operations["recompute_spend_cap_v1_ops_tenants__tenant_id__spend_cap_recompute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/performance": {
         parameters: {
             query?: never;
@@ -3588,6 +3608,34 @@ export interface components {
             status: string;
             /** Version */
             version: number;
+        };
+        /**
+         * SpendCapRecomputeOut
+         * @description What the flag was, what it is now, and the numbers that decided it.
+         *
+         *     An operator running this mid-incident needs to know not just whether the tenant is
+         *     released but WHY — a recompute that leaves `capped` true has done its job and the
+         *     ceiling is simply still below the spend. Reporting the counters and the effective
+         *     ceiling next to the flag is what turns "it did not work" into "the ceiling is 2 and
+         *     they have used 3".
+         */
+        SpendCapRecomputeOut: {
+            /** Capped */
+            capped: boolean;
+            /** Capped Before */
+            capped_before: boolean;
+            /** Effective Cap Minutes */
+            effective_cap_minutes: number | null;
+            /** Effective Cap Spend Inr */
+            effective_cap_spend_inr: string | null;
+            /** Minutes Used */
+            minutes_used: string;
+            /** Month */
+            month: string;
+            /** Spend Used Inr */
+            spend_used_inr: string;
+            /** Tenant Id */
+            tenant_id: string;
         };
         /**
          * StaffMember
@@ -7123,6 +7171,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TmRegistrationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    recompute_spend_cap_v1_ops_tenants__tenant_id__spend_cap_recompute_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpendCapRecomputeOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
