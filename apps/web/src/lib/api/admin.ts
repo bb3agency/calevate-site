@@ -11,11 +11,20 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import type { CampaignSummary } from "./campaigns";
 import { apiRequest, type Session } from "./client";
 // Types, the endpoint path and the request shaper only — never a client-realm session.
 // The two realms share vocabulary so an operator and a client name the same document
 // the same way; they share no session logic (TRD §11), which is why the session each
 // hook below presents is built here.
+import {
+  FIRST_CAMPAIGN_REVIEW_PATH,
+  toDecisionBody,
+  type FirstCampaignDecisionIn,
+  type FirstCampaignDecisionOut,
+  type FirstCampaignHold,
+} from "./firstCampaign";
+import { HOLDS_PATH, HOLDS_QUERY_KEY, type HeldTenant } from "./holds";
 import { KYC_PATH, toRecordBody, type KycRecord, type KycRecordIn } from "./kyc";
 import type { components } from "./schema";
 
@@ -48,6 +57,29 @@ export function useTenants(): UseQueryResult<TenantSummary[]> {
   return useQuery({
     queryKey: ["admin", "tenants"],
     queryFn: () => apiRequest<TenantSummary[]>(adminSession(), "/v1/admin/tenants"),
+    refetchInterval: 60_000,
+  });
+}
+
+/**
+ * The ops work list — every account waiting on a human (R-11's two gates).
+ *
+ * `adminSession()`, not `viewAsSession()`: this is a CROSS-tenant read that no single
+ * tenant's session can answer, and D-22's read-through-impersonation split is about a
+ * tenant's own data. The route is `org:read` rather than `admin:tenants` on purpose
+ * (`holds_routes.py`: reading a work list is not acting on it), so both admin roles can
+ * open the queue while each remedy on it keeps its own permission.
+ *
+ * A one-minute poll, matching `useTenants` and for the same reason rather than a copied
+ * number: this is a shared queue two operators work at once, and a row a colleague has
+ * just cleared should stop being offered. It is not cheap enough to poll harder — the
+ * server walks each self-serve tenant's own RLS session, N+1 by construction and argued
+ * as such in `admin/holds.py`.
+ */
+export function useHeldTenants(): UseQueryResult<HeldTenant[]> {
+  return useQuery({
+    queryKey: HOLDS_QUERY_KEY,
+    queryFn: () => apiRequest<HeldTenant[]>(adminSession(), HOLDS_PATH),
     refetchInterval: 60_000,
   });
 }
@@ -189,7 +221,91 @@ export function useRecordKyc(tenantId: string) {
     // echoing back what this screen just sent. `record_kyc` COALESCEs blank fields
     // against the filed row, so the response body is not the resulting record — the
     // failure `DltRegistrationPanel` has to live with because its endpoint has no GET.
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "kyc"] }),
+    //
+    // The queue and the directory are invalidated too, because this write is one of the
+    // two things that empties a row off them: `read_tenant_holds` composes the list from
+    // `kyc_blocker` itself, so a verification recorded here removes the account from the
+    // work list and from the `holds` flag on its directory row. Without this an operator
+    // clears a gate and walks back to a queue still offering it.
+    onSuccess: () =>
+      void Promise.all([
+        client.invalidateQueries({ queryKey: ["admin", "kyc"] }),
+        client.invalidateQueries({ queryKey: HOLDS_QUERY_KEY }),
+        client.invalidateQueries({ queryKey: ["admin", "tenants"] }),
+      ]),
+  });
+}
+
+/**
+ * The first-campaign hold on one account — read through impersonation, released through
+ * the admin surface.
+ *
+ * The same D-22 split as the KB queue and KYC, and the same reason it is the only shape
+ * available: there is no admin-realm READ of a tenant's review. `GET /v1/compliance/
+ * first-campaign-review` is `org:read` — non-mutating, so it stays reachable inside a
+ * read-only "view as client" session — and it is the endpoint that returns the SERVER's
+ * `held` predicate, the one the launch gate and the dispatch tick ask. The console must
+ * not re-derive that from `status`, so it reads the tenant's own view of it.
+ */
+export function useTenantFirstCampaignHold(slug: string): UseQueryResult<FirstCampaignHold> {
+  return useQuery({
+    queryKey: ["admin", "first-campaign", slug],
+    queryFn: () => apiRequest<FirstCampaignHold>(viewAsSession(slug), FIRST_CAMPAIGN_REVIEW_PATH),
+    enabled: Boolean(slug),
+  });
+}
+
+/**
+ * The tenant's campaigns, read through impersonation — the evidence list for a release.
+ *
+ * `GET /v1/campaigns` is `leads:read`, which the operator role holds and which is not in
+ * `MUTATING_PERMISSIONS`, so an impersonating session may read it. It exists on the
+ * release screen for one field: `reviewed_campaign_id`, WHICH campaign a human actually
+ * read. The API validates that id inside `tenant_session`, so naming another tenant's
+ * campaign is a 404 rather than a stored cross-tenant pointer — this list is how an
+ * operator picks a real one rather than pasting a uuid.
+ */
+export function useTenantCampaigns(slug: string): UseQueryResult<CampaignSummary[]> {
+  return useQuery({
+    queryKey: ["admin", "campaigns", slug],
+    queryFn: () => apiRequest<CampaignSummary[]>(viewAsSession(slug), "/v1/campaigns"),
+    enabled: Boolean(slug),
+  });
+}
+
+/**
+ * Release (or refuse) an account's campaign calling — R-11's hold, audited on every call.
+ *
+ * `adminSession()` with the tenant in the PATH, never the impersonating session that
+ * read the state above: `admin:tenants` is a MUTATING permission, so the same call made
+ * with `viewAsSession` would be correctly refused by `core/auth.py`. Two sessions on one
+ * screen is D-22 working, not an inconsistency.
+ *
+ * No `Idempotency-Key` and no `X-Confirm-Action`, because the route asks for neither.
+ * The write is an upsert of one row per tenant — sending it twice records the same
+ * decision — and the history that must not be lost is the `audit_log` entry per call,
+ * which is the point: a release and a later withdrawal are two entries, not one edited
+ * row (hard rule 4).
+ */
+export function useFirstCampaignDecision(tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: FirstCampaignDecisionIn) =>
+      apiRequest<FirstCampaignDecisionOut>(
+        adminSession(),
+        `/v1/admin/tenants/${tenantId}/first-campaign-review`,
+        { method: "POST", body: toDecisionBody(payload) },
+      ),
+    // The screen re-reads the tenant's own `held` afterwards rather than trusting this
+    // response: `FirstCampaignDecisionOut` carries what was decided, and whether the
+    // account is now held is the GATE's answer to a different question — an `approved`
+    // row on a tier the rule does not apply to is not the same fact as a released one.
+    onSuccess: () =>
+      void Promise.all([
+        client.invalidateQueries({ queryKey: ["admin", "first-campaign"] }),
+        client.invalidateQueries({ queryKey: HOLDS_QUERY_KEY }),
+        client.invalidateQueries({ queryKey: ["admin", "tenants"] }),
+      ]),
   });
 }
 

@@ -117,6 +117,104 @@ export function firstCampaignState(hold: FirstCampaignHold): FirstCampaignState 
 }
 
 /**
+ * The operator's decision — the admin-realm write, shaped here and SENT from `admin.ts`.
+ *
+ * Same split as `kyc.ts`: the vocabulary and the pre-flight checks live beside the type
+ * they describe, and the call that carries an admin session is built in the one module
+ * that builds admin sessions. There is deliberately no mutation hook in this file, so
+ * nothing that imports it can render a control the client realm would be refused.
+ */
+export type FirstCampaignDecisionIn = Schemas["FirstCampaignDecisionIn"];
+export type FirstCampaignDecisionOut = Schemas["FirstCampaignDecisionOut"];
+export type FirstCampaignDecision = FirstCampaignDecisionIn["decision"];
+
+/** The API's own cap on the note (`FirstCampaignDecisionIn.note`, `max_length=2000`). */
+export const DECISION_NOTE_MAX = 2000;
+/** The DATABASE's floor: `ck` `length(btrim(decision_note)) >= 3` (c4d9e18a72b6). */
+export const DECISION_NOTE_MIN = 3;
+
+export interface DecisionCopy {
+  /** What the operator is choosing, in the form. */
+  label: string;
+  /** What it does to the account — the consequence, not the verb. */
+  effect: string;
+  /** What the note is FOR under this decision, said where it is typed. */
+  noteLabel: string;
+  noteHint: string;
+}
+
+/**
+ * The two decisions, keyed off the generated union so a third one cannot be added
+ * server-side without this file failing to compile.
+ *
+ * The halves that matter are the ones an operator gets wrong from the verb alone:
+ * `approved` is not "this campaign is fine", it releases the ACCOUNT and no campaign of
+ * theirs is held on this rule again; `rejected` is not a deletion, it keeps the account
+ * held and shows the client the note verbatim on `/c/[slug]/campaign-review`.
+ */
+export const DECISION_COPY: Record<FirstCampaignDecision, DecisionCopy> = {
+  approved: {
+    label: "Release the account",
+    effect:
+      "Campaign calling opens, and this rule never holds another of their campaigns. " +
+      "The other gates — identity, DLT template, number, wallet — are untouched.",
+    noteLabel: "What you read",
+    noteHint:
+      "For the audit record: the contact list and where it came from, the script, and " +
+      "the disclosure line. This is the answer to “why was this account released”, " +
+      "asked after a reversal has overwritten the row — so write it for a stranger.",
+  },
+  rejected: {
+    label: "Refuse — keep the account held",
+    effect:
+      "Campaigns stay blocked and the client is shown your note. Nothing is deleted: " +
+      "they fix what you name, and a reviewer looks again.",
+    noteLabel: "What the client will read",
+    noteHint:
+      "Goes to the client VERBATIM on their own campaign-review screen. Write it to " +
+      "them, not about them: what was wrong, and what to change so the next reviewer " +
+      "can release it.",
+  },
+};
+
+/**
+ * Why this decision cannot be recorded yet, or `null` when it can.
+ *
+ * A PREVIEW of the refusal, never the enforcement — the doctrine `recordBlockReason`
+ * already follows on the KYC form. Behind it stand the route, which pre-empts a short
+ * note with `first_campaign_review_note_required` problem+json, and
+ * `decision_says_what_was_reviewed`, which refuses the row underneath that. The point of
+ * asking here is that an operator finds out before the round-trip, with the field named.
+ */
+export function decisionBlockReason(body: FirstCampaignDecisionIn): string | null {
+  const note = body.note.trim();
+  if (note.length < DECISION_NOTE_MIN) {
+    return body.decision === "rejected"
+      ? "A refusal has to say what was wrong — it is what the client is shown, and nothing else explains the block."
+      : "A release has to record what was reviewed, or nobody can account for it afterwards.";
+  }
+  if (note.length > DECISION_NOTE_MAX) {
+    return `The note is ${note.length} characters; the API accepts ${DECISION_NOTE_MAX}.`;
+  }
+  return null;
+}
+
+/**
+ * The draft as the API wants it: trimmed, with no campaign sent as `null`.
+ *
+ * `null` here does NOT clear the evidence. `record_first_campaign_decision` COALESCEs
+ * `reviewed_campaign_id` against what is stored, precisely so a later reversal that
+ * names no campaign cannot erase the record of what the first reviewer read.
+ */
+export function toDecisionBody(body: FirstCampaignDecisionIn): FirstCampaignDecisionIn {
+  return {
+    decision: body.decision,
+    note: body.note.trim(),
+    reviewed_campaign_id: body.reviewed_campaign_id ?? null,
+  };
+}
+
+/**
  * This account's own hold state — client realm, `org:read`, non-mutating.
  *
  * No `refetchInterval`, for the reason `useKycRecord` states: the answer changes when a

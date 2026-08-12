@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { use, useState } from "react";
 
-import { EmptyState, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import { EmptyState, NOTICE_TONES, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import {
   useKbDecision,
   useKbPreview,
@@ -21,6 +21,7 @@ import {
   type PeStatus,
   type TmLinkStatus,
 } from "@/lib/api/admin";
+import { holdRule } from "@/lib/api/holds";
 import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
 
 /**
@@ -88,6 +89,17 @@ export default function TenantDetailPage({
           >
             Identity (KYC)
           </Link>
+          {/* The other human-decision gate, and the only one that had no screen at all:
+              `POST .../first-campaign-review` was reachable by curl and nothing else. It
+              is a sibling of KYC rather than a panel here for the same reasons — an
+              audited compliance decision with a note an auditor will read, over a state
+              that has to be read from the tenant's own view of it. */}
+          <Link
+            href={`/admin/tenants/${tenantId}/first-campaign-review`}
+            className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
+          >
+            Campaign review
+          </Link>
           <Link
             href={`/admin/tenants/${tenantId}/invoice`}
             className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
@@ -109,6 +121,8 @@ export default function TenantDetailPage({
           </Link>
         </div>
       </div>
+
+      <HoldsBanner tenantId={tenantId} holds={tenant.holds} />
 
       <div className="grid gap-3 sm:grid-cols-4">
         <Stat label="Live agents" value={tenant.live_agents} />
@@ -243,6 +257,45 @@ export default function TenantDetailPage({
 
       <CampaignSetup tenantId={tenantId} slug={slug} />
     </div>
+  );
+}
+
+/**
+ * What is holding this account, at the top of its own page.
+ *
+ * `TenantSummary.holds` is `read_tenant_holds` — the blockers themselves — so this says
+ * the same thing as the work list and as the client's refusal, in the same vocabulary. It
+ * is here because the panels below (numbers, templates, registrations) all read as "this
+ * client is nearly ready", and an account whose dialling is refused outright should not
+ * have to be inferred from a screen full of green.
+ *
+ * Renders nothing when nothing holds them: an operator opening a healthy account should
+ * not be shown a box saying so.
+ */
+function HoldsBanner({ tenantId, holds }: { tenantId: string; holds: string[] }) {
+  if (holds.length === 0) return null;
+  return (
+    <section className={`rounded-xl border p-4 text-sm ${NOTICE_TONES.warn}`}>
+      <p className="font-medium">This account is waiting on us.</p>
+      <ul className="mt-2 space-y-2 text-xs">
+        {holds.map((rule) => {
+          const copy = holdRule(rule);
+          return (
+            <li key={rule} className="flex flex-wrap items-baseline gap-2">
+              <span className="font-medium">{copy?.label ?? rule}</span>
+              <span className="opacity-80">
+                {copy?.blocks ?? "This console does not recognise this rule; the gate that emitted it does."}
+              </span>
+              {copy && (
+                <Link href={copy.screen(tenantId)} className="underline">
+                  {copy.cta}
+                </Link>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

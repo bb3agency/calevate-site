@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { useTenants } from "@/lib/api/admin";
+import { holdRule } from "@/lib/api/holds";
 import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
 
 export default function AdminClientsPage() {
@@ -73,6 +74,23 @@ export default function AdminClientsPage() {
                         capped
                       </span>
                     )}
+                    {/* The same two R-11 gates the work list is built from, on the screen
+                        an operator already reads. `TenantSummary.holds` comes from
+                        `read_tenant_holds` — the blockers themselves — so this flag and
+                        the queue cannot disagree about who is stuck. The label is the
+                        rule's operator name where we know it and the gate's own name
+                        where we do not; either way it links to the queue, which is where
+                        the remedy lives. */}
+                    {tenant.holds.map((rule) => (
+                      <Link
+                        key={rule}
+                        href="/admin/holds"
+                        className="ml-1 rounded-full bg-amber-950 px-2 py-0.5 text-xs text-amber-300 hover:underline"
+                        title="Held for a human decision — see the work list"
+                      >
+                        {holdRule(rule)?.label ?? rule}
+                      </Link>
+                    ))}
                   </td>
                   <td className="px-4 py-2 text-slate-400">{tenant.vertical_template ?? "—"}</td>
                   <td className="px-4 py-2 tabular-nums">{tenant.live_agents}</td>

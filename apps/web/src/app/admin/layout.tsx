@@ -20,6 +20,10 @@ import { Providers } from "@/app/providers";
 
 const NAV = [
   { href: "/admin", label: "Clients" },
+  // The work list, in the shell rather than only linked from a client row: an account
+  // held on a gate nobody has looked at is precisely the one nobody navigates to, so
+  // discovery cannot depend on already knowing which client to open (admin/holds.py).
+  { href: "/admin/holds", label: "Held accounts" },
   { href: "/admin/new", label: "New client" },
   { href: "/admin/ops", label: "Operations" },
 ];
