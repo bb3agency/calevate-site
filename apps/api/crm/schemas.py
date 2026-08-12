@@ -267,10 +267,19 @@ class UsagePanelOut(Strict):
     calls: int
     included_minutes: int
     overage_minutes: str
+    # The two TTS rungs the overage was split across (D-36's ladder, `billing/rates.py`).
+    # They add to `overage_minutes` exactly, so an owner can check the arithmetic.
+    overage_minutes_premium: str
+    overage_minutes_value: str
     overage_cost_inr: str
     # The rate the overage was actually priced at, published so the invoice does not
     # re-read `plans` and risk quoting a different row.
     overage_rate_inr: str
+    # The value rung's rate, or None when this plan quotes no separate one — in which
+    # case BOTH rungs above were priced at `overage_rate_inr`. None rather than a repeat
+    # of the premium rate, because "one rate" and "two rates that happen to be equal"
+    # are different plans and the screen says different things about them.
+    overage_rate_value_inr: str | None
     # None until the client has a plan row with a fee (mid-onboarding is a real state).
     monthly_fee_inr: str | None
     cap_minutes: int | None

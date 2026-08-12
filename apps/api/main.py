@@ -27,6 +27,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.publishing_routes import router as publishing_router
     from apps.api.agents.routes import router as agents_router
     from apps.api.agents.voice_routes import router as voice_router
+    from apps.api.billing.cap_routes import router as caps_router
     from apps.api.billing.credit_routes import router as credits_admin_router
     from apps.api.billing.payment_routes import router as topups_router
     from apps.api.billing.payment_routes import webhook_router as razorpay_router
@@ -71,6 +72,11 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(deletion_router)
     application.include_router(dlt_registration_router)
     application.include_router(signup_router)
+    # Both are literal paths under `/v1/billing` and neither carries a `{param}` at
+    # that position, so declaration order is not load-bearing between them — but caps
+    # goes first so that a future `/v1/billing/{something}` router added below cannot
+    # swallow it. FastAPI matches in declaration order (see `voice_router` above).
+    application.include_router(caps_router)
     application.include_router(topups_router)
     application.include_router(razorpay_router)
     application.include_router(ops_router)

@@ -35,6 +35,7 @@ from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.caps import CAPS_CTE, over_cap_sql
 from apps.api.billing.rates import billable_tier
 from apps.api.billing.service import charge_for_call, plan_tier_of
 from apps.api.core.alerting import alert, record_pipeline_lag, record_reconciliation_repair
@@ -773,14 +774,26 @@ def _ist_month(moment: datetime) -> str:
 # totals that statement is storing. A separate read-then-write would let two calls
 # finishing at once each see a pre-cap total and neither arm the cap.
 #
-# KNOWN RESIDUAL, and it is not fixable from here: this is the ONLY writer of
-# `spend_state` in the codebase, so the flag moves only when a call is METERED. A
-# tenant whose traffic is entirely outbound is capped in July, refused every dial in
-# August, meters nothing, and therefore never rolls over — the rollover below only
-# fires if some call completes. Inbound saves most tenants (the gate is outbound-only,
-# so inbound still meters), but a campaign-only client would be stuck. The durable fix
-# is a month-aware READ in `compliance.spend_capped` — `capped AND month =
-# billing.current_billing_month()` — so a stale month stops being a cap on its own.
+# KNOWN RESIDUAL, and it is not fixable from here: this statement moves the flag only
+# when a call is METERED. A tenant whose traffic is entirely outbound is capped in July,
+# refused every dial in August, meters nothing, and therefore never rolls over — the
+# rollover below only fires if some call completes. Inbound saves most tenants (the gate
+# is outbound-only, so inbound still meters), but a campaign-only client would be stuck.
+# The durable fix is a month-aware READ in `compliance.spend_capped` — `capped AND
+# month = billing.current_billing_month()` — so a stale month stops being a cap on its
+# own; that read exists.
+#
+# THIS IS NO LONGER THE ONLY WRITER. `billing/caps.py::apply_client_caps` also writes
+# the flag, because a client lowering their own cap has to stop the next dial rather
+# than the dial after the next call happens to meter. It writes ONLY the flag, only for
+# the current billing month, and from the counters this statement maintains — and both
+# read one shared definition of "over cap" (`billing.caps.over_cap_sql`) rather than
+# each carrying a copy, which is what stops the two from ever disagreeing.
+#
+# WHOSE CEILING. `caps` now resolves the EFFECTIVE cap — `LEAST(hard_cap_*,
+# client_cap_*)` — so the ceiling the admin agreed and the one the client set for
+# themselves both bind, and the stricter wins. The CTE body is imported, not restated,
+# for the same reason.
 
 # The accumulated totals — reset on a new IST billing month, added to within one.
 _ACC_MINUTES = (
@@ -795,48 +808,15 @@ _ACC_SPEND = (
 )
 
 
-def _over_cap(minutes_expr: str, spend_expr: str) -> str:
-    """SQL for "these totals have reached one of the plan's ceilings".
-
-    EITHER ceiling closes the gate: a tenant well inside its minute allowance can still
-    be burning money, and a tenant on a cheap voice can run the clock out without ever
-    approaching the rupee ceiling. `>=` because a ceiling that is exactly reached is
-    spent — that is the same arithmetic the usage panel's "minutes left" does when it
-    reports 0.
-
-    A ceiling that is NULL — an unlimited plan, or a tenant with no `plans` row at all,
-    where the scalar subquery yields NULL — must never cap: `COALESCE(x >= NULL, false)`
-    is false, so an absent ceiling is an absent constraint. A missing plan row means the
-    default and never a refusal, which is what the campaign dispatcher does with the
-    same missing row for `concurrency_ceiling`; the alternative reads a new client's
-    empty billing setup as a ceiling of zero and takes their phones down on day one.
-    """
-    return (
-        f"(COALESCE(({minutes_expr}) >= (SELECT hard_cap_min FROM caps), false) "
-        f"OR COALESCE(({spend_expr}) >= (SELECT hard_cap_spend FROM caps), false))"
-    )
-
-
 _SPEND_STATE_UPSERT = f"""
-WITH caps AS (
-    -- `plans` is effective-dated (effective_from/effective_to), so a tenant that ever
-    -- changed plan has SEVERAL rows and a join on tenant_id alone multiplies them.
-    -- NEWEST ROW WINS, which is the rule invoice.py (through billing.usage_summary)
-    -- and the campaign dispatcher already apply to this table — a client must not be
-    -- capped against one plan row and billed against another.
-    SELECT hard_cap_min, hard_cap_spend
-    FROM plans
-    WHERE tenant_id = :tid
-    ORDER BY created_at DESC
-    LIMIT 1
-)
+WITH caps AS ({CAPS_CTE})
 INSERT INTO spend_state (
     tenant_id, month, minutes_used, spend_used, capped, created_at, updated_at
 )
 SELECT
     CAST(:tid AS uuid), CAST(:month AS text),
     CAST(:minutes AS numeric), CAST(:spend AS numeric),
-    {_over_cap("CAST(:minutes AS numeric)", "CAST(:spend AS numeric)")},
+    {over_cap_sql("CAST(:minutes AS numeric)", "CAST(:spend AS numeric)")},
     now(), now()
 ON CONFLICT (tenant_id) DO UPDATE SET
     minutes_used = {_ACC_MINUTES},
@@ -844,7 +824,7 @@ ON CONFLICT (tenant_id) DO UPDATE SET
     -- Recomputed, never carried: on a month rollover the counters above reset, and a
     -- flag left at its old value is a tenant capped in July who can never dial in
     -- August — the counters would read one minute used and the gate would still refuse.
-    capped = {_over_cap(_ACC_MINUTES, _ACC_SPEND)},
+    capped = {over_cap_sql(_ACC_MINUTES, _ACC_SPEND)},
     month = EXCLUDED.month,
     updated_at = now()
 """

@@ -59,7 +59,10 @@ export function devSession(orgSlug: string): Session {
   return { token: `dev:client:${user}`, orgSlug };
 }
 
-type Method = "GET" | "POST" | "PATCH" | "DELETE";
+// PUT is here for `/v1/billing/caps`, which states the WHOLE client-side pair of
+// spending limits in one body — `null` on a field clears that side. PATCH would need a
+// third state ("leave this one alone") that JSON makes easy to send by accident.
+type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
 interface RequestOptions {
   method?: Method;

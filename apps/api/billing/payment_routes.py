@@ -48,6 +48,8 @@ from apps.api.billing.payments import (
     event_name,
     extract_captured_payment,
     find_topup,
+    payment_capability,
+    payments_not_configured,
     tenant_exists,
     verify_signature,
 )
@@ -160,17 +162,16 @@ async def create_topup_intent(payload: TopUpIntentIn, principal: TopUpWrite) -> 
             remediation="Adjust the amount, or contact us for a larger prepayment.",
         )
 
+    # ONE selector, shared with the receiver (`billing/payments.py`). This route used to
+    # read `settings.razorpay_key_id` directly and conclude for itself that payments
+    # worked — a credential is not a statement that the capability exists, and a second
+    # read of the same settings is how a screen ends up offering what the route refuses.
+    # The refusal writes NOTHING: no receipt is minted, no row is touched.
+    capability = payment_capability()
+    if not capability.available:
+        raise payments_not_configured(capability.reason)
     settings = get_settings()
-    if not settings.razorpay_key_id:
-        # Handing back an intent no checkout can open would look like success. Say the
-        # true thing instead: payments are not configured in this deployment.
-        raise ProblemError(
-            kind="dependency",
-            code="payments_not_configured",
-            title="Online payment is unavailable",
-            detail="This deployment cannot start an online payment.",
-            remediation="Contact us to pay by bank transfer instead.",
-        )
+    assert settings.razorpay_key_id is not None, "the capability check proved this is set"
 
     async with tenant_session(tenant_id) as session:
         tier = await plan_tier_of(session, tenant_id)
@@ -192,6 +193,11 @@ async def create_topup_intent(payload: TopUpIntentIn, principal: TopUpWrite) -> 
         currency=SUPPORTED_CURRENCY,
         notes={NOTES_TENANT_KEY: str(tenant_id)},
         key_id=settings.razorpay_key_id,
+        # Never inverted here from a local condition: the capability is the one place
+        # that knows whether an order-creation adapter exists, and today it does not
+        # (`PROVIDER_CREATES_ORDERS`). SURFACES §2c:205 documents this field as the way
+        # the gap lives in the contract rather than surfacing at integration time.
+        provider_order_pending=not capability.creates_orders,
     )
 
 
@@ -222,20 +228,19 @@ async def razorpay_webhook(request: Request) -> WebhookAck:
     retry is processed rather than answered "duplicate" forever (the failure mode
     `reliability/service.py` documents against the Clerk mirror).
     """
-    settings = get_settings()
-    secret = settings.razorpay_webhook_secret
     raw = await request.body()
 
-    if not secret:
-        # Fail CLOSED, like the Clerk mirror: an unverifiable payment feed is worse
-        # than no feed, because it credits wallets on anyone's say-so.
+    # The SAME selector the intent route asks. Fail CLOSED, like the Clerk mirror: an
+    # unverifiable payment feed is worse than no feed, because it credits wallets on
+    # anyone's say-so. A deployment that has a key id but no webhook secret is refused
+    # here AND at the intent, which is the point of one selector — the alternative is a
+    # deployment that can take money and can never credit it.
+    capability = payment_capability()
+    if not capability.available:
         alert("ROUTE_HANDLER", "razorpay_webhook_unconfigured")
-        raise ProblemError(
-            kind="dependency",
-            code="payments_not_configured",
-            title="Webhook is not configured",
-            detail="This deployment cannot verify payment webhooks.",
-        )
+        raise payments_not_configured(capability.reason)
+    secret = get_settings().razorpay_webhook_secret
+    assert secret is not None, "the capability check proved this is set"
     if not verify_signature(
         secret=secret, body=raw, signature=request.headers.get(SIGNATURE_HEADER)
     ):

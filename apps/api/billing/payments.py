@@ -27,6 +27,35 @@ with a key id and secret we do not have, so `payment_routes.create_topup_intent`
 returns `provider_order_id: null` and says so, instead of returning a fabricated id
 that a frontend would hand to a checkout widget.
 
+THE CAPABILITY IS NOW SOMETHING THE CODE CAN SAY, NOT ONLY SOMETHING IT LACKS
+------------------------------------------------------------------------------
+The honest hole above was right and it stays. What was wrong is that nothing in the
+codebase could ANSWER "does this deployment take payments?" — every caller read
+`settings.razorpay_key_id` and decided for itself, which is the defect fixed for Google
+Sheets last wave (`workers/sheets_sync.py`, `integrations/routes.py`): a key id is a
+credential, not a statement that the capability exists, and two independent reads of
+the same settings eventually disagree. So, exactly as there:
+
+- `PAYMENT_PROVIDER` is the statement. The only name with anything behind it is
+  `razorpay`; any other name resolves to `provider_not_implemented`, on purpose, so
+  `PAYMENT_PROVIDER=stripe` fails loudly rather than looking configured.
+- `payment_capability()` is the ONE selector, and `online_payments_available()` is the
+  boolean every caller asks — the intent route, the webhook, and any surface that later
+  wants to decide whether to render a pay button. A second read of settings cannot
+  disagree with it because there is no second read.
+- the refusal is RFC-9457 problem+json and writes NOTHING — no intent row, no inbox
+  claim, no ledger entry.
+- `PROVIDER_CREATES_ORDERS` is False, as a greppable constant rather than a note in a
+  doc, because "we have credentials" and "we have an order-creation adapter" are
+  different facts and the contract must not conflate them.
+  `tests/payments_provider_seam_test.py` fails the moment it is flipped without an
+  adapter behind it.
+
+**No Razorpay client library is added, no request or response shape is invented and no
+signing scheme is written here.** Everything in this module that is a guess about the
+vendor was marked UNVERIFIED before and is marked UNVERIFIED still. The seam decides
+whether we are ALLOWED to talk to them; it does not pretend to know how.
+
 WHAT IS OURS, AND IS FINISHED
 -----------------------------
 - **Idempotency on the provider's payment id.** Every payment provider replays: on
@@ -78,6 +107,7 @@ from apps.api.billing.service import (
 from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 
 log = get_logger(__name__)
 
@@ -100,6 +130,104 @@ NOTES_TENANT_KEY: Final = "calevate_tenant_id"
 SUPPORTED_CURRENCY: Final = "INR"
 
 PAISE_PER_RUPEE: Final = Decimal(100)
+
+# --- the capability seam -------------------------------------------------------
+#
+# Mirrors `workers/sheets_sync.get_sheets_transport` / `sheets_delivery_available`:
+# a config-named provider, ONE selector, and authored reason codes — never vendor prose.
+
+# A provider name with no adapter behind it. Suffixed with the name in the reason so an
+# alert says which one was expected; the name is OUR config, not vendor text.
+PROVIDER_NOT_IMPLEMENTED_REASON: Final = "provider_not_implemented"
+NO_PROVIDER_REASON: Final = "no_payment_provider"
+NO_KEY_REASON: Final = "no_publishable_key"
+NO_WEBHOOK_SECRET_REASON: Final = "no_webhook_secret"
+
+# Can we create the provider-side order? NO. There is no order-creation adapter in this
+# repository and no credentials to run one with, so `create_topup_intent` still returns
+# `provider_order_id: null` / `provider_order_pending: true` (SURFACES §2c:205).
+#
+# It is a CONSTANT rather than a comment so the claim is greppable and testable — the
+# same device `rates.ENGINE_REPORTS_TTS_MODEL` uses for the vendor question it is
+# waiting on. Flipping it is not a config change: it means someone wrote the adapter.
+PROVIDER_CREATES_ORDERS: Final = False
+
+
+@dataclass(frozen=True, slots=True)
+class PaymentCapability:
+    """What this deployment can actually do about money, as one answer.
+
+    `reason` is non-None exactly when `available` is False, and it is an AUTHORED code
+    — it names our own configuration state, never a vendor's error string.
+    """
+
+    available: bool
+    provider: str | None = None
+    reason: str | None = None
+    # Always False today (`PROVIDER_CREATES_ORDERS`). Carried on the capability rather
+    # than read separately so a caller cannot conclude "payments work" and then assume
+    # "so an order exists" — the two are one lookup and one object.
+    creates_orders: bool = False
+
+
+def payment_capability() -> PaymentCapability:
+    """THE selector. Every payment surface asks this and nothing re-reads settings.
+
+    Unset provider ⇒ this deployment takes no online payments. That is the default and
+    it is the truth today. An unknown name ⇒ `provider_not_implemented`, loudly, rather
+    than a surface that looks configured and refuses after the click.
+
+    A known provider still needs its credentials, and they are checked HERE so that
+    "payments are available" cannot mean one thing to the intent route and another to
+    the receiver. Both are required together on purpose: a key id with no webhook secret
+    is a deployment that could take money and could never credit it, which is the worst
+    of the three states — money leaves the client and never reaches their wallet.
+    """
+    settings = get_settings()
+    provider = (settings.payment_provider or "").strip().lower()
+    if not provider:
+        return PaymentCapability(available=False, reason=NO_PROVIDER_REASON)
+    if provider != PROVIDER:
+        return PaymentCapability(
+            available=False,
+            provider=provider,
+            reason=f"{PROVIDER_NOT_IMPLEMENTED_REASON}:{provider}",
+        )
+    if not settings.razorpay_key_id:
+        return PaymentCapability(available=False, provider=provider, reason=NO_KEY_REASON)
+    if not settings.razorpay_webhook_secret:
+        return PaymentCapability(
+            available=False, provider=provider, reason=NO_WEBHOOK_SECRET_REASON
+        )
+    return PaymentCapability(
+        available=True, provider=provider, creates_orders=PROVIDER_CREATES_ORDERS
+    )
+
+
+def online_payments_available() -> bool:
+    """The boolean a caller wants. Deliberately the SAME selector every other caller
+    uses rather than a second read of the same settings — a screen that decided for
+    itself whether payment works would eventually disagree with the route behind it,
+    and the disagreement reads as "it offered me a payment and then refused it"."""
+    return payment_capability().available
+
+
+def payments_not_configured(reason: str | None) -> ProblemError:
+    """The ONE refusal, so every surface says the same thing in the same shape.
+
+    RFC-9457: the machine code is the LAST SEGMENT of `type` and there is no `code` key.
+    `reason` is OUR authored state and is logged, never returned — a client cannot act
+    on "no_webhook_secret" and telling them which of our secrets is missing is an
+    internals leak (user-safe messages, no internals).
+    """
+    log.warning("payments_unavailable", extra={"reason": reason or "unknown"})
+    return ProblemError(
+        kind="dependency",
+        code="payments_not_configured",
+        title="Online payment is unavailable",
+        detail="This deployment cannot start an online payment.",
+        remediation="Contact us to pay by bank transfer instead.",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,16 +457,25 @@ async def credit_captured_payment(
 __all__ = [
     "CAPTURED_EVENT",
     "NOTES_TENANT_KEY",
+    "NO_KEY_REASON",
+    "NO_PROVIDER_REASON",
+    "NO_WEBHOOK_SECRET_REASON",
     "PROVIDER",
+    "PROVIDER_CREATES_ORDERS",
+    "PROVIDER_NOT_IMPLEMENTED_REASON",
     "SIGNATURE_HEADER",
     "SUPPORTED_CURRENCY",
     "CapturedPayment",
+    "PaymentCapability",
     "TopUpResult",
     "credit_captured_payment",
     "event_name",
     "extract_captured_payment",
     "find_topup",
+    "online_payments_available",
     "paise_to_inr",
+    "payment_capability",
+    "payments_not_configured",
     "tenant_exists",
     "verify_signature",
 ]

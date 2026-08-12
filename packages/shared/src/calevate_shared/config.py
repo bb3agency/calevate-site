@@ -161,6 +161,15 @@ class Settings(BaseSettings):
     # Razorpay prepaid top-ups (D-34). NOTE: no Razorpay account has been provisioned
     # and the vendor contract is UNVERIFIED — see apps/api/billing/payments.py, which
     # isolates every assumption about their signing scheme and payload shape.
+    #
+    # WHICH payment provider this deployment has. Exists as CONFIG rather than being
+    # inferred from "is there a key id" for the same reason `google_sheets_provider`
+    # does: a key id is a credential, not a statement that the capability exists, and
+    # every surface that needs to know whether payment works was left reading the
+    # credential and deciding for itself. `apps/api/billing/payments.py` owns the ONE
+    # selector; the only name with anything behind it today is `razorpay`, and any
+    # other name resolves to `provider_not_implemented` rather than looking configured.
+    payment_provider: str | None = None
     # The PUBLIC key id, handed to the browser's checkout. Unset = the top-up intent
     # answers "payments not configured" rather than returning an unusable intent.
     razorpay_key_id: str | None = None

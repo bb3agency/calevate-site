@@ -39,6 +39,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.caps import EFFECTIVE_CAP_MIN_SQL, EFFECTIVE_CAP_SPEND_SQL
 from apps.api.billing.rates import TtsTier, tier_correction_inr
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -318,6 +319,94 @@ def current_billing_month() -> str:
     return (datetime.now(UTC) + timedelta(hours=5, minutes=30)).strftime("%Y-%m")
 
 
+def split_overage(
+    *,
+    overage_min: Decimal,
+    billable_premium: Decimal,
+    billable_value: Decimal,
+    included_min: Decimal,
+    rate: Decimal,
+    rate_value: Decimal | None,
+) -> tuple[Decimal, Decimal]:
+    """Divide the month's overage minutes between the two TTS rungs.
+
+    Returns `(premium_overage, value_overage)`, which ALWAYS add to `overage_min`
+    exactly — the second is derived by subtraction rather than computed independently,
+    so the two published figures cannot drift by a paisa from the total the client is
+    charged on. That matters more than it sounds: the invoice promises that every line
+    multiplies out and that the lines sum to the subtotal.
+
+    **A plan with no value rate puts everything on the single rate.** `rate_value is
+    None` returns `(overage_min, 0)`, which reproduces the pre-`b1d5c8e73f04` arithmetic
+    bit for bit — that is what makes the column safe to add to every existing plan.
+
+    **The included allowance is spent on the DEARER rung first.** A plan with 500
+    included minutes and a mix of premium and value calls could allocate the free
+    minutes either way, and the allocation decides the bill. Consuming the expensive
+    rung first leaves the CHEAPER minutes to be charged for, which is the client's
+    favour — the same asymmetry `billing/rates.py` applies when it bills an unprovable
+    tier as `value`. It is written as "the dearer rung" rather than "the premium rung"
+    so it stays client-favourable even if a founder ever quotes a value rate ABOVE the
+    premium one; the rule is about price, not about the label.
+    """
+    if rate_value is None:
+        return overage_min, Decimal("0")
+
+    dearer_is_premium = rate >= rate_value
+    dearer = billable_premium if dearer_is_premium else billable_value
+    covered = min(included_min, dearer)
+    dearer_overage = max(Decimal("0"), dearer - covered)
+    # Clamped into [0, overage_min]: the tier sums and the telephony total are two
+    # roundings of the same underlying seconds, so they can differ in the last place.
+    # The TOTAL is the number that was priced, so it is the one that wins.
+    dearer_overage = min(dearer_overage, overage_min)
+    cheaper_overage = overage_min - dearer_overage
+    if dearer_is_premium:
+        return dearer_overage, cheaper_overage
+    return cheaper_overage, dearer_overage
+
+
+async def _tier_totals(
+    session: AsyncSession, *, tenant_id: UUID, month: str
+) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
+    """(minutes, our cost) per TTS rung for one billing month, UNQUANTIZED.
+
+    THE one definition of "how many minutes ran on which rung". `tier_usage` presents
+    it to two panels and `usage_summary` prices against it; a second query would let the
+    panel and the bill disagree about the same month, which is the exact defect
+    `billing/rates.py` exists to prevent one layer down.
+
+    The keys are `premium`, `value` and `""` — the third being rows written before tier
+    attribution existed, or by a path that could not attribute one. Reporting keeps that
+    distinction; pricing folds it into `value`, because a call we cannot prove got the
+    premium voice is never charged the premium rate.
+    """
+    rows = (
+        await session.execute(
+            # `/ 60.0` is a NUMERIC literal in Postgres, exactly as in `usage_summary`;
+            # nothing on this path becomes a float (hard rule 7).
+            text(
+                "SELECT COALESCE(meta->>'tts_tier', ''), "
+                "  COALESCE(SUM(qty) FILTER (WHERE unit_type = 'telephony_s'), 0) / 60.0, "
+                "  COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)), 0) "
+                f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH} = :month "
+                "GROUP BY 1"
+            ),
+            {"tid": tenant_id, "month": month},
+        )
+    ).all()
+
+    minutes = {"premium": Decimal("0"), "value": Decimal("0"), "": Decimal("0")}
+    cost = {"premium": Decimal("0"), "value": Decimal("0"), "": Decimal("0")}
+    for label, mins, spent in rows:
+        # An unrecognised label is treated as unattributed rather than trusted: a tier
+        # this module does not know is not a tier it can price.
+        key = str(label) if str(label) in ("premium", "value") else ""
+        minutes[key] += Decimal(str(mins or 0))
+        cost[key] += Decimal(str(spent or 0))
+    return minutes, cost
+
+
 async def usage_summary(
     session: AsyncSession, *, tenant_id: UUID, month: str | None = None
 ) -> dict[str, Any]:
@@ -354,7 +443,12 @@ async def usage_summary(
     plan = (
         await session.execute(
             text(
-                "SELECT monthly_fee, included_min, overage_rate, hard_cap_min, hard_cap_spend "
+                # The caps read here are the EFFECTIVE ones — `LEAST(admin, client)`,
+                # `billing/caps.py` — so the panel reports the ceiling that actually
+                # binds. Reporting the admin's while the client's is stricter would show
+                # a client headroom the gate will refuse them.
+                "SELECT monthly_fee, included_min, overage_rate, "
+                f"  {EFFECTIVE_CAP_MIN_SQL}, {EFFECTIVE_CAP_SPEND_SQL}, overage_rate_value "
                 "FROM plans WHERE tenant_id = :tid ORDER BY created_at DESC LIMIT 1"
             ),
             {"tid": tenant_id},
@@ -362,11 +456,27 @@ async def usage_summary(
     ).first()
     included = int(plan[1] or 0) if plan else 0
     overage_rate = Decimal(str(plan[2])) if plan and plan[2] is not None else Decimal("0")
+    # NULL is not zero: "this plan quotes no separate value rate" (bill everything at
+    # `overage_rate`) and "the value rung is free" are different plans.
+    value_rate = Decimal(str(plan[5])) if plan and plan[5] is not None else None
     overage_min = max(Decimal("0"), minutes - included)
-    # The UNROUNDED rate is what the client is charged at — it is the plan term. The
-    # rate published beside the cost is `rate_to_display`, which is the same number, so
-    # the invoice line's qty * unit reproduces this amount exactly.
-    overage_cost = to_paise(overage_min * overage_rate)
+    tier_minutes, _ = await _tier_totals(session, tenant_id=tenant_id, month=period)
+    overage_premium, overage_value = split_overage(
+        overage_min=overage_min,
+        billable_premium=tier_minutes["premium"],
+        # Unattributed folds in with value: SURFACES §2b's rule is that a call we
+        # cannot prove got the premium voice is never charged the premium rate.
+        billable_value=tier_minutes["value"] + tier_minutes[""],
+        included_min=Decimal(included),
+        rate=overage_rate,
+        rate_value=value_rate,
+    )
+    # The UNROUNDED rates are what the client is charged at — they are the plan terms.
+    # The rates published beside the cost are `rate_to_display`, which are the same
+    # numbers, so the invoice lines' qty * unit reproduce this amount exactly.
+    overage_cost = to_paise(
+        overage_premium * overage_rate + overage_value * (value_rate or overage_rate)
+    )
 
     spend = (
         await session.execute(
@@ -422,10 +532,19 @@ async def usage_summary(
         "calls": calls,
         "included_minutes": included,
         "overage_minutes": to_paise(overage_min),
+        # The two rungs the overage was actually split across. They add to
+        # `overage_minutes` exactly, by construction (`split_overage`), so a client
+        # checking the invoice by hand never finds a stray paisa.
+        "overage_minutes_premium": to_paise(overage_premium),
+        "overage_minutes_value": to_paise(overage_value),
         "overage_cost_inr": overage_cost,
         # The rate the overage was priced at, published so the invoice does not have to
         # re-read `plans` and risk picking a different row than this computation did.
         "overage_rate_inr": rate_to_display(overage_rate),
+        # None when this plan quotes no separate value rate — in which case BOTH rungs
+        # above were priced at `overage_rate_inr`, and saying None rather than repeating
+        # the premium rate is what tells a reader which of those two worlds they are in.
+        "overage_rate_value_inr": (rate_to_display(value_rate) if value_rate is not None else None),
         # Quantized to paise like every other money field: NUMERIC(12,4) is the
         # storage precision, two decimals is what a rupee amount means to a reader.
         "monthly_fee_inr": (
@@ -466,29 +585,7 @@ async def tier_usage(
     three buckets always add up to that panel's `minutes_used` for the same month.
     """
     period = month or current_billing_month()
-    rows = (
-        await session.execute(
-            # `/ 60.0` is a NUMERIC literal in Postgres, exactly as in `usage_summary`;
-            # nothing on this path becomes a float (hard rule 7).
-            text(
-                "SELECT COALESCE(meta->>'tts_tier', ''), "
-                "  COALESCE(SUM(qty) FILTER (WHERE unit_type = 'telephony_s'), 0) / 60.0, "
-                "  COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)), 0) "
-                f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH} = :month "
-                "GROUP BY 1"
-            ),
-            {"tid": tenant_id, "month": period},
-        )
-    ).all()
-
-    minutes = {"premium": Decimal("0"), "value": Decimal("0"), "": Decimal("0")}
-    cost = {"premium": Decimal("0"), "value": Decimal("0"), "": Decimal("0")}
-    for label, mins, spent in rows:
-        # An unrecognised label is treated as unattributed rather than trusted: a tier
-        # this module does not know is not a tier it can price.
-        key = str(label) if str(label) in ("premium", "value") else ""
-        minutes[key] += Decimal(str(mins or 0))
-        cost[key] += Decimal(str(spent or 0))
+    minutes, cost = await _tier_totals(session, tenant_id=tenant_id, month=period)
 
     return {
         "month": period,
@@ -697,6 +794,7 @@ __all__ = [
     "rate_to_display",
     "record_entry",
     "record_tier_correction",
+    "split_overage",
     "tier_usage",
     "to_paise",
     "usage_summary",

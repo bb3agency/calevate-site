@@ -72,8 +72,18 @@ for 7 consecutive days; zero cross-tenant test failures.
   — webhook half **shipped** (BUILD-LOG §34); Google Sheets sync not built.
 - Billing surfaces: usage panel (client), margin panel (admin), invoice generation,
   Razorpay links, caps UI. — usage + margin panels **shipped** (BUILD-LOG §36),
-  invoice generation **shipped** (BUILD-LOG §40); Razorpay links and a caps-editing
-  UI not built.
+  invoice generation **shipped** (BUILD-LOG §40); the **caps-editing UI shipped**
+  (client-settable `plans.client_cap_min`/`client_cap_spend`, effective cap =
+  `LEAST(admin, client)`, `GET`/`PUT /v1/billing/caps`, SURFACES §2b) and the
+  **value-tier rate column shipped** (`plans.overage_rate_value`; NULL = bill everything
+  at `overage_rate`, which is every existing plan — **the retail number itself is an
+  OPEN founder decision**, deliberately not derived from TRD §10.1's unmeasured bands).
+  **Razorpay links still not built**: the payment CAPABILITY is now expressible
+  (`PAYMENT_PROVIDER` + one `payment_capability()` selector shared by the intent route
+  and the receiver, refusing in problem+json and writing nothing), but server-side order
+  creation remains NOT IMPLEMENTED — no credentials, no adapter,
+  `PROVIDER_CREATES_ORDERS` is False and `provider_order_pending` stays true
+  (SURFACES §2c).
 - Admin polish: onboarding wizard complete, client health overview, prompt rollback UI.
   — client health overview and prompt rollback UI **shipped** (BUILD-LOG §33, §40,
   §41); the wizard still lacks the intake step and the pilot-gated steps.

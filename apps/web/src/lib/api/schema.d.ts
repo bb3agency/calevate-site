@@ -717,6 +717,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/billing/caps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The spending limits on this account — the plan's, the client's, and the one in force
+         * @description `billing:read`, not `org:manage`: no GET may require a mutating permission
+         *     (D-22), and spend is an owner's business rather than staff's (SEC-COMP §5).
+         */
+        get: operations["get_caps_v1_billing_caps_get"];
+        /**
+         * Set this account's own spending limits — never looser than the plan's
+         * @description A client may lower their own limit as far as they like, including to zero, and may clear it to fall back on the plan's. A value looser than the plan's limit is refused with `client_cap_exceeds_plan_cap`. A limit BELOW what has already been spent this month is accepted and takes effect immediately: outbound calling stops for the rest of the month and the response says so in `capped`. Incoming calls are never affected.
+         */
+        put: operations["set_caps_v1_billing_caps_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/billing/topups/intent": {
         parameters: {
             query?: never;
@@ -1970,6 +1995,46 @@ export interface components {
             name: string;
             /** Status */
             status: string;
+        };
+        /**
+         * CapsIn
+         * @description The whole client-side pair. `null` clears that side (see the module docstring).
+         */
+        CapsIn: {
+            /** Cap Minutes */
+            cap_minutes?: number | null;
+            /** Cap Spend Inr */
+            cap_spend_inr?: number | string | null;
+        };
+        /**
+         * CapsOut
+         * @description Three answers, because a screen that shows only the last of them cannot explain
+         *     itself: what the plan allows, what the client chose, and what is in force.
+         *
+         *     Money is a string throughout for the reason hard rule 7 exists — these are exact
+         *     NUMERIC rupee amounts and a JSON float cannot hold them.
+         */
+        CapsOut: {
+            /** Capped */
+            capped: boolean;
+            /** Client Cap Minutes */
+            client_cap_minutes: number | null;
+            /** Client Cap Spend Inr */
+            client_cap_spend_inr: string | null;
+            /** Effective Cap Minutes */
+            effective_cap_minutes: number | null;
+            /** Effective Cap Spend Inr */
+            effective_cap_spend_inr: string | null;
+            /** Minutes Used */
+            minutes_used: string;
+            /** Month */
+            month: string;
+            /** Plan Cap Minutes */
+            plan_cap_minutes: number | null;
+            /** Plan Cap Spend Inr */
+            plan_cap_spend_inr: string | null;
+            /** Spend Used Inr */
+            spend_used_inr: string;
         };
         /** ChainVerifyOut */
         ChainVerifyOut: {
@@ -3628,8 +3693,14 @@ export interface components {
             overage_cost_inr: string;
             /** Overage Minutes */
             overage_minutes: string;
+            /** Overage Minutes Premium */
+            overage_minutes_premium: string;
+            /** Overage Minutes Value */
+            overage_minutes_value: string;
             /** Overage Rate Inr */
             overage_rate_inr: string;
+            /** Overage Rate Value Inr */
+            overage_rate_value_inr: string | null;
             /** Plan Tier */
             plan_tier: string;
             /** Spend Used Inr */
@@ -5046,6 +5117,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SignupOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_caps_v1_billing_caps_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_caps_v1_billing_caps_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CapsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

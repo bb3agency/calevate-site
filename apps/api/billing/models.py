@@ -71,8 +71,32 @@ class Plan(PKMixin, TimestampMixin, Base):
     monthly_fee: Mapped[Decimal | None] = mapped_column(MONEY)
     included_min: Mapped[int | None] = mapped_column(Integer)
     overage_rate: Mapped[Decimal | None] = mapped_column(MONEY)
+    # The second rung of D-36's TTS ladder, as a PRICE. `billing/rates.py` already
+    # resolves every call to `premium` or `value` and stamps it on the usage row; this
+    # is the only place billing can quote the two differently.
+    #
+    # **NULL means "this plan quotes no separate value rate" — bill everything at
+    # `overage_rate`.** That is every plan row that existed before migration
+    # b1d5c8e73f04, so the column changed no client's bill on the day it landed. It is
+    # NOT "the value rate is zero": a rate of zero is free minutes, and an unset rate is
+    # a plan that never offered a discount for the cheaper voice.
+    #
+    # No default is supplied and none should be guessed. TRD §10.1's cost bands are
+    # explicitly unmeasured (the chars-per-minute ratio and the platform fee are both
+    # pilot gates), so a retail number derived from them would be invention wearing a
+    # citation. What goes here is a founder decision.
+    overage_rate_value: Mapped[Decimal | None] = mapped_column(MONEY)
+    # ADMIN-owned ceilings. The client cannot move these — that is what makes them a
+    # ceiling rather than a suggestion.
     hard_cap_min: Mapped[int | None] = mapped_column(Integer)
     hard_cap_spend: Mapped[Decimal | None] = mapped_column(MONEY)
+    # CLIENT-owned ceilings (D-34 R-11, SURFACES §2b:89). A client may set these as low
+    # as they like — including 0, which is "stop my outbound calling now" — and may
+    # never set one looser than the admin's. The EFFECTIVE cap is the stricter of the
+    # pair, derived and never stored: `apps/api/billing/caps.py` holds that expression
+    # once, and both the meter and the client route read it from there.
+    client_cap_min: Mapped[int | None] = mapped_column(Integer)
+    client_cap_spend: Mapped[Decimal | None] = mapped_column(MONEY)
     concurrency_ceiling: Mapped[int] = mapped_column(Integer, nullable=False, server_default="10")
     effective_from: Mapped[datetime | None]
     effective_to: Mapped[datetime | None]

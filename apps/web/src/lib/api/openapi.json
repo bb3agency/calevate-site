@@ -1010,6 +1010,146 @@
         "title": "CampaignSummaryOut",
         "type": "object"
       },
+      "CapsIn": {
+        "additionalProperties": false,
+        "description": "The whole client-side pair. `null` clears that side (see the module docstring).",
+        "properties": {
+          "cap_minutes": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap Minutes"
+          },
+          "cap_spend_inr": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap Spend Inr"
+          }
+        },
+        "title": "CapsIn",
+        "type": "object"
+      },
+      "CapsOut": {
+        "additionalProperties": false,
+        "description": "Three answers, because a screen that shows only the last of them cannot explain\nitself: what the plan allows, what the client chose, and what is in force.\n\nMoney is a string throughout for the reason hard rule 7 exists \u2014 these are exact\nNUMERIC rupee amounts and a JSON float cannot hold them.",
+        "properties": {
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "client_cap_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Cap Minutes"
+          },
+          "client_cap_spend_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Cap Spend Inr"
+          },
+          "effective_cap_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Cap Minutes"
+          },
+          "effective_cap_spend_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Cap Spend Inr"
+          },
+          "minutes_used": {
+            "title": "Minutes Used",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "plan_cap_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Cap Minutes"
+          },
+          "plan_cap_spend_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Cap Spend Inr"
+          },
+          "spend_used_inr": {
+            "title": "Spend Used Inr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "plan_cap_minutes",
+          "plan_cap_spend_inr",
+          "client_cap_minutes",
+          "client_cap_spend_inr",
+          "effective_cap_minutes",
+          "effective_cap_spend_inr",
+          "minutes_used",
+          "spend_used_inr",
+          "capped"
+        ],
+        "title": "CapsOut",
+        "type": "object"
+      },
       "ChainVerifyOut": {
         "additionalProperties": false,
         "properties": {
@@ -5261,9 +5401,28 @@
             "title": "Overage Minutes",
             "type": "string"
           },
+          "overage_minutes_premium": {
+            "title": "Overage Minutes Premium",
+            "type": "string"
+          },
+          "overage_minutes_value": {
+            "title": "Overage Minutes Value",
+            "type": "string"
+          },
           "overage_rate_inr": {
             "title": "Overage Rate Inr",
             "type": "string"
+          },
+          "overage_rate_value_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Rate Value Inr"
           },
           "plan_tier": {
             "title": "Plan Tier",
@@ -5280,8 +5439,11 @@
           "calls",
           "included_minutes",
           "overage_minutes",
+          "overage_minutes_premium",
+          "overage_minutes_value",
           "overage_cost_inr",
           "overage_rate_inr",
+          "overage_rate_value_inr",
           "monthly_fee_inr",
           "cap_minutes",
           "minutes_left",
@@ -7411,6 +7573,72 @@
         "tags": [
           "signup"
         ]
+      }
+    },
+    "/v1/billing/caps": {
+      "get": {
+        "description": "`billing:read`, not `org:manage`: no GET may require a mutating permission\n(D-22), and spend is an owner's business rather than staff's (SEC-COMP \u00a75).",
+        "operationId": "get_caps_v1_billing_caps_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The spending limits on this account \u2014 the plan's, the client's, and the one in force",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "billing:read"
+      },
+      "put": {
+        "description": "A client may lower their own limit as far as they like, including to zero, and may clear it to fall back on the plan's. A value looser than the plan's limit is refused with `client_cap_exceeds_plan_cap`. A limit BELOW what has already been spent this month is accepted and takes effect immediately: outbound calling stops for the rest of the month and the response says so in `capped`. Incoming calls are never affected.",
+        "operationId": "set_caps_v1_billing_caps_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set this account's own spending limits \u2014 never looser than the plan's",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/billing/topups/intent": {

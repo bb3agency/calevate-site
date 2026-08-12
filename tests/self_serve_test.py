@@ -126,9 +126,16 @@ async def _ledger(tenant_id: uuid.UUID) -> list[tuple[str, Decimal, str | None]]
 def _enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     """Both surfaces are OFF by default (R-11: self-serve is the sharp compliance
     edge, and an unconfigured payment receiver must fail closed). Every test that is
-    not specifically about the switch runs with them on."""
+    not specifically about the switch runs with them on.
+
+    `payment_provider` is part of "on" now: the capability is a STATEMENT this
+    deployment makes (`PAYMENT_PROVIDER`), not something inferred from the presence of a
+    credential — `billing/payments.py::payment_capability` is the one selector both the
+    intent route and this receiver ask, so a key id alone no longer means payments work.
+    `tests/payments_provider_seam_test.py` holds that seam; here it is just setup."""
     settings = get_settings()
     monkeypatch.setattr(settings, "self_serve_signup_enabled", True)
+    monkeypatch.setattr(settings, "payment_provider", payments.PROVIDER)
     monkeypatch.setattr(settings, "razorpay_webhook_secret", WEBHOOK_SECRET)
     monkeypatch.setattr(settings, "razorpay_key_id", "rzp_test_localonly")
 

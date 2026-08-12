@@ -39,6 +39,26 @@ from .service import to_paise, usage_summary
 GST_RATE_PCT = Decimal("18")
 
 
+def _reconcile_overage(rungs: list[dict[str, Any]], overage_cost: Decimal) -> None:
+    """Make the per-rung overage lines sum to the total the client was already shown.
+
+    `usage_summary` prices the whole overage in ONE quantization — `to_paise(premium *
+    rate + value * value_rate)` — while the invoice has to show each rung on its own
+    line, which is two quantizations. Those can differ by a paisa. The panel's number is
+    the one the client has seen and the one `margin_for_tenant` uses, so it wins, and the
+    LAST line absorbs the difference: a rounding remainder has to land somewhere, and
+    putting it on the final line is what a hand-checker expects.
+
+    Mutates in place because the caller is building the list; it is private to this
+    module for exactly that reason.
+    """
+    if not rungs:
+        return
+    drift = overage_cost - sum((item["amount_inr"] for item in rungs), start=Decimal("0"))
+    if drift != 0:
+        rungs[-1]["amount_inr"] = to_paise(rungs[-1]["amount_inr"] + drift)
+
+
 async def build_invoice(
     session: AsyncSession, *, tenant_id: UUID, month: str | None = None
 ) -> dict[str, Any]:
@@ -91,19 +111,49 @@ async def build_invoice(
     overage_minutes: Decimal = usage["overage_minutes"]
     overage_cost: Decimal = usage["overage_cost_inr"]
     if overage_minutes > 0 and overage_cost > 0:
-        # The rate comes from `usage_summary`, which is the computation that PRICED the
+        # The rates come from `usage_summary`, which is the computation that PRICED the
         # overage. Re-reading `plans` here was a second query with its own
         # `ORDER BY created_at DESC LIMIT 1` — two plan rows sharing a created_at and
         # the invoice could quote a rate it did not bill at. One source, one rate.
         rate: Decimal = usage["overage_rate_inr"]
-        line_items.append(
-            {
-                "description": f"Extra calling minutes ({overage_minutes} min at ₹{rate}/min)",
-                "qty": overage_minutes,
-                "unit_inr": rate,
-                "amount_inr": overage_cost,
-            }
-        )
+        value_rate: Decimal | None = usage["overage_rate_value_inr"]
+        if value_rate is None:
+            # ONE rate, ONE line — the shape every invoice had before plans could quote
+            # a value rate, and the shape every plan that does not quote one still has.
+            line_items.append(
+                {
+                    "description": f"Extra calling minutes ({overage_minutes} min at ₹{rate}/min)",
+                    "qty": overage_minutes,
+                    "unit_inr": rate,
+                    "amount_inr": overage_cost,
+                }
+            )
+        else:
+            # TWO rungs, TWO lines. A single line quoting one rate could not multiply
+            # out — `qty * unit_inr` would miss the total by the difference between the
+            # rates — and "every line multiplies out" is the arithmetic promise a client
+            # actually checks. A rung with no minutes gets no line, for the same reason a
+            # ₹0.00 overage gets none: a zero line invites a dispute about nothing.
+            #
+            # The two amounts are computed here and the LAST one absorbs the rounding,
+            # so the lines still sum to exactly the `overage_cost_inr` the usage panel
+            # already showed the client. Rounding each independently could leave the
+            # invoice a paisa away from the panel, and that paisa is a support ticket.
+            rungs: list[dict[str, Any]] = [
+                {
+                    "description": f"Extra calling minutes, {label} ({qty} min at ₹{unit}/min)",
+                    "qty": qty,
+                    "unit_inr": unit,
+                    "amount_inr": to_paise(qty * unit),
+                }
+                for label, qty, unit in (
+                    ("premium voice", usage["overage_minutes_premium"], rate),
+                    ("value voice", usage["overage_minutes_value"], value_rate),
+                )
+                if qty > 0
+            ]
+            _reconcile_overage(rungs, overage_cost)
+            line_items.extend(rungs)
 
     subtotal = to_paise(sum((item["amount_inr"] for item in line_items), start=Decimal("0")))
     gst = to_paise(subtotal * GST_RATE_PCT / Decimal("100"))

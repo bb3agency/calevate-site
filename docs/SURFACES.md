@@ -87,6 +87,29 @@ same client app** — a self-serve org is the same `organizations` row with a di
 - **Credit wallet**: balance, **runway in minutes** ("₹X · ≈ N min, M min on premium" —
   their money-UX is genuinely good), top-up packs, auto-receipt with GST.
 - **Plan/usage**: agents live vs draft, minutes used, spend against cap.
+  - **Spend cap, client-editable** — `GET /v1/billing/caps` (`billing:read`) and
+    `PUT /v1/billing/caps` (`org:manage`; mutating, so D-22 refuses an impersonating
+    admin). There are TWO caps per plan: `hard_cap_min`/`hard_cap_spend` are admin-owned
+    and `client_cap_min`/`client_cap_spend` are the client's, and the effective ceiling
+    is `LEAST(admin, client)` with NULL meaning "no constraint from this side". A client
+    may lower theirs to anything including zero and may clear it (falling back on the
+    admin's), and may **never** set one looser than the admin's —
+    `client_cap_exceeds_plan_cap`, refused rather than clamped. A cap set BELOW this
+    month's spend is accepted and **binds immediately**: the write recomputes
+    `spend_state.capped` from the counters already in the row, so the next dial is
+    refused rather than the dial after the next call happens to meter. Inbound is
+    unaffected — the gate is outbound-only — which is what makes an immediate stop a
+    safe control to hand a client. The reasoning is in `apps/api/billing/caps.py`.
+  - **Two overage rates.** `plans.overage_rate_value` prices the value TTS rung
+    separately (D-36's ladder; `usage_events.meta.tts_tier` already says which rung a
+    call ran on). **NULL means the plan quotes no separate value rate — everything bills
+    at `overage_rate`**, which is every plan that predates the column, so no bill moved
+    when it landed. The included allowance is consumed on the DEARER rung first, leaving
+    the cheaper minutes to be charged for, and unattributed minutes bill at the value
+    rate (the same honesty rule `billing/rates.py` applies to cost). The invoice prints
+    one line per rung so each still multiplies out. **No retail value rate is set
+    anywhere in the codebase** — TRD §10.1's bands are unmeasured, so the number is a
+    founder decision, not a derivation.
 - **Number purchase + KYC**: gated; calling stays disabled until verification clears.
 
 **Patterns worth adopting (evidence: teardown §9c/§9d — all verified in their product)**
@@ -201,8 +224,15 @@ Self-serve + payments (D-34/D-39) — **read the caveat, this is not a working c
 - **Top-up intent**: `POST /v1/billing/topups/intent` (`org:manage` — spending the client's
   money is not a read, and being mutating is what makes D-22 refuse it to an impersonating
   admin). Prices the top-up (₹100–₹100,000), binds it to the session's tenant, and refuses
-  a `managed` tenant (`topup_not_available`) or a deployment with no key
-  (`payments_not_configured`). **NOT IMPLEMENTED: server-side order creation.** Creating
+  a `managed` tenant (`topup_not_available`) or a deployment whose payment capability is
+  not configured (`payments_not_configured`). **Whether the capability exists is now a
+  STATEMENT, not an inference**: `PAYMENT_PROVIDER` names it, `payments.payment_capability()`
+  is the ONE selector both this route and the receiver ask (so a second read of settings
+  cannot disagree), the only name with an adapter behind it is `razorpay` and any other
+  resolves to `provider_not_implemented`, and a known provider still needs BOTH the key
+  id and the webhook secret — a deployment that could take money and never credit it is
+  refused on both surfaces. The refusal writes nothing. Same shape as the Google Sheets
+  seam (§2 integrations). **NOT IMPLEMENTED: server-side order creation.** Creating
   the provider-side order needs API credentials this deployment does not hold, so the
   response carries `provider_order_id: null` and `provider_order_pending: true` — the gap
   is in the contract rather than discovered at integration time. There is no checkout that
