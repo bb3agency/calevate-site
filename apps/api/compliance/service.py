@@ -29,6 +29,13 @@ Checks, in the order that fails cheapest-first:
 
 Inbound calls never reach this function: the caller initiated them, which is the
 consent-clean property D-38 leads with.
+
+One R-11 predicate in this module is deliberately NOT part of `check_dispatch`:
+`first_campaign_hold_blocker` (the manual review of a self-serve account's first
+campaign) is a CAMPAIGN rule, asked by `campaigns.service.launch_blockers` and
+`dispatch_blockers`. It lives here because this is where the tier line is drawn once;
+its docstring and `compliance/first_campaign.py` say why the single-lead paths are out
+of its scope.
 """
 
 from __future__ import annotations
@@ -41,6 +48,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
+from apps.api.compliance.first_campaign import (
+    FIRST_CAMPAIGN_REVIEW_PENDING_REASON,
+    first_campaign_rejected_reason,
+    read_first_campaign_review,
+)
 from apps.api.compliance.kyc import KYC_MISSING_REASON, kyc_not_verified_reason, read_kyc
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
@@ -149,6 +161,46 @@ async def kyc_blocker(session: AsyncSession, *, tenant_id: UUID) -> tuple[str, s
     if not record.is_verified:
         return ("kyc_not_verified", kyc_not_verified_reason(str(record.status)))
     return None
+
+
+async def first_campaign_hold_blocker(
+    session: AsyncSession, *, tenant_id: UUID
+) -> tuple[str, str] | None:
+    """`(rule, reason)` if this account's campaigns are held for manual review, else None.
+
+    R-11's last mitigation (BRD §245, FLOWS §2, D-34): the first campaign of every
+    self-serve account gets a human's eyes before it dials. The shape of "first" — a
+    property of the ACCOUNT, so it cannot be skipped by launching two campaigns or by
+    deleting the reviewed one — is argued in `apps/api/compliance/first_campaign.py`.
+
+    Returns the PAIR rather than a bool for the reason `kyc_blocker` does: "nobody has
+    looked yet" and "a reviewer looked and said no" are different facts with different
+    next actions, and the launch preview and the dispatch tick must name them identically.
+
+    Lives HERE, beside `kyc_blocker` / `spend_capped` / `credits_exhausted`, because this
+    is where the tier line is drawn once (`SELF_SERVE_TIERS`) and because the campaigns
+    module must not grow a second copy of it.
+
+    Deliberately NOT called from `check_dispatch`: that gate is also the D-21 "call this
+    lead" button and the instant-callback webhook, which are single calls to a lead who
+    just raised their hand rather than campaigns. Every document that asks for this
+    control scopes it to the first CAMPAIGN, so it is asked on the campaign paths —
+    `launch_blockers` and `dispatch_blockers` — and `first_campaign.py` states the
+    residual that leaves.
+    """
+    if await plan_tier_of(session, tenant_id) not in SELF_SERVE_TIERS:
+        return None
+    review = await read_first_campaign_review(session, tenant_id=tenant_id)
+    if review.is_released:
+        return None
+    if review.reviewed:
+        # Reviewed and refused. The reviewer's own words, because "not released" with no
+        # reason is the ticket nobody can close.
+        return (
+            "first_campaign_review_rejected",
+            first_campaign_rejected_reason(review.decision_note or ""),
+        )
+    return ("first_campaign_review_pending", FIRST_CAMPAIGN_REVIEW_PENDING_REASON)
 
 
 async def check_dispatch(
@@ -297,6 +349,7 @@ __all__ = [
     "assert_dispatch_allowed",
     "check_dispatch",
     "credits_exhausted",
+    "first_campaign_hold_blocker",
     "ist_now",
     "kyc_blocker",
     "spend_capped",

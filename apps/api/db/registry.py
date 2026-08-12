@@ -64,6 +64,10 @@ TENANT_TABLES = [
     # the business's own registry identifiers — read by the number-provisioning gate and
     # by the dispatch gate for self-serve tenants.
     "kyc_records",
+    # The human release of a self-serve account's first campaign (R-11's last
+    # mitigation). Tenant data — what a reviewer decided about this account — read by
+    # the campaign launch gate and by every dispatch tick.
+    "first_campaign_reviews",
     "retention_policies",
     "deletion_requests",
     "inbound_webhooks",

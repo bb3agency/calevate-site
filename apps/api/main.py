@@ -38,6 +38,10 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.compliance.deletion_routes import router as deletion_router
     from apps.api.compliance.dnc_routes import router as dnc_router
     from apps.api.compliance.export_routes import router as subject_export_router
+    from apps.api.compliance.first_campaign_routes import (
+        admin_router as first_campaign_admin_router,
+    )
+    from apps.api.compliance.first_campaign_routes import router as first_campaign_router
     from apps.api.compliance.kyc_routes import router as kyc_router
     from apps.api.compliance.registration_routes import router as dlt_registration_router
     from apps.api.crm.routes import router as crm_router
@@ -84,6 +88,12 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(deletion_router)
     application.include_router(dlt_registration_router)
     application.include_router(kyc_router)
+    # R-11's first-campaign hold: the client's view of it, and ops's release. The admin
+    # half carries its own `/v1/admin/tenants/{tenant_id}/...` prefix — it lives in the
+    # compliance package because that package owns the table, exactly as the agents
+    # package owns its admin publishing routes.
+    application.include_router(first_campaign_router)
+    application.include_router(first_campaign_admin_router)
     application.include_router(signup_router)
     # Both are literal paths under `/v1/billing` and neither carries a `{param}` at
     # that position, so declaration order is not load-bearing between them — but caps

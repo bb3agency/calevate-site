@@ -79,10 +79,16 @@ org claim, resolved against our own tables.
     tenant with `kyc_missing`/`kyc_not_verified`, and — because buying a number is gated
     for every tier — a number this org holds was necessarily bought under a cleared
     verification. Inbound answering is never gated.
-  - **The manual-review hold is NOT built**: nothing flags, queues or blocks a self-serve
-    account's first campaign. It remains a requirement of this section, not a description
-    of the system, and it is the last R-11 mitigation outstanding before
-    `self_serve_signup_enabled` may be switched on.
+  - **The manual-review hold ships** as `first_campaign_reviews` — one decision per
+    TENANT, not a flag on a campaign row. The gate asks about the account, so a second
+    campaign launched while the first is held is refused by the same rule, and deleting
+    the held campaign does not release anything; the campaign an operator actually read
+    is recorded as evidence (`reviewed_campaign_id`, `ON DELETE SET NULL`). Absence of a
+    row means held — there is no `pending` state to disagree with it. Refusals appear in
+    the launch preview and at dispatch as `first_campaign_review_pending` /
+    `first_campaign_review_rejected`, so a withdrawn release stops a RUNNING campaign at
+    the next tick. Released once, no later campaign is refused on this rule: the
+    requirement is review of the FIRST campaign, and the ordinary gates carry the rest.
 
 ## 3. Inbound Call Lifecycle
 

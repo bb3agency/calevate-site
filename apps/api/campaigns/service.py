@@ -45,6 +45,7 @@ from apps.api.compliance.service import (
     NO_CREDITS_REASON,
     SPEND_CAP_REASON,
     credits_exhausted,
+    first_campaign_hold_blocker,
     kyc_blocker,
     spend_capped,
 )
@@ -296,7 +297,16 @@ async def dispatch_blockers(
     with nothing having re-read the paperwork.
     """
     facts = await _campaign_facts(session, campaign_id)
+    # The first-campaign hold is asked here as well as at launch, and it is the one
+    # tenant-level rule in this list. It belongs to the same family as the rest: a
+    # release is WITHDRAWABLE — complaints arrive, a list turns out to be bought — and a
+    # campaign that keeps dialling to the end of its list after we revoked the account's
+    # clearance is the exact failure this gate exists to prevent. `check_dispatch` cannot
+    # carry it: that gate is also the single-lead paths, which are not campaigns
+    # (`compliance/first_campaign.py` states the residual that leaves).
+    held = await first_campaign_hold_blocker(session, tenant_id=tenant_id)
     return [
+        *([LaunchBlocker(*held)] if held is not None else []),
         *(await _entity_blockers(session, tenant_id=tenant_id, facts=facts)),
         *_channel_blockers(facts),
     ]
@@ -715,6 +725,12 @@ async def launch_blockers(
     blocked_on_kyc = await kyc_blocker(session, tenant_id=tenant_id)
     if blocked_on_kyc is not None:
         blockers.append(LaunchBlocker(*blocked_on_kyc))
+    # R-11's last mitigation: a self-serve account's first campaign waits for a human
+    # (BRD §245, FLOWS §2, D-34). Asked here AND in `dispatch_blockers` — see the note
+    # in that function for why it is in both and not in `check_dispatch`.
+    held = await first_campaign_hold_blocker(session, tenant_id=tenant_id)
+    if held is not None:
+        blockers.append(LaunchBlocker(*held))
     if await spend_capped(session, tenant_id=tenant_id):
         blockers.append(LaunchBlocker("spend_cap", SPEND_CAP_REASON))
     if await credits_exhausted(session, tenant_id=tenant_id):

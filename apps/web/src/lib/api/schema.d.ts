@@ -430,6 +430,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/first-campaign-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Release (or refuse) a self-serve account's campaign calling — R-11's hold
+         * @description Records that a person at Calevate reviewed this account's first campaign. `approved` releases the account: this rule never blocks another of its campaigns. `rejected` keeps it held and shows the client the reason. Upserts, so a release can be withdrawn when complaints arrive and granted again afterwards — every call writes its own audit entry, so the history is the ledger rather than this row.
+         */
+        post: operations["decide_v1_admin_tenants__tenant_id__first_campaign_review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/impersonate": {
         parameters: {
             query?: never;
@@ -1166,6 +1186,26 @@ export interface paths {
          * @description What the DLT registrar holds for this business, as the platform last verified it. Read-only: registrations are recorded by Calevate operations against the registrar, never by the client. A business with nothing filed yet gets `recorded: false` and a 200.
          */
         get: operations["read_registration_v1_compliance_dlt_registration_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/first-campaign-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Is this account's first campaign still waiting on a human? (R-11)
+         * @description Calevate reviews the first campaign of every self-serve account before it dials — the contact list, the script and the disclosure line. This says whether that review is still outstanding, and what was decided once it is done. An account nobody has reviewed yet gets `held: true` with a null `status` and a 200; managed accounts are never held. Read-only: the release is recorded by Calevate operations.
+         */
+        get: operations["read_hold_v1_compliance_first_campaign_review_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2814,6 +2854,59 @@ export interface components {
             answer: string;
             /** Question */
             question: string;
+        };
+        /** FirstCampaignDecisionIn */
+        FirstCampaignDecisionIn: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approved" | "rejected";
+            /** Note */
+            note: string;
+            /** Reviewed Campaign Id */
+            reviewed_campaign_id?: string | null;
+        };
+        /** FirstCampaignDecisionOut */
+        FirstCampaignDecisionOut: {
+            /**
+             * Decided At
+             * Format: date-time
+             */
+            decided_at: string;
+            /** Reviewed Campaign Id */
+            reviewed_campaign_id: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
+         * FirstCampaignHoldOut
+         * @description Whether this account's campaigns are waiting on a human, and what was decided.
+         *
+         *     `held` and `reason` come from the SAME predicate the launch gate calls
+         *     (`first_campaign_hold_blocker`), so this screen cannot tell a client they are clear
+         *     while the launch button says otherwise.
+         */
+        FirstCampaignHoldOut: {
+            /** Decided At */
+            decided_at: string | null;
+            /** Decision Note */
+            decision_note: string | null;
+            /** Held */
+            held: boolean;
+            /** Reason */
+            reason: string | null;
+            /** Reviewed Campaign Id */
+            reviewed_campaign_id: string | null;
+            /** Rule */
+            rule: string | null;
+            /** Status */
+            status: string | null;
         };
         /**
          * IngestActivityItemOut
@@ -5064,6 +5157,41 @@ export interface operations {
             };
         };
     };
+    decide_v1_admin_tenants__tenant_id__first_campaign_review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FirstCampaignDecisionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstCampaignDecisionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     start_impersonation_v1_admin_tenants__tenant_id__impersonate_post: {
         parameters: {
             query?: never;
@@ -6373,6 +6501,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PeRegistrationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_hold_v1_compliance_first_campaign_review_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstCampaignHoldOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

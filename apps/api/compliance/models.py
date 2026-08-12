@@ -80,6 +80,17 @@ KYC_ENTITY_TYPES = (
 # out of DPDP scope and out of hard rule 6's reach. Aadhaar and personal PAN are absent
 # on purpose and there is a CHECK constraint standing behind that absence.
 KYC_DOCUMENT_KINDS = ("cin", "llpin", "gstin", "udyam", "shop_establishment", "trade_licence")
+# The first-campaign review (R-11's last mitigation; migration c4d9e18a72b6). Exactly
+# the two things a human can decide — "not reviewed yet" is the ABSENCE of a row, not a
+# third status, because a stored `pending` could disagree with the absence and every
+# gate would have to treat the two identically anyway.
+FIRST_CAMPAIGN_REVIEW_STATUSES = ("approved", "rejected")
+# The one status that releases an account. Named so the gate, the route and the CHECK
+# cannot drift into three spellings of the same idea (`KYC_VERIFIED` does the same job).
+FIRST_CAMPAIGN_REVIEW_APPROVED = "approved"
+# WHO decided. `migration_backfill` exists so a row with no operator is self-describing
+# rather than an anonymous release with the name left off — see the migration.
+FIRST_CAMPAIGN_DECISION_SOURCES = ("operator", "migration_backfill")
 CONSENT_STATUSES = ("granted", "declined", "withdrawn")
 DATA_CATEGORIES = ("recording", "transcript", "lead", "consent_log")
 RETENTION_ACTIONS = ("delete", "anonymize")
@@ -302,6 +313,68 @@ class KycRecord(PKMixin, TimestampMixin, Base):
     )
     submitted_at: Mapped[datetime | None]
     verified_at: Mapped[datetime | None]
+
+
+class FirstCampaignReview(PKMixin, TimestampMixin, Base):
+    """A human at Calevate cleared this account to run campaigns (R-11, D-34).
+
+    The last of the six R-11 mitigations BRD §245 and FLOWS §2 require the self-serve
+    motion to ship WITH: "manual review of the first campaign for any self-serve
+    account". The argument for the shape — why "first" is a property of the ACCOUNT and
+    not a flag on a campaign row, and why absence rather than a `pending` row means "not
+    reviewed" — is in migration c4d9e18a72b6 and in
+    `apps/api/compliance/first_campaign.py`.
+
+    One row per tenant, MUTABLE, absent from `APPEND_ONLY_TABLES` — the same reasoning
+    as `KycRecord` and `DltRegistration`: this is the account's CURRENT state, read by
+    the launch gate and by every dispatch tick, and a release that is later withdrawn
+    updates it. The immutable history is `audit_log`, where every decision writes a row
+    (hard rule 4), so a reversal is a new entry rather than an edited one.
+
+    The CHECK constraints mirror migration c4d9e18a72b6 and the migration is the source
+    of truth (DATA-MODEL §10).
+    """
+
+    __tablename__ = "first_campaign_reviews"
+    __table_args__ = (
+        UniqueConstraint("tenant_id"),
+        CheckConstraint(f"status IN {FIRST_CAMPAIGN_REVIEW_STATUSES!r}", name="status_enum"),
+        CheckConstraint(
+            f"decision_source IN {FIRST_CAMPAIGN_DECISION_SOURCES!r}",
+            name="decision_source_enum",
+        ),
+        # WHO, as a constraint: an operator release that cannot name its operator is not
+        # a review. The only exempt rows say in the same breath that no operator made
+        # them (`migration_backfill`).
+        CheckConstraint(
+            "decision_source <> 'operator' OR decided_by_admin_id IS NOT NULL",
+            name="operator_decision_names_its_operator",
+        ),
+        # WHAT was reviewed. A release nobody can account for later is the audit finding
+        # this table exists to avoid.
+        CheckConstraint(
+            "length(btrim(decision_note)) >= 3", name="decision_says_what_was_reviewed"
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    # EVIDENCE, never the mechanism: which campaign the operator actually read. SET NULL
+    # on delete, because losing the pointer must not change whether the account is
+    # cleared — a hold that a DELETE could clear is not a hold.
+    reviewed_campaign_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("campaigns.id", ondelete="SET NULL")
+    )
+    decision_note: Mapped[str] = mapped_column(Text, nullable=False)
+    decision_source: Mapped[str] = mapped_column(String, nullable=False, server_default="operator")
+    # An `admin_users.id`, not a typed name: an auditor asks who, and a string nobody can
+    # resolve to a person is not an answer.
+    decided_by_admin_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="RESTRICT")
+    )
+    decided_at: Mapped[datetime] = mapped_column(nullable=False)
 
 
 class RetentionPolicy(PKMixin, Base):

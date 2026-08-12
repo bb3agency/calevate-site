@@ -2518,6 +2518,170 @@
         "title": "Faq",
         "type": "object"
       },
+      "FirstCampaignDecisionIn": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "note": {
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          },
+          "reviewed_campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Campaign Id"
+          }
+        },
+        "required": [
+          "decision",
+          "note"
+        ],
+        "title": "FirstCampaignDecisionIn",
+        "type": "object"
+      },
+      "FirstCampaignDecisionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "decided_at": {
+            "format": "date-time",
+            "title": "Decided At",
+            "type": "string"
+          },
+          "reviewed_campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Campaign Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "status",
+          "reviewed_campaign_id",
+          "decided_at"
+        ],
+        "title": "FirstCampaignDecisionOut",
+        "type": "object"
+      },
+      "FirstCampaignHoldOut": {
+        "additionalProperties": false,
+        "description": "Whether this account's campaigns are waiting on a human, and what was decided.\n\n`held` and `reason` come from the SAME predicate the launch gate calls\n(`first_campaign_hold_blocker`), so this screen cannot tell a client they are clear\nwhile the launch button says otherwise.",
+        "properties": {
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decision_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Note"
+          },
+          "held": {
+            "title": "Held",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "reviewed_campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Campaign Id"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "held",
+          "rule",
+          "reason",
+          "status",
+          "decision_note",
+          "reviewed_campaign_id",
+          "decided_at"
+        ],
+        "title": "FirstCampaignHoldOut",
+        "type": "object"
+      },
       "IngestActivityItemOut": {
         "additionalProperties": false,
         "description": "One inbound source's rolled-up delivery record from the durable inbox.\n\nDeclared rather than left as an untyped dict: an undeclared response is invisible\nto `scripts/check_redaction_exposure.py`, which inspects response MODELS \u2014 and a\ndelivery record sits one careless `SELECT *` away from the sender's payload.",
@@ -7488,6 +7652,57 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/first-campaign-review": {
+      "post": {
+        "description": "Records that a person at Calevate reviewed this account's first campaign. `approved` releases the account: this rule never blocks another of its campaigns. `rejected` keeps it held and shows the client the reason. Upserts, so a release can be withdrawn when complaints arrive and granted again afterwards \u2014 every call writes its own audit entry, so the history is the ledger rather than this row.",
+        "operationId": "decide_v1_admin_tenants__tenant_id__first_campaign_review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FirstCampaignDecisionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirstCampaignDecisionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Release (or refuse) a self-serve account's campaign calling \u2014 R-11's hold",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/impersonate": {
       "post": {
         "operationId": "start_impersonation_v1_admin_tenants__tenant_id__impersonate_post",
@@ -9279,6 +9494,35 @@
           }
         },
         "summary": "This account's DLT Principal Entity registration \u2014 absence is data, not a 404",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/compliance/first-campaign-review": {
+      "get": {
+        "description": "Calevate reviews the first campaign of every self-serve account before it dials \u2014 the contact list, the script and the disclosure line. This says whether that review is still outstanding, and what was decided once it is done. An account nobody has reviewed yet gets `held: true` with a null `status` and a 200; managed accounts are never held. Read-only: the release is recorded by Calevate operations.",
+        "operationId": "read_hold_v1_compliance_first_campaign_review_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirstCampaignHoldOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Is this account's first campaign still waiting on a human? (R-11)",
         "tags": [
           "compliance"
         ],

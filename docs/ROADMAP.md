@@ -155,10 +155,15 @@ for 7 consecutive days; zero cross-tenant test failures.
   order creation is not built). **KYC shipped** (D-47) — the last mitigation that had
   nothing behind it. Of the R-11 list, five hold in code today (platform-fixed calling
   hours in `within_calling_hours`, DNC on every dispatch path, NOT NULL disclosure, the
-  consent ledger, admin + client spend caps) and **the sixth does not: nothing holds a
-  self-serve account's FIRST campaign for manual review** — no flag, no queue, no
-  blocker. `tenancy/signup.py` names the requirement in prose. That is the gap to close
-  before the signup switch is turned on.
+  consent ledger, admin + client spend caps) and **the sixth now does too**: the
+  first-campaign manual-review hold ships as `first_campaign_reviews`, scoped to the
+  TENANT so it cannot be skipped by launching a second campaign or deleting the held
+  one, enforced in both `launch_blockers` and `dispatch_blockers`, released only through
+  the audited ops route. All six R-11 mitigations are therefore in code — which removes
+  the build-side objection to turning `self_serve_signup_enabled` on, though the switch
+  itself stays a founder call. **Known gap**: there is no cross-tenant queue of held
+  accounts, so an operator must be told an account is waiting; `kyc_records` has the
+  identical gap and both close with one change to the admin tenant directory.
 - Integration DX (SURFACES §2b): webhook activity view, test-webhook, "Needs attention"
   queue, two-speed publishing. — activity view, test-webhook and the attention queue
   **shipped** (BUILD-LOG §37, §38, §39); **two-speed publishing shipped** (BUILD-LOG §47)
