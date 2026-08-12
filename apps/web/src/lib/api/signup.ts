@@ -1,0 +1,131 @@
+"use client";
+
+/**
+ * Self-serve signup (D-34 motion 2, FLOWS §2 route 1).
+ *
+ * `POST /v1/auth/signup` is NOT an unauthenticated route, and that shapes this module.
+ * The caller is a Clerk-verified user who has no organization YET — the same state the
+ * invitation-accept route handles — so the request carries a client-realm token and no
+ * org: the membership is what the call creates. `/v1/auth/` sits on the API's public
+ * prefixes because no permission can gate a caller with no organization, which is a
+ * statement about permissions, not about identity.
+ *
+ * Two failure modes are first-class rather than incidental, because both are the
+ * normal state of the world rather than a bug:
+ *
+ *  - `signup_disabled` — the R-11 kill switch, which DEFAULTS OFF. Most deployments
+ *    will refuse every signup, and a form that answers that with a red "something went
+ *    wrong" would send a business to support to report an outage that isn't one.
+ *  - `signup_load_shed` — the platform is in reduced/emergency/maintenance mode and is
+ *    not creating accounts. Transient; "try again shortly" is the honest answer.
+ *
+ * There is no way to ASK the API whether signup is open before submitting — there is no
+ * probe endpoint, and `POST /v1/auth/signup` is the only thing that knows. Until there
+ * is one, the deployment's own build-time answer stands in; see `SIGNUP_OPEN` below.
+ */
+
+import { useMutation } from "@tanstack/react-query";
+
+import { ApiProblem, apiRequest, devSession, type Session } from "./client";
+import type { components } from "./schema";
+
+type Schemas = components["schemas"];
+
+export type SignupIn = Schemas["SignupIn"];
+export type SignupOut = Schemas["SignupOut"];
+export type SignupLanguage = SignupIn["language"];
+
+/**
+ * The signup caller's session: a client-realm identity with an EMPTY org slug.
+ *
+ * Not a bug and not a placeholder — `current_identity` resolves the user from the
+ * token alone and never looks at `X-Org-Slug`, precisely because this caller has no
+ * organization to name. Passing a slug here would be inventing a tenant the caller is
+ * not a member of.
+ */
+export function signupSession(): Session {
+  return devSession("");
+}
+
+/** The four seeded verticals (`scripts/seed.py::VERTICAL_TEMPLATES`) — the API refuses
+ * anything else with `unknown_vertical_template` rather than silently seating a
+ * business on the clinic schema, so this list must stay a list and not a free text. */
+export const SIGNUP_VERTICALS = [
+  { value: "clinic", label: "Clinic or hospital" },
+  { value: "real_estate", label: "Real estate" },
+  { value: "insurance", label: "Insurance" },
+  { value: "education", label: "Education" },
+] as const;
+
+export const SIGNUP_LANGUAGES: { value: SignupLanguage; label: string }[] = [
+  { value: "te-IN", label: "Telugu" },
+  { value: "hi-IN", label: "Hindi" },
+  { value: "en-IN", label: "English (India)" },
+];
+
+/** Mirrors `admin_service.slugify` closely enough to PREVIEW the URL. The server
+ * derives, validates, reserves and de-collides the real one — and the slug is
+ * immutable once set, so this is a preview and never an authority. */
+export function previewSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+}
+
+/**
+ * Does THIS deployment open accounts online? Answered at build time, on purpose.
+ *
+ * The symptom this fixes: the signup surface had no way to learn it was closed, so a
+ * deployment with `SELF_SERVE_SIGNUP_ENABLED=false` — the DEFAULT, and therefore the
+ * usual state — rendered a full form, took a business through five fields, and only
+ * then answered "closed". Every submission on such a deployment is refused; a form
+ * that cannot succeed is a worse answer than no form at all.
+ *
+ * **Unset means CLOSED.** The API's `SELF_SERVE_SIGNUP_ENABLED` defaults false for the
+ * R-11 compliance reason, and a mirror that defaults the other way would advertise an
+ * open door on every deployment that forgot to set it. Only the exact string "true"
+ * opens it, so a stray "false"/"0"/"" cannot read as open.
+ *
+ * **It is a HINT, never the authority.** The server re-decides on every request and is
+ * the only thing that can; this flag can only be stale (a build shipped before the env
+ * changed, or `next build` inlining a value that later flipped). So the runtime
+ * refusals below stay wired up: if this says open and the server says closed, the
+ * client still gets the honest "closed" panel, from the refusal instead of the config.
+ * The reverse — this says closed while the server is open — costs a business nothing
+ * they can see, and is corrected by a rebuild.
+ *
+ * **THE REPLACEMENT.** This exists only because no endpoint exposes the switch. The
+ * moment the API grows an unauthenticated `GET /v1/auth/signup/availability` (or an
+ * `available: bool` on some public config document) returning whether signup is open
+ * and what to do when it is not, delete this constant and read that instead: it is one
+ * query, it needs no rebuild to change, and it cannot be stale.
+ */
+export const SIGNUP_OPEN = process.env.NEXT_PUBLIC_SELF_SERVE_SIGNUP_ENABLED === "true";
+
+/**
+ * Who to talk to when the online door is shut. Optional: unset renders the sentence
+ * without a link rather than inventing an address that would bounce.
+ */
+export const SIGNUP_CONTACT_EMAIL = process.env.NEXT_PUBLIC_SIGNUP_CONTACT_EMAIL ?? "";
+
+/** Is this refusal the kill switch, rather than something the business did wrong? */
+export function isSignupClosed(error: unknown): error is ApiProblem {
+  return error instanceof ApiProblem && error.code === "signup_disabled";
+}
+
+/** Is this refusal load-shedding — the same "not now" with a different lifetime? */
+export function isSignupDeferred(error: unknown): error is ApiProblem {
+  return error instanceof ApiProblem && error.code === "signup_load_shed";
+}
+
+export function useSignup() {
+  return useMutation({
+    mutationFn: (payload: SignupIn) =>
+      apiRequest<SignupOut>(signupSession(), "/v1/auth/signup", {
+        method: "POST",
+        body: payload,
+      }),
+  });
+}

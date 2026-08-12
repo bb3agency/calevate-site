@@ -1,0 +1,148 @@
+{
+  "_doc": "Known-failing regression cases per extraction model, as {case_id: [waived failure kinds]}. The gate is a RATCHET: only the kinds listed here are forgiven, and only these kinds are forgivable at all \u2014 ['capture_miss', 'outcome', 'schema', 'unspecified']. A capture_wrong/restraint/compliance/redaction/fixture failure is never waivable on any model: filing a wrong value, inventing one, skipping the disclosure or leaking PII is not a model tier, it is a defect. Removing entries is progress; adding one needs a reason in the PR.",
+  "offline-heuristic": {
+    "callback_number_spoken_digits": [
+      "capture_miss",
+      "outcome"
+    ],
+    "cl_bargein_background_noise_partial": [
+      "outcome"
+    ],
+    "cl_book_callback_english_digits": [
+      "capture_miss"
+    ],
+    "cl_book_hindi_caller": [
+      "capture_miss"
+    ],
+    "cl_book_self_corrected_party_size": [
+      "capture_miss"
+    ],
+    "cl_book_three_people_telugu_count": [
+      "capture_miss"
+    ],
+    "cl_callback_time_without_a_number": [
+      "capture_miss"
+    ],
+    "cl_calling_for_a_relative_third_party": [
+      "capture_miss"
+    ],
+    "cl_ivr_machine_answered": [
+      "outcome"
+    ],
+    "cl_pharmacy_stock_question": [
+      "capture_miss"
+    ],
+    "cl_test_result_out_of_scope": [
+      "capture_miss"
+    ],
+    "cl_wrong_number_hindi": [
+      "outcome"
+    ],
+    "core5_happy_path": [
+      "capture_miss"
+    ],
+    "core5_out_of_scope": [
+      "capture_miss"
+    ],
+    "core5_tool_call": [
+      "capture_miss"
+    ],
+    "hindi_mixed_callback_time": [
+      "capture_miss",
+      "outcome"
+    ],
+    "hostile_caller_complaint": [
+      "outcome"
+    ],
+    "re_bargein_angry_about_repeat_calls": [
+      "outcome"
+    ],
+    "re_budget_in_crore": [
+      "capture_miss"
+    ],
+    "re_budget_range_upper_figure": [
+      "capture_miss"
+    ],
+    "re_budget_refused": [
+      "capture_miss"
+    ],
+    "re_budget_stated_in_dollars": [
+      "capture_miss"
+    ],
+    "re_callback_time_only_property": [
+      "capture_miss"
+    ],
+    "re_hindi_buyer_kukatpally": [
+      "capture_miss"
+    ],
+    "re_home_loan_out_of_scope": [
+      "capture_miss"
+    ],
+    "re_hostile_delayed_possession": [
+      "outcome"
+    ],
+    "re_messaging_consent_declined": [
+      "capture_miss"
+    ],
+    "re_nri_caller_english": [
+      "capture_miss"
+    ],
+    "re_number_read_then_corrected": [
+      "capture_miss"
+    ],
+    "re_open_plot_not_a_flat": [
+      "capture_miss"
+    ],
+    "re_qualification_happy_path": [
+      "capture_miss"
+    ],
+    "re_ready_to_move_timeline": [
+      "capture_miss"
+    ],
+    "re_registration_charges_out_of_scope": [
+      "capture_miss"
+    ],
+    "re_resale_not_new_project": [
+      "capture_miss"
+    ],
+    "re_silent_outbound_call": [
+      "outcome"
+    ],
+    "re_site_visit_not_confirmed_yet": [
+      "capture_miss"
+    ],
+    "re_site_visit_slot_confirmed": [
+      "capture_miss"
+    ],
+    "re_two_localities_one_rejected": [
+      "capture_miss"
+    ],
+    "re_two_projects_offered_one_chosen": [
+      "capture_miss"
+    ],
+    "re_undecided_declines_site_visit": [
+      "capture_miss"
+    ],
+    "re_villa_four_bhk_plus": [
+      "capture_miss"
+    ],
+    "re_whatsapp_number_spoken_digits": [
+      "capture_miss"
+    ],
+    "re_wrong_number_property": [
+      "outcome"
+    ],
+    "relative_number_attribution": [
+      "capture_miss"
+    ],
+    "silent_call": [
+      "outcome"
+    ],
+    "telugu_script_booking": [
+      "capture_miss"
+    ],
+    "wrong_number_call": [
+      "outcome"
+    ]
+  }
+}

@@ -1,0 +1,668 @@
+"""The guardrails' own test suite: does each one FAIL when its rule is broken?
+
+A guardrail that passes while the violation it names is present is worse than no
+guardrail — it manufactures confidence. `make guardrails` proves the repo is currently
+clean; nothing proved that the checks can still SEE a violation. That is what this file
+is for, and it is why every test here calls the guardrail's own functions rather than
+re-implementing the rule: a weakened guardrail must fail a test, not quietly agree with
+a copy of itself.
+
+Two kinds of test, deliberately:
+
+- **wiring** — the guardrail is pointed at the real artefact (the live OpenAPI, the real
+  `.env.example`, the real repo tree, the real `pg_catalog`), so a check that has become
+  disconnected from reality fails here. A test that builds its own fixture and then
+  asserts about that fixture proves only that the fixture exists.
+- **detection** — take the REAL artefact, apply ONE minimal mutation that is exactly the
+  violation the guardrail claims to catch, and assert it is reported. Mutating reality
+  rather than inventing a fixture is what keeps the mutation meaningful: if the guardrail
+  stops looking at that part of reality, these fail.
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+from dataclasses import replace
+from pathlib import Path
+from typing import Any
+
+import pytest
+from apps.api.db.registry import APPEND_ONLY_TABLES, RLS_EXEMPT_TENANT_COLUMNS, TENANT_TABLES
+from scripts import (
+    check_env_parity,
+    check_ledger_immutability,
+    check_openapi_fresh,
+    check_redaction_exposure,
+    check_rls_coverage,
+)
+from scripts.check_rls_coverage import PolicyFacts, SchemaState
+from sqlalchemy import Engine, create_engine, text
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+GUC = f"(tenant_id = NULLIF(current_setting('{check_rls_coverage.TENANT_GUC}', true), '')::uuid)"
+
+
+# --- shared fixtures ----------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def engine() -> Engine:
+    """The migrated database, or a skip. Never a stand-in: the RLS and trigger
+    guardrails read `pg_catalog` precisely because a migration file is a claim and the
+    catalog is the fact."""
+    from apps.api.core.settings import get_settings
+
+    settings = get_settings()
+    url = (settings.alembic_database_url or settings.database_url).replace("+asyncpg", "+psycopg")
+    engine = create_engine(url)
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception as exc:  # pragma: no cover - local machines without docker
+        pytest.skip(f"no database: {type(exc).__name__}: {exc}")
+    return engine
+
+
+@pytest.fixture(scope="session")
+def live_spec() -> dict[str, Any]:
+    from apps.api.main import app
+
+    return dict(app.openapi())
+
+
+def _tenant_state() -> SchemaState:
+    """A baseline built from the REAL registry: every tenant table the repo declares,
+    each with the policy shape the migrations create. Adding a tenant table to the
+    registry therefore widens these tests automatically."""
+    policies = tuple(
+        PolicyFacts(
+            table=table,
+            name=check_rls_coverage.POLICY_NAME,
+            rls_enabled=True,
+            rls_forced=True,
+            using=GUC,
+            with_check=None,
+            cmd="*",
+            permissive=True,
+        )
+        for table in [*TENANT_TABLES, "organizations", *RLS_EXEMPT_TENANT_COLUMNS]
+    )
+    return SchemaState(
+        tenant_column_tables=frozenset({*TENANT_TABLES, *RLS_EXEMPT_TENANT_COLUMNS}),
+        policies=policies,
+        model_tables=frozenset({*TENANT_TABLES, "organizations", *RLS_EXEMPT_TENANT_COLUMNS}),
+    )
+
+
+def _without(state: SchemaState, table: str) -> SchemaState:
+    return replace(state, policies=tuple(p for p in state.policies if p.table != table))
+
+
+def _patched(state: SchemaState, table: str, **changes: Any) -> SchemaState:
+    return replace(
+        state,
+        policies=tuple(replace(p, **changes) if p.table == table else p for p in state.policies),
+    )
+
+
+# ============================================================================
+# check_rls_coverage — hard rule 1
+# ============================================================================
+
+
+class TestRlsCoverage:
+    def test_wiring_reads_the_live_catalog(self, engine: Engine) -> None:
+        """The check must see the real tables, not a list it was handed."""
+        state = check_rls_coverage.fetch_state(engine)
+        assert set(TENANT_TABLES) <= state.tenant_column_tables
+        assert any(p.name == check_rls_coverage.POLICY_NAME for p in state.policies)
+
+    def test_live_schema_is_clean(self, engine: Engine) -> None:
+        assert check_rls_coverage.evaluate(check_rls_coverage.fetch_state(engine)) == []
+
+    def test_baseline_passes(self) -> None:
+        """Without this the detection tests below could pass for the wrong reason."""
+        assert check_rls_coverage.evaluate(_tenant_state()) == []
+
+    def test_catches_missing_policy(self) -> None:
+        failures = check_rls_coverage.evaluate(_without(_tenant_state(), "leads"))
+        assert any("leads" in f and "NO tenant_isolation policy" in f for f in failures)
+
+    def test_catches_rls_enabled_but_not_forced(self) -> None:
+        failures = check_rls_coverage.evaluate(_patched(_tenant_state(), "calls", rls_forced=False))
+        assert any("calls" in f and "FORCEd" in f for f in failures)
+
+    def test_catches_using_true(self) -> None:
+        """A policy named `tenant_isolation` that reads no GUC isolates nothing — the
+        name is not the check."""
+        failures = check_rls_coverage.evaluate(_patched(_tenant_state(), "leads", using="true"))
+        assert any("leads" in f and "isolates nothing" in f for f in failures)
+
+    def test_catches_with_check_true(self) -> None:
+        """USING alone still lets a tenant WRITE rows stamped with another tenant_id."""
+        state = _patched(_tenant_state(), "leads", with_check="true")
+        failures = check_rls_coverage.evaluate(state)
+        assert any("leads" in f and "WITH CHECK" in f for f in failures)
+
+    def test_catches_an_extra_permissive_policy_that_reopens_the_table(self) -> None:
+        """Policies are OR'd: one `USING (true)` next to a perfect policy is a hole."""
+        state = _tenant_state()
+        rogue = PolicyFacts(
+            table="leads",
+            name="debug_all_access",
+            rls_enabled=True,
+            rls_forced=True,
+            using="true",
+            with_check=None,
+            cmd="*",
+            permissive=True,
+        )
+        failures = check_rls_coverage.evaluate(replace(state, policies=(*state.policies, rogue)))
+        assert any("debug_all_access" in f for f in failures)
+
+    def test_catches_a_new_tenant_table_missing_from_the_registry(self) -> None:
+        state = _tenant_state()
+        state = replace(
+            state,
+            tenant_column_tables=state.tenant_column_tables | {"whatsapp_threads"},
+            model_tables=state.model_tables | {"whatsapp_threads"},
+        )
+        failures = check_rls_coverage.evaluate(state)
+        assert any("whatsapp_threads" in f for f in failures)
+
+    def test_catches_a_new_tenant_table_hidden_behind_a_thin_exemption(self) -> None:
+        """The exemption list is the cheapest way to smuggle a table past this check.
+        An exemption has to be an argument a reviewer can weigh."""
+        state = _tenant_state()
+        state = replace(
+            state,
+            tenant_column_tables=state.tenant_column_tables | {"whatsapp_threads"},
+            model_tables=state.model_tables | {"whatsapp_threads"},
+        )
+        failures = check_rls_coverage.evaluate(
+            state,
+            exemptions={**RLS_EXEMPT_TENANT_COLUMNS, "whatsapp_threads": "TODO"},
+        )
+        assert any("whatsapp_threads" in f and "too thin" in f for f in failures)
+
+    def test_catches_a_stale_exemption(self) -> None:
+        failures = check_rls_coverage.evaluate(
+            _tenant_state(),
+            exemptions={
+                **RLS_EXEMPT_TENANT_COLUMNS,
+                "table_deleted_three_releases_ago": (
+                    "kept around long after the table was dropped, which is how an "
+                    "exemption list turns into a hiding place for the next table"
+                ),
+            },
+        )
+        assert any("STALE RLS exemption" in f for f in failures)
+
+    def test_exemption_list_is_pinned(self) -> None:
+        """Adding an RLS exemption must cost a visible diff in a TEST, not one line in
+        a dict. If this fails, review the new exemption on its merits and update it."""
+        assert set(RLS_EXEMPT_TENANT_COLUMNS) == {"audit_log", "engine_agent_routes"}
+
+
+# ============================================================================
+# check_ledger_immutability — hard rule 4
+# ============================================================================
+
+
+LEDGER_VIOLATIONS: dict[str, str] = {
+    "raw sql, one line": 'await session.execute(text("UPDATE usage_events SET amount = 1"))',
+    "raw sql, multi-line": (
+        'await session.execute(text("""\n    UPDATE usage_events\n    SET amount = 1\n"""))'
+    ),
+    "raw sql, split string literals": (
+        'await session.execute(text(\n    "UPDATE "\n    "usage_events SET amount = 1"\n))'
+    ),
+    "raw sql, schema-qualified": 'text("DELETE FROM public.usage_events WHERE id = :i")',
+    "raw sql, quoted identifier": "text('UPDATE \"usage_events\" SET amount = 1')",
+    "raw sql, truncate": 'text("TRUNCATE TABLE consent_ledger")',
+    "orm update()": "await session.execute(update(UsageEvent).values(unit_cost_paid=0))",
+    "orm delete()": "await session.execute(delete(AuditLogEntry).where(AuditLogEntry.id == i))",
+    "orm query().delete()": "session.query(ConsentLedgerEntry).filter_by(id=i).delete()",
+    "orm table update()": "await session.execute(UsageEvent.__table__.update().values(x=1))",
+    "cascade relationship": (
+        'entries = relationship("CreditLedgerEntry", cascade="all, delete-orphan")'
+    ),
+    "cascade foreign key": (
+        "class UsageEvent(Base):\n"
+        '    __tablename__ = "usage_events"\n'
+        '    call_id: Mapped[UUID] = mapped_column(ForeignKey("calls.id", ondelete="CASCADE"))\n'
+    ),
+}
+
+LEDGER_LEGITIMATE: dict[str, str] = {
+    "mutating a non-ledger table": 'text("UPDATE leads SET status = :s")',
+    "reading a ledger": 'text("SELECT sum(amount) FROM usage_events WHERE tenant_id = :t")',
+    "inserting into a ledger": 'text("INSERT INTO usage_events (id, amount) VALUES (:i, :a)")',
+    "a dict update whose name merely mentions usage": "payload.update(usage_event_row)",
+    "deleting a non-ledger row": "await session.execute(delete(Lead).where(Lead.id == i))",
+    "restrict, not cascade": (
+        "class UsageEvent(Base):\n"
+        '    __tablename__ = "usage_events"\n'
+        '    call_id: Mapped[UUID] = mapped_column(ForeignKey("calls.id", ondelete="RESTRICT"))\n'
+    ),
+}
+
+
+class TestLedgerImmutability:
+    def test_wiring_knows_the_real_model_classes(self) -> None:
+        """The AST scan resolves ORM classes from the live mapper registry, so renaming
+        `UsageEvent` cannot silently empty the check."""
+        classes = check_ledger_immutability.ledger_model_classes()
+        assert set(classes.values()) == set(APPEND_ONLY_TABLES)
+
+    def test_real_tree_has_no_ledger_mutation(self) -> None:
+        assert check_ledger_immutability.check_sources() == []
+
+    @pytest.mark.parametrize("label", sorted(LEDGER_VIOLATIONS))
+    def test_catches(self, label: str) -> None:
+        findings = check_ledger_immutability.scan_source(
+            Path("apps/api/billing/service.py"), LEDGER_VIOLATIONS[label]
+        )
+        assert findings, f"undetected ledger mutation: {label}"
+
+    @pytest.mark.parametrize("label", sorted(LEDGER_LEGITIMATE))
+    def test_does_not_cry_wolf(self, label: str) -> None:
+        findings = check_ledger_immutability.scan_source(
+            Path("apps/api/billing/service.py"), LEDGER_LEGITIMATE[label]
+        )
+        assert findings == [], f"false positive on legitimate code: {label}"
+
+    def test_wiring_reads_real_triggers(self, engine: Engine) -> None:
+        triggers = check_ledger_immutability.fetch_triggers(engine)
+        assert {t.table for t in triggers} >= set(APPEND_ONLY_TABLES)
+        assert check_ledger_immutability.evaluate_triggers(triggers) == []
+
+    def test_catches_a_missing_trigger(self, engine: Engine) -> None:
+        triggers = check_ledger_immutability.fetch_triggers(engine)
+        surviving = [t for t in triggers if t.table != "usage_events"]
+        failures = check_ledger_immutability.evaluate_triggers(surviving)
+        assert any("usage_events" in f for f in failures)
+
+    def test_catches_a_disabled_trigger(self, engine: Engine) -> None:
+        """`ALTER TABLE ... DISABLE TRIGGER` leaves the row in `pg_trigger`. Counting
+        rows would call that protected."""
+        triggers = [
+            replace(t, enabled=False) if t.table == "audit_log" else t
+            for t in check_ledger_immutability.fetch_triggers(engine)
+        ]
+        failures = check_ledger_immutability.evaluate_triggers(triggers)
+        assert any("audit_log" in f and "does not block" in f for f in failures)
+
+    def test_catches_a_trigger_whose_function_never_raises(self, engine: Engine) -> None:
+        triggers = [
+            replace(t, raises=False) if t.table == "consent_ledger" else t
+            for t in check_ledger_immutability.fetch_triggers(engine)
+        ]
+        failures = check_ledger_immutability.evaluate_triggers(triggers)
+        assert any("consent_ledger" in f and "does not block" in f for f in failures)
+
+    def test_catches_a_trigger_that_only_covers_update(self, engine: Engine) -> None:
+        triggers = [
+            replace(t, on_delete=False) if t.table == "credit_ledger" else t
+            for t in check_ledger_immutability.fetch_triggers(engine)
+        ]
+        failures = check_ledger_immutability.evaluate_triggers(triggers)
+        assert any("credit_ledger" in f and "DELETE" in f for f in failures)
+
+    def test_the_database_function_actually_refuses(self, engine: Engine) -> None:
+        """End-to-end proof that the catalog facts mean what they say: attach the REAL
+        `calevate_forbid_mutation` to a temp table and watch it refuse. Everything runs
+        inside a transaction that is rolled back, so no shared state is touched."""
+        from sqlalchemy.exc import DatabaseError
+
+        with engine.connect() as connection:
+            transaction = connection.begin()
+            try:
+                connection.execute(
+                    text("CREATE TEMP TABLE guardrail_probe (id int) ON COMMIT DROP")
+                )
+                connection.execute(
+                    text(
+                        "CREATE TRIGGER guardrail_probe_append_only "
+                        "BEFORE UPDATE OR DELETE ON guardrail_probe "
+                        "FOR EACH ROW EXECUTE FUNCTION calevate_forbid_mutation()"
+                    )
+                )
+                connection.execute(text("INSERT INTO guardrail_probe VALUES (1)"))
+                mutations = ("UPDATE guardrail_probe SET id = 2", "DELETE FROM guardrail_probe")
+                for statement in mutations:
+                    savepoint = connection.begin_nested()
+                    with pytest.raises(DatabaseError):
+                        connection.execute(text(statement))
+                    savepoint.rollback()
+            finally:
+                transaction.rollback()
+
+
+# ============================================================================
+# check_redaction_exposure — hard rule 5
+# ============================================================================
+
+
+def _add_model(spec: dict[str, Any], name: str, properties: dict[str, Any]) -> None:
+    spec.setdefault("components", {}).setdefault("schemas", {})[name] = {
+        "type": "object",
+        "properties": properties,
+    }
+
+
+class TestRedactionExposure:
+    def test_live_schema_exposes_no_raw_pii(self, live_spec: dict[str, Any]) -> None:
+        assert check_redaction_exposure.check(live_spec) == []
+
+    def test_exemption_registries_are_not_stale(self, live_spec: dict[str, Any]) -> None:
+        assert check_redaction_exposure.check_registry_freshness(live_spec) == []
+
+    def test_allowlisted_routes_are_role_checked_and_audited(self) -> None:
+        facts = check_redaction_exposure.route_facts()
+        assert check_redaction_exposure.check_allowlist(facts) == []
+
+    def test_catches_a_new_raw_field_on_an_existing_response_model(
+        self, live_spec: dict[str, Any]
+    ) -> None:
+        spec = copy.deepcopy(live_spec)
+        spec["components"]["schemas"]["CallSummaryOut"]["properties"]["from_e164"] = {
+            "type": "string"
+        }
+        offenders = check_redaction_exposure.check(spec)
+        assert any("CallSummaryOut" in o and "from_e164" in o for o in offenders)
+
+    def test_catches_raw_text_two_levels_down(self, live_spec: dict[str, Any]) -> None:
+        """Nesting was the hole: the old check only inspected models `$ref`-ed directly
+        by the response, so a raw field one model deeper was invisible."""
+        spec = copy.deepcopy(live_spec)
+        _add_model(spec, "TurnAnnotationOut", {"raw_text": {"type": "string"}})
+        spec["components"]["schemas"]["CallSummaryOut"]["properties"]["annotation"] = {
+            "$ref": "#/components/schemas/TurnAnnotationOut"
+        }
+        offenders = check_redaction_exposure.check(spec)
+        assert any("TurnAnnotationOut" in o for o in offenders)
+
+    def test_catches_the_call_summary_when_its_exemption_is_taken_away(
+        self, live_spec: dict[str, Any]
+    ) -> None:
+        """`summary` is transcript-DERIVED prose, and this check had never heard of the
+        name — so a `staff` reader could pull a caller's spoken phone number off the
+        calls list through it while the guardrail reported OK
+        (tests/call_summary_redaction_test.py).
+
+        The mutation here is the exemption, not the schema: the field is legitimately
+        declared and legitimately named, and the ONLY thing keeping the check green is
+        the `KNOWN_SAFE_FIELDS` entry saying the value has been through `redact()`.
+        Removing it must bring the field back into view, or the entry is load-bearing
+        for nothing and the next `summary`-shaped field ships unseen.
+        """
+        offenders = check_redaction_exposure.check(live_spec, safe_fields={})
+        assert any("CallSummaryOut" in o and "summary" in o for o in offenders)
+        assert any("CallDetailOut" in o and "summary" in o for o in offenders)
+
+    def test_a_safe_field_exemption_does_not_blind_the_rest_of_its_model(
+        self, live_spec: dict[str, Any]
+    ) -> None:
+        """The reason exemptions are `Model.field` and never `Model`. `TranscriptTurnOut`
+        used to be exempt WHOLESALE for the sake of one field, so a raw phone number
+        added beside it would have shipped green."""
+        spec = copy.deepcopy(live_spec)
+        spec["components"]["schemas"]["TranscriptTurnOut"]["properties"]["caller_e164"] = {
+            "type": "string"
+        }
+        offenders = check_redaction_exposure.check(spec)
+        assert any("TranscriptTurnOut" in o and "caller_e164" in o for o in offenders)
+        assert not any("'text'" in o for o in offenders), "the exempt field stays exempt"
+
+    def test_catches_a_new_freeform_dict_passthrough(self, live_spec: dict[str, Any]) -> None:
+        """`dict[str, Any]` is an undeclared response model: whatever the query put in
+        it ships, redaction included."""
+        spec = copy.deepcopy(live_spec)
+        spec["components"]["schemas"]["CallSummaryOut"]["properties"]["engine_payload"] = {
+            "type": "object",
+            "additionalProperties": True,
+        }
+        offenders = check_redaction_exposure.check(spec)
+        assert any("CallSummaryOut.engine_payload" in o for o in offenders)
+
+    def test_catches_a_stale_allowlist_entry(self, live_spec: dict[str, Any]) -> None:
+        spec = copy.deepcopy(live_spec)
+        spec["paths"].pop("/v1/leads/export.csv")
+        failures = check_redaction_exposure.check_registry_freshness(spec)
+        assert any("/v1/leads/export.csv" in f for f in failures)
+
+    def test_catches_an_allowlisted_route_that_lost_its_role_check(self) -> None:
+        """The whole point of the allowlist is the claim "role-checked AND audited".
+        Only the raw-transcript route is weakened here — the rest of the app keeps its
+        permissions, so this cannot pass via the blind-extraction escape hatch."""
+        facts = [
+            replace(route, enforced=frozenset())
+            if route.path in check_redaction_exposure.ALLOWED_ROUTES
+            else route
+            for route in check_redaction_exposure.route_facts()
+        ]
+        failures = check_redaction_exposure.check_allowlist(facts)
+        assert any("decoration" in f for f in failures)
+
+    def test_catches_an_allowlisted_route_that_lost_its_audit_write(self) -> None:
+        stripped = "async def handler():\n    return await service.get_call(session, call_id)"
+        facts = [
+            replace(route, source=stripped)
+            if route.path in check_redaction_exposure.ALLOWED_ROUTES
+            else route
+            for route in check_redaction_exposure.route_facts()
+        ]
+        failures = check_redaction_exposure.check_allowlist(facts)
+        assert any("without writing audit_log" in f for f in failures)
+
+    def test_says_so_when_permission_extraction_goes_blind(self) -> None:
+        """If `requires()` is refactored and the closure walk stops finding anything,
+        this check must announce that it is blind rather than pass."""
+        facts = [replace(r, enforced=frozenset()) for r in check_redaction_exposure.route_facts()]
+        failures = check_redaction_exposure.check_allowlist(facts)
+        assert any("this check is blind" in f for f in failures)
+
+    def test_exemption_registries_are_pinned(self) -> None:
+        """Every raw-PII exemption costs a diff here as well as in the script."""
+        assert set(check_redaction_exposure.ALLOWED_ROUTES) == {
+            "/v1/calls/{call_id}/transcript/raw",
+            "/v1/leads/export.csv",
+        }
+        assert set(check_redaction_exposure.KNOWN_SAFE_FIELDS) == {
+            "TranscriptTurnOut.text",
+            "CallSummaryOut.summary",
+            "CallDetailOut.summary",
+        }
+        assert set(check_redaction_exposure.ACKNOWLEDGED_PASSTHROUGH) == {
+            "LeadOut.data",
+            "CallDetailOut.extraction",
+        }
+
+
+# ============================================================================
+# check_env_parity
+# ============================================================================
+
+
+class TestEnvParity:
+    def test_wiring_parses_the_real_example_file(self) -> None:
+        declared, duplicates = check_env_parity.example_keys(REPO_ROOT / ".env.example")
+        assert "database_url" in declared and "redis_url" in declared
+        assert duplicates == []
+
+    def test_catches_a_key_only_in_the_example_file(self) -> None:
+        declared, _ = check_env_parity.example_keys(REPO_ROOT / ".env.example")
+        from calevate_shared.config import Settings
+
+        failures = check_env_parity.evaluate(
+            declared | {"whatsapp_token"}, set(Settings.model_fields), {}
+        )
+        assert any("whatsapp_token" in f and "not Settings" in f for f in failures)
+
+    def test_catches_a_key_only_in_settings(self) -> None:
+        declared, _ = check_env_parity.example_keys(REPO_ROOT / ".env.example")
+        from calevate_shared.config import Settings
+
+        fields = set(Settings.model_fields) | {"whatsapp_token"}
+        failures = check_env_parity.evaluate(declared, fields, {})
+        assert any("whatsapp_token" in f and "not .env.example" in f for f in failures)
+
+    def test_catches_a_worker_reading_the_environment_directly(self) -> None:
+        """The direction the old check had no way to see: a key that exists in neither
+        place because a job reads it straight off `os.environ`."""
+        from calevate_shared.config import Settings
+
+        declared, _ = check_env_parity.example_keys(REPO_ROOT / ".env.example")
+        reads = {"WHATSAPP_TOKEN": ["apps/workers/notify.py:42"]}
+        failures = check_env_parity.evaluate(declared, set(Settings.model_fields), reads)
+        assert any("WHATSAPP_TOKEN" in f and "never fails fast" in f for f in failures)
+
+    def test_catches_a_duplicate_key(self) -> None:
+        from calevate_shared.config import Settings
+
+        declared, _ = check_env_parity.example_keys(REPO_ROOT / ".env.example")
+        failures = check_env_parity.evaluate(
+            declared, set(Settings.model_fields), {}, duplicates=["redis_url"]
+        )
+        assert any("declared twice" in f for f in failures)
+
+    def test_finds_env_reads_in_source(self, tmp_path: Path) -> None:
+        """The AST scan, exercised on all three spellings."""
+        (tmp_path / "apps").mkdir()
+        (tmp_path / "apps" / "job.py").write_text(
+            "import os\n"
+            'a = os.getenv("ALPHA")\n'
+            'b = os.environ["BETA"]\n'
+            'c = os.environ.get("GAMMA")\n'
+        )
+        found = check_env_parity.direct_env_reads(tmp_path)
+        assert set(found) == {"ALPHA", "BETA", "GAMMA"}
+
+    def test_settings_reads_in_the_repo_are_accounted_for(self) -> None:
+        """Wiring: the scan runs over the real tree and every key it finds is either a
+        Settings field or a named infra variable."""
+        from calevate_shared.config import Settings
+
+        fields = set(Settings.model_fields)
+        for key in check_env_parity.direct_env_reads():
+            assert key in check_env_parity.INFRA_ENV_KEYS or key.lower() in fields
+
+
+# ============================================================================
+# check_openapi_fresh
+# ============================================================================
+
+
+class TestOpenApiFresh:
+    def test_wiring_shapes_the_live_app(self, live_spec: dict[str, Any]) -> None:
+        shape = check_openapi_fresh._shape(live_spec)
+        assert shape["paths"] and shape["schemas"]
+        assert shape["paths"]["/v1/calls/{call_id}/transcript/raw"]["get"]["permission"] == (
+            "calls:read_raw"
+        )
+
+    def test_catches_a_permission_change_with_no_path_change(
+        self, live_spec: dict[str, Any]
+    ) -> None:
+        """The exact hole: downgrading the raw-transcript endpoint from `calls:read_raw`
+        to `calls:read` changes no path and no property name, so a shape that compares
+        only those reports a fresh snapshot."""
+        weakened = copy.deepcopy(live_spec)
+        route = weakened["paths"]["/v1/calls/{call_id}/transcript/raw"]["get"]
+        route["x-calevate-permission"] = "calls:read"
+        assert check_openapi_fresh._shape(live_spec) != check_openapi_fresh._shape(weakened)
+
+    def test_catches_a_property_type_change(self, live_spec: dict[str, Any]) -> None:
+        changed = copy.deepcopy(live_spec)
+        changed["components"]["schemas"]["CallSummaryOut"]["properties"]["duration_s"] = {
+            "type": "string"
+        }
+        assert check_openapi_fresh._shape(live_spec) != check_openapi_fresh._shape(changed)
+
+    def test_catches_a_new_query_parameter(self, live_spec: dict[str, Any]) -> None:
+        changed = copy.deepcopy(live_spec)
+        changed["paths"]["/v1/calls"]["get"].setdefault("parameters", []).append(
+            {"name": "include_raw", "in": "query", "required": False, "schema": {"type": "boolean"}}
+        )
+        assert check_openapi_fresh._shape(live_spec) != check_openapi_fresh._shape(changed)
+
+    def test_catches_a_required_field_change(self, live_spec: dict[str, Any]) -> None:
+        changed = copy.deepcopy(live_spec)
+        schema = changed["components"]["schemas"]["CallSummaryOut"]
+        schema["required"] = [*schema.get("required", []), "summary"]
+        assert check_openapi_fresh._shape(live_spec) != check_openapi_fresh._shape(changed)
+
+    def test_catches_a_removed_route(self, live_spec: dict[str, Any]) -> None:
+        changed = copy.deepcopy(live_spec)
+        changed["paths"].pop("/v1/leads/export.csv")
+        assert check_openapi_fresh._shape(live_spec) != check_openapi_fresh._shape(changed)
+
+    def test_ignores_prose_and_validation_bounds(self, live_spec: dict[str, Any]) -> None:
+        """Calibration, not laziness: a reworded summary or a changed `le=` produces
+        byte-identical TypeScript. A guardrail that fires on those trains people to
+        regenerate without reading the diff."""
+        cosmetic = copy.deepcopy(live_spec)
+        operation = cosmetic["paths"]["/v1/calls"]["get"]
+        operation["summary"] = "Totally reworded summary"
+        operation["description"] = "A description nobody had written before"
+        for parameter in operation.get("parameters", []):
+            if parameter["name"] == "limit":
+                parameter["schema"]["maximum"] = 999
+        assert check_openapi_fresh._shape(live_spec) == check_openapi_fresh._shape(cosmetic)
+
+    def test_snapshot_file_is_valid_json_at_the_expected_path(self) -> None:
+        assert check_openapi_fresh.SNAPSHOT.exists()
+        json.loads(check_openapi_fresh.SNAPSHOT.read_text())
+
+
+# ============================================================================
+# The Makefile is part of the guardrail surface
+# ============================================================================
+
+
+class TestMakefileWiring:
+    """`make guardrails` IS the gate developers run. A target that cannot run, or that
+    make decides is already up to date, is a gate that reports success without work."""
+
+    def _makefile(self) -> str:
+        return (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+
+    def test_every_target_is_phony(self) -> None:
+        import re
+
+        text = self._makefile()
+        phony: set[str] = set()
+        for match in re.finditer(r"^\.PHONY:((?:[^\n\\]|\\\n)*)", text, re.MULTILINE):
+            phony |= set(match.group(1).replace("\\\n", " ").split())
+        targets = {m.group(1) for m in re.finditer(r"^([a-zA-Z][\w-]*):", text, re.MULTILINE)}
+        assert targets - phony == set(), "a non-phony target is a no-op waiting to happen"
+
+    def test_every_guardrail_script_runs_in_both_gates(self) -> None:
+        """Globbed off `scripts/`, never typed out here.
+
+        The hand-written list this replaced named five checks and stayed green while
+        `check_wiring` ran in `make guardrails` and in NO CI step — the local gate
+        enforced a rule the gate that blocks merge did not, which is the one direction
+        that matters. A list that grows itself cannot fall behind: a new `check_*.py` is
+        in this test the moment the file exists, and it fails until both gates run it.
+        """
+        scripts = sorted(path.stem for path in (REPO_ROOT / "scripts").glob("check_*.py"))
+        assert len(scripts) >= 5, "the guardrail pack cannot have shrunk to nothing"
+        makefile = self._makefile()
+        workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        for script in scripts:
+            assert f"scripts.{script}" in makefile, f"{script} is in no `make guardrails` line"
+            assert f"scripts.{script}" in workflow, f"{script} runs in no CI step"
+        assert "lint-imports" in makefile and "lint-imports" in workflow
+
+    def test_make_check_runs_what_ci_runs(self) -> None:
+        """CI is the authority; the Makefile is the local mirror. Every backend command
+        in the workflow must have a home in `make check`."""
+        workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        text = self._makefile()
+        for command in ("lint-imports", "mypy apps packages", "scripts.eval"):
+            assert command in workflow and command in text
+        assert "ruff check ." in workflow and "ruff check ." in text
+        assert "ruff format --check ." in workflow and "ruff format --check ." in text

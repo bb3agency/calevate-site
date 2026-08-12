@@ -1,0 +1,27 @@
+[Unit]
+Description=Calevate backup chain health check
+Documentation=file:///var/www/calevate/infra/backup/README.md
+After=postgresql.service
+OnFailure=calevate-backup-alert@%n.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+Environment=WALG_CONFIG_PATH=/etc/wal-g/walg.json
+# The alert relay's and the heartbeat's configuration, when this host is the HARDENED
+# shape: `postgres` cannot read the app's `.env`, so the keys `Settings` requires
+# (DATABASE_URL, REDIS_URL, OBJECT_STORE_*) plus SMTP_*, ALERTS_EMAIL and
+# BACKUP_HEARTBEAT_URL (the external dead man, D-54) come from here instead. The leading `-`
+# makes it OPTIONAL — on the simple shape the relay reads the repo's `.env` and this file
+# does not exist. Nothing here connects to the database or Redis; those two are read as
+# strings because it is one Settings class (scripts/host_alert.py).
+EnvironmentFile=-/etc/calevate/alerts.env
+ExecStart=/var/www/calevate/scripts/backup/backup-health.sh
+# Bounded by design — this check must never be the thing that hangs — but bounded ABOVE
+# the worst case it can legitimately reach, which the alert relay changed: a run in which
+# every check fails emits several alerts, and each one may wait on SMTP (host_alert's
+# 45s flush, capped at 90s by alert-to-app.sh). Eight of those is ~12 minutes, so a 5m
+# limit would have killed the run REPORTING a total backup failure, mid-report. 15m is
+# still short enough that a wedged unit is found within one timer interval of its slot.
+TimeoutStartSec=15m

@@ -7,7 +7,7 @@ Requires the local Postgres (docker compose up -d) with migrations applied.
 import uuid
 
 import pytest
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session, untenanted_session, user_session
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
@@ -127,3 +127,74 @@ async def test_organization_slug_is_immutable() -> None:
             await s.execute(
                 text("UPDATE organizations SET slug = 'new-slug' WHERE id = :id"), {"id": org}
             )
+
+
+# --- app.user_id (migration 8c31d0f4ab27) ------------------------------------
+# The second GUC exists so authentication can answer "which tenants may this user
+# enter?" before a tenant is chosen. These tests pin down that it widens READS by
+# exactly one clause and widens WRITES by nothing.
+
+
+async def _make_user_with_membership(tenant_id: uuid.UUID, role: str = "owner") -> uuid.UUID:
+    user_id = uuid.uuid4()
+    async with untenanted_session() as s:
+        await s.execute(
+            text(
+                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
+                "VALUES (:id, :cid, :email, now(), now())"
+            ),
+            {"id": user_id, "cid": f"u_{user_id.hex[:12]}", "email": f"{user_id.hex[:8]}@x.test"},
+        )
+    async with tenant_session(tenant_id) as s:
+        await s.execute(
+            text(
+                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
+                "VALUES (:id, :tid, :uid, :role, now(), now())"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "role": role},
+        )
+    return user_id
+
+
+async def test_user_guc_sees_only_its_own_memberships() -> None:
+    org_a = await _make_org("Tenant H")
+    org_b = await _make_org("Tenant I")
+    user_a = await _make_user_with_membership(org_a)
+    await _make_user_with_membership(org_b)
+
+    async with user_session(user_a) as s:
+        rows = (await s.execute(text("SELECT tenant_id FROM memberships"))).scalars().all()
+        orgs = (await s.execute(text("SELECT id FROM organizations"))).scalars().all()
+
+    assert rows == [org_a], "a user sees only the membership rows that are their own"
+    assert orgs == [org_a], "and only the organizations those memberships point at"
+
+
+async def test_user_guc_cannot_write_anything() -> None:
+    """The whole point of the narrower GUC: it is a READ widening. If it could write,
+    membership in one tenant would become a way to create rows in it without ever
+    being scoped to it."""
+    org = await _make_org("Tenant J")
+    user = await _make_user_with_membership(org)
+
+    with pytest.raises(DBAPIError):
+        async with user_session(user) as s:
+            await s.execute(
+                text(
+                    "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, "
+                    "updated_at) VALUES (:id, :tid, :uid, 'owner', now(), now())"
+                ),
+                {"id": uuid.uuid4(), "tid": org, "uid": user},
+            )
+
+
+async def test_user_guc_does_not_unlock_tenant_data() -> None:
+    """Membership lets you find the door; it does not open it. Leads still need
+    app.tenant_id."""
+    org = await _make_org("Tenant K")
+    user = await _make_user_with_membership(org)
+    await _make_lead(org, "+919000000004")
+
+    async with user_session(user) as s:
+        leads = (await s.execute(text("SELECT count(*) FROM leads"))).scalar()
+    assert leads == 0, "the user GUC must not widen access to tenant business data"

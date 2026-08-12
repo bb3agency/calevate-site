@@ -46,8 +46,35 @@ crm, analytics, billing, kb, integrations, compliance, audit.
 - **Auth:** Clerk (Organizations) — admin realm and client realm are separate applications
   with separate session cookies. MFA mandatory on admin realm.
 - **Storage:** R2/Spaces, SSE encryption, presigned URLs (5-min TTL), never public.
-- **Observability:** OpenTelemetry traces; Sentry (errors); **Langfuse** (LLM traces,
-  prompt versions, per-call token cost, latency breakdown); PostHog (product analytics).
+- **Observability:** OpenTelemetry traces; Sentry (errors); operator alerts by email.
+  LLM tracing (prompt versions, per-call token cost, latency breakdown) is a NAMED GAP,
+  not a component — see the correction below.
+  Shipped in `apps/api/core/observability.py`, all of it config-gated (no keys ⇒ no-op):
+  the trace crosses the queue boundary — the W3C traceparent rides in the ARQ job payload
+  (`TRACE_KWARG = "_calevate_traceparent"`) so voice-runtime → ARQ → worker → adapter is
+  ONE trace and "where did the two minutes go?" is answerable. Span attributes are an
+  ALLOWLIST (`ALLOWED_SPAN_ATTRIBUTES`), not a denylist, and every value must be id-shaped
+  by the logger's own `redact_text` — a denylist on a tracing API fails open (hard rule 6).
+  **Read "shipped" precisely.** OTel and Sentry are wired end to end. **Langfuse and
+  PostHog configuration was REMOVED rather than wired** (D-49): `LANGFUSE_PUBLIC_KEY`,
+  `LANGFUSE_SECRET_KEY` and `POSTHOG_KEY` were settings with no client — no-ops even WITH
+  credentials, which is worse than absent, because the next reader assumes traces are
+  being recorded. What survives is `redact_trace_payload`, kept as the hard-rule-6 hook
+  shape with a docstring that says plainly nothing calls it, so **per-call token cost and
+  the latency breakdown named above are NOT being recorded and are not one config value
+  away**: restoring Langfuse needs a project nobody holds plus a decision-log entry
+  choosing a second tracing pipeline beside the OTel one already shipped, and PostHog
+  restores as `NEXT_PUBLIC_POSTHOG_KEY` in `apps/web`, where browser analytics belongs.
+  The restore steps sit in `calevate_shared/config.py` beside `SENTRY_DSN`, and a test
+  pins that the keys stay gone.
+- **Alerting:** `apps/api/core/alerting.py` (D-49). Every `alert()` writes its structured
+  ERROR log first and unconditionally, then DELIVERS by email through the same transport
+  as hot-lead notifications, off the request path on a daemon thread, with per-fingerprint
+  repeat suppression (15 min, keyed `stage:code`) and a global hourly token bucket whose
+  drops are counted and reported in the next body. It deliberately touches neither the
+  outbox nor Redis — the alarms that matter most are the ones saying those are broken.
+  Recipient is `ALERTS_EMAIL`; a non-local deployment without it warns at boot rather than
+  at 3am. Detail and thresholds: OPERATIONS §4.
 - **IaC/CI:** Terraform; GitHub Actions (lint, typecheck, tests, migrations, deploy);
   Dependabot + secret scanning + SAST.
 
@@ -103,8 +130,23 @@ bloated prompt raises TTFT and hallucination together; the ~2.5k budget in
 PROMPT-GUIDE §2 stands regardless of engine); TTS TTFA ≤300ms streaming; retrieval ≤100ms (see §6).
 Techniques (required): streaming end-to-end; filler utterances fired the moment a tool
 call starts ("ఒక్క నిమిషం, చూస్తాను"); brief agent replies enforced in prompt; India-only
-network path. Every call logs stage timings to Langfuse (stt_ms, llm_ttft_ms, tts_ttfa_ms,
-turn_ms) — no latency work without measurement.
+network path. **The rule stands and the mechanism does not exist yet**: stage timings per
+call (stt_ms, llm_ttft_ms, tts_ttfa_ms, turn_ms) are what any latency work must be argued
+from, and nothing records them today. `calls.latency` was DROPPED (migration
+`f1a7c39d5be2`): a column that always reads NULL is worse than none, because the next
+reader builds a dashboard on it. Every span this repo opens is on OUR side of the call —
+the post-call pipeline serving the 2-minute lead SLO — so filling it from those would have
+named the engine's 2-3 minute wait for `completed` as a caller-perceived latency.
+
+**Bolna does document per-component latency** (`latency_data` on Get Execution:
+`time_to_first_audio` plus transcriber/llm/synthesizer blocks), which supersedes the older
+"no per-turn timings" reading — but it is UNVERIFIED against a live account, it is a
+DIFFERENT set of numbers from the four above (voice-to-voice turn latency would be our own
+arithmetic aligning three components), and its documented `transcriber.turns` entries carry
+recognised TEXT, which a naive mapper would land in a column with no redacted counterpart
+(hard rules 5/6). So it is captured as a fixture at OPERATIONS §2 gate 4, beside the
+stopwatch that can falsify it, and the storage shape is chosen from the payload we actually
+receive — no latency work without measurement, and no measurement invented to fill the gap.
 
 ## 5. VoiceEngine Adapter (the portability contract)
 
@@ -117,9 +159,22 @@ class VoiceEngine(Protocol):
     async def start_outbound_call(self, ref, to: E164, ctx: CallContext) -> CallHandle
     async def end_call(self, call_id: str) -> None
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None
-    async def provision_number(self, spec: NumberSpec) -> PhoneNumber
-    async def attach_kb(self, ref, source: KBSourceRef) -> None
-    def verify_webhook(self, headers, body) -> bool  # per-engine: HMAC, or source-IP+dedupe (§5)
+    async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber
+    async def attach_kb(self, ref, source: KBSourceRef) -> EngineKBRef   # the ENGINE's own
+        # handle for its copy (Bolna: rag_id). Returning it is the whole reason a
+        # superseded version can ever be removed — our kb_sources.id addresses nothing on
+        # their side, so an adapter with nothing to return has a KB that can only grow (D-41)
+    async def detach_kb(self, ref, kb: EngineKBRef) -> None   # must be REAL: a no-op turns
+        # publish into a silent lie. Detaching a handle the engine never issued RAISES
+    async def list_kb(self, ref) -> list[EngineKBRef]         # what the agent actually holds —
+        # the only adapter-independent way to prove a detach did anything
+    async def get_execution(self, call_id: str) -> ExecutionSnapshot   # the authenticated
+        # read; THIS, not the webhook, is what we persist
+    async def list_executions(self, *, since: datetime) -> list[ExecutionSnapshot]  # backs the
+        # reconciliation poller (D-31: guarantee of record, not a safety net)
+    def verify_webhook(self, headers, body: bytes, source_ip: str) -> WebhookVerdict
+        # per-engine: HMAC where the engine signs, source-IP + dedupe where it does not (§5).
+        # A verdict, not a bool, so an UNSIGNED accept is recorded as the hint it is
     def parse_webhook(self, payload: dict) -> CallEvent       # → OUR normalized event
 ```
 
@@ -153,9 +208,10 @@ scorecard — D-31]:
   breakdown {platform, network, llm, synthesizer, transcriber} — the adapter converts
   to INR at capture and stamps the fx rate into usage_events.meta (hard rule 7).
   Transcript is prefix-tagged plain text (`assistant:`/`user:`) — the adapter parses
-  it into TranscriptTurn; per-turn timings are unavailable (calls.latency stays null
-  for Bolna calls; latency SLO measurement moves to the pilot stopwatch method +
-  engine-side metrics if exposed).
+  it into TranscriptTurn, so `TranscriptTurn.start_ms`/`end_ms` are NULL for every Bolna
+  turn and no turn latency is derivable from what we ingest. Their docs DO describe a
+  `latency_data` object on Get Execution — unverified against a live account, and a
+  pilot gate 4 capture rather than an adapter field (see §4).
 - **Webhooks — UNSIGNED, at-most-once** [verified in docs AND the OSS delivery code:
   a single aiohttp POST, no retry, no timeout, errors swallowed]: per-agent
   webhook_url in agent_config; fires on status transitions (scheduled → queued →
@@ -178,8 +234,14 @@ scorecard — D-31]:
 - **Campaign built-ins** (configure, don't rebuild): batch APIs with per-contact retry
   on outcome (no-answer/busy/failed/error/voicemail, ≤3 attempts, spaced delays) —
   exact API mechanics, pacing and limits unpublished (pilot). Built-in KB: rag_id CRUD
-  API (POST/GET/DELETE /knowledgebase), multiple KBs per agent; multilingual mode
-  names Hindi/Tamil — **Telugu KB quality is a pilot gate**. Custom functions follow
+  API (POST /knowledgebase, GET /knowledgebase/all, GET|DELETE /knowledgebase/{rag_id}),
+  multiple KBs per agent; multilingual mode
+  names Hindi/Tamil — **Telugu KB quality is a pilot gate**. The ROUTES and the fact that
+  a KB is addressed by the vendor's `rag_id` are verified from published docs; every
+  BODY on this path is a hand-maintained claim (no OpenAPI spec), including the `rag_id`
+  field name and the list row shape — the two that decide whether D-41's detach works are
+  pilot gate 8 questions: does the list response carry the agent linkage `list_kb`
+  filters on, and does deleting a KB clear the agent's reference to it? Custom functions follow
   the OpenAI function-calling schema (bearer/custom-header auth, pre_call_message
   filler line).
 - **BYOK key custody — where the keys actually live.** First, a terminology fix: in this
@@ -343,23 +405,55 @@ vertical templates (clinic, real_estate, insurance, education) pre-fill it.
 One schema drives, with zero code: (a) the post-call extraction prompt (generated),
 (b) Pydantic validation of the LLM's structured output (retry on schema failure),
 (c) Leads table columns, (d) filters, (e) CSV export, (f) hot-lead rules.
-Extraction runs POST-CALL in workers (never in-call): input = full transcript; model =
-Gemini Flash-Lite structured output; cost ≈ ₹0.02–0.05/call. Same pass also emits:
-sentiment, summary, resolved|needs_follow_up tag, out_of_scope flags, callback intent.
-Every extraction stores prompt_version + model for auditability.
+Extraction runs POST-CALL in workers (never in-call): input = full transcript; cost
+≈ ₹0.02–0.05/call. Same pass also emits: sentiment, summary, resolved|needs_follow_up tag,
+out_of_scope flags, callback intent. Every extraction stores prompt_version + model for
+auditability. **Model, as shipped**: `workers/extraction.get_extractor()` picks by config
+and there is NO silent failover between providers — Sarvam (`sarvam-m`) when a Sarvam key
+is present, Gemini (`gemini-2.5-flash-lite`) when only a Gemini key is, and an offline
+heuristic runner otherwise, which is what keeps the regression harness's baseline stable.
+D-36 makes Sarvam the default; the §5 note that Gemini "remains the reference for the
+post-call extraction path" is about which baseline is measured, not about which model the
+pipeline reaches for.
+
+The generated prompt (`packages/shared/.../extraction.build_extraction_prompt`, shared with
+the regression harness so the scored prompt IS the shipped one) carries **five named rule
+blocks**, each closing an observed extraction failure: **WHO SPOKE DECIDES WHAT IS A
+FACT** — the transcript is one labelled turn per line, every field is a fact about the
+CALLER, so only `caller:` lines are evidence and an `agent:` question, menu or read-back is
+never an answer; **A DENIAL IS NOT A CONFIRMATION** — "ledu"/"vaddu"/"kaadu"/"nahi"/"no"
+means refused, which is `false` for a bool field and `null` for every other; **ABSENT MEANS
+NULL** — never guess, and never write "N/A"/"unknown"/"none"; **WHOSE IS IT** — a detail
+belonging to a relative or colleague is not the caller's own; **VALUES, EXACTLY** — quote
+the caller, keep the script and the caller's own relative time, digits in the order spoken
+and `null` if one digit is unclear, enum values verbatim and only when meant.
 
 ## 8. Post-Call Pipeline (workers; idempotent; keyed by call_id)
 
-webhook(call.ended) → verify HMAC → persist CallEvent + turns → enqueue:
+webhook(execution status) → **authenticate per §5** (Bolna is unsigned: source-IP
+allowlist + execution-id dedupe, payload treated as a HINT; HMAC only where an engine
+signs) → authenticated Get Execution is the TRUTH → persist CallEvent + turns → enqueue:
 1. fetch/persist recording to our storage (presigned; engine copy is not our system of record)
 2. PII redaction pass on transcript (Aadhaar/PAN/card/OTP patterns + LLM assist) →
    redacted transcript is the default view; raw restricted by role
 3. extraction (per §7) → upsert Lead
 4. usage metering → usage_events rows (see §9)
 5. notifications: hot-lead rules → client email/WhatsApp
-6. embeddings for resolved calls (KB corpus)
-Every step retries with backoff; DLQ on repeated failure; pipeline lag is a monitored SLO
-(target: lead visible < 2 min after hangup).
+6. campaign-contact resolution (close or re-queue on the FLOWS §5 retry ladder)
+7. outbound CRM sync (`call.completed` through the outbox, D-23) — summary, never transcript
+*Planned, NOT in the shipped pipeline:* embeddings for resolved calls (KB corpus) — M3
+per ROADMAP; `apps/workers/pipeline.py` ends at step 7.
+Retry budget is **3 attempts** — `WORKER_MAX_TRIES` in `apps/api/core/queue.py`,
+the one number the ARQ worker and the delivery worker's exhaustion check both read.
+Outbound deliveries back off **30s then 120s**; a failed recording copy waits 30s.
+Only transport failures, 5xx, 408, 425 and 429 are retried; any other 4xx stops on the
+first attempt as `rejected {code}`. A worker earns a retry only by raising `arq.Retry`
+— a plain `raise` is terminal on the first attempt under arq 0.28.
+DLQ on repeated failure; pipeline lag is a monitored SLO
+(target: lead visible < 2 min after hangup). ⚠ Under arq 0.28 a plain `raise` is
+terminal on the first attempt, so a worker earns the ladder above only by raising
+`arq.Retry`. Full note and the incident it caused:
+FLOWS §6.
 
 ## 9. Metering & Billing
 
@@ -368,8 +462,13 @@ llm_tok_in|llm_tok_out|platform_min], qty, unit_cost_paid, occurred_at) — reco
 next to billable qty; per-client margin is a query, and phase-2/3 build-vs-rent decisions
 use months of real data. Plans are config rows {setup_fee, monthly_fee, included_min,
 overage_rate, hard_cap_min, hard_cap_spend}; invoices derive from ledger + plan. Prepaid
-credit balance; **caps enforced pre-dispatch in voice-runtime and campaign engine** (a
-capped tenant's outbound is refused and inbound answered with a graceful fallback line).
+credit balance; **caps enforced pre-dispatch in the compliance gate**
+(`apps/api/compliance/service.py::check_dispatch` — the one function every outbound path
+calls: campaign dispatch, "call this lead", instant lead callback). A capped tenant's
+outbound is refused (`spend_state.capped`); a self-serve/trial tenant with an empty
+wallet is refused too (D-34 credits). **Inbound is unaffected and never reaches this
+gate** — the caller initiated it, which is D-38's consent-clean property — so there is no
+inbound fallback line, and voice-runtime carries no cap logic (hard rule 3 keeps it thin).
 Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-negotiable).
 
 ## 10. Cost Model (verified July 2026; re-verify quarterly)

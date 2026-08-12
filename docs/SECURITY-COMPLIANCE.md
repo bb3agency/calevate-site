@@ -27,6 +27,14 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
    call continues, ledger row written.
 3. **Opt-out honored live**: "don't call me again" ⇒ tool adds to tenant `dnc_list`
    within the call; propagates to campaigns immediately (target ≤ minutes, not the 4h norm).
+   Built in TWO layers with one write path (D-56, `apps/api/compliance/optout.py`): the
+   in-call tool (`POST /tools/v1/{engine}/opt-out` in voice-runtime → the
+   `record_in_call_optout` job) is this bullet as written, and the post-call pipeline's
+   transcript pass is the layer under it — because the tool depends on the model
+   invoking it and on Bolna's custom-function behaviour, which is still an OPERATIONS §2
+   gate rather than a verified vendor fact. TRAI's own ceiling is "near real time, and
+   in no case beyond twenty-four hours"; hard rule 5's "before the next dispatch tick"
+   (30s) is the stricter number we hold ourselves to.
 4. **No cross-sell on service calls**: topic-fencing config on 160-series/service agents;
    regression scenario asserts the agent refuses promotional turns.
 5. **Calling hours**: campaign engine enforces permitted windows; per-tenant timezone.
@@ -39,27 +47,195 @@ Telemarketer (TM)** linked to each client PE. Calevate's TM registration (requir
 entity — Risk R-01) is the company-level blocker; each client's PE registration
 (~₹5,900 first TSP) is an onboarding-wizard step we execute for them (part of setup fee).
 
-A campaign cannot launch unless ALL of:
+A campaign cannot launch unless ALL of — each bullet now naming the blocker
+`campaigns.service.launch_blockers` returns, so a screen, a test and this section can
+cite the same string:
 - Calevate TM registration exists AND this client's PE registration + TM-link are active
-  (inbound-only operation is the interim mode while pending).
+  (inbound-only operation is the interim mode while pending). Ours is
+  **`tm_registration_missing`**, read from `platform_state` (D-43) — one row, false for
+  every tenant at once, and reported alongside the client's own blockers rather than
+  short-circuiting them. Theirs is **`pe_registration_missing`** (no row at all) or
+  **`pe_registration_not_active`**, and then **`tm_link_not_active`**. Those last two are
+  the only sequential pair in the function: a TM link to an entity that is not registered
+  cannot be active either, and telling a client to chase an authorisation for a
+  registration they do not yet have sends them to the wrong desk.
 - `campaigns.classification` set; number series matches (promotional⇔140; transactional/
-  service⇔160/standard); voice `dlt_templates.status='approved'` and linked.
-- Contact list DNC-scrubbed (national DND + tenant dnc_list) with scrub timestamp.
+  service⇔160/standard — `number_series_mismatch`, `number_missing`); the number's own DLT
+  header registered (`number_not_registered`); voice `dlt_templates.status='approved'` and
+  linked, for this classification (`dlt_template_missing`, `dlt_template_not_approved`,
+  `dlt_template_mismatch`). Three registrations, and none implies another.
+- Contact list DNC-scrubbed (national DND + tenant dnc_list) with scrub timestamp; a list
+  with nothing left after the scrub is `all_contacts_dnc`, an empty one `no_contacts`.
 - Consent provenance recorded for the list (source + date) — a purchased list with no
-  consent artefacts is refused, in writing, as policy.
-- Per-tenant caps (`spend_state`) not exceeded.
+  consent artefacts is refused, in writing, as policy. **`consent_provenance_missing`**
+  when nobody has said (`campaigns.consent_source IS NULL`, which is what every campaign
+  predating the columns honestly reports) and **`consent_source_refused`** when the answer
+  is `purchased_list`. The enum deliberately INCLUDES `purchased_list`: the refusal this
+  bullet promises can only be written if the client can say the word, and an enum stocked
+  only with acceptable answers does not stop purchased lists — it hides them behind
+  whichever member sounds nearest. Declared through
+  `POST /v1/campaigns/{campaign_id}/consent-provenance` (drafts only, audited).
+- **Subscriber KYC verified** — `kyc_missing` (nothing filed) or `kyc_not_verified`
+  (filed, not cleared; the string names the state, because `submitted` means we owe them
+  a review and `rejected` means they owe us a document). D-47, and it is deliberately
+  **not the same scope as the rest of this list**: the DIALLING gate applies to
+  `self_serve` and `trial` tenants only — a managed tenant's identity was verified out of
+  band and their dialling is already gated by `pe_registration_*` and
+  `number_not_registered` — while **buying a number is gated for every tier**, because the
+  DoT business-connection obligation attaches to the connection and `plan_tier` is an
+  admin-settable column. Asked once, in `compliance.kyc_blocker`, by both the per-dial
+  gate and this launch preview. Inbound answering is never gated (D-38).
+- **The account's first campaign has been reviewed by a human** — `first_campaign_review_pending`
+  (nobody has looked yet) or `first_campaign_review_rejected` (a reviewer looked and said
+  no, and the refusal carries their words). D-51, and R-11's last mitigation. Same scope
+  split as the KYC dial gate — `self_serve` and `trial` tenants only, because a managed
+  tenant's first campaign was set up by us — and the hold is on the **account**, not on a
+  campaign row: while it is held every campaign is refused, so it cannot be skipped by
+  launching a second one or by deleting the one an operator was reading. Asked in
+  `launch_blockers` AND in `dispatch_blockers`, so a release withdrawn after complaints
+  arrive stops a RUNNING campaign at the next tick. Released once, no later campaign is
+  refused on this rule. Deliberately not asked by `check_dispatch`, which also serves the
+  D-21 single-lead button and the instant callback — neither is a campaign.
+- Per-tenant caps (`spend_state`) not exceeded (`spend_cap`), and the prepaid wallet not
+  exhausted (`no_credits`). The effective ceiling is `LEAST(admin, client)` — a client may
+  lower their own at will and may never loosen it past the admin's (SURFACES §2b) — and a
+  cap raised for a capped tenant does NOT by itself release the gate: the flag is derived
+  and re-derived by `POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute` or by the
+  client's own cap write.
 
 ## 4. Data Protection (DPDP) — Feature Map
 
 | Obligation | Feature |
 |---|---|
-| Notice + consent | Client-facing DPA + privacy notice; caller disclosure line; consent_ledger |
+| Notice + consent | Client-facing DPA + privacy notice; caller disclosure line; consent_ledger (incl. the `messaging` purpose — see below) |
 | Purpose limitation | data_category on storage; consent purpose enum; no secondary use of client data (we are Data Processor for clients' caller data; Fiduciary for client-account data — recorded in DPA) |
 | Retention limits | retention_policies per category with TTL enforcement job; recording floor 90 days (TRAI), default 180; BFSI clients configurable ≥ regulator minimum; transcripts/leads default 24 months |
-| Erasure with proof | deletion_requests workflow: locate by phone across calls/turns/leads/recordings → delete/anonymize → write proof JSON (what, where, when, hashes) → certificate to requester; covers our object storage AND engine copies (adapter deletes engine-side records; Bolna's deletion API is undocumented — pilot gate, and a written erasure commitment goes in the Bolna contract) |
+| Erasure with proof | deletion_requests workflow: `POST /v1/compliance/deletion-requests` writes the row and queues the worker in ONE transaction (transactional outbox) → locate by phone across calls/turns/extractions/leads/recordings → delete/anonymize → write proof JSON (what, where, when, hashes) **and clear `phone_e164` in that same UPDATE**, so a completed request is not the last surviving copy of the number it certifies as erased (D-44; `subject_ref`, the same hash the proof and the subject-access export use, is what remains) → certificate to requester; covers our object storage AND engine copies (adapter deletes engine-side records; Bolna's deletion API is undocumented — pilot gate, and a written erasure commitment goes in the Bolna contract, so the certificate reports engine-side deletion as `unconfirmed_pending_vendor_api` rather than claiming it). **Recordings under 90 days: see the open decision below — this row and the retention row above point in opposite directions.** |
 | Breach notification | Incident runbook (OPERATIONS.md §7): classify, contain, notify Board + principals per Rules timeline; webhook_deliveries + audit_log provide forensic trail |
 | Security safeguards | §5 below |
 | Cross-border | CAUTION (D-31): Bolna call recordings observed on S3 us-east-1; their Enterprise tier offers full India data-residency (audio, transcripts, logs, in-India inference) — residency posture must be pinned in the Bolna contract and disclosed in the client DPA until then. **Models are all-India BY DEFAULT since D-36** — Sarvam is sovereign and now serves STT, LLM *and* TTS, so no transcript text leaves India on the default stack. This inverts the earlier posture: "all-India" is no longer a client opt-in at a quality tradeoff, it is what ships. Gemini remains a *configurable fallback*; enabling it sends transcript text (never audio) to Google and therefore requires a DPA disclosure and an explicit per-tenant decision — treat switching an agent to Gemini as a residency change, not a config tweak. This is a live differentiator: Outpero's privacy policy admits "some providers may process data on servers located outside India" (evidence/outpero-teardown-aug2026.md §9b) |
+
+**OPEN DECISION — erasure vs. the 90-day recording floor.** Surfaced by the DPDP erasure
+producer (`apps/api/compliance/deletion.py`), stated here rather than resolved, because
+two adjacent rows of the table above point opposite ways for one concrete case: a call
+recording less than 90 days old, whose subject has just asked to be erased.
+
+- **§4 "Erasure with proof"** describes the workflow as covering *recordings*, in our
+  object storage and on the engine.
+- **§1 (TRAI recording rule) and §4's own retention row** record a **90-day minimum
+  retention** of call recordings on Indian infrastructure — a floor the codebase treats
+  as binding in two independent places: a DB CHECK on `retention_policies.ttl_days`, and
+  `apply_retention` clamping every recording TTL to `RECORDING_FLOOR_DAYS = 90`.
+
+Both readings are defensible. *Erasure wins*: DPDP's right is the data principal's, the
+TRAI rule governs a telemarketer's own record-keeping, and a Processor that cannot delete
+on instruction has a compliance gap. *Retention wins*: a statutory retention obligation is
+one of the standard grounds on which an erasure request is lawfully deferred, and
+destroying the recording destroys the evidence that the call itself was compliant.
+
+**What the code does today** — a half-pick nobody appears to have decided:
+`execute_deletion_request` clears `calls.recording_url` **unconditionally, at any age**,
+in the same statement that nulls `from_e164`/`to_e164`/`summary`; the audio bytes are
+removed by the object-store lifecycle rule that follows the retention policy, and that
+rule is floored at 90 days. So the *pointer* goes immediately — nothing in our system can
+reach the audio — while the *bytes* may lawfully survive the request. That position is
+shipped honestly rather than hidden: it is the first entry of `ERASURE_LIMITATIONS`,
+returned on every deletion-request response, naming both sections so whoever hands the
+certificate to a data principal knows they are standing on an unresolved question.
+
+**And the lifecycle rule does not do what those modules assume.** Three modules
+(`workers/retention.py`, `workers/storage.py`, `compliance/deletion.py`) name an
+object-store lifecycle rule as the mechanism that removes the audio. `infra/` now carries
+one (`infra/object-lifecycle/`) — but read what it is: a bucket-wide, prefix-scoped
+CEILING (`recordings/` expire at 2555 days, `engine-payloads/` at 90, incomplete
+multipart uploads aborted at 7), floored so it can never fire below the 90-day TRAI
+minimum or below the longest TTL any tenant has configured. A bucket rule is static and
+prefix-scoped while `retention_policies` is per tenant and editable at runtime, so it
+CANNOT "follow the retention policy" — it exists to bound growth, not to expire a
+tenant's recordings on that tenant's clock. So the position is unchanged where it counts:
+the pointer-clear is still the whole of the erasure, no per-tenant mechanism deletes
+recording bytes, and the "defensible reading" above still rests on a mechanism nobody has
+built. Building it stays prerequisite work for this decision, not a consequence of it.
+
+Resolving it is a decision-log entry against this section (ROADMAP §6), and it needs the
+Bolna erasure commitment from pilot gate 12(f) in hand — an answer that binds our storage
+but not the engine's is not an answer. Until then: do not narrow the certificate's
+limitations text, and do not make the pointer-clear conditional on age without deciding
+this first.
+
+**OPEN QUESTION — the retention defaults in this document and the ones in the seed do not
+match, and neither matches the other.** Surfaced by the retention sweep, stated here
+rather than resolved because it is a policy call, not a code fix.
+
+- §4's retention row above says **transcripts/leads default to 24 months** (730 days), and
+  recordings to a **default of 180** over the 90-day TRAI floor.
+- `scripts/seed.DEFAULT_RETENTION_POLICIES` — the rows a new tenant actually gets, and the
+  rows the nightly sweep obeys — are **transcript 365 days**, **lead 1095 days**,
+  **recording 90 days**, consent_log 2555 days.
+
+So a transcript is deleted at half the documented age and a lead is kept at one and a half
+times it. This matters beyond tidiness: the client-facing **DPA quotes this document**,
+while `apply_retention` obeys the rows — so today we tell clients one retention period and
+run another, in both directions. It cannot be settled by picking whichever number is in
+front of you: the seed values are a defensible split (a lead is the CRM record the client
+bought and keeps using; a transcript is raw personal data with a shorter useful life),
+and 24 months for both is what has been promised in writing.
+
+**Who must decide: the founder**, because it is a commitment to clients and a DPA edit,
+not an implementation detail. Whichever way it goes, both places change in the same
+release — this section, and `DEFAULT_RETENTION_POLICIES` — and the change is recorded as a
+decision-log entry (ROADMAP §6). Existing tenants' rows are their own decision: a policy
+row already agreed with a client is not silently re-timed by a seed change.
+
+**OPEN QUESTION — an erasure does not reach the backups, and a restore un-does one.**
+Surfaced by the backup work (D-50, `infra/backup/`), stated here rather than resolved
+because whether it must be disclosed is a legal call.
+
+- Both backup chains retain **35 days**. So for up to 35 days after a completed erasure,
+  the person's data still exists in a base backup, in the WAL segments and in the offsite
+  dump. The window is deliberately short for exactly this reason — every extra day of
+  retention is an extra day an erasure cannot fully reach our data — but it is not zero,
+  and a backup that could be edited to remove one subject would not be a backup.
+- **A point-in-time restore un-erases people.** Anyone whose erasure completed after the
+  recovery target comes back holding a certificate saying they were removed.
+  `runbooks/database-restore.md` makes replaying those erasures a MANDATORY step, and the
+  authoritative list has to come from the preserved pre-restore cluster, because requests
+  raised after the target do not exist in the restored one.
+- `ERASURE_LIMITATIONS` (`apps/api/compliance/deletion.py`) does **not** currently carry a
+  backup clause. Every other limitation of the erasure is disclosed on the certificate;
+  this one is not, and that asymmetry is the open item. **Who must decide:** the founder
+  with counsel — a backup-retention clause is standard in DPDP-facing erasure notices, but
+  adding a sentence to a notice that clients hand to data principals is a commitment, not
+  a code change. Whichever way it goes, this section and `ERASURE_LIMITATIONS` change in
+  the same release, with a decision-log entry (ROADMAP §6).
+
+**Messaging consent is its own permission, and it is never inferred.** The campaign
+follow-up (FLOWS §4.5) is a business-initiated WhatsApp message to a consumer, which
+brings in a regime the dial gate above does not cover:
+
+- **Meta's WhatsApp Business Messaging Policy** requires an opt-in before any
+  business-initiated message. It may be collected on any channel and need not be
+  WhatsApp-specific, but it must state that the person is opting in to receive MESSAGES
+  and name the business they will come from, and it must be an affirmative act. The
+  business must be able to produce the TIMESTAMP and the SOURCE of that opt-in when a
+  number is challenged.
+- **TCCCPR 2018 as amended (Second Amendment, 12 Feb 2025)**: explicit consent under
+  Reg. 2(y) is consent verified from the recipient and recorded by the **Consent
+  Registrar** on DLT via Digital Consent Acquisition — a registrar function we cannot
+  perform, so what we hold is OUR evidence, not registrar-grade explicit consent. The
+  same amendment refuses indefinite consent: consent tied to an ongoing transaction
+  lapses in seven days and inferred consent dies with the contractual relationship.
+- **DPDP §6** binds consent to the purpose it was given for and requires withdrawal to
+  be as easy as consent.
+
+Encoded as: `consent_ledger.purpose = 'messaging'` with a mandatory `consent_source` and
+evidence (DATA-MODEL §9, migration c2f7a91b4e63); captured through
+`POST /v1/compliance/messaging-consent` (`leads:dispatch`, audited, number in the body
+and never in a URL); read by `apps/api/compliance/consent.py`, which honours a validity
+window so a stale opt-in stops authorising messages. Consent to be CALLED — a campaign's
+`consent_source` provenance, or a `callback` ledger row — never satisfies it, and nothing
+backfills it. The follow-up still passes `check_dispatch` first: this is an additional
+gate, never a substitute for the DNC read.
 
 **PII redaction (workers step 2):** regex + validator pass for Aadhaar (Verhoeff), PAN,
 card (Luhn), OTP patterns, plus LLM-assisted pass for spoken-out numbers; produces
@@ -76,8 +252,12 @@ Identity & access
 - Admin impersonation (D-22): READ-ONLY "view as client" — a scoped read-only session
   against the client realm, never a client credential; session start + every page view
   audit-logged (actor=admin_user, tenant, at, ip). No mutations while impersonating.
-- Invitations: 72h single-use signed tokens, hash-at-rest, burned on use; account creation
-  only via invitation (no self-serve signup v1).
+- Invitations: 72h single-use signed tokens, hash-at-rest, burned on use. **"Account
+  creation only via invitation" is no longer true of the client realm** — D-34/D-39 put
+  self-serve in scope and `POST /v1/auth/signup` ships (SURFACES §2c): a Clerk-verified
+  user with no organization creates their own tenant, rate-limited by a signup quota, with
+  `plan_tier` restricted to `self_serve`/`trial`. The ADMIN realm stays invite-only with
+  Clerk signup disabled (D-37), which is where that rule still holds.
 
 Data
 - Postgres RLS FORCEd on all tenant tables; app sets tenant GUC from verified session;
@@ -97,7 +277,10 @@ Transport & webhooks
   nice-to-have — plus execution-id dedupe, payloads treated as hints, and the
   authenticated Get Execution fetch as truth. Unexpected source ⇒ 401 + alert. The
   reconciliation poller, not webhook delivery, is the guarantee of record.
-  Outbound (to client CRMs): our own HMAC signing + retries with backoff + delivery log.
+  Outbound (to client CRMs): our own HMAC signing + a 3-attempt retry budget with
+  30s/120s backoff (`WORKER_MAX_TRIES`, `RETRY_BACKOFF_S`) that retries transport
+  failures and 5xx/408/425/429 only — any other 4xx is recorded `rejected {code}`
+  without a retry — + delivery log.
 - Client-facing webhook ingest (Meta/website): per-endpoint secret; schema-validated;
   rate-limited; payloads treated as untrusted data (never as instructions).
 
@@ -107,8 +290,13 @@ SDLC & ops
   for auth/billing/compliance modules (self-review checklist while team of 2).
 - Environment separation: staging engine agents + staging numbers; production config
   promotion is an explicit audited action.
-- Logging: no PII in application logs; call ids only; Langfuse traces scrubbed via redaction
-  hook. Backups encrypted; restore drill quarterly.
+- Logging: no PII in application logs; call ids only. The redaction pair (`redact_text` /
+  `redact_mapping`) backs the JSON formatter, the Sentry `scrub_event` hook and every
+  operator alert body; `redact_trace_payload` remains the pre-agreed hook for LLM traces
+  and nothing calls it, because that integration's configuration was removed rather than
+  faked (D-49). Backups encrypted; restore drill quarterly — **the mechanism exists in
+  `infra/backup/` and has been applied to nothing and never run** (D-50), so treat
+  "backups" as a design until the drill passes once.
 - Per-tenant rate/spend caps double as abuse protection; global circuit breaker halts all
   outbound dispatch (big red switch) — tested in drills.
 

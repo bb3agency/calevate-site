@@ -56,7 +56,7 @@ internal), `retryable: bool`, `remediation`, `trace_id`, and validation failures
 - 503 is the ONE status allowed to keep its detailed message (ops-UI contract).
 - Every 5xx also fires the alert path with a `failure_stage` tag (§8).
 Correlation id: accept `X-Correlation-Id` else generate; echo on response; stamp into
-audit rows and Langfuse traces. Response models `extra="forbid"` everywhere —
+audit rows and, when an LLM-tracing pipeline exists, its traces (none does — D-49). Response models `extra="forbid"` everywhere —
 serialization is the whitelist the redaction-exposure guardrail checks.
 
 ## 4. Idempotency + outbox + inbox (ADOPTED — the reliability triad)
@@ -128,8 +128,19 @@ key-pattern-redacted before persisting.
 
 One alert function with a normalized `failure_stage` enum (ROUTE_HANDLER | CORE_LOGIC
 | QUEUE_ENQUEUE | OUTBOX_DISPATCH | WORKER_DELIVERY | WORKER_TERMINAL | WORKER_STALL
-| PROCESS_RESTART) — "where in the pipeline did this die" answerable without reading
-code. Metrics are **named domain recorders** (`record_pipeline_lag`,
+| PROCESS_RESTART | HOST_BACKUP) — "where in the pipeline did this die" answerable without
+reading code. `HOST_BACKUP` is not an application stage: it is the host-side backup chain
+(D-50), emitted by `scripts/backup/notify.sh` from outside Python entirely, so no Python
+call site passes it. It exists as a member rather than being mislabelled as
+`WORKER_TERMINAL` to make it fit, because a wrong
+stage on the one alarm that says the database is unrecoverable is the wrong place to be
+tidy. **`alert()` DELIVERS** as well as logs (D-49): the ERROR log line first and
+unconditionally, then email off the request path, with per-fingerprint suppression and a
+global hourly bucket. It is the one side effect in this document that deliberately does
+NOT go through the outbox of §4 — the alarms that matter most are the ones saying the
+outbox is broken, so it touches no database and no Redis. Every call site passes a STABLE
+code rather than a formatted string, because the code is the deduplication key.
+Metrics are **named domain recorders** (`record_pipeline_lag`,
 `record_webhook_ack_ms`, `record_extraction_failure`, `record_outbox_lag`), not
 ad-hoc counters — the recorder names become the SLO rule vocabulary (OPERATIONS §4).
 

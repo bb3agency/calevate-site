@@ -25,6 +25,11 @@ dev = [
     "httpx>=0.28",
     "pre-commit>=4.0",
     "import-linter>=2.1",
+    # The coverage ratchet's measurement (D-29 `coverage:ratchet`). `coverage` itself,
+    # not `pytest-cov`: the plugin is a wrapper around `coverage run -m pytest`, which is
+    # one Makefile line, and this way the gate adds exactly ONE package with no runtime
+    # dependencies of its own on 3.12 rather than a package plus its own flag surface.
+    "coverage>=7.10",
 ]
 
 # --- import-linter (guardrail: engine isolation, hard rule 2) -----------------
@@ -39,25 +44,41 @@ type = "forbidden"
 source_modules = ["calevate_shared"]
 forbidden_modules = ["apps"]
 
-# Hard rule 2 (engine isolation): business modules consume OUR normalized models
-# from `calevate_shared` — they never reach into the adapter package, so vendor
-# payload shapes cannot leak past the boundary. Extend `source_modules` whenever a
-# new business module is added; the voice-runtime twin is enforced by its own
-# deploy boundary (separate deployable, TRD §1).
+# Hard rule 2 (engine isolation). The rule is about VENDOR PAYLOAD SHAPES, not about
+# the word "engine": business modules and workers legitimately need an engine — the
+# post-call pipeline and the reconciliation poller cannot exist without one (TRD §8) —
+# they just must reach it through `apps.api.engine`'s factory, which hands back the
+# VoiceEngine Protocol and normalized models. What is forbidden is importing a VENDOR
+# ADAPTER module, because that is the only way a vendor shape can leak upward.
+# Extend `source_modules` whenever a new business module is added; the voice-runtime
+# twin is its own tiny module (apps/voice-runtime/engine_intake.py) and never imports
+# an adapter either.
 [[tool.importlinter.contracts]]
 name = "engine isolation: only engine/ may see vendor payload shapes"
 type = "forbidden"
 source_modules = [
+    "apps.api.admin",
     "apps.api.agents",
     "apps.api.billing",
+    "apps.api.campaigns",
     "apps.api.compliance",
     "apps.api.crm",
+    "apps.api.db",
+    "apps.api.ingest",
     "apps.api.integrations",
+    "apps.api.kb",
+    "apps.api.ops",
     "apps.api.reliability",
     "apps.api.tenancy",
+    "apps.api.core",
     "apps.workers",
 ]
-forbidden_modules = ["apps.api.engine"]
+forbidden_modules = ["apps.api.engine.bolna", "apps.api.engine.fake"]
+# DIRECT imports only. The factory in `apps.api.engine` obviously imports the adapters —
+# that is what a factory does — and forbidding the transitive chain would forbid having
+# a factory at all. What leaks a vendor shape into a module is that module NAMING the
+# vendor module in its own imports, and that is exactly what stays banned.
+allow_indirect_imports = true
 
 # --- Ruff (CI gate) -----------------------------------------------------------
 [tool.ruff]
@@ -75,6 +96,13 @@ select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ASYNC"]
 # `from sqlalchemy.dialects.postgresql import UUID as PgUUID` is the idiomatic alias.
 "apps/api/**/models.py" = ["N811"]
 "apps/api/db/base.py" = ["N811"]
+# B008 forbids function calls in argument defaults; `Depends(...)`/`Query(...)` in a
+# default IS the FastAPI dependency-injection API, and BACKEND-PATTERNS §1 mandates
+# it ("services receive deps via FastAPI Depends()"). Scoped to the files that wire
+# routes, so the rule still catches accidental calls everywhere else.
+"apps/api/**/routes.py" = ["B008"]
+"apps/api/core/deps.py" = ["B008"]
+"apps/api/core/auth.py" = ["B008"]
 
 # --- mypy (strict; CI gate) ---------------------------------------------------
 [tool.mypy]
@@ -88,15 +116,73 @@ mypy_path = "packages/shared/src"
 module = ["tests.*"]
 disallow_untyped_defs = false
 
+# Third-party packages that ship no type information. Listed explicitly so the set
+# stays small and visible; anything added here is a library we have chosen to use
+# untyped, not a silence for our own code.
+[[tool.mypy.overrides]]
+module = [
+    "boto3.*",       # AWS SDK — types live in the separate boto3-stubs package
+    "botocore.*",
+    "sentry_sdk.*",  # optional dependency, imported inside a try/except ImportError
+    # opentelemetry-api ships py.typed; the SDK and the OTLP exporter do not. Both are
+    # imported inside `init_tracing`'s try/except ImportError, and everything they hand
+    # back is held as `Any` behind this repo's own `span()`/`traced_job()` API.
+    "opentelemetry.sdk.*",
+    "opentelemetry.exporter.*",
+]
+ignore_missing_imports = true
+
 # --- pytest -------------------------------------------------------------------
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# ONE event loop for the whole session, mirroring production. The Redis client and the
+# SQLAlchemy async pool are process-level singletons bound to the loop that created
+# them, so a loop-per-test would hand the second test a pool whose loop is closed.
+asyncio_default_test_loop_scope = "session"
+# An xfail that starts passing is a FAILURE, not a quiet win. This repo uses xfail to
+# PIN A KNOWN DEFECT to the file that owns it — "publish is un-callable", "the published
+# KB diverges from what was approved". Without this, fixing one of those turns the test
+# into a silent XPASS: the suite stays green, the pin stops meaning anything, and the
+# comment naming the gap outlives the gap. Strict makes the fixer notice and either
+# promote the test or delete it.
+xfail_strict = true
+asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests", "apps", "packages"]
 # apps/* are virtual workspace members imported by path (apps.api.main), so the
-# repo root must be importable.
-pythonpath = ["."]
+# repo root must be importable. `apps/voice-runtime` is hyphenated (D-18) and so is
+# NOT importable as a module path — it runs with `--app-dir`, and tests get the same
+# treatment by putting the directory itself on the path.
+pythonpath = [".", "apps/voice-runtime"]
 markers = [
     "smoke: end-to-end smoke test (tenant -> agent -> webhook -> lead)",
     "rls: cross-tenant isolation tests; must return zero rows",
     "conformance: VoiceEngine adapter conformance suite",
 ]
+
+# --- coverage.py (input to the coverage ratchet, D-29) ------------------------
+# Deliberately tiny. Every knob here can make the ratcheted number easier, so the only
+# ones set are the ones that make it MEAN something:
+#
+#   branch  — the rules this repo guards are rules about the branch NOT taken (the
+#             tenant that does not match, the consent that is absent, the ack that
+#             arrives twice). Line coverage is satisfied by executing an `if` once.
+#   source  — the two Python trees, named rather than inferred, so a module NO test
+#             imports is still reported (at 0%) instead of vanishing from the report and
+#             taking its uncovered lines with it.
+#   omit    — test files only. Measuring the tests' own coverage measures nothing.
+#
+# There is no `fail_under`: a percentage threshold is the "target" D-29 rules out. The
+# gate is scripts/check_coverage_ratchet.py, which counts uncovered units per hard-rule
+# surface. See its docstring for why, and for why `# pragma: no cover` inside a guarded
+# surface buys nothing there.
+[tool.coverage.run]
+branch = true
+source = ["apps", "packages"]
+# CI and a laptop check out to different absolute paths; the baseline is one file for
+# both, so the report has to key on repo-relative names.
+relative_files = true
+omit = ["*_test.py", "*/tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

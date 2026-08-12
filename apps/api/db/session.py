@@ -6,6 +6,11 @@ The RLS contract (DATA-MODEL §1, verified against 2026 practice):
   pooled connection can never leak one tenant's context to the next request.
 - a session WITHOUT the GUC sees zero tenant rows (policies fail closed), never all
   rows. Admin paths use their own explicitly-audited surface, not a GUC bypass.
+
+Every deployable shares the engine below: `apps/api`, `apps/voice-runtime` and
+`apps/workers` all import their sessions from this module, so `hide_parameters` on it
+(see `get_engine`) is the single place that decides whether a DB error can quote a
+transcript.
 """
 
 from collections.abc import AsyncIterator
@@ -24,12 +29,97 @@ from sqlalchemy.ext.asyncio import (
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
+# How long a caller may wait for a pooled connection before being told there is none.
+#
+# A constant rather than a setting, unlike `db_pool_size`: the size is a capacity
+# decision an operator makes per deployable, this is a doctrine the whole repo already
+# shares — every wait on this path is bounded (`core/queue.py`'s `conn_timeout=2`,
+# `core/redis.py`'s `socket_timeout=2`, the receiver's `_DURABLE_DEADLINE_S`). Five
+# seconds is well past any healthy checkout (the receiver holds a connection for ~10ms
+# uncontended, ~35ms with the loop busy)
+# and well under SQLAlchemy's 30-second default, which is long enough that the caller
+# has already given up and only the connection is still waiting.
+#
+# It is deliberately ABOVE the receiver's `_DURABLE_DEADLINE_S` (2s), not below it.
+# Whichever bound fires first decides what a saturated pool looks like, and the deadline
+# has a designed answer — 503, `webhook_claim_timeout`, transaction rolled back, key left
+# claimable for the reconciliation poller. `QueuePool limit reached` arriving first would
+# be the same outage as an unhandled 500 with no alert of its own.
+_POOL_TIMEOUT_S = 5.0
+
 
 def get_engine(settings: Settings | None = None) -> AsyncEngine:
+    """The process-wide engine.
+
+    `hide_parameters=True` is a HARD RULE 6 control, not a preference. Without it,
+    SQLAlchemy renders the bound parameters into `str(exc)` for every DBAPI error —
+    `[SQL: INSERT INTO transcript_turns ...] [parameters: {... 'text': '<the raw
+    Telugu turn, phone number and all>' ...}]`. That string is the one thing an error
+    path reliably touches: it is what `dispatch_outbox` writes to `outbox_messages.
+    last_error` (500 chars, in the DB), what an unhandled worker exception hands to
+    the traceback, and what any future `log.warning(..., reason=str(exc))` would emit.
+    The JSON formatter's `redact_text()` (phone masking + a 200-char cap) sat in front
+    of it, but that is a backstop measured in characters — whether the parameters fall
+    inside the cap depends on how long the SQL statement happens to be. A payload we
+    never render cannot be truncated too late.
+
+    What it costs: DBAPI error strings keep the statement, the failing constraint and
+    the driver's own message, and lose only the VALUES. Nothing in this repo reads
+    them — every `except IntegrityError` handler here dispatches on the exception type
+    (admin/service.py re-probes the DB for the slug rather than parsing the error), no
+    test asserts on parameter text, and no engine runs with `echo=`. `exc.params` and
+    `exc.statement` are still populated on the exception object, so a debugger keeps
+    full access; only the *rendered* string drops them. Alembic builds its own engine
+    (`alembic/env.py`) and is unaffected, so migration review keeps its parameter echo.
+
+    THE POOL IS SIZED, NOT DEFAULTED, AND IT HAS NO OVERFLOW — measured, not assumed.
+
+    SQLAlchemy's defaults are `pool_size=5, max_overflow=10`, and the overflow is the
+    expensive half: connections above `pool_size` are SINGLE USE — the pool closes them
+    on return rather than keeping them (the maintainer's own answer to this exact
+    question is "avoid the overflow and make the pool size bigger. This avoids single
+    use connections", sqlalchemy/sqlalchemy#11707, and the docs describe overflow as
+    burst capacity beyond the persistent pool,
+    https://docs.sqlalchemy.org/en/20/core/pooling.html). Under sustained load that is
+    not a burst valve, it is a treadmill: measured on the webhook receiver at 100
+    concurrent deliveries, the process burned **186 fresh Postgres backends for 1448
+    requests (34 new connections/second)** while never exceeding 15 concurrent. Each of
+    those costs ~6ms of CPU IN THIS PROCESS — `password_encryption = scram-sha-256`
+    means every new connection runs PBKDF2 — so ~20% of the one core an asyncio process
+    has was being spent re-authenticating connections it had just thrown away, on the
+    service whose entire budget is 500ms (hard rule 3).
+
+    `max_overflow=0` therefore, and the persistent pool carries the whole ceiling. The
+    ceiling is unchanged at first (16 ≈ the old 5+10), so nothing loses capacity; what
+    a caller past the ceiling now meets is a QUEUE — an `asyncio.Queue` inside the pool,
+    which yields the event loop — instead of a connection storm. That queue is bounded
+    by `pool_timeout`: waiting 30 seconds (the default) for a connection is not a slow
+    request, it is a request that should already have failed, and on the receiver it
+    would sit inside `_DURABLE_DEADLINE_S` anyway.
+
+    Overflow is safe to remove only because no code path here holds two sessions at
+    once: every `async with *_session()` block closes before the next opens (checked
+    across apps/api and apps/workers), so a pool at its ceiling cannot deadlock against
+    itself.
+
+    `pool_pre_ping` stays. It costs one round trip per checkout — measured at ~0.5ms of
+    the ~3.5ms of CPU this process spends per webhook, i.e. ~12% of its throughput
+    (232 → 265 acks/s at 128 in flight when disabled) — and it is what keeps a connection
+    severed by an idle NAT/firewall from surfacing as a failed ack on an at-most-once
+    endpoint that never gets a retry (D-31). `pool_recycle` was the alternative and is
+    weaker: it guesses an interval instead of asking.
+    """
     global _engine, _sessionmaker
     if _engine is None:
         cfg = settings or Settings()  # env-sourced
-        _engine = create_async_engine(cfg.database_url, pool_pre_ping=True)
+        _engine = create_async_engine(
+            cfg.database_url,
+            pool_size=cfg.db_pool_size,
+            max_overflow=0,
+            pool_timeout=_POOL_TIMEOUT_S,
+            pool_pre_ping=True,
+            hide_parameters=True,
+        )
         _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine
 
@@ -50,6 +140,85 @@ async def tenant_session(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
             text("SELECT set_config('app.tenant_id', :tid, true)"),
             {"tid": str(tenant_id)},
         )
+        yield session
+
+
+@asynccontextmanager
+async def user_session(user_id: UUID) -> AsyncIterator[AsyncSession]:
+    """A session that can answer 'which tenants may this user enter?' and nothing more.
+
+    Authentication has a chicken-and-egg problem under RLS: scoping a session to a
+    tenant requires first reading `memberships`, which is itself scoped to the tenant
+    we do not have yet. `app.user_id` widens the READ policy by exactly one clause —
+    your own membership rows and the organizations they point at — and widens the
+    WRITE policy by nothing (migration 8c31d0f4ab27).
+
+    Transaction-local like `app.tenant_id`, so a pooled connection cannot carry one
+    request's identity into the next.
+    """
+    maker = get_sessionmaker()
+    async with maker() as session, session.begin():
+        await session.execute(
+            text("SELECT set_config('app.user_id', :uid, true)"),
+            {"uid": str(user_id)},
+        )
+        yield session
+
+
+@asynccontextmanager
+async def invite_session(token_hash: str) -> AsyncIterator[AsyncSession]:
+    """Read-only view of ONE invitation: the one whose token hash the caller can name.
+
+    The emailed token names its own tenant, so accepting an invitation must read
+    `invitations` before a tenant is known. `app.invite_hash` widens the READ policy by
+    exactly that row (migration c93a17d0e5b4) — guessing the value is guessing a
+    32-byte secret, so it grants nothing the caller did not already hold.
+
+    Writes are NOT widened: burning the invitation and creating the membership happen
+    afterwards under `tenant_session`, once the tenant is known.
+    """
+    maker = get_sessionmaker()
+    async with maker() as session, session.begin():
+        await session.execute(
+            text("SELECT set_config('app.invite_hash', :hash, true)"), {"hash": token_hash}
+        )
+        yield session
+
+
+@asynccontextmanager
+async def ingest_config_session(webhook_id: UUID) -> AsyncIterator[AsyncSession]:
+    """Read-only view of ONE ingest config: the row whose id is in the URL.
+
+    Same doctrine as `invite_session`: the UUID was minted by us and is unguessable,
+    so a session that can read exactly the row it names holds nothing new — and the
+    shared-secret check still stands between that read and any effect
+    (migration d41f88a2c6e9).
+    """
+    maker = get_sessionmaker()
+    async with maker() as session, session.begin():
+        await session.execute(
+            text("SELECT set_config('app.ingest_webhook_id', :wid, true)"),
+            {"wid": str(webhook_id)},
+        )
+        yield session
+
+
+@asynccontextmanager
+async def admin_session() -> AsyncIterator[AsyncSession]:
+    """A session that can ENUMERATE tenants — the client directory, nothing more.
+
+    `app.admin` widens `USING` on `organizations` only (migration b57e2f9c4a13); it
+    does not unlock calls, leads or transcripts, and it widens no WITH CHECK anywhere.
+    To see a client's data an admin enters that tenant through impersonation, which
+    sets `app.tenant_id` normally, is read-only and is audited per page view (D-22).
+
+    CALLERS MUST have verified an admin-realm principal first. This is the one place a
+    mistake would be expensive, which is why it is a single small function with a name
+    that cannot be confused for a general-purpose session.
+    """
+    maker = get_sessionmaker()
+    async with maker() as session, session.begin():
+        await session.execute(text("SELECT set_config('app.admin', 'on', true)"))
         yield session
 
 

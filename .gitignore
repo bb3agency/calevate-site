@@ -38,3 +38,6 @@ htmlcov/
 
 # Engine verification / eval outputs are committed deliberately, not by accident
 !docs/**
+
+# Local Redis snapshot — a runtime artifact of the dev redis-server, never source.
+dump.rdb

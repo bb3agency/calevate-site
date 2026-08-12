@@ -1,18 +1,91 @@
-import { defineConfig, globalIgnores } from "eslint/config";
-import nextVitals from "eslint-config-next/core-web-vitals";
-import nextTs from "eslint-config-next/typescript";
+import { dirname } from "path";
+import { fileURLToPath } from "url";
 
-const eslintConfig = defineConfig([
-  ...nextVitals,
-  ...nextTs,
-  // Override default ignores of eslint-config-next.
-  globalIgnores([
-    // Default ignores of eslint-config-next:
-    ".next/**",
-    "out/**",
-    "build/**",
-    "next-env.d.ts",
-  ]),
-]);
+import { FlatCompat } from "@eslint/eslintrc";
+
+/**
+ * `eslint-config-next@15` still ships eslintrc-shaped configs (`module.exports =
+ * { extends: [...] }`), not flat-config arrays. Importing them directly into a flat
+ * config throws "nextVitals is not iterable" — which it had been doing, so `pnpm lint`
+ * has never actually linted anything. FlatCompat is the bridge Next's own scaffold
+ * uses; drop it when eslint-config-next ships flat config natively.
+ */
+const compat = new FlatCompat({ baseDirectory: dirname(fileURLToPath(import.meta.url)) });
+
+/**
+ * The `in`-on-a-wire-string ban — half of the executable guard against the defect class
+ * `src/lib/lookup.ts` documents.
+ *
+ * Three live crashes came out of one shape: `value in TABLE`, where `value` is a string
+ * the SERVER chose. `in` walks the prototype chain, so `"constructor" in TABLE` answers
+ * true, the caller reads a property off the `Object` function, and the screen goes blank
+ * mid-render. The fix (`lookup`/`hasKey`, on `Object.hasOwn`) is in place everywhere and
+ * nothing stopped the next author from writing the old shape again — D-29's point being
+ * that a rule resting on human vigilance is violated exactly when the codebase grows
+ * fastest. This is that rule, made executable.
+ *
+ * ## Why the selector keys on the LEFT operand, not on the table
+ *
+ * The tempting selector is "`in` against one of our copy tables", and esquery cannot
+ * express it: selectors match one node, and the table's declaration is somewhere else
+ * in the file, or in another module (`HOLD_RULES` is imported). What CAN be said in a
+ * selector is the thing that actually separates the bug from the idiom:
+ *
+ *  - `value in TABLE` — a DYNAMIC key. Unsafe against ANY object literal, whoever built
+ *    it, because the key may name an inherited member. There is no correct use of this
+ *    form: when the key is dynamic, `Object.hasOwn` (or `hasKey`) is always the answer.
+ *  - `"phone" in item` — a STRING LITERAL key. TypeScript's discriminated-union
+ *    narrowing idiom, and safe: the author wrote the key, so it cannot be `constructor`
+ *    unless they typed `constructor`.
+ *
+ * So the ban is on `in` with a non-literal left operand, and the narrowing idiom stays
+ * legal. That is why this fires on zero existing sites while still catching all three of
+ * the original bugs — verified in tests/wireLookupGuard.test.ts, which reintroduces them.
+ *
+ * `for (const k in obj)` is a `ForInStatement`, a different node, and is untouched.
+ *
+ * The other half of the defect — `TABLE[value]`, which is a READ rather than a guard —
+ * is NOT here. Telling `HOLD_RULES[rule]` (unsafe: string-keyed) from
+ * `KYC_STATUS_COPY[status]` (safe: the key is a generated union, and `tsc` rejects a
+ * plain string there) requires TYPE information, which this config deliberately does not
+ * load — `next/typescript` runs typescript-eslint without a type-aware project service,
+ * and turning one on to carry a single rule costs every `pnpm lint` a full program
+ * build. Without types the only selector available is "computed read off a table-shaped
+ * name", which fires on ~35 sites the sweep correctly left alone; a rule that cries wolf
+ * gets `eslint-disable`d, and then it protects nothing. That half is enforced instead by
+ * tests/wireLookupGuard.test.ts, which builds the real `tsc` program once and asks the
+ * checker directly. Selector docs: https://eslint.org/docs/latest/rules/no-restricted-syntax
+ */
+const NO_DYNAMIC_IN = {
+  selector: 'BinaryExpression[operator="in"]:not([left.type="Literal"])',
+  message:
+    "`in` walks the prototype chain, so a wire value of `constructor` reports as present " +
+    "and the read yields the `Object` function. Use `hasKey(TABLE, value)` to narrow, or " +
+    "`lookup(TABLE, value)` to read (src/lib/lookup.ts). `in` with a literal key — " +
+    'TypeScript\'s `"field" in obj` narrowing — is still allowed.',
+};
+
+const eslintConfig = [
+  {
+    ignores: [
+      ".next/**",
+      "out/**",
+      "build/**",
+      "next-env.d.ts",
+      // Deliberately contains the shapes banned below, so that a test can watch the ban
+      // fire. `pnpm lint` must stay green, so the fixture is skipped here and linted
+      // explicitly by tests/wireLookupGuard.test.ts with the API's `ignore: false`.
+      "tests/fixtures/**",
+    ],
+  },
+  ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    // Application AND tests: a test that reaches for `in` on a wire value is asserting
+    // the wrong thing, and tests/harness.tsx already routes its own table lookups
+    // through `Object.hasOwn` for exactly this reason.
+    files: ["src/**/*.{ts,tsx}", "tests/**/*.{ts,tsx}"],
+    rules: { "no-restricted-syntax": ["error", NO_DYNAMIC_IN] },
+  },
+];
 
 export default eslintConfig;

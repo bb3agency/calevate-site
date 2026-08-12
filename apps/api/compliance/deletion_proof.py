@@ -1,0 +1,240 @@
+"""The erasure CERTIFICATE — the artifact, as distinct from the row it is built from.
+
+`apps/workers/retention.execute_deletion_request` writes a proof into
+`deletion_requests.proof`: hashes, counts, and a line per table saying what was done to
+it. That row is a record of FACTS. This module turns those facts into the document that
+leaves the building — the thing a client files, forwards to a regulator, and someone
+reads years later with no access to this codebase and nobody left to ask.
+
+Why the two are not the same thing, and why this module exists at all:
+
+**A proof that overstates what was erased is worse than one that admits a limitation**,
+because the person relying on it cannot tell. The stored proof says `calls: "phone
+numbers, recording pointer and summary cleared"`. Every word of that is true and it is
+still misleading, because the POINTER is not the audio: `execute_deletion_request` clears
+`calls.recording_url` unconditionally at any age, while the recording it pointed at sits
+under the TRAI 90-day floor (SEC-COMP §1) with no per-tenant mechanism that deletes it
+afterwards (SEC-COMP §4). A reader of the stored proof alone would tell a data principal
+their recording is gone. It is not.
+
+`ERASURE_LIMITATIONS` has always said so — but it rode the API *envelope*, beside the
+proof rather than inside it. The envelope is not what gets filed. So the certificate
+carries the register itself: what was cleared (`erased`, in counts and plain sentences),
+what was NOT (`not_erased`, each with the rule that stopped it), and the notice text
+verbatim (`limitations`), so the document is complete on its own.
+
+Three design decisions worth stating before someone simplifies them away:
+
+1. **The stored proof is READ BY NAME, never splatted.** `ErasureProofOut` is
+   `extra="forbid"`; `ErasureProofOut(**stored)` would turn "a later worker recorded one
+   more fact" into a 500 on the one endpoint whose subject is a person who asked to be
+   erased. The proof is durable and this renderer is not, so the renderer takes what it
+   understands and ignores the rest.
+
+2. **Absent is not zero.** A proof that never recorded a count says so
+   ("this certificate does not state how many") instead of certifying `0`. Zero is a
+   claim; we can only make claims the row supports.
+
+3. **Nothing here is derived from the subject.** `subject_hash` is passed through from
+   the stored proof, unchanged, so it still equals `export.subject_ref(phone)` — the
+   equality an auditor uses to line one person's access request up against their erasure
+   (hard rule 6). This module never sees a phone number and must never be given one.
+
+**Hard rule 4 and re-rendering.** This is a pure function of the stored row plus the
+register in `deletion.py`: certifying the same proof twice returns the same document.
+Nothing here UPDATEs the stored proof — not to back-fill the limitations into rows
+written before this module existed, not for anything. If the register is later widened,
+a certificate rendered afterwards is a NEW statement rather than a correction of the old
+one, and `limitations_version` is what lets a reader holding two copies tell which is
+which.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from collections.abc import Mapping, Sequence
+from dataclasses import astuple
+from typing import Any
+
+from apps.api.compliance.deletion import (
+    ERASURE_EXCEPTIONS,
+    ERASURE_LIMITATIONS,
+    FLOOR_COUNT_KEY,
+    FLOOR_OUTCOME,
+    RECORDING_FLOOR_DAYS,
+    ErasureLimitation,
+)
+
+# A count that is absent from the stored proof, said plainly rather than as a zero.
+# The erasure job records the floor collision into `scope` now, so this sentence is what
+# certificates built from proofs written BEFORE it did carry — and they keep carrying it,
+# because hard rule 4 forbids back-filling a durable row to make an old document say
+# something it never said.
+_FLOOR_UNKNOWN = (
+    "This certificate does not state how many of those recordings were inside the "
+    f"{RECORDING_FLOOR_DAYS}-day window when the erasure ran."
+)
+_FLOOR_NONE = (
+    "None of those recordings were inside the "
+    f"{RECORDING_FLOOR_DAYS}-day window when the erasure ran."
+)
+
+
+def notice_version(limitations: Sequence[str], exceptions: Sequence[ErasureLimitation]) -> str:
+    """A version derived FROM the notice text, so it cannot drift from what it names.
+
+    A hand-maintained version number is a promise to remember; this one is a fact about
+    the bytes. Two certificates for the same erasure carrying different versions were
+    rendered against different registers — which, under hard rule 4, means the later one
+    is a new statement rather than an edit of the first.
+    """
+    material = json.dumps(
+        {"limitations": list(limitations), "exceptions": [astuple(e) for e in exceptions]},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return "sha256:" + hashlib.sha256(material.encode()).hexdigest()[:16]
+
+
+def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Render the document a client hands on, from the proof the worker stored.
+
+    `None` in, `None` out: a pending request has no certificate, and inventing an empty
+    one would answer "has my data been erased?" with a document saying nothing was found.
+    """
+    if stored is None:
+        return None
+
+    scope = _mapping(stored.get("scope"))
+    calls = _hashes(scope.get("calls"))
+    leads = _hashes(scope.get("leads"))
+    turns = _count(scope.get("transcript_turns_erased"))
+    extractions = _count(scope.get("call_extractions_erased"))
+    floor = _optional_count(scope.get(FLOOR_COUNT_KEY))
+
+    return {
+        # Passed through, never recomputed: this module is not given the number, and the
+        # hash is the only thing that lines this certificate up with the subject-access
+        # export for the same person (hard rule 6).
+        "subject_hash": str(stored.get("subject_hash") or ""),
+        "executed_at": str(stored.get("executed_at") or ""),
+        "scope": {
+            "calls": calls,
+            "leads": leads,
+            "transcript_turns_erased": turns,
+            "call_extractions_erased": extractions,
+            FLOOR_COUNT_KEY: floor,
+        },
+        "actions": _actions(stored.get("actions")),
+        "engine_deletion": str(stored.get("engine_deletion") or ""),
+        "erased": _erased(calls=len(calls), leads=len(leads), turns=turns, fields=extractions),
+        "not_erased": _not_erased(floor),
+        "limitations": list(ERASURE_LIMITATIONS),
+        "limitations_version": notice_version(ERASURE_LIMITATIONS, ERASURE_EXCEPTIONS),
+    }
+
+
+# --- what was cleared ---------------------------------------------------------
+
+
+def _erased(*, calls: int, leads: int, turns: int, fields: int) -> list[str]:
+    """The scope counts as sentences, for a reader who does not know our table names.
+
+    "No call record held this number" is a real and common answer — a client cannot know
+    in advance whether they hold anything — so the empty case gets a statement rather
+    than an empty list a reader would have to interpret.
+    """
+    statements: list[str] = []
+    if calls:
+        statements.append(
+            f"{_plural(calls, 'call record')} — both phone numbers, the call summary and "
+            "the link to the recording were cleared."
+        )
+    else:
+        statements.append("No call record held this number.")
+    if turns:
+        statements.append(
+            f"{_plural(turns, 'transcript turn')} — the spoken text was replaced with a "
+            "marker, in the raw copy and the redacted one."
+        )
+    if fields:
+        statements.append(
+            f"{_plural(fields, 'set')} of extracted caller details — the captured fields "
+            "were emptied."
+        )
+    if leads:
+        statements.append(
+            f"{_plural(leads, 'CRM lead')} — the number was replaced with a placeholder, "
+            "and the name and captured fields were cleared."
+        )
+    else:
+        statements.append("No CRM lead held this number.")
+    return statements
+
+
+# --- what was not ------------------------------------------------------------
+
+
+def _not_erased(floor: int | None) -> list[dict[str, Any]]:
+    """The register, with the floor count attached to the one entry it speaks for."""
+    entries: list[dict[str, Any]] = []
+    for exception in ERASURE_EXCEPTIONS:
+        carries_count = exception.outcome == FLOOR_OUTCOME
+        why = f"{exception.why} {_floor_sentence(floor)}" if carries_count else exception.why
+        entries.append(
+            {
+                "what": exception.what,
+                "outcome": exception.outcome,
+                "why": why,
+                "authority": exception.authority,
+                "count": floor if carries_count else None,
+            }
+        )
+    return entries
+
+
+def _floor_sentence(floor: int | None) -> str:
+    if floor is None:
+        return _FLOOR_UNKNOWN
+    if floor == 0:
+        return _FLOOR_NONE
+    return (
+        f"{floor} of those recordings were inside the {RECORDING_FLOOR_DAYS}-day window "
+        "when the erasure ran and could not lawfully be destroyed."
+    )
+
+
+# --- reading a durable row written by code that is not this code ---------------
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _hashes(value: Any) -> list[str]:
+    """Row hashes, as strings. Never ids — that is the stored proof's own discipline and
+    this renderer does not get to relax it."""
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
+def _count(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _optional_count(value: Any) -> int | None:
+    """`None` when the stored proof never recorded it — see decision 2 in the docstring."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _actions(value: Any) -> dict[str, str]:
+    return {str(key): str(item) for key, item in _mapping(value).items()}
+
+
+def _plural(count: int, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+__all__ = ["certificate", "notice_version"]

@@ -74,6 +74,21 @@ org claim, resolved against our own tables.
   KYC-verified number, and the **first campaign of every self-serve account is held for
   manual review**. Platform-fixed calling hours and DNC scrub on every dispatch path apply
   to both motions and are not user-editable.
+  - As built (D-47), the verification is of the **business**, not of a number:
+    `kyc_records` holds one row per tenant, the dial gate refuses a `self_serve`/`trial`
+    tenant with `kyc_missing`/`kyc_not_verified`, and — because buying a number is gated
+    for every tier — a number this org holds was necessarily bought under a cleared
+    verification. Inbound answering is never gated.
+  - **The manual-review hold ships** as `first_campaign_reviews` — one decision per
+    TENANT, not a flag on a campaign row. The gate asks about the account, so a second
+    campaign launched while the first is held is refused by the same rule, and deleting
+    the held campaign does not release anything; the campaign an operator actually read
+    is recorded as evidence (`reviewed_campaign_id`, `ON DELETE SET NULL`). Absence of a
+    row means held — there is no `pending` state to disagree with it. Refusals appear in
+    the launch preview and at dispatch as `first_campaign_review_pending` /
+    `first_campaign_review_rejected`, so a withdrawn release stops a RUNNING campaign at
+    the next tick. Released once, no later campaign is refused on this rule: the
+    requirement is review of the FIRST campaign, and the ordinary gates carry the rest.
 
 ## 3. Inbound Call Lifecycle
 
@@ -146,15 +161,50 @@ MIN of all three (config values, reviewed when any vendor plan changes).
 fetch_recording → redact_transcript → extract(schema) → upsert_lead(+repeat-caller flag on
 phone match) → meter_usage(write unit rows + update spend_state) → notify(hot-lead rules:
 e.g., status hot OR urgency=emergency ⇒ WhatsApp+email to owner within 2 min) →
-embed_if_resolved(call corpus). Each step: 3 retries, exponential backoff, DLQ + Sentry
-alert on exhaustion; pipeline lag dashboard.
+resolve_campaign_contact → outbound_sync(call.completed via the outbox, D-23).
+`embed_if_resolved(call corpus)` is M3, NOT in the shipped pipeline
+(`apps/workers/pipeline.py` stops at outbound sync).
+Retry budget: **3 attempts** — one number, `WORKER_MAX_TRIES` in
+`apps/api/core/queue.py`, read by the ARQ worker and by the delivery worker's
+exhaustion check. Outbound webhook deliveries wait **30s then 120s**
+(`RETRY_BACKOFF_S` in `apps/workers/outbound_webhooks.py`); a failed recording copy
+waits 30s flat. **Not everything is retried**: transport failures, 5xx, 408, 425 and
+429 get the ladder, while any other 4xx is a verdict on the request — it stops on the
+first attempt and is recorded `rejected {code}`, because retrying a 400 three times
+only delays the verdict and triples load on an unhappy host. DLQ + Sentry alert on
+exhaustion; pipeline lag dashboard.
+
+A worker only gets a retry by raising `arq.Retry` — under arq 0.28 a plain `raise`
+finishes the job on the first attempt, so `max_tries` counts nothing for it.
+
+> ⚠ **The arq trap, kept here because it bit us once.** In arq 0.28 `max_tries` only
+> bounds jobs that raise `arq.Retry`/`RetryJob`; a job that raises a plain exception is
+> terminal on its FIRST attempt. For a while no job in `apps/workers` raised `arq.Retry`,
+> so `raise` meant "give up", the `attempt >= MAX_ATTEMPTS` branch in
+> `deliver_outbound_webhook` was dead code, and `outbound_webhook_exhausted` could not
+> fire in production — a client's broken integration would go silently stale. The
+> delivery worker and the recording copy now raise `Retry(defer=...)`, which is also
+> where the backoff lives. Anything NEW that wants a retry must do the same; a plain
+> `raise` is a deliberate "this is permanent", not a retry.
 
 ## 7. Knowledge Update Flow (client-initiated)
 
 Client (owner) uploads doc / pastes text / submits URL → parse+chunk → side-by-side
 preview → client submits → admin approve (or auto-approve toggle per client later) →
 version bump → embeddings → T0 recompilation → engine KB sync → regression smoke
-(3 canned questions answered from new content) → live. Rollback = reactivate prior version.
+(3 canned questions answered from new content) → live. Rollback = republish an earlier
+version (the archived row; eligibility is `approved_at IS NOT NULL`, never the current
+`status`, or the recovery path refuses the only rows it exists for).
+
+**Engine KB sync is DETACH-then-attach, and a failed detach aborts the publish (D-41).**
+Archiving a row only changes our tables; what the caller hears is what the ENGINE holds,
+so the superseded version is withdrawn from the agent before the new one is pushed — push
+first and the agent can answer from either version, and a rollback leaves every version
+live at once. If the withdrawal is not confirmed, nothing is published and the previously
+approved version stays live: publishing over a version we could not retract is the defect,
+and dropping the old while publishing nothing is an outage. The ordering costs one gap —
+between detach and attach the agent has no copy of that source and answers T4
+"I don't know" — which is cheaper than a stale price the client is then held to.
 
 ## 8. Billing Cycle
 

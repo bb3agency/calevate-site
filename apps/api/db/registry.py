@@ -7,10 +7,12 @@ exhaustive. TENANT_TABLES drives RLS policy creation and the coverage check.
 
 from apps.api.agents import models as agents_models
 from apps.api.billing import models as billing_models
+from apps.api.campaigns import models as campaigns_models
 from apps.api.compliance import models as compliance_models
 from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
 from apps.api.integrations import models as integrations_models
+from apps.api.kb import models as kb_models
 from apps.api.reliability import models as reliability_models
 from apps.api.tenancy import models as tenancy_models
 
@@ -20,9 +22,11 @@ __all__ = [
     "Base",
     "agents_models",
     "billing_models",
+    "campaigns_models",
     "compliance_models",
     "crm_models",
     "integrations_models",
+    "kb_models",
     "reliability_models",
     "tenancy_models",
 ]
@@ -33,6 +37,9 @@ TENANT_TABLES = [
     "memberships",
     "invitations",
     "agents",
+    "campaigns",
+    "campaign_contacts",
+    "dlt_templates",
     "prompt_versions",
     "extraction_schemas",
     "phone_numbers",
@@ -43,19 +50,56 @@ TENANT_TABLES = [
     "lead_events",
     "usage_events",
     "plans",
+    "credit_ledger",
     "spend_state",
     "consent_ledger",
+    # dnc_list is listed but its policy is HAND-WRITTEN (asymmetric read/write): the
+    # standard tenant_id = GUC form would hide global entries from every tenant, and a
+    # nationally suppressed number would keep getting dialled.
+    "dnc_list",
+    # The client's DLT Principal Entity registration + its Calevate TM link. Tenant
+    # data (their registrar ids), read by the campaign launch gate (SEC-COMP §3).
+    "dlt_registrations",
+    # Subscriber KYC for a telecom connection (R-11's last mitigation). Tenant data —
+    # the business's own registry identifiers — read by the number-provisioning gate and
+    # by the dispatch gate for self-serve tenants.
+    "kyc_records",
+    # The human release of a self-serve account's first campaign (R-11's last
+    # mitigation). Tenant data — what a reviewer decided about this account — read by
+    # the campaign launch gate and by every dispatch tick.
+    "first_campaign_reviews",
     "retention_policies",
     "deletion_requests",
     "inbound_webhooks",
     "outbound_webhooks",
+    "kb_sources",
+    "kb_documents",
+    "kb_retrieval_logs",
 ]
 
 # Tables carrying tenant_id that are deliberately NOT tenant-RLS'd, with reasons —
 # the RLS coverage guardrail requires every exception to be listed here.
+#
+# This dict is the cheapest way to smuggle a tenant table past hard rule 1, so it is
+# fenced on three sides: `check_rls_coverage` rejects an entry whose table no longer
+# exists (a stale exemption hides the next real gap) and one whose reason is too thin
+# to review, and `tests/guardrail_audit_test.py` pins the exact key set — adding an
+# exemption costs a visible diff in a test, not one line here.
 RLS_EXEMPT_TENANT_COLUMNS = {
-    "audit_log": "admin-realm surface reads cross-tenant; itself always audited",
+    "audit_log": (
+        "the hash chain is GLOBAL: every insert reads the previous entry_hash with "
+        "`ORDER BY at DESC LIMIT 1` across all tenants (compliance/audit.py), so a "
+        "tenant policy would silently fork the chain per tenant and make the whole "
+        "ledger unverifiable. Admin-realm surfaces also read it cross-tenant, and "
+        "every such read is itself audited."
+    ),
+    "engine_agent_routes": (
+        "inbound routing table: an engine webhook arrives with only the VENDOR agent id "
+        "and no session, so resolving it to a tenant is inherently cross-tenant. Keeping "
+        "this two-id lookup in its own global table is what lets `agents` stay FORCE-RLS'd "
+        "(hard rule 1) instead of needing an exemption. Carries no PII and no call data."
+    ),
 }
 
 # INSERT-only ledgers (hard rule 4): immutability triggers in the migration.
-APPEND_ONLY_TABLES = ["usage_events", "consent_ledger", "audit_log"]
+APPEND_ONLY_TABLES = ["usage_events", "consent_ledger", "audit_log", "credit_ledger"]

@@ -30,17 +30,20 @@ Checks that must pass before any commit:
 uv run ruff check . && uv run ruff format --check .
 uv run mypy .                 # strict
 uv run pytest                 # includes RLS + engine-conformance suites
-pnpm -C apps/web typecheck && pnpm -C apps/web lint
+make guardrails               # executable governance (ENGINEERING-PRACTICES §2)
+make web-check                # frontend: typecheck + lint + vitest (D-53)
 ```
 
 ## Structure
 
-- `apps/web` — Next.js; `(admin)` and `(client)` route groups; separate Clerk apps; typed
-  API client via `pnpm gen:api` (never hand-write fetchers).
+- `apps/web` — Next.js; `/admin` and `/c/<slug>` route trees; separate Clerk apps; typed
+  API client via `pnpm -C apps/web gen:api` (never hand-write fetchers).
 - `apps/api` — modular monolith; modules own their tables; no cross-module SQL.
 - `apps/voice-runtime` — latency-critical webhooks + in-call tool endpoints; ack <500ms,
   defer to workers; deployed independently.
-- `apps/workers` — ARQ jobs; idempotent, keyed by call_id, 3 retries + DLQ.
+- `apps/workers` — ARQ jobs; idempotent, keyed by call_id; **3 attempts total** (i.e. 2
+  retries — `WORKER_MAX_TRIES`; outbound deliveries wait 30s then 120s) + DLQ. A job
+  earns a retry only by raising `arq.Retry`; a plain `raise` is terminal.
 - `packages/shared` — Pydantic models, VoiceEngine Protocol, normalized events.
 
 ## Non-negotiable rules
@@ -60,13 +63,44 @@ pnpm -C apps/web typecheck && pnpm -C apps/web lint
 8. Don't add: vector DBs, brokers, second backend language, new deployables — those need
    a decision-log entry in `docs/ROADMAP.md §6` first.
 
+## Quality bar: write it the way the industry writes it
+
+Working is the floor, not the target — this is multi-tenant SaaS holding other
+businesses' customer data under Indian telecom and privacy law.
+
+- Know the established pattern, then beat it if you can. The widely-used one is the
+  DEFAULT, not a ceiling: reach for it when you have no reason to do better, invent when
+  you do — but know the standard and why it exists before departing, say what the
+  departure buys, and hold the invention to a higher bar (at least as correct under
+  failure, no harder for the next reader, covered by a test that fails if it regresses).
+  Nothing may break to accommodate it.
+- One way per problem: follow this repo's existing solution or REPLACE it, moving the old
+  callers in the same change. Two ways of doing one thing is where drift starts.
+- **Search the web whenever you are not certain, and you are less certain than you feel.**
+  Training cutoffs go stale: library APIs, security guidance, framework idioms and
+  regulatory detail all move. Search before using an unfamiliar library (or a familiar
+  one's unfamiliar corner), writing anything security- or crypto-shaped, implementing a
+  spec (RFC, webhook signature, OAuth, payment callback, DLT/TRAI, DPDP), choosing between
+  two plausible designs, or writing version-sensitive code (SQLAlchemy 2.0, Pydantic v2,
+  Next.js 15 App Router, arq, alembic). Cite what you found in the comment or commit body
+  so the next reader inherits the evidence, not just the conclusion.
+- Vendor and regulator claims are verified or marked as assumptions — never silent premises.
+- Name things for what they hold; put the WHY in the comment, since the what is in the code.
+  Recording the rejected alternative is worth more than restating the line.
+- Errors are part of the interface: an actionable message where a user can reach it, an
+  actionable log line where only an operator can. Never swallow an exception to look green.
+- Leave no half-wired feature — an unmounted route, an unregistered job, an unread column
+  or an unapplied migration is a defect that looks like progress.
+- Concurrency, money and time are where sloppiness gets expensive: CAS or a lock over
+  read-then-write, NUMERIC over float, aware instants over naive ones.
+
 ## Testing expectations
 
 - pytest for api/workers/voice-runtime; new tenant tables ⇒ RLS test; adapter changes ⇒
   conformance suite; extraction changes ⇒ golden-transcript fixtures under
   `apps/workers/tests/fixtures/transcripts/`.
 - Voice-agent behavior changes (prompts, tools, KB logic) ⇒ run the regression harness
-  (`uv run python -m eval.run --client <slug> --suite core5`) and attach the report to
+  (`uv run python -m scripts.eval --client=<slug>`) and attach the report to
   the PR.
 
 ## PR conventions

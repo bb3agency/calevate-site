@@ -87,7 +87,53 @@ same client app** — a self-serve org is the same `organizations` row with a di
 - **Credit wallet**: balance, **runway in minutes** ("₹X · ≈ N min, M min on premium" —
   their money-UX is genuinely good), top-up packs, auto-receipt with GST.
 - **Plan/usage**: agents live vs draft, minutes used, spend against cap.
+  - **Spend cap, client-editable** — `GET /v1/billing/caps` (`billing:read`) and
+    `PUT /v1/billing/caps` (`org:manage`; mutating, so D-22 refuses an impersonating
+    admin). There are TWO caps per plan: `hard_cap_min`/`hard_cap_spend` are admin-owned
+    and `client_cap_min`/`client_cap_spend` are the client's, and the effective ceiling
+    is `LEAST(admin, client)` with NULL meaning "no constraint from this side". A client
+    may lower theirs to anything including zero and may clear it (falling back on the
+    admin's), and may **never** set one looser than the admin's —
+    `client_cap_exceeds_plan_cap`, refused rather than clamped. A cap set BELOW this
+    month's spend is accepted and **binds immediately**: the write recomputes
+    `spend_state.capped` from the counters already in the row, so the next dial is
+    refused rather than the dial after the next call happens to meter. Inbound is
+    unaffected — the gate is outbound-only — which is what makes an immediate stop a
+    safe control to hand a client. The reasoning is in `apps/api/billing/caps.py`.
+  - **Two overage rates.** `plans.overage_rate_value` prices the value TTS rung
+    separately (D-36's ladder; `usage_events.meta.tts_tier` already says which rung a
+    call ran on). **NULL means the plan quotes no separate value rate — everything bills
+    at `overage_rate`**, which is every plan that predates the column, so no bill moved
+    when it landed. The included allowance is consumed on the DEARER rung first, leaving
+    the cheaper minutes to be charged for, and unattributed minutes bill at the value
+    rate (the same honesty rule `billing/rates.py` applies to cost). The invoice prints
+    one line per rung so each still multiplies out. **No retail value rate is set
+    anywhere in the codebase** — TRD §10.1's bands are unmeasured, so the number is a
+    founder decision, not a derivation.
 - **Number purchase + KYC**: gated; calling stays disabled until verification clears.
+  **SHIPPED** (migration `a3f6b1e02d95`, `kyc_records`). Two gates, and they answer the
+  plan-tier question differently on purpose — the argument is in
+  `apps/api/compliance/kyc.py`, with the DoT/TRAI sources it rests on. **Dialling** is
+  gated for `self_serve`/`trial` only, exactly as `credits_exhausted` is:
+  `compliance.service.check_dispatch` refuses with `kyc_missing` / `kyc_not_verified`
+  and `campaigns.service.launch_blockers` previews the same names, while a managed
+  tenant's identity was verified out of band before we bought their number and is
+  already gated by `pe_registration_*`. **Buying a number** —
+  `POST /v1/numbers/purchase` (`org:manage`) — is gated for **every** tier, because the
+  DoT business-connection obligation attaches to the connection and a control keyed on
+  an admin-settable column is a control one support ticket from being switched off.
+  Inbound is untouched (D-38): the gate is outbound-only and inbound never enters it.
+  Ops records the verification through `POST /v1/admin/tenants/{tenant_id}/kyc`
+  (`admin:tenants`, audited); the client reads their own state at
+  `GET /v1/compliance/kyc` (`org:read`, absence is a 200 with `recorded: false`), and
+  there is deliberately no client-realm write. **NOT IMPLEMENTED: provisioning itself.**
+  D-05's vendors are a decision, not a credential — no telephony account, no adapter —
+  so a verified account's purchase is refused with `number_provisioning_not_configured`
+  and `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False` is the greppable
+  constant. Numbers are provisioned by operations out of band today. **No identity
+  document is stored anywhere**: `kyc_records` keeps a public business-registry
+  identifier and a reference to where the pack is filed, and a CHECK constraint refuses
+  a value shaped like an Aadhaar.
 
 **Patterns worth adopting (evidence: teardown §9c/§9d — all verified in their product)**
 - **"Needs attention" queue** — leads on hold or awaiting retry, with early release. This
@@ -111,12 +157,248 @@ same client app** — a self-serve org is the same `organizations` row with a di
 
 **Where we deliberately go further** (teardown §9d table): HMAC-signed webhooks with
 timestamp + replay protection (they use a URL-path token and an *optional* header);
-outbox-backed delivery with retries, a delivery log and **replay** (they fire once and can
-arrive with null fields); a **published, versioned** outbound payload schema (theirs is
-undocumented); **native Meta Lead Ads** (theirs is Zapier-only); typed+validated extraction
-(theirs is untyped — the "Delhi in a quantity field" bug); full version history with diffs
-and audit (they keep 3 versions, no diff); and **DNC on every dispatch path** including
-instant, which is where their compliance actually fails.
+outbox-backed delivery (publish retried up to `OUTBOX_MAX_ATTEMPTS` = 5 by the dispatcher,
+plus a per-delivery ladder of `WORKER_MAX_TRIES` = 3 attempts at 30s/120s — no longer a
+gap: the delivery worker raises `arq.Retry(defer=…)`, see §3.1 and the FLOWS §6 note), a
+delivery log and **replay** (they fire
+once and can arrive with null fields); a **published, versioned** outbound payload schema
+(theirs is undocumented); **a direct lead-ingest endpoint** —
+`POST /hooks/v1/ingest/{webhook_id}` with per-endpoint secret, field mapping and a
+no-call dry run, no Zapier in the middle — plus a **native Meta Lead Ads receiver**,
+`GET|POST /hooks/v1/ingest/meta/{webhook_id}`: their subscription handshake
+(`hub.mode`/`hub.verify_token`/`hub.challenge`, token derived per endpoint, never
+stored), `X-Hub-Signature-256` verified against the raw bytes with the app secret
+before any parse, dedupe keyed on `leadgen_id` (the lead is the unit of work — Meta
+batches and re-batches), the form-field mapping, and consent that is never assumed: a
+lead-ad fill with no opt-in question on the form is saved and **not** dialled
+(`no_consent_field_configured`). (*Still NOT built and not to be claimed: the Graph
+read that carries the answers. `GET /{leadgen_id}?fields=field_data` needs a Page
+access token with `leads_retrieval`, and this deployment holds no Meta credentials —
+so a verified delivery today lands as a RECORDED refusal
+(`meta_lead_retrieval_unavailable`) against its `leadgen_id`, visible in the activity
+view and re-claimable the day an adapter exists. `apps/api/ingest/meta.py` states
+this, `POST /v1/lead-sources/{webhook_id}/meta/setup` answers it (a POST because the
+response carries a verify token — the mirror of `/v1/dnc/check`), and
+`LEAD_RETRIEVAL_IMPLEMENTED = False` is the greppable constant.*);
+typed+validated extraction (theirs is untyped — the "Delhi
+in a quantity field" bug); full version history with diffs and audit (they keep 3
+versions, no diff); and **DNC on every dispatch path** including instant, which is where
+their compliance actually fails.
+
+## 2c. Shipped today — no longer candidates
+
+§1 and §2 above are inventories (candidates). This section is the short list of what has
+actually landed, so nobody re-proposes a screen that exists. Verified against the route
+tree in `apps/web/src/app` and the OpenAPI paths in `apps/web/src/lib/api/schema.d.ts`.
+
+Client realm (`/c/<slug>/…`)
+- **Leads** with a **list ⇄ board toggle** — the board is one column per D-21 status,
+  so the "work the pipeline stage by stage" pattern is built, not pending.
+- **`/performance`** (`GET /v1/performance`) · **`/attention`** (`GET /v1/attention` — the
+  §2b "needs attention" queue, shipped) · **`/agents`** (read-only agent roster, plus the
+  §2b **unsaved-changes banner** from `GET /v1/agents/{agent_id}/pending`, the
+  **precedence rule** and lane table from `GET /v1/agents/lanes`, and the cost-runaway
+  guard read as "longest one call may run / most one call can cost" — `null`
+  `worst_case_call_cost_inr` renders as "we cannot say yet", never ₹0. Apply and Undo are
+  deliberately absent here: both are admin-realm, because the staged script is authored
+  admin-realm) ·
+  **`/lead-sources`** (`GET /v1/lead-sources/activity`, `POST /v1/lead-sources/{id}/test` —
+  the §2b webhook-activity view and its no-call "test webhook", shipped — plus the Meta
+  Lead Ads setup card, `POST /v1/lead-sources/{webhook_id}/meta/setup`, which prints what
+  to paste into the Meta App Dashboard) ·
+  **`/campaign-review`** (`GET /v1/compliance/first-campaign-review` — the client's view
+  of R-11's first-campaign hold, D-51. Read-only by construction: there is no mutation in
+  the module, so no 403 trap can be built on it, and the screen says plainly that the
+  release is recorded by Calevate operations. `pending` and `rejected` are different
+  screens — pending is "we will look", rejected carries the reviewer's own words and needs
+  a different next step — and the state helper keys on the server's `held` answer rather
+  than on `status`, failing CLOSED so an unrecognised rule stays held. It states both
+  halves of the account scoping in the client's words, because a client who thinks every
+  campaign needs review will not build a second one) ·
+  **`/messaging-consent`** (records what a consumer said about being messaged and looks
+  up whether we may; the screen that makes a `recipient_not_opted_in` escalation fixable
+  by somebody saying yes) · **`/do-not-call`** (`/v1/dnc`, with removal offered only where
+  `is_removable()` says the entry may be undone here — the flag and the endpoint read one
+  definition, so no button is rendered that would 422) ·
+  **`/integrations`** (endpoints + delivery log) · **`/verification`** (the client's own
+  view of `GET /v1/compliance/kyc` — the page a self-serve owner opens because their
+  outbound stopped. It leads with "inbound is unaffected", says plainly that the client
+  cannot self-verify, and carries no upload control, because the record stores a
+  registry identifier and a filing reference and never a document) ·
+  `/calls`, `/campaigns`, `/knowledge`,
+  **`/usage`** (usage panel + the §2b client cap editor).
+
+Admin realm (`/admin/…`)
+- **The client health board** (`/admin/health`; `GET /v1/admin/client-health`) — §1's
+  "tenant health board", built as an EXCEPTION REPORT rather than the per-client tile grid
+  that inventory imagined. Only accounts with at least one live signal appear, most broken
+  first; an account with nothing wrong is absent, which is what keeps it from becoming a
+  second client directory (`GET /v1/admin/tenants` is the roster, and its summary now says
+  so — both surfaces used to claim the title "client health overview"). FIVE signals, each
+  actionable the day it appears: `calls_stopped`, `outbound_blocked`, `spend_cap_near`,
+  `deliveries_failing`, `knowledge_waiting`. `outbound_blocked` is COMPOSED from the
+  predicates that refuse the dial (`read_tenant_holds`, `pe_registration_blocker`,
+  `spend_capped`, `credits_exhausted`) rather than a second copy of their conditions, so
+  the board cannot tell an operator an account is fine while the client is staring at a
+  refusal — and its causes carry the gates' own rule names, never their `reason` prose,
+  which interpolates an operator's free text (hard rule 6, same line `admin/holds.py`
+  draws). **§1's latency p50/p95 and answer-rate tiles are deliberately NOT built**:
+  `calls.latency` was dropped in migration `f1a7c39d5be2` and D-49 removed the trace
+  config, so neither is observable today and a tile would be a fabricated number on the
+  screen operators trust most. The call trend carries a `basis` — `measured`, `too_new` or
+  `no_baseline` — for the reason `after_hours_basis` exists, and the console has exactly
+  one reader of it (`trendClaim`) which returns a union, so no code path can format a
+  percentage the data does not support. `org:read`, not `admin:tenants` (D-22), realm-
+  separated, unaudited by design like the hold queue, and cross-tenant with **no RLS policy
+  widened**: the directory under `app.admin`, then each tenant's own session. Money is a
+  string on the wire. The R-11 holds appear only as CAUSES and link to the hold queue's own
+  remedy screens rather than being re-implemented here.
+- **Prompt history + rollback** per agent (`/admin/tenants/{id}/agents/{agentId}/prompt`;
+  `GET|POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt`, `…/prompt/rollback`).
+  Rollback is copy-forward, never pointer-rewind (FLOWS §7).
+- **Two-speed publishing controls**, on that same page: **Apply to live calls** /
+  **Undo** (`POST …/apply` with the staged version as the CAS token, `POST …/undo`) and
+  the **per-agent call cap** (`PATCH …/call-cap`, applies immediately — a live agent is
+  re-published in the same transaction). The version list distinguishes *staged* from
+  *live*: `active` on a history row is the DRAFT pointer, and the live version number
+  comes from the pending read.
+- **Printable invoice statement** (`/admin/tenants/{id}/invoice`;
+  `GET /v1/admin/tenants/{tenant_id}/invoice`) — a white, print-first document. It is a
+  DERIVED statement, not a stored row (see DATA-MODEL §8).
+- **Credit top-up** (`POST|GET /v1/admin/tenants/{tenant_id}/credits`) — admin-recorded
+  today; the self-serve wallet UI in §2b is still M2.
+- **Ops** (`/admin/ops`; `/v1/ops/platform`, `/v1/ops/outbox/replay`, `/v1/ops/audit/verify`).
+  `GET /v1/ops/platform` returns the load-shed mode, the outbound halt, **`halt_reason`**
+  and the TM registration in ONE row read — a halt shown beside a reason from a different
+  instant is worse than either alone. The reason is REQUIRED to halt (a halt nobody
+  explained is one nobody can safely lift), cleared on release, and untouched by a
+  load-shed-only change. **The step-up header names the transition, not the endpoint**
+  (D-45): `X-Confirm-Action: halt_outbound` / `release_outbound` / `set_load_shed:<mode>`,
+  joined with `+` when one request does both. The old blanket `set_platform_state` string
+  authorises nothing; the refusal prints the header that would have worked.
+- **Spend-cap recompute** (`POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute`,
+  `ops:manage`, step-up bound to the tenant, audited on the same session as the write).
+  Re-derives `spend_state.capped` from counters already metered against the ceiling now
+  in force, and **never writes the flag directly** — an ops button that set `capped=false`
+  would be a third DEFINITION rather than a third caller. It closes a real dead end: the
+  gate reads the flag, a capped tenant meters nothing so the meter can never clear it,
+  and the client's own `PUT /v1/billing/caps` needs `org:manage`, which D-22 refuses to an
+  impersonating admin — so an outbound-only client whose ceiling ops had just raised
+  stayed stopped until they acted themselves or the IST month rolled over. The response
+  reports the counters and the effective ceiling next to the flag, so "it did not work"
+  becomes "the ceiling is 2 and they have used 3".
+- **Calevate's own TM registration** (`POST /v1/ops/platform/tm-registration`, `ops:manage`)
+  — the company half of SEC-COMP §3's first bullet, recorded on `platform_state` (D-43)
+  and returned by `GET /v1/ops/platform`. Step-up confirmed in BOTH directions, with the
+  header naming which one: `X-Confirm-Action: record_tm_registration` to make it live,
+  `withdraw_tm_registration` to take it out of `active`. Audited in the same transaction
+  as the write. While it is not `active`, NO tenant can launch an outbound campaign,
+  however complete their own PE registration is; inbound answering is unaffected.
+- **Identity (KYC)** (`/admin/tenants/{id}/kyc`; `POST /v1/admin/tenants/{tenant_id}/kyc`,
+  `admin:tenants`, audited) — where the verification is recorded. Its own screen rather
+  than a panel, because it is an audited write with four fields an auditor asks about
+  (what, against what reference, by whom, when) and the CHECK behind it makes a
+  `verified` row that cannot answer them unstorable. Deliberately no client-realm twin:
+  under the Telecom Act the subscriber's identity is something the provider verifies,
+  never something the subscriber asserts.
+- **The hold queue** (`/admin/holds`; `GET /v1/admin/compliance/holds`) — the ops work
+  list of accounts waiting on a human, covering BOTH R-11 human-decision gates (KYC and
+  the first-campaign review), oldest signup first because that is the triage order. It is
+  also surfaced on the tenant directory, so the screen an operator already reads carries
+  the flag. Built with **no RLS policy widened**: the directory under the admin session,
+  then each tenant's own session asking the ordinary gate (`apps/api/admin/holds.py`
+  argues the alternatives). `org:read`, not `admin:tenants` — D-22 forbids gating a GET on
+  a permission read-only impersonation refuses, and the realm is what separates admin from
+  client here. The row carries the account, its motion, its signup instant and the rule
+  names, and deliberately NO reason text, signatory or document reference: the rejection
+  reason interpolates an operator's free text, which belongs nowhere near the widest-read
+  list in the console (hard rule 6). Read-only and unaudited by design — every decision
+  taken from it writes its own entry.
+- **First-campaign review release** (`/admin/tenants/{id}/first-campaign-review`;
+  `POST /v1/admin/tenants/{tenant_id}/first-campaign-review`,
+  `admin:tenants`, audited, tenant in the PATH) — R-11's last mitigation and the ops half
+  of it (D-51). `approved` releases the ACCOUNT, not the campaign: this rule never blocks
+  another of its campaigns afterwards. `rejected` keeps it held and shows the client the
+  reviewer's words. It upserts, so a release can be withdrawn when complaints arrive and
+  granted again, and the history is `audit_log` rather than this row. No client-realm
+  twin and no request path — absence of a decision IS the held state.
+- **Client DLT Principal Entity registration**
+  (`POST /v1/admin/tenants/{tenant_id}/dlt-registration`, `admin:tenants`) — upsert; the
+  fact `launch_blockers` reads as `pe_registration_*` / `tm_link_not_active`. Deliberately
+  has no client-realm twin: a client who could mark their own PE registration `active`
+  would be marking the launch gate green on a registration that does not exist. Tenant in
+  the PATH, not inferred from the session — an admin-realm mutation that infers its tenant
+  is un-callable by construction under D-22.
+
+Compliance API (client realm)
+- **DNC**: `GET|POST /v1/dnc`, `POST /v1/dnc/check`, `DELETE /v1/dnc/{entry_id}`.
+- **Messaging consent**: `POST /v1/compliance/messaging-consent` (`leads:dispatch`, 201,
+  audited) records what a consumer said about being messaged, and
+  `POST /v1/compliance/messaging-consent/lookup` (`leads:read`) answers whether we may
+  message them. Both are POST because the identifier IS the personal data (same rule as
+  `POST /v1/dnc/check`), neither echoes the number back, and there is no DELETE: the
+  ledger is append-only, so "no longer" is `status: withdrawn`, a new row that
+  supersedes. A number nobody has ever been asked about is a 200 saying
+  `status: "none"`, not a 404. See SEC-COMP §4 for why this consent is separate from
+  consent to be called.
+- **DPDP subject export**: `POST /v1/compliance/subject-export`.
+- **DPDP erasure**: `POST /v1/compliance/deletion-requests` (201; idempotent per open
+  request — a duplicate is a 200-shaped body with `already_open`, not a 409) and
+  `GET /v1/compliance/deletion-requests/{request_id}` for the proof certificate. Filing
+  and status reads carry DIFFERENT permissions on purpose: filing is mutating, so D-22
+  refuses it to an impersonating admin; a status read discloses no personal data and
+  stays available to them. Every response carries the erasure's stated limitations
+  (SEC-COMP §4). Both surfaces speak `subject_ref`, never the phone number.
+- **Voice catalog**: `GET /v1/agents/voices` (D-36's premium/value ladder as data).
+- **Consent provenance for a campaign list**:
+  `POST /v1/campaigns/{campaign_id}/consent-provenance` (`leads:dispatch`, drafts only,
+  audited) — SEC-COMP §3's fourth bullet, and the answer path for a draft created before
+  the columns existed. It refuses on a non-draft campaign, so a declaration cannot be
+  back-filled after the dialling it was supposed to authorise.
+
+Self-serve + payments (D-34/D-39) — **read the caveat, this is not a working checkout**
+- **Signup**: `POST /v1/auth/signup` (201). Under `rbac.PUBLIC_PREFIXES`, which is the
+  honest classification: no permission can gate a caller who has no organization yet. The
+  locks are a verified Clerk identity, a quota of 5 signups per user and 30 per IP per hour
+  consumed on every
+  ATTEMPT (a refused slug is not free — free failures are what make a limiter enumerable),
+  and two switches: `self_serve_signup_enabled`, which **defaults to OFF** (R-11's kill
+  switch — public tenant creation should be something someone switched on), and the
+  platform load-shed mode, which `/v1/auth` is otherwise exempt from because that
+  exemption is right for signing IN and wrong for signing UP. Creates the organization, its
+  receptionist agent, its extraction schema and its retention policies, and makes the
+  caller the owner; `plan_tier` is `self_serve` or `trial` — `managed` is the invoiced
+  motion and is not self-assignable. The wallet starts empty, so the compliance gate
+  refuses outbound until it is topped up, and the response says so in `next_steps`.
+- **Top-up intent**: `POST /v1/billing/topups/intent` (`org:manage` — spending the client's
+  money is not a read, and being mutating is what makes D-22 refuse it to an impersonating
+  admin). Prices the top-up (₹100–₹100,000), binds it to the session's tenant, and refuses
+  a `managed` tenant (`topup_not_available`) or a deployment whose payment capability is
+  not configured (`payments_not_configured`). **Whether the capability exists is now a
+  STATEMENT, not an inference**: `PAYMENT_PROVIDER` names it, `payments.payment_capability()`
+  is the ONE selector both this route and the receiver ask (so a second read of settings
+  cannot disagree), the only name with an adapter behind it is `razorpay` and any other
+  resolves to `provider_not_implemented`, and a known provider still needs BOTH the key
+  id and the webhook secret — a deployment that could take money and never credit it is
+  refused on both surfaces. The refusal writes nothing. Same shape as the Google Sheets
+  seam (§2 integrations). **NOT IMPLEMENTED: server-side order creation.** Creating
+  the provider-side order needs API credentials this deployment does not hold, so the
+  response carries `provider_order_id: null` and `provider_order_pending: true` — the gap
+  is in the contract rather than discovered at integration time. There is no checkout that
+  can be opened from this response today.
+- **Payment webhook**: `POST /hooks/v1/razorpay` → one `credit_ledger` entry, signature
+  verified before anything is read, inbox-claimed on `payment.captured:<payment id>` and
+  idempotent on the ledger `ref` under the per-tenant credit lock. Never load-shed (a
+  payment landing during degraded mode is still a payment); fails CLOSED with no secret
+  configured. **The signing scheme and every payload path it reads are UNVERIFIED against
+  a live Razorpay account** (`billing/payments.py` marks each one) — if they are wrong,
+  every event is refused and nothing is credited. Treat the pair above as scaffolding with
+  an honest hole in it, not as a payment flow.
+
+Shared shape across all three compliance surfaces: a phone number is submitted in a POST
+body and everything afterwards is keyed by an opaque id, never `GET /…/{phone}`. The
+identifier IS the personal data, and a number in a URL lands in access logs, proxy logs,
+referrers and browser history (hard rule 6).
 
 ## 3. Integration Layer (our site ⇄ engine [Bolna, D-31]) — DECIDED doctrine
 
@@ -140,7 +422,14 @@ Queue-first, idempotent, replayable — the industry-standard shape, mapped to o
 3. **Persist-then-ack**: write the minimal event row + archive raw payload to object
    storage, ack 2xx < 500ms. Never process inline (hard rule 3).
 4. **Process async**: ARQ jobs keyed by event/call id; every side effect is an upsert
-   or guarded by processed-state; retries 3× exponential; DLQ + Sentry on exhaustion.
+   or guarded by processed-state; **3 attempts**, outbound deliveries waiting 30s
+   then 120s (`WORKER_MAX_TRIES` in `apps/api/core/queue.py`, `RETRY_BACKOFF_S` in
+   `apps/workers/outbound_webhooks.py`); retried for transport failures / 5xx / 408 /
+   425 / 429 only, any other 4xx stopping immediately as `rejected {code}`; DLQ +
+   Sentry on exhaustion. ⚠ A plain `raise` in a worker is terminal on the first attempt
+   under arq 0.28 — see the note in FLOWS §6 — so a job that wants the ladder must raise
+   `arq.Retry`. The reconciliation poller in step 6 remains the guarantee of record
+   either way (D-31).
 5. **Replay tooling exists BEFORE the first incident** (industry lesson): admin
    surface to inspect webhook_deliveries, re-run a delivery, and re-run a pipeline
    step for a call id. The engine's own per-delivery retry API supplements ours.
@@ -151,8 +440,13 @@ Queue-first, idempotent, replayable — the industry-standard shape, mapped to o
    reconciliation, not delivery magic.
 
 Outbound webhooks (us → client tools, D-23) mirror the same doctrine from the sender
-side: our envelope, HMAC signing, retry ladder with backoff, delivery log
-(webhook_deliveries direction=out), and a per-endpoint disable switch on repeated failure.
+side: our envelope, HMAC signing, the same flat 3-attempt ladder (`MAX_ATTEMPTS` is
+`WORKER_MAX_TRIES` — deliberately ONE budget so the last try knows it is the last and the
+`outbound_webhook_exhausted` alert has a moment to fire; the FLOWS §6 arq trap that made
+that alert unreachable is FIXED — `deliver_outbound_webhook` raises `arq.Retry(defer=…)`,
+so the ladder walks and the exhaustion branch is live), delivery log (webhook_deliveries direction=out, one
+row per delivery with `endpoint_id`), and a per-endpoint disable switch on repeated
+failure. The client-facing form of these rules is WEBHOOKS §1.5.
 
 ### 3.2 Real-time UI sync (D-24)
 
@@ -177,7 +471,11 @@ side: our envelope, HMAC signing, retry ladder with backoff, delivery log
   the first pipeline step (Bolna URLs have no documented expiry — copy-first anyway,
   our storage is system of record).
 - All engine calls carry timeouts + circuit breakers (TRD §12); breaker-open ⇒
-  degrade to reconciliation mode, never drop work.
+  degrade to reconciliation mode, never drop work. **Shipped today: the timeout only**
+  (`REQUEST_TIMEOUT_S = 10.0` in `apps/api/engine/bolna.py`). The 429 throttle above and
+  the breaker are DECIDED and unbuilt — the dispatcher's own pacing and the
+  reconciliation poller are what currently stand in for them, so treat both bullets as
+  intent until an adapter carries them.
 - No vendor OpenAPI spec (Bolna): typed adapter models are hand-maintained from
   docs.bolna.ai + pilot-captured payloads committed as fixtures; payload drift is
   caught by the conformance suite, diff-review before adopting new fields.

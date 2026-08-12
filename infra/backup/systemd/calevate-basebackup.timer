@@ -1,0 +1,18 @@
+[Unit]
+Description=Nightly Calevate base backup
+Documentation=file:///var/www/calevate/infra/backup/README.md
+
+[Timer]
+# 21:00 UTC = 02:30 IST. Chosen against the business, not the clock: Indian SMB call
+# volume is lowest well after midnight local time, and this must not collide with the
+# nightly retention sweep or the campaign dispatcher's morning ramp.
+OnCalendar=*-*-* 21:00:00 UTC
+# WHY Persistent: if the VPS was down at 21:00, run on the next boot instead of skipping
+# the night silently. A skipped base backup is a longer restore, and the whole point of
+# this directory is that silence is never taken as success.
+Persistent=true
+# Spreads load if this ever runs on more than one host; harmless on one.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

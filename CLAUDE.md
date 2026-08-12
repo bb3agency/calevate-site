@@ -37,7 +37,7 @@ uv run pytest                    # all tests; -k rls for tenancy tests
 uv run ruff check --fix . && uv run ruff format .
 uv run mypy .                    # strict; must pass
 uv run alembic upgrade head      # migrations (autogenerate + hand-review diff)
-pnpm -C apps/web dev|build|typecheck
+pnpm -C apps/web dev|build|typecheck|test   # or `make web-check` (typecheck+lint+test)
 docker compose up -d             # local pg16+pgvector, redis, minio
 uv run python -m scripts.seed    # reserved slugs, vertical templates, retention defaults
 ```
@@ -77,7 +77,7 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
 
 - Python 3.12, FastAPI, Pydantic v2 everywhere at boundaries; SQLAlchemy 2.0 typed ORM;
   ARQ for jobs (idempotent, keyed, 3 retries + DLQ). Ruff + mypy strict are CI gates.
-- Frontend: typed client generated from OpenAPI (`pnpm gen:api`); TanStack Query; shadcn/ui;
+- Frontend: typed client generated from OpenAPI (`pnpm -C apps/web gen:api`); TanStack Query; shadcn/ui;
   no ad-hoc fetch. Admin realm and client realm are separate route groups + separate Clerk
   apps — never share session logic.
 - IDs: uuid_v7. Time: timestamptz, UTC in DB, IST at the edge. Phone: E.164 strings.
@@ -85,6 +85,54 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
 - Tests: pytest; every module has unit tests; RLS tests mandatory for new tables; adapter
   work runs conformance; extraction changes run the golden-transcript fixtures.
 - Feature flags via plain config rows, not a flag SaaS.
+
+## Quality bar: write it the way the industry writes it
+
+Working is the floor, not the target. This is a multi-tenant SaaS holding other
+businesses' customer data under Indian telecom and privacy law — the code has to be
+the kind a competent reviewer at a serious company would sign off, not the kind that
+passes its own test.
+
+- **Know the established standard, then beat it if you can.** The widely-used pattern is
+  the DEFAULT, not a ceiling — reach for it when you have no reason to do better, and
+  invent when you do. A better idea is welcome; an uninformed one is not, so know what
+  the standard is and why it exists before departing from it, and say in the code what
+  the departure buys. The bar on an invention is higher, not closed: it must be at least
+  as correct under failure, no harder for the next reader, and covered by a test that
+  fails if it regresses. **Nothing may break to accommodate it.**
+- **One way per problem, and migrate rather than accumulate.** If this repo already
+  solved something, follow that solution or replace it — two ways of doing one thing is
+  a defect even when both work, and the second one is where the drift starts. Replacing
+  means the old callers move too, in the same change.
+- **SEARCH THE WEB WHENEVER YOU ARE NOT CERTAIN — and you are less certain than you
+  feel.** Your training has a cutoff; library APIs, security guidance, framework
+  idioms and regulatory detail all move. Search before: using an unfamiliar library or
+  a familiar one's unfamiliar corner; writing anything security- or crypto-shaped;
+  implementing a spec (RFC, webhook signature, OAuth, payment callback, DLT/TRAI or
+  DPDP rule); choosing between two plausible designs; or writing a version-sensitive
+  incantation (SQLAlchemy 2.0, Pydantic v2, Next.js 15 App Router, arq, alembic).
+  Guessing an API and finding out in review is slower than a 30-second lookup, and
+  guessing a compliance rule is not recoverable. Cite what you found in the code
+  comment or the commit body, so the next reader inherits the evidence rather than
+  the conclusion.
+- **Vendor and regulator claims get verified, never assumed.** An unverified vendor
+  behaviour is a gate in OPERATIONS §2 or a marked assumption in the adapter — never
+  a silent premise (D-31/D-32 exist because of this).
+- **Name things for what they hold**, keep functions small enough to hold in your head,
+  and put the WHY in the comment — the what is already in the code. A comment that
+  restates the line is noise; a comment that records the rejected alternative is worth
+  more than the code it sits above.
+- **Errors are part of the interface.** Every failure path a user can reach has a
+  message they can act on, and every failure path they cannot reach has a log line an
+  operator can act on. Never swallow an exception to make a path look green.
+- **Leave no half-wired feature.** A route nobody mounted, a job nobody registered, a
+  column nobody reads and a migration nobody applied are not progress — they are
+  defects that look like progress on a screen. Finish the seam or say plainly that you
+  did not.
+- **Concurrency, money and time are where sloppiness becomes expensive**: CAS or a lock
+  rather than read-then-write, NUMERIC rather than float, timezone-aware instants
+  rather than naive ones. When in doubt on any of the three, search for the current
+  best practice before writing.
 
 ## Domain vocabulary (use these exact terms)
 

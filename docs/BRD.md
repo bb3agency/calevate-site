@@ -80,9 +80,11 @@ In scope v1:
    (clients request changes through us); lead statuses stay the fixed enum in v1
    (custom tags/statuses only if pulled by a client).
 
-Out of scope v1 (explicit): white-label/reseller tiers; self-serve signup; non-voice
-channels as products (WhatsApp used only for follow-up notifications); building our own
-STT/TTS/LLM; GPU self-hosting (phase-3 trigger only).
+Out of scope v1 (explicit): white-label/reseller tiers; ~~self-serve signup~~ (**pulled
+back IN by D-34/D-39** — the second motion; `POST /v1/auth/signup` ships behind an
+intake flag that defaults to OFF, SURFACES §2c); non-voice channels as products (WhatsApp
+used only for follow-up notifications); building our own STT/TTS/LLM; GPU self-hosting
+(phase-3 trigger only).
 
 ## 5. Competitive Landscape (as researched, July 2026)
 

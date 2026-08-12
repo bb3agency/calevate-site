@@ -6,15 +6,20 @@ enums, DATA-MODEL §10) — cheaper to evolve than native PG enums.
 """
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 ORG_STATUSES = ("prospect", "onboarding", "active", "suspended", "churned")
+# D-34 runs both motions on one product; D-39 puts the column in M1 because tenancy is
+# not retrofittable. `managed` is the client-#1 path; `self_serve` unlocks the M2 UI.
+PLAN_TIERS = ("managed", "self_serve", "trial")
 MEMBER_ROLES = ("owner", "staff")
 ADMIN_ROLES = ("superadmin", "operator")
 
@@ -24,6 +29,7 @@ class Organization(PKMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("slug ~ '^[a-z0-9-]{3,40}$'", name="slug_shape"),
         CheckConstraint(f"status IN {ORG_STATUSES!r}".replace("(", "(", 1), name="status_enum"),
+        CheckConstraint(f"plan_tier IN {PLAN_TIERS!r}", name="plan_tier_enum"),
     )
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -31,7 +37,19 @@ class Organization(PKMixin, TimestampMixin, Base):
     slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="prospect")
     vertical_template: Mapped[str | None] = mapped_column(Text)
+    # Which motion this org belongs to (D-34/D-39). NOT a feature flag: it decides
+    # whether credits gate dispatch and whether the self-serve screens render.
+    plan_tier: Mapped[str] = mapped_column(String, nullable=False, server_default="managed")
     billing_email: Mapped[str | None] = mapped_column(Text)
+    # The wizard's intake answer sheet (FLOWS §1 step 3), raw and resumable: the fields
+    # an operator typed, not the [T0 FACTS] block compiled out of them. Lives here
+    # because these are the BUSINESS's own facts — hours, branches, prices, staff — and
+    # `organizations` is the row that is the business (DATA-MODEL §2); the per-agent
+    # halves stay on `agents` (§3). Envelope shape and the reasons for the column rather
+    # than a `client_intake` table: migration c1f3a7d92b46. Validated at the API
+    # boundary by `admin.intake.IntakeFacts` (§10), envelope pinned by a CHECK.
+    # Contains staff names and escalation numbers: never log it (hard rule 6).
+    intake: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     deleted_at: Mapped[datetime | None]
 
@@ -52,6 +70,9 @@ class User(PKMixin, TimestampMixin, Base):
     email: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str | None] = mapped_column(Text)
     phone: Mapped[str | None] = mapped_column(Text)  # E.164
+    # Re-checked by the auth guard on EVERY request (BACKEND-PATTERNS §7): a cached
+    # Clerk session must not outlive a deactivation.
+    deactivated_at: Mapped[datetime | None]
 
 
 class Membership(PKMixin, TimestampMixin, Base):
@@ -61,8 +82,13 @@ class Membership(PKMixin, TimestampMixin, Base):
         CheckConstraint(f"role IN {MEMBER_ROLES!r}", name="role_enum"),
     )
 
+    # No `index=True` on `tenant_id`: UNIQUE(tenant_id, user_id) leads with it. This
+    # table's RLS policy is the asymmetric `tenant_id = ... OR user_id = ...`, so both
+    # arms of the BitmapOr still need an index and both still have one — the tenant arm
+    # from the unique constraint, the user arm from `ix_memberships_user_id` below,
+    # which is NOT redundant and must stay (b9e5d2c74a18).
     tenant_id: Mapped[UUID] = mapped_column(
-        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
     )
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True

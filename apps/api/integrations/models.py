@@ -64,6 +64,17 @@ class WebhookDelivery(PKMixin, Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     signature_valid: Mapped[bool | None] = mapped_column(Boolean)
     payload_ref: Mapped[str | None] = mapped_column(Text)  # object-storage key
+    # Why a failed delivery failed, in OUR vocabulary: an authored refusal code
+    # (`sheet_not_shared`, `no_credential_ref`) or an exception type. NEVER vendor prose
+    # — a provider's error string is untrusted text that can quote the payload we handed
+    # it, and this column is read by a client-facing screen (hard rule 6).
+    reason: Mapped[str | None] = mapped_column(Text)
+    # Outbound only (D-23): which client endpoint this attempt targeted. The delivery
+    # screen scopes by it THROUGH `outbound_webhooks`, which is tenant-RLS'd, so this
+    # table needs no policy of its own (migration 4be32bf3d12c).
+    endpoint_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("outbound_webhooks.id", ondelete="SET NULL")
+    )
     first_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     last_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)

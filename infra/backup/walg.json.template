@@ -1,0 +1,44 @@
+{
+  "__README": [
+    "TEMPLATE. Copy to /etc/wal-g/walg.json on the database host, replace every",
+    "<<...>> placeholder from the secrets manager, then: chown postgres:postgres,",
+    "chmod 0600. THIS FILE IS A TEMPLATE AND MUST STAY ONE — a real value committed",
+    "here is a credential in git history, which is a rotation, not an edit.",
+    "wal-g reads it via --config or WALG_CONFIG_PATH (wal-g docs/README.md); the",
+    "format is anything viper parses, and JSON is chosen over env vars because",
+    "archive_command runs in PostgreSQL's environment, not a login shell, so exported",
+    "variables are simply not there."
+  ],
+
+  "WALG_S3_PREFIX": "s3://<<SECRET:r2/backup/bucket>>/postgres",
+
+  "AWS_ACCESS_KEY_ID": "<<SECRET:r2/backup/access_key_id>>",
+  "AWS_SECRET_ACCESS_KEY": "<<SECRET:r2/backup/secret_access_key>>",
+
+  "__endpoint_note": "R2's S3 API endpoint is https://<account-id>.r2.cloudflarestorage.com. The account id is not a secret in the cryptographic sense but it identifies our tenancy, so it is referenced rather than written.",
+  "AWS_ENDPOINT": "https://<<SECRET:r2/account_id>>.r2.cloudflarestorage.com",
+
+  "__region_note": "R2 ignores the region but the AWS SDK insists on one. 'auto' is what Cloudflare documents, and is the same value infra/object-lifecycle/apply_lifecycle.py already uses — keep them the same.",
+  "AWS_REGION": "auto",
+
+  "__path_style_note": "Path-style addressing for S3-compatible endpoints (wal-g docs/STORAGES.md: AWS_S3_FORCE_PATH_STYLE 'enable path-style addressing for S3-compatible services'). R2 accepts both; path style avoids depending on bucket-name-as-subdomain behaviour we have not tested.",
+  "AWS_S3_FORCE_PATH_STYLE": "true",
+
+  "__encryption_note": "SECURITY-COMPLIANCE §5 requires backups encrypted. libsodium (symmetric, 32-byte key) rather than PGP: one key, no keyring on the database host, and wal-g needs it for both push and fetch anyway so an asymmetric split buys nothing here. LOSING THIS KEY LOSES EVERY BACKUP IN R2 — secrets manager plus one offline copy, and the quarterly drill restores with it so that is a tested fact.",
+  "WALG_LIBSODIUM_KEY": "<<SECRET:walg/libsodium_key>>",
+  "WALG_LIBSODIUM_KEY_TRANSFORM": "base64",
+
+  "__compression_note": "wal-g's default is lz4. zstd gives materially better ratios at similar speed and this database is small enough that CPU is not the constraint — R2 storage and the number of nights we can afford to keep are. Measure on the first week (README §6) rather than trusting this choice.",
+  "WALG_COMPRESSION_METHOD": "zstd",
+
+  "__concurrency_note": "Deliberately low. wal-g issue #1639 records a backup-push that hung at full CPU after an S3 409 ('a conflicting conditional operation is currently in progress'), and single-stream upload is the standard mitigation. On a 4-8GB single VPS that also answers voice webhooks, a backup that saturates the uplink is its own outage.",
+  "WALG_UPLOAD_CONCURRENCY": "2",
+  "WALG_UPLOAD_DISK_CONCURRENCY": "1",
+
+  "__delta_note": "Delta backups would cut nightly upload volume, but they chain: a corrupt or missing link breaks every delta after it, and this platform has no second database host to fall back on. Full every night while the database is small; revisit with a decision-log entry when the nightly push stops finishing inside its window.",
+  "WALG_DELTA_MAX_STEPS": "0",
+
+  "PGHOST": "/var/run/postgresql",
+  "PGUSER": "postgres",
+  "PGDATABASE": "calevate"
+}
