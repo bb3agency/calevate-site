@@ -162,8 +162,37 @@ the part that rots.
    host reports `backup_timer_not_firing`, suspect the timestamp format before suspecting
    the timer — and fix the parser here, in the drill, which is what the drill is for.
 7. **Write down what is still uncovered**, in the record, every quarter, so it stays a
-   decision rather than a habit: while this host is OFF, nothing above observes anything.
-   That residual needs an external dead-man's switch and is D-50's open question.
+   decision rather than a habit. Steps 1–6 all run inside the failure domain they watch;
+   step 8 is the only one that does not.
+8. **Prove the dead man is alive — BOTH halves.** This is the check that reports by not
+   running, so a drill that only proves it can ping proves nothing: an always-red check
+   and an always-green one are equally useless, and the failure mode of this control is
+   silence that nobody notices. Do it in this order, **on the production host**, because
+   the thing being tested is that host's URL, egress and the vendor check it feeds — a
+   scratch host does not have any of the three.
+
+   a. **It fires when things are healthy.** With the chain green, run
+      `sudo -u postgres scripts/backup/heartbeat.sh` and confirm the vendor dashboard
+      shows a ping received within seconds. Exit 78 means the URL is not configured on
+      this host and the dead man is not armed at all (OPERATIONS §8's gate).
+   b. **It goes RED when the pings stop.** Stop the health timer
+      (`systemctl stop calevate-backup-health.timer`), then leave it stopped for the
+      period plus the grace time (15m + 1h) and confirm the notification actually reaches
+      the operator — the same "look at the inbox, not at the exit status" rule as step 5,
+      and the only proof that the vendor's notification channel is configured to a person
+      who exists. **Re-arm the timer immediately afterwards** and confirm the check
+      returns to green on the next run.
+   c. **It stays silent for a FAILING run** — the asymmetry the whole design rests on.
+      With the timer re-armed, break a check (step 6's `systemctl stop
+      calevate-basebackup.timer` is enough), run `scripts/backup/backup-health.sh` by
+      hand, and confirm the vendor shows **no new ping** from that run while the email
+      alert does arrive. If a failing run pings, the dead man has been converted into a
+      "this script ran" indicator and will sit green through a completely broken chain —
+      stop and fix that before continuing.
+
+   Also record the vendor's configured period and grace, because they are the alarm's
+   real thresholds and they live outside this repository: a check quietly re-created at a
+   24-hour period is a dead man that sleeps through a whole day of missing backups.
 
 ## 8. Clean up — the scratch database is a full copy of everyone's personal data
 
@@ -225,7 +254,14 @@ Reference it from the incident/ops review.
 - Schedule test: `backup_timer_inactive` observed: yes | no
 - Gap test: `backup_health_gap` observed, gap_s ≈ ___ : yes | no
 - `systemctl show` output parsed correctly (README §9's unvalidated assumption): yes | no — <correction made>
-- Still uncovered this quarter: host-down / systemd-down / delivery broken beyond us — external dead-man's switch still open (D-50): yes
+
+## External dead man (§7.8 — D-54)
+- Vendor check period / grace as configured: ___ / ___   (expected 15 min / 1 hour)
+- (a) healthy run pinged, vendor registered it: yes | no
+- (b) check went RED after pings stopped, and the notification **reached a human**: yes | no — <what was wrong>
+- (c) a FAILING health run produced NO ping (the asymmetry holds): yes | no
+- Timer re-armed and check back to green: yes | no
+- Still uncovered: the monitoring vendor itself being down (accepted, D-54): yes
 
 ## Erasure re-application (database-restore.md §8)
 - Completed deletion_requests after the target: ___
@@ -247,7 +283,7 @@ Reference it from the incident/ops review.
 ```
 
 **PASS requires all of:** every §6 check green, RTO inside 4 hours, the detection test
-firing **and arriving in a human's inbox**, the schedule and gap tests firing, and the
-cleanup complete. Anything less is PARTIAL or FAIL — and a PARTIAL with a
+firing **and arriving in a human's inbox**, the schedule and gap tests firing, all three
+parts of the dead-man test in §7.8 passing, and the cleanup complete. Anything less is PARTIAL or FAIL — and a PARTIAL with a
 named follow-up is a good drill. A PASS recorded over a skipped check is worse than no
 drill, because next quarter someone will read it and believe it.

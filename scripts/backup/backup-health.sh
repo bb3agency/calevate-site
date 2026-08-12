@@ -35,11 +35,14 @@
 #   6. THIS SCRIPT'S OWN HEARTBEAT — the gap check. Every run stamps the time; every run
 #      compares against the previous stamp. A schedule that stopped for six hours is
 #      reported the moment it resumes. That is retroactive detection, which is the most
-#      an on-host check can honestly claim, and it is NOT a dead-man's switch: while the
-#      host is off, nothing here observes anything. Turning silence into a page requires
-#      an observer outside this host (the Watchdog/dead-man pattern — an always-firing
-#      signal routed to a service that complains when it stops arriving). That dependency
-#      is D-50's open question and is deliberately not invented here.
+#      an ON-HOST check can honestly claim: while the host is off, nothing here observes
+#      anything.
+#   7. THE EXTERNAL DEAD MAN — the only check here that reports by NOT running. A run in
+#      which every check above passed pings a hosted dead-man's switch; a failing run,
+#      a stopped systemd and a dead box all ping nothing, and the OUTSIDE observer pages
+#      on the silence. This closes D-50's residual: 1-6 all live inside the failure
+#      domain they watch, so each of them is removed by the failures that matter most.
+#      See §7 at the bottom of this file and `scripts/host_heartbeat.py`.
 #
 # WHAT NO CHECK HERE CAN DO: prove the archive is RESTORABLE. Only a restore proves that.
 # That is `runbooks/backup-restore-drill.md`, quarterly, and it is not optional.
@@ -74,6 +77,10 @@ WAL_VERIFY_INTERVAL_S=${WAL_VERIFY_INTERVAL_S:-3600}
 HEALTH_STATE_DIR=${HEALTH_STATE_DIR:-/var/lib/postgresql}
 WAL_VERIFY_STAMP=${WAL_VERIFY_STAMP:-$HEALTH_STATE_DIR/.calevate-wal-verify-stamp}
 HEALTH_HEARTBEAT_STAMP=${HEALTH_HEARTBEAT_STAMP:-$HEALTH_STATE_DIR/.calevate-health-heartbeat}
+# Last outcome of the EXTERNAL heartbeat (sent | unconfigured | failed), so a state
+# CHANGE is what reaches the journal. Without it, an unarmed dead man would either be
+# announced 96 times a day — which is how a line stops being read — or not at all.
+HEARTBEAT_STATE_STAMP=${HEARTBEAT_STATE_STAMP:-$HEALTH_STATE_DIR/.calevate-heartbeat-state}
 # Three missed runs of a 15-minute timer. Two would fire on a slow boot or a long
 # `wal-verify`; three is a schedule that stopped rather than one that slipped.
 MAX_HEALTH_GAP_S=${MAX_HEALTH_GAP_S:-2700}
@@ -285,6 +292,62 @@ fi
 # persistent backup failure into a permanent `backup_health_gap` on top of it.
 printf '%s' "$now" > "$HEALTH_HEARTBEAT_STAMP" || \
   echo "backup-health: could not write $HEALTH_HEARTBEAT_STAMP; the gap check is blind" >&2
+
+# --- 7. The EXTERNAL dead man: feed it ONLY if everything above passed --------------
+#
+# READ THIS BEFORE CHANGING THE CONDITION. Success emits; failure does NOT emit; a dead
+# box cannot emit. The observer outside this host pages on the SILENCE, which is the only
+# way to report the host being off, systemd being gone, or the alert path being broken
+# beyond us — every check above is removed by exactly those failures (D-50,
+# `infra/backup/README.md` §5; the vendor decision is in `scripts/host_heartbeat.py`).
+#
+# Adding an "and ping on failure too, so we know" branch here would destroy the
+# mechanism: the ping would then mean "this script ran", not "the backups are healthy",
+# and the dead man would sit green through a completely broken chain. Failure already
+# has a path — every `alert` above went to journald and to a human via `notify.sh`.
+#
+# A heartbeat that cannot be sent is NOT a backup failure and never touches `failures`
+# or this script's exit status: the backup really was fine, and the consequence of the
+# missing ping is that the dead man fires — which is the correct outcome, not a reason
+# to fail the run that produced it.
+if (( failures == 0 )); then
+  heartbeat_state=""
+  [[ -r "$HEARTBEAT_STATE_STAMP" ]] && heartbeat_state=$(cat "$HEARTBEAT_STATE_STAMP" 2>/dev/null || echo "")
+
+  "$here/heartbeat.sh"
+  case $? in
+    0)  # Fed. Announced only on a transition, so the journal carries "it came back"
+        # without carrying "it is still fine" ninety-six times a day.
+        if [[ "$heartbeat_state" != "sent" ]]; then
+          logger -t calevate.backup -p daemon.notice -- \
+            "external backup heartbeat is being sent again (dead-man's switch armed)" || true
+        fi
+        printf '%s' sent > "$HEARTBEAT_STATE_STAMP" || true
+        ;;
+    78) # Not configured. The local/dev/pre-launch state. Said ONCE per transition and
+        # never silently: a host that believes it has a dead man and does not is the
+        # exact failure this section exists to remove (OPERATIONS §8 gates arming it).
+        if [[ "$heartbeat_state" != "unconfigured" ]]; then
+          logger -t calevate.backup -p daemon.warning -- \
+            "no BACKUP_HEARTBEAT_URL on this host: backups are healthy but NOTHING outside this host is watching for its silence" || true
+        fi
+        printf '%s' unconfigured > "$HEARTBEAT_STATE_STAMP" || true
+        ;;
+    *)  # Configured and undelivered. Loud EVERY time rather than on transition: this is
+        # an active fault with a deadline — the dead man fires when the grace time runs
+        # out — and journald is local, so saying it four times an hour costs nothing.
+        # Both destinations, for the reason `notify.sh` gives: journald is what an
+        # operator greps during an incident, stderr is what the unit captures and what a
+        # human sees running this by hand — and a host with no journal socket (a
+        # container, a rescue boot) must still say it.
+        heartbeat_line='{"failure_stage":"HOST_BACKUP","code":"backup_heartbeat_undelivered","detail":"backups are healthy but the external dead-man heartbeat could not be sent; the monitor will page on the silence"}'
+        logger -t calevate.alert -p daemon.err -- "$heartbeat_line" || true
+        echo "$heartbeat_line" >&2
+        echo "backup-health: the external heartbeat was NOT delivered; expect the dead-man's switch to fire" >&2
+        printf '%s' failed > "$HEARTBEAT_STATE_STAMP" || true
+        ;;
+  esac
+fi
 
 if (( failures > 0 )); then
   exit 1

@@ -122,15 +122,30 @@ and a second delivery mechanism is a second thing to be broken on the night it i
   `notify.sh probe "delivery test"` putting mail in a real inbox, since local delivery
   success is transport acceptance, not receipt.
 
-- **The dead man is the harder half, and three residuals are deliberately uncovered.**
-  `backup-health.sh` now checks the SCHEDULE (a timer missing, inactive, or armed and
-  silent past its window — the failure `OnFailure=` structurally cannot see, because
-  nothing ran so nothing failed) and its OWN heartbeat (a gap reported when it resumes,
-  dated so an operator knows which nights to check). But no in-repo check survives the host
-  being off or off-network, systemd not running, or the alert path being broken beyond us —
-  each removes the observer along with the observed, and only something outside the failure
-  domain can turn SILENCE into a page. That is one line of configuration and it is unbuilt
-  because it adds a vendor (D-50).
+- **The dead man is the harder half, and it is now built (D-54).** `backup-health.sh`
+  checks the SCHEDULE (a timer missing, inactive, or armed and silent past its window —
+  the failure `OnFailure=` structurally cannot see, because nothing ran so nothing failed)
+  and its OWN heartbeat (a gap reported when it resumes, dated so an operator knows which
+  nights to check). Neither survives the host being off or off-network, systemd not
+  running, or the alert path being broken beyond us: each removes the observer along with
+  the observed. So a run in which EVERY check passed pings a hosted dead-man check
+  (Healthchecks.io, `BACKUP_HEARTBEAT_URL`, one GET, no payload) and **the external
+  monitor pages when the pings stop**.
+
+  **Read the polarity correctly, because it is the opposite of every other alarm here:**
+  a failing run pings NOTHING, and neither does a dead box. Silence is the alarm. There is
+  deliberately no failure ping — failure already has a path (journald + email), and a
+  second one would mean two dedupe windows on one fact, while the failures worth having a
+  dead man for cannot send anything at all.
+
+  Configure the check at 15-minute period / 1-hour grace (three missed runs, the same
+  number `MAX_HEALTH_GAP_S` uses) — see `infra/backup/README.md` §5. The URL is a
+  CREDENTIAL: anyone holding it can silence the alarm, so it comes from the secrets
+  manager, is never logged (operator output names a digest prefix), and unset means the
+  heartbeat is a stated no-op rather than a silent pass. A heartbeat that cannot be sent
+  is logged loudly as `backup_heartbeat_undelivered` and **does not** fail the backup or
+  send mail — the consequence is the dead man firing, which is the correct outcome.
+  What to do when it fires: `runbooks/backup-heartbeat-silent.md`.
 
 ## 5. SLOs (v1)
 
@@ -188,6 +203,12 @@ one differs from a summary below, the runbook is the authority.
   `credit_ledger` CONCURRENTLY unique index that cannot build over permanent pre-cutoff
   duplicates hard rule 4 forbids deleting; a fresh database and `make db-reset`; and why
   `alembic stamp` past it defeats the ancestry gate the index tests depend on.
+- **The backup heartbeat went silent** — `runbooks/backup-heartbeat-silent.md`. The one
+  alarm here that arrives as an ABSENCE: the external dead man (D-54) pages because pings
+  stopped, which means the host is gone, systemd is gone, a backup check is failing, or
+  the ping cannot leave — four different incidents behind one notification, ordered by how
+  fast each is to rule out. Read this one BEFORE `database-restore.md`: the dead man says
+  monitoring stopped, never that data is lost.
 - **Restoring the production database** — `runbooks/database-restore.md`. Point-in-time
   recovery to a chosen instant (wal-g from R2), single-table recovery from the offsite
   encrypted dump, and the whole-VPS-is-gone path. Includes the six checks that prove a
@@ -241,3 +262,11 @@ own**, stated here because both have previously been read as done:
   what lets the backup relay page). A service booting without them says so — see §4 — and
   local delivery success is transport acceptance, not receipt, so the proof is a probe
   message landing in a real inbox.
+
+  **That gate covers alarms that are SENT. The dead man covers the ones that cannot be**
+  (D-54), and it is armed separately: `BACKUP_HEARTBEAT_URL` set on the DATABASE host from
+  the secrets manager, the vendor-side check created at 15-minute period / 1-hour grace
+  with the notification going to the same person, and the drill's §7.8 proving both halves
+  — a ping arriving when the chain is healthy, and the check going red after the pings are
+  stopped on purpose. Unset is not a quiet default: `backup-health.sh` states it in the
+  journal, and every backup can be perfect while nobody outside this host is watching.

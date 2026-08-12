@@ -102,6 +102,23 @@ class Settings(BaseSettings):
     # `apps/workers/whatsapp.py` can carry the second channel §4 also promises.
     alerts_email: str | None = None
 
+    # THE EXTERNAL DEAD MAN (D-50's open residual, now closed). The ping URL of ONE
+    # hosted dead-man check, pinged by `scripts/backup/backup-health.sh` only when every
+    # backup check passed. Silence — a failed check, a dead host, a stopped systemd — is
+    # what pages; there is deliberately no failure signal. The vendor comparison and the
+    # rejected alternatives are argued in `scripts/host_heartbeat.py`; the schedule to
+    # configure on the vendor side is in `infra/backup/README.md` §5.
+    #
+    # IT IS A CREDENTIAL: anyone holding it can silence the alarm by pinging it, which
+    # is exactly the property that makes it usable from a shell with no auth header. So
+    # it is injected from the secrets manager like every other one here, never committed,
+    # and never logged (`host_heartbeat` prints a digest prefix instead).
+    #
+    # UNSET is the correct local, CI and test value and means the heartbeat is a no-op
+    # that SAYS SO once rather than passing silently — a "configured" heartbeat that
+    # reaches nobody is the exact defect this closes.
+    backup_heartbeat_url: str | None = None
+
     # WhatsApp transport for hot-lead alerts (ROADMAP M2). OFF by default and it must
     # stay off until the human checklist in workers/whatsapp.py is done: WABA + business
     # verification, an APPROVED template, and a recorded per-tenant opt-in (which needs

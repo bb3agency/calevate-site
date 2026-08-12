@@ -37,9 +37,13 @@ scripts/backup/dump-offsite.sh               nightly encrypted logical dump, oth
 scripts/backup/backup-health.sh              the watchdog: four checks, four blind spots
 scripts/backup/notify.sh                     the one place a host backup failure becomes visible
 scripts/backup/alert-to-app.sh               the default delivery hook: this host → the app's alert path
+scripts/backup/heartbeat.sh                  the EXTERNAL dead man: fed only by a run in which everything passed
+scripts/backup/app-python.sh                 sourced by both wrappers: one way to run a repo module as `postgres`
 scripts/host_alert.py                        the entry point it execs; argues the subprocess and its cost
+scripts/host_heartbeat.py                    the ping, and the vendor decision with its rejected alternatives
 runbooks/database-restore.md                 PITR at 3am, with the step that proves it worked
 runbooks/backup-restore-drill.md             the quarterly drill, executable and recordable
+runbooks/backup-heartbeat-silent.md          what to do when the dead man pages: four causes, ordered
 ```
 
 Ownership boundary, stated because it caused a real design choice: everything here runs on
@@ -149,6 +153,10 @@ stops is what kills you:
    run compares against the previous stamp and alerts `backup_health_gap` if the schedule
    was silent for more than three intervals. It is written on failing runs too — stamping
    only on success would put a permanent gap alert on top of a persistent backup failure.
+7. **The EXTERNAL dead man** — the only detector here that reports by *not* running, and
+   the only one that survives the host, systemd or the mail path being gone. A run in
+   which 1-6 all passed pings a hosted check; silence pages. See "The detector that
+   reports by NOT running" below — it has its own configuration and its own runbook.
 
 ### The alert path — where a host failure actually goes
 
@@ -181,8 +189,8 @@ backup did not run", and an alert that names the wrong stage lies about where to
 - `Settings` is one class, so `DATABASE_URL`, `REDIS_URL` and the object-store keys must be
   *readable* by `postgres`. Either the repo's `.env` is readable by that user (simple
   shape) or the units supply `EnvironmentFile=-/etc/calevate/alerts.env` with only those
-  keys plus `SMTP_*` and `ALERTS_EMAIL` (hardened shape). **Nothing here opens either
-  connection** — that property is deliberate in `alerting` and is re-proved end to end in
+  keys plus `SMTP_*`, `ALERTS_EMAIL` and `BACKUP_HEARTBEAT_URL` (hardened shape).
+  **Nothing here opens either connection** — that property is deliberate in `alerting` and is re-proved end to end in
   `tests/backup_alert_relay_test.py` with both DSNs pointed at a closed port;
 - an interpreter start and up to ~45s of SMTP wait per alert, paid by a backup script that
   has already failed, bounded by `timeout 90s` in the wrapper so a unit can never hang on
@@ -197,7 +205,7 @@ under `/var/lib/postgresql/.calevate-alert-state`, the *interval* is imported fr
 `alerting` rather than copied, and a delivery that FAILED does not start a window (the
 window means "a human has been told").
 
-### The detector nobody has — precisely which one
+### The detector that reports by NOT running — the external dead man (D-54)
 
 Checks 5 and 6 close the schedule failures that happen **while this host is running**: a
 timer that was disabled, masked, deleted or edited into silence, and a stretch during which
@@ -216,14 +224,60 @@ SILENCE into a page.** That is the dead-man's-switch / Watchdog pattern — an a
 signal routed to a service that complains when it stops arriving (Prometheus's `Watchdog`
 alert is literally `expr: vector(1)` routed to an external receiver; healthchecks.io-style
 services are the same idea packaged as a URL you ping on success and that alerts on
-silence). The shape it would take here is one line — `ExecStartPost=curl -fsS
-"$HEALTHCHECK_URL"` on `calevate-backup-health.service`, or systemd's `OnSuccess=` (v249+)
-firing a ping unit — and it is deliberately **not built**, because it adds a vendor and an
-outbound dependency, which needs a decision-log entry (ROADMAP §6, D-50's open question).
+silence).
 
-Until that decision is taken, the honest statement is: **an outage that stops this host
-entirely, and a delivery path that is broken beyond it, are both detected by a human
-noticing.** Do not read checks 5 and 6 as covering that.
+**It is built** (D-54). The last line of `backup-health.sh` — reached only when
+`failures == 0` — runs `scripts/backup/heartbeat.sh` → `python -m scripts.host_heartbeat`
+→ one GET at `BACKUP_HEARTBEAT_URL`, a hosted Healthchecks.io check. The vendor comparison
+and the rejected alternatives (self-hosting the same software, Sentry Crons, Dead Man's
+Snitch, Cronitor, Better Stack/UptimeRobot) are argued with citations at the top of
+`scripts/host_heartbeat.py`; the short version is that an observer we run is back inside
+the failure domain, and routing this through Sentry would make the last alarm standing
+depend on an optional credential and a shared quota.
+
+**The asymmetry is the mechanism, not an implementation detail:**
+
+| Situation | Ping | Who tells you |
+|---|---|---|
+| Every check passed | sent | nobody — that is the point |
+| Any check failed | **not sent** | the email alert now, the dead man after the grace |
+| Host off / systemd gone / mail path broken | **impossible to send** | the dead man, and only the dead man |
+
+There is deliberately **no failure ping** (the vendor's `/fail` and `/start` endpoints go
+unused, and a test fails if either appears in the code). Failure already has a delivery
+path; a second one is a second dedupe window on one fact — the same argument that keeps
+`BACKUP_ALERT_COMMAND` to ONE command — and it buys nothing for the three failures above,
+which cannot send anything at all.
+
+**Configuring it (both halves, or it is decoration):**
+
+1. Create ONE check on the vendor: **period 15 minutes, grace 1 hour**. The grace is three
+   missed runs, the same number `MAX_HEALTH_GAP_S` uses, so a slow boot or a long
+   `wal-verify` does not page anyone and a stopped schedule does. Point its notification at
+   the same person `ALERTS_EMAIL` reaches.
+2. Put its ping URL in `BACKUP_HEARTBEAT_URL` **on the database host** — the repo `.env`
+   (simple shape) or `/etc/calevate/alerts.env` (hardened shape), from the secrets manager.
+   **It is a credential**: anyone holding it can silence the alarm by pinging it, so it is
+   never committed, never pasted into a ticket, and never logged — operator output names a
+   12-character digest of it instead. Rotating it = a new check, a new secret, nothing else.
+3. Unset is not a quiet default. `backup-health.sh` says so in the journal on the
+   transition ("backups are healthy but NOTHING outside this host is watching"), because a
+   host that believes it has a dead man and does not is the failure this whole section
+   exists to remove. Arming it is a line in OPERATIONS §8's pre-launch checklist.
+
+**A heartbeat that cannot be sent is not a backup failure.** It is logged loudly
+(`backup_heartbeat_undelivered`, journald + stderr) and changes neither the failure count
+nor the exit status — the backup really was fine, and `basebackup.sh` exits on this
+script's status, so failing the run would let one unreachable monitor mark a good backup
+unproven. It deliberately does **not** send mail either: the consequence of a missing ping
+is the dead man firing within the grace period, and a second notification about the first
+notification is noise. Triage: `runbooks/backup-heartbeat-silent.md`.
+
+**What remains uncovered, stated as plainly as the gap it replaces:** the monitoring vendor
+itself being down tells nobody anything. That is accepted rather than solved — a monitor
+watching the monitor is a regress that costs more than it buys for one operator — and it is
+bounded by the quarterly drill (`runbooks/backup-restore-drill.md` §7.8), which proves the
+check still turns red when the pings stop rather than assuming it.
 
 ## 6. Retention, and what it costs
 
