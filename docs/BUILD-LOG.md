@@ -1296,16 +1296,109 @@ is not. A concurrent-submit collision in KB that could not be reproduced determi
 three other agents held open. Nothing was lost, but the briefs now scope it per-directory,
 and `make db-reset` is prohibited outright while the dev database is shared.
 
+## §47 — the M2 push: shipping the things the docs already promised
+
+Suite went 1107 → 1296 on a clean tree, six guardrails green, 86 OpenAPI paths. This wave
+worked from `docs/ROADMAP.md` §3 and `docs/SURFACES.md` §2b rather than from ideas — every
+item below is something a doc already claimed and the code did not do.
+
+**Google Sheets, the other half of D-23.** Delivered through the SAME job as the webhook
+half, so it reuses the delivery id, the retry ladder and the exhaustion alert rather than
+minting a second definition of "we delivered a lead". Three details decided it: column
+order lives in a JSON array because JSONB does not preserve key order (Postgres sorts by
+length then bytes, so a key-ordered mapping returns scrambled and every row lands under
+different headings); an event with no declared order is REFUSED rather than guessed,
+because a spreadsheet has no per-row schema to catch a shifted value; and `=IMPORTXML(…)`
+in a caller-supplied lead name would exfiltrate the row, so input is pinned to RAW and the
+OWASP leading characters get the apostrophe Sheets reads as "this is text".
+
+**Two-speed publishing was not half-built, it was inverted.** `write_prompt_version`
+re-published a live agent in the same transaction — every version was born live — while
+`set_agent_voice` deliberately never touched the engine. Exactly backwards from §2b. And
+the diagnosis is the useful part: FLOWS §7's "explicit publish" was about prompt
+VERSIONING, not prompt PUBLISHING, and `insert_prompt_version` says so in its own
+docstring. **The missing thing was never a button, it was a second pointer** —
+`agents.system_prompt_id` was holding two answers that are allowed to differ. Pending is
+now derived from the two, never stored as a flag that can disagree with them.
+
+**Metering learned to say what it cannot know.** SURFACES §2b asks that a call which ran
+on the cheaper voice be billed at the cheaper rate. The finding came before any code:
+NOTHING in our system observes which TTS model served a call — no field on the snapshot,
+no character count, and the rates differ exactly 2:1 so a leg cost cannot divide them
+apart. Billing the premium rate was an assumption read off config, never a measurement.
+So the honest fix was attribution, not a price: every usage row carries the tier AND its
+source, premium requires evidence, and an unknown voice resolves to the VALUE tier because
+the asymmetry must favour the client. `tts_tier_source` has no `engine_reported` member,
+so the code cannot express a claim it has no evidence for.
+
+**Caps got a client half, and the schema carries the argument.** A control the spender can
+raise at will is not a control; a limit on their own money they cannot lower is not their
+account. Two column pairs, effective cap = `LEAST(admin, client)`, derived and never
+stored — so a client who lowers to ₹2,000 then clears their own cap lands back on the
+admin's ceiling rather than on ₹2,000-forever or unlimited. A cap set below this month's
+spend binds IMMEDIATELY: the person setting it is the one having the emergency, the gate
+is outbound-only so they cannot take their own receptionist off the air, and a cap that
+binds next month is not a mitigation.
+
+**Escalation, and the consent it needs.** A campaign contact that exhausted its dial
+ladder used to just stop. It now escalates — through `check_dispatch` itself rather than a
+messaging-shaped copy of the rules — and the consent that gates it is its own ledger
+purpose, because **consent to be CALLED is not consent to be MESSAGED**. Nothing is
+backfilled; a migration granting one from the other would have been the worst thing in the
+wave. The asymmetry lives in the schema rather than in guidance: a granted row must carry
+evidence and must not come from `staff_recorded_request`, which stays available for
+withdrawal, so `assumed` is unrepresentable rather than discouraged.
+
+**Meta Lead Ads stopped being a sales claim.** §2b warned in its own text not to claim it.
+Research changed the build twice: the payload carries NO answers (they need a Graph call
+with a Page token this deployment does not hold, so there is a capability constant and no
+fabricated client), and Meta retries ~36 hours then UNSUBSCRIBES the client's Page — so a
+permanent refusal is acked 200 and recorded `failed`, because refusing loudly would
+disconnect the client's own lead flow. `developers.facebook.com` is egress-blocked here,
+so every vendor fact is marked docs-verified vs still owed a live confirmation.
+
+**The brittle test was measuring a query nobody runs.** The balance-read assertion
+EXPLAINed a tenant that does not exist (planner estimates one row; sorting one row is
+free — that was the whole 8.17-vs-8.18 mystery) inside an untenanted session where RLS
+collapses to `One-Time Filter: (NULL = …)`. It now builds a real ledger in a real tenant
+session and asserts no Sort survives `enable_sort = off` — PG16 DISCOURAGES rather than
+forbids, which is what makes it stable: 1e10 dwarfs a 0.01 cost tie. The tie was a real
+signal too: `ix_credit_ledger_tenant_id` is a strict prefix of the composite.
+
+**What was refused.** A retail value-tier rate (TRD §10.1's bands are explicitly
+unmeasured, so a number would be invention wearing a citation — a test fails if anything
+assigns one); a WhatsApp BSP; a Razorpay order-creation adapter; a Graph API client; a
+per-vertical prompt dict nothing would read; and a fifth `retention_policies` category for
+KB, which would have contradicted DATA-MODEL §9.
+
+**The process lesson that cost the most.** Territories were drawn by DIRECTORY while the
+coupling was by BEHAVIOUR, so seams kept landing on the orchestrator: a router nobody
+mounted, a field named `summary` that tripped a guardrail another slice had just armed, a
+migration that broke a third slice's test runs. The rule now is that an agent owns its
+slice end-to-end — its migration, its router mount, its contract regeneration — and shared
+state gets a protocol rather than a prohibition. Two seams still had to be caught by hand
+and are worth knowing as a class: a worst-case cost quote that read one of two rates after
+a second was added, and a GET requiring a MUTATING permission that only became visible
+when two slices shared a route table.
+
 ### Where the next session should start
 
-1. `docs/ROADMAP.md` §2 — remaining M1: the wizard's **intake step** (FLOWS §1 step 3,
-   which needs client #1 in the room rather than more code) and **OTel spans** (Sentry
-   and the Langfuse hook are wired; distributed tracing is not).
-2. Remaining M2 openers: WhatsApp alerts, self-serve signup UI, Razorpay top-ups into
-   `credit_ledger`, Google Sheets sync (the other half of D-23 — the `google_sheets`
-   endpoint kind is in the schema and unimplemented), invoice generation (the usage and
-   margin panels ship; turning a month into a PDF invoice does not).
-4. Everything gated on the **Bolna pilot** (OPERATIONS §2) is deliberately unbuilt:
-   number provisioning, transfer, the test-call gate, real latency numbers.
-5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q` (214 tests),
-   `uv run mypy apps packages`, `make guardrails` and `pnpm -C apps/web lint` before changing anything.
+1. **Founder decisions, none of them code.** The retail value-tier rate
+   (`plans.overage_rate_value` exists and is NULL everywhere); the retention TTL
+   divergence (docs 24 months, seed 365/1095/90 — SEC-COMP §4 declares it open and names
+   the founder); erasure vs the TRAI 90-day recording floor; a WhatsApp BSP, which is the
+   single entry that unblocks the escalation path end to end.
+2. **Gated on the Bolna pilot** (OPERATIONS §2) and deliberately unbuilt: number
+   provisioning, transfer, the test-call gate, real latency numbers, and the KB questions
+   at gate 8 (whether the list response carries agent linkage; whether deleting a KB
+   clears the agent's reference).
+3. **Known gaps with the evidence already gathered**: KYC-gated number purchase (D-34's
+   last R-11 mitigation); `kb_retrieval_logs` has no producer and cannot have one until
+   the engine reports a retrieval (dated in the model); T1/T2 tiers are absent by decision;
+   and `inbound_webhooks` rows are still provisioned out-of-band because nothing writes
+   them.
+4. **The local database cannot reach head** and that is expected — see
+   `runbooks/stale-dev-database.md`. Use a scratch DB; do not stamp past the credit-ledger
+   index.
+5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q`, `uv run mypy apps packages`,
+   `make guardrails` and `pnpm -C apps/web lint` before changing anything.
