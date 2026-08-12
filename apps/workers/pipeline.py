@@ -35,6 +35,7 @@ from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.rates import billable_tier
 from apps.api.billing.service import charge_for_call, plan_tier_of
 from apps.api.core.alerting import alert, record_pipeline_lag, record_reconciliation_repair
 from apps.api.core.errors import ProblemError
@@ -863,6 +864,26 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         return 0
     async with tenant_session(tenant_id) as session:
         tier = await plan_tier_of(session, tenant_id)
+        voice_id = (
+            await session.execute(
+                # LEFT JOIN: a call whose agent row was since removed still has to
+                # meter — and it meters as UNPROVEN, which bills at the value rate.
+                text(
+                    "SELECT a.tts_voice FROM calls c "
+                    "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
+                    "WHERE c.id = :cid AND c.tenant_id = :tid"
+                ),
+                {"cid": call_id, "tid": tenant_id},
+            )
+        ).scalar()
+        # WHICH VOICE ACTUALLY RAN IS NOT SOMETHING WE MEASURE. The engine reports a
+        # synthesizer leg cost and no model name (billing/rates.py explains the vendor
+        # question), so this is the voice the agent was CONFIGURED with at metering
+        # time — an assumption, stamped with its provenance so no later reader can
+        # mistake it for a measurement. An unrecognised or absent voice resolves to the
+        # VALUE tier: SURFACES §2b's rule is that an unproven call is never billed at
+        # the premium rate.
+        tts_tier, tts_tier_source = billable_tier(voice_id if isinstance(voice_id, str) else None)
         already = (
             await session.execute(
                 text(
@@ -883,6 +904,13 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 "source_amount": str(cost.source_amount) if cost.source_amount else None,
                 # The fx rate used AT CAPTURE — without it the row cannot be re-derived.
                 "fx_rate": str(cost.fx_rate) if cost.fx_rate else None,
+                # D-36's TTS ladder, recorded per row so metering can be audited by
+                # rung and a mis-tiered call can be compensated (never edited — hard
+                # rule 4). `tts_tier_source` is the honesty: `agent_config` means we
+                # read the agent's configured voice, NOT that the engine told us.
+                "tts_tier": tts_tier,
+                "tts_tier_source": tts_tier_source,
+                "tts_voice": voice_id if isinstance(voice_id, str) else None,
             }
         )
         # `unit_cost_paid` is a PRICE PER UNIT OF `qty`, because that is what every

@@ -39,6 +39,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.rates import TtsTier, tier_correction_inr
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -437,6 +438,204 @@ async def usage_summary(
     }
 
 
+# --- the TTS tier ladder (SURFACES §2b, D-36) ----------------------------------
+#
+# `usage_events.meta.tts_tier` is written by the post-call pipeline from the voice the
+# agent was CONFIGURED with — the engine reports no synthesizer model, so it is an
+# assumption carrying its own provenance (`billing/rates.py` has the vendor question in
+# full). Everything below reads that one field, so the client panel and the margin panel
+# cannot end up telling two different stories about the same call.
+
+
+async def tier_usage(
+    session: AsyncSession, *, tenant_id: UUID, month: str | None = None
+) -> dict[str, Any]:
+    """Minutes and OUR cost, split by the TTS rung each call was metered on.
+
+    Three buckets, not two, and the third is the honest one: rows written before tier
+    attribution existed — or by a path that could not attribute one — carry no tier at
+    all. They are reported as `unattributed` rather than folded silently into a rung,
+    because "we know this ran on v2" and "we never knew" are different facts.
+
+    For BILLING they are not different: `minutes_billable_value` folds unattributed in
+    with value, because SURFACES §2b's rule is that a call we cannot prove got the
+    premium voice is never charged the premium rate. Reporting keeps the distinction;
+    pricing resolves it in the client's favour.
+
+    Minutes come from `telephony_s` — the same unit `usage_summary` bills on — so the
+    three buckets always add up to that panel's `minutes_used` for the same month.
+    """
+    period = month or current_billing_month()
+    rows = (
+        await session.execute(
+            # `/ 60.0` is a NUMERIC literal in Postgres, exactly as in `usage_summary`;
+            # nothing on this path becomes a float (hard rule 7).
+            text(
+                "SELECT COALESCE(meta->>'tts_tier', ''), "
+                "  COALESCE(SUM(qty) FILTER (WHERE unit_type = 'telephony_s'), 0) / 60.0, "
+                "  COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)), 0) "
+                f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH} = :month "
+                "GROUP BY 1"
+            ),
+            {"tid": tenant_id, "month": period},
+        )
+    ).all()
+
+    minutes = {"premium": Decimal("0"), "value": Decimal("0"), "": Decimal("0")}
+    cost = {"premium": Decimal("0"), "value": Decimal("0"), "": Decimal("0")}
+    for label, mins, spent in rows:
+        # An unrecognised label is treated as unattributed rather than trusted: a tier
+        # this module does not know is not a tier it can price.
+        key = str(label) if str(label) in ("premium", "value") else ""
+        minutes[key] += Decimal(str(mins or 0))
+        cost[key] += Decimal(str(spent or 0))
+
+    return {
+        "month": period,
+        "minutes_premium": to_paise(minutes["premium"]),
+        "minutes_value": to_paise(minutes["value"]),
+        "minutes_unattributed": to_paise(minutes[""]),
+        # What a bill may charge at each rung: unproven never reaches the premium side.
+        "minutes_billable_premium": to_paise(minutes["premium"]),
+        "minutes_billable_value": to_paise(minutes["value"] + minutes[""]),
+        "cost_premium_inr": to_paise(cost["premium"]),
+        "cost_value_inr": to_paise(cost["value"]),
+        "cost_unattributed_inr": to_paise(cost[""]),
+    }
+
+
+async def record_tier_correction(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    call_id: UUID,
+    chars: int,
+    billed_tier: TtsTier,
+    actual_tier: TtsTier,
+    ref: str,
+    note: str | None = None,
+) -> Decimal | None:
+    """Correct a call metered on the wrong TTS rung — by APPENDING, never by editing.
+
+    `usage_events` is INSERT-only (hard rule 4), so the wrong row stays exactly where it
+    is and a new row carries the difference. `margin_for_tenant` sums
+    `qty * unit_cost_paid`, so a `qty` of 1 priced at the delta corrects the month by
+    construction, with no reader needing to know a correction happened.
+
+    It is stamped at the ORIGINAL call's `occurred_at`, not at now(): a July call that
+    was billed at the wrong rate was wrong in July, and dropping the fix into August
+    would leave both months lying. The moment the correction was issued is recorded in
+    `meta.issued_at` instead, which is the audit question a date on the row cannot
+    answer anyway.
+
+    A CHARACTER COUNT IS REQUIRED — `rates.tts_cost_inr` refuses to invent one, so a
+    correction can only be made by someone who actually knows how much speech was
+    synthesized (today: from the model vendor's own usage export).
+
+    Returns the delta written, or None when there was nothing to correct — the tiers
+    agreed, or this `ref` has already been applied. Idempotent under a per-tenant
+    advisory lock, because a replayed ops script must not credit twice.
+    """
+    delta = tier_correction_inr(chars=chars, billed_tier=billed_tier, actual_tier=actual_tier)
+    if delta == 0:
+        return None
+
+    # Same lock the credit ledger uses, so the usage correction and the wallet
+    # adjustment below are decided inside ONE critical section per tenant.
+    await lock_tenant_credits(session, tenant_id)
+    already = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM usage_events WHERE tenant_id = :tid AND call_id = :cid "
+                "AND meta->>'correction_ref' = :ref LIMIT 1"
+            ),
+            {"tid": tenant_id, "cid": call_id, "ref": ref},
+        )
+    ).first()
+    if already:
+        return None
+
+    occurred_at = (
+        await session.execute(
+            text(
+                "SELECT MIN(occurred_at) FROM usage_events "
+                "WHERE tenant_id = :tid AND call_id = :cid"
+            ),
+            {"tid": tenant_id, "cid": call_id},
+        )
+    ).scalar()
+
+    meta = {
+        "kind": "tts_tier_correction",
+        "correction_ref": ref,
+        "billed_tier": billed_tier,
+        "actual_tier": actual_tier,
+        # The row asserts the tier that RAN, so `tier_usage` counts its money on the
+        # rung the call actually used rather than the one it was mis-billed on.
+        "tts_tier": actual_tier,
+        "tts_tier_source": "correction",
+        "chars": chars,
+        "issued_at": datetime.now(UTC).isoformat(),
+        "note": note,
+    }
+    await session.execute(
+        text(
+            "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, unit_cost_paid, "
+            "occurred_at, meta, created_at) VALUES (:id, :tid, :cid, 'other', 1, :cost, "
+            "COALESCE(:at, now()), CAST(:meta AS jsonb), now())"
+        ),
+        {
+            "id": uuid7(),
+            "tid": tenant_id,
+            "cid": call_id,
+            "cost": delta,
+            "at": occurred_at,
+            "meta": json.dumps(meta),
+        },
+    )
+
+    # For a self-serve client the wallet IS the bill (D-39): the call was debited at
+    # metered cost, so a corrected cost has to move the balance too — as a new entry.
+    # Managed clients are invoiced against a retainer and their wallet is not part of
+    # the charge, so nothing is written for them.
+    if await plan_tier_of(session, tenant_id) in ("self_serve", "trial"):
+        wallet_ref = f"tier-correction:{ref}"
+        seen = (
+            await session.execute(
+                text(
+                    "SELECT 1 FROM credit_ledger WHERE tenant_id = :tid AND ref = :ref "
+                    "AND reason = 'adjustment' LIMIT 1"
+                ),
+                {"tid": tenant_id, "ref": wallet_ref},
+            )
+        ).first()
+        if not seen:
+            await record_entry(
+                session,
+                tenant_id=tenant_id,
+                # The ledger's sign convention is the wallet's, not the cost ledger's:
+                # a NEGATIVE cost correction (we overbilled) is a POSITIVE credit back.
+                delta=-delta,
+                reason="adjustment",
+                ref=wallet_ref,
+                meta={"call_id": str(call_id), "billed_tier": billed_tier, "actual": actual_tier},
+                # The call already happened; a correction that refuses to record is a
+                # correction that leaves the client overcharged.
+                allow_negative=True,
+            )
+
+    log.info(
+        "tts_tier_correction",
+        extra={
+            "tenant_id": str(tenant_id),
+            "call_id": str(call_id),
+            "billed_tier": billed_tier,
+            "actual_tier": actual_tier,
+        },
+    )
+    return delta
+
+
 async def margin_for_tenant(
     session: AsyncSession, *, tenant_id: UUID, month: str | None = None
 ) -> dict[str, Any]:
@@ -497,6 +696,8 @@ __all__ = [
     "plan_tier_of",
     "rate_to_display",
     "record_entry",
+    "record_tier_correction",
+    "tier_usage",
     "to_paise",
     "usage_summary",
 ]
