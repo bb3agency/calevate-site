@@ -419,12 +419,20 @@ async def _dispatch_for_campaign(
                     context_note=None,
                 )
             except Exception as exc:  # engine refused: schedule the retry ladder
-                await _record_failure(session, contact_id, attempts, max_attempts, retry_policy)
+                spent = await _record_failure(
+                    session,
+                    contact_id,
+                    attempts,
+                    max_attempts,
+                    retry_policy,
+                    tenant_id=tenant_id,
+                    campaign_id=campaign_id,
+                )
                 log.warning(
                     "campaign_dial_failed",
                     extra={"campaign_id": str(campaign_id), "reason": type(exc).__name__},
                 )
-                if attempts >= max_attempts:
+                if spent:
                     exhausted += 1
                 continue
 
@@ -482,7 +490,8 @@ async def resolve_campaign_contact(
     row = (
         await session.execute(
             text(
-                "SELECT cc.id, cc.attempts, c.retry_policy FROM campaign_contacts cc "
+                "SELECT cc.id, cc.attempts, c.retry_policy, cc.campaign_id "
+                "FROM campaign_contacts cc "
                 "JOIN campaigns c ON c.id = cc.campaign_id "
                 "WHERE cc.last_call_id = :cid AND cc.status = 'dialing'"
             ),
@@ -491,7 +500,7 @@ async def resolve_campaign_contact(
     ).first()
     if row is None:
         return None
-    contact_id, attempts, retry_policy = row
+    contact_id, attempts, retry_policy, campaign_id = row
     policy: dict[str, Any] = retry_policy or {}
 
     if call_status == "completed":
@@ -504,18 +513,20 @@ async def resolve_campaign_contact(
         )
         return "connected"
 
-    await _record_failure(
+    spent = await _record_failure(
         session,
         contact_id,
         int(attempts or 0),
         int(policy.get("max_attempts", 3)),
         policy,
+        tenant_id=tenant_id,
+        campaign_id=UUID(str(campaign_id)),
     )
     log.info(
         "campaign_contact_unanswered",
         extra={"tenant_id": str(tenant_id), "call_status": call_status},
     )
-    return "failed" if int(attempts or 0) >= int(policy.get("max_attempts", 3)) else "pending"
+    return "failed" if spent else "pending"
 
 
 async def _reap_stuck_dialing(session: Any, campaign_id: UUID) -> int:
@@ -535,9 +546,35 @@ async def _reap_stuck_dialing(session: Any, campaign_id: UUID) -> int:
 
 
 async def _record_failure(
-    session: Any, contact_id: UUID, attempts: int, max_attempts: int, retry_policy: dict[str, Any]
-) -> None:
-    """no-answer/busy/failed → the FLOWS §5 retry ladder with spaced delays."""
+    session: Any,
+    contact_id: UUID,
+    attempts: int,
+    max_attempts: int,
+    retry_policy: dict[str, Any],
+    *,
+    tenant_id: UUID | None = None,
+    campaign_id: UUID | None = None,
+) -> bool:
+    """no-answer/busy/failed → the FLOWS §5 retry ladder with spaced delays, and on the
+    last rung the ESCALATION (FLOWS §4.5, ROADMAP §3 bullet 1).
+
+    Returns whether this call spent the ladder, so the caller can count exhaustions.
+
+    **Exhaustion used to be the end of the story**: the contact went `failed` and nothing
+    else happened — no message, no timeline entry, no operator signal. A lead the client
+    paid to generate went cold in silence. The follow-up is queued through the OUTBOX in
+    THIS transaction, so it shares the fate of the status that justifies it: a rolled-back
+    exhaustion cannot leave a message queued to somebody we are still trying to phone.
+
+    `enqueue_campaign_escalation` is what makes it once-per-contact. The status
+    transition cannot: `_reap_stuck_dialing` returns a stranded contact to `pending`
+    with its attempts intact and no ceiling, so the same person can reach "exhausted"
+    more than once, and the second message would be about the same single enquiry.
+
+    `tenant_id`/`campaign_id` are optional so the two call sites can pass what they have;
+    without them the contact is still failed correctly and the escalation is skipped
+    with a log line rather than guessed at.
+    """
     if attempts >= max_attempts:
         await session.execute(
             text(
@@ -545,7 +582,22 @@ async def _record_failure(
             ),
             {"id": contact_id},
         )
-        return
+        if tenant_id is not None and campaign_id is not None:
+            # Local import: `whatsapp` is a worker peer and a module-level import here
+            # would drag the notification stack into the dispatch tick's hot path.
+            from apps.workers.whatsapp import enqueue_campaign_escalation
+
+            queued = await enqueue_campaign_escalation(
+                session, tenant_id=tenant_id, campaign_id=campaign_id, contact_id=contact_id
+            )
+            # Ids only, never the contact's number (hard rule 6).
+            log.info(
+                "campaign_contact_exhausted",
+                extra={"campaign_id": str(campaign_id), "escalation_queued": queued},
+            )
+        else:
+            log.info("campaign_contact_exhausted", extra={"escalation_queued": False})
+        return True
     backoffs = retry_policy.get("backoff_minutes") or [30, 120]
     minutes = int(backoffs[min(attempts - 1, len(backoffs) - 1)])
     await session.execute(
@@ -555,6 +607,7 @@ async def _record_failure(
         ),
         {"next": datetime.now(UTC) + timedelta(minutes=minutes), "id": contact_id},
     )
+    return False
 
 
 __all__ = [

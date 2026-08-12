@@ -32,6 +32,7 @@ from apps.workers.notifications import notify_hot_lead
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from apps.workers.pipeline import ingest_engine_event, reconcile_executions, run_post_call_pipeline
 from apps.workers.retention import apply_retention, execute_deletion_request
+from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
 log = get_logger(__name__)
 
@@ -57,6 +58,12 @@ FUNCTIONS: list[Any] = [
         # A DPDP erasure is queued rather than run inline: it touches many rows and must
         # survive a request timing out halfway through.
         execute_deletion_request,
+        # Both WhatsApp jobs. An unregistered job is not a dormant feature — the outbox
+        # publishes it, arq does not recognise the name, and the row walks its retry
+        # ladder into the DLQ while every screen reports the message was queued.
+        # `tests/job_registration_test.py` is the guard; this pair is why it exists.
+        notify_hot_lead_whatsapp,
+        escalate_campaign_contact,
     )
 ]
 
