@@ -94,3 +94,8 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	uv run python -m scripts.check_ledger_immutability
 	uv run python -m scripts.check_redaction_exposure
 	uv run python -m scripts.check_openapi_fresh
+	# Half-wired features (CLAUDE.md). Here rather than in pytest because it needs no
+	# database and its subject is the SHAPE of the tree — the same class of question
+	# `lint-imports` and the redaction scan ask. Its negative controls, which need a
+	# tmp tree and a doctored route table, live in tests/wiring_guard_test.py.
+	uv run python -m scripts.check_wiring
