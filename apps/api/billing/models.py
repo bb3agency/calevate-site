@@ -123,11 +123,26 @@ class SpendState(TimestampMixin, Base):
     ceiling arms it (`hard_cap_min` or `hard_cap_spend`); a tenant with no plan row or a
     NULL ceiling is never capped.
 
-    The meter is the ONLY writer, which has a consequence worth knowing before you read
-    the flag anywhere: a capped tenant meters nothing, so the flag cannot clear itself.
-    Both readers therefore check `month` as well — a cap belonging to a closed billing
-    month is not a cap. Without that, an outbound-only tenant capped in July would be
-    refused every dial in August with no call able to complete and clear it.
+    **Two writers, and the second one exists because the first cannot clear the flag.**
+    The meter is the writer that ARMS it, and a capped tenant meters nothing — so on the
+    meter alone the flag can never clear itself. Both readers therefore check `month` as
+    well: a cap belonging to a closed billing month is not a cap, without which an
+    outbound-only tenant capped in July would be refused every dial in August with no
+    call able to complete and clear it.
+
+    `billing.caps.apply_client_caps` is the second writer. It recomputes `capped` from
+    the counters ALREADY in the row — it writes only the flag, only for the current
+    month, and never moves a total — so a client who lowers their own cap is stopped on
+    the next dial rather than the dial after the next call happens to meter, and a client
+    who raises it is released the same way. Both writers derive the flag from the one
+    shared `over_cap_sql`, which is what stops two writers becoming two definitions.
+
+    Known dead end, not yet closed: ops has no writer at all. Raising `plans.hard_cap_*`
+    through the audited admin path does not recompute the flag, so a capped
+    outbound-only tenant stays blocked until the client themselves calls
+    `PUT /v1/billing/caps` — which `org:manage` being in MUTATING_PERMISSIONS stops an
+    impersonating admin doing for them — or the IST month rolls over. An ops-realm
+    recompute is what closes it; `runbooks/calls-stopped.md` documents the workaround.
     """
 
     __tablename__ = "spend_state"

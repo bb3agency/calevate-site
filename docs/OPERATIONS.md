@@ -98,6 +98,46 @@ conformance run against Bolna (keep the exit door oiled).
 
 ## 7. Runbooks (summaries; full steps in /runbooks)
 
+**Written procedures.** Every fact in these is grep-verified against the tree, so where
+one differs from a summary below, the runbook is the authority.
+
+- **"Our calls have stopped"** — `runbooks/calls-stopped.md`. The ordered diagnostic for
+  the nine conditions behind one symptom: big red switch, load-shed mode, Calevate's own
+  TM registration (blocks every tenant at once), the admin spend cap, the client's own
+  spend cap, `spend_state.capped` and the trap in clearing it, an empty prepaid wallet,
+  the client's PE registration + TM link, and the campaign's consent provenance, template,
+  number or a DNC hit. Marks which of these a client can self-serve out of.
+- **Campaign is not dialling** — `runbooks/campaign-stall.md`. The dispatcher's own
+  failure modes: tick verdicts, line-pool exhaustion, per-tenant ceiling, contact states,
+  the per-dial gate.
+- **"You called someone who asked you not to"** — `runbooks/dnc-complaint.md`. DNC
+  complaint or TRAI/DLT escalation; the answer is a timeline, not a fix.
+- **Campaign follow-up never goes out** — `runbooks/campaign-escalation-refused.md`.
+  `escalate_campaign_contact` refusals, split by the line the code itself draws: the ones
+  that page a human (`no_provider_configured`, `provider_not_implemented`, template
+  failures, ladder exhaustion) and the lawful ones that deliberately do not
+  (`recipient_not_opted_in`, `whatsapp_disabled`, every `blocked_*` from the dispatch
+  gate). Covers both states of the `messaging` consent purpose.
+- **Top-ups and payments** — `runbooks/topup-payments.md`. `payment_capability()` and what
+  each refusal means; server-side order creation is NOT implemented
+  (`PROVIDER_CREATES_ORDERS = False`) and what to tell a client who wants to pay today;
+  the Razorpay signing scheme and payload paths are UNVERIFIED against a live account, so
+  the first real payment is an attended test, not a routine.
+- **Knowledge base out of sync with the engine** — `runbooks/kb-out-of-sync.md`.
+  `kb_engine_ref_unknown` vs `kb_engine_out_of_sync`: same disease, different cures, and
+  the wrong cure leaves a client's agent quoting old prices. Includes the manual
+  vendor-side withdrawal and its two unverified pilot-gate caveats.
+- **Local database cannot reach head** — `runbooks/stale-dev-database.md`. The
+  `credit_ledger` CONCURRENTLY unique index that cannot build over permanent pre-cutoff
+  duplicates hard rule 4 forbids deleting; a fresh database and `make db-reset`; and why
+  `alembic stamp` past it defeats the ancestry gate the index tests depend on.
+- **Object-store lifecycle rule** — `runbooks/object-lifecycle.md`. Applying and
+  validating the recording-expiry policy, and what it does NOT prove.
+- **Events not reaching a client's CRM** — `runbooks/webhook-delivery-failures.md`. Outbox
+  → ARQ → delivery forensics, plus the client-side checks to hand them.
+
+**Summaries only** (no written runbook yet):
+
 - **Engine outage**: numbers fail over to client phones (provisioned fallback); status
   banner in dashboards; reconcile calls post-recovery; if >4h, activate Bolna adapter for
   new calls (numbers re-point), inform clients.
