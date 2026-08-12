@@ -215,8 +215,32 @@ usage_events(id, tenant_id, call_id NULL, unit_type ENUM[telephony_s,stt_s,tts_c
   llm_tok_in,llm_tok_out,platform_min,number_rental,other], qty NUMERIC, unit_cost_paid NUMERIC,
   occurred_at, meta JSONB)                          -- INSERT-only; no UPDATE/DELETE grants
 plans(id, tenant_id, setup_fee, monthly_fee, included_min INT, overage_rate,
-  hard_cap_min INT, hard_cap_spend NUMERIC, concurrency_ceiling INT DEFAULT 10,
-  effective_from, effective_to)
+  overage_rate_value NUMERIC NULL, hard_cap_min INT, hard_cap_spend NUMERIC,
+  client_cap_min INT NULL, client_cap_spend NUMERIC NULL,
+  concurrency_ceiling INT DEFAULT 10, effective_from, effective_to)
+  -- `overage_rate_value` prices D-36's value TTS rung; NULL means the plan quotes no
+  -- separate value rate and everything bills at `overage_rate` (migration b1d5c8e73f04).
+  -- `client_cap_*` are the CLIENT's own ceilings beside the admin's `hard_cap_*`; the
+  -- effective cap is LEAST(admin, client), DERIVED and never stored, so clearing the
+  -- client's own lands back on the admin's rather than on unlimited (billing/caps.py).
+  -- WHICH ROW IS IN EFFECT (D-46). `effective_from`/`effective_to` are the row's VALID
+  -- TIME, and every money reader resolves through ONE helper,
+  -- `billing/plans.plan_in_effect_sql` — the invoice, the usage panel, both cap reads,
+  -- the worst-case call-cost quote and the dispatch concurrency ceiling. The period is
+  -- HALF-OPEN, `effective_from <= at < effective_to` (SQL:2011 application-time
+  -- semantics), so `old.effective_to = new.effective_from` is exactly right with no gap
+  -- and no instant priced twice. `at` is passed in and is NOT always now: a closed month
+  -- prices at its last instant (which is what makes the derived invoice re-renderable), a
+  -- future month at its first. NULL bounds are not a defect — "since forever" and "until
+  -- further notice" is what an open-ended retainer is — so overlap is resolved by a TOTAL
+  -- ORDER rather than forbidden by an EXCLUDE constraint (declined: every row today is
+  -- NULL/NULL and mutually overlapping, and `caps.apply_client_caps` mints a windowless
+  -- row for a tenant with no plan): latest `effective_from` (NULL as -infinity), then
+  -- `created_at DESC, id DESC`. With every window NULL that collapses to the newest-row
+  -- rule this repo had before. A tenant with plan rows and none in effect is UNPRICED —
+  -- no fee, no included minutes, no rate, no ceiling — deliberately, and logs
+  -- `plan_window_leaves_tenant_unpriced`; falling back to the expired row would charge a
+  -- client at terms whose end date we were told.
 credit_ledger(id, tenant_id, delta NUMERIC, reason ENUM[topup,usage,adjustment,refund],
   ref, balance_after, occurred_at, meta JSONB)          -- INSERT-only (hard rule 4)
 -- INDEX ix_credit_ledger_tenant_recent (tenant_id, occurred_at DESC, id DESC)
@@ -224,18 +248,33 @@ credit_ledger(id, tenant_id, delta NUMERIC, reason ENUM[topup,usage,adjustment,r
 --   balance_after is denormalized — so every read is `ORDER BY occurred_at DESC,
 --   id DESC LIMIT 1` on the pre-dispatch path. The `id DESC` tail is load-bearing:
 --   occurred_at is stamped with clock_timestamp(), so "newest" must be a TOTAL order or
---   two readers disagree about which row it is. `ix_credit_ledger_tenant_id` is now a
---   redundant prefix and is deliberately NOT dropped in the same release (hard rule 8).
---   REFUSED in the same migration, and recorded so nobody re-derives it: a partial
---   UNIQUE(tenant_id, ref) WHERE reason IN ('topup','usage') would make double-crediting
---   impossible instead of merely unlikely, but existing rows violate it and this is an
---   append-only ledger — the fix is compensating entries by a person, then the index.
---   That correction path now exists (`scripts/reconcile_credit_ledger.py`, dry-run by
---   default, `--apply` to write; compensating `adjustment` entries through
---   `record_entry` under the tenant credit lock, never an UPDATE or DELETE). The index
---   is still REFUSED: the violating pairs are manufactured faster than they are
---   corrected while the test suite runs, so it lands only after a reconciled database
---   and a fixture that seeds its residue backdated rather than by double-crediting.
+--   two readers disagree about which row it is.
+-- DROPPED: ix_credit_ledger_tenant_id (migration e7c3d10a9f52) — step two of the
+--   two-step a6f2e84b1d37 opened (hard rule 8), taken only once the composite had been
+--   observed carrying real plans. It was a STRICT PREFIX of the composite, so every
+--   query in the repo that touches credit_ledger was EXPLAIN ANALYZEd on a loaded
+--   database before and after: no node type changed and nothing fell back to a seq
+--   scan; each plan simply names the composite where it named the prefix. It costs 2
+--   more shared buffers per bitmap scan and buys an append-only table one insert-time
+--   index instead of two (~7% faster over 200k appends), which is the trade worth
+--   making on a table where no UPDATE ever repays the write. The model's `index=True`
+--   went with it — leaving it would have had the next autogenerate helpfully recreate
+--   the index, a deprecation that un-deprecates itself.
+-- INDEX ux_credit_ledger_tenant_reason_ref UNIQUE (tenant_id, reason, ref)
+--   WHERE ref IS NOT NULL AND reason IN ('topup','usage','adjustment')
+--   AND occurred_at >= <the migration's own timestamp> (f9c2b41a8e57). Four earlier
+--   attempts proposed UNIQUE(tenant_id, ref) and argued about the PREDICATE; the KEY was
+--   the wrong shape. `ref` is two namespaces in one column — a `usage` row carries a call
+--   id, a `topup` row carries whatever the bank printed — and the system TOLERATES that
+--   collision in three places deliberately, so the old key would have turned a
+--   defended-against collision into a 500 on a valid payment. The cutoff is because the
+--   ledger is append-only and the pre-existing violating pairs are real double-credits
+--   that hard rule 4 makes permanent: they are corrected by compensating entries
+--   (`scripts/reconcile_credit_ledger.py`, dry-run by default, `--apply` to write,
+--   through `record_entry` under the tenant credit lock — never an UPDATE or DELETE),
+--   not by deleting money rows. Consequence for developers: a database carrying that
+--   residue cannot reach head — `runbooks/stale-dev-database.md`, and do not stamp past
+--   it.
 spend_state(tenant_id PK, month, minutes_used NUMERIC, spend_used NUMERIC, capped BOOL)
   -- read by the COMPLIANCE GATE before every outbound dispatch (fail closed when capped)
   -- — apps/api/compliance/service.py, not voice-runtime; see TRD §9
@@ -279,6 +318,37 @@ dlt_registrations(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT, pe_
   -- design (a registration is suspended and restored over its life); who changed it is
   -- `audit_log`'s job. Standard §1 RLS, created in migration c5a930e6b1d4 with the
   -- table. `verified_at` = when WE last confirmed it with the registrar.
+kyc_records(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT,
+  status ENUM[not_started,submitted,in_review,verified,rejected,expired] NOT NULL
+    DEFAULT 'not_started',
+  entity_type ENUM[sole_proprietorship,partnership,llp,private_limited,public_limited,
+    trust_or_society,huf] NULL,
+  document_kind ENUM[cin,llpin,gstin,udyam,shop_establishment,trade_licence] NULL,
+  document_ref TEXT NULL, signatory_name TEXT NULL, evidence_ref TEXT NULL,
+  rejection_reason TEXT NULL, verified_by_admin_id → admin_users NULL,
+  submitted_at, verified_at,
+  CHECK (status <> 'verified' OR (document_kind IS NOT NULL AND document_ref IS NOT NULL
+         AND verified_by_admin_id IS NOT NULL AND verified_at IS NOT NULL)),
+  CHECK (status <> 'rejected' OR rejection_reason IS NOT NULL),
+  CHECK (document_ref IS NULL OR document_ref !~ '^[0-9]{12}$'))
+  -- Subscriber KYC (D-47, migration a3f6b1e02d95): the fact that a person at Calevate
+  -- verified this BUSINESS's identity, against a named public-registry document, on a
+  -- date, with the pack filed under a reference. Read by `compliance.service.kyc_blocker`
+  -- as `kyc_missing` / `kyc_not_verified` — the DIAL gate for `self_serve`/`trial` only,
+  -- the NUMBER-PURCHASE gate for every tier. Mutable and one row per tenant for the same
+  -- reason as `dlt_registrations`: a verification is cleared, expires and is withdrawn
+  -- over its life, and the gate reads current state on every dial; `audit_log` holds who
+  -- changed it. Standard §1 RLS created with the table.
+  -- The three CHECKs are the three questions, made unstorable-if-unanswered: an auditor's
+  -- (what, against what, by whom, when), a support person's (why is this blocked), and
+  -- DPDP's. NEVER the document itself — `document_kind` names ENTITY registries only, so
+  -- nothing here identifies a natural person; `evidence_ref` is a reference to where the
+  -- pack is filed (the discipline `outbound_webhooks.secret_ref` uses for credentials);
+  -- `signatory_name` is a name with no identity-document number beside it. The 12-digit
+  -- regex is a backstop, not the control: no permitted registry id is 12 bare digits, so
+  -- an Aadhaar pasted into a business field fails at the moment of the mistake.
+  -- Deliberately does NOT duplicate `dlt_registrations.pe_id` — overlapping evidence, two
+  -- regimes, different holders.
 consent_ledger(id, tenant_id, call_id, phone_e164,
   purpose ENUM[recording,callback,marketing,messaging],
   status ENUM[granted,declined,withdrawn], captured_at, evidence JSONB,

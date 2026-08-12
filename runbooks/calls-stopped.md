@@ -16,8 +16,8 @@ telephony problem and belongs in the engine-outage procedure (OPERATIONS §7), n
 
 **Campaign, or every outbound path?** The call-this-lead button, the instant-lead
 callback and the campaign dispatcher all pass the same gate, so a cause that blocks one
-blocks all three. Causes 6–8 below are campaign-only. If the client's callbacks work and
-only the campaign is quiet, start at step 4.
+blocks all three. Causes 8 and 10 below are campaign-only. If the client's callbacks
+work and only the campaign is quiet, start at step 5.
 
 Ground rules: production access goes through the audited admin path — distinct role,
 always-audited queries (SECURITY-COMPLIANCE.md §"Admin access path"). Read-only SELECTs.
@@ -27,7 +27,7 @@ text or extraction payloads into a ticket or a terminal you will paste from
 
 ---
 
-## The nine causes, and who can clear each
+## The ten causes, and who can clear each
 
 | # | Cause | Where it lives | Cleared by |
 |---|---|---|---|
@@ -39,7 +39,8 @@ text or extraction payloads into a ticket or a terminal you will paste from
 | 6 | The cap flag itself | `spend_state.capped` | ops (`POST /v1/ops/tenants/{id}/spend-cap/recompute`) or the client — see step 2 |
 | 7 | Prepaid wallet empty | `credit_ledger` balance, self-serve/trial only | client (top-up) or ops |
 | 8 | The client's PE registration / TM link | `dlt_registrations` | ops record it; the registrar decides it |
-| 9 | Consent provenance, template, number, DNC | `campaigns.consent_source`, `dlt_templates`, `phone_numbers`, `dnc_list` | mixed — see step 4 |
+| 9 | Subscriber KYC not verified | `kyc_records.status`, self-serve/trial only | ops record it (`POST /v1/admin/tenants/{id}/kyc`); the client cannot self-verify |
+| 10 | Consent provenance, template, number, DNC | `campaigns.consent_source`, `dlt_templates`, `phone_numbers`, `dnc_list` | mixed — see step 5 |
 
 Work them in the order below, which is cheapest-and-most-likely first, not in the order
 of the table.
@@ -195,7 +196,42 @@ Remediation is a top-up, and what you can honestly promise depends on whether th
 deployment takes online payments at all — see `topup-payments.md` before telling a
 client "just pay online".
 
-## 4. Causes 8 and 9 — one request, per campaign
+## 4. Cause 9 — subscriber KYC
+
+Only bites `self_serve` and `trial` tenants, the same scope as the wallet above and for
+the same reason: the risk R-11 names is an ANONYMOUS signup, and a managed client is
+contracted with a PE registration an access provider granted only after checking
+PAN/GST/CIN. `kyc_blocker()` in `apps/api/compliance/service.py` is the one
+implementation, shared by `check_dispatch` and the launch preview, so this reason reads
+identically wherever it appears.
+
+**Inbound is unaffected**, on every plan. Say that first when a client calls: they will
+assume their receptionist is down and it is not.
+
+```
+GET /v1/compliance/kyc          # the tenant's own state; org:read, absence is a 200
+```
+
+| reason | What it means | Who clears it |
+|---|---|---|
+| `kyc_missing` | No `kyc_records` row at all | ops, after the client sends the entity documents |
+| `kyc_not_verified` | A row exists in `submitted`, `rejected` or `expired` | ops — `rejected` carries the reason; `expired` needs re-verification |
+
+Recording it is admin-realm and audited: `POST /v1/admin/tenants/{tenant_id}/kyc`
+(`admin:tenants`). There is deliberately NO client-realm write — the client sends us
+documents, we record what we checked. **Never accept an identity document**: the record
+holds a public business-registry reference, and a CHECK refuses a 12-digit string so an
+Aadhaar cannot be filed by accident.
+
+Note the asymmetry, because it decides who you can unblock: DIALLING is gated for
+self-serve and trial only, but BUYING a number is gated for every tier with no
+`plan_tier` test at all — the DoT obligation attaches to the connection, and `plan_tier`
+is admin-settable, so a legal control keyed on it would be one support ticket from being
+switched off. A managed tenant therefore keeps dialling but cannot buy a new number.
+
+---
+
+## 5. Causes 8 and 10 — one request, per campaign
 
 `GET /v1/campaigns/{id}/launch-check`, `leads:read`
 (`apps/api/campaigns/routes.py`). The client sees this on their own launch button; it
@@ -229,7 +265,7 @@ The client can read this page themselves. `GET /v1/compliance/dlt-registration`
 `tm_link_status` and `is_active` computed the same way the gate computes it — absence is
 `recorded: false` and a 200, not a 404.
 
-## 5. The campaign is already `running` and quiet
+## 6. The campaign is already `running` and quiet
 
 `launch-check` is a launch-time question. A campaign that launched a week ago and has
 gone quiet is a different query, because **the registrar can withdraw any of the step-4
@@ -238,7 +274,7 @@ facts while a campaign runs** and `resume` is a bare CAS with no gate.
 The dispatcher asks the standing subset every tick, once per campaign, inside the
 claiming transaction (`dispatch_blockers`, `apps/workers/campaign_dispatch.py`). It
 carries the DLT entity, PE, TM-link, consent-provenance, template and number rules —
-the same rule names as step 4.
+the same rule names as step 5.
 
 **This refusal is invisible in the tick's return string.** A campaign blocked here
 contributes `{"dialled": 0, "blocked": 0, "exhausted": 0}`, so the tick reports
@@ -262,7 +298,7 @@ working:
   the dispatcher's own failure modes (pool exhaustion, per-tenant ceiling, stuck
   `dialing` rows) and this one should not duplicate them.
 
-## 6. Cause 9's last member — a DNC hit
+## 7. Cause 10's last member — a DNC hit
 
 Per-contact, terminal, and by design. `check_dispatch` reads `dnc_list` LIVE on every
 dispatch (hard rule 5), and a hit sets the contact to `dnc_blocked`, which is the only
@@ -281,7 +317,7 @@ A campaign whose contacts are largely `dnc_blocked` is not broken. If the client
 believes a specific number should not be suppressed, that is `dnc-complaint.md`, and the
 answer is a timeline, not a removal.
 
-## 7. Answering the client
+## 8. Answering the client
 
 State it in this order: whether the block is ours or theirs, which named rule is in
 force, whether it affects inbound (almost never — the gate is outbound-only), and

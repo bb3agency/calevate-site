@@ -67,8 +67,22 @@ cite the same string:
   only with acceptable answers does not stop purchased lists — it hides them behind
   whichever member sounds nearest. Declared through
   `POST /v1/campaigns/{campaign_id}/consent-provenance` (drafts only, audited).
+- **Subscriber KYC verified** — `kyc_missing` (nothing filed) or `kyc_not_verified`
+  (filed, not cleared; the string names the state, because `submitted` means we owe them
+  a review and `rejected` means they owe us a document). D-47, and it is deliberately
+  **not the same scope as the rest of this list**: the DIALLING gate applies to
+  `self_serve` and `trial` tenants only — a managed tenant's identity was verified out of
+  band and their dialling is already gated by `pe_registration_*` and
+  `number_not_registered` — while **buying a number is gated for every tier**, because the
+  DoT business-connection obligation attaches to the connection and `plan_tier` is an
+  admin-settable column. Asked once, in `compliance.kyc_blocker`, by both the per-dial
+  gate and this launch preview. Inbound answering is never gated (D-38).
 - Per-tenant caps (`spend_state`) not exceeded (`spend_cap`), and the prepaid wallet not
-  exhausted (`no_credits`).
+  exhausted (`no_credits`). The effective ceiling is `LEAST(admin, client)` — a client may
+  lower their own at will and may never loosen it past the admin's (SURFACES §2b) — and a
+  cap raised for a capped tenant does NOT by itself release the gate: the flag is derived
+  and re-derived by `POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute` or by the
+  client's own cap write.
 
 ## 4. Data Protection (DPDP) — Feature Map
 

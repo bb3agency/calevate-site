@@ -74,6 +74,15 @@ org claim, resolved against our own tables.
   KYC-verified number, and the **first campaign of every self-serve account is held for
   manual review**. Platform-fixed calling hours and DNC scrub on every dispatch path apply
   to both motions and are not user-editable.
+  - As built (D-47), the verification is of the **business**, not of a number:
+    `kyc_records` holds one row per tenant, the dial gate refuses a `self_serve`/`trial`
+    tenant with `kyc_missing`/`kyc_not_verified`, and — because buying a number is gated
+    for every tier — a number this org holds was necessarily bought under a cleared
+    verification. Inbound answering is never gated.
+  - **The manual-review hold is NOT built**: nothing flags, queues or blocks a self-serve
+    account's first campaign. It remains a requirement of this section, not a description
+    of the system, and it is the last R-11 mitigation outstanding before
+    `self_serve_signup_enabled` may be switched on.
 
 ## 3. Inbound Call Lifecycle
 

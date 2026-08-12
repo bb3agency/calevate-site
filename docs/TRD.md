@@ -54,6 +54,12 @@ crm, analytics, billing, kb, integrations, compliance, audit.
   ONE trace and "where did the two minutes go?" is answerable. Span attributes are an
   ALLOWLIST (`ALLOWED_SPAN_ATTRIBUTES`), not a denylist, and every value must be id-shaped
   by the logger's own `redact_text` — a denylist on a tracing API fails open (hard rule 6).
+  **Read "shipped" precisely, because two of the four are not the same thing.** OTel and
+  Sentry are wired end to end. **Langfuse is a SEAM**: the two config keys and
+  `redact_trace_payload` exist and nothing calls them, so the per-call token cost and the
+  latency breakdown promised above are NOT being recorded today — that is a gap, not a
+  configuration. **PostHog** is a config key with no client either. Neither is a no-op
+  because the keys are absent; each would still be a no-op with the keys present.
 - **IaC/CI:** Terraform; GitHub Actions (lint, typecheck, tests, migrations, deploy);
   Dependabot + secret scanning + SAST.
 

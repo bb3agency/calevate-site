@@ -203,9 +203,21 @@ Client realm (`/c/<slug>/…`)
   deliberately absent here: both are admin-realm, because the staged script is authored
   admin-realm) ·
   **`/lead-sources`** (`GET /v1/lead-sources/activity`, `POST /v1/lead-sources/{id}/test` —
-  the §2b webhook-activity view and its no-call "test webhook", shipped) ·
-  **`/integrations`** (endpoints + delivery log) · `/calls`, `/campaigns`, `/knowledge`,
-  `/usage`.
+  the §2b webhook-activity view and its no-call "test webhook", shipped — plus the Meta
+  Lead Ads setup card, `POST /v1/lead-sources/{webhook_id}/meta/setup`, which prints what
+  to paste into the Meta App Dashboard) ·
+  **`/messaging-consent`** (records what a consumer said about being messaged and looks
+  up whether we may; the screen that makes a `recipient_not_opted_in` escalation fixable
+  by somebody saying yes) · **`/do-not-call`** (`/v1/dnc`, with removal offered only where
+  `is_removable()` says the entry may be undone here — the flag and the endpoint read one
+  definition, so no button is rendered that would 422) ·
+  **`/integrations`** (endpoints + delivery log) · **`/verification`** (the client's own
+  view of `GET /v1/compliance/kyc` — the page a self-serve owner opens because their
+  outbound stopped. It leads with "inbound is unaffected", says plainly that the client
+  cannot self-verify, and carries no upload control, because the record stores a
+  registry identifier and a filing reference and never a document) ·
+  `/calls`, `/campaigns`, `/knowledge`,
+  **`/usage`** (usage panel + the §2b client cap editor).
 
 Admin realm (`/admin/…`)
 - **Prompt history + rollback** per agent (`/admin/tenants/{id}/agents/{agentId}/prompt`;
@@ -223,6 +235,25 @@ Admin realm (`/admin/…`)
 - **Credit top-up** (`POST|GET /v1/admin/tenants/{tenant_id}/credits`) — admin-recorded
   today; the self-serve wallet UI in §2b is still M2.
 - **Ops** (`/admin/ops`; `/v1/ops/platform`, `/v1/ops/outbox/replay`, `/v1/ops/audit/verify`).
+  `GET /v1/ops/platform` returns the load-shed mode, the outbound halt, **`halt_reason`**
+  and the TM registration in ONE row read — a halt shown beside a reason from a different
+  instant is worse than either alone. The reason is REQUIRED to halt (a halt nobody
+  explained is one nobody can safely lift), cleared on release, and untouched by a
+  load-shed-only change. **The step-up header names the transition, not the endpoint**
+  (D-45): `X-Confirm-Action: halt_outbound` / `release_outbound` / `set_load_shed:<mode>`,
+  joined with `+` when one request does both. The old blanket `set_platform_state` string
+  authorises nothing; the refusal prints the header that would have worked.
+- **Spend-cap recompute** (`POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute`,
+  `ops:manage`, step-up bound to the tenant, audited on the same session as the write).
+  Re-derives `spend_state.capped` from counters already metered against the ceiling now
+  in force, and **never writes the flag directly** — an ops button that set `capped=false`
+  would be a third DEFINITION rather than a third caller. It closes a real dead end: the
+  gate reads the flag, a capped tenant meters nothing so the meter can never clear it,
+  and the client's own `PUT /v1/billing/caps` needs `org:manage`, which D-22 refuses to an
+  impersonating admin — so an outbound-only client whose ceiling ops had just raised
+  stayed stopped until they acted themselves or the IST month rolled over. The response
+  reports the counters and the effective ceiling next to the flag, so "it did not work"
+  becomes "the ceiling is 2 and they have used 3".
 - **Calevate's own TM registration** (`POST /v1/ops/platform/tm-registration`, `ops:manage`)
   — the company half of SEC-COMP §3's first bullet, recorded on `platform_state` (D-43)
   and returned by `GET /v1/ops/platform`. Step-up confirmed in BOTH directions, with the
@@ -230,6 +261,13 @@ Admin realm (`/admin/…`)
   `withdraw_tm_registration` to take it out of `active`. Audited in the same transaction
   as the write. While it is not `active`, NO tenant can launch an outbound campaign,
   however complete their own PE registration is; inbound answering is unaffected.
+- **Identity (KYC)** (`/admin/tenants/{id}/kyc`; `POST /v1/admin/tenants/{tenant_id}/kyc`,
+  `admin:tenants`, audited) — where the verification is recorded. Its own screen rather
+  than a panel, because it is an audited write with four fields an auditor asks about
+  (what, against what reference, by whom, when) and the CHECK behind it makes a
+  `verified` row that cannot answer them unstorable. Deliberately no client-realm twin:
+  under the Telecom Act the subscriber's identity is something the provider verifies,
+  never something the subscriber asserts.
 - **Client DLT Principal Entity registration**
   (`POST /v1/admin/tenants/{tenant_id}/dlt-registration`, `admin:tenants`) — upsert; the
   fact `launch_blockers` reads as `pe_registration_*` / `tm_link_not_active`. Deliberately

@@ -77,6 +77,17 @@ export default function TenantDetailPage({
           </p>
         </div>
         <div className="flex gap-2">
+          {/* The telecom gate in front of everything below: no verification, no number
+              on any tier, and no outbound dialling at all on a self-serve account. It
+              gets its own screen rather than a panel here because it is an audited
+              write with four fields an auditor will ask about, and because the current
+              record has to be read from the tenant's own view of it. */}
+          <Link
+            href={`/admin/tenants/${tenantId}/kyc`}
+            className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
+          >
+            Identity (KYC)
+          </Link>
           <Link
             href={`/admin/tenants/${tenantId}/invoice`}
             className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"

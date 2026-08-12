@@ -417,6 +417,31 @@ Six tests, including the one that actually bites: a pipeline frame holding the
 transcript it was mid-way through redacting. Ids survive, PII does not, and an event is
 never dropped entirely — scrubbing degrades the detail, not the signal.
 
+*Added later in the same module, and never written up until §48 went looking for what
+the docs did not say:* **the OTel half of TRD §2 shipped too, and it crosses every hop.**
+HTTP span → producer span at enqueue → the W3C traceparent inside the ARQ job payload
+(`TRACE_KWARG`) → consumer span → engine and Postgres round trips, one trace id. The
+queue hop is the one that mattered and it is tested against real Redis — the job is read
+back out and asserted to carry the root's id — because a trace that stops at a process
+edge answers nothing about "where did the two minutes go". Sampling is
+`ParentBased(TraceIdRatioBased)` at 0.1, and ParentBased is the non-negotiable half: a
+per-process sampler re-rolls at every hop, so 10% of 10% across four processes is a
+backend full of orphans. It is config rather than code because the first thing an
+operator does in an incident is set it to 1.0, and that must be a restart, not a deploy.
+Three PII decisions are load-bearing: span attributes are an ALLOWLIST (a denylist on a
+tracing API fails open), the "is this a phone number" verdict comes from the logger's own
+`redact_text` so the two cannot drift, and httpx is patched by hand rather than with the
+OTel library — that library records the full URL, and outbound webhook targets are
+CLIENT-SUPPLIED URLs that can carry an api_key or a phone in a callback param. DB spans
+carry a statement fingerprint and a row count, never the statement and never the
+parameters. voice-runtime is instrumented on measured numbers rather than on faith
+(44µs unsampled, 84µs sampled, 0.017% of the 500ms ack budget; with no collector its ASGI
+chain is byte-for-byte unchanged and zero opentelemetry modules are imported, verified by
+a subprocess check of `sys.modules`) — and it **refuses to trust an incoming
+traceparent**, because its receiver is our only unauthenticated public write surface and
+honouring a stranger's sampled flag hands them a switch that turns on 100% of our tracing
+spend.
+
 **25. The rest of D-29's critical four, plus CI**
 
 Three guardrails were specified in ENGINEERING-PRACTICES §2 for M1 and did not exist:
@@ -1381,22 +1406,180 @@ and are worth knowing as a class: a worst-case cost quote that read one of two r
 a second was added, and a GET requiring a MUTATING permission that only became visible
 when two slices shared a route table.
 
+## §48 — the wave that went after the declarations nothing gave effect to
+
+1355 tests collected, 90 OpenAPI paths, seven guardrails in `make guardrails`. Where §46
+hunted for things nothing was watching and §47 built the things the docs already promised,
+this wave found the third shape: **columns, constraints and rules that had been written
+down, migrated, and then given effect by nothing.** Four of the six items below were
+already in the schema. What was missing was a reader.
+
+**The half-wired-feature rule stopped being advice.** `scripts/check_wiring.py` now asks
+three questions of the tree, and the important one is the router scan — not because an
+unmounted router does nothing, but because **it is unaudited**. Every authorization sweep
+this repo relies on enumerates the routes of the LIVE app (`assert_policy_registry_complete`
+at boot, `impersonation_reads_test`, `authz_audit_test`, `check_redaction_exposure`), so a
+router nothing mounts appears in none of them and can carry a D-22 violation, an undeclared
+permission or a raw-PII response for as long as it stays unmounted — with every check
+green, right up to the day somebody mounts it and the violation arrives with it.
+`agents/publishing_routes.py` sat in exactly that state, complete and tested. It also
+covers `apps/voice-runtime`, which import-linter structurally cannot see: grimp walks
+package trees and D-18's hyphen is not a legal module name, so the whole service is
+invisible to `lint-imports`. The off-the-shelf tools were evaluated and rejected on the
+record rather than by taste — `vulture`/`deadcode` answer "is this symbol referenced",
+which on FastAPI/SQLAlchemy/Pydantic is a false-positive machine whose own remedy is a
+whitelist simulating usage; `ruff` sees one file at a time; `import-linter` cannot object
+to a module imported by nothing. The departure is that this file never asks whether a
+symbol is referenced. It asks whether a declaration appears in the **registry that gives it
+effect**, which is also why it declines the shapes where no such registry exists (read-vs-
+write, enum members). `UNWIRED_BASELINE` — the deliberate deferrals, keyed per column, each
+naming what closes it — turned out to be the useful artefact: three of its entries were
+deleted later in this same wave by the slices below, which is what a baseline is for.
+
+**Two columns had been migrated, documented and read by nobody, and it was a money bug in
+both directions.** `plans.effective_from`/`effective_to` existed while every reader
+resolved a plan as `ORDER BY created_at DESC LIMIT 1`. So a price change staged for next
+month re-priced today's bill, the client's panel, the worst-case quote and the dispatch
+ceiling the moment the row was inserted — and the deeper half, which took longer to see:
+an invoice here is a DERIVED statement rather than a stored row, so re-rendering July
+after any plan change re-priced July. **A statement that changes when you look at it twice
+is not a statement.** Half-open `[from, to)` is taken verbatim from SQL:2011 because
+closed-closed makes the changeover instant belong to both rows, so the day a plan is
+superseded is priced by a coin flip. The non-overlap EXCLUDE constraint was declined on
+evidence, not preference: every `plans` row that exists today is NULL/NULL and therefore
+mutually overlapping, so it would refuse the table's own contents, and `apply_client_caps`
+MINTS a windowless row for a tenant with no plan. Resolution is a total order instead —
+and the property that made it shippable is that with every window NULL it collapses to the
+newest-row rule, so it re-priced nobody on the day it landed. The cost is stated rather
+than discovered: closing a window with no successor leaves a tenant UNPRICED, deliberately,
+because falling back to the expired row would charge a client at terms whose end date we
+were explicitly told. `warn_no_plan_in_effect` is what turns that from a quietly free month
+into a log line. D-46.
+
+**A halt could not say why it was thrown.** `platform_state.halt_reason` was a column
+nobody wrote, sitting beside a runbook that told operators to read it. Worse, the comment
+explaining its absence was wrong: it claimed the reason lived in `write_audit`'s summary —
+and **`audit_log` has no summary column** (`compliance/audit.py` sends the sanitised
+summary to the log stream keyed by entry id, because hashing a field the row does not carry
+would make the chain unverifiable). So the first question an operator asks at 3am was
+answerable only by someone who knew which log stream to grep. It is now required to halt, a
+halt nobody explained being one nobody can safely lift; written in the SAME statement as
+`outbound_halted`, so no read can catch a halt without its reason; **cleared on release**,
+because a reason beside a running platform reads as current and sends the next reader after
+last week's incident; and untouched by a load-shed-only change, so tightening shedding
+mid-incident cannot erase why dialling stopped.
+
+**One confirmation string covered three different decisions.** `set_platform_state`
+authorised halting all outbound, releasing that halt, and every load-shed tweak — so a
+header captured for the routine Tuesday change satisfied the largest switch on the
+platform. It now names the transition, with the load-shed mode IN the string because
+consent to `reduced` is not consent to `maintenance`. This is a **breaking change to an ops
+surface and was not grandfathered**, because the old string's whole defect was authorising
+more than the operator meant: keeping it "for compatibility" keeps the hole open under a
+different name. The muscle-memory curl now 403s, so the refusal prints the header that
+would have worked, and both callers moved in the same change. D-45. It is still a header
+and still not a second factor — it stops the accidental and the drive-by until Clerk
+re-auth lands, and it is here now because adding it later means changing the callers, which
+is the bill this change just paid.
+
+**KYC: the mitigation that had been described in three documents and built in none.**
+SURFACES §2b, FLOWS §2 and BRD §245 all spoke of number purchase gated behind KYC; nothing
+in the schema modelled it. Research decided the shape before a column was written — DoT's
+business connections (Aug 2023, expanded May 2024), the June 2025 circular extending the
+same protocols to internet telephony, Telecom Act 2023 s.3(7), and the fact that **Exotel,
+our own D-05 pick, blocks outgoing calls until KYC clears** — so a product that let a
+client "buy" a number without a record would be writing a cheque the TSP will bounce. The
+part worth remembering is that this is **two questions, not one**, and answering them the
+same way fails either way round: a tier-blind DIAL gate halts every existing client over a
+data-entry backlog without closing a risk (this repo has already paid that once, with
+`tm_registration_missing`), while a tier-BLIND provisioning gate is the only version that
+holds, because the obligation attaches to the connection and `plan_tier` is admin-settable —
+a legal control keyed on it is one support ticket from being switched off. No identity
+document is stored anywhere: entity registries only, an evidence *reference* rather than a
+pack, and a CHECK that refuses a bare 12-digit `document_ref` so an Aadhaar pasted into a
+business field is unstorable rather than discouraged. What research did NOT settle — whether
+a non-licensee reseller must itself hold the CAF — is recorded as unsettled and not
+modelled. D-47.
+
+**The credit-ledger index story finally closed, at both ends.** The unique index landed
+earlier on the corrected key (`tenant_id, reason, ref` — four refusals had argued about the
+predicate while the KEY was the wrong shape); this wave removed the other one.
+`ix_credit_ledger_tenant_id` was a strict prefix of the composite, and step two of a
+two-step deprecation is not a formality, so every query in the repo that touches
+`credit_ledger` was EXPLAIN ANALYZEd on a loaded database before and after: no node type
+changed and nothing fell back to a sequential scan. It costs two more shared buffers per
+bitmap scan and buys an append-only table one insert-time index instead of two. The model's
+`index=True` came out in the same change — leaving it would have had the next autogenerate
+helpfully recreate the index, a deprecation that un-deprecates itself.
+
+**Ops got the button that closes a dead end nobody could exit.** `spend_state.capped` is
+derived, and raising a ceiling does not by itself release it: the gate reads the flag, a
+capped tenant meters nothing so the meter can never clear it, and the client's own
+`PUT /v1/billing/caps` needs `org:manage`, which is mutating and therefore refused to an
+impersonating admin under D-22. An outbound-only client whose ceiling ops had just raised
+stayed stopped until they acted themselves or the IST month rolled over. The recompute
+route **re-derives and never writes the flag** — an ops button setting `capped = false`
+would be a third DEFINITION rather than a third caller, and its first incident would be a
+tenant dialling past a ceiling with the meter re-arming behind them. It reports the counters
+and the effective ceiling beside the flag, which turns "it did not work" into "the ceiling
+is 2 and they have used 3".
+
+**The screens, including the one that makes a refusal fixable.** The client half of
+two-speed publishing (an unsaved-changes banner DERIVED from the two pointers, never stored
+as a flag that can disagree with them; Apply and Undo deliberately absent from the client
+realm because the staged script is authored admin-realm), the cap editor on `/usage`, the
+Meta Lead Ads setup card on `/lead-sources`, and `/messaging-consent` — which is the screen
+that turns `recipient_not_opted_in` from a dead end into something a human can resolve by
+recording that somebody said yes. The ops console's release button moved to the new
+confirmation header in the same commit that broke the old one.
+
+**What was refused, and why it stays refused.** The `EXCLUDE` non-overlap constraint (it
+would refuse the table's existing rows). Proration across a plan change (there is no answer
+to "how many of the 500 included minutes belong to each half" that a client would recognise
+as theirs; the industry answer is the same one — plan changes take effect at a billing
+boundary). Falling back to an expired plan row. Widening the dial-time KYC gate to every
+tier. Modelling a CAF, a form workflow or a document store on unsettled law. And, still:
+the retail value-tier rate, a WhatsApp BSP, Razorpay order creation, a Meta Graph client,
+and a Google Sheets service account — five holes that are each one credential or one
+founder decision wide, and every one of them named by a greppable constant rather than
+faked.
+
+**The lesson this wave adds.** Three of the four defects above were invisible to tests
+because the code did exactly what it said — a plan resolver that returns the newest row is
+not broken, it is answering a different question from the one the schema asks. The thing
+that finds this class is not another test; it is asking, of each declaration, **which
+reader gives it effect** — which is precisely what `check_wiring.py` was built to ask, and
+why it closed three of its own baseline entries within the same wave.
+
 ### Where the next session should start
 
 1. **Founder decisions, none of them code.** The retail value-tier rate
    (`plans.overage_rate_value` exists and is NULL everywhere); the retention TTL
    divergence (docs 24 months, seed 365/1095/90 — SEC-COMP §4 declares it open and names
    the founder); erasure vs the TRAI 90-day recording floor; a WhatsApp BSP, which is the
-   single entry that unblocks the escalation path end to end.
+   single entry that unblocks the escalation path end to end — now the *only* thing
+   blocking it, since the consent, the job, the ladder and the timeline record all landed.
+   **New, and it is a legal question rather than a product one:** whether a non-licensee
+   reseller must itself hold the CAF, or whether furnishing the entity's documents to the
+   licensed operator discharges us (D-47). Nothing blocks on it today; it decides whether
+   `kyc_records` ever grows a document workflow.
 2. **Gated on the Bolna pilot** (OPERATIONS §2) and deliberately unbuilt: number
    provisioning, transfer, the test-call gate, real latency numbers, and the KB questions
    at gate 8 (whether the list response carries agent linkage; whether deleting a KB
    clears the agent's reference).
-3. **Known gaps with the evidence already gathered**: KYC-gated number purchase (D-34's
-   last R-11 mitigation); `kb_retrieval_logs` has no producer and cannot have one until
-   the engine reports a retrieval (dated in the model); T1/T2 tiers are absent by decision;
-   and `inbound_webhooks` rows are still provisioned out-of-band because nothing writes
-   them.
+3. **Known gaps with the evidence already gathered**: **the manual-review hold on a
+   self-serve account's FIRST campaign is the last unbuilt R-11 mitigation** — nothing
+   flags, queues or blocks it, and `self_serve_signup_enabled` should not be switched on
+   before it exists (FLOWS §2, ROADMAP §3); `runbooks/calls-stopped.md` still walks nine
+   conditions and **does not mention the KYC refusals**, which are now a tenth for
+   `self_serve`/`trial` tenants; **alerts route nowhere** (`core/alerting.py` normalizes
+   the failure stage and writes a structured ERROR log — OPERATIONS §4's phone/WhatsApp
+   sinks do not exist) and **no backup mechanism exists at all**, though D-26 makes
+   continuous WAL archiving REQUIRED rather than optional; Langfuse is two config keys and
+   a redaction seam with no client, so per-call token cost and the latency breakdown are
+   not being recorded; `kb_retrieval_logs` has no producer and cannot have one until the
+   engine reports a retrieval (dated in the model); T1/T2 tiers are absent by decision; and
+   `inbound_webhooks` rows are still provisioned out-of-band because nothing writes them.
 4. **The local database cannot reach head** and that is expected — see
    `runbooks/stale-dev-database.md`. Use a scratch DB; do not stamp past the credit-ledger
    index.

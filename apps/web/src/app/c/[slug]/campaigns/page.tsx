@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import {
@@ -28,7 +29,7 @@ import {
   type Classification,
   type ConsentSource,
 } from "@/lib/api/campaigns";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useAgents } from "@/lib/api/kb";
 
 /**
@@ -183,6 +184,22 @@ const OWNER_BADGE: Record<NonNullable<BlockerNote["owner"]>, string> = {
  */
 const PLATFORM_BLOCKER = "tm_registration_missing";
 
+/**
+ * The two blockers that have a whole screen behind them.
+ *
+ * They are deliberately NOT in `BLOCKER_COPY`. `compliance.service.kyc_blocker` returns
+ * a reason that already names the state the record is in — "nothing on file" and
+ * "submitted / in review / rejected / expired" send the client to different places, and
+ * the API interpolates the status precisely so the difference survives. Writing copy
+ * keyed on the rule name alone would flatten the two back into one sentence and lose
+ * the part that decides what to do next, so the server's reason is what renders.
+ *
+ * What was missing is not words, it is a destination: the reason explains the refusal
+ * and then leaves the client on a campaign screen with nothing to press. This adds the
+ * link, and nothing else.
+ */
+const KYC_BLOCKERS = ["kyc_missing", "kyc_not_verified"];
+
 function PlatformOutageNotice({ reason }: { reason: string }) {
   return (
     <div
@@ -270,6 +287,9 @@ const CLASSIFICATIONS: { value: Classification; label: string; hint: string }[] 
 
 export default function CampaignsPage() {
   const session = useClientSession();
+  // In-realm links must carry the D-22 view-as marker; `href()` is the one place that
+  // rule lives.
+  const { href } = useClientRealm();
   const agents = useAgents(session);
 
   const numbers = useCampaignNumbers(session);
@@ -334,6 +354,7 @@ export default function CampaignsPage() {
   const provenanceBlocker = clientBlockers.find(
     (b) => b.rule === "consent_provenance_missing" || b.rule === "consent_source_refused",
   )?.rule;
+  const blockedOnKyc = clientBlockers.some((b) => KYC_BLOCKERS.includes(b.rule));
   // Which agent dials decides the script, the voice and the disclosure line. A
   // silent `agents[0]` picks one for a client who has more than one — including
   // an inbound-only receptionist that cannot dial at all — so the choice is on
@@ -810,6 +831,24 @@ export default function CampaignsPage() {
                       );
                     })}
                   </ul>
+                  )}
+
+                  {/* The reason above says WHY; this says where to go. Carries the
+                      view-as marker like every other in-realm link, so an operator
+                      following it from a "view as client" session does not drop back
+                      to a client token two pages in (lib/api/session.tsx). */}
+                  {blockedOnKyc && (
+                    <p className="text-sm">
+                      <Link
+                        href={href(`/c/${session.orgSlug}/verification`)}
+                        className="font-medium text-sky-700 underline dark:text-sky-400"
+                      >
+                        See what we need to verify your business
+                      </Link>{" "}
+                      <span className="text-slate-600 dark:text-slate-400">
+                        — incoming calls are unaffected while this is outstanding.
+                      </span>
+                    </p>
                   )}
 
                   {/* The one blocker with a control attached, rendered under the

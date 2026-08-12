@@ -45,6 +45,11 @@ function Nav({ slug }: { slug: string }) {
     { href: `/c/${slug}/performance`, label: "Performance" },
     { href: `/c/${slug}/attention`, label: "Needs attention" },
     { href: `/c/${slug}/usage`, label: "Usage" },
+    // Account-level like Usage, rather than a working surface, so it sits at the end.
+    // Nobody should have to FIND it, though: it is what a self-serve account's calls
+    // stop on, so the campaigns screen links here by name whenever a KYC blocker is
+    // what is holding a launch (SURFACES §2b, `apps/api/compliance/kyc.py`).
+    { href: `/c/${slug}/verification`, label: "Verification" },
   ];
   return (
     <nav className="flex flex-wrap gap-1">

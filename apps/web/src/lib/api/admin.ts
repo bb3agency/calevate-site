@@ -12,6 +12,11 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
+// Types, the endpoint path and the request shaper only — never a client-realm session.
+// The two realms share vocabulary so an operator and a client name the same document
+// the same way; they share no session logic (TRD §11), which is why the session each
+// hook below presents is built here.
+import { KYC_PATH, toRecordBody, type KycRecord, type KycRecordIn } from "./kyc";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -142,6 +147,49 @@ export function useRecordDltRegistration(tenantId: string) {
         { method: "POST", body: payload },
       ),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] }),
+  });
+}
+
+/**
+ * Subscriber KYC (R-11's last gate) — read through impersonation, written admin-realm.
+ *
+ * The same D-22 split as the KB queue and the campaign prerequisites, and here it is
+ * not merely consistent, it is the only shape available: there is no admin-realm READ
+ * of a tenant's KYC. `GET /v1/compliance/kyc` is `org:read` — non-mutating, therefore
+ * reachable inside a read-only "view as client" session — and the API's authors made it
+ * that permission precisely so a support person looking at a blocked account can see
+ * it. So the operator console reads the tenant's own view of their own record.
+ *
+ * The WRITE goes to the admin surface with the tenant in the PATH. It is the audited
+ * one (`kyc.recorded`), it stamps `verified_by_admin_id` from the admin session and
+ * `verified_at` from the database clock, and it has no client-realm twin on purpose.
+ *
+ * That split is also why this is not one hook: an impersonating session would be
+ * correctly refused the write, and an admin session cannot resolve the tenant's own
+ * `/v1/compliance/kyc` without the impersonation header.
+ */
+export function useTenantKyc(slug: string): UseQueryResult<KycRecord> {
+  return useQuery({
+    queryKey: ["admin", "kyc", slug],
+    queryFn: () => apiRequest<KycRecord>(viewAsSession(slug), KYC_PATH),
+    enabled: Boolean(slug),
+  });
+}
+
+export function useRecordKyc(tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: KycRecordIn) =>
+      apiRequest<Schemas["apps__api__admin__routes__KycRecordOut"]>(
+        adminSession(),
+        `/v1/admin/tenants/${tenantId}/kyc`,
+        { method: "POST", body: toRecordBody(payload) },
+      ),
+    // Prefix invalidation, so the panel re-reads what is now STORED rather than
+    // echoing back what this screen just sent. `record_kyc` COALESCEs blank fields
+    // against the filed row, so the response body is not the resulting record — the
+    // failure `DltRegistrationPanel` has to live with because its endpoint has no GET.
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "kyc"] }),
   });
 }
 
