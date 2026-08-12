@@ -79,6 +79,15 @@ coverage-ratchet-accept:  ## Lock in an improvement: rewrite the baseline (shrin
 	# The ONLY writer of tests/fixtures/coverage_baseline.json. It refuses to raise a
 	# budget without a RAISED_BUDGETS waiver in the script, so this command can lock in
 	# progress and can never quietly forgive a regression.
+	#
+	# RUN `make db-reset` FIRST. The baseline is measured, and what the database HOLDS
+	# changes which branches the suite executes — a run against a dev database carrying
+	# a session's worth of leftover tenants is a different number from CI's, and this
+	# gate is an equality, so the difference lands as a failure on somebody else's PR.
+	# That is not hypothetical: the first baseline committed here was measured on a
+	# local database holding 31k accumulated test organizations and was 2 units off
+	# CI's on `compliance-gate`. It is not wired as a prerequisite because `db-reset`
+	# drops the developer's data, and a target that silently does that is worse.
 	uv run coverage run -m pytest -q
 	uv run python -m scripts.check_coverage_ratchet --update-baseline
 
