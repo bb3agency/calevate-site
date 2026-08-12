@@ -29,6 +29,7 @@ import {
   type Classification,
   type ConsentSource,
 } from "@/lib/api/campaigns";
+import { FIRST_CAMPAIGN_BLOCKERS } from "@/lib/api/firstCampaign";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useAgents } from "@/lib/api/kb";
 
@@ -200,6 +201,23 @@ const PLATFORM_BLOCKER = "tm_registration_missing";
  */
 const KYC_BLOCKERS = ["kyc_missing", "kyc_not_verified"];
 
+/**
+ * The first-campaign hold — same treatment, same reasoning, one screen behind it.
+ *
+ * `FIRST_CAMPAIGN_BLOCKERS` is the API's own pair of rule names, imported rather than
+ * retyped. Like the KYC pair above, they are deliberately absent from `BLOCKER_COPY`:
+ * `first_campaign_hold_blocker` returns a reason that already distinguishes "nobody has
+ * looked yet" from "a reviewer looked and said no", and the second interpolates the
+ * reviewer's own words. Rule-keyed copy would flatten the two into one sentence and
+ * throw away the half that decides whether the client waits or acts.
+ *
+ * What is added is the destination and ONE fact the server's reason cannot carry in a
+ * bullet: this hold is on the account, so it is not a step every campaign will repeat.
+ * A client who believes otherwise stops building campaigns, which is the outcome the
+ * whole mitigation is trying not to cause.
+ */
+const FIRST_CAMPAIGN_REVIEW_LABEL = "Why your first campaign is being reviewed";
+
 function PlatformOutageNotice({ reason }: { reason: string }) {
   return (
     <div
@@ -355,6 +373,9 @@ export default function CampaignsPage() {
     (b) => b.rule === "consent_provenance_missing" || b.rule === "consent_source_refused",
   )?.rule;
   const blockedOnKyc = clientBlockers.some((b) => KYC_BLOCKERS.includes(b.rule));
+  const blockedOnFirstCampaign = clientBlockers.some((b) =>
+    FIRST_CAMPAIGN_BLOCKERS.includes(b.rule),
+  );
   // Which agent dials decides the script, the voice and the disclosure line. A
   // silent `agents[0]` picks one for a client who has more than one — including
   // an inbound-only receptionist that cannot dial at all — so the choice is on
@@ -847,6 +868,26 @@ export default function CampaignsPage() {
                       </Link>{" "}
                       <span className="text-slate-600 dark:text-slate-400">
                         — incoming calls are unaffected while this is outstanding.
+                      </span>
+                    </p>
+                  )}
+
+                  {/* Same shape as the KYC link above, and for the same reason: the
+                      bullet says WHY, this says where to go. The trailing sentence is
+                      the one thing the server's per-campaign reason structurally cannot
+                      say — the hold is on the ACCOUNT, so it is not a gate this client
+                      will meet again on their next campaign. */}
+                  {blockedOnFirstCampaign && (
+                    <p className="text-sm">
+                      <Link
+                        href={href(`/c/${session.orgSlug}/campaign-review`)}
+                        className="font-medium text-sky-700 underline dark:text-sky-400"
+                      >
+                        {FIRST_CAMPAIGN_REVIEW_LABEL}
+                      </Link>{" "}
+                      <span className="text-slate-600 dark:text-slate-400">
+                        — it is a one-off check on your account, not on each campaign, and
+                        incoming calls are unaffected.
                       </span>
                     </p>
                   )}

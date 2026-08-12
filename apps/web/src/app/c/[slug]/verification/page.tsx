@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import { Card, NOTICE_TONES, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import {
   DOCUMENT_KINDS,
   KYC_STATUS_COPY,
@@ -55,14 +55,6 @@ import { useClientSession } from "@/lib/api/session";
  * person is in exactly when this account is the thing being discussed. There is no
  * `useWriteAccess` here because there is no control to gate.
  */
-
-const TONES = {
-  ok: "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
-  warn: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200",
-  stop: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200",
-  neutral:
-    "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300",
-} as const;
 
 /**
  * What the client is told, which is everything in the shared table except the label an
@@ -166,7 +158,7 @@ export default function VerificationPage() {
 function Verdict({ record }: { record: KycRecord }) {
   const copy = verdictCopy(record);
   return (
-    <div className={`rounded-lg border p-4 text-sm ${TONES[copy.tone]}`}>
+    <div className={`rounded-lg border p-4 text-sm ${NOTICE_TONES[copy.tone]}`}>
       <p className="text-base font-medium">{copy.headline}</p>
       {record.is_verified ? (
         <p className="mt-1">

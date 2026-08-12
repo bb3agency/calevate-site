@@ -50,6 +50,16 @@ function Nav({ slug }: { slug: string }) {
     // stop on, so the campaigns screen links here by name whenever a KYC blocker is
     // what is holding a launch (SURFACES §2b, `apps/api/compliance/kyc.py`).
     { href: `/c/${slug}/verification`, label: "Verification" },
+    // Beside Verification because it is the same kind of thing — an account-level
+    // compliance state that stops outbound and that the client cannot clear themselves —
+    // and permanently present for the same reason that one is: the campaigns screen links
+    // here by name when the hold is what refused a launch, but a client who was refused
+    // last week and closed the tab must be able to find the answer again without a
+    // blocked campaign in front of them. It renders honestly for accounts the rule never
+    // touches ("this does not apply to your account"), which is why it does not need to
+    // be conditional — and a conditional nav item would mean every screen in the realm
+    // paying for this query to decide whether to draw a tab.
+    { href: `/c/${slug}/campaign-review`, label: "Campaign review" },
   ];
   return (
     <nav className="flex flex-wrap gap-1">

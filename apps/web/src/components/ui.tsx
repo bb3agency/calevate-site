@@ -176,6 +176,28 @@ export function RestrictionNote({ reason }: { reason: string | null }) {
   );
 }
 
+/**
+ * The four tones a compliance verdict box can carry, in one table.
+ *
+ * `ok` / `warn` / `stop` / `neutral` are the vocabulary the API already speaks about a
+ * client's own state — cleared, lapsing, refused, nothing on file — so the colours live
+ * here rather than being re-picked per screen. It started as a private constant on
+ * `/verification`; `/campaign-review` needed the identical four, and two screens
+ * describing the same four states in two colour tables is where the drift starts.
+ *
+ * A token map rather than a component: the verdict boxes differ in what they say and in
+ * how many paragraphs they say it in, and only the palette is common.
+ */
+export type NoticeTone = "ok" | "warn" | "stop" | "neutral";
+
+export const NOTICE_TONES: Record<NoticeTone, string> = {
+  ok: "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
+  warn: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200",
+  stop: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200",
+  neutral:
+    "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300",
+};
+
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="py-10 text-center">
