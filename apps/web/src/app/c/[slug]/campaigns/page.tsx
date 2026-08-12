@@ -31,6 +31,7 @@ import {
 } from "@/lib/api/campaigns";
 import { FIRST_CAMPAIGN_BLOCKERS } from "@/lib/api/firstCampaign";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { lookup } from "@/lib/lookup";
 import { useAgents } from "@/lib/api/kb";
 
 /**
@@ -421,7 +422,13 @@ export default function CampaignsPage() {
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {(campaigns.data ?? []).map((campaign) => {
               const blocker = campaign.consent_provenance_blocker ?? null;
-              const note = blocker ? LIST_PROVENANCE_COPY[blocker] : null;
+              // The worst-behaved of the copy tables, because `note` is tested for
+              // TRUTH rather than for a property: `LIST_PROVENANCE_COPY["constructor"]`
+              // is the `Object` function, which is truthy, so the row rendered a badge
+              // with no text, a paragraph with no text, and a CLICKABLE BUTTON with no
+              // label — an empty control on a compliance row. `lookup` returns
+              // `undefined` for anything the table does not own (lib/lookup.ts).
+              const note = lookup(LIST_PROVENANCE_COPY, blocker);
               return (
                 <li key={campaign.id} className="py-2.5">
                   <div className="flex flex-wrap items-center gap-2">
@@ -834,7 +841,7 @@ export default function CampaignsPage() {
                       // blocker this build has no copy for is still a blocker, and an
                       // unnamed one would read as "you cannot launch, and we will not
                       // say why" — the exact failure this card exists to prevent.
-                      const note = BLOCKER_COPY[blocker.rule];
+                      const note = lookup(BLOCKER_COPY, blocker.rule);
                       return (
                         <li key={blocker.rule} className="flex gap-2 text-sm">
                           <span aria-hidden className="text-amber-500">

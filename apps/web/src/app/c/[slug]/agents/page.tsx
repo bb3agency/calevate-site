@@ -13,6 +13,7 @@ import {
 } from "@/lib/api/publishing";
 import type { Session } from "@/lib/api/client";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { lookup } from "@/lib/lookup";
 
 /**
  * Direction in the owner's terms, with a glyph that reads at a glance. "Inbound"
@@ -241,7 +242,11 @@ function LaneList({
         {lanes.map((lane) => (
           <li key={lane.field}>
             <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
-              {FIELD_LABELS[lane.field] ?? lane.field.replace(/_/g, " ")}
+              {/* Fails VISIBLE: an unnamed lane degrades to its own field name rather
+                  than vanishing, per FIELD_LABELS above. `lookup` is what makes the
+                  `??` reachable — a bare index on a prototype key returns a function,
+                  which is not nullish, so the fallback never fired (lib/lookup.ts). */}
+              {lookup(FIELD_LABELS, lane.field) ?? lane.field.replace(/_/g, " ")}
             </p>
             <p className="text-xs text-slate-500">{lane.why}</p>
           </li>
@@ -270,12 +275,14 @@ function AgentCard({ agent, slug }: { agent: Agent; slug: string }) {
   // `href` keeps the D-22 operator session across in-realm links (session.tsx).
   const { href } = useClientRealm();
   const live = liveState(agent);
-  const direction = DIRECTION_COPY[agent.direction] ?? {
+  // `direction`, `status` and `language_primary` are all bare `string` on `AgentOut` —
+  // the API narrowed none of them — so all three are wire values reaching a copy table.
+  const direction = lookup(DIRECTION_COPY, agent.direction) ?? {
     glyph: "•",
     label: agent.direction.replace(/_/g, " "),
     hint: "",
   };
-  const status = STATUS_COPY[agent.status] ?? {
+  const status = lookup(STATUS_COPY, agent.status) ?? {
     label: agent.status.replace(/_/g, " "),
     hint: "",
   };
@@ -306,7 +313,7 @@ function AgentCard({ agent, slug }: { agent: Agent; slug: string }) {
             {direction.label}
           </Fact>
           <Fact label="Speaks" hint="The language it greets and answers callers in.">
-            {LANGUAGE_NAMES[agent.language_primary] ?? agent.language_primary}
+            {lookup(LANGUAGE_NAMES, agent.language_primary) ?? agent.language_primary}
           </Fact>
           <Fact label="Status" hint={status.hint}>
             {status.label}
@@ -509,7 +516,10 @@ function FieldRow({ field }: { field: AgentExtractionField }) {
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-1 py-2">
       <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{field.label}</span>
       <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-        {FIELD_TYPE_COPY[field.type] ?? field.type}
+        {/* `ExtractionField.type` IS a generated union, but the union is a compile-time
+            claim about a runtime string: the server can widen the enum without this
+            build being rebuilt, and then the fallback is the only thing rendering. */}
+        {lookup(FIELD_TYPE_COPY, field.type) ?? field.type}
       </span>
       {field.required && (
         <span className="rounded bg-slate-900 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white dark:bg-slate-100 dark:text-slate-900">

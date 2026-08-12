@@ -20,6 +20,7 @@ import {
   type MetaSetup,
   type TestWebhookResult,
 } from "@/lib/api/leadSources";
+import { lookup } from "@/lib/lookup";
 
 /**
  * Lead sources (SURFACES §2b): inbound webhook ingest made visible.
@@ -287,7 +288,7 @@ export default function LeadSourcesPage() {
                   <td className="py-2">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        OUTCOME_TONE[item.outcome] ?? OUTCOME_TONE.processing
+                        lookup(OUTCOME_TONE, item.outcome) ?? OUTCOME_TONE.processing
                       }`}
                     >
                       {item.outcome}

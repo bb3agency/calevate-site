@@ -38,6 +38,8 @@
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
+import { hasKey, lookup } from "@/lib/lookup";
+
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
@@ -126,14 +128,18 @@ export const KYC_STATUS_COPY: Record<KycStatus, KycStatusCopy> = {
 /**
  * `status` is a plain string on the wire; only render copy for members we know.
  *
- * `Object.hasOwn` rather than `in`, here and in the four helpers below: `in` walks the
+ * `hasKey` rather than `in`, here and in the four helpers below: `in` walks the
  * prototype chain, so `isKnownKycStatus("constructor")` answered TRUE and the caller
  * then read `.label`/`.tone` off `Object` — a verdict box with no headline and no tone,
  * instead of the "we cannot name this status" fallback that exists for exactly this.
- * Same defect and same fix as `holdRule` (holds.ts); covered by tests/kyc.test.ts.
+ * Same defect and same fix as `holdRule` (holds.ts), and now literally the same
+ * function: `lib/lookup.ts` argues why the guard is centralised rather than repeated.
+ *
+ * `hasKey` and not `lookup` because the CALLER wants the narrowed type — the admin
+ * form puts this value in an `<option value>` the API's `Literal` has to accept.
  */
 export function isKnownKycStatus(value: string): value is KycStatus {
-  return Object.hasOwn(KYC_STATUS_COPY, value);
+  return hasKey(KYC_STATUS_COPY, value);
 }
 
 export interface DocumentKindSpec {
@@ -206,21 +212,30 @@ export const ENTITY_TYPES: Record<KycEntityType, string> = {
  * that COALESCEs — so an unrecognised member is neither lost nor bounced.
  */
 export function asDocumentKind(value: string | null): KycDocumentKind | null {
-  return value !== null && Object.hasOwn(DOCUMENT_KINDS, value) ? (value as KycDocumentKind) : null;
+  return hasKey(DOCUMENT_KINDS, value) ? value : null;
 }
 
 export function asEntityType(value: string | null): KycEntityType | null {
-  return value !== null && Object.hasOwn(ENTITY_TYPES, value) ? (value as KycEntityType) : null;
+  return hasKey(ENTITY_TYPES, value) ? value : null;
 }
 
+/**
+ * The two LABEL helpers fail in the opposite direction to the two above, on purpose.
+ *
+ * A `<select>` cannot hold a member it has no option for, so `as…` returns `null` and
+ * the form leaves what is filed alone. A LABEL has no such constraint: showing an
+ * operator the raw stored string beats showing them nothing, because the thing they
+ * most need to see is precisely the value this build cannot name. Read-only display
+ * fails VISIBLE; anything that feeds a write fails CLOSED.
+ */
 export function documentKindLabel(value: string | null): string | null {
   if (!value) return null;
-  return Object.hasOwn(DOCUMENT_KINDS, value) ? DOCUMENT_KINDS[value as KycDocumentKind].label : value;
+  return lookup(DOCUMENT_KINDS, value)?.label ?? value;
 }
 
 export function entityTypeLabel(value: string | null): string | null {
   if (!value) return null;
-  return Object.hasOwn(ENTITY_TYPES, value) ? ENTITY_TYPES[value as KycEntityType] : value;
+  return lookup(ENTITY_TYPES, value) ?? value;
 }
 
 /**

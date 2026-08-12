@@ -20,6 +20,7 @@ import {
   useEndpoints,
   type OutboundEvent,
 } from "@/lib/api/integrations";
+import { lookup } from "@/lib/lookup";
 
 /**
  * Outbound sync (D-23) and its delivery log (SURFACES §2b).
@@ -239,7 +240,7 @@ export default function IntegrationsPage() {
                   <td className="py-2">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        STATUS_TONE[delivery.status ?? ""] ?? "bg-slate-100 text-slate-600"
+                        lookup(STATUS_TONE, delivery.status) ?? "bg-slate-100 text-slate-600"
                       }`}
                     >
                       {delivery.status}

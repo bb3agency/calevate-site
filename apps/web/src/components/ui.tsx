@@ -13,6 +13,8 @@
 import clsx from "clsx";
 import type { ReactNode } from "react";
 
+import { lookup } from "@/lib/lookup";
+
 import { ApiProblem } from "@/lib/api/client";
 
 export function Card({
@@ -84,13 +86,25 @@ const CALL_STATUS_STYLES: Record<string, string> = {
   failed: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
 };
 
+/**
+ * The most-reached of the wire lookups: every leads table and every calls table.
+ *
+ * `LeadOut.status` is a generated union and `CallSummaryOut.status` is a bare `string`,
+ * and the difference does not matter here — both are runtime strings the server chooses,
+ * and a union is a claim this build makes, not one the server is bound by. `lookup`
+ * rather than `styles[value]`, because a status naming an `Object.prototype` member
+ * resolved to the `Object` FUNCTION, which `??` does not treat as missing: `clsx`
+ * stringified it and the badge rendered `function Object() { [native code] }` as its
+ * class list. Fails VISIBLE — neutral slate, and `value` is still printed, because a
+ * status we have no colour for is exactly the one worth reading.
+ */
 export function StatusBadge({ value, kind = "lead" }: { value: string; kind?: "lead" | "call" }) {
   const styles = kind === "lead" ? LEAD_STATUS_STYLES : CALL_STATUS_STYLES;
   return (
     <span
       className={clsx(
         "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-        styles[value] ?? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+        lookup(styles, value) ?? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
       )}
     >
       {value.replace(/_/g, " ")}

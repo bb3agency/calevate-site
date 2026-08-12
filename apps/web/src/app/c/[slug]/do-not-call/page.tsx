@@ -15,6 +15,7 @@ import {
 } from "@/lib/api/dnc";
 import { useMe } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
+import { lookup } from "@/lib/lookup";
 
 /**
  * Do not call (SEC-COMP §3, hard rule 5) — the suppression list made visible.
@@ -378,7 +379,8 @@ function EntryRow({
   removing: boolean;
   onRemove: () => void;
 }) {
-  const source = entry.source ? SOURCE_COPY[entry.source] : undefined;
+  // `DncEntryOut.source` is `string | null`; `lookup` absorbs the null too.
+  const source = lookup(SOURCE_COPY, entry.source);
   const global = entry.scope === "global";
 
   return (

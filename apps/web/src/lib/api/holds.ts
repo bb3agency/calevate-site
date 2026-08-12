@@ -32,6 +32,7 @@
  */
 
 import type { NoticeTone } from "@/components/ui";
+import { lookup } from "@/lib/lookup";
 
 import type { components } from "./schema";
 
@@ -113,16 +114,20 @@ export const HOLD_RULES: Record<string, HoldRule> = {
 /**
  * The copy for a rule, or `null` when this build cannot name it.
  *
- * `Object.hasOwn`, never `rule in HOLD_RULES`: `rule` is an arbitrary string off the
- * wire and `in` walks the prototype chain, so `holdRule("constructor")` handed back
- * `Object` itself typed as a `HoldRule` — and the queue's very next line is
+ * `lookup`, never `rule in HOLD_RULES`: `rule` is an arbitrary string off the wire and
+ * `in` walks the prototype chain, so `holdRule("constructor")` handed back `Object`
+ * itself typed as a `HoldRule` — and the queue's very next line is
  * `copy.screen(tenantId)`, which is a TypeError that takes the whole ops screen down.
  * The contract here is fail-VISIBLE (an unknown rule keeps the row and says so); a
  * blank screen is the one way to fail that an operator cannot see past.
- * Covered by tests/holds.test.ts.
+ *
+ * `lib/lookup.ts` is where that guard lives for the whole app, and it is deliberately
+ * the ONLY way a wire string is read out of a copy table here — the same defect was
+ * live at six other sites in three different disguises, one of which was accidentally
+ * correct. Covered by tests/holds.test.ts and tests/wireLookup.test.tsx.
  */
 export function holdRule(rule: string): HoldRule | null {
-  return Object.hasOwn(HOLD_RULES, rule) ? HOLD_RULES[rule] : null;
+  return lookup(HOLD_RULES, rule) ?? null;
 }
 
 /**

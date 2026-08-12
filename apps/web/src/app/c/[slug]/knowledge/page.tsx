@@ -13,6 +13,7 @@ import {
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useAgents, useKbChunks, useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
+import { lookup } from "@/lib/lookup";
 
 const STATUS_COPY: Record<string, { label: string; tone: string }> = {
   pending_approval: {
@@ -159,7 +160,14 @@ export default function KnowledgePage() {
         ) : sources.data?.length ? (
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {sources.data.map((source) => {
-              const copy = STATUS_COPY[source.status] ?? {
+              // `SourceOut.status` is plain `string` on the wire. Fails VISIBLE: an
+              // unnameable status shows as itself in neutral slate, because a client
+              // whose submission is in an unfamiliar state still has to see that it is
+              // in one. `lookup` rather than a bare index — `STATUS_COPY["constructor"]`
+              // is the `Object` function, which `??` does not treat as missing, so the
+              // badge rendered with `undefined` copy and a stringified function for its
+              // class list (lib/lookup.ts).
+              const copy = lookup(STATUS_COPY, source.status) ?? {
                 label: source.status,
                 tone: "bg-slate-100 text-slate-700",
               };

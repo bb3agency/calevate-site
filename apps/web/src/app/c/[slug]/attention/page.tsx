@@ -6,6 +6,7 @@ import { use } from "react";
 import { Card, EmptyState, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { useAttention, type AttentionKind } from "@/lib/api/attention";
 import { useClientRealm } from "@/lib/api/session";
+import { lookup } from "@/lib/lookup";
 
 /**
  * Per-kind chip copy and colour. Plain words, not system nouns: the reader is a
@@ -89,38 +90,51 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
           />
         ) : queue.data ? (
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-            {queue.data.items.map((item) => (
-              <li key={`${item.kind}-${item.id}-${item.occurred_at}`} className="py-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                      KIND_COPY[item.kind]?.tone ?? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                    }`}
-                  >
-                    {KIND_COPY[item.kind]?.label ?? item.kind.replace(/_/g, " ")}
-                  </span>
-                  <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
-                    {item.title}
-                  </span>
-                  <span className="ml-auto text-xs text-slate-500">
-                    {formatIST(item.occurred_at)}
-                  </span>
-                </div>
-                {/* The detail line is the point of the screen: the title only names the
-                    subject, but the detail is the remedy — what happened and what the
-                    owner should do. It gets its own full-width line so it never gets
-                    crushed between badge and timestamp. */}
-                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{item.detail}</p>
-                {item.href && (
-                  <Link
-                    href={href(`/c/${slug}${item.href}`)}
-                    className="mt-1.5 inline-block rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                  >
-                    Open
-                  </Link>
-                )}
-              </li>
-            ))}
+            {queue.data.items.map((item) => {
+              // `kind` is a generated union, but the union is a compile-time claim about
+              // a runtime string — the API can add a kind without this build knowing.
+              // Fails VISIBLE: an unnameable kind still lists its item, badged with its
+              // own name in neutral slate, because "needs attention" hiding an item is
+              // the one failure this screen exists to prevent.
+              //
+              // This site was ALREADY correct, by luck: `TABLE[k]?.tone` reads a missing
+              // property off the inherited `Object` and yields `undefined`, so the `??`
+              // fired. `lookup` makes it correct by construction and, as a bonus, reads
+              // the table once instead of twice (lib/lookup.ts).
+              const kind = lookup(KIND_COPY, item.kind);
+              return (
+                <li key={`${item.kind}-${item.id}-${item.occurred_at}`} className="py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        kind?.tone ?? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                      }`}
+                    >
+                      {kind?.label ?? item.kind.replace(/_/g, " ")}
+                    </span>
+                    <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                      {item.title}
+                    </span>
+                    <span className="ml-auto text-xs text-slate-500">
+                      {formatIST(item.occurred_at)}
+                    </span>
+                  </div>
+                  {/* The detail line is the point of the screen: the title only names the
+                      subject, but the detail is the remedy — what happened and what the
+                      owner should do. It gets its own full-width line so it never gets
+                      crushed between badge and timestamp. */}
+                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{item.detail}</p>
+                  {item.href && (
+                    <Link
+                      href={href(`/c/${slug}${item.href}`)}
+                      className="mt-1.5 inline-block rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                      Open
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         ) : null}
       </Card>

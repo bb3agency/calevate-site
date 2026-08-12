@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Card, ProblemNotice, RestrictionNote, formatIST } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
+import { lookup } from "@/lib/lookup";
 import {
   CONSENT_SOURCES,
   CONSENT_VALIDITY_DAYS,
@@ -478,16 +479,21 @@ function Verdict({ state }: { state: MessagingConsent }) {
 }
 
 function describeCapture(state: MessagingConsent): string {
-  const source = state.source && isKnownSource(state.source) ? CONSENT_SOURCES[state.source] : null;
+  // `source` is `string | null` on the wire — a `consent_ledger` column, never narrowed
+  // by the schema — so this is a lookup that must tolerate a member this build predates.
+  // It used to be a `value in CONSENT_SOURCES` guard, which walks the prototype chain:
+  // a source of "constructor" passed the guard, the table handed back `Object`, and
+  // `.label.toLowerCase()` threw during render. The whole verdict box — the one thing on
+  // this screen that answers "may we message them?" — went blank. `lookup` (lib/lookup.ts)
+  // is the one way this codebase reads a wire string out of a copy table.
+  // Fail direction: an unnameable source is OMITTED, not printed. The sentence is about
+  // where the consent came from, and rendering a raw enum name to a client says nothing;
+  // the verdict itself comes from `messageable` and is unaffected either way.
+  const source = lookup(CONSENT_SOURCES, state.source);
   const when = state.captured_at ? formatIST(state.captured_at) : null;
   if (source && when) return `Recorded ${when} — ${source.label.toLowerCase()}.`;
   if (when) return `Recorded ${when}.`;
   return "";
-}
-
-/** `source` is a plain string on the wire; only render copy for members we know. */
-function isKnownSource(value: string): value is ConsentSource {
-  return value in CONSENT_SOURCES;
 }
 
 const TONES = {
