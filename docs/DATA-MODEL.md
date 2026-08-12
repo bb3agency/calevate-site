@@ -279,8 +279,29 @@ dlt_registrations(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT, pe_
   -- design (a registration is suspended and restored over its life); who changed it is
   -- `audit_log`'s job. Standard §1 RLS, created in migration c5a930e6b1d4 with the
   -- table. `verified_at` = when WE last confirmed it with the registrar.
-consent_ledger(id, tenant_id, call_id, phone_e164, purpose ENUM[recording,callback,marketing],
-  status ENUM[granted,declined,withdrawn], captured_at, evidence JSONB)   -- immutable
+consent_ledger(id, tenant_id, call_id, phone_e164,
+  purpose ENUM[recording,callback,marketing,messaging],
+  status ENUM[granted,declined,withdrawn], captured_at, evidence JSONB,
+  consent_source ENUM[inbound_call_verbal,web_form_optin,offline_form_optin,
+    whatsapp_inbound_message,staff_recorded_request] NULL)   -- immutable
+  -- `messaging` + `consent_source` land in migration c2f7a91b4e63. It is the purpose
+  -- that governs BUSINESS-INITIATED messaging (the WhatsApp campaign follow-up,
+  -- FLOWS §4.5), and it is deliberately NOT derivable from anything else: consent to be
+  -- CALLED is not consent to be MESSAGED, so nothing was backfilled and no code path
+  -- converts a `callback` or `recording` row into a `messaging` one.
+  -- CHECKs, all in that migration: a `messaging` row must name its `consent_source`; a
+  -- `granted` row must carry `evidence`, must not come from `staff_recorded_request`
+  -- (a client's staff may record an opt-OUT, never an opt-IN) and must name its
+  -- `call_id` when the source is `inbound_call_verbal`. There is deliberately no
+  -- `assumed`/`implied` member — an unevidenced grant is unrepresentable, not merely
+  -- discouraged.
+  -- INDEX ix_consent_ledger_messaging_lookup (tenant_id, phone_e164, captured_at DESC,
+  --   created_at DESC) WHERE purpose = 'messaging' — the latest-row-wins read in
+  --   `apps/api/compliance/consent.py`, index-only and never sorting.
+  -- Append-only (hard rule 4): a withdrawal is a NEW row that supersedes, never an
+  -- UPDATE, and the read honours a validity window
+  -- (`MESSAGING_CONSENT_VALIDITY_DAYS`) so a stale opt-in stops authorising messages
+  -- while remaining in the ledger as evidence of what happened.
 retention_policies(id, tenant_id, data_category ENUM[recording,transcript,lead,consent_log],
   ttl_days INT CHECK (ttl_days >= 90 WHERE data_category='recording'),   -- TRAI 90-day floor
   action ENUM[delete,anonymize])

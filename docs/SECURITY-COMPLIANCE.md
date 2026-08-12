@@ -74,7 +74,7 @@ cite the same string:
 
 | Obligation | Feature |
 |---|---|
-| Notice + consent | Client-facing DPA + privacy notice; caller disclosure line; consent_ledger |
+| Notice + consent | Client-facing DPA + privacy notice; caller disclosure line; consent_ledger (incl. the `messaging` purpose — see below) |
 | Purpose limitation | data_category on storage; consent purpose enum; no secondary use of client data (we are Data Processor for clients' caller data; Fiduciary for client-account data — recorded in DPA) |
 | Retention limits | retention_policies per category with TTL enforcement job; recording floor 90 days (TRAI), default 180; BFSI clients configurable ≥ regulator minimum; transcripts/leads default 24 months |
 | Erasure with proof | deletion_requests workflow: `POST /v1/compliance/deletion-requests` writes the row and queues the worker in ONE transaction (transactional outbox) → locate by phone across calls/turns/extractions/leads/recordings → delete/anonymize → write proof JSON (what, where, when, hashes) **and clear `phone_e164` in that same UPDATE**, so a completed request is not the last surviving copy of the number it certifies as erased (D-44; `subject_ref`, the same hash the proof and the subject-access export use, is what remains) → certificate to requester; covers our object storage AND engine copies (adapter deletes engine-side records; Bolna's deletion API is undocumented — pilot gate, and a written erasure commitment goes in the Bolna contract, so the certificate reports engine-side deletion as `unconfirmed_pending_vendor_api` rather than claiming it). **Recordings under 90 days: see the open decision below — this row and the retention row above point in opposite directions.** |
@@ -153,6 +153,34 @@ not an implementation detail. Whichever way it goes, both places change in the s
 release — this section, and `DEFAULT_RETENTION_POLICIES` — and the change is recorded as a
 decision-log entry (ROADMAP §6). Existing tenants' rows are their own decision: a policy
 row already agreed with a client is not silently re-timed by a seed change.
+
+**Messaging consent is its own permission, and it is never inferred.** The campaign
+follow-up (FLOWS §4.5) is a business-initiated WhatsApp message to a consumer, which
+brings in a regime the dial gate above does not cover:
+
+- **Meta's WhatsApp Business Messaging Policy** requires an opt-in before any
+  business-initiated message. It may be collected on any channel and need not be
+  WhatsApp-specific, but it must state that the person is opting in to receive MESSAGES
+  and name the business they will come from, and it must be an affirmative act. The
+  business must be able to produce the TIMESTAMP and the SOURCE of that opt-in when a
+  number is challenged.
+- **TCCCPR 2018 as amended (Second Amendment, 12 Feb 2025)**: explicit consent under
+  Reg. 2(y) is consent verified from the recipient and recorded by the **Consent
+  Registrar** on DLT via Digital Consent Acquisition — a registrar function we cannot
+  perform, so what we hold is OUR evidence, not registrar-grade explicit consent. The
+  same amendment refuses indefinite consent: consent tied to an ongoing transaction
+  lapses in seven days and inferred consent dies with the contractual relationship.
+- **DPDP §6** binds consent to the purpose it was given for and requires withdrawal to
+  be as easy as consent.
+
+Encoded as: `consent_ledger.purpose = 'messaging'` with a mandatory `consent_source` and
+evidence (DATA-MODEL §9, migration c2f7a91b4e63); captured through
+`POST /v1/compliance/messaging-consent` (`leads:dispatch`, audited, number in the body
+and never in a URL); read by `apps/api/compliance/consent.py`, which honours a validity
+window so a stale opt-in stops authorising messages. Consent to be CALLED — a campaign's
+`consent_source` provenance, or a `callback` ledger row — never satisfies it, and nothing
+backfills it. The follow-up still passes `check_dispatch` first: this is an additional
+gate, never a substitute for the DNC read.
 
 **PII redaction (workers step 2):** regex + validator pass for Aadhaar (Verhoeff), PAN,
 card (Luhn), OTP patterns, plus LLM-assisted pass for spoken-out numbers; produces

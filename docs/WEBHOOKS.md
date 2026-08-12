@@ -237,7 +237,47 @@ Errors are RFC-9457 `application/problem+json`. A wrong or missing `X-Ingest-Sec
 `retryable` tells you whether retrying can possibly help; for all of the above it is
 `false` — fix the request instead.
 
-### 2.6 Dry-run tester
+### 2.6 Meta Lead Ads (native)
+
+A lead source whose `source` is `meta_lead_ads` gets a second endpoint, spoken in
+Meta's own protocol rather than ours:
+
+```
+GET|POST https://api.calevate.tech/hooks/v1/ingest/meta/{webhook_id}
+```
+
+- `POST /v1/lead-sources/{webhook_id}/meta/setup` (org-manage) returns the **callback path**,
+  the **`hub.verify_token`** to paste into the Meta App Dashboard, and the field to
+  subscribe the Page to (`leadgen`). The verify token is *derived* from the endpoint's
+  app secret, so it is per-endpoint and rotates with the secret; we never store a
+  second one.
+- **Subscription handshake**: Meta GETs the URL with `hub.mode=subscribe`,
+  `hub.verify_token` and `hub.challenge`. We echo the challenge as `text/plain` with
+  200 when both match, and answer **403** otherwise. Nothing is written either way.
+- **Authenticity**: every POST must carry `X-Hub-Signature-256: sha256=<hex>` — the
+  HMAC-SHA256 of the **raw body bytes**, keyed with your **Meta App Secret** (which is
+  what `secret_ref` holds for this source; it is *not* the verify token and *not* a
+  Page access token). Verified before the body is parsed, compared in constant time.
+  A missing or wrong signature is **401** and writes nothing at all.
+- **Duplicates and order**: Meta retries with backoff for hours and guarantees no
+  ordering, so we deduplicate on the **`leadgen_id`** — one lead, one unit of work —
+  not on the delivery body. A re-batched retry is still a duplicate; a genuinely new
+  lead sharing the delivery is still processed.
+- **Consent**: a lead-ad fill is not permission to be telephoned. Unless the source's
+  mapping names a `consent_field` that the form's own answers affirm, the lead is
+  saved and the call is refused (`no_consent_field_configured` / `no_form_consent`).
+
+**What is not built, and will not be pretended:** the webhook is a change notification
+and carries no answers. Fetching them is `GET /{leadgen_id}?fields=field_data` with a
+Page access token holding `leads_retrieval`, and this deployment has no Meta app
+credentials. So a verified delivery is acknowledged (200 — a permanent refusal must not
+make Meta retry for 36 hours and then unsubscribe your Page), recorded against its
+`leadgen_id` with the reason `meta_lead_retrieval_unavailable`, and shown in
+`GET /v1/lead-sources/activity` as **rejected**. It is not lost: the record is
+re-claimable, so replaying those deliveries once a retriever exists lands the leads for
+real.
+
+### 2.7 Dry-run tester
 
 ```
 POST /v1/lead-sources/{webhook_id}/test

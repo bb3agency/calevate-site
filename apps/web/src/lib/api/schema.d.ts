@@ -72,6 +72,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hooks/v1/ingest/meta/{webhook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Meta's webhook subscription handshake — echoes hub.challenge (SURFACES §2b)
+         * @description Meta GETs this when someone subscribes the callback URL, and will not accept the
+         *     subscription unless the challenge comes back verbatim as plain text with 200.
+         *
+         *     The failure answer is 403, which is what Meta's own guidance asks for and also the
+         *     correct shape here: the caller authenticated nothing, they presented a token that
+         *     does not match. Nothing is written on either path — a handshake is not a delivery.
+         */
+        get: operations["meta_verify_hooks_v1_ingest_meta__webhook_id__get"];
+        put?: never;
+        /**
+         * Meta Lead Ads leadgen notifications, X-Hub-Signature-256 verified (SURFACES §2b)
+         * @description One verified delivery → n leads, deduped per `leadgen_id`.
+         *
+         *     Order is the security argument, and it is the same one `billing/payments.py` and
+         *     the voice-runtime receiver make:
+         *
+         *     1. bound the body BEFORE reading it — we cannot check a signature without the
+         *        bytes, so an unauthenticated caller decides how much we allocate unless a cap
+         *        decides first;
+         *     2. verify the signature over those RAW bytes, before any parse;
+         *     3. only then parse, normalize, and do work.
+         *
+         *     The answer is always 200 once the signature holds, including for the deliveries we
+         *     refuse. Meta retries a non-2xx with backoff for hours and eventually unsubscribes
+         *     the Page — and our refusal is permanent (no retriever), so retrying could only
+         *     delay the verdict and end with the client's integration switched off. The refusal
+         *     is recorded instead, against the `leadgen_id`, where the client can see it.
+         */
+        post: operations["meta_leadgen_hooks_v1_ingest_meta__webhook_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hooks/v1/ingest/{webhook_id}": {
         parameters: {
             query?: never;
@@ -1110,6 +1154,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/compliance/messaging-consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record what a customer said about being messaged (append-only)
+         * @description Appends one row to the consent ledger. A withdrawal is a new row with `status: withdrawn`, never an edit of the opt-in it supersedes. A grant must carry evidence, and your own staff may only record an opt-OUT.
+         */
+        post: operations["record_v1_compliance_messaging_consent_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/messaging-consent/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** May we message this number? (POST: the identifier IS the personal data) */
+        post: operations["lookup_v1_compliance_messaging_consent_lookup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/compliance/subject-export": {
         parameters: {
             query?: never;
@@ -1370,6 +1451,43 @@ export interface paths {
         get: operations["ingest_activity_v1_lead_sources_activity_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-sources/{webhook_id}/meta/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Callback URL + verify token for a Meta Lead Ads source (SURFACES §2b)
+         * @description POST for a read, and `org:manage` rather than `org:read` — the two go together.
+         *
+         *     The response hands over a credential-shaped string, so it must not be reachable by
+         *     a read-only impersonating admin (D-22). But D-22 is enforced structurally: NO GET
+         *     may require a MUTATING permission, and `org:manage` is one — a GET here would fail
+         *     `tests/impersonation_reads_test.py`, which walks the live route table precisely so
+         *     this cannot be argued case by case.
+         *
+         *     Both halves are satisfiable at once because the shape is wrong, not the permission.
+         *     This is the same resolution `/v1/dnc/check` reached from the other direction: it is
+         *     a POST because the IDENTIFIER is sensitive, and this is a POST because the RESPONSE
+         *     is. Spending a D-22 exemption instead would buy one route a hole in the rule that
+         *     five near-misses in this repo say should stay unarguable.
+         *
+         *     It states the capability BEFORE the client wires anything up, rather than letting
+         *     them discover it from an activity view full of rejections — the same argument
+         *     `payment_capability` makes about rendering a pay button for a deployment that
+         *     cannot take payments.
+         */
+        post: operations["meta_setup_v1_lead_sources__webhook_id__meta_setup_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2944,6 +3062,11 @@ export interface components {
             /** Ref */
             ref: string | null;
         };
+        /** LookupConsentIn */
+        LookupConsentIn: {
+            /** Phone */
+            phone: string;
+        };
         /**
          * MarginOut
          * @description Per-client margin (D-12).
@@ -2981,6 +3104,46 @@ export interface components {
             role: string | null;
             /** User Id */
             user_id: string | null;
+        };
+        /**
+         * MessagingConsentOut
+         * @description Never the number. `status: "none"` means nobody has ever asked this person,
+         *     which is a 200 and the normal state of the world, not a 404.
+         */
+        MessagingConsentOut: {
+            /** Captured At */
+            captured_at: string | null;
+            /** Expires At */
+            expires_at: string | null;
+            /** Messageable */
+            messageable: boolean;
+            /** Source */
+            source: string | null;
+            /** Status */
+            status: string;
+        };
+        /**
+         * MetaSetupOut
+         * @description Everything a client needs to point a Meta app at this lead source, and the one
+         *     thing they need to know before they bother.
+         *
+         *     Declared rather than a bare dict for the same reason `IngestActivityItemOut` is:
+         *     `scripts/check_redaction_exposure.py` inspects response MODELS, and a setup view is
+         *     one careless field away from echoing the app secret it derives the token from.
+         */
+        MetaSetupOut: {
+            /** Callback Path */
+            callback_path: string;
+            /** Lead Retrieval Available */
+            lead_retrieval_available: boolean;
+            /** Lead Retrieval Reason */
+            lead_retrieval_reason: string | null;
+            /** Signature Header */
+            signature_header: string;
+            /** Subscribe Field */
+            subscribe_field: string;
+            /** Verify Token */
+            verify_token: string;
         };
         /** NumberCreatedOut */
         NumberCreatedOut: {
@@ -3204,6 +3367,27 @@ export interface components {
              * @enum {string}
              */
             series: "140" | "160" | "standard";
+        };
+        /** RecordConsentIn */
+        RecordConsentIn: {
+            /** Call Id */
+            call_id?: string | null;
+            /** Evidence */
+            evidence?: {
+                [key: string]: string;
+            } | null;
+            /** Phone */
+            phone: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "inbound_call_verbal" | "web_form_optin" | "offline_form_optin" | "whatsapp_inbound_message" | "staff_recorded_request";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "granted" | "declined" | "withdrawn";
         };
         /** RecordingLinkOut */
         RecordingLinkOut: {
@@ -3916,6 +4100,74 @@ export interface operations {
                 content: {
                     "application/json": {
                         [key: string]: string;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    meta_verify_hooks_v1_ingest_meta__webhook_id__get: {
+        parameters: {
+            query?: {
+                "hub.mode"?: string | null;
+                "hub.verify_token"?: string | null;
+                "hub.challenge"?: string | null;
+            };
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    meta_leadgen_hooks_v1_ingest_meta__webhook_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
                     };
                 };
             };
@@ -5858,6 +6110,72 @@ export interface operations {
             };
         };
     };
+    record_v1_compliance_messaging_consent_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordConsentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessagingConsentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    lookup_v1_compliance_messaging_consent_lookup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LookupConsentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessagingConsentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     subject_export_v1_compliance_subject_export_post: {
         parameters: {
             query?: never;
@@ -6384,6 +6702,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IngestActivityOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    meta_setup_v1_lead_sources__webhook_id__meta_setup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetaSetupOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

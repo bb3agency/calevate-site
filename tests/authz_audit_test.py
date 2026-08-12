@@ -341,7 +341,15 @@ async def test_every_mutating_route_is_gated_by_a_mutating_permission() -> None:
     """
     reads_shaped_as_posts = {
         "/v1/dnc/check",
+        # "May we message this number?" — the same shape and the same reason as
+        # `/v1/dnc/check`: it writes nothing, and the number travels in the body
+        # because a query string lands in access logs, referrers and history.
+        "/v1/compliance/messaging-consent/lookup",
         "/v1/compliance/subject-export",
+        # Hands back a verify token. POST because the RESPONSE is credential-shaped,
+        # the mirror of `/v1/dnc/check` being POST because the REQUEST is — and it is
+        # what lets the route keep `org:manage` without a D-22 exemption.
+        "/v1/lead-sources/{webhook_id}/meta/setup",
         # Records the INTENT to view a tenant; writes an audit row and nothing else.
         "/v1/admin/tenants/{tenant_id}/impersonate",
     }

@@ -33,6 +33,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.payment_routes import webhook_router as razorpay_router
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.campaigns.routes import router as campaigns_router
+    from apps.api.compliance.consent_routes import router as messaging_consent_router
     from apps.api.compliance.deletion_routes import router as deletion_router
     from apps.api.compliance.dnc_routes import router as dnc_router
     from apps.api.compliance.export_routes import router as subject_export_router
@@ -69,6 +70,12 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(integrations_router)
     application.include_router(dnc_router)
     application.include_router(subject_export_router)
+    # All four `/v1/compliance/...` routers carry literal second segments and none has a
+    # `{param}` at that position, so declaration order is not load-bearing between them
+    # today — but messaging-consent goes first so that a future
+    # `/v1/compliance/{something}` router added below cannot swallow it. FastAPI matches
+    # in declaration order (see `voice_router` above).
+    application.include_router(messaging_consent_router)
     application.include_router(deletion_router)
     application.include_router(dlt_registration_router)
     application.include_router(signup_router)

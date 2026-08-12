@@ -141,10 +141,23 @@ delivery log and **replay** (they fire
 once and can arrive with null fields); a **published, versioned** outbound payload schema
 (theirs is undocumented); **a direct lead-ingest endpoint** —
 `POST /hooks/v1/ingest/{webhook_id}` with per-endpoint secret, field mapping and a
-no-call dry run, no Zapier in the middle (*`meta_lead_ads` is today only a value of the
-`inbound_webhooks.source` enum; a **native** Meta Lead Ads integration — their
-`X-Hub-Signature-256` verification and the form-field mapping — is NOT built, so do not
-claim it in sales copy yet*); typed+validated extraction (theirs is untyped — the "Delhi
+no-call dry run, no Zapier in the middle — plus a **native Meta Lead Ads receiver**,
+`GET|POST /hooks/v1/ingest/meta/{webhook_id}`: their subscription handshake
+(`hub.mode`/`hub.verify_token`/`hub.challenge`, token derived per endpoint, never
+stored), `X-Hub-Signature-256` verified against the raw bytes with the app secret
+before any parse, dedupe keyed on `leadgen_id` (the lead is the unit of work — Meta
+batches and re-batches), the form-field mapping, and consent that is never assumed: a
+lead-ad fill with no opt-in question on the form is saved and **not** dialled
+(`no_consent_field_configured`). (*Still NOT built and not to be claimed: the Graph
+read that carries the answers. `GET /{leadgen_id}?fields=field_data` needs a Page
+access token with `leads_retrieval`, and this deployment holds no Meta credentials —
+so a verified delivery today lands as a RECORDED refusal
+(`meta_lead_retrieval_unavailable`) against its `leadgen_id`, visible in the activity
+view and re-claimable the day an adapter exists. `apps/api/ingest/meta.py` states
+this, `POST /v1/lead-sources/{webhook_id}/meta/setup` answers it (a POST because the
+response carries a verify token — the mirror of `/v1/dnc/check`), and
+`LEAD_RETRIEVAL_IMPLEMENTED = False` is the greppable constant.*);
+typed+validated extraction (theirs is untyped — the "Delhi
 in a quantity field" bug); full version history with diffs and audit (they keep 3
 versions, no diff); and **DNC on every dispatch path** including instant, which is where
 their compliance actually fails.
@@ -204,6 +217,15 @@ Admin realm (`/admin/…`)
 
 Compliance API (client realm)
 - **DNC**: `GET|POST /v1/dnc`, `POST /v1/dnc/check`, `DELETE /v1/dnc/{entry_id}`.
+- **Messaging consent**: `POST /v1/compliance/messaging-consent` (`leads:dispatch`, 201,
+  audited) records what a consumer said about being messaged, and
+  `POST /v1/compliance/messaging-consent/lookup` (`leads:read`) answers whether we may
+  message them. Both are POST because the identifier IS the personal data (same rule as
+  `POST /v1/dnc/check`), neither echoes the number back, and there is no DELETE: the
+  ledger is append-only, so "no longer" is `status: withdrawn`, a new row that
+  supersedes. A number nobody has ever been asked about is a 200 saying
+  `status: "none"`, not a 404. See SEC-COMP §4 for why this consent is separate from
+  consent to be called.
 - **DPDP subject export**: `POST /v1/compliance/subject-export`.
 - **DPDP erasure**: `POST /v1/compliance/deletion-requests` (201; idempotent per open
   request — a duplicate is a 200-shaped body with `already_open`, not a 409) and

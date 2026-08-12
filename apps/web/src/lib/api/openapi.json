@@ -3397,6 +3397,22 @@
         "title": "LedgerEntryOut",
         "type": "object"
       },
+      "LookupConsentIn": {
+        "additionalProperties": false,
+        "properties": {
+          "phone": {
+            "maxLength": 20,
+            "minLength": 8,
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone"
+        ],
+        "title": "LookupConsentIn",
+        "type": "object"
+      },
       "MarginOut": {
         "additionalProperties": false,
         "description": "Per-client margin (D-12).\n\nEvery money field is a STRING: the values are `Decimal` (hard rule 7) and the route\nstringifies them at the boundary, because a JSON float cannot hold a rupee amount\nexactly. They must stay strings all the way to the screen.",
@@ -3509,6 +3525,111 @@
           "impersonating"
         ],
         "title": "MeOut",
+        "type": "object"
+      },
+      "MessagingConsentOut": {
+        "additionalProperties": false,
+        "description": "Never the number. `status: \"none\"` means nobody has ever asked this person,\nwhich is a 200 and the normal state of the world, not a 404.",
+        "properties": {
+          "captured_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured At"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "messageable": {
+            "title": "Messageable",
+            "type": "boolean"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "source",
+          "captured_at",
+          "expires_at",
+          "messageable"
+        ],
+        "title": "MessagingConsentOut",
+        "type": "object"
+      },
+      "MetaSetupOut": {
+        "additionalProperties": false,
+        "description": "Everything a client needs to point a Meta app at this lead source, and the one\nthing they need to know before they bother.\n\nDeclared rather than a bare dict for the same reason `IngestActivityItemOut` is:\n`scripts/check_redaction_exposure.py` inspects response MODELS, and a setup view is\none careless field away from echoing the app secret it derives the token from.",
+        "properties": {
+          "callback_path": {
+            "title": "Callback Path",
+            "type": "string"
+          },
+          "lead_retrieval_available": {
+            "title": "Lead Retrieval Available",
+            "type": "boolean"
+          },
+          "lead_retrieval_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Retrieval Reason"
+          },
+          "signature_header": {
+            "title": "Signature Header",
+            "type": "string"
+          },
+          "subscribe_field": {
+            "title": "Subscribe Field",
+            "type": "string"
+          },
+          "verify_token": {
+            "title": "Verify Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "callback_path",
+          "verify_token",
+          "subscribe_field",
+          "signature_header",
+          "lead_retrieval_available",
+          "lead_retrieval_reason"
+        ],
+        "title": "MetaSetupOut",
         "type": "object"
       },
       "NumberCreatedOut": {
@@ -4157,6 +4278,71 @@
           "series"
         ],
         "title": "ProvisionNumberIn",
+        "type": "object"
+      },
+      "RecordConsentIn": {
+        "additionalProperties": false,
+        "properties": {
+          "call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "maxProperties": 20,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence"
+          },
+          "phone": {
+            "maxLength": 20,
+            "minLength": 8,
+            "title": "Phone",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "inbound_call_verbal",
+              "web_form_optin",
+              "offline_form_optin",
+              "whatsapp_inbound_message",
+              "staff_recorded_request"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "granted",
+              "declined",
+              "withdrawn"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone",
+          "status",
+          "source"
+        ],
+        "title": "RecordConsentIn",
         "type": "object"
       },
       "RecordingLinkOut": {
@@ -5817,6 +6003,136 @@
         "summary": "Clerk user/organization mirror \u2014 Svix-signed (D-37: our DB is the record)",
         "tags": [
           "clerk-webhooks"
+        ]
+      }
+    },
+    "/hooks/v1/ingest/meta/{webhook_id}": {
+      "get": {
+        "description": "Meta GETs this when someone subscribes the callback URL, and will not accept the\nsubscription unless the challenge comes back verbatim as plain text with 200.\n\nThe failure answer is 403, which is what Meta's own guidance asks for and also the\ncorrect shape here: the caller authenticated nothing, they presented a token that\ndoes not match. Nothing is written on either path \u2014 a handshake is not a delivery.",
+        "operationId": "meta_verify_hooks_v1_ingest_meta__webhook_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hub.mode",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hub.Mode"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hub.verify_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hub.Verify Token"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hub.challenge",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hub.Challenge"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Meta's webhook subscription handshake \u2014 echoes hub.challenge (SURFACES \u00a72b)",
+        "tags": [
+          "lead-ingest"
+        ]
+      },
+      "post": {
+        "description": "One verified delivery \u2192 n leads, deduped per `leadgen_id`.\n\nOrder is the security argument, and it is the same one `billing/payments.py` and\nthe voice-runtime receiver make:\n\n1. bound the body BEFORE reading it \u2014 we cannot check a signature without the\n   bytes, so an unauthenticated caller decides how much we allocate unless a cap\n   decides first;\n2. verify the signature over those RAW bytes, before any parse;\n3. only then parse, normalize, and do work.\n\nThe answer is always 200 once the signature holds, including for the deliveries we\nrefuse. Meta retries a non-2xx with backoff for hours and eventually unsubscribes\nthe Page \u2014 and our refusal is permanent (no retriever), so retrying could only\ndelay the verdict and end with the client's integration switched off. The refusal\nis recorded instead, against the `leadgen_id`, where the client can see it.",
+        "operationId": "meta_leadgen_hooks_v1_ingest_meta__webhook_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Meta Leadgen Hooks V1 Ingest Meta  Webhook Id  Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Meta Lead Ads leadgen notifications, X-Hub-Signature-256 verified (SURFACES \u00a72b)",
+        "tags": [
+          "lead-ingest"
         ]
       }
     },
@@ -8524,6 +8840,83 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/compliance/messaging-consent": {
+      "post": {
+        "description": "Appends one row to the consent ledger. A withdrawal is a new row with `status: withdrawn`, never an edit of the opt-in it supersedes. A grant must carry evidence, and your own staff may only record an opt-OUT.",
+        "operationId": "record_v1_compliance_messaging_consent_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordConsentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessagingConsentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record what a customer said about being messaged (append-only)",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/compliance/messaging-consent/lookup": {
+      "post": {
+        "operationId": "lookup_v1_compliance_messaging_consent_lookup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LookupConsentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessagingConsentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "May we message this number? (POST: the identifier IS the personal data)",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
     "/v1/compliance/subject-export": {
       "post": {
         "description": "Build the document, record that it was built, return it.\n\nA number we hold nothing about returns an empty-but-valid document, not a 404 \u2014\nand it is audited just the same. \"We hold no data about you\" is itself a disclosure\nthe client made to a data principal, and the useful question six months later is\n\"who asked, and what were they told?\", which has an answer either way.",
@@ -9187,6 +9580,47 @@
           "lead-ingest"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/lead-sources/{webhook_id}/meta/setup": {
+      "post": {
+        "description": "POST for a read, and `org:manage` rather than `org:read` \u2014 the two go together.\n\nThe response hands over a credential-shaped string, so it must not be reachable by\na read-only impersonating admin (D-22). But D-22 is enforced structurally: NO GET\nmay require a MUTATING permission, and `org:manage` is one \u2014 a GET here would fail\n`tests/impersonation_reads_test.py`, which walks the live route table precisely so\nthis cannot be argued case by case.\n\nBoth halves are satisfiable at once because the shape is wrong, not the permission.\nThis is the same resolution `/v1/dnc/check` reached from the other direction: it is\na POST because the IDENTIFIER is sensitive, and this is a POST because the RESPONSE\nis. Spending a D-22 exemption instead would buy one route a hole in the rule that\nfive near-misses in this repo say should stay unarguable.\n\nIt states the capability BEFORE the client wires anything up, rather than letting\nthem discover it from an activity view full of rejections \u2014 the same argument\n`payment_capability` makes about rendering a pay button for a deployment that\ncannot take payments.",
+        "operationId": "meta_setup_v1_lead_sources__webhook_id__meta_setup_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaSetupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Callback URL + verify token for a Meta Lead Ads source (SURFACES \u00a72b)",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/lead-sources/{webhook_id}/test": {

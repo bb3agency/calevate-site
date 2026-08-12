@@ -23,7 +23,29 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
-CONSENT_PURPOSES = ("recording", "callback", "marketing")
+CONSENT_PURPOSES = ("recording", "callback", "marketing", "messaging")
+# The purpose that governs business-initiated MESSAGING (migration c2f7a91b4e63).
+# Named once, here, because three layers switch on the same string — the CHECK
+# constraint, `compliance/consent.py`'s reads and writes, and the WhatsApp campaign
+# escalation in `workers/whatsapp.py`. It was previously a private constant in the
+# worker; a literal that must match a database constraint belongs beside the column.
+MESSAGING_PURPOSE = "messaging"
+# HOW a consent statement was obtained. Never "assumed", never "implied", never
+# inferred from a campaign list — see the migration docstring for what each member must
+# be able to evidence. `staff_recorded_request` is CHECK-barred from `granted`: a client
+# employee may record that somebody asked to stop, never that somebody agreed to start.
+CONSENT_SOURCES = (
+    "inbound_call_verbal",
+    "web_form_optin",
+    "offline_form_optin",
+    "whatsapp_inbound_message",
+    "staff_recorded_request",
+)
+WITHDRAWAL_ONLY_CONSENT_SOURCES = ("staff_recorded_request",)
+# A one-member tuple's repr ends in a comma, which is a syntax error inside SQL's
+# `IN (...)`. Rendered explicitly so the mirrored CHECK below stays valid SQL however
+# many members this grows to.
+_WITHDRAWAL_ONLY_SQL = ", ".join(repr(source) for source in WITHDRAWAL_ONLY_CONSENT_SOURCES)
 # DLT Principal Entity registration, as the registrar's own lifecycle (SEC-COMP §1/§3).
 # `not_started` exists so a row can say "we have not begun" without being absent —
 # absence and "pending" are different facts to an operator chasing an onboarding step.
@@ -39,10 +61,41 @@ ACTOR_TYPES = ("admin", "user", "system")
 
 
 class ConsentLedgerEntry(PKMixin, Base):
+    """What a person agreed to, and how we know. INSERT-only (hard rule 4).
+
+    A withdrawal is a NEW row with `status='withdrawn'`, never an UPDATE of the grant;
+    the current state of a (tenant, phone, purpose) is the LATEST row for it. The
+    `consent_ledger_append_only` trigger enforces that at the database, not here.
+
+    The constraints below mirror migration `c2f7a91b4e63` — the CHECKs are the source of
+    truth and this tuple must not drift from them (DATA-MODEL §10).
+    """
+
     __tablename__ = "consent_ledger"
     __table_args__ = (
         CheckConstraint(f"purpose IN {CONSENT_PURPOSES!r}", name="purpose_enum"),
         CheckConstraint(f"status IN {CONSENT_STATUSES!r}", name="status_enum"),
+        CheckConstraint(
+            f"consent_source IS NULL OR consent_source IN {CONSENT_SOURCES!r}",
+            name="source_enum",
+        ),
+        # "Consent is captured with a SOURCE, never assumed", as a constraint rather
+        # than a convention: a messaging row that cannot say how it was obtained is not
+        # written at all.
+        CheckConstraint(
+            f"purpose <> {MESSAGING_PURPOSE!r} OR consent_source IS NOT NULL",
+            name="messaging_names_its_source",
+        ),
+        # A grant is evidenced, is never asserted by staff on the subject's behalf, and
+        # if it was spoken it names the call it was spoken on. Withdrawals are exempt:
+        # consent must be evidenced, a refusal must never be obstructed.
+        CheckConstraint(
+            "consent_source IS NULL OR status <> 'granted' OR ("
+            "evidence IS NOT NULL "
+            f"AND consent_source NOT IN ({_WITHDRAWAL_ONLY_SQL}) "
+            "AND (consent_source <> 'inbound_call_verbal' OR call_id IS NOT NULL))",
+            name="granted_consent_carries_evidence",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -52,6 +105,10 @@ class ConsentLedgerEntry(PKMixin, Base):
     phone_e164: Mapped[str] = mapped_column(Text, nullable=False)
     purpose: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
+    # Nullable because every row written before c2f7a91b4e63 has no answer, and
+    # inventing one would be a fabricated compliance artefact. The CHECK above makes it
+    # mandatory exactly where it is knowable: `purpose = 'messaging'`.
+    consent_source: Mapped[str | None] = mapped_column(Text)
     captured_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     evidence: Mapped[dict[str, object] | None] = mapped_column(JSONB)  # e.g. transcript span
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)

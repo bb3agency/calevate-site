@@ -71,12 +71,12 @@ call — which changes which rules bite, and how hard:
     reach.
   * **Meta's opt-in is the consumer's, not the client's.** Consent to be CALLED — the
     campaign's list provenance (SEC-COMP §3) — is not opt-in to be MESSAGED by our
-    WABA, and `consent_ledger` cannot answer either: its rows are keyed to a call this
-    person never took. So `resolve_escalation_destination` asks the ledger for a
-    `messaging` purpose that its CHECK constraint does not yet permit, finds nothing,
-    and the send is refused. That refusal is the honest state of this feature until the
-    migration named there lands — and it is RECORDED rather than alerted, because
-    "no consumer has opted in yet" is the default of the world, not an incident.
+    WABA. `consent_ledger` is where that opt-in lives, under the `messaging` purpose
+    added by migration `c2f7a91b4e63`, and `apps/api/compliance/consent.py` is the one
+    place that reads or writes it. A contact nobody has opted in is still refused —
+    that is the default of the world, and it is RECORDED rather than alerted for
+    exactly that reason. What changed is that the refusal is now fixable by somebody
+    saying yes, through `POST /v1/compliance/messaging-consent`.
 
 SMS, the other half of the FLOWS §4.5 sentence, is NOT built: there is no SMS transport
 anywhere in this repo, no provider in the decision log, and `dlt_templates.kind` is a
@@ -97,6 +97,7 @@ from arq import Retry
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.consent import read_messaging_consent
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
@@ -268,10 +269,11 @@ async def resolve_destination(session: AsyncSession, tenant_id: UUID) -> Destina
     users are excluded — a removed owner must not keep receiving the business's leads.
 
     Opt-in: **not storable yet, and that is the blocker for this feature.** There is no
-    column for it, and `consent_ledger` is the wrong home (its purposes are
-    recording/callback/marketing and its rows are keyed to a CALL — it records what a
-    caller agreed to, not what our client agreed to receive). The migration this needs,
-    reported rather than written because this milestone ships none:
+    column for it, and `consent_ledger` is the wrong home even now that it carries a
+    `messaging` purpose: every row in it is a CONSUMER's statement, keyed to the number
+    a client's caller rang from. This opt-in is our CLIENT's, about a WABA relationship
+    with us — a different party, a different fiduciary, a different table. The migration
+    this needs, reported rather than written because this milestone ships none:
 
         ALTER TABLE organizations
             ADD COLUMN notify_whatsapp_e164 text,
@@ -578,10 +580,6 @@ ESCALATION_KIND = "campaign_escalation"
 # is reused for the locale, since a client's callers get one language from the agent too.
 TEMPLATE_MISSED_CALL = "calevate_missed_call_follow_up_v1"
 
-# The `consent_ledger.purpose` that would evidence a consumer opting in to WhatsApp from
-# our WABA. Not yet a permitted member of that CHECK — see `resolve_escalation_destination`.
-MESSAGING_CONSENT_PURPOSE = "messaging"
-
 
 @dataclass(frozen=True, slots=True)
 class _Escalation:
@@ -601,51 +599,29 @@ async def resolve_escalation_destination(
     """The contact themself, plus whether we can EVIDENCE their opt-in to be messaged.
 
     The number is not in doubt — we just dialled it. The opt-in is, and it is a different
-    opt-in from every consent this system currently records:
+    opt-in from every other consent this system records:
 
       * `campaigns.consent_source` says the client may CALL this list (SEC-COMP §3). A
         person who agreed to be phoned about their enquiry has not thereby agreed to
         receive WhatsApp from a WABA they have never heard of; Meta's business-initiated
         rules and DPDP's purpose limitation both read that as a separate permission.
-      * `consent_ledger` records what a CALLER agreed to DURING a call (purposes
-        recording/callback/marketing, keyed to `call_id`). This person never took the
-        call — that is the entire reason we are here.
+      * the ledger's `recording`/`callback` rows record what a CALLER agreed to DURING a
+        call, keyed to `call_id`. This person never took the call — that is the entire
+        reason we are here.
 
-    So the read below asks the ledger for a purpose its CHECK constraint does not yet
-    permit, which means it can only ever return nothing today. That is deliberate: the
-    gate is a live read against the table this consent belongs in, not a hardcoded
-    `False`, so the day the migration lands the feature starts working without a code
-    change. The migration, reported rather than written because this milestone ships
-    none:
-
-        -- consent_ledger.purpose CHECK gains 'messaging'; call_id is already nullable,
-        -- and the ledger is append-only (hard rule 4), so a withdrawal is a new row
-        -- with status='withdrawn' rather than an UPDATE.
-        ALTER TABLE consent_ledger DROP CONSTRAINT ck_consent_ledger_purpose_enum;
-        ALTER TABLE consent_ledger ADD CONSTRAINT ck_consent_ledger_purpose_enum
-            CHECK (purpose IN ('recording','callback','marketing','messaging'));
-        CREATE INDEX ix_consent_ledger_messaging
-            ON consent_ledger (tenant_id, phone_e164, captured_at DESC)
-            WHERE purpose = 'messaging';
-
-    ...plus the surface that captures it (the opt-in checkbox on the client's own lead
-    form, or the CSV import declaring one per row) and `CONSENT_PURPOSES` in
-    `apps/api/compliance/models.py`. Nothing else in this module changes.
-
-    Latest row wins, so a withdrawal supersedes the grant that preceded it.
+    So the question is asked of the `messaging` purpose specifically, through
+    `compliance.consent.read_messaging_consent` — the one implementation of "may we
+    message this person", shared with the client-facing capture surface so the worker
+    and the console can never disagree. That function is where the latest-row-wins
+    rule, the validity window and the research behind both are written down.
     """
-    row = (
-        await session.execute(
-            text(
-                "SELECT status, captured_at FROM consent_ledger WHERE tenant_id = :tid "
-                "AND phone_e164 = :phone AND purpose = :purpose "
-                "ORDER BY captured_at DESC, created_at DESC LIMIT 1"
-            ),
-            {"tid": tenant_id, "phone": phone_e164, "purpose": MESSAGING_CONSENT_PURPOSE},
-        )
-    ).first()
-    granted_at = row[1] if row is not None and str(row[0]) == "granted" else None
-    return Destination(to_e164=phone_e164, opt_in_at=granted_at)
+    state = await read_messaging_consent(session, tenant_id=tenant_id, phone_e164=phone_e164)
+    # `messageable`, not `status == "granted"`: an opt-in older than the validity window
+    # is a record of something that WAS true. The two differ on exactly the row a
+    # five-year-old campaign list would produce.
+    return Destination(
+        to_e164=phone_e164, opt_in_at=state.captured_at if state.messageable else None
+    )
 
 
 def _compose_escalation_variables(business_name: str) -> tuple[str, ...]:

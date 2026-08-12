@@ -48,6 +48,12 @@ _E164 = re.compile(r"^\+[1-9]\d{7,14}$")
 # also be copied into the free-form `data` blob.
 _CONSUMED_KEYS = frozenset({"phone", "phone_number", "name"})
 
+# The blocked-rule name for a source that requires form consent and names no consent
+# field. Distinct from `no_form_consent` (the question WAS asked and was not affirmed)
+# because they are different support tickets: this one is fixed in the lead form, that
+# one is the person's own answer and must never be "fixed" at all.
+NO_CONSENT_FIELD_RULE = "no_consent_field_configured"
+
 
 def record_speed_to_lead(seconds: float, *, outcome: str) -> None:
     """The FLOWS §4 metric: form_ts → dial_ts, target < 60s. Named recorder per
@@ -175,8 +181,26 @@ async def ingest_lead(
     config: IngestConfig,
     payload: dict[str, Any],
     received_at: float,
+    require_form_consent: bool = False,
+    provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The whole flow, one transaction: lead row always, dial only if lawful."""
+    """The whole flow, one transaction: lead row always, dial only if lawful.
+
+    `require_form_consent` flips the default for sources where **the arrival of a
+    record is not itself an assertion that the person may be telephoned**. On the
+    shared-secret path the client's own system POSTs us a lead it decided to send, so
+    a missing `consent_field` means "this client has not configured that question" and
+    the dial proceeds. A Meta Lead Ads fill is not that: the person handed their number
+    to Meta inside an ad unit, and reading it as permission for a voice agent to ring
+    them is exactly the assumed consent hard rule 5 and DPDP §6 forbid. With this set,
+    a source that names no consent field keeps the lead and refuses the call.
+
+    `provenance` is OUR record of where the lead came from, merged into `leads.data`
+    alongside the mapped fields. It bypasses the mapping on purpose — `apply_mapping`
+    drops unmapped keys because an unmapped key is unknown data from an external party,
+    and this is not that: it is what we know, and no client should have to map it to
+    keep it. Ids only; nothing here may carry an answer.
+    """
     mapped = apply_mapping(config.mapping, payload) if config.mapping else dict(payload)
 
     raw_phone = str(mapped.get("phone") or mapped.get("phone_number") or "")
@@ -257,7 +281,9 @@ async def ingest_lead(
                 "aid": config.agent_id,
                 "phone": phone,
                 "name": name,
-                "data": _json(lead_data(mapped, phone_e164=phone)),
+                "data": _json(
+                    {**lead_data(mapped, phone_e164=phone), **(provenance or {})},
+                ),
             },
         )
     ).first()
@@ -287,6 +313,15 @@ async def ingest_lead(
     # 2. Consent provenance (FLOWS §4): if the config names a consent field, the
     # payload must affirm it. We keep the lead and refuse the CALL.
     consent_field = config.mapping.get("consent_field")
+    if not (isinstance(consent_field, str) and consent_field) and require_form_consent:
+        # The source asserts nothing about permission and the caller has told us that
+        # arriving is not consenting. Keep the lead, refuse the dial, and name the fix
+        # (add the question to the lead form) rather than the symptom.
+        await _timeline(
+            session, config.tenant_id, resolved_lead, "blocked", {"rule": NO_CONSENT_FIELD_RULE}
+        )
+        record_speed_to_lead(time.time() - received_at, outcome="blocked_consent")
+        return {"lead_id": resolved_lead, "dispatched": False, "blocked": NO_CONSENT_FIELD_RULE}
     if isinstance(consent_field, str) and consent_field:
         consent_value = str(payload.get(consent_field, "")).strip().lower()
         if consent_value not in ("true", "yes", "1", "on"):
@@ -355,6 +390,7 @@ def _json(value: Any) -> str:
 
 
 __all__ = [
+    "NO_CONSENT_FIELD_RULE",
     "IngestConfig",
     "apply_mapping",
     "ingest_lead",

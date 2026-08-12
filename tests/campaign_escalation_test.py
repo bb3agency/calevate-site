@@ -16,9 +16,11 @@ description of the code:
 4. **Consent and DNC bite here too.** The follow-up is a business-initiated message to a
    consumer who did not answer a phone call, so it goes through the same
    `check_dispatch` gate every dial does (DNC read live, calling hours, the big red
-   switch) AND through a messaging opt-in the caller-consent machinery cannot supply.
-   No bypass, no test-only branch: the refusals below are produced by writing the rows
-   production writes.
+   switch) AND through a `messaging` opt-in of that consumer's own — recorded, sourced,
+   evidenced and time-limited (`compliance/consent.py`). No bypass, no test-only
+   branch, and nothing patched: every test that sends writes the opt-in the way the
+   client-facing surface writes it, and every test that is refused is refused by the
+   production read.
 5. **Only `arq.Retry` produces a retry.** Measured on a REAL arq worker, because a test
    that injects `job_try` into `ctx` can only prove an `if` compares two numbers.
 6. **Hard rule 6.** Neither the contact's number nor the lead's ever reaches a log line.
@@ -41,6 +43,10 @@ from uuid import UUID
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.campaigns import service as campaigns
+from apps.api.compliance.consent import (
+    MESSAGING_CONSENT_VALIDITY_DAYS,
+    record_messaging_consent,
+)
 from apps.api.compliance.service import add_to_dnc
 from apps.api.core.logging import JsonFormatter
 from apps.api.core.queue import WORKER_MAX_TRIES, redis_settings
@@ -343,24 +349,44 @@ def _capture_alerts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, Any
     return fired
 
 
-def _enable(monkeypatch: pytest.MonkeyPatch, transport: _Transport | None = None) -> _Transport:
-    """Turn the channel on for one test, with a recorded messaging opt-in.
+async def _enable(
+    monkeypatch: pytest.MonkeyPatch, fixture: Fixture, transport: _Transport | None = None
+) -> _Transport:
+    """Turn the channel on for one test, with a REAL recorded messaging opt-in.
 
-    The opt-in is supplied by patching the RESOLVER, not by flipping a setting: the
-    opt-in gate is not something config may switch off (that would be a compliance
-    bypass), it is something that becomes satisfiable when `consent_ledger` can carry
-    the `messaging` purpose. Patching the resolver is this suite standing in for that
-    migration.
+    Nothing about the consent gate is patched. Until migration `c2f7a91b4e63` the
+    `messaging` purpose was not a permitted member of the ledger's CHECK, so this suite
+    stood in for it by monkeypatching `resolve_escalation_destination` — a stand-in that
+    could not tell a working gate from a broken one. Now the opt-in is written the way
+    the client-facing surface writes it, through
+    `compliance.consent.record_messaging_consent`, and the worker's own resolver reads
+    it back. A regression in the read, the write, the purpose, the validity window or
+    the phone normalisation fails every test in this file rather than none of them.
+
+    The setting is still flipped, because `whatsapp_enabled` is the operator's
+    switch-on checklist, not a compliance gate — and the transport is still a sink,
+    because there is no BSP.
     """
     monkeypatch.setattr(get_settings(), "whatsapp_enabled", True)
     sink = transport or _Transport(SendResult(SendStatus.DELIVERED))
     monkeypatch.setattr(whatsapp, "get_whatsapp_transport", lambda: sink)
-
-    async def _opted_in(session: Any, *, tenant_id: UUID, phone_e164: str) -> Destination:
-        return Destination(to_e164=phone_e164, opt_in_at=datetime.now(UTC))
-
-    monkeypatch.setattr(whatsapp, "resolve_escalation_destination", _opted_in)
+    await _opt_in(fixture)
     return sink
+
+
+async def _opt_in(fixture: Fixture, *, phone: str = CONTACT_TEST_E164) -> None:
+    """The consumer says yes, on the call they DID take, exactly as the capture surface
+    records it: a named source, a call id and a transcript span."""
+    async with tenant_session(fixture.tenant_id) as session:
+        await record_messaging_consent(
+            session,
+            tenant_id=fixture.tenant_id,
+            raw_phone=phone,
+            status="granted",
+            source="inbound_call_verbal",
+            call_id=fixture.call_id,
+            evidence={"transcript_span": "turn 4", "asked": "shall I WhatsApp you the details?"},
+        )
 
 
 # --------------------------------------------------------------------------------
@@ -508,7 +534,7 @@ async def test_a_number_on_the_dnc_list_is_never_messaged(
     and then did not answer the phone is the LAST person a follow-up may reach, and the
     list is read live at send time — not trusted from the launch scrub."""
     fixture = await _exhausted_contact("dnc")
-    sink = _enable(monkeypatch)
+    sink = await _enable(monkeypatch, fixture)
     fired = _capture_alerts(monkeypatch)
     async with tenant_session(fixture.tenant_id) as session:
         await add_to_dnc(
@@ -547,13 +573,155 @@ async def test_a_recipient_with_no_recorded_opt_in_is_refused_not_retried(
     assert fired == [], "an un-opted-in consumer is the default state, not an alert per contact"
 
 
+async def test_a_recorded_opt_in_is_what_turns_the_escalation_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The point of the slice. Same contact, same job, same transport — the ONLY thing
+    that differs from the test above is one `consent_ledger` row, and it is the
+    difference between a follow-up that is refused and one that is sent.
+
+    Written as a before/after in one test on purpose: two separate tests could both pass
+    with a gate that is stuck open or stuck shut.
+    """
+    fixture = await _exhausted_contact("optin")
+    monkeypatch.setattr(get_settings(), "whatsapp_enabled", True)
+    sink = _Transport(SendResult(SendStatus.DELIVERED))
+    monkeypatch.setattr(whatsapp, "get_whatsapp_transport", lambda: sink)
+    _capture_alerts(monkeypatch)
+
+    before = await escalate_campaign_contact({"job_try": 1}, fixture.payload)
+    assert before == "rejected recipient_not_opted_in"
+    assert sink.attempts == 0
+
+    await _opt_in(fixture)
+
+    assert await escalate_campaign_contact({"job_try": 1}, fixture.payload) == "sent"
+    assert sink.attempts == 1, "a recorded opt-in must actually reach the transport"
+    assert sink.last is not None and sink.last.to_e164 == CONTACT_TEST_E164
+    events = await _escalation_events(fixture)
+    assert len(events) == 1, "one record per contact, updated as the outcome changes"
+    assert events[0]["delivered"] is True
+
+
+async def test_a_withdrawal_supersedes_the_opt_in_without_editing_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hard rule 4: the ledger is INSERT-only, so "I have changed my mind" is a new row
+    and the read takes the latest. The grant must still be there afterwards — it is the
+    proof that we were once allowed, which is exactly what a complaint asks for."""
+    fixture = await _exhausted_contact("withdrawn")
+    sink = await _enable(monkeypatch, fixture)
+    _capture_alerts(monkeypatch)
+    async with tenant_session(fixture.tenant_id) as session:
+        await record_messaging_consent(
+            session,
+            tenant_id=fixture.tenant_id,
+            raw_phone=CONTACT_TEST_E164,
+            status="withdrawn",
+            # No evidence, no call: a refusal is never obstructed.
+            source="staff_recorded_request",
+        )
+
+    assert await escalate_campaign_contact({"job_try": 1}, fixture.payload) == (
+        "rejected recipient_not_opted_in"
+    )
+    assert sink.attempts == 0
+
+    async with tenant_session(fixture.tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT status FROM consent_ledger WHERE tenant_id = :t AND purpose = "
+                    "'messaging' ORDER BY captured_at"
+                ),
+                {"t": fixture.tenant_id},
+            )
+        ).all()
+    assert [str(row[0]) for row in rows] == ["granted", "withdrawn"], (
+        "the withdrawal is an APPEND; the grant it supersedes is never edited away"
+    )
+
+
+async def test_an_opt_in_older_than_the_validity_window_is_not_current(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Meta publishes no expiry, but TRAI's 2025 amendment refuses indefinite consent
+    and DPDP binds consent to the purpose it was given for — so a stale opt-in is a
+    record of something that WAS true. The row survives; the permission does not."""
+    fixture = await _exhausted_contact("stale")
+    monkeypatch.setattr(get_settings(), "whatsapp_enabled", True)
+    sink = _Transport(SendResult(SendStatus.DELIVERED))
+    monkeypatch.setattr(whatsapp, "get_whatsapp_transport", lambda: sink)
+    _capture_alerts(monkeypatch)
+    stale = datetime.now(UTC) - timedelta(days=MESSAGING_CONSENT_VALIDITY_DAYS + 1)
+    async with tenant_session(fixture.tenant_id) as session:
+        # Appended directly rather than through the service, because the service stamps
+        # `captured_at = now()` — the only way to have an old opt-in is to have had one.
+        await session.execute(
+            text(
+                "INSERT INTO consent_ledger (id, tenant_id, call_id, phone_e164, purpose, "
+                "status, consent_source, captured_at, evidence, created_at) VALUES (:id, :t, "
+                ":c, :p, 'messaging', 'granted', 'web_form_optin', :at, "
+                "CAST(:ev AS jsonb), :at)"
+            ),
+            {
+                "id": uuid7(),
+                "t": fixture.tenant_id,
+                "c": fixture.call_id,
+                "p": CONTACT_TEST_E164,
+                "at": stale,
+                "ev": '{"form": "enquiry-v1", "notice_version": "2024-01"}',
+            },
+        )
+
+    assert await escalate_campaign_contact({"job_try": 1}, fixture.payload) == (
+        "rejected recipient_not_opted_in"
+    )
+    assert sink.attempts == 0, "a year-old opt-in does not authorise today's message"
+
+
+async def test_consent_to_be_called_back_is_not_consent_to_be_messaged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The purpose column is load-bearing, not decorative. A caller who agreed to a
+    callback and to being recorded has said nothing about a WhatsApp message from a
+    WABA they have never heard of — Meta requires an opt-in that names the business and
+    the channel, and DPDP §6 forbids reusing consent given for another purpose."""
+    fixture = await _exhausted_contact("purpose")
+    monkeypatch.setattr(get_settings(), "whatsapp_enabled", True)
+    sink = _Transport(SendResult(SendStatus.DELIVERED))
+    monkeypatch.setattr(whatsapp, "get_whatsapp_transport", lambda: sink)
+    _capture_alerts(monkeypatch)
+    async with tenant_session(fixture.tenant_id) as session:
+        for purpose in ("callback", "recording", "marketing"):
+            await session.execute(
+                text(
+                    "INSERT INTO consent_ledger (id, tenant_id, call_id, phone_e164, purpose, "
+                    "status, captured_at, created_at) VALUES (:id, :t, :c, :p, :purpose, "
+                    "'granted', now(), now())"
+                ),
+                {
+                    "id": uuid7(),
+                    "t": fixture.tenant_id,
+                    "c": fixture.call_id,
+                    "p": CONTACT_TEST_E164,
+                    "purpose": purpose,
+                },
+            )
+
+    assert await escalate_campaign_contact({"job_try": 1}, fixture.payload) == (
+        "rejected recipient_not_opted_in"
+    )
+    assert sink.attempts == 0
+
+
 async def test_the_template_carries_no_consumer_data(monkeypatch: pytest.MonkeyPatch) -> None:
     """What crosses to a foreign processor is the CLIENT's business name — so the
     recipient knows who is contacting them, which Meta requires — and nothing else. No
     lead name, no call summary, no extracted field, and the message type has no body
     field to smuggle them into."""
     fixture = await _exhausted_contact("template")
-    sink = _enable(monkeypatch)
+    sink = await _enable(monkeypatch, fixture)
 
     assert await escalate_campaign_contact({"job_try": 1}, fixture.payload) == "sent"
 
@@ -573,7 +741,7 @@ async def test_a_delivered_escalation_is_recorded_and_never_repeated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fixture = await _exhausted_contact("delivered")
-    sink = _enable(monkeypatch)
+    sink = await _enable(monkeypatch, fixture)
 
     first = await escalate_campaign_contact({"job_try": 1}, fixture.payload)
     second = await escalate_campaign_contact({"job_try": 1}, fixture.payload)
@@ -592,12 +760,14 @@ async def test_a_retry_re_sends_instead_of_being_deduped_away(
     """The trap in the idempotence check: a recorded ATTEMPT must not satisfy it, or
     every retry returns `duplicate` and the ladder is decorative."""
     fixture = await _exhausted_contact("second-try")
-    _enable(monkeypatch, _Transport(SendResult(SendStatus.TRANSPORT_FAILED, "http_502")))
+    await _enable(
+        monkeypatch, fixture, _Transport(SendResult(SendStatus.TRANSPORT_FAILED, "http_502"))
+    )
     _capture_alerts(monkeypatch)
     with pytest.raises(Retry):
         await escalate_campaign_contact({"job_try": 1}, fixture.payload)
 
-    succeeding = _enable(monkeypatch)
+    succeeding = await _enable(monkeypatch, fixture)
     assert await escalate_campaign_contact({"job_try": 2}, fixture.payload) == "sent"
 
     assert succeeding.attempts == 1, "the retry must reach the transport again"
@@ -625,7 +795,7 @@ async def test_the_hot_lead_alert_and_the_escalation_cannot_answer_for_each_othe
             triggers=["urgency"],
             template="calevate_hot_lead_v1",
         )
-    sink = _enable(monkeypatch)
+    sink = await _enable(monkeypatch, fixture)
 
     assert await escalate_campaign_contact({"job_try": 1}, fixture.payload) == "sent"
     assert sink.attempts == 1, "the hot-lead alert's success must not mark the follow-up done"
@@ -714,7 +884,9 @@ async def test_a_transport_blip_really_is_retried_by_a_real_worker(
     """arq 0.28 retries for `Retry`, `RetryJob` and `CancelledError` and NOTHING else,
     so a plain raise would make `max_tries` decorative and this ladder imaginary."""
     fixture = await _exhausted_contact("ladder")
-    _enable(monkeypatch, _Transport(SendResult(SendStatus.TRANSPORT_FAILED, "connect_timeout")))
+    await _enable(
+        monkeypatch, fixture, _Transport(SendResult(SendStatus.TRANSPORT_FAILED, "connect_timeout"))
+    )
     _capture_alerts(monkeypatch)
     # The real ladder is measured in tens of seconds; its SHAPE is what is under test.
     monkeypatch.setattr(whatsapp, "RETRY_BACKOFF_S", (0.02, 0.02))
@@ -738,8 +910,8 @@ async def test_a_rejection_stops_on_the_first_attempt_on_a_real_worker(
     """An unapproved template is a verdict, not a blip: three retries reach the same
     answer a minute later and burn a person's follow-up window doing it."""
     fixture = await _exhausted_contact("verdict")
-    sink = _enable(
-        monkeypatch, _Transport(SendResult(SendStatus.REJECTED, "template_not_approved"))
+    sink = await _enable(
+        monkeypatch, fixture, _Transport(SendResult(SendStatus.REJECTED, "template_not_approved"))
     )
     _capture_alerts(monkeypatch)
 
@@ -755,7 +927,9 @@ async def test_the_last_attempt_tells_a_human(monkeypatch: pytest.MonkeyPatch) -
     """Exhaustion is the end of the ladder, not the end of the story: the lead is still
     cold and only a person can do anything about it."""
     fixture = await _exhausted_contact("exhausted")
-    _enable(monkeypatch, _Transport(SendResult(SendStatus.TRANSPORT_FAILED, "http_502")))
+    await _enable(
+        monkeypatch, fixture, _Transport(SendResult(SendStatus.TRANSPORT_FAILED, "http_502"))
+    )
     fired = _capture_alerts(monkeypatch)
 
     result = await escalate_campaign_contact({"job_try": WORKER_MAX_TRIES}, fixture.payload)
@@ -783,7 +957,7 @@ async def test_no_phone_number_reaches_the_logs(
     formatter = JsonFormatter()
     with caplog.at_level(logging.DEBUG):
         delivered = await _exhausted_contact("nolog-ok")
-        _enable(monkeypatch)
+        await _enable(monkeypatch, delivered)
         assert await escalate_campaign_contact({"job_try": 1}, delivered.payload) == "sent"
 
         refused = await _exhausted_contact("nolog-consent")
@@ -795,7 +969,9 @@ async def test_no_phone_number_reaches_the_logs(
         await escalate_campaign_contact({"job_try": 1}, refused.payload)
 
         failing = await _exhausted_contact("nolog-fail")
-        _enable(monkeypatch, _Transport(SendResult(SendStatus.TRANSPORT_FAILED, "http_502")))
+        await _enable(
+            monkeypatch, failing, _Transport(SendResult(SendStatus.TRANSPORT_FAILED, "http_502"))
+        )
         _capture_alerts(monkeypatch)
         await escalate_campaign_contact({"job_try": WORKER_MAX_TRIES}, failing.payload)
 
