@@ -15,6 +15,13 @@ Environment=AGE_RECIPIENTS=/etc/calevate/backup-recipients.txt
 # rclone.conf, written by the operator from the secrets manager. Nothing identifying a
 # real destination belongs in this file or anywhere else in the repository.
 Environment=OFFSITE_REMOTE=calevate-offsite:calevate-dr
+# The alert relay's configuration, when this host is the HARDENED shape: `postgres`
+# cannot read the app's `.env`, so the keys `Settings` requires (DATABASE_URL, REDIS_URL,
+# OBJECT_STORE_*) plus SMTP_* and ALERTS_EMAIL come from here instead. The leading `-`
+# makes it OPTIONAL — on the simple shape the relay reads the repo's `.env` and this file
+# does not exist. Nothing here connects to the database or Redis; those two are read as
+# strings because it is one Settings class (scripts/host_alert.py).
+EnvironmentFile=-/etc/calevate/alerts.env
 ExecStart=/var/www/calevate/scripts/backup/dump-offsite.sh
 TimeoutStartSec=2h
 Nice=10

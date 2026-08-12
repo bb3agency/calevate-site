@@ -67,7 +67,7 @@ Each tick returns one string (ARQ job result / worker logs). Match it:
 | `no_outbound_pool` | Reserve ≥ total lines; pool is zero. Also fires alert `WORKER_STALL` / `outbound_pool_empty` | step 3 |
 | `pool_saturated active=N` | Pool exists but N active calls consume it all | step 3 |
 | `no_running_campaigns` | No campaign in status `running` had slots > 0 | steps 4–5 |
-| `dialled=X blocked=Y exhausted=Z` | Tick is working; the problem is per-campaign or per-contact | steps 6–7 |
+| `dialled=X blocked=Y exhausted=Z` | Tick is working; the problem is per-campaign or per-contact | steps 6–8 |
 
 All strings from `dispatch_campaign_tick` in `apps/workers/campaign_dispatch.py`.
 
@@ -134,12 +134,77 @@ FROM campaigns WHERE id = :campaign_id;
   `dlt_template_missing`, `dlt_template_not_approved`, `dlt_template_mismatch`,
   `number_missing`, `number_series_mismatch`, `no_contacts`. The client sees these on
   the launch button; fix the named item (e.g. `set_template_status` recording the
-  registrar's approval is an audited admin action).
-- `paused`? Someone paused it. Resume is the client's button (CAS `paused → running`).
-- `completed` with contacts uncalled? Check for `dnc_blocked`/`failed` rows in step 6 —
+  registrar's approval is an audited admin action). That list is the CAMPAIGN's own
+  paperwork; `launch_blockers` also carries the tenant-level refusals — `kyc_missing` /
+  `kyc_not_verified`, `first_campaign_review_pending` / `_rejected` (step 6),
+  `spend_cap` and `no_credits` — which are properties of the ACCOUNT and are worked in
+  `calls-stopped.md`. `GET /v1/campaigns/{id}/launch-check` returns all of them by name,
+  exhaustively, rather than one at a time.
+- `paused`? Someone paused it. Resume is the client's button (CAS `paused → running`) —
+  and note it is a bare CAS with no gate, which is why step 6 exists.
+- `completed` with contacts uncalled? Check for `dnc_blocked`/`failed` rows in step 7 —
   completion only requires zero `pending` + `dialing`.
 
-## 6. Contact states
+## 6. The standing gate — a `running` campaign refused on every tick
+
+This is the step people skip, and it is the one that explains a campaign that says
+`running`, shows no progress, and produces a tick line where **everything is zero**.
+
+Before claiming a single contact, the tick asks `dispatch_blockers`
+(`apps/api/campaigns/service.py`) once per campaign inside the claiming transaction. If
+anything comes back it records `record_compliance_block(rule=...)` per rule, logs
+`campaign_dispatch_blocked`, and returns `{"dialled": 0, "blocked": 0, "exhausted": 0}` —
+so `blocked=` in step 2's string stays **0** even though the campaign was blocked. The
+only signals are:
+
+- the WARNING log line `campaign_dispatch_blocked`, carrying `campaign_id` and a
+  comma-separated `rules` list (ids and rule names only — never a number, never client
+  wording); and
+- the `compliance_blocks` metric, labelled by rule.
+
+If a client's campaign is `running` and quiet and the tick reports zeros, look for that
+log line **before** looking at contacts.
+
+The rules it carries are the standing subset of the launch check — the paperwork a
+registrar can withdraw while a campaign runs — **plus the first-campaign hold**, which is
+the only tenant-level rule in it:
+
+| rule | What it means | Who clears it |
+|---|---|---|
+| `first_campaign_review_pending` | No human at Calevate has released this self-serve account for campaign calling yet (BRD §245's R-11 control) | ops only |
+| `first_campaign_review_rejected` | A reviewer looked and refused; the client is shown the reviewer's own note | ops, after the client fixes what the note names |
+
+**Why it is asked here and not only at launch.** `resume` moves a campaign from `paused`
+back to `running` with a bare CAS and no gate, and a release is **withdrawable** — a list
+turns out to be bought, complaints arrive. A campaign that kept dialling to the end of its
+list after we revoked the account's clearance is the exact failure this gate exists to
+prevent, so the answer can change mid-campaign and the tick asks every time.
+
+**Two properties that decide who you can unblock:** it is a property of the ACCOUNT, not
+of a campaign (launching another or deleting the reviewed one changes nothing), and it
+covers `self_serve` and `trial` only (`SELF_SERVE_TIERS`) — a managed client is never held
+by it. It is deliberately NOT in `check_dispatch`, so the "call this lead" button and the
+instant-lead callback still work for a held account; that residual is stated in
+`apps/api/compliance/first_campaign.py`, and widening the gate is not how it closes.
+
+**Find every held account at once**, which is the discovery step this runbook used to
+lack:
+
+```
+GET /v1/admin/compliance/holds        # admin realm, org:read
+→ [{"tenant_id": "...", "slug": "...", "plan_tier": "trial",
+    "signed_up_at": "...", "holds": ["first_campaign_review_pending"]}]
+```
+
+`apps/api/admin/holds_routes.py` — oldest signup first, read-only, no audit row (every
+decision taken from it writes its own). The release is
+`POST /v1/admin/tenants/{tenant_id}/first-campaign-review` with a `decision` and a
+required `note`, admin realm, `admin:tenants`, audited as
+`first_campaign_review.decided`. `calls-stopped.md` §4 has the full procedure, the
+client-facing view (`GET /v1/compliance/first-campaign-review`) and what the note must
+contain; do not duplicate it here.
+
+## 7. Contact states
 
 Contact statuses (`apps/api/campaigns/service.py`, `apps/workers/campaign_dispatch.py`):
 `pending` → `dialing` (CAS claim, attempts+1) → `connected` (call completed) /
@@ -172,7 +237,7 @@ Interpretation:
   Backoff comes from the retry ladder (`retry_policy`, default
   `{"max_attempts": 3, "backoff_minutes": [30, 120]}` —
   `DEFAULT_RETRY_POLICY` in `apps/api/campaigns/service.py`) or from a non-terminal
-  gate block (+30 minutes, step 7). Wait it out.
+  gate block (+30 minutes, step 8). Wait it out.
 - Rows stuck in `dialing` → the reaper (`_reap_stuck_dialing`,
   `apps/workers/campaign_dispatch.py`) runs at the start of every per-campaign dispatch
   and returns any `dialing` row with `last_attempt_at` older than 30 minutes to
@@ -193,7 +258,7 @@ Interpretation:
   LIMIT 20;
   ```
 
-## 7. Per-dial compliance gate
+## 8. Per-dial compliance gate
 
 Every claimed contact passes `check_dispatch` (`apps/api/compliance/service.py`) at dial
 time — the launch scrub was UX, this is the law (hard rule 5). A blocked dial increments
@@ -215,7 +280,7 @@ real rule names:
 Only `dnc` is terminal in the dispatcher; every other block returns the contact to
 `pending` with `next_attempt_at = now() + 30 minutes` and the attempt decremented
 (`apps/workers/campaign_dispatch.py`). So "campaign blocked on spend cap" looks like
-step 6's all-waiting-on-backoff picture, repeating every 30 minutes — check
+step 7's all-waiting-on-backoff picture, repeating every 30 minutes — check
 `spend_state`, credits, and the clock before suspecting the dispatcher.
 
 DNC membership check (existence only — do not select the number):
@@ -231,6 +296,10 @@ WHERE campaign_id = :campaign_id AND status = 'dnc_blocked';
   clearing `next_attempt_at`, not un-blocking `dnc_blocked`. The states are the CAS
   contract between dispatcher, reaper and post-call pipeline; hand edits double-dial or
   dial DNC'd numbers (a TRAI violation, not an incident metric).
+- **Never release an account by writing `first_campaign_reviews` directly.** The row is
+  the state; the *decision* is the `audit_log` entry the route writes, plus the note
+  saying what was read. A hand-written INSERT produces an account released by nobody,
+  for no recorded reason — which is the finding, not the fix.
 - **Never touch the compliance gate.** No bypass exists by design
   (`apps/api/compliance/service.py` — "no bypass flag, not even for testing") and one
   must not be introduced during an incident. If the gate blocks, the block is the fix

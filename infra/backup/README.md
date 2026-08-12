@@ -36,13 +36,16 @@ scripts/backup/basebackup.sh                 nightly wal-g base backup + retenti
 scripts/backup/dump-offsite.sh               nightly encrypted logical dump, other provider
 scripts/backup/backup-health.sh              the watchdog: four checks, four blind spots
 scripts/backup/notify.sh                     the one place a host backup failure becomes visible
+scripts/backup/alert-to-app.sh               the default delivery hook: this host → the app's alert path
+scripts/host_alert.py                        the entry point it execs; argues the subprocess and its cost
 runbooks/database-restore.md                 PITR at 3am, with the step that proves it worked
 runbooks/backup-restore-drill.md             the quarterly drill, executable and recordable
 ```
 
 Ownership boundary, stated because it caused a real design choice: everything here runs on
-the **host**, as `postgres`, outside every Python process. It cannot call
-`apps/api/core/alerting.alert()`. §5 is how that is handled without pretending otherwise.
+the **host**, as `postgres`, outside every Python process. It cannot *call*
+`apps/api/core/alerting.alert()` the way application code does — it reaches it across a
+process boundary instead. §5 is that seam and what it costs.
 
 ## 3. Two chains, on purpose, and why neither replaces the other
 
@@ -131,44 +134,96 @@ Plus the failure a script cannot report about itself: **`OnFailure=` on every un
 never started. And `Persistent=true` on the nightly timers so a night missed to a reboot is
 run late rather than skipped in silence.
 
-### The alert sink, stated honestly
+And two more that answer a different question — not "did the run work" but **"did anything
+run at all"** — because a backup that fails loudly is easy and a backup that silently
+stops is what kills you:
+
+5. **The schedule itself** (`systemctl show --property=ActiveState --property=LoadState
+   --property=LastTriggerUSec`, per timer, every health run). Catches a masked unit, a
+   disabled one, a unit file lost to a deploy that rewrote `/etc/systemd/system`, and a
+   calendar expression edited into never matching. `OnFailure=` structurally cannot see
+   any of those: nothing ran, so nothing failed. Read-only over D-Bus, so it works as
+   `postgres`. A host where systemd does not answer is *not* alerted on — the same script
+   is run by hand on a scratch host during the drill, where no Calevate timer exists.
+6. **This script's own heartbeat.** Every run stamps `.calevate-health-heartbeat`; every
+   run compares against the previous stamp and alerts `backup_health_gap` if the schedule
+   was silent for more than three intervals. It is written on failing runs too — stamping
+   only on success would put a permanent gap alert on top of a persistent backup failure.
+
+### The alert path — where a host failure actually goes
 
 `scripts/backup/notify.sh` writes a structured line to journald and stderr, in the same
-shape `apps/api/core/alerting.alert()` emits, with one hook point (`BACKUP_ALERT_COMMAND`)
-where a real sink attaches. At the time this was written **`alert()` reached nobody** — a
-structured ERROR log, with the sinks OPERATIONS §4 names unwired (ROADMAP §M1). A sibling
-change on this branch is giving `alert()` a real delivery path (dedupe, a token bucket and
-an SMTP transport on a background thread), so this is written against the interface, not
-against the behaviour either of us can see today.
+shape `apps/api/core/alerting.alert()` emits, and then hands that line to
+`BACKUP_ALERT_COMMAND` on stdin. **The default is `scripts/backup/alert-to-app.sh`**, which
+execs `python -m scripts.host_alert` → `alert()` → the SMTP transport (D-49). So a host
+that configures nothing still pages a human; the override exists for a site that wants a
+pager instead, and it stays ONE command, because two delivery paths are two dedupe windows
+and two rate limits and the day one of them stops, nobody notices.
 
-**When that lands, `BACKUP_ALERT_COMMAND` should point at that same sink, not a second
-one.** Two alert deliveries with two dedupe windows and two rate limits is the shape where
-one of them quietly stops and nobody notices — one way per problem. The concrete wiring is
-a one-line command that hands this JSON to the application's alert path; it is not written
-here because the application change is not mine and its entry point is still moving.
+That the hook was opt-in *was the bug*: while `alert()` was being given a real delivery
+path, the alarms most worth waking someone for — WAL archiving stopped, last night's dump
+failed — were the only ones in the system reaching nobody.
 
-One gap that must not be papered over: `alerting.FailureStage` is a closed `Literal` of
-pipeline stages (`ROUTE_HANDLER` … `PROCESS_RESTART`). **None of them describes "the
-nightly base backup did not run."** `notify.sh` therefore emits
-`failure_stage=HOST_BACKUP`, which is correctly shaped and *is not currently a member of
-that enum*. The fix is one line in a file this change does not own:
+**What survives this wiring, and is the reason for its shape:** the boundary is a PROCESS
+boundary, not a vocabulary one. This code cannot *call* `alert()` — it runs on the host, as
+`postgres`, outside every Python process — so it emits the same shape and crosses into the
+same function by subprocess. One alert vocabulary, one recipient, one transport, two ways
+in. `failure_stage=HOST_BACKUP` is a real member of `alerting.FailureStage` (D-50) rather
+than a private convention, which is what makes this a relay and not a translation; it is
+its own stage because none of `ROUTE_HANDLER … PROCESS_RESTART` describes "the nightly base
+backup did not run", and an alert that names the wrong stage lies about where to look.
 
-```python
-FailureStage = Literal[..., "PROCESS_RESTART", "HOST_BACKUP"]
-```
+**Three costs, because an operator pays them** (argued in `scripts/host_alert.py`):
 
-Mislabelling a host failure as `WORKER_TERMINAL` to make it fit would make the alert lie
-about where to look, which is the one thing an alert must not do.
+- the application tree and its virtualenv must be present on the database host — true by
+  construction under D-26, and the thing to revisit if the database ever moves to its own
+  box;
+- `Settings` is one class, so `DATABASE_URL`, `REDIS_URL` and the object-store keys must be
+  *readable* by `postgres`. Either the repo's `.env` is readable by that user (simple
+  shape) or the units supply `EnvironmentFile=-/etc/calevate/alerts.env` with only those
+  keys plus `SMTP_*` and `ALERTS_EMAIL` (hardened shape). **Nothing here opens either
+  connection** — that property is deliberate in `alerting` and is re-proved end to end in
+  `tests/backup_alert_relay_test.py` with both DSNs pointed at a closed port;
+- an interpreter start and up to ~45s of SMTP wait per alert, paid by a backup script that
+  has already failed, bounded by `timeout 90s` in the wrapper so a unit can never hang on
+  its own alarm.
 
-### The detector nobody has
+**The repeat window lives on disk here**, not in memory. `alert()` suppresses repeats of
+one fingerprint for 15 minutes in process state; each relay is a fresh process, so that
+state is empty on arrival and would suppress nothing, while `backup-health.sh` runs every
+15 minutes and a broken chain emits several codes per run — roughly 96 mails a day, then a
+filter rule, then an alarm reaching nobody again. So the stamp is a file per fingerprint
+under `/var/lib/postgresql/.calevate-alert-state`, the *interval* is imported from
+`alerting` rather than copied, and a delivery that FAILED does not start a window (the
+window means "a human has been told").
 
-Every check above runs **on the VPS**. If the VPS is off, the timers do not fire, nothing
-fails, and nothing alerts — the classic dead-man's-switch hole. The fix is an external
-heartbeat: the health timer pings a third-party dead-man endpoint on success, and *that*
-service alerts on silence. It is **not built here** because it adds an external dependency
-and a vendor, which needs a decision-log entry (ROADMAP §6), and because with no alert sink
-wired yet it would page the same nobody. Until it exists, the honest statement is: **an
-extended outage of the whole VPS is currently detected by a human noticing.**
+### The detector nobody has — precisely which one
+
+Checks 5 and 6 close the schedule failures that happen **while this host is running**: a
+timer that was disabled, masked, deleted or edited into silence, and a stretch during which
+nothing ran, reported retroactively when it resumes.
+
+They cannot close, and nothing inside this repository can close:
+
+- **the host being off, wedged, out of disk or off the network** — no timer fires, no check
+  runs, no alert is emitted, and the absence of alerts is indistinguishable from health;
+- **systemd itself not running**, which takes checks 5 and 6 with it;
+- **the alert path being broken at the far end** — a wrong `ALERTS_EMAIL`, an SMTP provider
+  refusing us, a mailbox rule. Every alert then "succeeds" locally and lands nowhere.
+
+All three are the same shape: **only an observer outside the failure domain can turn
+SILENCE into a page.** That is the dead-man's-switch / Watchdog pattern — an always-firing
+signal routed to a service that complains when it stops arriving (Prometheus's `Watchdog`
+alert is literally `expr: vector(1)` routed to an external receiver; healthchecks.io-style
+services are the same idea packaged as a URL you ping on success and that alerts on
+silence). The shape it would take here is one line — `ExecStartPost=curl -fsS
+"$HEALTHCHECK_URL"` on `calevate-backup-health.service`, or systemd's `OnSuccess=` (v249+)
+firing a ping unit — and it is deliberately **not built**, because it adds a vendor and an
+outbound dependency, which needs a decision-log entry (ROADMAP §6, D-50's open question).
+
+Until that decision is taken, the honest statement is: **an outage that stops this host
+entirely, and a delivery path that is broken beyond it, are both detected by a human
+noticing.** Do not read checks 5 and 6 as covering that.
 
 ## 6. Retention, and what it costs
 
@@ -291,11 +346,17 @@ was written. **Do not assume any of it works.**
 10. **Run the drill before go-live, not after** — `runbooks/backup-restore-drill.md`. Until
     it has passed once, the correct description of this directory is "a backup system we
     believe in", and D-26's requirement is not met.
-11. **Add `HOST_BACKUP` to `alerting.FailureStage`** (§5) and wire a sink, or these alerts
-    remain log lines nobody reads.
+11. **Set `ALERTS_EMAIL` (and `SMTP_*`) where this host can read them**, and prove it:
+    `scripts/backup/notify.sh probe "delivery test"` must print `host_alert delivered` and
+    put mail in the operator's inbox. `HOST_BACKUP` is already a member of
+    `alerting.FailureStage` and the hook already defaults to the relay, so this is the
+    only remaining step between a backup failure and a phone. If the app's `.env` is not
+    readable by `postgres`, write `/etc/calevate/alerts.env` instead (§5) — the units
+    already load it optionally.
 12. **Record the decisions this raises** in ROADMAP §6: the 35-day retention as a DPDP
-    commitment (§6/§7), the external heartbeat dependency (§5), and whether
-    `ERASURE_LIMITATIONS` gains a backup clause (§7).
+    commitment (§6/§7), the external heartbeat dependency (§5 — still open, and now with
+    exactly three named failures behind it), and whether `ERASURE_LIMITATIONS` gains a
+    backup clause (§7).
 
 ## 9. What could and could not be checked here
 
@@ -310,6 +371,22 @@ was written. **Do not assume any of it works.**
   correctly escaped (which is why `jq` builds the line instead of string concatenation),
   the `BACKUP_ALERT_COMMAND` hook receives the line on stdin, and a hook that exits
   non-zero is reported without masking the original alert or changing the exit status.
+- **The alert reaches the application's delivery path, end to end**
+  (`tests/backup_alert_relay_test.py`, 20 tests): `notify.sh` with an EMPTY environment
+  relays through `alert-to-app.sh` → `scripts/host_alert.py` → `alert()` → a transport;
+  the on-disk repeat window collapses a repeated alarm and reports the count on the next
+  one; a failed delivery does not start a window; an unwritable state directory sends
+  anyway; an unset `ALERTS_EMAIL` exits non-zero so the journal records that nobody was
+  told; a planted phone number does not survive into the mail (hard rule 6); and the whole
+  path runs with `DATABASE_URL` and `REDIS_URL` pointed at a **closed port**, which is how
+  "the alarm survives the thing it reports" is a tested fact rather than a claim.
+  **The transport exercised is `ConsoleTransport`** — no SMTP server was contacted from
+  this sandbox, so the last hop (a real mailbox) is step 11's job.
+- **The schedule checks were executed against a STUBBED `systemctl`**: an inactive timer
+  produces `backup_timer_inactive`, an armed-but-long-silent one `backup_timer_not_firing`,
+  a healthy one nothing at all; a stale heartbeat produces `backup_health_gap` and is then
+  renewed, and a first-ever run stays quiet. What that proves is the script's READING of
+  systemd's answers. **It proves nothing about systemd** — see below.
 - **`backup-health.sh` was executed** with no PostgreSQL, no wal-g and no config present.
   It ran *all* checks rather than stopping at the first, emitted `health_db_unreachable`,
   `health_pg_wal_unreadable` and `walg_unavailable`, and exited 1. That is the watchdog's
@@ -341,6 +418,16 @@ was written. **Do not assume any of it works.**
   until the drill runs.
 - **Compression ratios and therefore all cost figures** (§6).
 - **`rclone`, `age`, `jq` and `logger` presence on the host** — assumed, listed in §8.
+- **`systemctl show`'s real output.** There is no systemd in this sandbox (`systemctl`
+  answers "System has not been booted with systemd as init system"), so the property names
+  and their formats — `ActiveState`, `LoadState`, `LastTriggerUSec` as a `date -d`-parsable
+  string, `n/a` before a first trigger — are documentation-derived and exercised only
+  against a stub. **The first real run may need the format corrected**; the failure mode if
+  it is wrong is a `backup_timer_not_firing` alert on a healthy host, which is the safe
+  direction and is the first thing to check before believing that alert.
+- **Actual email delivery.** No SMTP server exists here. `alert()`'s SMTP transport is
+  covered by `tests/alert_delivery_test.py`'s own doubles; nothing in this tree has put a
+  message in a real inbox.
 
 ## 10. Sources
 
@@ -367,6 +454,28 @@ Command syntax and settings are quoted from first-party documentation rather tha
   this sandbox's egress proxy; read via search summaries and the docs source at
   https://github.com/cloudflare/cloudflare-docs/blob/production/src/content/docs/r2/buckets/bucket-locks.mdx
   — **re-read the live page before applying a lock**)
+- **Dead-man's switch / heartbeat monitoring (§5).** The pattern named here is the standard
+  one, not an invention: Prometheus's `Watchdog` alert is an always-firing rule
+  (`expr: vector(1)`) routed to an EXTERNAL receiver precisely so that silence — including
+  silence caused by the monitoring stack itself dying — becomes a page.
+  https://runbooks.prometheus-operator.dev/runbooks/general/watchdog/ ·
+  https://training.promlabs.com/training/monitoring-and-debugging-prometheus/metrics-based-meta-monitoring/end-to-end-watchdog-alerts/
+  Healthchecks.io packages the same idea for scheduled jobs and documents the systemd
+  shape — ping on success, `OnFailure=` for the failing run, and the service alerting when
+  a ping does not arrive: https://healthchecks.io/docs/monitoring_systemd_tasks/ (egress
+  blocked from this sandbox; read via search summaries).
+- systemd `OnSuccess=` (the success half of `OnFailure=`, the natural place to hang a
+  heartbeat ping) — **added in systemd v249**, so it is not available on older hosts and
+  `ExecStartPost=` is the portable form: `systemd.unit(5)`,
+  https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html (egress
+  blocked; version confirmed via the man page text in search results).
+- systemd timer introspection — `systemctl show -p ActiveState -p LastTriggerUSec
+  -p NextElapseUSecRealtime` is the scriptable form of `list-timers`, and a timer's
+  last-run state is a stamp file under `/var/lib/systemd/timers` (which is why a
+  `Persistent=true` timer can be "enabled and never fired" after that file is lost):
+  https://wiki.archlinux.org/title/Systemd/Timers ·
+  https://documentation.suse.com/smart/systems-management/html/systemd-working-with-timers/index.html
+  (both blocked from this sandbox; read via search summaries).
 - PostgreSQL 16 — `pg_stat_archiver`, and the caveat that archiver aborts on a signal or an
   exit status above 125 are *not* recorded there:
   https://www.postgresql.org/docs/16/monitoring-stats.html (blocked by egress here; the

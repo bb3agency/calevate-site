@@ -141,9 +141,29 @@ the part that rots.
    archiver that aborted on a bad exit status. Confirm the **freshness** check
    (`archive_stale`) fires anyway. That is the check that exists solely to cover this hole,
    and this is the only time anyone proves it works.
-5. Confirm the alert **reached a human**. If `BACKUP_ALERT_COMMAND` is still unset, record
-   the drill result as **PARTIAL** with the reason "detection verified, delivery not
-   wired" — do not record a PASS. A detector nobody hears is not detection.
+5. Confirm the alert **reached a human** — an actual message in the operator's inbox, not
+   a journald line and not a green exit status. Delivery is wired by default now
+   (`notify.sh` → `alert-to-app.sh` → `alert()` → SMTP, `infra/backup/README.md` §5), so
+   what this step tests is the part no test can: that `ALERTS_EMAIL` is right, that the
+   SMTP provider accepts us, and that the mail is not sitting in a spam folder. The relay
+   prints `host_alert delivered …` to the unit's journal when the transport accepted the
+   message; **that line is not proof of receipt** — go and look at the inbox.
+   If no message arrives, record the drill as **PARTIAL** with the reason "detection
+   verified, delivery not confirmed". A detector nobody hears is not detection.
+6. **Break the SCHEDULE, not the backup** — the failure `OnFailure=` cannot report,
+   because nothing runs to fail. On the scratch host:
+   `systemctl stop calevate-basebackup.timer`, then run `scripts/backup/backup-health.sh`.
+   **Expected:** `backup_timer_inactive`, naming the unit. Re-arm it afterwards.
+   Then, still on the scratch host, backdate the health heartbeat
+   (`date -d '6 hours ago' +%s > /var/lib/postgresql/.calevate-health-heartbeat`) and run
+   the check again: **expected** `backup_health_gap` with a `gap_s` of about 21600.
+   **UNVALIDATED where it matters most:** the property names this reads from
+   `systemctl show` were never exercised against a live systemd (README §9). If a healthy
+   host reports `backup_timer_not_firing`, suspect the timestamp format before suspecting
+   the timer — and fix the parser here, in the drill, which is what the drill is for.
+7. **Write down what is still uncovered**, in the record, every quarter, so it stays a
+   decision rather than a habit: while this host is OFF, nothing above observes anything.
+   That residual needs an external dead-man's switch and is D-50's open question.
 
 ## 8. Clean up — the scratch database is a full copy of everyone's personal data
 
@@ -201,7 +221,11 @@ Reference it from the incident/ops review.
 - Induced failure: 
 - Alert code observed: 
 - Time to alert: ___ minutes
-- Alert delivered to a human: yes | no — <BACKUP_ALERT_COMMAND wired?>
+- Alert **received in the operator's inbox**: yes | no — <what was wrong>
+- Schedule test: `backup_timer_inactive` observed: yes | no
+- Gap test: `backup_health_gap` observed, gap_s ≈ ___ : yes | no
+- `systemctl show` output parsed correctly (README §9's unvalidated assumption): yes | no — <correction made>
+- Still uncovered this quarter: host-down / systemd-down / delivery broken beyond us — external dead-man's switch still open (D-50): yes
 
 ## Erasure re-application (database-restore.md §8)
 - Completed deletion_requests after the target: ___
@@ -223,6 +247,7 @@ Reference it from the incident/ops review.
 ```
 
 **PASS requires all of:** every §6 check green, RTO inside 4 hours, the detection test
-firing, and the cleanup complete. Anything less is PARTIAL or FAIL — and a PARTIAL with a
+firing **and arriving in a human's inbox**, the schedule and gap tests firing, and the
+cleanup complete. Anything less is PARTIAL or FAIL — and a PARTIAL with a
 named follow-up is a good drill. A PASS recorded over a skipped check is worse than no
 drill, because next quarter someone will read it and believe it.

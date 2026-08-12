@@ -24,6 +24,22 @@
 #      segments pile up in pg_wal until the volume fills and the cluster stops accepting
 #      writes. This one turns a backup incident into a downtime incident, so it is worth
 #      alerting on separately and earlier.
+#   5. THE SCHEDULE ITSELF — added because 1-4 all answer "did the backup that ran
+#      work?", and the failure that actually kills you is the backup that STOPPED
+#      RUNNING. `OnFailure=` cannot see it (nothing ran, so nothing failed), and neither
+#      can any check that looks at PostgreSQL. So this asks systemd directly whether each
+#      timer is still armed and when it last fired: a masked unit, a disabled one, a unit
+#      file lost to a deploy that rewrote /etc/systemd/system, a calendar expression
+#      edited into never matching. BLIND SPOT, and it is the honest one: this check runs
+#      FROM a timer. It cannot report while nothing is running — see §6 and README §5.
+#   6. THIS SCRIPT'S OWN HEARTBEAT — the gap check. Every run stamps the time; every run
+#      compares against the previous stamp. A schedule that stopped for six hours is
+#      reported the moment it resumes. That is retroactive detection, which is the most
+#      an on-host check can honestly claim, and it is NOT a dead-man's switch: while the
+#      host is off, nothing here observes anything. Turning silence into a page requires
+#      an observer outside this host (the Watchdog/dead-man pattern — an always-firing
+#      signal routed to a service that complains when it stops arriving). That dependency
+#      is D-50's open question and is deliberately not invented here.
 #
 # WHAT NO CHECK HERE CAN DO: prove the archive is RESTORABLE. Only a restore proves that.
 # That is `runbooks/backup-restore-drill.md`, quarterly, and it is not optional.
@@ -53,12 +69,48 @@ MAX_BASEBACKUP_AGE_S=${MAX_BASEBACKUP_AGE_S:-129600}
 MAX_PG_WAL_SEGMENTS=${MAX_PG_WAL_SEGMENTS:-64}
 # wal-verify walks the bucket; hourly is enough and keeps Class B operations negligible.
 WAL_VERIFY_INTERVAL_S=${WAL_VERIFY_INTERVAL_S:-3600}
-WAL_VERIFY_STAMP=${WAL_VERIFY_STAMP:-/var/lib/postgresql/.calevate-wal-verify-stamp}
+# One directory for every stamp this host keeps, so there is one thing to `chown postgres`
+# and one thing to look at when a check believes the wrong thing about time.
+HEALTH_STATE_DIR=${HEALTH_STATE_DIR:-/var/lib/postgresql}
+WAL_VERIFY_STAMP=${WAL_VERIFY_STAMP:-$HEALTH_STATE_DIR/.calevate-wal-verify-stamp}
+HEALTH_HEARTBEAT_STAMP=${HEALTH_HEARTBEAT_STAMP:-$HEALTH_STATE_DIR/.calevate-health-heartbeat}
+# Three missed runs of a 15-minute timer. Two would fire on a slow boot or a long
+# `wal-verify`; three is a schedule that stopped rather than one that slipped.
+MAX_HEALTH_GAP_S=${MAX_HEALTH_GAP_S:-2700}
+# The timers this backup chain is made of, each with the longest silence that is still
+# normal for it. Nightly units get the same 36h the base-backup age check uses (one missed
+# night is a warning, not a rounding error); the health timer gets an hour, four times its
+# own interval — it is triggering the very run doing the asking, so anything older than
+# that means the run came from somewhere else (a drill, a hand invocation) or the stamp is
+# stale. Format: `unit:max_age_seconds`.
+BACKUP_TIMERS=${BACKUP_TIMERS:-calevate-basebackup.timer:129600 calevate-dump-offsite.timer:129600 calevate-backup-health.timer:3600}
 
 PSQL=(psql --no-psqlrc --tuples-only --no-align --quiet --dbname "${HEALTH_DB:-postgres}")
 
 failures=0
 alert() { "$notify" "$@"; failures=$((failures + 1)); }
+
+now=$(date +%s)
+
+# --- 6. Did WE run? The gap this script can see about itself ------------------------
+# Read before anything else and written at the very end, so the window measured is
+# run-to-run rather than check-to-check. A first run has no previous stamp and says
+# nothing: "this host has never run the check" is what a new install looks like, and an
+# alert there would train the operator to ignore this code.
+last_heartbeat=0
+[[ -r "$HEALTH_HEARTBEAT_STAMP" ]] && last_heartbeat=$(cat "$HEALTH_HEARTBEAT_STAMP" 2>/dev/null || echo 0)
+if [[ "$last_heartbeat" =~ ^[0-9]+$ ]] && (( last_heartbeat > 0 )); then
+  gap=$(( now - last_heartbeat ))
+  if (( gap > MAX_HEALTH_GAP_S )); then
+    # Reported ONCE, when the schedule resumes — nothing on this host can report during
+    # the gap. What the number is worth: it dates the silence, so an operator can tell a
+    # rebooted host (minutes) from a timer that was off all weekend (days), and knows
+    # which nights to check for a missing base backup.
+    alert backup_health_gap \
+      "the backup health check did not run for a long stretch and has just resumed; backups were UNMONITORED for that period" \
+      "gap_s=$gap" "threshold_s=$MAX_HEALTH_GAP_S"
+  fi
+fi
 
 # --- 1 + 2. The archiver's own view -----------------------------------------------
 # One query, so the two facts are consistent with each other. A NULL last_archived_time on
@@ -111,7 +163,6 @@ fi
 
 # --- 3. The destination ------------------------------------------------------------
 if command -v wal-g >/dev/null && [[ -r "$WALG_CONFIG_PATH" ]]; then
-  now=$(date +%s)
   last_verify=0
   [[ -r "$WAL_VERIFY_STAMP" ]] && last_verify=$(cat "$WAL_VERIFY_STAMP" 2>/dev/null || echo 0)
 
@@ -171,7 +222,71 @@ else
     "config=$WALG_CONFIG_PATH"
 fi
 
+# --- 5. Is the schedule still armed? -----------------------------------------------
+# The one failure mode `OnFailure=` structurally cannot report: nothing ran, so nothing
+# failed. `systemctl show` is read-only over D-Bus and needs no privilege, so this works
+# as `postgres`.
+#
+# If systemd cannot be reached at all we say so on stderr and DO NOT alert. That is not
+# timidity: this script is also run by hand on a scratch host during the quarterly drill,
+# where there are no Calevate timers and an alert would be false. A host that is supposed
+# to have these timers and cannot answer for them has a bigger problem than this check,
+# and it shows up as the gap above on the next real run.
+if command -v systemctl >/dev/null 2>&1; then
+  for spec in $BACKUP_TIMERS; do
+    unit=${spec%%:*}
+    max_age=${spec##*:}
+    if ! properties=$(systemctl show "$unit" \
+        --property=ActiveState --property=LoadState --property=LastTriggerUSec 2>/dev/null); then
+      echo "backup-health: systemd is not answering; the schedule was not checked" >&2
+      break
+    fi
+    active=$(printf '%s\n' "$properties" | sed -n 's/^ActiveState=//p')
+    loaded=$(printf '%s\n' "$properties" | sed -n 's/^LoadState=//p')
+    last_trigger=$(printf '%s\n' "$properties" | sed -n 's/^LastTriggerUSec=//p')
+
+    if [[ "$loaded" == "not-found" || "$loaded" == "masked" ]]; then
+      # A deploy that rewrites /etc/systemd/system, or a masked unit somebody forgot to
+      # unmask after an incident. Both look exactly like "backups are fine" from every
+      # other check in this file.
+      alert backup_timer_missing \
+        "a backup timer's unit is not installed on this host; that backup is not scheduled at all" \
+        "unit=$unit" "load_state=$loaded"
+      continue
+    fi
+    if [[ -n "$active" && "$active" != "active" ]]; then
+      alert backup_timer_inactive \
+        "a backup timer is not armed; nothing will trigger that backup until someone starts it" \
+        "unit=$unit" "active_state=$active"
+      continue
+    fi
+    last_epoch=""
+    [[ -n "$last_trigger" && "$last_trigger" != "n/a" && "$last_trigger" != "0" ]] \
+      && last_epoch=$(date -d "$last_trigger" +%s 2>/dev/null || echo "")
+    if [[ -z "$last_epoch" ]]; then
+      # Armed and never fired. On a freshly installed host this is true for a few hours
+      # and it is still worth saying: "enabled" is not "has run", and the difference is
+      # exactly what people assume away.
+      alert backup_timer_not_firing \
+        "a backup timer is armed but has never fired; being enabled is not the same as having run" \
+        "unit=$unit" "last_trigger=never"
+    elif (( now - last_epoch > max_age )); then
+      alert backup_timer_not_firing \
+        "a backup timer is armed but has not fired for longer than its schedule allows" \
+        "unit=$unit" "since_s=$(( now - last_epoch ))" "threshold_s=$max_age"
+    fi
+  done
+else
+  echo "backup-health: no systemctl on this host; the schedule was not checked" >&2
+fi
+
+# Written LAST and unconditionally, including on a failing run: the heartbeat records
+# that the check RAN, not that it was happy. Stamping it only on success would turn a
+# persistent backup failure into a permanent `backup_health_gap` on top of it.
+printf '%s' "$now" > "$HEALTH_HEARTBEAT_STAMP" || \
+  echo "backup-health: could not write $HEALTH_HEARTBEAT_STAMP; the gap check is blind" >&2
+
 if (( failures > 0 )); then
   exit 1
 fi
-logger -t calevate.backup -p daemon.info -- "backup health checks passed"
+logger -t calevate.backup -p daemon.info -- "backup health checks passed" || true

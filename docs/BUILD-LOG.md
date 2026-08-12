@@ -1654,7 +1654,7 @@ One seam the two slices did not close between them, and it is worth naming becau
 looks closed: the backup chain runs on the host as `postgres`, outside every Python
 process, so it cannot call the `alert()` that gained a sink earlier in the same wave. It
 emits the identical shape — `failure_stage=HOST_BACKUP`, a stable code — to journald and
-to an optional `BACKUP_ALERT_COMMAND` hook that nothing here configures, because no
+to a `BACKUP_ALERT_COMMAND` hook that now defaults to the relay beside it, so a host that configures nothing still pages, because no
 endpoint or token belongs in this repository. **So the one alarm that says the database is
 unrecoverable is currently the one alarm that does not page**, and wiring that hook is part
 of applying the tree rather than part of writing it. The largest unverified vendor
@@ -1744,7 +1744,7 @@ existed, the tests passed, and the delivery of all of it was a log line.
    after this entry was drafted — `GET /v1/admin/compliance/holds`, built from per-tenant
    RLS sessions asking the ordinary gates rather than from a widened `app.admin` policy,
    because a policy is table-scoped and would have handed every future admin query the
-   signatory name and reviewer prose to answer a question needing neither; `runbooks/calls-stopped.md` walks ten causes including the KYC
+   signatory name and reviewer prose to answer a question needing neither; `runbooks/calls-stopped.md` walks eleven causes including the KYC
    refusals but **not the first-campaign hold**, which is now an eleventh for
    `self_serve`/`trial` tenants; Langfuse and PostHog config is GONE rather than dormant
    (D-49), so per-call token cost and the latency breakdown are a stated gap and restoring

@@ -11,6 +11,13 @@ User=postgres
 Group=postgres
 Environment=WALG_CONFIG_PATH=/etc/wal-g/walg.json
 Environment=PGDATA=/var/lib/postgresql/16/main
+# The alert relay's configuration, when this host is the HARDENED shape: `postgres`
+# cannot read the app's `.env`, so the keys `Settings` requires (DATABASE_URL, REDIS_URL,
+# OBJECT_STORE_*) plus SMTP_* and ALERTS_EMAIL come from here instead. The leading `-`
+# makes it OPTIONAL — on the simple shape the relay reads the repo's `.env` and this file
+# does not exist. Nothing here connects to the database or Redis; those two are read as
+# strings because it is one Settings class (scripts/host_alert.py).
+EnvironmentFile=-/etc/calevate/alerts.env
 ExecStart=/var/www/calevate/scripts/backup/basebackup.sh
 # A base backup of a small database takes minutes. If it is still running after two hours
 # something is wrong (the wal-g #1639 class of bug: a 409 from the store leaves the upload

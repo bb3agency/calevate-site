@@ -103,17 +103,34 @@ and a second delivery mechanism is a second thing to be broken on the night it i
 - **What triggers one**: webhook failures > 3/5min; pipeline lag > 5 min; latency p95
   breach 15-min sustained; cap approaching (80%)/breached; complaint-spike on campaign;
   engine 5xx spike; nightly job failures; cert/domain expiry.
-- **The host backup chain is the exception, and it is not covered by the above.** Backups
-  run on the host as `postgres`, outside every Python process, so they cannot call
-  `alert()`. `scripts/backup/notify.sh` emits the SAME SHAPE — `failure_stage=HOST_BACKUP`
-  with a stable code — to journald and stderr, and forwards it to an optional
-  `BACKUP_ALERT_COMMAND` hook that is **not configured** (no endpoint or token belongs in
-  the repository). systemd `OnFailure=` covers the failures a script cannot report about
-  itself: OOM-killed, killed by a signal, never started. So today a backup failure reaches
-  a human only through journald or the hook — **wiring `BACKUP_ALERT_COMMAND` to something
-  that reaches the same mailbox is part of applying `infra/backup/`**, and until it is
-  done, the alarm that says the database is unrecoverable is the one alarm that does not
-  page.
+- **The host backup chain crosses a PROCESS boundary, not a vocabulary one.** Backups run
+  on the host as `postgres`, outside every Python process, so they cannot CALL `alert()` —
+  they emit the same shape (`failure_stage=HOST_BACKUP` with a stable code) to journald and
+  stderr, and reach the same transport by subprocess: `notify.sh` → `alert-to-app.sh` →
+  `python -m scripts.host_alert` → `alert()`. One vocabulary, one recipient, one transport,
+  two ways in. `BACKUP_ALERT_COMMAND` defaults to that relay, so **a host that configures
+  nothing still pages**; an override stays ONE command, because two delivery paths are two
+  dedupe windows and the day one stops nobody notices.
+
+  Each relay is a fresh process, so `alert()`'s in-memory suppression window cannot apply.
+  The window is therefore a stamp file per fingerprint, with the INTERVAL imported from
+  `alerting` rather than copied; a failed delivery does not open one, and an unwritable
+  state directory fails OPEN. Without it, a broken chain checked every fifteen minutes is
+  ~96 mails a day, which becomes a filter rule, which is an alarm reaching nobody again.
+
+  What remains to do on the host is `ALERTS_EMAIL` plus readable `SMTP_*` — proved by
+  `notify.sh probe "delivery test"` putting mail in a real inbox, since local delivery
+  success is transport acceptance, not receipt.
+
+- **The dead man is the harder half, and three residuals are deliberately uncovered.**
+  `backup-health.sh` now checks the SCHEDULE (a timer missing, inactive, or armed and
+  silent past its window — the failure `OnFailure=` structurally cannot see, because
+  nothing ran so nothing failed) and its OWN heartbeat (a gap reported when it resumes,
+  dated so an operator knows which nights to check). But no in-repo check survives the host
+  being off or off-network, systemd not running, or the alert path being broken beyond us —
+  each removes the observer along with the observed, and only something outside the failure
+  domain can turn SILENCE into a page. That is one line of configuration and it is unbuilt
+  because it adds a vendor (D-50).
 
 ## 5. SLOs (v1)
 
