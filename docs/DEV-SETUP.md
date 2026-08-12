@@ -86,7 +86,10 @@ AUDIT_CHAIN_SECRET=       # HMAC material for the audit hash chain + idempotency
 SMTP_* / NOTIFICATIONS_FROM                   # hot-lead alerts; unset locally = console
 INBOUND_RESERVE_RATIO=0.3 # share of the engine line pool reserved for inbound (FLOWS §5)
 SELF_SERVE_INR_PER_MIN=6.00                   # D-34 list price; runway framing + top-up
-LANGFUSE_* / SENTRY_DSN / RELEASE_VERSION / POSTHOG_KEY   # optional locally
+ALERTS_EMAIL                                  # operator alerts (OPERATIONS §4); unset
+                          # locally = alerts log only, and the service says so at boot
+SENTRY_DSN / RELEASE_VERSION                  # optional locally. NO LANGFUSE OR POSTHOG
+                          # KEYS — removed rather than left looking wired (D-49)
 APP_ENV=local|staging|prod
 ```
 Rules: `.env` never committed; prod values live only in the secrets manager, injected at

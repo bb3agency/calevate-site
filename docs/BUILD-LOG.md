@@ -1415,7 +1415,7 @@ down, migrated, and then given effect by nothing.** Four of the six items below 
 already in the schema. What was missing was a reader.
 
 **The half-wired-feature rule stopped being advice.** `scripts/check_wiring.py` now asks
-three questions of the tree, and the important one is the router scan — not because an
+four questions of the tree, and the important one is the router scan — not because an
 unmounted router does nothing, but because **it is unaudited**. Every authorization sweep
 this repo relies on enumerates the routes of the LIVE app (`assert_policy_registry_complete`
 at boot, `impersonation_reads_test`, `authz_audit_test`, `check_redaction_exposure`), so a
@@ -1434,7 +1434,12 @@ symbol is referenced. It asks whether a declaration appears in the **registry th
 effect**, which is also why it declines the shapes where no such registry exists (read-vs-
 write, enum members). `UNWIRED_BASELINE` — the deliberate deferrals, keyed per column, each
 naming what closes it — turned out to be the useful artefact: three of its entries were
-deleted later in this same wave by the slices below, which is what a baseline is for.
+deleted later in this same wave by the slices below, which is what a baseline is for. That
+only works because of the fourth question, which is the one nobody would have thought to
+write: the baseline is checked against itself, so an entry naming a column that has since
+been wired, or a column that no longer exists, FAILS. A baseline that may only shrink is a
+deferral list; one that may grow quietly is an exemption file, and every exemption file in
+the industry ends the same way.
 
 **Two columns had been migrated, documented and read by nobody, and it was a money bug in
 both directions.** `plans.effective_from`/`effective_to` existed while every reader
@@ -1551,37 +1556,204 @@ that finds this class is not another test; it is asking, of each declaration, **
 reader gives it effect** — which is precisely what `check_wiring.py` was built to ask, and
 why it closed three of its own baseline entries within the same wave.
 
+## §49 — the wave that went after the promises made to nobody in particular
+
+1398 tests collected, 92 OpenAPI paths, seven guardrails, 30 routers all mounted and one
+migration head. Four slices, and their common shape is narrower than §48's: **each one is
+a promise the documents made on the platform's behalf, to an operator or a regulator or a
+client, that no mechanism was keeping.** An RPO in a runbook. An alert "to Sri's phone". A
+manual review before a stranger's first campaign dials. None of them had a reader either,
+but unlike §48's columns, the person they were promised to is outside the repo.
+
+**The catalog question turned on DEDUPLICATION, and the hypothesis that scoped it out was
+wrong.** `e7c3d10a9f52` dropped one prefix index and deferred twelve tables on the theory
+that "most are covered by UNIQUE indexes, which is a different call". Uniqueness turned out
+to decide nothing, on three counts checked before it was abandoned: PG16 §11.3's
+leading-column rule carries no uniqueness condition; `btcostestimate`'s unique shortcut
+requires an equality qual on *every* key column, so a prefix-only qual never fires it and
+the estimate comes from the same `pg_statistic` path a plain cover gets; and nothing can
+depend on a non-unique `ix_*` — `ON CONFLICT` infers arbiters only from unique indexes, an
+FK needs an index only on the referenced side, and `relreplident` is `d` everywhere. What
+actually separates a droppable prefix from a load-bearing one is **btree deduplication**: a
+non-unique index on a repeating column collapses duplicates into one posting-list tuple per
+distinct value, and a cover whose trailing columns make every entry distinct cannot.
+Measured, `ix_leads_tenant_id` is 1288 kB against its cover's 23 MB for the same 200k rows
+— so offering only the fat cover for `tenant_id = …` does not move the query onto it, it
+moves the query off indexes altogether. That is why the four big `ix_*_tenant_id` indexes
+STAY, and they are exactly the ones every `tenant_isolation` qual runs through. Four of the
+eleven go, seven stay with the plan that broke recorded beside each. Two of the keepers only
+failed AT SCALE — `ix_kb_sources_agent_id` looked droppable at seed size and at 840 sources
+per agent the planner abandons the agent path entirely — so the verdicts were re-taken at
+raised rows-per-key rather than trusted, and the boundary is stated as a measured band
+(somewhere between 400 and 4000 rows per key for these shapes) rather than derived into a
+rule. The keeper that disproves the original hypothesis outright is
+`ix_deletion_requests_tenant_id`, whose cover is not unique. And the agent threw away its
+own first write-cost harness: 20k client round-trips reported the index making inserts 2%
+FASTER, which was network latency rather than Postgres.
+
+**Alerts had a vocabulary, a normalized failure stage and no recipient.** Every alarm the
+last three waves added — the post-call stall, the outbox exhaustion, the unkeyable engine
+payload, the bad payment signature — resolved to an ERROR log line, in a deployment with no
+log search and one operator. OPERATIONS §8 gates launch on "alerts firing to Sri's phone",
+so this was a pre-launch gate that had been quietly failing for as long as it had existed.
+The interesting constraints were all about what alerting must NOT do. It runs from
+voice-runtime's 500ms ack path, from the global exception handler and from a SIGTERM
+handler, so inline it does one log record, one dict lookup under a NON-BLOCKING lock and one
+`put_nowait` on a bounded queue — the lock is non-blocking specifically because the signal
+handler runs on the main thread, which may already hold it, and deadlocking a drain to get
+one extra deduplication is the wrong trade. It touches neither the outbox nor Redis,
+because the alarms that matter most are the ones saying those are broken: an alert routed
+through the broken component is an alert nobody gets. The log line is written FIRST and
+unconditionally, so a process dying with sends queued loses the SENDS and never the record.
+Storm handling was taken from the established shape rather than invented — per-fingerprint
+repeat suppression keyed on `stage:code`, which is Alertmanager's `repeat_interval` and
+PagerDuty's caller-supplied `dedup_key`, and is why every call site carries a stable code
+rather than a formatted string, plus a global token bucket because 500 distinct codes are
+500 distinct fingerprints. Fifteen minutes and no batching, against Alertmanager's own 4h
+default, because there is one operator and no incident console, so first-signal latency
+beats grouping. What the bucket drops is counted and reported in the next delivered body,
+and a FAILED delivery clears the dedupe stamp — the window means "a human was told", so a
+transport blip must not buy fifteen minutes of silence.
+
+**And the observability config that looked wired was deleted rather than left to reassure
+people.** `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` and `POSTHOG_KEY` were settings with
+no client, which makes them worse than absent: absent prompts a question, present tells the
+next reader traces are being recorded. They were **no-ops even WITH credentials**, so
+"config-gated" was never the explanation. Restoring Langfuse needs a project nobody holds
+and a decision-log entry choosing a second tracing pipeline beside the OTel one already
+shipped; PostHog is browser analytics that never belonged in a backend `Settings` at all.
+The exact restore steps sit in the config module beside `SENTRY_DSN`, and a test pins that
+the keys stay gone. `redact_trace_payload` is KEPT — it is the pre-agreed hook shape hard
+rule 6 names — with a docstring that now says plainly that nothing calls it, so per-call
+token cost and the latency breakdown remain a gap and read as one.
+
+**The 15-minute RPO in the runbooks was fiction, and the line that makes it true is one
+timeout.** D-26 chose host-PostgreSQL over managed and closed by ACCEPTING a consequence:
+nightly dumps alone break OPERATIONS §5's RPO, so continuous WAL archiving is REQUIRED, plus
+an offsite dump and quarterly drills. None of it existed; DEPLOYMENT §9 already assumed
+wal-g was there. The subtle part is `archive_timeout = 300`: without it a partial 16MB
+segment is never shipped, so on a quiet SMB night "continuous archiving" ships NOTHING
+between 23:00 and 07:00 — the design fails silently exactly when the promise is being made.
+Failure visibility is four checks because one is not enough: PostgreSQL does not record an
+archiver killed by a signal or exiting above 125 in `pg_stat_archiver`, and `command not
+found` is 127, so deleting the wal-g binary leaves the obvious check green. The watchdog
+therefore also checks archive freshness locally, runs `wal-verify` against the BUCKET (the
+only check that catches "returned 0, the object is not there"), and watches `pg_wal` growth,
+which is the precursor to the cluster refusing writes. Each covers the previous one's blind
+spot, and the drill induces the exact failure `pg_stat_archiver` cannot see. **A restore
+un-erases people**, so that is a mandatory step in the runbook rather than a footnote:
+anyone whose DPDP erasure completed after the recovery target comes back holding a
+certificate that says otherwise, and the authoritative list has to come from the PRESERVED
+pre-restore cluster because requests raised after the target do not exist in the restored
+one — which is why the procedure forbids deleting the broken PGDATA. Both chains retain 35
+days precisely because that bound IS the erasure SLA for backups. Nothing here is applied:
+CLAUDE.md forbids touching `infra/` prod without plan output, every secret is a
+`<<SECRET:…>>` reference, no wal-g command was ever run, and the restore runbook carries an
+UNVALIDATED banner instructing its first user to remove it. The largest unverified
+One seam the two slices did not close between them, and it is worth naming because it
+looks closed: the backup chain runs on the host as `postgres`, outside every Python
+process, so it cannot call the `alert()` that gained a sink earlier in the same wave. It
+emits the identical shape — `failure_stage=HOST_BACKUP`, a stable code — to journald and
+to an optional `BACKUP_ALERT_COMMAND` hook that nothing here configures, because no
+endpoint or token belongs in this repository. **So the one alarm that says the database is
+unrecoverable is currently the one alarm that does not page**, and wiring that hook is part
+of applying the tree rather than part of writing it. The largest unverified vendor
+assumption is named rather than smoothed: wal-g against R2 has open multipart rejection
+issues across several clients and wal-g #1639 records `backup-push` hanging after an S3 409,
+so the first hand-run push is a watched test and the honest fallback is that chain A moves
+providers.
+
+**The first-campaign hold: "first" is a property of the ACCOUNT, and every other reading
+loses.** D-34, FLOWS §2 and BRD all state that a self-serve account's first campaign is held
+for manual review; `tenancy/signup.py` named the requirement in prose and nothing held
+anything. The obvious shape — `campaigns.review_required` on the first row — is defeated two
+ways in a minute, and neither is an attack: launch a SECOND campaign and it dials unreviewed,
+or DELETE the flagged one and a DELETE decides what "first" means. Account scope removes
+both, and the campaign an operator actually read is kept as EVIDENCE
+(`reviewed_campaign_id`, `ON DELETE SET NULL`) rather than as the thing the hold hangs on.
+**Absence means held** — no `pending` row and no request path, because a stored `pending` is
+a second representation of one fact that can disagree with the absence, and the read fails
+CLOSED to held on an unscoped session, the same shape `kyc.NOT_RECORDED` uses. Enforced in
+BOTH `launch_blockers` and `dispatch_blockers`, so a withdrawn release stops a RUNNING
+campaign at the next tick; released once, no later campaign is refused on this rule, because
+the requirement is review of the FIRST campaign and not a signature forever. Deliberately
+NOT in `check_dispatch`: that path is also the D-21 single-lead button and the instant
+callback, and neither is a campaign. The migration grandfathers self-serve tenants that had
+already launched, stamped `decision_source = 'migration_backfill'` so a NULL decider is
+self-describing rather than an anonymous release. With it, **all six R-11 mitigations are in
+code**, which retires the build-side objection to `self_serve_signup_enabled` — the switch
+is now a business decision rather than a blocked one.
+
+**What was refused or left honestly open.** A WhatsApp/SMS alert sink, because that is a BSP
+decision and the email transport already existed — one mechanism for hot-lead notifications
+and operator alerts, so there is not a second thing to configure and a second thing to be
+broken on the night it is needed. Faking Langfuse with a stub client. An `EXCLUDE`
+constraint, still. Widening the first-campaign hold to `check_dispatch`, where it would
+block a lead who just raised their hand. Applying any of the backup mechanism, or claiming
+an RPO the drill has not measured. And three decision entries the backup work raised were
+deliberately NOT written in its own commit — the 35-day retention as a DPDP commitment, an
+external dead-man heartbeat (today an extended VPS outage is detected by a human noticing),
+and whether `ERASURE_LIMITATIONS` gains a backup clause; the first is now D-50, and the
+other two are open because one is a dependency choice and one is a legal question.
+
+**What this wave adds to the method.** §48 said the way to find a dead declaration is to ask
+which reader gives it effect. This wave is the same question aimed outward: for every
+promise a document makes to somebody who is not in this repo — an RPO, an alert, a review, a
+retention window — ask **who would notice if it were false, and when**. Every one of the
+four above answered "nobody, until the day it mattered", which is the definition of the
+class. The alerting slice is the sharpest illustration: the alarms existed, the vocabulary
+existed, the tests passed, and the delivery of all of it was a log line.
+
 ### Where the next session should start
 
-1. **Founder decisions, none of them code.** The retail value-tier rate
-   (`plans.overage_rate_value` exists and is NULL everywhere); the retention TTL
-   divergence (docs 24 months, seed 365/1095/90 — SEC-COMP §4 declares it open and names
-   the founder); erasure vs the TRAI 90-day recording floor; a WhatsApp BSP, which is the
-   single entry that unblocks the escalation path end to end — now the *only* thing
-   blocking it, since the consent, the job, the ladder and the timeline record all landed.
-   **New, and it is a legal question rather than a product one:** whether a non-licensee
-   reseller must itself hold the CAF, or whether furnishing the entity's documents to the
-   licensed operator discharges us (D-47). Nothing blocks on it today; it decides whether
-   `kyc_records` ever grows a document workflow.
+1. **Founder decisions, none of them code.** All four of the previous session's are still
+   open and none was touched by this wave: the retail value-tier rate
+   (`plans.overage_rate_value` exists and is NULL on every seeded plan); the retention TTL
+   divergence (docs 24 months, seed 365 transcript / 1095 lead / 90 recording — SEC-COMP §4
+   declares it open and names the founder); erasure vs the TRAI 90-day recording floor; and
+   a WhatsApp BSP, still the single entry that unblocks the escalation path end to end.
+   Also open, from D-47: whether a non-licensee reseller must itself hold the CAF, or
+   whether furnishing the entity's documents to the licensed operator discharges us — a
+   legal question, nothing blocks on it today, and it decides whether `kyc_records` ever
+   grows a document workflow.
+   **New this wave, and the biggest one:** **turning `self_serve_signup_enabled` on is now
+   a business decision rather than a blocked one.** All six R-11 mitigations ship in code —
+   platform-fixed calling hours, DNC on every dispatch path, the NOT NULL disclosure, the
+   consent ledger, admin + client spend caps, and now the first-campaign manual-review
+   hold. The remaining objections are commercial and operational (who reviews the held
+   accounts, how fast, and whether a stranger can pay — server-side order creation is still
+   not built), not architectural. Two more arrive with the backup work: whether the 35-day
+   backup retention is stated to clients as a DPDP commitment beyond D-50's record of it,
+   and whether an external dead-man heartbeat is worth its dependency — today an extended
+   VPS outage is detected by a human noticing.
 2. **Gated on the Bolna pilot** (OPERATIONS §2) and deliberately unbuilt: number
    provisioning, transfer, the test-call gate, real latency numbers, and the KB questions
    at gate 8 (whether the list response carries agent linkage; whether deleting a KB
    clears the agent's reference).
-3. **Known gaps with the evidence already gathered**: **the manual-review hold on a
-   self-serve account's FIRST campaign is the last unbuilt R-11 mitigation** — nothing
-   flags, queues or blocks it, and `self_serve_signup_enabled` should not be switched on
-   before it exists (FLOWS §2, ROADMAP §3); `runbooks/calls-stopped.md` still walks nine
-   conditions and **does not mention the KYC refusals**, which are now a tenth for
-   `self_serve`/`trial` tenants; **alerts route nowhere** (`core/alerting.py` normalizes
-   the failure stage and writes a structured ERROR log — OPERATIONS §4's phone/WhatsApp
-   sinks do not exist) and **no backup mechanism exists at all**, though D-26 makes
-   continuous WAL archiving REQUIRED rather than optional; Langfuse is two config keys and
-   a redaction seam with no client, so per-call token cost and the latency breakdown are
-   not being recorded; `kb_retrieval_logs` has no producer and cannot have one until the
-   engine reports a retrieval (dated in the model); T1/T2 tiers are absent by decision; and
-   `inbound_webhooks` rows are still provisioned out-of-band because nothing writes them.
-4. **The local database cannot reach head** and that is expected — see
+3. **The pre-launch checklist has two items that look done and are not.** "Backups
+   verified" cannot be ticked by the existence of `infra/backup/` — **no wal-g command in
+   that tree has ever been run**, the restore runbook carries an UNVALIDATED banner naming
+   its first user as the person who removes it, and wal-g against R2 is the wave's largest
+   unverified vendor assumption. The gate is `runbooks/backup-restore-drill.md` PASSING
+   once, with the result recorded in `docs/evidence/`, and until then the 15-minute RPO is
+   a design intent rather than a measurement. "Alerts firing to Sri's phone" is now
+   deliverable but is not delivered by deploying the code: it needs `ALERTS_EMAIL` and an
+   SMTP host in the environment, and a deployment with neither logs
+   `alert_delivery_unconfigured` at boot precisely so this is not discovered at 3am.
+4. **Known gaps with the evidence already gathered**: the cross-tenant hold queue landed
+   after this entry was drafted — `GET /v1/admin/compliance/holds`, built from per-tenant
+   RLS sessions asking the ordinary gates rather than from a widened `app.admin` policy,
+   because a policy is table-scoped and would have handed every future admin query the
+   signatory name and reviewer prose to answer a question needing neither; `runbooks/calls-stopped.md` walks ten causes including the KYC
+   refusals but **not the first-campaign hold**, which is now an eleventh for
+   `self_serve`/`trial` tenants; Langfuse and PostHog config is GONE rather than dormant
+   (D-49), so per-call token cost and the latency breakdown are a stated gap and restoring
+   them is a vendor decision plus a decision-log entry, not a wiring job; `kb_retrieval_logs`
+   has no producer and cannot have one until the engine reports a retrieval (dated in the
+   model); T1/T2 tiers are absent by decision; and `inbound_webhooks` rows are still
+   provisioned out-of-band because nothing writes them.
+5. **The local database cannot reach head** and that is expected — see
    `runbooks/stale-dev-database.md`. Use a scratch DB; do not stamp past the credit-ledger
    index.
-5. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q`, `uv run mypy apps packages`,
+6. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q`, `uv run mypy apps packages`,
    `make guardrails` and `pnpm -C apps/web lint` before changing anything.

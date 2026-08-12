@@ -29,6 +29,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.admin.holds import read_tenant_holds
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -406,6 +407,12 @@ async def tenant_overview(
     a handful of fast counts, and the alternative is widening RLS across every tenant
     table for a dashboard. Revisit with a materialized `tenant_health` table if the
     client list ever gets long enough to notice — not before.
+
+    `holds` rides that SAME per-tenant session (`admin.holds.read_tenant_holds`), so
+    the directory says which clients are waiting on a human without a second pass and
+    without either compliance table being widened for `app.admin`. This is where
+    `compliance/first_campaign_routes.py` said the flag belonged; the work QUEUE at
+    `/v1/admin/compliance/holds` is the same predicate, filtered and ordered for triage.
     """
     # `tenant_id` narrows the SAME query to one client. The detail screen used to pull
     # the whole list and find its client in the browser, which pays the N+1 above once
@@ -440,6 +447,7 @@ async def tenant_overview(
                     )
                 )
             ).first()
+            holds = await read_tenant_holds(scoped, tenant_id=tenant_id)
         overview.append(
             {
                 "id": tenant_id,
@@ -452,6 +460,9 @@ async def tenant_overview(
                 "leads": int(counts[2] or 0) if counts else 0,
                 "last_call_at": counts[3] if counts else None,
                 "capped": bool(counts[4]) if counts and counts[4] is not None else False,
+                # Which human-action gates hold this client, in the gates' own rule
+                # names. Empty for every managed client, always.
+                "holds": list(holds.rules),
             }
         )
     return overview

@@ -206,6 +206,15 @@ Client realm (`/c/<slug>/…`)
   the §2b webhook-activity view and its no-call "test webhook", shipped — plus the Meta
   Lead Ads setup card, `POST /v1/lead-sources/{webhook_id}/meta/setup`, which prints what
   to paste into the Meta App Dashboard) ·
+  **`/campaign-review`** (`GET /v1/compliance/first-campaign-review` — the client's view
+  of R-11's first-campaign hold, D-51. Read-only by construction: there is no mutation in
+  the module, so no 403 trap can be built on it, and the screen says plainly that the
+  release is recorded by Calevate operations. `pending` and `rejected` are different
+  screens — pending is "we will look", rejected carries the reviewer's own words and needs
+  a different next step — and the state helper keys on the server's `held` answer rather
+  than on `status`, failing CLOSED so an unrecognised rule stays held. It states both
+  halves of the account scoping in the client's words, because a client who thinks every
+  campaign needs review will not build a second one) ·
   **`/messaging-consent`** (records what a consumer said about being messaged and looks
   up whether we may; the screen that makes a `recipient_not_opted_in` escalation fixable
   by somebody saying yes) · **`/do-not-call`** (`/v1/dnc`, with removal offered only where
@@ -268,6 +277,13 @@ Admin realm (`/admin/…`)
   `verified` row that cannot answer them unstorable. Deliberately no client-realm twin:
   under the Telecom Act the subscriber's identity is something the provider verifies,
   never something the subscriber asserts.
+- **First-campaign review release** (`POST /v1/admin/tenants/{tenant_id}/first-campaign-review`,
+  `admin:tenants`, audited, tenant in the PATH) — R-11's last mitigation and the ops half
+  of it (D-51). `approved` releases the ACCOUNT, not the campaign: this rule never blocks
+  another of its campaigns afterwards. `rejected` keeps it held and shows the client the
+  reviewer's words. It upserts, so a release can be withdrawn when complaints arrive and
+  granted again, and the history is `audit_log` rather than this row. No client-realm
+  twin and no request path — absence of a decision IS the held state.
 - **Client DLT Principal Entity registration**
   (`POST /v1/admin/tenants/{tenant_id}/dlt-registration`, `admin:tenants`) — upsert; the
   fact `launch_blockers` reads as `pe_registration_*` / `tm_link_not_active`. Deliberately

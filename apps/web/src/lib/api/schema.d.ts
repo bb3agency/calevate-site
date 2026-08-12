@@ -172,6 +172,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/compliance/holds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Accounts held for a human decision — KYC and first-campaign review (R-11)
+         * @description Every self-serve account that cannot dial until someone at Calevate acts, oldest signup first: identity verification not recorded, or the first campaign not yet released. An account held by both gates appears once with both rules. Clearing a gate removes the account from this list. Read-only — the decisions are recorded through the audited routes on each account.
+         */
+        get: operations["list_held_tenants_v1_admin_compliance_holds_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants": {
         parameters: {
             query?: never;
@@ -2909,6 +2929,30 @@ export interface components {
             status: string | null;
         };
         /**
+         * HeldTenantOut
+         * @description One account waiting on a human — and nothing about anyone at that account.
+         */
+        HeldTenantOut: {
+            /** Holds */
+            holds: string[];
+            /** Name */
+            name: string;
+            /** Plan Tier */
+            plan_tier: string;
+            /**
+             * Signed Up At
+             * Format: date-time
+             */
+            signed_up_at: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
          * IngestActivityItemOut
          * @description One inbound source's rolled-up delivery record from the durable inbox.
          *
@@ -3960,6 +4004,8 @@ export interface components {
             calls_7d: number;
             /** Capped */
             capped: boolean;
+            /** Holds */
+            holds: string[];
             /**
              * Id
              * Format: uuid
@@ -4565,6 +4611,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebhookAck"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_held_tenants_v1_admin_compliance_holds_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeldTenantOut"][];
                 };
             };
             /** @description RFC-9457 problem+json */

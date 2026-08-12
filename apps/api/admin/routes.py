@@ -58,6 +58,10 @@ class TenantSummary(BaseModel):
     leads: int
     last_call_at: datetime | None
     capped: bool
+    # The human-action gates holding this client, by the gates' own rule names — the
+    # flag `/v1/admin/compliance/holds` turns into a work queue. Empty for a client
+    # nobody is waiting on, and for every managed client (both controls are self-serve).
+    holds: list[str]
 
 
 class CreateOrgIn(BaseModel):

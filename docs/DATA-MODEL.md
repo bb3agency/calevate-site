@@ -349,6 +349,36 @@ kyc_records(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT,
   -- an Aadhaar pasted into a business field fails at the moment of the mistake.
   -- Deliberately does NOT duplicate `dlt_registrations.pe_id` — overlapping evidence, two
   -- regimes, different holders.
+first_campaign_reviews(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT,
+  status ENUM[approved,rejected] NOT NULL,
+  reviewed_campaign_id → campaigns ON DELETE SET NULL,
+  decision_note TEXT NOT NULL, decision_source ENUM[operator,migration_backfill] NOT NULL
+    DEFAULT 'operator',
+  decided_by_admin_id → admin_users NULL, decided_at NOT NULL,
+  CHECK (decision_source <> 'operator' OR decided_by_admin_id IS NOT NULL),
+  CHECK (length(btrim(decision_note)) >= 3))
+  -- R-11's manual review of a self-serve account's FIRST campaign (D-51, migration
+  -- c4d9e18a72b6). One mutable row per tenant, standard §1 RLS created with the table.
+  -- READ THE ABSENCE: there is no `pending` status and no row until a human decides, so
+  -- "no row" IS held. A stored `pending` would be a second representation of one fact
+  -- that can disagree with the absence, and the reader fails CLOSED to held on an
+  -- unscoped session (the shape `kyc.NOT_RECORDED` uses).
+  -- The hold is on the ACCOUNT, which is the whole design: a `campaigns.review_required`
+  -- flag is defeated by launching a second campaign or deleting the flagged one, and
+  -- neither is an attack. `reviewed_campaign_id` is therefore EVIDENCE of what an
+  -- operator read — SET NULL on delete, because losing the pointer must not change
+  -- whether the account is cleared.
+  -- Read by `compliance.service.first_campaign_hold_blocker` as
+  -- `first_campaign_review_pending` / `first_campaign_review_rejected`, asked by BOTH
+  -- `launch_blockers` and `dispatch_blockers` (so a withdrawn release stops a RUNNING
+  -- campaign) and deliberately NOT by `check_dispatch`, which also serves the D-21
+  -- single-lead button. Mutable and absent from APPEND_ONLY_TABLES for the same reason as
+  -- `kyc_records` and `dlt_registrations`: this is current state, and the immutable
+  -- history is `audit_log`. `decision_source` keeps the migration's grandfathering
+  -- honest — self-serve tenants that had already launched are backfilled as
+  -- `migration_backfill`, so a NULL decider is self-describing rather than an anonymous
+  -- release, and the CHECK makes an operator release that cannot name its operator
+  -- unstorable.
 consent_ledger(id, tenant_id, call_id, phone_e164,
   purpose ENUM[recording,callback,marketing,messaging],
   status ENUM[granted,declined,withdrawn], captured_at, evidence JSONB,
@@ -503,5 +533,26 @@ audit_log  -- (defined in §9) exempt because the admin realm reads cross-tenant
   `engine_agent_routes`, the global bridge table — NOT from enumerating `organizations`,
   which made the tick's cost grow with the client list instead of with the data. Every
   write still happens inside `tenant_session`, so no RLS exemption and no admin role.
-- Backups: PITR + nightly snapshot; restore drill quarterly (OPERATIONS.md §6).
+- **A redundant prefix index is dropped on MEASUREMENT, and the keepers carry their
+  reason.** Eleven single-column btrees in this schema are a strict prefix of another
+  btree on the same table; four were dropped (migration `b9e5d2c74a18`:
+  `ix_transcript_turns_call_id`, `ix_prompt_versions_agent_id`,
+  `ix_extraction_schemas_agent_id`, `ix_memberships_tenant_id`) and **seven stay**, each
+  pinned by `tests/prefix_index_audit_test.py` WITH the plan that collapsed without it, so
+  the next catalog-driven tidy-up fails with an argument rather than a diff. Uniqueness of
+  the cover is NOT the discriminator (the leading-column rule carries no uniqueness
+  condition, `btcostestimate`'s unique shortcut needs a qual on every key column, and
+  nothing can depend on a non-unique `ix_*`). What decides it is btree **deduplication**: a
+  non-unique index on a repeating column collapses duplicates into one posting-list tuple
+  per distinct value and a cover whose trailing columns are distinct cannot, so the cover
+  is 4–18x the size and offering it alone for `tenant_id = …` moves the query onto a
+  sequential scan rather than onto the cover. That is why the four big `ix_*_tenant_id`
+  indexes — the ones every `tenant_isolation` qual runs through — stay. Verdicts are taken
+  at realistic rows-per-key, not at seed size: two keepers only failed at scale. Bar for a
+  drop: no node type changes, nothing falls back to a seq scan, and the extra buffers are
+  stated. Two near-misses are excluded by construction — a prefix of a PARTIAL index
+  covers a subset of rows and therefore covers nothing.
+- Backups: PITR + nightly snapshot; restore drill quarterly (OPERATIONS.md §6). The
+  mechanism lives in `infra/backup/` (D-50) and **has never been applied or run** — see
+  SECURITY-COMPLIANCE §4 for what the 35-day backup window means for an erasure.
 - Seed data: reserved_slugs, vertical extraction templates, default retention policies.

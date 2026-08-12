@@ -89,6 +89,6 @@ Bolna (engine, adapter-isolated — D-31) + the **D-36 canonical all-Sarvam BYOK
 tier) — **Gemini 2.5 Flash-Lite is a configurable FALLBACK, not the default; D-04/D-20's
 Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
 Postgres 16 + RLS (pgvector is a D-28 contingency) · Redis/ARQ · Clerk (two realms) ·
-DO Bangalore · Langfuse/Sentry/OTel · setup-fee + retainer + overage pricing, plus the
+DO Bangalore · Sentry/OTel (LLM tracing is a named gap, D-49) · setup-fee + retainer + overage pricing, plus the
 D-34 self-serve prepaid tier · all-in target ≈ ₹3.1–3.6/min (D-36; verified floor ₹2.9 on
 Bulbul v2 + Sarvam LLM), ₹1.7–2.3/min at phase 2.

@@ -297,7 +297,9 @@ a build. Revisit when real concurrency numbers exist (pilot gate 13).
 
 ## 8. Observability on the VPS
 
-Langfuse/Sentry/PostHog are hosted (TRD §2) — nothing to run on the VPS for them.
+Sentry is hosted (TRD §2) — nothing to run on the VPS for it, and the Langfuse/PostHog
+configuration that used to sit beside it was removed rather than wired (D-49). Operator
+alerts leave the VPS by SMTP: `ALERTS_EMAIL` plus an SMTP host, or nobody is told.
 Their Prometheus SLO-rules + promtool-in-CI pattern is the reference for when we add
 metrics endpoints (M2+); adopt the recording-rule + burn-rate-alert structure for our
 SLOs (pipeline lag, webhook ack, dashboard p95). Until then: health endpoints +

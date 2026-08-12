@@ -46,20 +46,35 @@ crm, analytics, billing, kb, integrations, compliance, audit.
 - **Auth:** Clerk (Organizations) — admin realm and client realm are separate applications
   with separate session cookies. MFA mandatory on admin realm.
 - **Storage:** R2/Spaces, SSE encryption, presigned URLs (5-min TTL), never public.
-- **Observability:** OpenTelemetry traces; Sentry (errors); **Langfuse** (LLM traces,
-  prompt versions, per-call token cost, latency breakdown); PostHog (product analytics).
+- **Observability:** OpenTelemetry traces; Sentry (errors); operator alerts by email.
+  LLM tracing (prompt versions, per-call token cost, latency breakdown) is a NAMED GAP,
+  not a component — see the correction below.
   Shipped in `apps/api/core/observability.py`, all of it config-gated (no keys ⇒ no-op):
   the trace crosses the queue boundary — the W3C traceparent rides in the ARQ job payload
   (`TRACE_KWARG = "_calevate_traceparent"`) so voice-runtime → ARQ → worker → adapter is
   ONE trace and "where did the two minutes go?" is answerable. Span attributes are an
   ALLOWLIST (`ALLOWED_SPAN_ATTRIBUTES`), not a denylist, and every value must be id-shaped
   by the logger's own `redact_text` — a denylist on a tracing API fails open (hard rule 6).
-  **Read "shipped" precisely, because two of the four are not the same thing.** OTel and
-  Sentry are wired end to end. **Langfuse is a SEAM**: the two config keys and
-  `redact_trace_payload` exist and nothing calls them, so the per-call token cost and the
-  latency breakdown promised above are NOT being recorded today — that is a gap, not a
-  configuration. **PostHog** is a config key with no client either. Neither is a no-op
-  because the keys are absent; each would still be a no-op with the keys present.
+  **Read "shipped" precisely.** OTel and Sentry are wired end to end. **Langfuse and
+  PostHog configuration was REMOVED rather than wired** (D-49): `LANGFUSE_PUBLIC_KEY`,
+  `LANGFUSE_SECRET_KEY` and `POSTHOG_KEY` were settings with no client — no-ops even WITH
+  credentials, which is worse than absent, because the next reader assumes traces are
+  being recorded. What survives is `redact_trace_payload`, kept as the hard-rule-6 hook
+  shape with a docstring that says plainly nothing calls it, so **per-call token cost and
+  the latency breakdown named above are NOT being recorded and are not one config value
+  away**: restoring Langfuse needs a project nobody holds plus a decision-log entry
+  choosing a second tracing pipeline beside the OTel one already shipped, and PostHog
+  restores as `NEXT_PUBLIC_POSTHOG_KEY` in `apps/web`, where browser analytics belongs.
+  The restore steps sit in `calevate_shared/config.py` beside `SENTRY_DSN`, and a test
+  pins that the keys stay gone.
+- **Alerting:** `apps/api/core/alerting.py` (D-49). Every `alert()` writes its structured
+  ERROR log first and unconditionally, then DELIVERS by email through the same transport
+  as hot-lead notifications, off the request path on a daemon thread, with per-fingerprint
+  repeat suppression (15 min, keyed `stage:code`) and a global hourly token bucket whose
+  drops are counted and reported in the next body. It deliberately touches neither the
+  outbox nor Redis — the alarms that matter most are the ones saying those are broken.
+  Recipient is `ALERTS_EMAIL`; a non-local deployment without it warns at boot rather than
+  at 3am. Detail and thresholds: OPERATIONS §4.
 - **IaC/CI:** Terraform; GitHub Actions (lint, typecheck, tests, migrations, deploy);
   Dependabot + secret scanning + SAST.
 
@@ -115,8 +130,14 @@ bloated prompt raises TTFT and hallucination together; the ~2.5k budget in
 PROMPT-GUIDE §2 stands regardless of engine); TTS TTFA ≤300ms streaming; retrieval ≤100ms (see §6).
 Techniques (required): streaming end-to-end; filler utterances fired the moment a tool
 call starts ("ఒక్క నిమిషం, చూస్తాను"); brief agent replies enforced in prompt; India-only
-network path. Every call logs stage timings to Langfuse (stt_ms, llm_ttft_ms, tts_ttfa_ms,
-turn_ms) — no latency work without measurement.
+network path. **The rule stands and the mechanism does not exist yet**: stage timings per
+call (stt_ms, llm_ttft_ms, tts_ttfa_ms, turn_ms) are what any latency work must be argued
+from, and nothing records them today — `calls.latency` is declared and deliberately
+unwired (`UNWIRED_BASELINE` in `scripts/check_wiring.py`) because Bolna exposes no
+per-turn timings, and the LLM-tracing config that would have carried them is gone (D-49).
+So the numbers come from the pilot's own measurement (OPERATIONS §2 gate 4) until an
+engine reports them — no latency work without measurement, and no measurement invented to
+fill the gap.
 
 ## 5. VoiceEngine Adapter (the portability contract)
 

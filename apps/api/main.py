@@ -22,6 +22,7 @@ install_error_handlers(app)
 
 def _mount_routers(application: FastAPI) -> None:
     """Imports are local so a router import error names the module that broke."""
+    from apps.api.admin.holds_routes import router as hold_queue_router
     from apps.api.admin.routes import router as admin_router
     from apps.api.agents.prompt_routes import router as prompt_admin_router
     from apps.api.agents.publishing_routes import router as publishing_router
@@ -57,6 +58,11 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(tenancy_router)
     application.include_router(clerk_router)
     application.include_router(admin_router)
+    # The ops hold queue. Its own `/v1/admin/compliance/...` prefix rather than a path
+    # under `admin_router`: `/v1/admin/tenants/{tenant_id}` would swallow any literal
+    # segment added beside it (the hazard `voice_router` above calls out), and this is a
+    # cross-tenant list, not a tenant's record.
+    application.include_router(hold_queue_router)
     application.include_router(billing_admin_router)
     application.include_router(credits_admin_router)
     application.include_router(prompt_admin_router)

@@ -2682,6 +2682,51 @@
         "title": "FirstCampaignHoldOut",
         "type": "object"
       },
+      "HeldTenantOut": {
+        "additionalProperties": false,
+        "description": "One account waiting on a human \u2014 and nothing about anyone at that account.",
+        "properties": {
+          "holds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Holds",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plan_tier": {
+            "title": "Plan Tier",
+            "type": "string"
+          },
+          "signed_up_at": {
+            "format": "date-time",
+            "title": "Signed Up At",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "name",
+          "slug",
+          "plan_tier",
+          "signed_up_at",
+          "holds"
+        ],
+        "title": "HeldTenantOut",
+        "type": "object"
+      },
       "IngestActivityItemOut": {
         "additionalProperties": false,
         "description": "One inbound source's rolled-up delivery record from the durable inbox.\n\nDeclared rather than left as an untyped dict: an undeclared response is invisible\nto `scripts/check_redaction_exposure.py`, which inspects response MODELS \u2014 and a\ndelivery record sits one careless `SELECT *` away from the sender's payload.",
@@ -5425,6 +5470,13 @@
             "title": "Capped",
             "type": "boolean"
           },
+          "holds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Holds",
+            "type": "array"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -5484,7 +5536,8 @@
           "calls_7d",
           "leads",
           "last_call_at",
-          "capped"
+          "capped",
+          "holds"
         ],
         "title": "TenantSummary",
         "type": "object"
@@ -6761,6 +6814,39 @@
         "tags": [
           "billing-webhooks"
         ]
+      }
+    },
+    "/v1/admin/compliance/holds": {
+      "get": {
+        "description": "Every self-serve account that cannot dial until someone at Calevate acts, oldest signup first: identity verification not recorded, or the first campaign not yet released. An account held by both gates appears once with both rules. Clearing a gate removes the account from this list. Read-only \u2014 the decisions are recorded through the audited routes on each account.",
+        "operationId": "list_held_tenants_v1_admin_compliance_holds_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HeldTenantOut"
+                  },
+                  "title": "Response List Held Tenants V1 Admin Compliance Holds Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Accounts held for a human decision \u2014 KYC and first-campaign review (R-11)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/admin/tenants": {

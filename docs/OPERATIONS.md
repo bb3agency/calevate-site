@@ -77,10 +77,43 @@ Structure per client:
 Dashboards: per-tenant call volume/answer rate/outcomes; latency stage breakdown
 (stt/llm_ttft/tts_ttfa/turn p50/p95); post-call pipeline lag; webhook delivery health;
 spend vs caps; KB retrieval hit-rates + knowledge-gap list (T4 queries).
-Langfuse: every call a trace (redacted); prompt version + token costs attached.
-Alerts (WhatsApp/email to Sri): webhook failures > 3/5min; pipeline lag > 5 min; latency
-p95 breach 15-min sustained; cap approaching (80%)/breached; complaint-spike on campaign;
-engine 5xx spike; nightly job failures; cert/domain expiry.
+LLM tracing (a trace per call, prompt version + token costs attached) is a **named gap,
+not a component**: the Langfuse configuration was removed rather than left looking wired
+(D-49, TRD §2), so nothing records per-call token cost or the latency breakdown today.
+
+**Alerts, as built (D-49).** The sinks above were "WhatsApp/email to Sri" and for a long
+while were neither — `alert()` wrote a structured ERROR log and stopped. It now still
+writes that log FIRST and unconditionally (the durable record) and then delivers **by
+email**, through the same transport as hot-lead notifications, on a daemon thread off the
+request path. No WhatsApp sink: that is a BSP decision (see the open items in ROADMAP §6),
+and a second delivery mechanism is a second thing to be broken on the night it is needed.
+
+- **Configuration**: `ALERTS_EMAIL` plus an SMTP host. A non-local service booting with
+  neither logs `alert_delivery_unconfigured`, and one with a recipient but no transport
+  logs `alert_delivery_has_no_transport` — both at boot, so a deployment where alerts
+  reach nobody fails §8's gate visibly rather than silently.
+- **Noise bounds**: per-fingerprint repeat suppression keyed on `stage:code`, 15 minutes
+  (Alertmanager's `repeat_interval`, tightened because there is one operator and no
+  incident console), plus a global token bucket at 20/hour with a burst of 6. Both count
+  what they drop and report the count in the next delivered body, so "still broken, 199
+  times" never reads as "happened once". A FAILED delivery clears the suppression stamp —
+  the window means "a human was told".
+- **What it does not touch**: no outbox, no Redis, no database. The alarms that matter
+  most are the ones saying those are broken.
+- **What triggers one**: webhook failures > 3/5min; pipeline lag > 5 min; latency p95
+  breach 15-min sustained; cap approaching (80%)/breached; complaint-spike on campaign;
+  engine 5xx spike; nightly job failures; cert/domain expiry.
+- **The host backup chain is the exception, and it is not covered by the above.** Backups
+  run on the host as `postgres`, outside every Python process, so they cannot call
+  `alert()`. `scripts/backup/notify.sh` emits the SAME SHAPE — `failure_stage=HOST_BACKUP`
+  with a stable code — to journald and stderr, and forwards it to an optional
+  `BACKUP_ALERT_COMMAND` hook that is **not configured** (no endpoint or token belongs in
+  the repository). systemd `OnFailure=` covers the failures a script cannot report about
+  itself: OOM-killed, killed by a signal, never started. So today a backup failure reaches
+  a human only through journald or the hook — **wiring `BACKUP_ALERT_COMMAND` to something
+  that reaches the same mailbox is part of applying `infra/backup/`**, and until it is
+  done, the alarm that says the database is unrecoverable is the one alarm that does not
+  page.
 
 ## 5. SLOs (v1)
 
@@ -104,11 +137,15 @@ oiled).
 one differs from a summary below, the runbook is the authority.
 
 - **"Our calls have stopped"** — `runbooks/calls-stopped.md`. The ordered diagnostic for
-  the nine conditions behind one symptom: big red switch, load-shed mode, Calevate's own
+  the ten conditions behind one symptom: big red switch, load-shed mode, Calevate's own
   TM registration (blocks every tenant at once), the admin spend cap, the client's own
   spend cap, `spend_state.capped` and the trap in clearing it, an empty prepaid wallet,
-  the client's PE registration + TM link, and the campaign's consent provenance, template,
-  number or a DNC hit. Marks which of these a client can self-serve out of.
+  the client's PE registration + TM link, subscriber KYC (`self_serve`/`trial` only), and
+  the campaign's consent provenance, template, number or a DNC hit. Marks which of these a
+  client can self-serve out of. **Not yet covered there and it should be**: the
+  first-campaign manual-review hold (D-51), an eleventh cause for `self_serve`/`trial`
+  tenants, refusing at launch AND at every dispatch tick as
+  `first_campaign_review_pending` / `first_campaign_review_rejected`.
 - **Campaign is not dialling** — `runbooks/campaign-stall.md`. The dispatcher's own
   failure modes: tick verdicts, line-pool exhaustion, per-tenant ceiling, contact states,
   the per-dial gate.

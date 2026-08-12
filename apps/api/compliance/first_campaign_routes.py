@@ -26,12 +26,13 @@ tenant from the session would be un-callable under D-22. It is audited on every 
 a release and a later withdrawal are two entries in the append-only `audit_log` rather
 than one edited row (hard rule 4).
 
-**No ops QUEUE endpoint, deliberately.** Listing every held account is a cross-tenant read
-of a tenant table, and `admin_session` widens `USING` on `organizations` and nothing else
-(migration b57e2f9c4a13). Adding a second widened policy to build a work queue is a
-bigger decision than this slice — it is the same gap `kyc_records` has, and it should be
-closed once, for both, by putting the flag on the existing tenant DIRECTORY rather than
-by giving each compliance table its own cross-tenant read.
+**The ops QUEUE lives elsewhere, and widened nothing.** Listing every held account is a
+cross-tenant read of a tenant table, and `admin_session` widens `USING` on
+`organizations` and nothing else (migration b57e2f9c4a13). That gap was closed ONCE, for
+this hold and for KYC together, in `apps/api/admin/holds.py`: the directory under
+`app.admin`, then each tenant's own RLS session asking `first_campaign_hold_blocker` —
+so no policy changed, the flag rides the existing tenant directory, and
+`GET /v1/admin/compliance/holds` is that same predicate ordered for triage.
 """
 
 from __future__ import annotations

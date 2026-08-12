@@ -77,6 +77,17 @@ cite the same string:
   DoT business-connection obligation attaches to the connection and `plan_tier` is an
   admin-settable column. Asked once, in `compliance.kyc_blocker`, by both the per-dial
   gate and this launch preview. Inbound answering is never gated (D-38).
+- **The account's first campaign has been reviewed by a human** — `first_campaign_review_pending`
+  (nobody has looked yet) or `first_campaign_review_rejected` (a reviewer looked and said
+  no, and the refusal carries their words). D-51, and R-11's last mitigation. Same scope
+  split as the KYC dial gate — `self_serve` and `trial` tenants only, because a managed
+  tenant's first campaign was set up by us — and the hold is on the **account**, not on a
+  campaign row: while it is held every campaign is refused, so it cannot be skipped by
+  launching a second one or by deleting the one an operator was reading. Asked in
+  `launch_blockers` AND in `dispatch_blockers`, so a release withdrawn after complaints
+  arrive stops a RUNNING campaign at the next tick. Released once, no later campaign is
+  refused on this rule. Deliberately not asked by `check_dispatch`, which also serves the
+  D-21 single-lead button and the instant callback — neither is a campaign.
 - Per-tenant caps (`spend_state`) not exceeded (`spend_cap`), and the prepaid wallet not
   exhausted (`no_credits`). The effective ceiling is `LEAST(admin, client)` — a client may
   lower their own at will and may never loosen it past the admin's (SURFACES §2b) — and a
@@ -168,6 +179,28 @@ release — this section, and `DEFAULT_RETENTION_POLICIES` — and the change is
 decision-log entry (ROADMAP §6). Existing tenants' rows are their own decision: a policy
 row already agreed with a client is not silently re-timed by a seed change.
 
+**OPEN QUESTION — an erasure does not reach the backups, and a restore un-does one.**
+Surfaced by the backup work (D-50, `infra/backup/`), stated here rather than resolved
+because whether it must be disclosed is a legal call.
+
+- Both backup chains retain **35 days**. So for up to 35 days after a completed erasure,
+  the person's data still exists in a base backup, in the WAL segments and in the offsite
+  dump. The window is deliberately short for exactly this reason — every extra day of
+  retention is an extra day an erasure cannot fully reach our data — but it is not zero,
+  and a backup that could be edited to remove one subject would not be a backup.
+- **A point-in-time restore un-erases people.** Anyone whose erasure completed after the
+  recovery target comes back holding a certificate saying they were removed.
+  `runbooks/database-restore.md` makes replaying those erasures a MANDATORY step, and the
+  authoritative list has to come from the preserved pre-restore cluster, because requests
+  raised after the target do not exist in the restored one.
+- `ERASURE_LIMITATIONS` (`apps/api/compliance/deletion.py`) does **not** currently carry a
+  backup clause. Every other limitation of the erasure is disclosed on the certificate;
+  this one is not, and that asymmetry is the open item. **Who must decide:** the founder
+  with counsel — a backup-retention clause is standard in DPDP-facing erasure notices, but
+  adding a sentence to a notice that clients hand to data principals is a commitment, not
+  a code change. Whichever way it goes, this section and `ERASURE_LIMITATIONS` change in
+  the same release, with a decision-log entry (ROADMAP §6).
+
 **Messaging consent is its own permission, and it is never inferred.** The campaign
 follow-up (FLOWS §4.5) is a business-initiated WhatsApp message to a consumer, which
 brings in a regime the dial gate above does not cover:
@@ -249,8 +282,13 @@ SDLC & ops
   for auth/billing/compliance modules (self-review checklist while team of 2).
 - Environment separation: staging engine agents + staging numbers; production config
   promotion is an explicit audited action.
-- Logging: no PII in application logs; call ids only; Langfuse traces scrubbed via redaction
-  hook. Backups encrypted; restore drill quarterly.
+- Logging: no PII in application logs; call ids only. The redaction pair (`redact_text` /
+  `redact_mapping`) backs the JSON formatter, the Sentry `scrub_event` hook and every
+  operator alert body; `redact_trace_payload` remains the pre-agreed hook for LLM traces
+  and nothing calls it, because that integration's configuration was removed rather than
+  faked (D-49). Backups encrypted; restore drill quarterly — **the mechanism exists in
+  `infra/backup/` and has been applied to nothing and never run** (D-50), so treat
+  "backups" as a design until the drill passes once.
 - Per-tenant rate/spend caps double as abuse protection; global circuit breaker halts all
   outbound dispatch (big red switch) — tested in drills.
 
