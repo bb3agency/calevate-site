@@ -281,6 +281,7 @@ async def record_delivery(
     attempts: int,
     status_code: int | None,
     channel: str = "http",
+    reason: str | None = None,
 ) -> None:
     """Forensic log, upserted by delivery id so retries update one row (SEC-COMP §5).
 
@@ -291,21 +292,35 @@ async def record_delivery(
     between the two endpoint kinds here — ONE log, one row per delivery, one vocabulary
     of statuses (`delivered` / `failed` / `skipped`, WEBHOOKS §1.5) — so the delivery
     screen a client reads does not care which box they ticked.
+
+    `reason` is WHY a failed delivery failed, in OUR vocabulary — an authored refusal
+    code (`sheet_not_shared`, `no_credential_ref`) or an exception TYPE, never vendor
+    prose and never anything off the payload. It exists because `source` cannot carry
+    it: for a webhook `source` is `http_404` and says enough, but for a sheet there is
+    no status code, so the column read `sheets` and the client-facing queue could only
+    say "an error". A failure a client can fix is worth a column.
     """
     source = f"{channel}_{status_code}" if status_code else channel
     result = await session.execute(
         text(
             "UPDATE webhook_deliveries SET attempts = :attempts, status = :status, "
-            "source = :src, last_at = now() WHERE id = :id"
+            "source = :src, reason = :reason, last_at = now() WHERE id = :id"
         ),
-        {"attempts": attempts, "status": status, "src": source, "id": delivery_id},
+        {
+            "attempts": attempts,
+            "status": status,
+            "src": source,
+            "reason": reason,
+            "id": delivery_id,
+        },
     )
     if rowcount_of(result) == 0:
         await session.execute(
             text(
                 "INSERT INTO webhook_deliveries (id, direction, source, event_type, status, "
-                "attempts, endpoint_id, first_at, last_at, created_at) VALUES (:id, 'out', "
-                ":src, :event, :status, :attempts, :endpoint, now(), now(), now())"
+                "attempts, endpoint_id, reason, first_at, last_at, created_at) VALUES (:id, "
+                "'out', :src, :event, :status, :attempts, :endpoint, :reason, now(), now(), "
+                "now())"
             ),
             {
                 "id": delivery_id,
@@ -314,6 +329,7 @@ async def record_delivery(
                 "status": status,
                 "attempts": attempts,
                 "endpoint": endpoint_id,
+                "reason": reason,
             },
         )
 

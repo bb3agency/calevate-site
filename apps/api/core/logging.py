@@ -144,6 +144,18 @@ def configure_logging(level: str = "INFO") -> None:
         logging.getLogger(name).handlers = [handler]
         logging.getLogger(name).propagate = False
 
+    # httpx logs every OUTBOUND request at INFO as `HTTP Request: <method> <full url>`,
+    # and a full URL is not ours to print. Ours carry a client's own webhook endpoint
+    # (D-23 — those routinely embed a token in the query string, e.g. Zapier and Make
+    # catch hooks), a Google spreadsheet id, which is the capability that names a
+    # client's document, and an object-storage presigned URL, which IS the credential.
+    # None of that is redactable after the fact by `redact_mapping`, because it arrives
+    # as prose inside `msg` rather than as an extra.
+    #
+    # WARNING, not silence: a transport failure httpx wants to report still gets through.
+    # What is dropped is the routine success line, whose only content is the URL.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
 
 def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)

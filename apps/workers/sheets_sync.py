@@ -4,12 +4,18 @@
 
 The schema has offered `google_sheets` since M1 and nothing has ever delivered it, which
 is the worst of the three possible states: a client who picks it configures an
-integration that silently never fires. This module removes the silence. What it does not
-do is pretend: there is no Google service account in this environment, no OAuth flow, and
-no `google-api-python-client` in the lockfile (adding a vendor SDK on a guess is exactly
-the supply-chain move hard rule 9 forbids). So what ships is the seam — `SheetsTransport`,
-a console dev sink, the row mapping, and a refusal — and the day a service account exists
-the vendor work is one class implementing one method.
+integration that silently never fires. This module removes the silence by owning the
+SEAM — `SheetsTransport`, a console dev sink, the row mapping, and a set of named
+refusals — and nothing here knows what Google is.
+
+The vendor half now exists and lives behind that seam in `apps/workers/google_sheets.py`
+(`GOOGLE_SHEETS_PROVIDER=service_account`): a service account the client shares their own
+document with, minting its own OAuth2 token, calling `spreadsheets.values.append`. It is
+selected by config and imported inside `get_sheets_transport`, so a deployment with no
+Google credential never loads it and every refusal below still reads the same. No vendor
+SDK was added for it — `pyjwt[crypto]` and `httpx` were already in the lockfile and the
+API is three REST calls (hard rule 9: a vendor SDK on a guess is the supply-chain move,
+and this one would have been a guess).
 
 Shape mirrors `workers/transport.py` and `workers/whatsapp.py` on purpose: a Protocol, a
 dev sink that needs no credentials and no network, and the real provider chosen by
@@ -23,15 +29,21 @@ the retry ladder all stay in `outbound_webhooks.py`, shared with the webhook pat
 a client asking "did my lead arrive?" must get an answer built the same way whichever box
 they ticked.
 
-**Idempotency is the delivery log, and it has one honest gap.** An append is not
-idempotent at the vendor — Sheets has no request key — and a duplicate row in a document
-a human is reading cannot be un-seen. So `deliver_outbound_webhook` refuses to append a
-delivery already recorded `delivered`. The residual window is a crash between Google
-accepting the append and our transaction committing; closing it needs a READ, which is
-why `SHEET_DELIVERY_HEADER` puts the delivery id in the last column of every row: an
-adapter can look for it before appending. That read is not written here because it cannot
-be tested against a real sheet, and an untested reconciliation path is a claim, not a
-mechanism.
+**Idempotency is the delivery log, plus one read on retries.** An append is not
+idempotent at the vendor — Sheets v4 has no request key on `values.append` (verified
+against the live discovery document, rev 20260810) — and a duplicate row in a document a
+human is reading cannot be un-seen. Two layers:
+
+1. `deliver_outbound_webhook` refuses to append a delivery already recorded `delivered`,
+   which covers every retry that follows a committed attempt.
+2. The residual is a crash between Google accepting the append and our transaction
+   committing, and that is observable only from attempt 2 onward. So `append_event` sets
+   `SheetAppend.dedupe_probe` on retries, and the adapter READS the delivery-id column
+   before writing. This is why `SHEET_DELIVERY_HEADER` is the last column of every row:
+   the id in the document is what makes the document reconcilable against the log, by an
+   adapter and by a human.
+
+First attempts pay nothing for this; only a retry reads.
 
 **Formula injection is a real risk here, unlike on the webhook path.** A lead's name is
 written by a caller or a web form and lands in a document a human opens; `=IMPORTXML(…)`
@@ -71,8 +83,12 @@ DEV_SINK_OUTSIDE_LOCAL_REASON = "dev_sink_refused_outside_local"
 # which one was expected — the name is OUR config, not vendor prose.
 PROVIDER_NOT_IMPLEMENTED_REASON = "provider_not_implemented"
 
-# The one provider name that resolves to a transport today. Not a vendor: the dev sink.
+# The dev sink. Not a vendor — it writes to a terminal.
 CONSOLE_PROVIDER = "console"
+# The real one: `apps/workers/google_sheets.py`, a service account the client shares
+# their document with. Kept as a name here rather than imported from that module so the
+# selector below can decide WITHOUT importing an httpx/JWT stack it may not need.
+SERVICE_ACCOUNT_PROVIDER = "service_account"
 
 
 # --- the request ----------------------------------------------------------------
@@ -95,10 +111,21 @@ class SheetAppend:
     header: tuple[str, ...]
     values: tuple[str, ...]
     credential_ref: str
+    # "This delivery has been attempted before, so LOOK before you write." Set only on
+    # arq attempt ≥ 2 (see `append_event`). It is a request field rather than a second
+    # transport method because the check and the write have to be one decision: a
+    # transport that could be asked to check and then told to append anyway would let a
+    # caller reintroduce the duplicate this exists to prevent.
+    dedupe_probe: bool = False
 
 
 class AppendStatus(StrEnum):
     APPENDED = "appended"
+    # The adapter found this delivery id already in the sheet and did NOT append again.
+    # Distinct from APPENDED because the two are different events for an operator
+    # reading logs — one wrote a row, one prevented a duplicate — and identical for the
+    # client, whose lead is in their sheet either way.
+    ALREADY_PRESENT = "already_present"
     # The API could not be reached, or reported a condition that may pass (429, 5xx).
     TRANSPORT_FAILED = "transport_failed"
     # A verdict: no service account, sheet not shared with us, tab missing. Retrying
@@ -113,7 +140,14 @@ class AppendResult:
 
     @property
     def appended(self) -> bool:
-        return self.status is AppendStatus.APPENDED
+        """Is the row IN THE SHEET? — which is the question the delivery log asks.
+
+        `ALREADY_PRESENT` counts. A retry that discovers its own earlier append did land
+        has delivered the lead; recording it `failed` would put a red row on the client's
+        screen for a lead sitting in their spreadsheet, and would leave the delivery
+        eligible for yet another attempt.
+        """
+        return self.status in (AppendStatus.APPENDED, AppendStatus.ALREADY_PRESENT)
 
     @property
     def retryable(self) -> bool:
@@ -189,6 +223,21 @@ def get_sheets_transport() -> SheetsTransport:
     settings = get_settings()
     provider = (settings.google_sheets_provider or "").strip().lower()
 
+    if provider == SERVICE_ACCOUNT_PROVIDER:
+        # Imported HERE, not at module scope: `apps.workers.google_sheets` imports this
+        # module for the Protocol and the result vocabulary, so a top-level import would
+        # be a cycle. The seam depends on nothing; the adapter depends on the seam.
+        from apps.workers.google_sheets import GoogleSheetsTransport
+
+        raw = (settings.google_sheets_service_account_json or "").strip()
+        if not raw:
+            # A provider named with no key behind it is the same class of operator error
+            # as the dev sink outside local: it would report a transport that cannot
+            # authenticate, and `sheets_delivery_available()` — the API's gate — would
+            # start offering the checkbox.
+            return UnconfiguredSheetsTransport(NO_CREDENTIALS_REASON)
+        return GoogleSheetsTransport(raw)
+
     if provider == CONSOLE_PROVIDER:
         if settings.app_env != "local":
             # An explicit dev sink outside local is operator error, and it is the kind
@@ -228,6 +277,7 @@ async def append_event(
     event: str,
     data: dict[str, Any],
     delivery_id: Any,
+    attempt: int = 1,
 ) -> service.DeliveryResult:
     """Turn one normalized event into one row and hand it to the transport.
 
@@ -265,6 +315,12 @@ async def append_event(
             header=tuple(service.sheet_header(columns, mapping)),
             values=tuple(service.sheet_row(data, columns, delivery_id)),
             credential_ref=credential_ref,
+            # THE residual window, closed. `deliver_outbound_webhook` already refuses a
+            # delivery recorded `delivered`, so the only way a duplicate can happen is a
+            # crash between Google accepting the append and our transaction committing —
+            # and that is observable only from attempt 2 onward. Probing on the first
+            # attempt would buy nothing and cost a read per lead.
+            dedupe_probe=attempt > 1,
         )
     )
     return service.DeliveryResult(
@@ -295,6 +351,7 @@ __all__ = [
     "NO_CREDENTIAL_REF_REASON",
     "NO_SPREADSHEET_REASON",
     "PROVIDER_NOT_IMPLEMENTED_REASON",
+    "SERVICE_ACCOUNT_PROVIDER",
     "VALUE_INPUT_OPTION",
     "AppendResult",
     "AppendStatus",

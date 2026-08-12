@@ -95,16 +95,102 @@ async def blocked_leads(session: AsyncSession, *, limit: int = 25) -> list[Atten
     return items
 
 
+# What a failed SHEETS delivery means, in the words of the person who has to fix it.
+# Keyed by the authored reason codes in `apps/workers/sheets_sync.py` and
+# `apps/workers/google_sheets.py` — never by vendor prose, which is untrusted text that
+# can quote the lead row we handed Google (hard rule 6).
+#
+# Every one of these is a sentence a business owner can act on WITHOUT a support call,
+# which is the entire test for whether a row belongs in this queue. The ones they cannot
+# act on say so and name us as the party who must, rather than leaving a red row with an
+# error code on it and no next step.
+SHEET_FAILURE_REMEDIES: dict[str, str] = {
+    "sheet_not_shared": (
+        "We do not have permission to write to your spreadsheet. Open it, click Share, "
+        "and give Editor access to the Calevate address your account manager gave you."
+    ),
+    "spreadsheet_not_found": (
+        "That spreadsheet no longer exists, or it was moved to a different account. "
+        "Create the endpoint again with the new link."
+    ),
+    "worksheet_not_found": (
+        "The tab we were told to write to is not in that spreadsheet any more. Rename "
+        "it back, or set the endpoint up again with the tab you are using now."
+    ),
+    "no_credential_ref": (
+        "Your Google Sheets connection is not finished on our side yet — nothing for "
+        "you to do. Contact support if leads are not appearing within a day."
+    ),
+    "credential_ref_unknown": (
+        "Your Google Sheets connection is not finished on our side yet — nothing for "
+        "you to do. Contact support if leads are not appearing within a day."
+    ),
+    "google_credential_unresolvable": (
+        "Our connection to Google needs attention — nothing for you to do. We have been alerted."
+    ),
+    "google_auth_failed": (
+        "Our connection to Google needs attention — nothing for you to do. We have been alerted."
+    ),
+    "google_rate_limited": (
+        "Google was busy and would not take the row. We will keep trying; no action "
+        "needed unless this repeats for hours."
+    ),
+    "google_unavailable": (
+        "Google Sheets was unavailable. We will keep trying; no action needed unless "
+        "this repeats for hours."
+    ),
+    "dedupe_probe_failed": (
+        "We could not check your sheet before writing, so we did not write — that is "
+        "deliberate, it prevents a duplicate row. We will try again."
+    ),
+    "dev_sink_refused_outside_local": (
+        "Google Sheets delivery is misconfigured on our side — nothing for you to do. "
+        "We have been alerted."
+    ),
+    "no_spreadsheet_configured": (
+        "This endpoint has no valid spreadsheet link. Set it up again with the URL from "
+        "your browser while the sheet is open."
+    ),
+}
+
+
+def _sheet_failure_detail(reason: str | None) -> str:
+    """One sheets failure → one sentence. Unknown codes degrade to something honest.
+
+    A reason we have not written copy for still produces a row that says what happened
+    and who is dealing with it, rather than an empty detail or the raw code — the same
+    reasoning as `BLOCK_REMEDIES` falling through to the rule name.
+    """
+    if reason and reason in SHEET_FAILURE_REMEDIES:
+        return SHEET_FAILURE_REMEDIES[reason]
+    if reason and reason.startswith("provider_not_implemented"):
+        return (
+            "Google Sheets delivery is not switched on for this account yet — nothing "
+            "for you to do. We have been alerted."
+        )
+    return (
+        "We could not write the row to your spreadsheet. Check that it is still shared "
+        "with us, or contact support."
+    )
+
+
 async def failed_deliveries(session: AsyncSession, *, limit: int = 25) -> list[AttentionItem]:
-    """Webhook deliveries the client's own endpoint rejected (D-23).
+    """Outbound deliveries that did not arrive (D-23) — BOTH kinds, worded per kind.
 
     Scoped through `outbound_webhooks` because `webhook_deliveries` has no RLS policy
-    of its own by design — see migration 4be32bf3d12c.
+    of its own by design — see migration 4be32bf3d12c. That join is also what makes the
+    per-kind wording possible: `kind` lives on the endpoint, not on the delivery.
+
+    The two kinds fail in genuinely different ways and the copy has to follow. A webhook
+    failure is a statement about a server the client operates ("returns 2xx"); a sheets
+    failure is usually a statement about a SHARING decision they made in a Google UI, and
+    telling them to check their HTTP status codes would be advice about a thing they do
+    not have. Same queue, same query, same row shape — only the sentence differs.
     """
     rows = (
         await session.execute(
             text(
-                "SELECT d.id, d.event_type, d.attempts, d.last_at, d.source, w.url "
+                "SELECT d.id, d.event_type, d.attempts, d.last_at, d.source, w.kind, d.reason "
                 "FROM webhook_deliveries d JOIN outbound_webhooks w ON w.id = d.endpoint_id "
                 "WHERE d.direction = 'out' AND d.status = 'failed' "
                 f"  AND d.last_at > now() - interval '{WINDOW_DAYS} days' "
@@ -113,21 +199,34 @@ async def failed_deliveries(session: AsyncSession, *, limit: int = 25) -> list[A
             {"limit": limit},
         )
     ).all()
-    return [
-        AttentionItem(
-            kind="delivery_failed",
-            id=str(row[0]),
-            title=f"{row[1]} did not reach your system",
-            detail=(
-                f"Your endpoint answered {row[4] or 'an error'} after {row[2]} attempts. "
+    items: list[AttentionItem] = []
+    for delivery_id, event_type, attempts, last_at, source, kind, reason in rows:
+        if kind == "google_sheets":
+            title = f"{event_type} did not reach your spreadsheet"
+            detail = _sheet_failure_detail(reason)
+            # `rule` is what the client-facing screens group and filter on. Naming the
+            # reason here is what lets a support person see six identical
+            # `sheet_not_shared` rows and fix one thing.
+            rule = reason if reason in SHEET_FAILURE_REMEDIES else None
+        else:
+            title = f"{event_type} did not reach your system"
+            detail = (
+                f"Your endpoint answered {source or 'an error'} after {attempts} attempts. "
                 "Check that it is reachable and returns 2xx."
-            ),
-            rule=None,
-            occurred_at=row[3],
-            href="/integrations",
+            )
+            rule = None
+        items.append(
+            AttentionItem(
+                kind="delivery_failed",
+                id=str(delivery_id),
+                title=title,
+                detail=detail,
+                rule=rule,
+                occurred_at=last_at,
+                href="/integrations",
+            )
         )
-        for row in rows
-    ]
+    return items
 
 
 async def stalled_campaigns(session: AsyncSession, *, limit: int = 25) -> list[AttentionItem]:
@@ -244,6 +343,7 @@ async def attention_queue(session: AsyncSession, *, limit: int = 50) -> dict[str
 
 __all__ = [
     "BLOCK_REMEDIES",
+    "SHEET_FAILURE_REMEDIES",
     "WINDOW_DAYS",
     "AttentionItem",
     "attention_queue",

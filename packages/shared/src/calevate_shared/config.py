@@ -116,12 +116,11 @@ class Settings(BaseSettings):
     whatsapp_template_locale: str = "en"
 
     # Google Sheets delivery for outbound CRM sync (D-23, `outbound_webhooks.kind =
-    # 'google_sheets'`). Same seam as `whatsapp_provider` and for the same reason: no
-    # Google service account is provisioned and no adapter has been written against
-    # one, so `console` is the local dev sink (refused outside APP_ENV=local) and any
-    # other name resolves to `provider_not_implemented` and refuses to append rather
-    # than pretending. Unset falls back to the dev sink locally and a refusal
-    # everywhere else.
+    # 'google_sheets'`). Same seam as `whatsapp_provider`: `console` is the local dev
+    # sink (refused outside APP_ENV=local), `service_account` selects the real adapter
+    # in `apps/workers/google_sheets.py`, and any other name resolves to
+    # `provider_not_implemented` and refuses to append rather than pretending. Unset
+    # falls back to the dev sink locally and a refusal everywhere else.
     #
     # This exists as CONFIG rather than as `app_env == "local"` — which is what
     # selection used to key off — because "are we on a laptop" is not a statement about
@@ -129,9 +128,31 @@ class Settings(BaseSettings):
     # is. `apps/api/integrations/routes.py` refuses to create a sheets endpoint when
     # this says the deployment cannot deliver to one.
     #
-    # NOT the credential. The service account is a secrets-manager reference on the
-    # endpoint row (`outbound_webhooks.secret_ref`) — key material never lives here.
     google_sheets_provider: str | None = None
+
+    # The service-account key the `service_account` provider signs with: the JSON blob
+    # Google issues, injected from the secrets manager at deploy time exactly like
+    # BOLNA_API_KEY and the Clerk keys (DEV-SETUP §4). Unset with the provider set is
+    # itself a refusal — `get_sheets_transport` returns the unconfigured transport, so
+    # the API stops offering the Sheets checkbox rather than creating endpoints that
+    # cannot authenticate.
+    #
+    # THE PREVIOUS COMMENT HERE SAID KEY MATERIAL NEVER LIVES IN SETTINGS, and that
+    # claim has to be corrected rather than quietly dropped. What `secret_ref` on the
+    # endpoint row holds is a REFERENCE — `sm://google-sheets/default` — and that is
+    # still true and still the rule: no key material in the database, ever. The
+    # reference names WHICH credential the deployment should use; the credential itself
+    # lives where every other vendor key in this system lives, which is the process
+    # environment fed by the secrets manager. There is nowhere else for it to live: this
+    # deployment has no runtime secret-fetching client, and inventing one for a single
+    # key would be a second way to hold a secret.
+    #
+    # ONE key for the whole platform, not one per tenant, because the tenancy boundary
+    # here is not ours to enforce: a client grants access by SHARING their own document
+    # with our service account's address and revokes it by un-sharing. Per-tenant
+    # service accounts would multiply GCP identities without narrowing what any one key
+    # can reach — it can only ever reach documents someone chose to share with it.
+    google_sheets_service_account_json: str | None = None
 
     # NO LANGFUSE OR POSTHOG KEYS HERE, DELIBERATELY. Both existed as settings with no
     # client anywhere in the tree: they would have been no-ops WITH real credentials,

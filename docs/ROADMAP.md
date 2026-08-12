@@ -116,11 +116,19 @@ for 7 consecutive days; zero cross-tenant test failures.
   job as the webhook half so it reuses the delivery id, the retry ladder and the
   exhaustion alert rather than minting a second definition of "we delivered a lead", with
   column order held in a JSON array (JSONB does not preserve key order) and an event with
-  no declared order REFUSED rather than guessed. **The vendor adapter is the seam that
-  remains**: no Google service account, no OAuth, no SDK in the lockfile, so
-  `sheets_delivery_available()` is the one selector both the config route and the worker
-  ask, and a deployment without it refuses the endpoint at creation rather than accepting
-  rows into silence.
+  no declared order REFUSED rather than guessed. **The vendor adapter is now built too**
+  (`apps/workers/google_sheets.py`, `GOOGLE_SHEETS_PROVIDER=service_account`): a service
+  account the client shares their own document with — chosen over an installed-app OAuth
+  flow because sharing is per-document, revocable by the client without us, and holds no
+  per-tenant refresh token — minting its own RS256/JWT-bearer token and calling
+  `spreadsheets.values.append` with `RAW` + `INSERT_ROWS`. No SDK was added; `pyjwt[crypto]`
+  and `httpx` were already in the lockfile. Sheets has NO idempotency key, so a retried job
+  reads the delivery-id column before writing and reports `already_present` rather than
+  duplicating a row, and a probe that cannot read refuses to write at all.
+  `sheets_delivery_available()` remains the one selector both the config route and the
+  worker ask, and a deployment with no credential still refuses the endpoint at creation
+  rather than accepting rows into silence. **Still owed: a live confirmation against a
+  real Google project** — nothing in CI has spoken to Google (OPERATIONS §2 gate).
 - Billing surfaces: usage panel (client), margin panel (admin), invoice generation,
   Razorpay links, caps UI. — usage + margin panels **shipped** (BUILD-LOG §36),
   invoice generation **shipped** (BUILD-LOG §40); the **caps-editing UI shipped**

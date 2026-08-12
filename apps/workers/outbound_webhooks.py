@@ -105,6 +105,7 @@ async def _deliver_to_endpoint(
     event: str,
     data: dict[str, Any],
     delivery_id: UUID,
+    attempt: int,
 ) -> service.DeliveryResult:
     """One attempt at one endpoint, whatever kind it is.
 
@@ -115,8 +116,17 @@ async def _deliver_to_endpoint(
     mapping = endpoint["mapping"] or {}
 
     if kind == service.SHEET_KIND:
+        # The attempt number is part of the sheets CONTRACT, not telemetry: a sheet
+        # cannot deduplicate for us, so the adapter reads the document's delivery-id
+        # column before writing on a retry. A webhook needs none of this — its receiver
+        # dedupes on the envelope id (WEBHOOKS §1.5) — which is why the number is passed
+        # here and not into `service.deliver`.
         return await sheets_sync.append_event(
-            endpoint=endpoint, event=event, data=data, delivery_id=delivery_id
+            endpoint=endpoint,
+            event=event,
+            data=data,
+            delivery_id=delivery_id,
+            attempt=attempt,
         )
 
     if kind == service.WEBHOOK_KIND:
@@ -187,6 +197,7 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
             event=event,
             data=data,
             delivery_id=delivery_id,
+            attempt=attempt,
         )
         await service.record_delivery(
             session,
@@ -197,6 +208,13 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
             attempts=attempt,
             status_code=result.status_code,
             channel=result.channel,
+            # WHY it failed, recorded rather than only logged. Until this was stored the
+            # client's own screen could say no more than "sheets" — the transport's name
+            # — for a delivery that failed because they had not shared the document with
+            # us, which is a thing only they can fix and which no support ticket should
+            # be needed to discover. Always one of OUR authored codes, never vendor
+            # prose and never a payload (hard rule 6).
+            reason=None if result.delivered else result.error,
         )
 
     if result.delivered:
