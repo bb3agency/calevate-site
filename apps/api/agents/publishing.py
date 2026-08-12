@@ -270,16 +270,31 @@ async def _load(session: AsyncSession, agent_id: UUID) -> _AgentRow:
 
 
 async def _overage_rate(session: AsyncSession, tenant_id: UUID) -> Decimal | None:
-    """The tenant's per-minute rate, or None when no plan states one.
+    """The DEAREST per-minute rate this plan can charge, or None when it states none.
 
     None is not zero. A missing rate means "we cannot tell you what this costs", and
     quoting ₹0.00 for a ten-minute call is the one answer that is actively wrong.
+
+    **The dearest, because this feeds a worst case.** A plan may now quote two rates —
+    `overage_rate` and `overage_rate_value`, the premium and value TTS rungs (D-36) —
+    and which one a call bills at is decided by the voice that actually ran, which is
+    not knowable in advance. A ceiling computed from the cheaper rung would promise a
+    number the very next call can exceed, and a cost ceiling has exactly one direction
+    of error it must not have.
+
+    Taken as GREATEST rather than "the premium column", for the same reason
+    `billing.service.split_overage` spends the included allowance on the dearer rung by
+    PRICE rather than by label: the two columns are named for the rungs they price
+    today, and a plan that ever quoted them the other way round would silently invert
+    every guarantee that read the label instead of the number.
     """
     row = (
         await session.execute(
             text(
-                "SELECT overage_rate FROM plans WHERE tenant_id = :tid "
-                "ORDER BY created_at DESC LIMIT 1"
+                # GREATEST ignores NULLs, so a plan quoting only one rate answers with
+                # it — the same reason `billing/caps.py` uses LEAST for the cap pair.
+                "SELECT GREATEST(overage_rate, overage_rate_value) FROM plans "
+                "WHERE tenant_id = :tid ORDER BY created_at DESC LIMIT 1"
             ),
             {"tid": tenant_id},
         )

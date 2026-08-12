@@ -284,3 +284,72 @@ async def test_another_tenant_cannot_set_our_cap() -> None:
             )
         ).first()
     assert row is not None and row[0] is None, "our cap was written from another tenant's scope"
+
+
+# --- the seam between the two caps ----------------------------------------------------
+#
+# Two caps landed in the same wave from different slices, and they are NOT two answers to
+# one question: this one bounds a SINGLE call's length, `plans.client_cap_*` bounds a
+# MONTH's spend. Where they meet is the worst-case quote, which multiplies this cap by a
+# rate — and the billing slice made "the rate" ambiguous by adding a second one.
+
+
+async def _plan_rates(tenant_id: uuid.UUID, *, premium: str | None, value: str | None) -> None:
+    """A plan quoting BOTH rungs (D-36). `_plan` above predates the value column."""
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO plans (id, tenant_id, overage_rate, overage_rate_value, "
+                "concurrency_ceiling, created_at, updated_at) "
+                "VALUES (:i, :t, :p, :v, 10, now(), now())"
+            ),
+            {
+                "i": uuid7(),
+                "t": tenant_id,
+                "p": Decimal(premium) if premium is not None else None,
+                "v": Decimal(value) if value is not None else None,
+            },
+        )
+
+
+async def test_the_worst_case_quote_uses_the_dearer_of_the_two_rates() -> None:
+    """A ceiling computed from the cheaper rung promises a number the next call exceeds.
+
+    Which rung a call bills at is decided by the voice that actually ran, which is not
+    knowable when the quote is rendered — so the only honest ceiling is the dearer rate.
+    """
+    tenant_id, agent_id = await _tenant()
+    await _plan_rates(tenant_id, premium="8.00", value="4.00")
+
+    await publishing.set_call_cap(tenant_id=tenant_id, agent_id=agent_id, max_call_duration_s=600)
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+
+    assert state.worst_case_call_cost_inr == Decimal("80.00"), (
+        "quoted the value rung; ten minutes on the premium voice costs the client 80"
+    )
+
+
+async def test_the_dearer_rate_is_taken_by_price_not_by_column_name() -> None:
+    """Guards the convention, not today's data. `billing.service.split_overage` spends
+    the included allowance on the dearer rung BY PRICE for the same reason: the columns
+    are named for the rungs they price today, and a plan that ever quoted them the other
+    way round would invert every guarantee that read the label instead of the number."""
+    tenant_id, agent_id = await _tenant()
+    await _plan_rates(tenant_id, premium="4.00", value="9.00")
+
+    await publishing.set_call_cap(tenant_id=tenant_id, agent_id=agent_id, max_call_duration_s=60)
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+
+    assert state.worst_case_call_cost_inr == Decimal("9.00")
+
+
+async def test_a_plan_quoting_only_one_rate_still_answers() -> None:
+    """GREATEST ignores NULLs, so a plan with no value rate — every plan today — quotes
+    its single rate rather than going silent."""
+    tenant_id, agent_id = await _tenant()
+    await _plan_rates(tenant_id, premium="6.50", value=None)
+
+    await publishing.set_call_cap(tenant_id=tenant_id, agent_id=agent_id, max_call_duration_s=120)
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+
+    assert state.worst_case_call_cost_inr == Decimal("13.00")
