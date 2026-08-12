@@ -62,6 +62,31 @@ pnpm -C apps/web typecheck && pnpm -C apps/web lint
 8. Don't add: vector DBs, brokers, second backend language, new deployables — those need
    a decision-log entry in `docs/ROADMAP.md §6` first.
 
+## Quality bar: write it the way the industry writes it
+
+Working is the floor, not the target — this is multi-tenant SaaS holding other
+businesses' customer data under Indian telecom and privacy law.
+
+- Follow the established, documented pattern over a clever local invention; if this repo
+  already solved a problem, follow that solution. Two ways of doing one thing is a defect.
+- **Search the web whenever you are not certain, and you are less certain than you feel.**
+  Training cutoffs go stale: library APIs, security guidance, framework idioms and
+  regulatory detail all move. Search before using an unfamiliar library (or a familiar
+  one's unfamiliar corner), writing anything security- or crypto-shaped, implementing a
+  spec (RFC, webhook signature, OAuth, payment callback, DLT/TRAI, DPDP), choosing between
+  two plausible designs, or writing version-sensitive code (SQLAlchemy 2.0, Pydantic v2,
+  Next.js 15 App Router, arq, alembic). Cite what you found in the comment or commit body
+  so the next reader inherits the evidence, not just the conclusion.
+- Vendor and regulator claims are verified or marked as assumptions — never silent premises.
+- Name things for what they hold; put the WHY in the comment, since the what is in the code.
+  Recording the rejected alternative is worth more than restating the line.
+- Errors are part of the interface: an actionable message where a user can reach it, an
+  actionable log line where only an operator can. Never swallow an exception to look green.
+- Leave no half-wired feature — an unmounted route, an unregistered job, an unread column
+  or an unapplied migration is a defect that looks like progress.
+- Concurrency, money and time are where sloppiness gets expensive: CAS or a lock over
+  read-then-write, NUMERIC over float, aware instants over naive ones.
+
 ## Testing expectations
 
 - pytest for api/workers/voice-runtime; new tenant tables ⇒ RLS test; adapter changes ⇒
