@@ -1865,6 +1865,122 @@ would fail if it were wrong. Both mitigations in the hold queue were correct, te
 enforced, and both were unusable for the same reason; the frontend's contracts were
 correct, documented and unchecked, and two of them were already broken.
 
+## §51 — the wave that asked whether the assurances were assuring anything
+
+1566 backend tests and 89 frontend ones, nine checks in the guardrail target, 93 OpenAPI
+paths, one migration head. Seven slices landed, and they were commissioned separately but
+turned out to be one question: **for every guarantee this repo believes it has, what
+exactly would fail if it were false?** In six of the seven the honest answer was "nothing
+we run" — not because the guarantee was wrong, but because the thing checking it could not
+have noticed.
+
+**A dedupe test that delivers the same webhook twice, in sequence, cannot fail the way
+production fails.** It never puts two copies inside the INSERT at the same instant, which
+is the only moment the claim can be wrong. `tests/webhook_storm_test.py` puts M copies
+through a barrier and a task group so they contend for real, and the durable claim came
+through clean: the INSERT *is* the claim, the unique index is the arbiter, losers block on
+the winner's uncommitted index tuple, and `duplicate_count` lands on exactly M-1 out to 768
+concurrent. The finding that mattered was about the harness, not the receiver. **ARQ's
+job-id dedupe masks a broken durable claim**: with the inbox claim neutered every copy
+still enqueues the same key and the queue collapses them, so a storm test asserting "one
+job ran" stays green on a rotted receiver. The load-bearing assertions had to be on our own
+rows. The file also carries a permanent negative control that runs the assertion helper
+against a sequentially-correct, concurrently-wrong claim under `pytest.raises`, so a
+harness that quietly stops contending fails instead of passing.
+
+That suite then produced the wave's one capacity finding, and D-55 is what came of
+**refusing to fix it before measuring it**. Ack p50 went 110ms at 1 concurrent to 1389ms at
+384 with a FLAT distribution — p50 ≈ max, a convoy rather than a tail. Four plausible
+causes were eliminated by measurement rather than argument: pool checkout waited 0.1ms at
+192 concurrent and pools of 8, 16 and 32 measured identically; the enqueue inside the
+transaction cost 26ms; the distinct-key storm, which contends for nothing, was as slow as
+the same-key herd; and no profile hotspot existed to remove, our own code being 2.8% of it.
+What remained was a saturated single core holding ~250 acks/s at every width, with latency
+tracking in-flight ÷ throughput to within a few percent — Little's Law, which is *why* the
+distribution is flat. So most of it is a sizing rule (2 processes at 100 concurrent, 4 at
+250+, written into DEPLOYMENT §2a with the arithmetic, because a sizing rule nobody can
+point at is not a rule). The one real defect was inside SQLAlchemy's default: connections
+above `pool_size` are single-use, so the receiver burned 186 fresh Postgres backends for
+1448 requests while never exceeding 15 concurrent, paying a SCRAM handshake — ~20% of the
+core — to re-authenticate connections it had just discarded. **The enforcement that came
+back is a connection COUNT, not a millisecond bound**, and that choice is the reusable
+part: a wall-clock assertion under concurrency measures the CI runner, and a flaky latency
+test gets deleted along with the guarantee it was carrying.
+
+**`compliance_audit_test` required the NAME of the gate, and the gate returns a decision
+rather than raising.** So a handler that calls `check_dispatch` and then ignores what comes
+back type-checks, reviews clean, passes that test, and rings the phone. Deleting the `if
+not decision.allowed` branch in `call_lead` was verified to leave the suite at 9 passed.
+`scripts/check_compliance_invariants.py` walks the enclosing-function chain and requires
+the decision to be branched on with the right polarity BEFORE the dial, with the refusal
+branch terminating — while still admitting `assert_dispatch_allowed`, which satisfies the
+rule without an `if`, because a check that demanded one would push callers back to the
+weaker form. Its fourth section catches the bypass shape nothing looked for — an
+environment read inside the gate — scoped to gate-bearing functions rather than to
+compliance packages, because the audit chain legitimately salts with `app_env` and a
+package-scoped check would have opened with a false positive and an exemption list. Its
+fifth reads `pg_catalog` rather than trusting a migration, matching on constraint
+DEFINITIONS and never names, since renaming is a legal migration: a name-keyed check fires
+on the rename and stays green on the drop.
+
+**The frontend's contracts were documented and unchecked, and the wire-lookup doctrine
+turned out to need two mechanisms, not one.** The `in` half is a lint rule keyed on the
+LEFT operand, which is what makes it free of false positives: a dynamic key is unsafe
+against any object whoever built it, while literal-`in` is TypeScript's narrowing idiom and
+stays legal. The bare-index half could not be a lint rule without noise — telling
+`HOLD_RULES[rule]` from `KYC_STATUS_COPY[status]` needs types, and the untyped selector
+fires on 35 sites the sweep deliberately left alone, which is the rule that gets disabled.
+So it is a test that builds the real `tsc` program and asks the checker. **Its first draft
+passed with a live bug**, because the unsafe table was a local alias and scope-only
+analysis waved it through; following one alias hop caught it, and the limit is now written
+in the file rather than assumed away. Four screens gained behavioural tests, ranked by the
+consequence of a silently-wrong render rather than by branch count — the launch panel
+first, because it is the only client screen that AUTHORISES rather than informs, and a
+dropped blocker makes the compliance gate look like a malfunction, which is how bypasses
+come to be requested.
+
+**Google Sheets has no idempotency key, and the discovery document is what proved it.**
+`developers.google.com` is egress-blocked from the build host but `sheets.googleapis.com`
+is not, so the adapter was written against the live discovery doc rather than recall: no
+`requestId`, no conditional write on the values resource, `RAW` over `USER_ENTERED`
+(which makes every cell a candidate expression) and `INSERT_ROWS` over the OVERWRITE
+default (which would silently clobber a client's totals block below their leads). The
+residual — a crash between Google accepting and our commit — is only observable from the
+second attempt, so a retry reads the delivery-id column before writing, and **a probe that
+fails blocks the append entirely**: a late lead is recoverable, a duplicate row in a
+document a human reads is not. Writing the hard-rule-6 test for it surfaced a pre-existing
+leak nothing could have caught by inspection of our own code — httpx logs the full URL at
+INFO, which is the spreadsheet id, and on the webhook path the client's endpoint, which for
+Zapier and Make routinely carries the token in the query string. `redact_mapping` cannot
+see it because it arrives as prose in the message.
+
+**The backup alarm lived inside the failure domain it was watching.** Failure alarmed into
+journald and a local hook, which answers every question except the one that matters: if the
+box is dead the backup did not run AND nobody is told. The dead man inverts it — success
+pings, a failing run pings nothing, a dead box cannot ping — and the discipline is that
+there is deliberately no failure signal, with a test asserting no such literal exists
+anywhere on the path. Hosted over self-hosted for the reason that decides this class of
+question: self-hosting the observer puts it back inside the failure domain.
+
+**And the guardrail set was itself the last thing nothing was checking.** `check_wiring`
+had been in the guardrail target and in ZERO CI steps — the local gate ran it, the gate
+that blocks merge did not — and the audit test stayed green because it was a hand-kept
+list. It now globs `scripts/check_*.py` and requires each in both files. That was found by
+`check:docs-drift`, whose own subject is the same class of claim: commands the docs name,
+`D-xx` references, and the rule strings SEC-COMP §3 cites, the last of which only works
+because it excludes docstrings — without that exclusion the check is satisfied by prose
+about itself and survives a rename. It found `AGENTS.md` telling agents to run a harness
+module that has not existed since it shipped, and six places naming package scripts against
+the root manifest, which declares none.
+
+**What this wave adds to the method.** §50 asked who OPERATES a control. This one asks what
+would FAIL if a guarantee were false — and the answer kept coming back "the test that
+covers it, in a way the defect cannot reach": sequential where production is concurrent,
+name-matching where the bug is a missing branch, type-checked where the bug type-checks,
+local where the failure is the host dying. The move that worked, seven times, was to ask
+what the checker is physically able to observe, and then either change the mechanism or
+write down that it cannot.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and
@@ -1891,7 +2007,9 @@ metering, effective-dated plan resolution, invoices as derived statements, admin
 caps with the ops recompute. KYC and the first-campaign hold, both gates plus both consoles
 plus the client's own screens plus the cross-tenant hold queue. Outbound CRM sync (webhook
 half). OTel tracing across every boundary, Sentry, and `alert()` with a real email
-transport. Seven guardrails in `make guardrails`, and now `make web-check`.
+transport. Outbound CRM sync's Sheets half, adapter included, though nothing has yet spoken
+to a real Google project. Nine checks in the guardrail target — the newest three being
+half-wiring, compliance invariants and docs drift — and the frontend gate beside it.
 
 **Built but INERT, and why** — a mechanism exists, is tested, and does nothing today
 because something outside the repo is missing. Each of these is one credential or one
