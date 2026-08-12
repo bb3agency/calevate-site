@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "gen:api": "openapi-typescript src/lib/api/openapi.json -o src/lib/api/schema.d.ts"
   },
   "dependencies": {
@@ -20,14 +22,18 @@
   "devDependencies": {
     "@eslint/eslintrc": "3.3.6",
     "@tailwindcss/postcss": "^4.3.3",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20.19.43",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.5",
     "eslint-config-next": "15.5.21",
+    "jsdom": "^30.0.1",
     "openapi-typescript": "^7.13.0",
     "playwright-core": "^1.62.1",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
   }
 }

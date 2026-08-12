@@ -37,7 +37,7 @@ uv run pytest                    # all tests; -k rls for tenancy tests
 uv run ruff check --fix . && uv run ruff format .
 uv run mypy .                    # strict; must pass
 uv run alembic upgrade head      # migrations (autogenerate + hand-review diff)
-pnpm -C apps/web dev|build|typecheck
+pnpm -C apps/web dev|build|typecheck|test   # or `make web-check` (typecheck+lint+test)
 docker compose up -d             # local pg16+pgvector, redis, minio
 uv run python -m scripts.seed    # reserved slugs, vertical templates, retention defaults
 ```

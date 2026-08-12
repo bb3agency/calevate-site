@@ -4,7 +4,7 @@
 # in the repo root would make `make guardrails` print "nothing to be done" and exit 0:
 # the CI gate reporting success without running a single check.
 .PHONY: help dev up down check lint lint-check types test db-reset eval eval-ci \
-        gen-api conformance smoke guardrails
+        gen-api conformance smoke guardrails web-check
 
 # `check` fans out to prerequisites that share one database and one working tree.
 # Under `make -j` they would interleave — guardrails reading a schema another target
@@ -19,7 +19,8 @@ help:  ## List targets
 	@echo '  make down        - stop local infra'
 	@echo '  make dev         - run all four services'
 	@echo '  make lint        - ruff check --fix + format; rewrites files'
-	@echo '  make check       - lint-check, mypy, pytest, guardrails, eval, web typecheck [CI gate]'
+	@echo '  make check       - lint-check, mypy, pytest, guardrails, eval, web [CI gate]'
+	@echo '  make web-check   - frontend typecheck + vitest suite'
 	@echo '  make db-reset    - drop, migrate, seed'
 	@echo '  make eval CLIENT=slug - regression harness (core5)'
 	@echo '  make gen-api     - OpenAPI snapshot -> typed TS client'
@@ -62,8 +63,19 @@ test:
 smoke:  ## tenant -> agent -> signed webhook -> lead with extraction
 	uv run pytest -m smoke
 
-check: lint-check types test guardrails eval-ci  ## Full CI gate (mirrors .github/workflows/ci.yml)
+check: lint-check types test guardrails eval-ci web-check  ## Full CI gate (mirrors .github/workflows/ci.yml)
+
+web-check:  ## Frontend gate: typecheck, lint, vitest (CI adds `next build` on top)
+	# Cheapest answer first, same order as the backend half of this gate. The SUITE is
+	# the part `tsc` cannot give: the frontend carries fail-closed defaults,
+	# server-authoritative verdicts (`is_verified`/`messageable`/`held`) and
+	# money-as-string rules, and every one of them type-checks perfectly while being
+	# wrong. `next build` is left to CI — it is the slowest check here and it catches a
+	# different class of thing (route/bundle validity), so paying for it in the dev loop
+	# buys nothing this target does not already have.
 	pnpm -C apps/web typecheck
+	pnpm -C apps/web lint
+	pnpm -C apps/web test
 
 db-reset:
 	uv run alembic downgrade base

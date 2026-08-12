@@ -110,9 +110,19 @@ export const HOLD_RULES: Record<string, HoldRule> = {
   },
 };
 
-/** The copy for a rule, or `null` when this build cannot name it. */
+/**
+ * The copy for a rule, or `null` when this build cannot name it.
+ *
+ * `Object.hasOwn`, never `rule in HOLD_RULES`: `rule` is an arbitrary string off the
+ * wire and `in` walks the prototype chain, so `holdRule("constructor")` handed back
+ * `Object` itself typed as a `HoldRule` — and the queue's very next line is
+ * `copy.screen(tenantId)`, which is a TypeError that takes the whole ops screen down.
+ * The contract here is fail-VISIBLE (an unknown rule keeps the row and says so); a
+ * blank screen is the one way to fail that an operator cannot see past.
+ * Covered by tests/holds.test.ts.
+ */
 export function holdRule(rule: string): HoldRule | null {
-  return rule in HOLD_RULES ? HOLD_RULES[rule] : null;
+  return Object.hasOwn(HOLD_RULES, rule) ? HOLD_RULES[rule] : null;
 }
 
 /**

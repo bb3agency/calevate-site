@@ -123,9 +123,17 @@ export const KYC_STATUS_COPY: Record<KycStatus, KycStatusCopy> = {
   },
 };
 
-/** `status` is a plain string on the wire; only render copy for members we know. */
+/**
+ * `status` is a plain string on the wire; only render copy for members we know.
+ *
+ * `Object.hasOwn` rather than `in`, here and in the four helpers below: `in` walks the
+ * prototype chain, so `isKnownKycStatus("constructor")` answered TRUE and the caller
+ * then read `.label`/`.tone` off `Object` — a verdict box with no headline and no tone,
+ * instead of the "we cannot name this status" fallback that exists for exactly this.
+ * Same defect and same fix as `holdRule` (holds.ts); covered by tests/kyc.test.ts.
+ */
 export function isKnownKycStatus(value: string): value is KycStatus {
-  return value in KYC_STATUS_COPY;
+  return Object.hasOwn(KYC_STATUS_COPY, value);
 }
 
 export interface DocumentKindSpec {
@@ -198,21 +206,21 @@ export const ENTITY_TYPES: Record<KycEntityType, string> = {
  * that COALESCEs — so an unrecognised member is neither lost nor bounced.
  */
 export function asDocumentKind(value: string | null): KycDocumentKind | null {
-  return value !== null && value in DOCUMENT_KINDS ? (value as KycDocumentKind) : null;
+  return value !== null && Object.hasOwn(DOCUMENT_KINDS, value) ? (value as KycDocumentKind) : null;
 }
 
 export function asEntityType(value: string | null): KycEntityType | null {
-  return value !== null && value in ENTITY_TYPES ? (value as KycEntityType) : null;
+  return value !== null && Object.hasOwn(ENTITY_TYPES, value) ? (value as KycEntityType) : null;
 }
 
 export function documentKindLabel(value: string | null): string | null {
   if (!value) return null;
-  return value in DOCUMENT_KINDS ? DOCUMENT_KINDS[value as KycDocumentKind].label : value;
+  return Object.hasOwn(DOCUMENT_KINDS, value) ? DOCUMENT_KINDS[value as KycDocumentKind].label : value;
 }
 
 export function entityTypeLabel(value: string | null): string | null {
   if (!value) return null;
-  return value in ENTITY_TYPES ? ENTITY_TYPES[value as KycEntityType] : value;
+  return Object.hasOwn(ENTITY_TYPES, value) ? ENTITY_TYPES[value as KycEntityType] : value;
 }
 
 /**

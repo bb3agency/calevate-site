@@ -123,6 +123,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Typecheck
         run: pnpm -C apps/web typecheck
+      - name: Lint
+        run: pnpm -C apps/web lint
+      # The frontend's behavioural gate. `tsc` and `next build` both pass on a screen
+      # that renders a lapsed consent as messageable or a null cost as ₹0 — the
+      # suite is the only check that can see the difference (D-29's argument, applied
+      # to the half of the repo that had no executable rules at all).
+      - name: Tests
+        run: pnpm -C apps/web test
       - name: Build
         run: pnpm -C apps/web build
 
