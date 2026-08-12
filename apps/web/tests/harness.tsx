@@ -23,6 +23,31 @@ import { ClientRealmProvider } from "@/lib/api/session";
  */
 export type Routes = Record<string, unknown>;
 
+/**
+ * A route that answers with an RFC-9457 problem instead of a 200.
+ *
+ * Several screens carry a failure branch that is a DECISION, not a fallback — the hold
+ * queue must refuse to report "nobody is waiting" when it could not read the list, and
+ * the launch panel must not render an empty blocker list under a dead button. Those
+ * branches are only reachable through a non-2xx, and a route table that can only answer
+ * 200 cannot reach them. Returning a malformed 200 instead would exercise a crash rather
+ * than the error path.
+ *
+ * The media type matters: `client.ts` parses `problem+json` to build its `ApiError`, so
+ * anything else would test a different branch than production takes.
+ */
+export class ProblemResponse {
+  constructor(
+    readonly status: number,
+    readonly body: Record<string, unknown>,
+  ) {}
+}
+
+/** An RFC-9457 refusal, as `apiRequest` will see it. */
+export function problem(status: number, body: Record<string, unknown> = {}): ProblemResponse {
+  return new ProblemResponse(status, body);
+}
+
 /** One request the screen made, as the network saw it. */
 export interface ApiCall {
   url: string;
@@ -55,7 +80,14 @@ export function stubApi(routes: Routes): ApiCall[] {
             `or the screen under test is calling an endpoint nobody expected`,
         );
       }
-      return new Response(JSON.stringify(routes[path]), {
+      const answer = routes[path];
+      if (answer instanceof ProblemResponse) {
+        return new Response(JSON.stringify(answer.body), {
+          status: answer.status,
+          headers: { "content-type": "application/problem+json" },
+        });
+      }
+      return new Response(JSON.stringify(answer), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -98,6 +130,28 @@ export async function renderClientPage(
       </QueryClientProvider>,
     );
   });
+  return Object.assign(result, { calls });
+}
+
+/**
+ * Render an `/admin` screen — no realm provider, because the admin realm has none.
+ *
+ * `lib/api/admin.ts` builds its own `adminSession()` per call rather than reading a
+ * context, which is the separation CLAUDE.md requires between the two realms ("separate
+ * route groups + separate Clerk apps — never share session logic"). Wrapping an admin
+ * page in `ClientRealmProvider` would test a composition the app does not have, and
+ * would quietly give the page an org slug it is never supposed to hold: these are
+ * CROSS-tenant reads.
+ *
+ * Not async, unlike `renderClientPage`: there is no Suspense boundary here and no
+ * `use(params)` promise on the screens this renders. `findBy*` still awaits the query.
+ */
+export function renderAdminPage(ui: ReactElement, routes: Routes): ClientPageRender {
+  const calls = stubApi(routes);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const result = render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
   return Object.assign(result, { calls });
 }
 
