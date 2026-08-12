@@ -98,6 +98,12 @@ jobs:
       - name: "Guardrail: redaction exposure (hard rule 5)"
         run: uv run python -m scripts.check_redaction_exposure
 
+      - name: "Guardrail: compliance invariants (hard rule 5)"
+        # Every dial path passes the gate and OBEYS it, no bypass exists, and the schema
+        # still carries the invariants the code assumes. Runs after `Migrate` because its
+        # last section reads pg_catalog rather than trusting the migration.
+        run: uv run python -m scripts.check_compliance_invariants
+
       - name: "Guardrail: env parity (fail-fast config)"
         run: uv run python -m scripts.check_env_parity
 

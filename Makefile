@@ -111,3 +111,10 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# `lint-imports` and the redaction scan ask. Its negative controls, which need a
 	# tmp tree and a doctored route table, live in tests/wiring_guard_test.py.
 	uv run python -m scripts.check_wiring
+	# Hard rule 5 over the whole tree (D-29's `check:compliance-invariants`). Here and
+	# not in pytest for two reasons: its schema half reads pg_catalog exactly as
+	# `check_rls_coverage` does, and its subject is the SHAPE of every dial path rather
+	# than the behaviour of one — the pytest suites (compliance_audit, campaigns,
+	# campaign_dispatch_audit) own the behaviour and keep it. Negative controls in
+	# tests/compliance_guard_test.py.
+	uv run python -m scripts.check_compliance_invariants
