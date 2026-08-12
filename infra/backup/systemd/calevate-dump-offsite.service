@@ -1,0 +1,27 @@
+[Unit]
+Description=Calevate nightly encrypted logical dump to the offsite (non-Cloudflare) provider
+Documentation=file:///var/www/calevate/infra/backup/README.md
+After=postgresql.service network-online.target
+Wants=network-online.target
+OnFailure=calevate-backup-alert@%n.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+Environment=RCLONE_CONFIG=/etc/calevate/rclone.conf
+Environment=AGE_RECIPIENTS=/etc/calevate/backup-recipients.txt
+# The remote NAME only. What it points at — provider, bucket, credential — lives in
+# rclone.conf, written by the operator from the secrets manager. Nothing identifying a
+# real destination belongs in this file or anywhere else in the repository.
+Environment=OFFSITE_REMOTE=calevate-offsite:calevate-dr
+ExecStart=/var/www/calevate/scripts/backup/dump-offsite.sh
+TimeoutStartSec=2h
+Nice=10
+IOSchedulingClass=idle
+# The staging directory holds an unencrypted dump for a few seconds. PrivateTmp does not
+# cover it (it is not under /tmp, deliberately — /tmp on this host is small), so the
+# script's EXIT trap is what removes it. These two settings reduce the blast radius of
+# anything else on the box reading it in that window.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/postgresql

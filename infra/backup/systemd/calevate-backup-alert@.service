@@ -1,0 +1,15 @@
+[Unit]
+# The OnFailure= target for every backup unit. `%i` is the failed unit's name, passed by
+# systemd's `OnFailure=calevate-backup-alert@%n.service`.
+#
+# WHY THIS EXISTS SEPARATELY FROM THE SCRIPTS' OWN ALERTS. A script can only alert about
+# failures it survives. This unit fires when the script did not survive: killed by the
+# OOM killer, exited on an unhandled signal, or never started because a dependency was
+# missing. Those are the failures a backup system actually dies of, and they are exactly
+# the ones an in-script handler cannot report.
+Description=Alert that backup unit %i failed
+
+[Service]
+Type=oneshot
+User=postgres
+ExecStart=/var/www/calevate/scripts/backup/notify.sh unit_failed "a backup systemd unit terminated abnormally; the run did not complete" unit=%i

@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# Does the backup chain still work? Asked every 15 minutes, answered from four
+# independent places, because each one is blind to what the others see.
+#
+# THE PROBLEM THIS SOLVES. A backup that silently stops is worse than no backup: it buys
+# false confidence and spends it at the worst possible moment. Every check below exists
+# because some specific way of stopping is invisible to the checks above it.
+#
+#   1. pg_stat_archiver failure counters — the archiver's own view. BLIND SPOT, and it is
+#      the one that matters: PostgreSQL documents that when the archive command is killed
+#      by a signal, or exits with a status above 125 (`command not found` is 127), the
+#      archiver process aborts and is restarted by the postmaster, and THE FAILURE IS NOT
+#      REPORTED IN pg_stat_archiver. Deleting the wal-g binary is therefore a failure this
+#      check cannot see. (postgresql.org/docs/16/monitoring-stats.html, pg_stat_archiver.)
+#   2. Freshness of the last successful archive — catches (1)'s blind spot from the local
+#      side: whatever the reason, the counter of "when did a segment last leave" stops
+#      moving. BLIND SPOT: it trusts PostgreSQL's word that the segment left.
+#   3. wal-g's own view of the DESTINATION — `wal-verify` walks the archive in the bucket
+#      and reports holes in the WAL chain. This is the only check that looks at where the
+#      data actually has to be, and the only one that can catch "archive_command returns 0
+#      but the object is not in the bucket". BLIND SPOT: costs network, so it runs less
+#      often than (1) and (2) would like.
+#   4. pg_wal growth — the consequence check. If archiving has stalled, unarchived
+#      segments pile up in pg_wal until the volume fills and the cluster stops accepting
+#      writes. This one turns a backup incident into a downtime incident, so it is worth
+#      alerting on separately and earlier.
+#
+# WHAT NO CHECK HERE CAN DO: prove the archive is RESTORABLE. Only a restore proves that.
+# That is `runbooks/backup-restore-drill.md`, quarterly, and it is not optional.
+#
+# Exit status: 0 = every check passed. 1 = at least one check alerted. The script runs all
+# checks before exiting, so one failure never hides another.
+
+set -uo pipefail   # NOT -e: a failing check must be reported, not abort the run.
+
+here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+notify="$here/notify.sh"
+
+WALG_CONFIG_PATH=${WALG_CONFIG_PATH:-/etc/wal-g/walg.json}
+export WALG_CONFIG_PATH
+
+# Thresholds. The archive-age one is derived, not chosen: `archive_timeout = 300` means a
+# segment is forced out at least every 5 minutes even on an idle database, so three
+# consecutive misses (15 min) is a real stall rather than a quiet hour. It is also exactly
+# the RPO in OPERATIONS §5 — by construction, this alert fires at the moment the promise
+# starts being broken, not after.
+MAX_ARCHIVE_AGE_S=${MAX_ARCHIVE_AGE_S:-900}
+# One nightly base backup, so 36h allows a single missed night to be noticed as a warning
+# rather than a surprise, and does not fire because the timer ran at 03:05 instead of 02:55.
+MAX_BASEBACKUP_AGE_S=${MAX_BASEBACKUP_AGE_S:-129600}
+# pg_wal on a healthy cluster holds a handful of segments. 64 × 16MB = 1GB is far above
+# normal and far below a full volume — the point is to alert while there is still room.
+MAX_PG_WAL_SEGMENTS=${MAX_PG_WAL_SEGMENTS:-64}
+# wal-verify walks the bucket; hourly is enough and keeps Class B operations negligible.
+WAL_VERIFY_INTERVAL_S=${WAL_VERIFY_INTERVAL_S:-3600}
+WAL_VERIFY_STAMP=${WAL_VERIFY_STAMP:-/var/lib/postgresql/.calevate-wal-verify-stamp}
+
+PSQL=(psql --no-psqlrc --tuples-only --no-align --quiet --dbname "${HEALTH_DB:-postgres}")
+
+failures=0
+alert() { "$notify" "$@"; failures=$((failures + 1)); }
+
+# --- 1 + 2. The archiver's own view -----------------------------------------------
+# One query, so the two facts are consistent with each other. A NULL last_archived_time on
+# a cluster that has been up for a while is itself the finding: archiving was configured
+# and has never once succeeded.
+read -r archived_count failed_count archive_age failed_after_archived < <(
+  "${PSQL[@]}" -c "
+    SELECT archived_count,
+           failed_count,
+           coalesce(extract(epoch FROM now() - last_archived_time)::bigint, -1),
+           (last_failed_time IS NOT NULL
+            AND (last_archived_time IS NULL OR last_failed_time > last_archived_time))
+    FROM pg_stat_archiver;" 2>/dev/null | tr '|' ' '
+) || true
+
+if [[ -z "${archived_count:-}" ]]; then
+  alert health_db_unreachable "could not read pg_stat_archiver; the archiver's state is unknown"
+else
+  if [[ "$failed_after_archived" == "t" ]]; then
+    # Deliberately not logging last_failed_wal's value here — it is harmless, but the rule
+    # is ids and counts only, and the segment name is in the PostgreSQL log for whoever
+    # opens the runbook.
+    alert archiver_failing \
+      "pg_stat_archiver reports the most recent archive attempt FAILED; WAL is not reaching the bucket" \
+      "failed_count=$failed_count" "archived_count=$archived_count"
+  fi
+  if [[ "$archive_age" -lt 0 ]]; then
+    alert archiver_never_succeeded \
+      "pg_stat_archiver has no last_archived_time: archiving has never succeeded on this cluster"
+  elif [[ "$archive_age" -gt "$MAX_ARCHIVE_AGE_S" ]]; then
+    alert archive_stale \
+      "no WAL segment has been archived recently; RPO 15min (OPERATIONS §5) is being missed right now" \
+      "archive_age_s=$archive_age" "threshold_s=$MAX_ARCHIVE_AGE_S"
+  fi
+fi
+
+# --- 4. The consequence check ------------------------------------------------------
+# pg_ls_waldir() needs pg_monitor (or superuser). Running this as `postgres` on the host
+# satisfies that; running it as an application role will not, and the failure is silent
+# unless we say so.
+wal_segments=$("${PSQL[@]}" -c "SELECT count(*) FROM pg_ls_waldir();" 2>/dev/null) || wal_segments=""
+if [[ -z "$wal_segments" ]]; then
+  alert health_pg_wal_unreadable \
+    "could not count pg_wal segments (pg_ls_waldir needs pg_monitor); the disk-fill precursor is unmonitored"
+elif [[ "$wal_segments" -gt "$MAX_PG_WAL_SEGMENTS" ]]; then
+  alert pg_wal_backlog \
+    "unarchived WAL is accumulating in pg_wal; if this keeps growing the cluster stops accepting writes" \
+    "segments=$wal_segments" "threshold=$MAX_PG_WAL_SEGMENTS"
+fi
+
+# --- 3. The destination ------------------------------------------------------------
+if command -v wal-g >/dev/null && [[ -r "$WALG_CONFIG_PATH" ]]; then
+  now=$(date +%s)
+  last_verify=0
+  [[ -r "$WAL_VERIFY_STAMP" ]] && last_verify=$(cat "$WAL_VERIFY_STAMP" 2>/dev/null || echo 0)
+
+  if (( now - last_verify >= WAL_VERIFY_INTERVAL_S )); then
+    if verify_json=$(wal-g wal-verify integrity timeline --json 2>/dev/null); then
+      # Parsed structurally rather than by field name: wal-g's JSON shape for wal-verify
+      # is NOT pinned by any version-stable contract we have verified, so this collects
+      # every `status` field anywhere in the document and requires all of them to be OK.
+      # If a future version renames the checks, this still works; if it renames `status`,
+      # the extraction returns nothing and the `-z` branch below alerts rather than
+      # silently passing. Failing loud on an unrecognised shape is the whole point.
+      statuses=$(printf '%s' "$verify_json" | jq -r '[.. | objects | select(has("status")) | .status] | .[]' 2>/dev/null)
+      if [[ -z "$statuses" ]]; then
+        alert wal_verify_unparseable \
+          "wal-g wal-verify returned JSON with no recognisable status field; the archive is UNVERIFIED"
+      elif printf '%s' "$statuses" | grep -qv '^OK$'; then
+        alert wal_chain_broken \
+          "wal-g wal-verify reports a gap or a timeline problem: point-in-time recovery across that gap is impossible" \
+          "statuses=$(printf '%s' "$statuses" | tr '\n' ',')"
+      fi
+    else
+      alert wal_verify_failed \
+        "wal-g wal-verify could not run (credentials, network or bucket); the archive is UNVERIFIED"
+    fi
+
+    # Freshness of the newest base backup, read from the bucket rather than from a local
+    # timestamp — a local success marker survives the bucket being emptied.
+    if backups_json=$(wal-g backup-list --json 2>/dev/null); then
+      newest=$(printf '%s' "$backups_json" \
+        | jq -r '[.[] | (.finish_time // .time // .start_time // empty)] | sort | last // empty' 2>/dev/null)
+      if [[ -z "$newest" || "$newest" == "null" ]]; then
+        alert no_base_backup \
+          "wal-g backup-list returned no base backup with a readable timestamp; WAL alone cannot be restored"
+      else
+        newest_epoch=$(date -d "$newest" +%s 2>/dev/null || echo "")
+        if [[ -z "$newest_epoch" ]]; then
+          alert backup_list_unparseable \
+            "could not parse the newest base backup timestamp from wal-g backup-list; backup age is UNKNOWN"
+        else
+          age=$(( now - newest_epoch ))
+          if (( age > MAX_BASEBACKUP_AGE_S )); then
+            alert base_backup_stale \
+              "the newest base backup is older than expected; every hour past this lengthens restore time" \
+              "age_s=$age" "threshold_s=$MAX_BASEBACKUP_AGE_S"
+          fi
+        fi
+      fi
+    else
+      alert backup_list_failed "wal-g backup-list failed; we cannot tell whether a base backup exists"
+    fi
+
+    printf '%s' "$now" > "$WAL_VERIFY_STAMP" || true
+  fi
+else
+  alert walg_unavailable \
+    "wal-g or its config is missing on this host; the destination cannot be checked from here" \
+    "config=$WALG_CONFIG_PATH"
+fi
+
+if (( failures > 0 )); then
+  exit 1
+fi
+logger -t calevate.backup -p daemon.info -- "backup health checks passed"

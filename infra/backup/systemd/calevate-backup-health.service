@@ -1,0 +1,15 @@
+[Unit]
+Description=Calevate backup chain health check
+Documentation=file:///var/www/calevate/infra/backup/README.md
+After=postgresql.service
+OnFailure=calevate-backup-alert@%n.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+Environment=WALG_CONFIG_PATH=/etc/wal-g/walg.json
+ExecStart=/var/www/calevate/scripts/backup/backup-health.sh
+# Short by design. This check must never be the thing that hangs; if the bucket is
+# unreachable we want to know that in a minute, not discover a wedged unit an hour later.
+TimeoutStartSec=5m

@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly Calevate offsite logical dump
+Documentation=file:///var/www/calevate/infra/backup/README.md
+
+[Timer]
+# 22:00 UTC = 03:30 IST — an hour after the base backup, so the two never contend for the
+# same disk, and so a failure of one is unambiguous in the journal.
+OnCalendar=*-*-* 22:00:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

@@ -93,8 +93,10 @@ scale.
 Daily: alert triage; pipeline DLQ empty; spend anomalies. Weekly: regression nightly
 results review; knowledge-gap report → KB updates; pipeline/latency trend. Monthly:
 invoice run; margin per client; rate-card check. Quarterly: restore drill (prove RTO 4h/
-RPO 15min); access review; secret rotation; regulation/pricing re-verify; adapter
-conformance run against Bolna (keep the exit door oiled).
+RPO 15min) — `runbooks/backup-restore-drill.md`, alternating the R2 PITR chain and the
+offsite dump chain, result recorded in `docs/evidence/`; access review; secret rotation;
+regulation/pricing re-verify; adapter conformance run against Bolna (keep the exit door
+oiled).
 
 ## 7. Runbooks (summaries; full steps in /runbooks)
 
@@ -131,6 +133,18 @@ one differs from a summary below, the runbook is the authority.
   `credit_ledger` CONCURRENTLY unique index that cannot build over permanent pre-cutoff
   duplicates hard rule 4 forbids deleting; a fresh database and `make db-reset`; and why
   `alembic stamp` past it defeats the ancestry gate the index tests depend on.
+- **Restoring the production database** — `runbooks/database-restore.md`. Point-in-time
+  recovery to a chosen instant (wal-g from R2), single-table recovery from the offsite
+  encrypted dump, and the whole-VPS-is-gone path. Includes the six checks that prove a
+  restore actually worked rather than merely completed, the `recovery_target_time`
+  timezone-abbreviation trap, and the step everyone forgets: **a restore un-erases**, so
+  DPDP erasures completed after the recovery target must be replayed from the preserved
+  pre-restore cluster before anyone can reach the new one. **Never executed against a real
+  cluster** — the mechanism in `infra/backup/` has been applied to nothing.
+- **Quarterly restore drill** — `runbooks/backup-restore-drill.md`. The §6 quarterly item,
+  made executable and recordable: alternating chains (R2 PITR one quarter, offsite dump the
+  next), measured RTO/RPO, a deliberate induced archiving failure to prove the detector
+  fires, and a record template committed to `docs/evidence/restore-drill-YYYY-QN.md`.
 - **Object-store lifecycle rule** — `runbooks/object-lifecycle.md`. Applying and
   validating the recording-expiry policy, and what it does NOT prove.
 - **Events not reaching a client's CRM** — `runbooks/webhook-delivery-failures.md`. Outbox

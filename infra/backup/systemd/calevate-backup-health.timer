@@ -1,0 +1,15 @@
+[Unit]
+Description=Check every 15 minutes that the backup chain is still working
+Documentation=file:///var/www/calevate/infra/backup/README.md
+
+[Timer]
+# Every 15 minutes, matching the RPO in OPERATIONS §5. The interval is the answer to "how
+# long can archiving be broken before anyone knows", and that answer should not be longer
+# than the amount of data we promise not to lose.
+OnBootSec=10min
+OnUnitActiveSec=15min
+# Not Persistent: a missed health check has nothing to catch up on, and firing a backlog
+# of them on boot is noise.
+
+[Install]
+WantedBy=timers.target

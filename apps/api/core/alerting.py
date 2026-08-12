@@ -77,6 +77,13 @@ FailureStage = Literal[
     "WORKER_TERMINAL",
     "WORKER_STALL",
     "PROCESS_RESTART",
+    # Not an application stage: the host-side backup chain (`scripts/backup/notify.sh`)
+    # emits it from outside Python entirely, so nothing here calls `alert()` with it.
+    # It is a member because the alternative was worse — the backup work found no stage
+    # that described "the nightly base backup did not run" and refused to mislabel it as
+    # WORKER_TERMINAL to make it fit. A wrong stage on the one alarm that says the
+    # database is unrecoverable is the wrong place to be tidy.
+    "HOST_BACKUP",
 ]
 
 
