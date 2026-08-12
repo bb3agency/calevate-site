@@ -37,7 +37,7 @@ make web-check                # frontend: typecheck + lint + vitest (D-53)
 ## Structure
 
 - `apps/web` — Next.js; `/admin` and `/c/<slug>` route trees; separate Clerk apps; typed
-  API client via `pnpm gen:api` (never hand-write fetchers).
+  API client via `pnpm -C apps/web gen:api` (never hand-write fetchers).
 - `apps/api` — modular monolith; modules own their tables; no cross-module SQL.
 - `apps/voice-runtime` — latency-critical webhooks + in-call tool endpoints; ack <500ms,
   defer to workers; deployed independently.
@@ -100,7 +100,7 @@ businesses' customer data under Indian telecom and privacy law.
   conformance suite; extraction changes ⇒ golden-transcript fixtures under
   `apps/workers/tests/fixtures/transcripts/`.
 - Voice-agent behavior changes (prompts, tools, KB logic) ⇒ run the regression harness
-  (`uv run python -m eval.run --client <slug> --suite core5`) and attach the report to
+  (`uv run python -m scripts.eval --client=<slug>`) and attach the report to
   the PR.
 
 ## PR conventions

@@ -658,7 +658,7 @@ can make calls"), so a blocked launch is a to-do list rather than a support tick
   BEFORE `/{campaign_id}` — FastAPI matches in declaration order, so `/numbers` would
   otherwise parse as a campaign id.
 
-Also fixed: `pnpm lint` had never run. `eslint-config-next@15` still ships
+Also fixed: `pnpm -C apps/web lint` had never run. `eslint-config-next@15` still ships
 eslintrc-shaped configs, and the flat config imported them directly, so every
 invocation died with "nextVitals is not iterable". Now bridged with `FlatCompat`
 (Next's own scaffold pattern) and `@eslint/eslintrc` added as a direct devDependency —

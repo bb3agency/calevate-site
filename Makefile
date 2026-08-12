@@ -118,3 +118,8 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# campaign_dispatch_audit) own the behaviour and keep it. Negative controls in
 	# tests/compliance_guard_test.py.
 	uv run python -m scripts.check_compliance_invariants
+	# D-29's `check:docs-drift`. Here rather than in pytest for the reason the two above
+	# are: no database, no app boot, and its subject is the SHAPE of the repo — the doc
+	# set against the Makefile, the package scripts, the decision log and the code's own
+	# vocabulary. Negative controls in tests/docs_drift_guard_test.py.
+	uv run python -m scripts.check_docs_drift

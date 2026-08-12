@@ -639,17 +639,23 @@ class TestMakefileWiring:
         targets = {m.group(1) for m in re.finditer(r"^([a-zA-Z][\w-]*):", text, re.MULTILINE)}
         assert targets - phony == set(), "a non-phony target is a no-op waiting to happen"
 
-    def test_guardrails_target_runs_every_guardrail_script(self) -> None:
-        text = self._makefile()
-        for script in (
-            "check_env_parity",
-            "check_rls_coverage",
-            "check_ledger_immutability",
-            "check_redaction_exposure",
-            "check_openapi_fresh",
-        ):
-            assert f"scripts.{script}" in text
-        assert "lint-imports" in text
+    def test_every_guardrail_script_runs_in_both_gates(self) -> None:
+        """Globbed off `scripts/`, never typed out here.
+
+        The hand-written list this replaced named five checks and stayed green while
+        `check_wiring` ran in `make guardrails` and in NO CI step — the local gate
+        enforced a rule the gate that blocks merge did not, which is the one direction
+        that matters. A list that grows itself cannot fall behind: a new `check_*.py` is
+        in this test the moment the file exists, and it fails until both gates run it.
+        """
+        scripts = sorted(path.stem for path in (REPO_ROOT / "scripts").glob("check_*.py"))
+        assert len(scripts) >= 5, "the guardrail pack cannot have shrunk to nothing"
+        makefile = self._makefile()
+        workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        for script in scripts:
+            assert f"scripts.{script}" in makefile, f"{script} is in no `make guardrails` line"
+            assert f"scripts.{script}" in workflow, f"{script} runs in no CI step"
+        assert "lint-imports" in makefile and "lint-imports" in workflow
 
     def test_make_check_runs_what_ci_runs(self) -> None:
         """CI is the authority; the Makefile is the local mirror. Every backend command

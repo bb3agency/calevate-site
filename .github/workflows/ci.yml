@@ -104,6 +104,18 @@ jobs:
         # last section reads pg_catalog rather than trusting the migration.
         run: uv run python -m scripts.check_compliance_invariants
 
+      - name: "Guardrail: nothing half-wired (CLAUDE.md)"
+        # Was in `make guardrails` and in no CI step — the local gate ran it and the gate
+        # that blocks merge did not. `tests/guardrail_audit_test.py` now globs
+        # `scripts/check_*.py` and requires every one of them in BOTH files, so the two
+        # lists cannot drift apart again.
+        run: uv run python -m scripts.check_wiring
+
+      - name: "Guardrail: docs drift (D-29 check:docs-drift)"
+        # Commands the docs name resolve, `D-xx` references resolve, and SEC-COMP §3
+        # still cites rule strings the code emits. No database needed.
+        run: uv run python -m scripts.check_docs_drift
+
       - name: "Guardrail: env parity (fail-fast config)"
         run: uv run python -m scripts.check_env_parity
 
