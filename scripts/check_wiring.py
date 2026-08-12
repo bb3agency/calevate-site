@@ -94,11 +94,6 @@ UNWIRED_BASELINE: dict[str, str] = {
         "the engine reports no per-call recording consent yet (pilot gate 3); "
         "`consent_ledger` is the ledger of record until it does"
     ),
-    "Call.latency": (
-        "{stt_ms, llm_ttft_ms, tts_ttfa_ms, turn_p50, turn_p95}. Bolna exposes no "
-        "per-turn timings (apps/api/engine/bolna.py), so nothing can write it without "
-        "inventing numbers; closes if the engine reports turn latency"
-    ),
     "Campaign.schedule": (
         "a future start/recurrence for a campaign. The dispatch tick reads "
         "`calling_hours` and launches on demand — there is no scheduling surface in "

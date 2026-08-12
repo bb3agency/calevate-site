@@ -86,7 +86,6 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
   callback_of_call_id NULL → calls ON DELETE RESTRICT,   -- D-21 M2: the call this one
     -- follows up. Naming the parent is what BOUNDS the callback chain, and an unbounded
     -- chain is a compliance problem (repeat dialling), not a UX one.
-  latency JSONB,                       -- {stt_ms,llm_ttft_ms,tts_ttfa_ms,turn_p50,turn_p95}
   engine_payload_ref TEXT)             -- object-storage key of raw vendor payload (debug only)
 transcript_turns(id, tenant_id, call_id, idx INT, speaker ENUM[agent,caller], text TEXT,
   text_redacted TEXT, lang TEXT, start_ms INT, end_ms INT, UNIQUE(call_id,idx))

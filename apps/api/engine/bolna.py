@@ -18,8 +18,14 @@ Three properties of this vendor shape the whole design and are load-bearing:
    at capture and stamps the fx rate, so a ledger row can always be re-derived
    (hard rule 7).
 
-Per-turn timings are not exposed, so `calls.latency` stays null for Bolna calls —
-latency measurement is the pilot stopwatch method (OPERATIONS §2 gate 4), not a field.
+Per-turn timings are NOT mapped here, and there is no call-latency column to map them
+into any more (migration f1a7c39d5be2 dropped it). Their docs now describe a
+`latency_data` object on Get Execution — per-component `transcriber`/`llm`/`synthesizer`
+timings plus a first-audio number — but it is an unverified claim with no captured
+payload, it is not the voice-to-voice measurement the budget is written in, and its
+transcriber entries carry recognised TEXT (hard rules 5/6). So it stays a PILOT GATE:
+capture it at OPERATIONS §2 gate 4 beside the stopwatch that can falsify it, then decide
+what to store. Until then latency measurement is the stopwatch, not a field.
 
 Resilience shipped here: a request timeout and jittered backoff on 429 (SURFACES §3.3).
 The circuit breaker that section also describes is deliberately NOT built — see the

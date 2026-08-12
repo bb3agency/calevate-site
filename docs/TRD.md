@@ -132,12 +132,21 @@ Techniques (required): streaming end-to-end; filler utterances fired the moment 
 call starts ("ఒక్క నిమిషం, చూస్తాను"); brief agent replies enforced in prompt; India-only
 network path. **The rule stands and the mechanism does not exist yet**: stage timings per
 call (stt_ms, llm_ttft_ms, tts_ttfa_ms, turn_ms) are what any latency work must be argued
-from, and nothing records them today — `calls.latency` is declared and deliberately
-unwired (`UNWIRED_BASELINE` in `scripts/check_wiring.py`) because Bolna exposes no
-per-turn timings, and the LLM-tracing config that would have carried them is gone (D-49).
-So the numbers come from the pilot's own measurement (OPERATIONS §2 gate 4) until an
-engine reports them — no latency work without measurement, and no measurement invented to
-fill the gap.
+from, and nothing records them today. `calls.latency` was DROPPED (migration
+`f1a7c39d5be2`): a column that always reads NULL is worse than none, because the next
+reader builds a dashboard on it. Every span this repo opens is on OUR side of the call —
+the post-call pipeline serving the 2-minute lead SLO — so filling it from those would have
+named the engine's 2-3 minute wait for `completed` as a caller-perceived latency.
+
+**Bolna does document per-component latency** (`latency_data` on Get Execution:
+`time_to_first_audio` plus transcriber/llm/synthesizer blocks), which supersedes the older
+"no per-turn timings" reading — but it is UNVERIFIED against a live account, it is a
+DIFFERENT set of numbers from the four above (voice-to-voice turn latency would be our own
+arithmetic aligning three components), and its documented `transcriber.turns` entries carry
+recognised TEXT, which a naive mapper would land in a column with no redacted counterpart
+(hard rules 5/6). So it is captured as a fixture at OPERATIONS §2 gate 4, beside the
+stopwatch that can falsify it, and the storage shape is chosen from the payload we actually
+receive — no latency work without measurement, and no measurement invented to fill the gap.
 
 ## 5. VoiceEngine Adapter (the portability contract)
 
@@ -199,9 +208,10 @@ scorecard — D-31]:
   breakdown {platform, network, llm, synthesizer, transcriber} — the adapter converts
   to INR at capture and stamps the fx rate into usage_events.meta (hard rule 7).
   Transcript is prefix-tagged plain text (`assistant:`/`user:`) — the adapter parses
-  it into TranscriptTurn; per-turn timings are unavailable (calls.latency stays null
-  for Bolna calls; latency SLO measurement moves to the pilot stopwatch method +
-  engine-side metrics if exposed).
+  it into TranscriptTurn, so `TranscriptTurn.start_ms`/`end_ms` are NULL for every Bolna
+  turn and no turn latency is derivable from what we ingest. Their docs DO describe a
+  `latency_data` object on Get Execution — unverified against a live account, and a
+  pilot gate 4 capture rather than an adapter field (see §4).
 - **Webhooks — UNSIGNED, at-most-once** [verified in docs AND the OSS delivery code:
   a single aiohttp POST, no retry, no timeout, errors swallowed]: per-agent
   webhook_url in agent_config; fires on status transitions (scheduled → queued →

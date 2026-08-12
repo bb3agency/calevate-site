@@ -85,8 +85,12 @@ class Call(PKMixin, TimestampMixin, Base):
     callback_of_call_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("calls.id", ondelete="RESTRICT")
     )
-    # {stt_ms, llm_ttft_ms, tts_ttfa_ms, turn_p50, turn_p95}
-    latency: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    # No `latency` column. It was declared here to hold {stt_ms, llm_ttft_ms, tts_ttfa_ms,
+    # turn_p50, turn_p95}, was never written by anything, and is dropped in migration
+    # f1a7c39d5be2 — the in-call audio path runs inside the rented engine, so nothing we
+    # trace is inside it, and the vendor's own per-component timings are neither the same
+    # numbers nor validated against a stopwatch yet (D-39(b)). The migration's docstring
+    # holds the full argument and what re-opens it at pilot gate 4.
     engine_payload_ref: Mapped[str | None] = mapped_column(Text)  # raw vendor payload (debug only)
 
 
