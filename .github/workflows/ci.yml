@@ -86,12 +86,23 @@ jobs:
         # Under `coverage run` so the ratchet below has something to score. ONE suite
         # run, not two: the gate costs the instrumentation overhead and nothing else
         # (measured, ENGINEERING-PRACTICES §2). `branch = true` lives in pyproject.
-        run: uv run coverage run -m pytest -q
+        #
+        # `-p scripts.check_coverage_ratchet` loads the gate's own plugin, which records
+        # what this run consisted of (outcomes, deselection, whether Postgres and Redis
+        # answered, and whether either already held data before the first test) into
+        # `.coverage-run.json`. The ratchet step below scores nothing without it — which
+        # is deliberate: this job is where "empty stores" is guaranteed rather than
+        # remembered (a migrated+seeded database and a service container Redis that has
+        # never served a suite), and the manifest is how the next step knows it.
+        run: uv run coverage run -m pytest -q -p scripts.check_coverage_ratchet
 
       - name: "Guardrail: coverage ratchet (D-29 coverage:ratchet)"
         # Uncovered units per HARD-RULE SURFACE, each with a budget that only goes down.
-        # Reads the `.coverage` the step above wrote; refuses to score a run that is
-        # stale, filtered or missing branch data rather than inventing a regression.
+        # Reads the `.coverage` the step above wrote, plus the manifest beside it. Exit 1
+        # = a verdict (cover the branch or argue the budget); exit 2 = REFUSED, the run
+        # was partial, failing, unserviced, or started against stores that were not empty.
+        # No `continue-on-error` on either: a refusal is not a pass, and a step that
+        # cannot judge must not be the step that lets a merge through.
         run: uv run python -m scripts.check_coverage_ratchet
 
       # --- The guardrail pack (D-29 §2). A red guardrail blocks merge. -----------

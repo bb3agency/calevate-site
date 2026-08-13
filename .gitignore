@@ -34,6 +34,10 @@ Thumbs.db
 /tmp/
 coverage/
 .coverage
+# What the suite that produced `.coverage` did (scripts/check_coverage_ratchet.py). An
+# artefact of ONE run on ONE machine, like the data file it sits beside: committing it
+# would hand the gate a manifest describing somebody else's run.
+.coverage-run.json
 htmlcov/
 
 # Engine verification / eval outputs are committed deliberately, not by accident

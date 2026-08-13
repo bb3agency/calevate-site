@@ -6,13 +6,26 @@ present is worse than no guardrail, so every test here calls the guard's OWN fun
 applies ONE minimal mutation that is exactly the violation it claims to catch, and
 asserts it is reported.
 
-The mutations are the two ways a coverage ratchet dies:
+The mutations are the three ways a coverage ratchet dies:
 
 1. **coverage falls** — new untested code lands in a hard-rule surface;
 2. **somebody raises the number** — the "just this once" edit that turns a ratchet into
    a target. The gate is an EQUALITY, so a hand-raised budget cannot sit quietly above
    the measurement: it fails on the very next run, and the only sanctioned way up is a
-   `RAISED_BUDGETS` waiver, which this file also proves is self-expiring.
+   `RAISED_BUDGETS` waiver, which this file also proves is self-expiring;
+3. **the gate scores a run it has no business scoring** — and the number it prints is an
+   artefact of where it ran. Not hypothetical: two fictional regressions reached CI
+   (`compliance-gate: budget 70, but only 68`, `voice-runtime-ack: 24 vs 22`), both
+   "fixed" by editing the fixture, and the cause recorded in those commits (a dev
+   database holding 31,527 leftover test organizations) turned out to be wrong — a
+   freshly seeded database measured the same 70 and 24. The real causes were a WARM
+   REDIS (the audit-head cache deletes a Postgres fallback from the measurement) and a
+   machine fast enough never to breach the 500ms ack budget. A gate that reports a
+   verdict it cannot support teaches the fixture edit; one that refuses teaches the
+   diagnosis. `TestVouchingForTheRun` and `TestRefusalReachesTheExitCode` below are the
+   controls for that third outcome — REFUSED TO SCORE — including the two that matter
+   most: a partial run must refuse rather than report a regression, and must refuse
+   rather than report an improvement.
 
 ONE THING IS DELIBERATELY NOT ASSERTED HERE: that the tree is currently AT its floor.
 These tests run inside the very suite whose execution produces the measurement, so the
@@ -26,15 +39,23 @@ SEE each violation.
 So the reports below are built from the REAL guarded file list (`_guarded_sources()`) with
 numbers chosen per test. The tie to reality is the file list: if an area stops matching
 real files, or the areas stop covering the hard-rule surfaces the registries name, these
-fail. The one test that reads a real `.coverage` is the parser wiring test, and it skips
-when there is nothing to read.
+fail.
+
+The exception is `TestRefusalReachesTheExitCode`, which needs the real `main()` end to end
+and therefore needs a real measurement to feed it. It builds one: a subprocess that imports
+every guarded module under `coverage run`, into a scratch directory (~2s, once per module).
+Not the repo's own `.coverage`, which does not exist on a fresh CI checkout — a negative
+control that skips exactly where it matters is not a control.
 """
 
 from __future__ import annotations
 
 import json
 import os
-from dataclasses import replace
+import re
+import subprocess
+import sys
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +86,84 @@ def _report(**overrides: Any) -> dict[str, Any]:
             for path in ratchet._guarded_sources()
         },
     }
+
+
+#: A manifest describing the run every trust test starts from: the whole suite, green,
+#: both services up, and a database that held nothing before the first test. Each test
+#: below moves exactly one of these, so the refusal it asserts can only come from that one.
+_NOW = 1_780_000_000.0
+_OUTCOMES = {"passed": 1197, "failed": 0, "errors": 0, "skipped": 3, "xfailed": 2}
+_SELECTION = {
+    "args": ["tests", "apps", "packages"],
+    "args_source": "TESTPATHS",
+    "keyword": "",
+    "markexpr": "",
+    "last_failed": False,
+}
+_SERVICES = {
+    "postgres": {
+        "env": "DATABASE_URL",
+        "url": "postgresql+psycopg://localhost:5432/calevate",
+        "reachable": True,
+        "detail": "",
+    },
+    "redis": {
+        "env": "REDIS_URL",
+        "url": "redis://localhost:6379/0",
+        "reachable": True,
+        "detail": "",
+    },
+}
+#: Both stores as CI provisions them: a database migrated and seeded a minute ago, and a
+#: Redis container that has never served a suite.
+_FRESH_STATE = {
+    "postgres": {
+        "probed": True,
+        "why": "What the database HOLDS decides which branches execute",
+        "remedy": "`make db-reset`",
+        "detail": "",
+        "held": {},
+        "summary": "",
+    },
+    "redis": {
+        "probed": True,
+        "why": "A warm cache DELETES fallbacks from the measurement",
+        "remedy": "`make down && make up` empties it",
+        "detail": "",
+        "held": {},
+        "summary": "",
+    },
+}
+_DEAD_REDIS = {
+    "env": "REDIS_URL",
+    "url": "redis://localhost:6379/0",
+    "reachable": False,
+    "detail": "ConnectionError: Error 111 connecting to localhost:6379. Connection refused.",
+}
+
+
+def _run_dict(**overrides: Any) -> dict[str, Any]:
+    """The manifest as the plugin writes it (`TestTheRecorderRecordsWhatHappened` pins
+    that this shape is the shape it writes, so these are not two independent fictions)."""
+    return {
+        "schema": ratchet.MANIFEST_SCHEMA,
+        "finished_at": _NOW,
+        "coverage_active": True,
+        "exit_status": 0,
+        "collected": 1202,
+        "collection_errors": 0,
+        "collection_skips": 0,
+        "deselected": 0,
+        "outcomes": dict(_OUTCOMES),
+        "selection": dict(_SELECTION),
+        "skip_reasons": {},
+        "services": {name: dict(row) for name, row in _SERVICES.items()},
+        "pre_suite_state": {name: dict(row) for name, row in _FRESH_STATE.items()},
+    } | overrides
+
+
+def _run(**overrides: Any) -> ratchet.RunManifest:
+    return ratchet.RunManifest.parse(_run_dict(**overrides))
 
 
 @pytest.fixture
@@ -374,14 +473,489 @@ class TestBlindSpots:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """The real `main()`, pointed at nothing. A coverage gate with no measurement
-        must fail loudly: a silent pass here is a green gate that never ran."""
-        assert ratchet.main(["--data-file", str(tmp_path / "nope")]) == 1
+        must fail loudly: a silent pass here is a green gate that never ran. It exits
+        REFUSED rather than FAIL because "there is no run" is not a verdict about the
+        code — the distinction the two codes exist to draw."""
+        assert ratchet.main(["--data-file", str(tmp_path / "nope")]) == ratchet.EXIT_REFUSED
         assert "no measurement" in capsys.readouterr().out
 
 
 # ============================================================================
 # The parser, against the real artefact
 # ============================================================================
+
+
+class TestVouchingForTheRun:
+    """`vouch()` — the rules, one doctored manifest at a time.
+
+    Every test moves ONE field of a manifest that describes a whole, clean, freshly
+    databased run, and asserts the refusal names that field. The first test is the
+    does-not-cry-wolf control the other twelve are measured against: a guardrail that
+    refuses a good run is one people route around, and routing around this one means
+    editing the baseline.
+    """
+
+    def test_a_whole_clean_run_is_vouched_for(self) -> None:
+        assert ratchet.vouch(_run(), _NOW + 1.0) == []
+
+    def test_refuses_a_run_that_was_not_instrumented(self) -> None:
+        """The `.coverage` beside an uninstrumented run belongs to some earlier one."""
+        failures = ratchet.vouch(_run(coverage_active=False), _NOW + 1.0)
+        assert any("NOT instrumented" in f for f in failures)
+
+    def test_refuses_a_measurement_written_before_the_run_finished(self) -> None:
+        """`coverage run` writes the data file when the PROCESS exits, so an older data
+        file is an orphan from a previous invocation, not this run's output."""
+        failures = ratchet.vouch(_run(), _NOW - 600.0)
+        assert any("not from one run" in f and "BEFORE" in f for f in failures)
+
+    def test_refuses_a_measurement_written_long_after_the_run(self) -> None:
+        failures = ratchet.vouch(_run(), _NOW + 4000.0)
+        assert any("not from one run" in f for f in failures)
+
+    def test_refuses_a_failing_suite(self) -> None:
+        """Coverage from a broken run measures the branches the failures never reached."""
+        failures = ratchet.vouch(
+            _run(exit_status=1, outcomes={**_OUTCOMES, "failed": 2}), _NOW + 1.0
+        )
+        assert any("did not pass" in f and "2 failed" in f for f in failures)
+
+    def test_refuses_a_suite_with_setup_errors(self) -> None:
+        failures = ratchet.vouch(_run(outcomes={**_OUTCOMES, "errors": 9}), _NOW + 1.0)
+        assert any("9 errored" in f for f in failures)
+
+    def test_refuses_a_keyword_filtered_run(self) -> None:
+        """`pytest -k` then the gate: the exact invocation that reports a catastrophe."""
+        failures = ratchet.vouch(
+            _run(selection={**_SELECTION, "keyword": "compliance"}, deselected=1183), _NOW + 1.0
+        )
+        assert any("FILTERED" in f and "1183 test(s) deselected" in f for f in failures)
+
+    def test_refuses_a_run_that_named_its_own_paths(self) -> None:
+        """`testpaths` in pyproject IS the suite; a path on the command line is a subset,
+        even when it looks like it contains everything."""
+        failures = ratchet.vouch(
+            _run(selection={**_SELECTION, "args_source": "ARGS", "args": ["tests"]}), _NOW + 1.0
+        )
+        assert any("explicit path arguments" in f for f in failures)
+
+    def test_refuses_a_last_failed_rerun(self) -> None:
+        failures = ratchet.vouch(_run(selection={**_SELECTION, "last_failed": True}), _NOW + 1.0)
+        assert any("--last-failed" in f for f in failures)
+
+    def test_refuses_a_run_where_a_module_never_collected(self) -> None:
+        failures = ratchet.vouch(_run(collection_skips=2), _NOW + 1.0)
+        assert any("skipped at COLLECTION" in f for f in failures)
+
+    def test_refuses_a_run_with_a_service_down(self) -> None:
+        """The ~91 Redis tests skip when nothing is listening, and their branches go
+        missing from the measurement. "redis was not reachable" is the sentence a reader
+        can act on; "91 skipped" is the symptom they would have to diagnose."""
+        down = {
+            **_SERVICES,
+            "redis": {
+                "env": "REDIS_URL",
+                "url": "redis://localhost:6380/0",
+                "reachable": False,
+                "detail": "ConnectionError: Connection refused",
+            },
+        }
+        failures = ratchet.vouch(_run(services=down), _NOW + 1.0)
+        assert any("redis was NOT reachable" in f and "Connection refused" in f for f in failures)
+
+    def test_refuses_a_run_against_a_database_that_was_not_fresh(self) -> None:
+        """One of the three real causes: a laptop database carrying 31,527 leftover test
+        organizations sends the dispatch tick down a different path from CI's freshly
+        seeded one, and the difference lands as a two-unit regression on somebody's PR."""
+        lived_in = {
+            **_FRESH_STATE,
+            "postgres": {
+                **_FRESH_STATE["postgres"],
+                "held": {"organizations": 31527, "leads": 900},
+                "summary": "2 tenant-scoped table(s) still held rows (organizations ~31527…)",
+            },
+        }
+        failures = ratchet.vouch(_run(pre_suite_state=lived_in), _NOW + 1.0)
+        assert any("postgres was NOT in the state" in f and "~31527" in f for f in failures)
+        assert any("make db-reset" in f for f in failures)
+
+    def test_refuses_a_run_against_a_redis_that_was_not_empty(self) -> None:
+        """The cause nobody suspected and `make db-reset` cannot reach: Redis outlives the
+        database, and `audit.py:_current_head` queries Postgres only on a cache MISS — so a
+        warm cache deletes that fallback from the measurement. Two units of
+        `compliance-gate`, decided by the age of a key."""
+        warm = {
+            **_FRESH_STATE,
+            "redis": {
+                **_FRESH_STATE["redis"],
+                "held": {"keys": 71984},
+                "summary": "71984 key(s) were already cached before the first test",
+            },
+        }
+        failures = ratchet.vouch(_run(pre_suite_state=warm), _NOW + 1.0)
+        assert any("redis was NOT in the state" in f and "71984" in f for f in failures)
+        assert any("flushdb" in f or "make down" in f for f in failures)
+
+    def test_refuses_a_run_whose_starting_state_could_not_be_read(self) -> None:
+        """A probe that failed is not a probe that passed — said once, at the point where
+        it is still diagnosable."""
+        unread = {
+            **_FRESH_STATE,
+            "postgres": {"probed": False, "detail": "OperationalError: refused"},
+        }
+        failures = ratchet.vouch(_run(pre_suite_state=unread), _NOW + 1.0)
+        assert any("could not be read" in f for f in failures)
+
+    def test_refuses_when_there_is_no_manifest_beside_the_measurement(self, tmp_path: Path) -> None:
+        """A `.coverage` on its own: `make test` followed by the gate, or an artefact
+        left over from a run nobody can describe."""
+        data = tmp_path / ".coverage"
+        data.write_bytes(b"")
+        failures = ratchet.unvouched_run(data)
+        assert any("no run manifest" in f for f in failures)
+        assert any("-p scripts.check_coverage_ratchet" in f for f in failures)
+
+    def test_refuses_a_manifest_from_another_version_of_this_script(self, tmp_path: Path) -> None:
+        """Read leniently, a manifest missing a field is a fact that went unchecked, and
+        an unchecked fact inside a trust check is the hole itself."""
+        data = tmp_path / ".coverage"
+        data.write_bytes(b"")
+        ratchet.manifest_path(data).write_text(
+            json.dumps({**_run_dict(), "schema": ratchet.MANIFEST_SCHEMA + 1}), encoding="utf-8"
+        )
+        assert any("unreadable" in f for f in ratchet.unvouched_run(data))
+
+    def test_refuses_a_truncated_manifest(self, tmp_path: Path) -> None:
+        data = tmp_path / ".coverage"
+        data.write_bytes(b"")
+        ratchet.manifest_path(data).write_text('{"schema": 1, "finish', encoding="utf-8")
+        assert any("unreadable" in f for f in ratchet.unvouched_run(data))
+
+
+# ============================================================================
+# The real `main()`, against a real measurement: refusing beats guessing
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class _RealRun:
+    """A genuine coverage measurement in a scratch directory, plus what it measured."""
+
+    data: Path
+    rows: list[ratchet.Measurement]
+
+    @property
+    def measured(self) -> dict[str, int]:
+        return {row.area: row.uncovered for row in self.rows}
+
+    def manifest(self, **overrides: Any) -> None:
+        """Describe the run that produced it — truthfully by default.
+
+        The data file's mtime is refreshed first so the manifest can be paired with it and
+        so `blind_spots()`'s staleness rule (a different rule, with its own test) cannot be
+        what these tests trip on.
+        """
+        os.utime(self.data, None)
+        raw = _run_dict(**overrides)
+        if "finished_at" not in overrides:
+            # Half a second BEFORE the data file, which is the real order: pytest finishes,
+            # then the process exits and coverage saves.
+            raw["finished_at"] = self.data.stat().st_mtime - 0.5
+        ratchet.manifest_path(self.data).write_text(json.dumps(raw), encoding="utf-8")
+
+    def baseline(self, path: Path, **deltas: int) -> Path:
+        budgets = {area: value + deltas.get(area, 0) for area, value in self.measured.items()}
+        path.write_text(json.dumps({"areas": budgets}, indent=2), encoding="utf-8")
+        return path
+
+
+@pytest.fixture(scope="module")
+def real_run(tmp_path_factory: pytest.TempPathFactory) -> _RealRun:
+    """A real `.coverage`, built by importing every guarded module under `coverage run`.
+
+    A subprocess, because the modules are already imported in THIS process and a
+    re-import would record nothing (and reloading `db.session` for a fixture's
+    convenience is not a trade worth making). What it produces is coverage.py's own data
+    file with this repo's own `[tool.coverage.run]` config applied — arcs, branch data
+    and all — so `main()` runs against the artefact it runs against in CI, not against a
+    fixture's idea of one. The numbers themselves are arbitrary and never asserted; each
+    test writes the baseline it needs relative to what this measured.
+    """
+    scratch = tmp_path_factory.mktemp("real-run")
+    data = scratch / ".coverage"
+    modules = sorted({_module_name(path) for path in ratchet._guarded_sources()})
+    importer = scratch / "import_every_guarded_module.py"
+    importer.write_text(
+        "import importlib, sys\n"
+        f"sys.path[:0] = [{str(REPO_ROOT)!r}, {str(REPO_ROOT / 'apps' / 'voice-runtime')!r}]\n"
+        f"for name in {modules!r}:\n"
+        "    importlib.import_module(name)\n",
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        [sys.executable, "-m", "coverage", "run", "--data-file", str(data), str(importer)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, f"could not build a measurement:\n{completed.stderr}"
+    report = ratchet.load_report(data)
+    rows = ratchet.measure(report)
+    assert ratchet.blind_spots(report, rows, data) == [], (
+        "the scratch measurement must itself be scoreable, or these controls prove nothing"
+    )
+    return _RealRun(data=data, rows=rows)
+
+
+def _module_name(path: Path) -> str:
+    """`apps/api/db/session.py` -> `apps.api.db.session`; voice-runtime is on sys.path."""
+    relative = path.relative_to(REPO_ROOT).with_suffix("")
+    if relative.parts[:2] == ("apps", "voice-runtime"):
+        return relative.name
+    return ".".join(relative.parts)
+
+
+class TestRefusalReachesTheExitCode:
+    """End to end: `main()`, a real measurement, and a manifest that says what happened.
+
+    These four are the load-bearing ones. The first two are the whole argument for the
+    third outcome — an untrustworthy run must not be reported as a regression OR as an
+    improvement, because both readings are believable, actionable and wrong, and acting
+    on either one moves the committed baseline. The third closes the door the wrong
+    number actually walks through. The fourth is the does-not-cry-wolf control.
+    """
+
+    def _score(
+        self, run: _RealRun, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str
+    ) -> int:
+        monkeypatch.setattr(ratchet, "BASELINE", tmp_path / "coverage_baseline.json")
+        return ratchet.main(["--data-file", str(run.data), *args])
+
+    def test_a_partial_run_refuses_instead_of_reporting_a_regression(
+        self,
+        real_run: _RealRun,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Redis down. The budgets say the tree is 3 units better than this run measured,
+        so the ratchet WOULD cry regression — and the person reading it would go looking
+        for untested code that does not exist."""
+        real_run.baseline(tmp_path / "coverage_baseline.json", **{"compliance-gate": -3})
+        real_run.manifest(services={**_SERVICES, "redis": _DEAD_REDIS})
+
+        code = self._score(real_run, tmp_path, monkeypatch)
+        out = capsys.readouterr().out
+
+        assert code == ratchet.EXIT_REFUSED
+        assert "REFUSED TO SCORE" in out and "redis was NOT reachable" in out
+        assert "New untested code" not in out, "it must not name a regression it cannot see"
+
+    def test_a_partial_run_refuses_instead_of_reporting_an_improvement(
+        self,
+        real_run: _RealRun,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The direction that actually happened twice, and the more dangerous one: an
+        "improvement" is a thing you are INVITED to lock in, and locking it in writes the
+        artefact of a filtered run into the file everybody else is measured against."""
+        real_run.baseline(tmp_path / "coverage_baseline.json", **{"redaction": +7})
+        real_run.manifest(selection={**_SELECTION, "keyword": "redaction"}, deselected=990)
+
+        code = self._score(real_run, tmp_path, monkeypatch)
+        out = capsys.readouterr().out
+
+        assert code == ratchet.EXIT_REFUSED
+        assert "FILTERED" in out and "990 test(s) deselected" in out
+        assert "not at the floor" not in out, "an artefact must not be offered as a gain"
+        assert "coverage-ratchet-accept" not in out, "and must not invite the write"
+
+    def test_update_baseline_refuses_to_write_from_a_run_it_cannot_vouch_for(
+        self,
+        real_run: _RealRun,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The half that stops the drift. Every wrong number this gate has ever failed on
+        entered through this command, run against a lived-in database."""
+        baseline = real_run.baseline(tmp_path / "coverage_baseline.json", **{"redaction": +7})
+        before = baseline.read_text(encoding="utf-8")
+        real_run.manifest(
+            pre_suite_state={
+                **_FRESH_STATE,
+                "postgres": {
+                    **_FRESH_STATE["postgres"],
+                    "held": {"organizations": 31527},
+                    "summary": "1 tenant-scoped table(s) still held rows (organizations ~31527)",
+                },
+            }
+        )
+
+        code = self._score(real_run, tmp_path, monkeypatch, "--update-baseline")
+        out = capsys.readouterr().out
+
+        assert code == ratchet.EXIT_REFUSED
+        assert "postgres was NOT in the state" in out and "~31527" in out
+        assert baseline.read_text(encoding="utf-8") == before, "the floor must not have moved"
+
+    def test_a_whole_clean_run_is_still_scored_normally(
+        self,
+        real_run: _RealRun,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Cry wolf once and the next refusal is read as noise. A run that says it was
+        whole, green, serviced and freshly databased is scored exactly as before."""
+        real_run.baseline(tmp_path / "coverage_baseline.json")
+        real_run.manifest()
+
+        code = self._score(real_run, tmp_path, monkeypatch)
+        out = capsys.readouterr().out
+
+        assert code == 0, out
+        assert "REFUSED" not in out and "OK (" in out
+        assert "run: " in out, "the run's shape is printed with the verdict, always"
+
+    def test_a_vouched_run_still_reports_a_real_regression_and_says_where(
+        self,
+        real_run: _RealRun,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The control that keeps the other four honest. Everything above proves the gate
+        can decline; this proves declining did not become its answer to everything — a run
+        it CAN vouch for, three units over budget, still fails with a verdict (exit 1, not
+        2) and now names the lines, because "70 vs 68" is a number and
+        `webhook_routes.py:182` is a diagnosis."""
+        real_run.baseline(tmp_path / "coverage_baseline.json", **{"compliance-gate": -3})
+        real_run.manifest()
+
+        code = self._score(real_run, tmp_path, monkeypatch)
+        out = capsys.readouterr().out
+
+        assert code == ratchet.EXIT_FAIL
+        assert "New untested code" in out and "REFUSED" not in out
+        assert "compliance-gate — where its" in out
+        assert "apps/api/compliance/service.py:" in out, "the detail names files and lines"
+
+    def test_a_whole_clean_run_can_still_lock_in_an_improvement(
+        self,
+        real_run: _RealRun,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The writer's does-not-cry-wolf control: refusing every write would be as
+        useless as accepting every one — the ratchet has to still be able to click."""
+        baseline = real_run.baseline(tmp_path / "coverage_baseline.json", **{"redaction": +7})
+        real_run.manifest()
+
+        code = self._score(real_run, tmp_path, monkeypatch, "--update-baseline")
+
+        assert code == 0, capsys.readouterr().out
+        assert ratchet.load_baseline(baseline) == real_run.measured
+
+
+class TestTheRecorderRecordsWhatHappened:
+    """The writer half, against a real pytest run — because a manifest nobody writes is a
+    trust check that always refuses, and one written in a shape the reader does not parse
+    is a trust check that always refuses two releases from now. The claim under test is
+    the one the single-file design makes: what the plugin writes, `RunManifest.parse`
+    reads."""
+
+    def test_a_real_pytest_run_writes_a_manifest_the_gate_can_read(self, tmp_path: Path) -> None:
+        suite = tmp_path / "recorder_probe_test.py"
+        suite.write_text(
+            "import pytest\n"
+            "def test_one() -> None:\n    assert True\n"
+            "@pytest.mark.skip(reason='no telephone line in the test rig')\n"
+            "def test_two() -> None:\n    assert False\n",
+            encoding="utf-8",
+        )
+        data = tmp_path / ".coverage"
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "coverage",
+                "run",
+                "--data-file",
+                str(data),
+                "-m",
+                "pytest",
+                "-q",
+                "-p",
+                "scripts.check_coverage_ratchet",
+                str(suite),
+            ],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+
+        raw = json.loads(ratchet.manifest_path(data).read_text(encoding="utf-8"))
+        manifest = ratchet.RunManifest.parse(raw)
+
+        assert manifest.coverage_active, "the plugin found the Coverage object tracing it"
+        assert manifest.collected == 2 and manifest.passed == 1 and manifest.skipped == 1
+        assert "no telephone line in the test rig" in " ".join(manifest.skip_reasons)
+        assert set(manifest.services) == {"postgres", "redis"}
+        assert set(manifest.pre_suite_state) == {"postgres", "redis"}
+        assert "@" not in str(manifest.services["postgres"]["url"]), "no credentials in a log"
+        redis_held: dict[str, Any] = dict(manifest.pre_suite_state["redis"].get("held", {}))
+        assert set(redis_held) <= {"keys"}, (
+            "a COUNT of keys, never the keys themselves: ARQ job keys carry execution ids "
+            "and tenant slugs, and this artefact is printed into a build log (hard rule 6)"
+        )
+        # …and the gate refuses it, because two tests in a temp directory are not the suite.
+        assert any("FILTERED" in f for f in ratchet.vouch(manifest, data.stat().st_mtime))
+
+
+class TestTheRefusalCannotBeSkippedPast:
+    """Wiring. A refusal is only a gate if the commands that produce measurements record
+    them, and if nothing tolerates a non-zero exit — the `check_wiring` lesson, applied to
+    this gate's own plumbing."""
+
+    def test_every_command_that_measures_also_records(self) -> None:
+        """Without `-p scripts.check_coverage_ratchet` there is no manifest, so the gate
+        refuses — loudly, but on every push. Dropping the flag from one of these three is
+        the quiet way to make the ratchet unusable, so all three are pinned."""
+        makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+        workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        measuring = [
+            line
+            for text in (makefile, workflow)
+            for line in text.splitlines()
+            if "coverage run -m pytest" in line
+        ]
+        assert len(measuring) == 3, f"expected the two make targets and CI's step, got {measuring}"
+        for line in measuring:
+            assert "-p scripts.check_coverage_ratchet" in line, f"records nothing: {line.strip()}"
+
+    def test_nothing_tolerates_the_ratchet_failing(self) -> None:
+        """A refusal that CI is configured to ignore is a refusal that means nothing."""
+        workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+        # The YAML KEY, not the phrase — this file argues about it in a comment two steps up.
+        assert not re.search(r"^\s*continue-on-error\s*:", workflow, re.MULTILINE)
+        for line in (makefile + workflow).splitlines():
+            if "scripts.check_coverage_ratchet" in line and not line.lstrip().startswith("#"):
+                # `-command` and `command || true` are make's two ways to ignore an exit code.
+                assert "||" not in line and not line.lstrip().startswith("-")
+
+    def test_the_two_outcomes_are_distinguishable_and_both_red(self) -> None:
+        """1 = a verdict about the code. 2 = no verdict at all. Neither is 0, and a
+        reader (or a dashboard) can tell "cover the branch" from "fix your run"."""
+        assert ratchet.EXIT_FAIL == 1
+        assert ratchet.EXIT_REFUSED == 2
 
 
 class TestReportParsing:
