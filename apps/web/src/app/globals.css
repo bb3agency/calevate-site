@@ -1,26 +1,109 @@
 @import "tailwindcss";
 
+/*
+ * THE DESIGN TOKENS. Every screen reads these; no screen hardcodes a hex.
+ *
+ * The palette came in with the dashboard design as literals (`#16A05D`, `#EAF8F0`,
+ * `bg-white`, `border-slate-200` …). Literals are how a design language decays: the
+ * fourth screen picks a green one shade off, nobody notices, and there is no single
+ * place to change when the brand moves. These are named for their ROLE rather than
+ * their colour — `--color-brand-strong` survives a rebrand from green to blue,
+ * `--color-green-700` does not.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand. `brand` is the resting green, `strong` the pressed/primary-button green,
+     `bright` the accent used for dots, badges and the live-state pip, `soft` the tint
+     behind every icon medallion. */
+  --brand: #16a05d;
+  --brand-strong: #0f6b3d;
+  --brand-bright: #22c55e;
+  --brand-soft: #eaf8f0;
+
+  /* Surfaces. `app` is the page behind the cards; `surface` is the card itself. They
+     are different colours on purpose — the shell reads as recessed. */
+  --app: #fafafa;
+  --surface: #ffffff;
+  --line: #e2e8f0;
+
+  --text: #171a1c;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+}
+
+/*
+ * Dark mode is CLASS-based (`@custom-variant dark`), not `prefers-color-scheme`.
+ * That is a deliberate change from the scaffold: the app shell needs a toggle a user
+ * can reach, and a media query cannot be overridden per-account. Nothing toggles it
+ * yet — `ThemeToggle` is the seam — so today this block is reached only by a user who
+ * sets `.dark` on <html> by hand. It is defined anyway so a screen written today is
+ * already correct when the toggle lands, rather than needing a second dark pass.
+ */
+@custom-variant dark (&:is(.dark *));
+
+.dark {
+  --app: #020617;
+  --surface: #0f172a;
+  --line: #1e293b;
+
+  --text: #f8fafc;
+  --text-muted: #94a3b8;
+  --text-faint: #64748b;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-bright: var(--brand-bright);
+  --color-brand-soft: var(--brand-soft);
+
+  --color-app: var(--app);
+  --color-surface: var(--surface);
+  --color-line: var(--line);
+
+  --color-ink: var(--text);
+  --color-ink-muted: var(--text-muted);
+  --color-ink-faint: var(--text-faint);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* The card radius, once. The design uses 14px, which is not a Tailwind step. */
+  --radius-card: 14px;
 }
 
-@custom-variant dark (&:is(.dark *));
-
-html, body {
+/*
+ * The app shell owns scrolling: the sidebar and the main panel scroll independently,
+ * so the document itself must not. Every route under /c and /admin renders inside a
+ * `fixed inset-0` shell that relies on this.
+ */
+html,
+body {
   height: 100%;
   overflow: hidden;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--app);
+  color: var(--text);
+  /* The scaffold hardcoded Arial here, which silently discarded the Geist font the
+     root layout loads and pays for. */
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/*
+ * The sidebar's scrollbar. Moved out of a `dangerouslySetInnerHTML` <style> block in
+ * the client layout: that injected the same rules on every client-realm render, could
+ * not be reached by the dark variant without duplicating the selector, and put a
+ * `dangerouslySetInnerHTML` in a file where a reviewer scanning for one has to stop
+ * and check it is only CSS.
+ */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--color-ink-faint);
+  border-radius: 20px;
 }

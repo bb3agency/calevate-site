@@ -17,52 +17,126 @@ import { lookup } from "@/lib/lookup";
 
 import { ApiProblem } from "@/lib/api/client";
 
+/**
+ * The card every panel on every screen is made of.
+ *
+ * Restyled to the dashboard design rather than joined by a second card component:
+ * `rounded-card` (14px), a 1px `--line` border and a shadow so faint it reads as a
+ * lift rather than a drop. Because the twenty-odd screens already built import THIS,
+ * they inherit the new language without being touched — which is the whole reason the
+ * design tokens went into `globals.css` instead of into the dashboard page.
+ *
+ * `bodyClassName` exists for the one shape the design needs and a fixed `p-4` cannot
+ * give: a table that runs edge to edge under a padded header.
+ */
 export function Card({
   title,
   action,
   children,
   className,
+  bodyClassName,
 }: {
   title?: string;
   action?: ReactNode;
   children: ReactNode;
   className?: string;
+  bodyClassName?: string;
 }) {
   return (
     <section
       className={clsx(
-        "rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900",
+        "rounded-card border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
         className,
       )}
     >
       {(title || action) && (
-        <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-          {title && <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h2>}
+        <header className="flex items-center justify-between gap-3 border-b border-line px-6 py-4">
+          {title && <h2 className="text-[17px] font-semibold text-ink">{title}</h2>}
           {action}
         </header>
       )}
-      <div className="p-4">{children}</div>
+      <div className={bodyClassName ?? "p-6"}>{children}</div>
     </section>
   );
 }
 
+/**
+ * One number, and what it is a number OF.
+ *
+ * `icon` is optional so the plain tiles on the older screens are unchanged; the
+ * dashboard passes one and gets the medallion from the design.
+ *
+ * THERE IS NO `delta` PROP, and its absence is deliberate. The design shows a
+ * "+18.4% vs Apr 28 – May 4" line under every figure, and the API cannot answer it:
+ * nothing serves a previous-period comparison. A trend arrow is the most trusted
+ * pixel on a dashboard — it is what an owner acts on — so a hardcoded one is worse
+ * than none at all. `hint` carries what we can actually say, and the prop arrives
+ * when the endpoint does.
+ */
 export function StatTile({
   label,
   value,
   hint,
+  icon,
+  tone = "soft",
 }: {
   label: string;
   value: string | number | null | undefined;
-  hint?: string;
+  hint?: ReactNode;
+  icon?: ReactNode;
+  tone?: "soft" | "strong";
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-50">
-        {value ?? "—"}
+    <div className="flex items-start gap-4 rounded-card border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+      {icon && (
+        <div
+          className={clsx(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+            tone === "strong" ? "bg-brand text-white" : "bg-brand-soft text-brand-strong",
+          )}
+        >
+          {icon}
+        </div>
+      )}
+      <div className="min-w-0">
+        <p className="text-[13px] font-medium text-ink-muted">{label}</p>
+        {/* `tabular-nums` so a polling number does not make the card twitch as digits
+            change width (D-24: this screen refetches on an interval). */}
+        <p className="mt-1 truncate text-2xl font-bold tracking-tight tabular-nums text-ink">
+          {value ?? "—"}
+        </p>
+        {hint && <div className="mt-1 text-[11px] text-ink-muted">{hint}</div>}
       </div>
-      {hint && <div className="mt-1 text-xs text-slate-500">{hint}</div>}
     </div>
+  );
+}
+
+/**
+ * A person's initials in a circle.
+ *
+ * Replaces the design's `api.dicebear.com` avatars. Three reasons, in the order they
+ * would have hurt: it ships a request PER AVATAR to a third party carrying the user's
+ * name in the query string, which is exactly the sort of quiet leak SEC-COMP §4 is
+ * about; it puts the console's first paint behind a network the client's office may
+ * not reach; and it renders nothing if that host is down. Initials need no network.
+ */
+export function Avatar({ name, className }: { name: string | null | undefined; className?: string }) {
+  const initials = (name ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+  return (
+    <span
+      aria-hidden
+      className={clsx(
+        "flex shrink-0 items-center justify-center rounded-full bg-brand-soft text-[11px] font-bold text-brand-strong",
+        className ?? "h-9 w-9",
+      )}
+    >
+      {initials || "?"}
+    </span>
   );
 }
 
@@ -236,6 +310,35 @@ export function formatDuration(seconds: number | null | undefined): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** A count, grouped the way an Indian reader groups one (1,20,000 — not 120,000). */
+export function formatCount(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return value.toLocaleString("en-IN");
+}
+
+/**
+ * Rupees, from the STRING the API sent.
+ *
+ * The money fields on `UsagePanelOut` are strings for a reason its docstring states:
+ * they are `Decimal` all the way through billing (hard rule 7) and a JSON float cannot
+ * hold a rupee amount exactly — `Number("10159.00")` is how ₹10,159.00 becomes
+ * ₹10,158.999999999998 on a screen a client is checking against their own books.
+ *
+ * So this formats the DIGITS and never parses them: split on the decimal point, group
+ * the integer part Indian-style (last three, then twos), keep exactly two decimals.
+ * The value is never converted to a number at any point, which is the whole exercise.
+ */
+export function formatINR(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const negative = value.startsWith("-");
+  const [whole = "0", fraction = ""] = value.replace(/^[-+]/, "").split(".");
+  const head = whole.length > 3 ? whole.slice(0, -3) : "";
+  const tail = whole.slice(-3);
+  const grouped = head ? `${head.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${tail}` : tail;
+  const paise = `${fraction}00`.slice(0, 2);
+  return `${negative ? "-" : ""}₹${grouped}.${paise}`;
 }
 
 /** Times are stored UTC and shown IST at the edge (CLAUDE.md conventions). */
