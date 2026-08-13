@@ -29,6 +29,22 @@ Every query below returns ids, counts and flags; never select `phone_e164`, tran
 text or extraction payloads into a ticket or a terminal you will paste from
 (hard rule 6).
 
+**Use the console first; the curl is the fallback.** Every step below that has an operator
+control names the screen before it prints the request. Prefer the screen: it shows the
+current state before you move it, states the blast radius before the click, and sends the
+step-up header for you — three things a hand-assembled `curl` at 3am gets wrong in ways
+that are only visible afterwards.
+
+**The requests stay printed, because the console is not independent of what you are
+fixing.** It is a browser talking to this same API, so an API that is down, unreachable
+from the operator's network, or newly deployed and broken takes the console with it — and
+these are precisely the steps you run when something is wrong with the API. (Load-shedding
+is NOT one of those cases: `/v1/ops` and `/v1/admin` are in `ALWAYS_ALLOWED_PREFIXES`
+(`apps/api/core/loadshed.py`), so the console keeps working in every load-shed mode
+including `maintenance` — that is deliberate, so an operator cannot shed themselves out of
+the switch that undoes it.) If the console is up, the curl below is the wrong tool; if it
+is not, it is the only one.
+
 ---
 
 ## The eleven causes, and who can clear each
@@ -40,7 +56,7 @@ text or extraction payloads into a ticket or a terminal you will paste from
 | 3 | Calevate's TM registration | `platform_state.tm_registration_status` | ops only — blocks EVERY tenant's campaign |
 | 4 | Admin spend cap | `plans.hard_cap_min` / `hard_cap_spend` | ops only (SQL on the audited path, then the recompute in step 2) |
 | 5 | The client's OWN spend cap | `plans.client_cap_min` / `client_cap_spend` | **client, immediately** |
-| 6 | The cap flag itself | `spend_state.capped` | ops (`POST /v1/ops/tenants/{id}/spend-cap/recompute`) or the client — see step 2 |
+| 6 | The cap flag itself | `spend_state.capped` | ops (client screen → "Spend cap") or the client — see step 2 |
 | 7 | Prepaid wallet empty | `credit_ledger` balance, self-serve/trial only | client (top-up) or ops |
 | 8 | The client's PE registration / TM link | `dlt_registrations` | ops record it; the registrar decides it |
 | 9 | Subscriber KYC not verified | `kyc_records.status`, self-serve/trial only | ops record it (`POST /v1/admin/tenants/{id}/kyc`); the client cannot self-verify |
@@ -54,6 +70,13 @@ of the table.
 
 ## 1. One request answers causes 1, 2 and 3
 
+**Console: Operations — `/admin/ops`** (admin realm, `superadmin`; the nav entry is under
+"Platform"). It renders all four fields below and carries the control for each of the
+three causes: the big red switch, the load-shed mode, and our TM registration. If it says
+*"We do not know whether outbound calling is halted"*, the read failed — believe that
+sentence and do not treat it as "running".
+
+The request it makes, for when the console is not available (see the ground rules):
 `GET /v1/ops/platform`, admin realm, `ops:manage` (`apps/api/ops/routes.py`). It is
 never load-shed — `/v1/ops` is in `ALWAYS_ALLOWED_PREFIXES` — so it answers even when
 the platform is in maintenance mode.
@@ -70,8 +93,10 @@ GET /v1/ops/platform
 Read all four fields, not just the first.
 
 - **`outbound_halted: true`** — the big red switch. Nobody dials, no tenant, no path.
-  The dispatch tick returns `halted_by_big_red_switch` and touches nothing. Go to
-  `campaign-stall.md` §1 for the audited un-halt; do not flip the row with SQL.
+  The dispatch tick returns `halted_by_big_red_switch` and touches nothing. Release it on
+  the **Operations** screen (type `RESUME` plus a reason, which is what the audit row and
+  the row's own `halt_reason` will carry); `campaign-stall.md` §1 has the equivalent
+  request for when the console is down. Do not flip the row with SQL either way.
 - **`halt_reason`** — WHY it was halted, in the words of whoever halted it. It is
   required to halt, so it is null while `outbound_halted` is true only for a halt thrown
   before this field was wired (fall back to `audit_log` for those), and it is
@@ -89,12 +114,31 @@ Read all four fields, not just the first.
   an HTTP request: **a campaign that is already `running` keeps dialling in every
   load-shed mode.** So "the launch button 503s but calls are still going out" is
   load-shed, and "no calls at all" is not.
+
+  Moving the mode is the **Load-shed mode** control on the Operations screen: pick the
+  target, type it back in capitals, give a reason. The screen prints what the target mode
+  sheds before you commit, and it will not submit the mode the platform is already in —
+  a re-assert writes an audit row for a change nobody made. Note what that screen also
+  says, because it is not obvious from the names: **`reduced` and `emergency` shed exactly
+  the same set today** (both are in `_SHED_WRITES`, neither is in `_SHED_READS` —
+  `apps/api/core/loadshed.py`), so choosing `emergency` expecting reads to stop buys
+  nothing. Only `maintenance` sheds reads. By hand, if the console is down:
+
+  ```
+  POST /v1/ops/platform
+  X-Confirm-Action: set_load_shed:normal
+  {"load_shed_mode": "normal", "reason": "index build finished, restoring writes"}
+  ```
+
+  The header names the TARGET mode. `campaign-stall.md` §1 lists every form of it,
+  including the `+`-joined string for a request that also moves the halt.
 - **`tm_registration.is_live: false`** — Calevate's own DLT telemarketer registration is
   not active. This blocks **every tenant's campaign at once**, however complete the
   client's own paperwork is. It is `is_live`, computed server-side, not `status` read by
   eye — the console must not decide for itself whether `submitted` is good enough
   (`_tm_out`, `apps/api/ops/routes.py`). This is a legal fact, not an operational one:
-  it is not "cleared", it is re-obtained from the registrar and then recorded with
+  it is not "cleared", it is re-obtained from the registrar and then recorded — on the
+  Operations screen's **Our telemarketer registration (DLT)** form, or by hand with
   `POST /v1/ops/platform/tm-registration` (step-up confirmed, audited).
 
 If this step is clean, the platform is not the reason.
@@ -153,7 +197,21 @@ stopped.
 
 Three things recompute it, and one of them is not "wait":
 
-1. **ops**, immediately, on the audited path:
+1. **ops**, immediately, on the audited path.
+
+   **Console: the client's own screen — `/admin/tenants/{tenant_id}` → "Spend cap"**
+   (admin realm, `superadmin`: this is the one control on that page whose route lives
+   under `/v1/ops`). It is on the CLIENT's screen rather than on Operations because the
+   route names a tenant and binds its confirmation to that tenant's id — the panel puts
+   the button beside this client's three ceilings and this month's counters, so "will the
+   recompute help?" is answerable before you press it rather than from the response.
+
+   Read the panel's flag, not the directory badge, when the two disagree: the badge reads
+   `spend_state.capped` with no month test (`apps/api/admin/service.py`), while the panel
+   and the compliance gate both apply one — a row left over from a closed month shows as
+   capped on the directory and is not a cap. The panel says so when it happens.
+
+   The request, for when the console is down:
 
    ```
    POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute
@@ -436,8 +494,8 @@ is better than a "we're looking into it" that turns into a week.
 - **Never UPDATE `spend_state.capped`, `platform_state` or a campaign's `status` by
   hand.** Each has an audited write path and a cache to invalidate; the SQL skips both.
   For `spend_state` specifically the flag is derived — the correct lever is the cap, and
-  the recompute rides with it: move the ceiling, then run
-  `POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute` (step 2). There is a route for
+  the recompute rides with it: move the ceiling, then press **Recompute this client's
+  spend cap** on `/admin/tenants/{tenant_id}` (step 2). There is a route and a screen for
   this now, so there is no longer any reason to reach for the UPDATE.
 - **Never clear a hold with SQL.** Neither `kyc_records` nor `first_campaign_reviews` is
   a flag to flip: the value of both rows is that a named person recorded what they

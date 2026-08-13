@@ -79,10 +79,15 @@ GROUP BY status;
   `outbox_lag_seconds` metric (`apps/api/core/alerting.py`) and worker health first.
 - `failed` rows → each one fired alert `OUTBOX_DISPATCH` / `outbox_dead_letter` with
   the message id, and DLQ depth is the `outbox_dlq_depth` metric. Inspect
-  `last_error` on the row. Replay is NOT a hand edit: `POST /v1/ops/outbox/replay`
-  (admin realm, `ops:manage`, `apps/api/ops/routes.py`) calls `replay_dead_letters`
-  — flips up to 100 oldest `failed` rows back to `pending` with `attempt_count = 0`
-  and writes an `ops.outbox_replay` audit entry.
+  `last_error` on the row. Replay is NOT a hand edit. **Console: Operations —
+  `/admin/ops` → "Dead-lettered outbox messages"** (admin realm, `superadmin`); it states
+  the redelivery risk, takes a typed `REPLAY`, and renders the count the server moved,
+  including the case where that count is the per-run limit and there is more waiting. The
+  request behind it, for when the console is down, is `POST /v1/ops/outbox/replay`
+  (`ops:manage`, `apps/api/ops/routes.py`), which calls `replay_dead_letters` — flips up
+  to 100 oldest `failed` rows back to `pending` with `attempt_count = 0` and writes an
+  `ops.outbox_replay` audit entry. This endpoint takes NO step-up header; the typed word
+  on the screen is a console guard, not an API one.
 
 ## 4. ARQ delivery job and its retry ladder
 
@@ -195,7 +200,8 @@ all `org:manage`):
 
 Needs us (admin realm / config row):
 
-- Outbox DLQ inspection and replay (`POST /v1/ops/outbox/replay`, audited).
+- Outbox DLQ inspection and replay (`/admin/ops` → "Dead-lettered outbox messages", or
+  `POST /v1/ops/outbox/replay`; audited either way).
 - Investigating `outbound_webhook_exhausted` / `outbox_dead_letter` alerts.
 - Field mapping changes (`outbound_webhooks.mapping`) and the raw-phone opt-in
   (`include_raw_phone` — an auditable config choice, not a client toggle).

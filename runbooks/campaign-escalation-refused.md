@@ -204,7 +204,8 @@ GROUP BY status;
   a contact is only escalated on the transition to `failed`.
 - **`pending` piling up** — the outbox dispatcher or the workers are down. That is
   `webhook-delivery-failures.md` §3, same mechanism.
-- **`failed`** — the outbox DLQ. Replay through `POST /v1/ops/outbox/replay`, never by
+- **`failed`** — the outbox DLQ. Replay from the console (`/admin/ops` → "Dead-lettered
+  outbox messages") or, if it is down, through `POST /v1/ops/outbox/replay` — never by
   hand.
 
 One contact can reach "exhausted" more than once — `_reap_stuck_dialing` returns a

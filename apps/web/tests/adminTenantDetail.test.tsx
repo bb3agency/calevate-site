@@ -40,6 +40,10 @@ const APPROVED_PATH = "/v1/kb/sources?status=approved";
 const AGENTS_PATH = "/v1/agents";
 const NUMBERS_PATH = "/v1/campaigns/numbers";
 const TEMPLATES_PATH = "/v1/campaigns/templates";
+// The spend-cap panel's read, impersonated like the rest of this screen's reads. Its own
+// behaviour is asserted in `adminSpendCap.test.tsx`; it is here so this file's premise
+// stays complete — an unrouted endpoint is a hole, not a detail (see `harness.tsx`).
+const CAPS_PATH = "/v1/billing/caps";
 const ME_PATH = ADMIN_ME_PATH;
 
 function tenant(over: Partial<TenantSummary> = {}): TenantSummary {
@@ -119,6 +123,18 @@ function healthy(): Routes {
     [NUMBERS_PATH]: [],
     [TEMPLATES_PATH]: [],
     [MARGIN_PATH]: margin(),
+    [CAPS_PATH]: {
+      month: "2026-08",
+      plan_cap_minutes: 5000,
+      plan_cap_spend_inr: "40000.00",
+      client_cap_minutes: null,
+      client_cap_spend_inr: null,
+      effective_cap_minutes: 5000,
+      effective_cap_spend_inr: "40000.00",
+      minutes_used: "812.00",
+      spend_used_inr: "5002.40",
+      capped: false,
+    },
   };
 }
 
