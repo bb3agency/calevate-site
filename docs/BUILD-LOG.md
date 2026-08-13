@@ -1981,6 +1981,105 @@ local where the failure is the host dying. The move that worked, seven times, wa
 what the checker is physically able to observe, and then either change the mechanism or
 write down that it cannot.
 
+## §52 — the design pass, and the screens that were confidently wrong
+
+The founder pushed a UI: an app shell with a collapsible grouped sidebar, a 72px sticky
+header, 14px cards on a recessed page, brand-green medallions, lucide icons, and PP Mori
+as a local font. "That is the style we are going to follow from now on." Twenty-three
+slices later every screen in both realms speaks it, the frontend suite went from 40 tests
+to 364, and the wave's finding is not about design at all.
+
+**Almost every screen answered a failed request with a confident emptiness.** Not a crash,
+not a blank — a sentence. The dashboard fell back to `?? 5430`, so a client whose calls had
+STOPPED would have been shown 5,430 calls and a healthy trend. The leads board painted six
+"No leads" columns over a 503. The analytics screens ended `if (!data) return null` and
+rendered nothing at all, so a dead endpoint and a quiet week were indistinguishable. The
+attention queue drew an empty card UNDER its own alert, which reads as "nothing needs you".
+Knowledge said "Nothing submitted yet" over an unread list. The DNC list said "nobody is
+suppressed yet" over a list that never loaded. The admin console said "0 accounts" while
+loading. And the ops screen — the one somebody opens BECAUSE calls have stopped — defaulted
+`halted` to `false` and reported "Outbound calling: running" with a green pip, from a value
+nobody sent.
+
+One defect, nine costumes. The rule that replaced it is now written on every screen:
+**loading is a skeleton, failure is a refusal, and neither is a number, a state, or an empty
+state.** The corollary took longer to see and is the more useful half — a fallback is not a
+kindness. `?? 0` is correct on the campaign progress tiles, where `contacts` is a complete
+GROUP BY and an absent key genuinely IS zero, and a lie on the leads board, where the same
+two characters invent a count from a capped page. The question is never "is a default
+tidier", it is "does the server's silence mean this value".
+
+**The design's own numbers were mock, and saying so was the work.** The dashboard shipped
+with 3,482 successful calls, a $0.042 cost per call, 286 booked appointments, a 13.6%
+conversion rate, a seven-day chart of invented bars, an activity feed of American phone
+numbers printed in full, and "+18.4% vs Apr 28 – May 4" under every figure. Everything the
+API could answer was wired; everything it could not is ABSENT rather than approximated, and
+`StatTile` has no `delta` prop at all — with a comment saying why, because a trend arrow is
+the most trusted pixel on a dashboard and a hardcoded one is worse than none. The chart
+became real when `/v1/dashboard` grew `daily_7d`: seven IST calendar days, zero-filled, with
+four class counts that PARTITION `calls.status` so the stack always fills its column and an
+owner can add the segments up. It deliberately does not sum to `calls_7d` — calendar days
+against a rolling 168 hours — and the field says so, because a chart forced to agree with a
+headline number would have to lie about one of them.
+
+**Six numbers on the leads screen were lying, and the API had already fixed one of them.**
+The stage tally was `items.filter(...)` over a 100-row cap under a server-side status
+filter, so a client who clicked "hot" was told `new 0 · contacted 0 · interested 0 · won 0 ·
+lost 0`. `LeadListOut.status_counts_matching_search` exists for exactly this and names it in
+its own comment as the bug it replaces; nothing read it. The same shape turned up again in
+the attention queue, where each of four sources capped at 25 and the badge counted the page
+— and fixing it there surfaced two more: a per-source cap under a merged limit made "the N
+most recent" false, and `stalled_campaigns` filtered healthy campaigns in PYTHON after
+`LIMIT`, so busy campaigns burned page slots on their way to being discarded.
+
+**Money grew a distinction worth keeping.** Totals go through `formatINR`, which formats the
+DIGITS of the API's string and never parses them — `Number("10159.00")` is how ₹10,159.00
+becomes ₹10,158.999999999998 on a screen a client checks against their books. But a RATE must
+not: `overage_rate_inr` is NUMERIC(12,4) published unrounded so `qty × unit = amount` holds,
+and `formatINR` would print ₹7.1250 as ₹7.12 — breaking the invoice's arithmetic IN OUR
+FAVOUR. Two formatters, one page, and the reason in both.
+
+**Permission gates were right and their explanations were in the wrong place.** The leads
+Export button rendered for everyone though the route requires `calls:read_raw`, which
+`staff` does not hold — a deliberate restriction wearing the costume of a broken button. The
+campaigns panel gated correctly but put the reason a screenful above the dead control, under
+a sentence truthfully reading "Everything checks out." `/usage` was not gated at all, so a
+staff member collected a red 403 that reads like an outage. And the call detail screen told
+owners to "ask your account manager for the full transcript" while an audited, self-service
+endpoint sat there that the owner already had permission to use.
+
+**The two guardrail gaps this wave opened, it also closed.** Clerk sign-in landed with eight
+`NEXT_PUBLIC_*` keys documented as COMMENTS in `.env.example`, because a real `KEY=` line
+would have made the Python parity check demand a matching `Settings` field — a rule
+honourable only by writing it where no machine reads it. `check_web_env_parity` closes that,
+and matters because `next build` INLINES these: a misspelled key is not an error, it is the
+empty string in the bundle. And the coverage ratchet, which had failed CI twice for slack,
+learned to REFUSE TO SCORE a run it cannot vouch for — because both "fixes" had been to copy
+CI's number into the baseline, which is how a ratchet dies.
+
+That second one corrected the log. §51's account of the ratchet failures blamed a local
+database holding 31,527 test organizations. Measured, that was wrong: a freshly seeded
+database still gave the local numbers. The real causes were REDIS state — `_current_head`
+queries Postgres only on a cache MISS, and 72,000 leftover keys deleted that fallback from
+the measurement — and MACHINE SPEED, since `webhook_ack_slow` fires only past hard rule 3's
+500ms budget: never on an idle laptop, sometimes on a contended runner. The first is now
+refused; the second is undetectable in-process and says so in three places.
+
+**What this wave adds to the method.** §51 asked what would fail if a guarantee were false.
+This one asks the question a screen cannot ask itself: **when the server does not answer,
+what does this pixel claim?** Every defect above is the same answer given twice — the value
+the server sent, and the value the screen invents when it sent nothing — rendered
+identically. The move that worked twenty-three times was to read every `??`, every `|| []`,
+every `if (!data) return null` and ask whether the fallback is a fact about the world or a
+fact about our ignorance.
+
+A note on method for the next session, learned the hard way: **three of this wave's
+sabotages were worthless and passed.** Pointing a scan at `organizations` broke it outright
+(RLS returns zero rows, so nothing ran); dropping `DISTINCT` changed nothing because each
+tenant had one route; patching a value that sits BELOW an earlier error guard never
+executed. A green suite under a sabotage is not evidence — it is a broken experiment, and
+the first thing to check is whether the sabotage reached the code at all.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and
@@ -2008,8 +2107,11 @@ caps with the ops recompute. KYC and the first-campaign hold, both gates plus bo
 plus the client's own screens plus the cross-tenant hold queue. Outbound CRM sync (webhook
 half). OTel tracing across every boundary, Sentry, and `alert()` with a real email
 transport. Outbound CRM sync's Sheets half, adapter included, though nothing has yet spoken
-to a real Google project. Nine checks in the guardrail target — the newest three being
-half-wiring, compliance invariants and docs drift — and the frontend gate beside it.
+to a real Google project. Eleven checks in the guardrail target — the newest being
+half-wiring, compliance invariants, docs drift, the coverage ratchet and the web tier's env
+parity — and the frontend gate beside it, now 364 tests over every screen in both realms.
+The console speaks one design language from tokens in `globals.css`, and sign-in exists for
+both Clerk realms behind two guards that refuse to ship the dev credential.
 
 **Built but INERT, and why** — a mechanism exists, is tested, and does nothing today
 because something outside the repo is missing. Each of these is one credential or one
