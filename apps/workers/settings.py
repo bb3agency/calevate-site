@@ -26,7 +26,7 @@ from apps.api.core.observability import (
 )
 from apps.api.core.queue import WORKER_MAX_TRIES, redis_settings
 from apps.api.core.settings import runtime_config_missing_keys, validate_bootstrap_env
-from apps.workers.campaign_dispatch import dispatch_campaign_tick
+from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.dispatcher import dispatch_outbox, report_stalled_pipeline, sweep_expired
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.optout import record_in_call_optout
@@ -85,7 +85,20 @@ CRON_JOBS = [
     cron(traced_job(report_stalled_pipeline), minute={5, 35}),
     # The dispatch tick (FLOWS §5). Hard rule 5's DNC propagation deadline is
     # 'before the next dispatch tick' — this cron IS that tick.
-    cron(traced_job(dispatch_campaign_tick), second={0, 30}),
+    #
+    # `second` comes FROM the dispatcher rather than being written here, because the
+    # dispatcher now reasons about its own interval: it alerts when a tick overruns it
+    # and it holds a lease sized against it. Two places writing "30" is how those stop
+    # being true.
+    #
+    # **This schedule does NOT serialise the tick, and arq offers no setting that does.**
+    # A cron job's arq id embeds its intended execution time (`arq/worker.py::run_cron`),
+    # so the :30 tick and the :00 tick are different jobs with different in-progress keys
+    # and will happily run at once; the documented alternative, a fixed
+    # `cron(job_id=...)`, holds its in-progress key for 60s after the job ENDS
+    # (`keep_cronjob_progress`) and would turn a 30-second tick into a 60-second one.
+    # `campaign_dispatch._tick_lease` is where single-flight actually comes from.
+    cron(traced_job(dispatch_campaign_tick), second=set(TICK_SECONDS)),
     cron(traced_job(sweep_expired), hour={3}, minute={17}),
     # Retention is a legal obligation, not a cleanup task: without this the
     # policies we promise in the DPA are only a table (SEC-COMP §4).
@@ -138,6 +151,10 @@ class WorkerSettings:
     # rather than left to the default, because the default is what makes the ladder work
     # at all.
     retry_jobs = True
+    # Also the ceiling on how long ONE dispatch tick can run: arq cancels at it, and
+    # `campaign_dispatch.TICK_LEASE_TTL_S` is sized to outlive this number so a lease
+    # cannot expire under a tick that is still dialling. `tests/dispatch_tick_lease_test`
+    # pins the relationship — a comment cannot fail a build.
     job_timeout = 300
     # Keep results long enough for the ARQ-level job-id dedupe window to be useful
     # against duplicate webhooks (BACKEND-PATTERNS §4's cheapest layer).
