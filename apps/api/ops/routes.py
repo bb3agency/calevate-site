@@ -38,12 +38,11 @@ joined for a request that does both — built in ONE place, `platform_confirmati
 which the runbooks quote and a test pins.
 
 A confirmation carries a `:<target>` suffix only where the target VARIES: the tenant on
-the spend-cap recompute, the mode on the load-shed change. `halt_outbound` and
-`replay_dead_letters` name actions with exactly one possible target — the platform, and
-the one global dead-letter queue — so a suffix there would bind nothing. What every
-string on this router does have is uniqueness: no header accepted by one route is
-accepted by another, which is what stops a confirmation captured for the smallest action
-authorising the largest.
+the spend-cap recompute, the mode on the load-shed change, and now the `job` on the
+dead-letter replay. `halt_outbound` names an action with exactly one possible target —
+the platform — so a suffix there would bind nothing. What every string on this router
+does have is uniqueness: no header accepted by one route is accepted by another, which is
+what stops a confirmation captured for the smallest action authorising the largest.
 
 That was a BREAKING change to an ops surface and was made deliberately rather than
 grandfathered: the old string's whole problem was that it authorised more than the
@@ -66,7 +65,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,7 +86,7 @@ from apps.api.ops.service import (
     read_tm_registration,
     set_tm_registration,
 )
-from apps.api.reliability.service import replay_dead_letters
+from apps.api.reliability.service import read_dead_letter_queue, replay_dead_letters
 
 router = APIRouter(prefix="/v1/ops", tags=["ops"])
 
@@ -112,6 +111,47 @@ class TmRegistrationOut(BaseModel):
     is_live: bool
 
 
+class DeadLetterJobOut(BaseModel):
+    """One `job`'s share of the outbox DLQ.
+
+    COUNTS AND JOB NAMES ONLY (hard rule 6). `outbox_messages.payload` is JSONB holding
+    lead fields and phone numbers; `job` is an ARQ job name — a code identifier — and
+    nothing derived from a payload reaches this model. See
+    `reliability.service.DeadLetterQueue`, which is where that boundary is enforced.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    job: str
+    depth: int
+    oldest_at: datetime
+
+
+class DeadLetterQueueOut(BaseModel):
+    """How much a replay would re-send, published so the confirmation can be informed.
+
+    The console asks an operator to confirm `POST /outbox/replay`, whose effect is real
+    HMAC-signed webhooks into clients' own systems for every tenant at once. Until this
+    field existed the console said so in its own words: there was no count to show before
+    the click, so the operator confirmed a redelivery of unknown size, tenancy and age.
+
+    Three numbers rather than one, because a total does not tell an operator what they are
+    about to do: 142 dead letters is a different act depending on whether it is 142 CRM
+    webhooks or 142 hot-lead emails, and a different act again depending on whether the
+    head of the queue is ten minutes or nine days old.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    depth: int
+    # Null exactly when `depth` is 0 — see `reliability.service.DeadLetterQueue` on why
+    # this is not a sentinel timestamp.
+    oldest_at: datetime | None
+    # Sums to `depth` BY CONSTRUCTION: both come from one grouped aggregate at one
+    # instant, so a dispatcher tick cannot land between a total and its parts.
+    by_job: list[DeadLetterJobOut]
+
+
 class PlatformStateOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -125,6 +165,30 @@ class PlatformStateOut(BaseModel):
     # The third global switch on this row, and the only one that is a legal fact rather
     # than an operational one: when it is not live, no tenant may launch a campaign.
     tm_registration: TmRegistrationOut
+    # NOT a switch, and the one field here that is not on `platform_state` at all.
+    #
+    # WHY IT RIDES THIS READ rather than getting a `GET /v1/ops/outbox/dead-letters` of
+    # its own. The console's ops screen makes exactly one read, gates the whole page on
+    # it, and polls it every 30s; a second endpoint would be a second request with the
+    # same permission, for the same operator, at the same moment, and the depth it
+    # returned would still be a different instant from everything beside it.
+    #
+    # The one-instant argument that put `halt_reason` here does NOT transfer, and saying
+    # so is the honest half: nobody interprets the DLQ depth against the load-shed mode.
+    # What must share an instant is the depth, the breakdown and the age — and that holds
+    # inside `read_dead_letter_queue`'s single aggregate no matter which route carries it.
+    #
+    # The argument that DOES decide it is the route table. `ops:manage` is in
+    # `MUTATING_PERMISSIONS`, so every new GET declaring it has to be written into
+    # `ADMIN_CONSOLE_GETS` (tests/impersonation_reads_test.py) — an allowlist whose own
+    # test warns that entries are how it "quietly becomes a hole". A field on a route
+    # already exempt adds no entry to it.
+    #
+    # THE COST, stated because the console has to handle it: a failed platform read now
+    # blinds the depth too. That costs a NUMBER, never the control — the replay button
+    # stays gated on the permission alone, and the panel renders "we could not read the
+    # depth" rather than a zero (BUILD-LOG §52: failure is a refusal, not an empty state).
+    outbox_dead_letters: DeadLetterQueueOut
 
 
 class TmRegistrationIn(BaseModel):
@@ -166,6 +230,14 @@ class ReplayOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     replayed: int
+    # The scope the run APPLIED, echoed back. Null means every job.
+    #
+    # It exists so `replayed: 0` is legible: a well-formed but misspelled job name is
+    # accepted (the API cannot tell "no such job" from "that job's queue is empty"
+    # without a second read of the queue, which would be racy and would be a second
+    # definition of what is in it), so the answer prints the scope it actually used and
+    # an operator can see their own typo instead of concluding the queue was empty.
+    job: str | None
 
 
 class ChainVerifyOut(BaseModel):
@@ -267,6 +339,43 @@ def _tm_out(registration: TmRegistration) -> TmRegistrationOut:
     )
 
 
+async def _platform_out(session: AsyncSession, *, load_shed_mode: str) -> PlatformStateOut:
+    """The whole ops payload, assembled in ONE place for the read and for the write.
+
+    The read and the write used to build this response with two near-identical literals,
+    which was survivable while it was three fields and is not now: a field added to one
+    and forgotten on the other is a console that shows a stale dead-letter depth after
+    every halt, and nothing would have failed.
+
+    `load_shed_mode` is the caller's, because the two routes get it from different places
+    on purpose — the read force-refreshes the cache, the write has the mode its own
+    `set_platform_status` just returned — and re-reading it here would hand the writer a
+    value from a later instant than the one it wrote.
+
+    Everything else is read from Postgres on the caller's session, never from the
+    load-shed cache: the TM registration is a compliance fact and a 15-second-stale copy
+    of it is a campaign that launched after the registrar suspended us.
+    """
+    halt = await read_halt_state(session)
+    dlq = await read_dead_letter_queue(session)
+    return PlatformStateOut(
+        load_shed_mode=load_shed_mode,
+        outbound_halted=halt.outbound_halted,
+        halt_reason=halt.reason,
+        tm_registration=_tm_out(await read_tm_registration(session)),
+        outbox_dead_letters=DeadLetterQueueOut(
+            depth=dlq.depth,
+            oldest_at=dlq.oldest_created_at,
+            by_job=[
+                DeadLetterJobOut(
+                    job=entry.job, depth=entry.depth, oldest_at=entry.oldest_created_at
+                )
+                for entry in dlq.by_job
+            ],
+        ),
+    )
+
+
 @router.get(
     "/platform",
     response_model=PlatformStateOut,
@@ -277,20 +386,11 @@ async def read_platform(
     _: Principal = Depends(requires("ops:manage", realm="admin")),
 ) -> PlatformStateOut:
     status = await get_platform_status(force_refresh=True)
-    # Read from Postgres on this session, never from the load-shed cache: the TM
-    # registration is a compliance fact and a 15-second-stale copy of it is a campaign
-    # that launched after the registrar suspended us.
-    #
     # The halt and its reason come from ONE row read for the same reason they are
     # written in one statement — this is the screen an operator reads mid-incident, and
     # "halted" beside a reason from a different instant is worse than either alone.
-    halt = await read_halt_state(session)
-    return PlatformStateOut(
-        load_shed_mode=status.mode,
-        outbound_halted=halt.outbound_halted,
-        halt_reason=halt.reason,
-        tm_registration=_tm_out(await read_tm_registration(session)),
-    )
+    # `_platform_out` holds that and the rest of the assembly.
+    return await _platform_out(session, load_shed_mode=status.mode)
 
 
 @router.post(
@@ -360,12 +460,7 @@ async def set_platform(
             ip=ip,
             summary={"load_shed_mode": status.mode, "reason": payload.reason},
         )
-    return PlatformStateOut(
-        load_shed_mode=status.mode,
-        outbound_halted=halt.outbound_halted,
-        halt_reason=halt.reason,
-        tm_registration=_tm_out(await read_tm_registration(session)),
-    )
+    return await _platform_out(session, load_shed_mode=status.mode)
 
 
 @router.post(
@@ -538,28 +633,47 @@ async def recompute_spend_cap(
     )
 
 
-# The step-up string for the dead-letter replay.
-#
-# A CONSTANT rather than a function, unlike its two neighbours, and that is the whole
-# argument for its shape: `platform_confirmation` computes (three transitions, and both
-# joined) and `spend_cap_confirmation` interpolates (the tenant it is bound to), while
-# nothing about this action varies. A zero-argument function would be ceremony that
-# implies a parameter exists, and the value would still have to be pinned by a test.
-#
-# WHY NO `:<target>` SUFFIX, i.e. why this is `halt_outbound`'s shape and not
-# `recompute_spend_cap:<id>`'s. The suffix on the other two carries the part of the
-# action an operator could get wrong by replaying a header they already had: the tenant,
-# or the target load-shed mode. This action has no such part — there is exactly one
-# dead-letter queue and it is global, the same way the big red switch is global — so a
-# suffix here would be a fourth spelling of a binding with nothing to bind. What the
-# string is bound to is the ACTION, which is the property §7 asks for and the property
-# `set_platform_state` failed: no other header on this router equals it, so a
-# confirmation captured for a load-shed tweak or one client's recompute cannot replay
-# into a cross-tenant redelivery.
+# The step-up string for an UNSCOPED dead-letter replay — every job, every tenant.
 #
 # It matches `reliability.service.replay_dead_letters` and the console's button label on
-# purpose: an operator types what they were told they are doing.
+# purpose: an operator types what they were told they are doing. It is also the literal
+# `runbooks/webhook-delivery-failures.md` §3 prints for the curl fallback, which is why it
+# stays exactly this string and why `outbox_replay_confirmation(None)` returns it rather
+# than a new spelling of the same act.
 OUTBOX_REPLAY_CONFIRMATION = "replay_dead_letters"
+
+# A job name is an ARQ identifier written by `enqueue_outbox` (`deliver_outbound_webhook`,
+# `send_hot_lead_email`, ...). Bounded here because it is interpolated into a step-up
+# string and written into an audit summary, and a query parameter is attacker-controlled
+# on any surface: whatever the router does with it, it is [a-z0-9_] and short. The bound
+# is NOT an allow-list of known jobs — the API has no registry of ARQ job names (they live
+# in `apps/workers`, which nothing here may import), and inventing one here would be a
+# second definition of what can be in the queue.
+JobScope = Annotated[str | None, Query(max_length=64, pattern=r"^[a-z][a-z0-9_]*$")]
+
+
+def outbox_replay_confirmation(job: str | None) -> str:
+    """The step-up string for ONE dead-letter replay, bound to the scope it will use.
+
+    WHY THIS GREW A SUFFIX. It was a bare constant an hour ago, on the argument that
+    nothing about the action varied — there is exactly one global dead-letter queue, so
+    there was no target for a `:<suffix>` to bind. The replay now takes an optional `job`
+    scope, so that argument is simply no longer true, and the string has to move with it:
+    a header reading `replay_dead_letters` on a request that replays only the CRM webhooks
+    — or, far worse, a header captured for one job authorising a redelivery of everything
+    — is a confirmation that describes an action other than the one being performed, which
+    is worse than no confirmation because an operator believes it.
+
+    So `None` (every job) keeps the unsuffixed literal and every scope names itself, the
+    same shape `spend_cap_confirmation` has for the same reason: the suffix carries the
+    part of the action an operator could get wrong by replaying a header they already had.
+
+    `replay_dead_letters:all` is NOT this function's output for the unscoped case, and
+    `tests/ops_outbox_replay_test.py` pins it as a string that must be REFUSED. That is
+    not arbitrary: it was already refused before scoping existed, and a job would have to
+    be literally named `all` for this function to ever produce it.
+    """
+    return OUTBOX_REPLAY_CONFIRMATION if job is None else f"{OUTBOX_REPLAY_CONFIRMATION}:{job}"
 
 
 @router.post(
@@ -573,12 +687,17 @@ OUTBOX_REPLAY_CONFIRMATION = "replay_dead_letters"
         "re-sends them: HMAC-signed webhooks to clients' own systems, Google Sheets "
         "appends, notification emails. A message can dead-letter AFTER its side effect "
         "landed, so the outcome to be sure of before sending this is a second delivery, "
-        "not a flag in a row."
+        "not a flag in a row. `job` scopes the run to one kind of side effect and MUST be "
+        "echoed in the confirmation header (`replay_dead_letters:<job>`); omit it to "
+        "replay every job, which is `X-Confirm-Action: replay_dead_letters`. Read the "
+        "depth and the per-job breakdown from `GET /v1/ops/platform` first — "
+        "`outbox_dead_letters` is published so this confirmation can be an informed one."
     ),
 )
 async def replay_outbox(
     session: GlobalSession,
     request: Request,
+    job: JobScope = None,
     principal: Principal = Depends(requires("ops:manage", realm="admin")),
     x_confirm_action: str | None = Header(default=None),
 ) -> ReplayOut:
@@ -601,23 +720,39 @@ async def replay_outbox(
     "why" is the incident that is already open in `runbooks/webhook-delivery-failures.md`.
     Adding a required body here would break the console's form and the runbook's curl to
     buy a free-text field nobody reads back.
-    """
-    # Bound to the action, checked BEFORE any row moves. See OUTBOX_REPLAY_CONFIRMATION
-    # for why this action's string carries no target suffix.
-    _require_step_up(x_confirm_action, OUTBOX_REPLAY_CONFIRMATION)
 
-    count = await replay_dead_letters(session)
+    THE SCOPE IS A QUERY PARAMETER, not a body field, and the reason is that it is part of
+    this request's IDENTITY rather than its content: it is interpolated into the step-up
+    confirmation, so the access log, the console's URL, the runbook's curl and the audit
+    row all show the same string. A body would hide the scope from every log we keep, and
+    would turn the runbook's bodyless `curl -X POST` into one that needs a `-d`.
+
+    WHY SCOPE AT ALL, given `outbox_messages` has no `tenant_id` to scope by. Per-tenant
+    is impossible without a migration (the ids live inside the JSONB payload), so `job` is
+    the only bound available — and it is not a consolation prize. The run takes the 100
+    OLDEST rows, so an operator recovering a client's CRM webhooks out of a queue full of
+    dead-lettered emails replays 100 emails, reads `replayed: 100` as success, and leaves
+    every webhook parked. Scoping is what makes "replay the thing I am here about"
+    reachable in one act.
+    """
+    # Bound to the action AND to the scope it will use, checked BEFORE any row moves.
+    # See `outbox_replay_confirmation` for why the string grew a suffix.
+    _require_step_up(x_confirm_action, outbox_replay_confirmation(job))
+
+    count = await replay_dead_letters(session, job=job)
     # BACKEND-PATTERNS §4 requires the replay to carry an audit note — a message that
-    # was delivered twice needs a record of who asked for the second attempt.
+    # was delivered twice needs a record of who asked for the second attempt. The scope
+    # goes in it too: "who replayed 100 messages" and "which 100" are different questions
+    # and only one of them was answerable.
     await write_audit(
         session,
         action="ops.outbox_replay",
         actor=principal,
         object_type="outbox_messages",
         ip=request.client.host if request.client else None,
-        summary={"replayed": count},
+        summary={"replayed": count, "job": job},
     )
-    return ReplayOut(replayed=count)
+    return ReplayOut(replayed=count, job=job)
 
 
 @router.get(
@@ -636,6 +771,7 @@ async def verify_audit_chain(
 
 __all__ = [
     "OUTBOX_REPLAY_CONFIRMATION",
+    "outbox_replay_confirmation",
     "platform_confirmation",
     "router",
     "spend_cap_confirmation",

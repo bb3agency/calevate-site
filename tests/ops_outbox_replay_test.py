@@ -1,4 +1,20 @@
-"""The outbox dead-letter replay, and the step-up it was missing.
+"""The outbox dead-letter queue: what it publishes, and what a replay does.
+
+## Part one — the confirmation that could not be sized
+
+The step-up landed first and left a different defect behind: an operator was asked to
+confirm a redelivery of unknown SIZE, unknown mix and unknown AGE, because no endpoint
+published a dead-letter count. `GET /v1/ops/platform` now carries `outbox_dead_letters`
+— depth, per-`job` breakdown, oldest — from `reliability.service.read_dead_letter_queue`,
+which is also where the `outbox_dlq_depth` metric comes from, so the number an operator
+reads before confirming and the number the alert fires on cannot disagree.
+
+What is asserted about it: the depth counts `failed` and nothing else; the breakdown sums
+to the total; the read is gated exactly like the rest of the router; and nothing derived
+from a message PAYLOAD reaches the wire (hard rule 6 — `outbox_messages.payload` is JSONB
+holding lead fields and phone numbers).
+
+## Part two — the replay, and the scope it now carries
 
 `POST /v1/ops/outbox/replay` was the only WRITE on the ops router reachable by a single
 unconfirmed POST, and it is the one whose blast radius reaches furthest OUTWARD:
@@ -30,18 +46,32 @@ What is asserted below, in the order the properties matter:
    failures.md` and mirrored by the console, so it is pinned here rather than left to be
    reformatted quietly.
 4. The confirmed path still works, is still audited, and still needs `ops:manage`.
+5. **The confirmation agrees with the SCOPE**, in both directions. The replay now takes an
+   optional `job`, so `replay_dead_letters` no longer describes every request it could be
+   sent with: a header naming one job must not authorise a replay of everything, and a
+   header naming everything must not be accepted for a request that replays one job.
 
 CONCURRENCY. The replay is global, so this file cannot assert on "the queue" — only on
 rows it created. Those rows are backdated thirty days (the house pattern from
 `tests/reliability_audit_test.py`): oldest-first ordering then guarantees a small run
 reaches THIS file's rows, and the module fixture deletes them the moment it is done so
 they never sit at the head of another suite's dispatcher tick.
+
+The depth assertions need the same discipline one step further: `outbox_dead_letters` is
+a global aggregate, so a test that pinned a TOTAL would be asserting what every other
+suite on this database happens to have left behind. Every seeded row therefore carries a
+job name unique to this run, and the assertions are on THAT job's entry in the breakdown
+plus the invariants that hold whatever else is in the queue (the parts sum to the total;
+the queue's oldest is no later than ours). Unique job names also make a scoped replay
+provably scoped: nothing another suite wrote can be in the scope under test.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -50,11 +80,19 @@ from apps.api.core.rbac import iter_api_routes
 from apps.api.db.base import uuid7
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
-from apps.api.ops.routes import OUTBOX_REPLAY_CONFIRMATION, spend_cap_confirmation
+from apps.api.ops.routes import (
+    OUTBOX_REPLAY_CONFIRMATION,
+    outbox_replay_confirmation,
+    spend_cap_confirmation,
+)
+from apps.api.reliability.service import read_dead_letter_queue, record_outbox_metrics
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import text
 
 ROUTE = "/v1/ops/outbox/replay"
+PLATFORM_ROUTE = "/v1/ops/platform"
+# Lowercase hex only: this is interpolated into job names, which the route bounds to
+# `^[a-z][a-z0-9_]*$`.
 RUN = uuid.uuid4().hex[:10]
 
 
@@ -92,28 +130,82 @@ async def _make_admin(role: str = "superadmin") -> tuple[str, UUID]:
     return f"dev:admin:{clerk_id}", admin_id
 
 
-async def _replay(token: str, *, confirm: str | None = None) -> Response:
+async def _replay(token: str, *, confirm: str | None = None, job: str | None = None) -> Response:
     headers = {"Authorization": f"Bearer {token}"}
     if confirm is not None:
         headers["X-Confirm-Action"] = confirm
     async with _client() as http:
-        return await http.post(ROUTE, headers=headers)
+        return await http.post(ROUTE, headers=headers, params={} if job is None else {"job": job})
 
 
-async def _dead_letter() -> UUID:
-    """One dead-lettered message, backdated so an oldest-first run reaches it."""
+async def _read_platform(token: str) -> Response:
+    async with _client() as http:
+        return await http.get(PLATFORM_ROUTE, headers={"Authorization": f"Bearer {token}"})
+
+
+async def _message(
+    *,
+    job: str = "deliver_outbound_webhook",
+    status: str = "failed",
+    age_days: int = 30,
+    payload: dict[str, Any] | None = None,
+) -> UUID:
+    """One outbox row, backdated so an oldest-first run reaches it.
+
+    ONE insert for every seeded row in this file, rather than one per status: the tests
+    that assert "only `failed` counts" would otherwise be comparing rows built by two
+    different literals, and a divergence between them would look like the behaviour under
+    test. `age_days` is what makes the oldest-first ordering deterministic here — see the
+    module docstring on why nothing in this file may assume it owns the queue.
+    """
     message_id = uuid7()
+    body = {"marker": f"replay-{RUN}", **(payload or {})}
     async with untenanted_session() as session:
         await session.execute(
             text(
                 "INSERT INTO outbox_messages (id, queue, job, payload, status, attempt_count, "
-                "last_error, created_at, updated_at) VALUES (:id, 'default', "
-                "'deliver_outbound_webhook', CAST(:p AS jsonb), 'failed', 5, "
-                "'exhausted after 3', now() - interval '30 days', now())"
+                "last_error, created_at, updated_at) VALUES (:id, 'default', :job, "
+                "CAST(:p AS jsonb), :status, 5, 'exhausted after 3', "
+                "now() - make_interval(days => :age), now())"
             ),
-            {"id": message_id, "p": json.dumps({"marker": f"replay-{RUN}"})},
+            {
+                "id": message_id,
+                "job": job,
+                "p": json.dumps(body),
+                "status": status,
+                "age": age_days,
+            },
         )
     return message_id
+
+
+async def _dead_letter() -> UUID:
+    """One dead-lettered `deliver_outbound_webhook`, the shape the runbook's §3 is about."""
+    return await _message()
+
+
+# The run marker with its digits mapped onto letters. Job names are logged through
+# `redact_mapping`, whose `_PHONE_RE` masks any run of nine or more digits and whose
+# `_HEX_ID_RE` holds hex runs — so a hex marker would make the audit assertion below fail
+# on roughly one run in a hundred, for a reason that has nothing to do with the code.
+JOB_RUN = "".join(c if c.isalpha() else chr(ord("g") + int(c)) for c in RUN)
+
+
+def _job_name(suffix: str) -> str:
+    """A job name no other suite (and no other test in this one) can have written.
+
+    Every depth and scope assertion below is on ONE job's entry, so uniqueness is what
+    makes a global aggregate assertable at all — and it must satisfy the route's own
+    `^[a-z][a-z0-9_]*$` bound, because a scoped replay of it has to be a legal request.
+    """
+    return f"probe_{JOB_RUN}_{suffix}"
+
+
+def _entry(body: dict[str, Any], job: str) -> dict[str, Any] | None:
+    for entry in body["outbox_dead_letters"]["by_job"]:
+        if entry["job"] == job:
+            return entry
+    return None
 
 
 async def _status(message_id: UUID) -> tuple[str, int]:
@@ -290,8 +382,16 @@ def test_the_confirmation_literal_is_the_published_ops_procedure() -> None:
     """`runbooks/webhook-delivery-failures.md` prints this string for the curl fallback
     and `lib/api/admin.ts` mirrors it for the console. Pinned here so changing the shape
     has to be a deliberate edit that fails a test, rather than a reformat that leaves the
-    runbook telling operators to send a header the API refuses."""
+    runbook telling operators to send a header the API refuses.
+
+    The unscoped run keeps the bare literal for exactly that reason: the runbook's curl
+    sends no `job`, so it must go on working unchanged now that a scope exists.
+    """
     assert OUTBOX_REPLAY_CONFIRMATION == "replay_dead_letters"
+    assert outbox_replay_confirmation(None) == "replay_dead_letters"
+    assert outbox_replay_confirmation("deliver_outbound_webhook") == (
+        "replay_dead_letters:deliver_outbound_webhook"
+    )
 
 
 def test_the_route_is_mounted_and_takes_the_confirmation_header() -> None:
@@ -306,3 +406,274 @@ def test_the_route_is_mounted_and_takes_the_confirmation_header() -> None:
         "the replay route stopped declaring X-Confirm-Action — the console would go on "
         "sending a header nothing reads"
     )
+    query = {param.name for param in routes[ROUTE].dependant.query_params}
+    assert "job" in query, (
+        "the scope stopped being a query parameter — the console would send `?job=` to a "
+        "route that ignores it and replay every job under a header that says otherwise"
+    )
+
+
+# ============================================================================
+# 4. The depth the confirmation is sized by
+# ============================================================================
+
+
+async def test_the_depth_counts_dead_letters_and_nothing_else() -> None:
+    """`pending` is a message waiting its turn and `published` is one already handed to
+    ARQ. Counting either would tell an operator they are about to re-send messages that
+    are not in the DLQ at all — and would inflate the number they are confirming."""
+    job = _job_name("mixed")
+    for _ in range(3):
+        await _message(job=job, status="failed")
+    await _message(job=job, status="pending")
+    await _message(job=job, status="published")
+    token, _ = await _make_admin()
+
+    response = await _read_platform(token)
+
+    assert response.status_code == 200, response.text
+    entry = _entry(response.json(), job)
+    assert entry is not None, "the seeded job is missing from the breakdown"
+    assert entry["depth"] == 3, (
+        "the depth counted rows that are not dead letters — an operator would confirm a "
+        f"redelivery larger than the queue: {entry}"
+    )
+
+
+async def test_the_breakdown_sums_to_the_total() -> None:
+    """A total that does not equal its parts is worse than either alone: an operator
+    reading `142` beside jobs adding to `130` cannot tell which number to believe.
+
+    Held BY CONSTRUCTION — one grouped aggregate, so no dispatcher tick can land between
+    the total and the parts — and asserted anyway, because that construction is exactly
+    what a well-meaning refactor into two queries would undo.
+    """
+    first, second = _job_name("sum_a"), _job_name("sum_b")
+    for _ in range(2):
+        await _message(job=first)
+    await _message(job=second)
+    token, _ = await _make_admin()
+
+    body = (await _read_platform(token)).json()["outbox_dead_letters"]
+
+    assert sum(entry["depth"] for entry in body["by_job"]) == body["depth"]
+    assert _entry({"outbox_dead_letters": body}, first) is not None
+    assert {entry["job"] for entry in body["by_job"]} >= {first, second}
+
+
+async def test_the_depth_names_the_age_of_the_oldest_dead_letter() -> None:
+    """Age is what separates a retry from an intrusion: re-sending a ten-minute-old
+    webhook is a retry, and re-sending a nine-day-old lead is a client's CRM receiving
+    something they have already worked and closed."""
+    job = _job_name("aged")
+    await _message(job=job, age_days=9)
+    await _message(job=job, age_days=1)
+    token, _ = await _make_admin()
+
+    body = (await _read_platform(token)).json()["outbox_dead_letters"]
+    entry = _entry({"outbox_dead_letters": body}, job)
+
+    assert entry is not None
+    oldest = datetime.fromisoformat(entry["oldest_at"])
+    age = datetime.now(UTC) - oldest
+    assert timedelta(days=8) < age < timedelta(days=10), (
+        f"the per-job oldest is not the oldest of that job's rows: {entry['oldest_at']}"
+    )
+    # The queue's own oldest can only be older than any one job's — it is the min over
+    # all of them, including whatever else this database holds.
+    assert datetime.fromisoformat(body["oldest_at"]) <= oldest
+
+
+async def test_a_job_with_no_dead_letters_is_absent_rather_than_a_zero_row() -> None:
+    """The breakdown is what the queue HOLDS, not a roster of every job that exists.
+
+    A zero row would be a job an operator could select and replay to no effect, and it
+    would arrive from a definition of "the jobs" that this module does not have and must
+    not invent (ARQ's registry lives in `apps/workers`, which the API may not import).
+    The pairing below is the same rule one level up: a depth of 0 has no oldest, so
+    `oldest_at` is null rather than a sentinel instant a console would have to decode.
+    """
+    await _message(job=_job_name("present"))
+    token, _ = await _make_admin()
+
+    body = (await _read_platform(token)).json()["outbox_dead_letters"]
+
+    assert _entry({"outbox_dead_letters": body}, _job_name("never_enqueued")) is None
+    assert (body["depth"] == 0) == (body["oldest_at"] is None)
+
+
+async def test_the_metric_and_the_console_read_one_definition() -> None:
+    """The number the alert fires on and the number an operator confirms against are the
+    same number.
+
+    `record_outbox_metrics` used to run its own `count(*)`. Two definitions of "how deep
+    is the DLQ" are correct on the day they are written and disagree the first time
+    either grows a predicate — and the disagreement is invisible, because one of them is
+    only ever seen in a metrics dashboard and the other only ever on a console.
+    """
+    await _message(job=_job_name("metric"))
+    recorded: list[int] = []
+
+    import apps.api.reliability.service as reliability
+
+    original = reliability.record_outbox_dlq_depth
+    reliability.record_outbox_dlq_depth = recorded.append  # type: ignore[assignment]
+    try:
+        async with untenanted_session() as session:
+            await record_outbox_metrics(session)
+            expected = (await read_dead_letter_queue(session)).depth
+    finally:
+        reliability.record_outbox_dlq_depth = original  # type: ignore[assignment]
+
+    assert recorded == [expected], (
+        "the DLQ-depth metric and the ops read disagree about the depth of one queue"
+    )
+
+
+async def test_the_depth_publishes_counts_and_job_names_but_never_a_payload() -> None:
+    """Hard rule 6, at the one place this slice could have broken it.
+
+    `outbox_messages.payload` is JSONB and a `deliver_outbound_webhook` row's payload is a
+    lead envelope: phone number, name, extraction fields. A breakdown that grew a "recent
+    errors" or "sample payload" convenience would put all of it on an admin screen and in
+    the API's response log. The aggregate selects `job`, `count(*)` and `min(created_at)`
+    and there is nothing else it is allowed to select.
+    """
+    phone = "+919876500042"
+    await _message(
+        job=_job_name("pii"),
+        payload={"phone": phone, "name": "Rekha", "transcript": "she asked about the 2BHK"},
+    )
+    token, _ = await _make_admin()
+
+    body = (await _read_platform(token)).text
+
+    assert phone not in body
+    assert "Rekha" not in body
+    assert "2BHK" not in body
+
+
+async def test_the_platform_read_still_needs_ops_manage() -> None:
+    """The depth rides the platform read, so it inherits that route's gate rather than
+    acquiring one of its own — `ops:manage`, superadmin only (core/rbac.py)."""
+    token, _ = await _make_admin(role="operator")
+
+    assert (await _read_platform(token)).status_code == 403
+
+
+# ============================================================================
+# 5. The scope, and the confirmation that has to agree with it
+# ============================================================================
+
+
+async def test_a_scoped_replay_moves_only_its_own_job() -> None:
+    """The bound the queue's shape allows. Per-TENANT is impossible without a migration —
+    `outbox_messages` has no `tenant_id` and the ids live unindexed inside the JSONB — so
+    `job` is the only scope available, and it is the one the runbook's own diagnosis step
+    already groups by."""
+    wanted, spared = _job_name("scope_hit"), _job_name("scope_miss")
+    replayed = await _message(job=wanted)
+    untouched = await _message(job=spared)
+    token, _ = await _make_admin()
+
+    response = await _replay(token, job=wanted, confirm=outbox_replay_confirmation(wanted))
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"replayed": 1, "job": wanted}
+    assert await _status(replayed) == ("pending", 0)
+    assert (await _status(untouched))[0] == "failed", (
+        "a scoped replay moved a message outside its scope — the confirmation named one "
+        "job and the request re-sent another"
+    )
+
+
+async def test_the_unscoped_confirmation_does_not_authorise_a_scoped_replay() -> None:
+    """A header that says "replay everything" on a request that replays one job describes
+    an action other than the one being performed. It is refused in that direction too, not
+    only in the dangerous one, because a confirmation an operator can be sloppy about in
+    either direction is a habit rather than a control."""
+    job = _job_name("hdr_broad")
+    message_id = await _message(job=job)
+    token, _ = await _make_admin()
+
+    response = await _replay(token, job=job, confirm=OUTBOX_REPLAY_CONFIRMATION)
+
+    assert response.status_code == 403, response.text
+    assert response.json()["type"].rsplit("/", 1)[-1] == "step_up_required"
+    assert (await _status(message_id))[0] == "failed"
+
+
+async def test_a_scoped_confirmation_does_not_authorise_the_unscoped_replay() -> None:
+    """THE dangerous direction: a header captured for one job must never authorise a
+    redelivery of every job, for every tenant, at once."""
+    job = _job_name("hdr_narrow")
+    message_id = await _message(job=job)
+    token, _ = await _make_admin()
+
+    response = await _replay(token, confirm=outbox_replay_confirmation(job))
+
+    assert response.status_code == 403, response.text
+    assert (await _status(message_id))[0] == "failed", (
+        "a confirmation naming ONE job replayed the whole queue — every client's parked "
+        "messages are on their way out again"
+    )
+
+
+async def test_a_malformed_scope_is_refused_rather_than_replaying_everything() -> None:
+    """The failure mode a permissive parameter would have.
+
+    An unparsable `job` must not degrade to "no scope" — that is the one bug where a
+    typo in a bounded request becomes the unbounded one, with a header the operator
+    believes named a single job. FastAPI validates the parameter before the handler runs,
+    so the refusal lands before the step-up and long before any row moves.
+    """
+    message_id = await _message(job=_job_name("malformed"))
+    token, _ = await _make_admin()
+
+    response = await _replay(
+        token, job="Deliver Outbound Webhook", confirm=OUTBOX_REPLAY_CONFIRMATION
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["kind"] == "validation"
+    assert (await _status(message_id))[0] == "failed"
+
+
+async def test_the_scoped_replay_records_which_queue_it_emptied(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """ "Who replayed 100 messages" and "which 100" are different questions, and the record
+    could only answer the first.
+
+    Asserted on the LOG STREAM rather than on a column, because `audit_log` has none:
+    `compliance/audit.py` hashes the row into the chain and sends the sanitised summary to
+    the log keyed by `entry_id` (BACKEND-PATTERNS §7). So the row proves who and when, and
+    this proves the scope travelled with it — `audit_log` is INSERT-only (hard rule 4), so
+    a scope left out at write time is not recoverable by a later correction.
+    """
+    job = _job_name("audited")
+    await _message(job=job)
+    token, admin_id = await _make_admin()
+
+    with caplog.at_level(logging.INFO, logger="apps.api.compliance.audit"):
+        response = await _replay(token, job=job, confirm=outbox_replay_confirmation(job))
+    assert response.status_code == 200, response.text
+
+    async with untenanted_session() as session:
+        actions = (
+            (
+                await session.execute(
+                    text("SELECT action FROM audit_log WHERE actor_id = :aid"), {"aid": admin_id}
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert list(actions) == ["ops.outbox_replay"]
+
+    summaries = [record for record in caplog.records if getattr(record, "job", None) == job]
+    assert summaries, (
+        "the replay's audit summary did not name the job it replayed — the ledger records "
+        f"a redelivery of unknown scope. Records seen: {[r.getMessage() for r in caplog.records]}"
+    )
+    assert summaries[0].replayed == 1

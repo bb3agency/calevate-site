@@ -9,6 +9,7 @@ import {
   Gauge,
   Landmark,
   Lock,
+  PackageOpen,
   PhoneCall,
   PhoneOff,
   RefreshCw,
@@ -39,6 +40,7 @@ import {
   useSetPlatformState,
   useSetTmRegistration,
   useVerifyAuditChain,
+  type DeadLetterQueue,
   type LoadShedMode,
   type PlatformState,
   type TmRegistration,
@@ -125,6 +127,14 @@ import { hasKey, lookup } from "@/lib/lookup";
  *    rule governs the two new readouts: the replay renders the server's count and the
  *    verification renders the server's verdict, including a FAILURE, which stays on
  *    screen in the stop palette rather than passing as a notification.
+ *
+ * 5. **A control whose blast radius can be MEASURED shows the measurement before the
+ *    confirmation.** The dead-letter replay used to be the exception and said so in its
+ *    own words: there was no count to publish, so an operator confirmed a redelivery of
+ *    unknown size, mix and age while every other confirmation here named something
+ *    visible. `outbox_dead_letters` closed that, and the three properties it must hold are
+ *    property 1 again in another dialect — a depth we could not read is not a zero, an
+ *    empty queue is not an unreadable one, and neither is a reason to hide the control.
  *
  * WHAT ELSE THE DESIGN PASS FIXED: `halt_reason` was on the wire (`PlatformStateOut`) and
  * on no screen. The API added the column precisely because "why is outbound stopped" was
@@ -367,7 +377,7 @@ export default function OpsPage() {
           verification because an unrelated row was unreadable would remove the one control
           an operator most wants when the platform is behaving strangely — and both still
           disable themselves, with the reason, for a session that lacks `ops:manage`. */}
-      <OutboxReplayPanel access={mayRecover} />
+      <OutboxReplayPanel access={mayRecover} queue={deadLetterState(state)} />
       <AuditChainPanel access={mayRecover} />
 
       <Card title="What is never shed">
@@ -1003,36 +1013,126 @@ function TmRegistrationPanel({
 }
 
 /**
- * The outbox dead-letter queue's one lever — `POST /v1/ops/outbox/replay`.
+ * The dead-letter queue as this screen may know it — three states, and never a fourth.
  *
- * `runbooks/webhook-delivery-failures.md` §"failed" and `campaign-escalation-refused.md`
- * both end at this endpoint with the instruction "never by hand", and until now the only
- * way to reach it was by hand. It is cross-tenant: `replay_dead_letters` selects on
- * `status = 'failed'` with no tenant predicate at all, so one click moves other people's
- * clients' messages.
+ * BUILD-LOG §52's rule, expressed as a type rather than as discipline: loading is a
+ * skeleton, failure is a refusal, and neither is a number. A depth of 0 and a depth that
+ * could not be read are OPPOSITE facts — one says "there is nothing to replay", the other
+ * says "we have no idea what you are about to send" — and the whole reason this field
+ * exists is to stop the second being confirmed as if it were the first. A
+ * `DeadLetterQueue | undefined` would have collapsed them at the first `??`.
+ */
+type DeadLetterState =
+  | { status: "loading" }
+  | { status: "unreadable" }
+  | { status: "read"; queue: DeadLetterQueue };
+
+function deadLetterState(query: {
+  data: PlatformState | undefined;
+  error: unknown;
+  isLoading: boolean;
+}): DeadLetterState {
+  // Error first: a refetch that fails leaves the previous `data` in place, and a stale
+  // depth rendered as current is the same lie as an invented one.
+  if (query.error) return { status: "unreadable" };
+  if (query.isLoading || !query.data) return { status: "loading" };
+  return { status: "read", queue: query.data.outbox_dead_letters };
+}
+
+/** `""` = the operator has not chosen yet; `"*"` = every job. Neither can collide with a
+ *  real job name, which the API bounds to `^[a-z][a-z0-9_]*$`. */
+const EVERY_JOB = "*";
+
+/**
+ * The outbox dead-letter queue: how deep it is, and its one lever —
+ * `POST /v1/ops/outbox/replay`.
+ *
+ * `runbooks/webhook-delivery-failures.md` §3 and `campaign-escalation-refused.md` both end
+ * at this endpoint with the instruction "never by hand", and until recently the only way
+ * to reach it was by hand. It is cross-tenant: `replay_dead_letters` has no tenant
+ * predicate at all (`outbox_messages` carries no `tenant_id`), so one click moves other
+ * people's clients' messages.
  *
  * THE BLAST RADIUS IS REDELIVERY, not the flip. Every message it moves back to `pending`
  * gets a fresh attempt budget and will be delivered again — and a message can dead-letter
  * *after* its side effect landed, so "delivered twice" is the outcome to be sure about
  * before clicking, not the flag in the row.
  *
- * STEP-UP CONFIRMED, at last. This panel used to collect the typed word and send no
- * header, correctly reporting that the route accepted none — the honest rendering of a
- * broken API. `POST /v1/ops/outbox/replay` now requires `X-Confirm-Action:
- * replay_dead_letters` (`ops/routes.py::OUTBOX_REPLAY_CONFIRMATION`), and `useReplayOutbox`
- * sends it from the same click that reads the word below. So the typed word is no longer
- * "the only thing between this button and a redelivery": it is the console's guard, and
- * the header is the API's, and a stolen session with no console cannot use the second.
+ * ## The depth, and why the panel changed shape around it
  *
- * There is no dead-letter COUNT to show before the click, because no endpoint publishes
- * one. That is stated instead of guessed at: this control does not move a state we failed
- * to read (the ops screen's rule), it moves a queue whose size nothing here can see, and
- * the response is the console's first and only measurement of it.
+ * This panel used to say, in its own words, that there was no count to show before the
+ * click because no endpoint published one. So an operator confirmed a redelivery of
+ * unknown size, unknown mix and unknown age — every other confirmation on this router
+ * binds to something visible (a tenant id, a target mode, a direction), and this one named
+ * an action whose scope was whatever the queue happened to hold. A confirmation you cannot
+ * size is a habit, not a control.
+ *
+ * `GET /v1/ops/platform` now carries `outbox_dead_letters`, so the depth, the per-`job`
+ * breakdown and the age of the oldest message are on screen BEFORE the confirmation. Four
+ * consequences, each deliberate:
+ *
+ * 1. **A depth we could not read is not a zero.** The panel refuses to state one and says
+ *    the confirmation is unsized — and the button STAYS ENABLED, because the lever must
+ *    not disappear when the platform is behaving strangely. That is the same rule the
+ *    gating already followed (this control is gated on the permission, never on the
+ *    platform row); riding that read costs a NUMBER here, never the control.
+ * 2. **A depth of 0 disables the button, with the reason beside it.** The objection is the
+ *    load-shed panel's, one step earlier: the server would accept an empty replay and
+ *    write an `ops.outbox_replay` audit row for a redelivery nobody performed. It is the
+ *    console's guard alone — the API cannot refuse an empty queue without lying about the
+ *    race between the check and the claim.
+ * 3. **The panel still renders when the queue is empty.** The runbook sends operators here
+ *    by name ("Console: Operations — /admin/ops → Dead-lettered outbox messages"), and a
+ *    panel that vanished would make "the runbook is wrong" indistinguishable from "there
+ *    is nothing parked".
+ * 4. **The scope is chosen, not defaulted.** See the select below.
  */
-function OutboxReplayPanel({ access }: { access: OpsAccess }) {
+function OutboxReplayPanel({
+  access,
+  queue,
+}: {
+  access: OpsAccess;
+  queue: DeadLetterState;
+}) {
   const replay = useReplayOutbox();
   const [confirm, setConfirm] = useState("");
-  const ready = confirm === "REPLAY";
+  // Opens on NO CHOICE, for the load-shed panel's reason applied to a bigger blast
+  // radius: a select preloaded with "every job" would make "click the obvious button" a
+  // cross-tenant redelivery of everything, chosen by nobody.
+  const [scope, setScope] = useState("");
+
+  const sized = queue.status === "read" ? queue.queue : null;
+  const job = scope === "" || scope === EVERY_JOB ? null : scope;
+  // Nothing to choose FROM when the queue could not be read, and nothing to choose
+  // BETWEEN when it is empty — so in both cases the choice is not withheld and this term
+  // stands aside. That is not tidiness: while it also covered the empty queue, two
+  // independent guards produced one dead button, `replayable` was doing no work, and a
+  // test asserting the empty-queue rule passed with that rule deleted (it was really
+  // asserting the scope rule). One condition, one reason, one sentence under the button.
+  const scopeChosen = sized === null || sized.depth === 0 || scope !== "";
+  const replayable = queue.status === "unreadable" || (sized !== null && sized.depth > 0);
+  // The permission is part of `ready` here rather than a second term at the button,
+  // because the sentence under the button explains whichever condition is unmet and
+  // "ready" must therefore mean the same thing as "the button is alive".
+  const ready = access.allowed && replayable && scopeChosen && confirm === "REPLAY";
+
+  const scopedDepth =
+    job === null ? sized?.depth : sized?.by_job.find((entry) => entry.job === job)?.depth;
+
+  // WHY the control is dead, in the order the operator can act on: their permission, then
+  // ours to answer, then the queue's own answer. Rendered BESIDE the button — a reason a
+  // screenful away from the control it explains is the defect §52 found on three screens.
+  const deadReason = !access.allowed
+    ? access.reason
+    : queue.status === "loading"
+      ? "Reading the queue depth. The button unlocks once the size of the replay is known."
+      : sized !== null && sized.depth === 0
+        ? "Nothing is dead-lettered, so there is nothing to replay. Running it anyway would " +
+          "record an ops.outbox_replay entry for a redelivery that never happened."
+        : !scopeChosen
+          ? "Choose what to replay first. There is no default, because the default would be " +
+            "the largest possible act."
+          : null;
 
   return (
     <Card title="Dead-lettered outbox messages">
@@ -1042,6 +1142,85 @@ function OutboxReplayPanel({ access }: { access: OpsAccess }) {
           to <span className="font-mono">pending</span> so the dispatcher picks them up
           again — for every client at once, oldest first, up to 100 per run.
         </p>
+
+        {queue.status === "loading" && <Skeleton rows={2} />}
+
+        {/* The refusal. NOT "0 parked" and NOT a hidden panel: an operator who cannot see
+            the queue is exactly the one who must be told that the confirmation below is
+            unsized, rather than reassured by a number nobody sent. */}
+        {queue.status === "unreadable" && (
+          <NoticeBox
+            tone="warn"
+            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
+            title="We do not know how many messages are parked"
+          >
+            <p className="mt-1">
+              The dead-letter depth is read with the platform state, and that read failed —
+              so this screen will not tell you the queue is empty and it will not tell you
+              how large a replay would be. The error above says what stopped it.
+            </p>
+            <p className="mt-2">
+              The button below still works, deliberately: this control does not move a
+              state we failed to read, and removing a recovery lever because a number was
+              unavailable is worse than running it unsized. It will replay{" "}
+              <span className="font-semibold">every job</span> — up to 100, oldest first.
+            </p>
+          </NoticeBox>
+        )}
+
+        {sized !== null && sized.depth === 0 && (
+          <NoticeBox
+            tone="ok"
+            icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
+            title="Nothing is dead-lettered"
+          >
+            <p className="mt-1">
+              No outbox message is in the <span className="font-mono">failed</span> state,
+              so there is nothing to replay and the control below is disabled. This is a
+              measurement, not an assumption — it refreshes every 30 seconds.
+            </p>
+          </NoticeBox>
+        )}
+
+        {/* THE SIZE OF THE ACT, before the confirmation. The breakdown is the half a total
+            cannot give: 142 CRM webhooks and 142 hot-lead emails are different things to
+            re-send, and the oldest timestamp is what separates a retry from a client's CRM
+            receiving a lead they closed last week. Counts and job names only — outbox
+            payloads are JSONB carrying phone numbers and extraction output (hard rule 6),
+            and the API publishes none of it. */}
+        {sized !== null && sized.depth > 0 && (
+          <NoticeBox
+            tone="warn"
+            icon={<PackageOpen aria-hidden className="h-5 w-5" />}
+            title={`${formatCount(sized.depth)} messages are parked in the dead-letter queue`}
+          >
+            <p className="mt-1">
+              Oldest: <span className="font-semibold">{formatIST(sized.oldest_at)}</span>.
+              Replaying re-sends them; an old one arrives at a client who has already dealt
+              with it by other means.
+            </p>
+            <table className="mt-3 w-full text-left text-xs">
+              <thead className="text-ink-faint">
+                <tr>
+                  <th className="pb-1 font-medium">Job</th>
+                  <th className="pb-1 text-right font-medium">Parked</th>
+                  <th className="pb-1 text-right font-medium">Oldest</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sized.by_job.map((entry) => (
+                  <tr key={entry.job}>
+                    <td className="py-0.5 pr-2 font-mono">{entry.job}</td>
+                    <td className="py-0.5 text-right tabular-nums">
+                      {formatCount(entry.depth)}
+                    </td>
+                    <td className="py-0.5 pl-2 text-right">{formatIST(entry.oldest_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </NoticeBox>
+        )}
 
         {replay.error && <WriteFailure error={replay.error} />}
 
@@ -1062,6 +1241,12 @@ function OutboxReplayPanel({ access }: { access: OpsAccess }) {
                 ? "Each one will be attempted again from a fresh budget. Watch the DLQ rather than assuming they land — runbooks/webhook-delivery-failures.md carries the follow-up."
                 : "The server found no message in the failed state, so nothing was moved. That is an answer, not a failure."}
             </p>
+            {/* The scope the SERVER applied, not the one this form thinks it sent: a
+                `replayed: 0` under a mistyped job is an operator's typo, and reading it
+                back is what makes that visible rather than "the queue was empty". */}
+            <p className="mt-2 text-xs">
+              Scope: <span className="font-mono">{replay.data.job ?? "every job"}</span>
+            </p>
             {/* The run is capped at 100 (`replay_dead_letters`), so a full batch is the
                 one result that does NOT mean the queue is now empty. */}
             {replay.data.replayed === 100 && (
@@ -1076,9 +1261,48 @@ function OutboxReplayPanel({ access }: { access: OpsAccess }) {
           className="space-y-3"
           onSubmit={(e) => {
             e.preventDefault();
-            replay.mutate(undefined, { onSuccess: () => setConfirm("") });
+            replay.mutate(job, { onSuccess: () => setConfirm("") });
           }}
         >
+          {/* THE SCOPE, offered only when we can enumerate it.
+              `outbox_messages` has no `tenant_id` (infra table — the ids live inside the
+              JSONB payload), so per-client scoping is impossible without a migration and
+              `job` is the only bound available. It is not a consolation prize: the run
+              takes the 100 OLDEST rows, so an operator recovering a client's webhooks out
+              of a queue full of dead-lettered emails replays 100 emails, reads "100 moved"
+              as success, and leaves every webhook parked. */}
+          {sized !== null && sized.depth > 0 && (
+            <label className="block">
+              <span className={FIELD_LABEL}>What to replay</span>
+              <select
+                value={scope}
+                onChange={(e) => {
+                  setScope(e.target.value);
+                  // The confirmation authorises THIS scope — the header carries it
+                  // (`outboxReplayConfirmation`) — so a word typed for one selection must
+                  // not survive a change of selection and submit against another.
+                  setConfirm("");
+                }}
+                disabled={!access.allowed}
+                className={FIELD}
+              >
+                <option value="">— choose —</option>
+                <option value={EVERY_JOB}>
+                  every job — all {formatCount(sized.depth)} parked messages
+                </option>
+                {sized.by_job.map((entry) => (
+                  <option key={entry.job} value={entry.job}>
+                    {entry.job} — {formatCount(entry.depth)} parked
+                  </option>
+                ))}
+              </select>
+              <span className={FIELD_HINT}>
+                Scoping bounds what gets re-sent. It does not bound WHOSE — every job is
+                cross-tenant, because the queue has no tenant column to scope by.
+              </span>
+            </label>
+          )}
+
           <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
             <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
             <div className="min-w-0">
@@ -1088,13 +1312,28 @@ function OutboxReplayPanel({ access }: { access: OpsAccess }) {
               <p className="mt-1 text-ink-muted">
                 A message that already reached its destination before it dead-lettered
                 will be delivered a second time — a duplicate WhatsApp escalation, a
-                duplicate webhook to a client&apos;s own system. Read the queue first if
-                you can; this is not reversible from here.
+                duplicate webhook to a client&apos;s own system. This is not reversible
+                from here.
               </p>
+              {/* What THIS submission will send, in numbers, immediately above the
+                  confirmation it is asking for. */}
+              {scopedDepth !== undefined && scopeChosen && (
+                <p className="mt-1 font-semibold text-ink">
+                  About to re-send up to {formatCount(Math.min(scopedDepth, 100))} of the{" "}
+                  {formatCount(scopedDepth)} parked{" "}
+                  {job !== null && (
+                    <>
+                      <span className="font-mono">{job}</span>{" "}
+                    </>
+                  )}
+                  messages, oldest first.
+                </p>
+              )}
               <p className="mt-1 text-xs text-ink-faint">
-                Recorded in the audit log as ops.outbox_replay with the number moved. The
-                word below is also sent to the API as this action&apos;s step-up
-                confirmation, so a session that did not go through this form cannot run it.
+                Recorded in the audit log as ops.outbox_replay with the number moved and
+                the scope. The word below is also sent to the API as this action&apos;s
+                step-up confirmation, bound to that scope, so a session that did not go
+                through this form cannot run it.
               </p>
             </div>
           </div>
@@ -1112,18 +1351,18 @@ function OutboxReplayPanel({ access }: { access: OpsAccess }) {
 
           <button
             type="submit"
-            title={access.reason ?? undefined}
-            disabled={!access.allowed || !ready || replay.isPending}
+            title={deadReason ?? undefined}
+            disabled={!ready || replay.isPending}
             className={DANGER_BUTTON}
           >
             <RefreshCw aria-hidden className="h-4 w-4" />
             {replay.isPending ? "Replaying…" : "Replay dead letters"}
           </button>
 
-          {!access.allowed && access.reason && (
+          {deadReason && !ready && (
             <p className="flex items-start gap-2 text-xs text-ink-muted">
               <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              {access.reason}
+              {deadReason}
             </p>
           )}
         </form>

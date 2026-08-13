@@ -417,6 +417,80 @@ async def mark_outbox_failed(
         )
 
 
+@dataclass(frozen=True, slots=True)
+class DeadLetterJobDepth:
+    """One `job`'s share of the dead-letter queue."""
+
+    job: str
+    depth: int
+    # The oldest dead letter OF THIS JOB. Age is the cheapest signal of what a replay
+    # actually does: re-sending a ten-minute-old webhook is a retry, and re-sending a
+    # week-old one is a client's CRM receiving a lead they have already worked.
+    oldest_created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class DeadLetterQueue:
+    """How deep the outbox DLQ is, what is in it, and how old the head of it is.
+
+    COUNTS AND JOB NAMES ONLY, and that is a hard-rule-6 boundary rather than an
+    omission: `outbox_messages.payload` is JSONB carrying lead fields, phone numbers and
+    extraction output, so nothing derived from it may leave this function. `job` is an
+    ARQ job name — a code identifier, fixed at enqueue — and a count is a count.
+    """
+
+    depth: int
+    # None exactly when `depth` is 0. Not folded into a sentinel time: "the queue is
+    # empty" and "the oldest is the epoch" are different facts and a caller must not have
+    # to know which one a magic value means.
+    oldest_created_at: datetime | None
+    by_job: tuple[DeadLetterJobDepth, ...]
+
+
+async def read_dead_letter_queue(session: AsyncSession) -> DeadLetterQueue:
+    """THE definition of "how deep is the DLQ" — one query, one instant, two readers.
+
+    `record_outbox_metrics` publishes `depth` as the `outbox_dlq_depth` metric and
+    `GET /v1/ops/platform` publishes the whole thing to the console, so the number an
+    operator sees before confirming a replay and the number the alert fires on are the
+    same number by construction. The metric used to run its own `count(*)` here; a second
+    definition of a queue's depth is the kind of duplication that is correct on the day it
+    is written and disagrees the first time either side grows a predicate.
+
+    ONE GROUPED AGGREGATE, not a `count(*)` plus a `GROUP BY`. The total is the sum of the
+    parts rather than a separately measured number, so a dispatcher tick landing between
+    two statements cannot publish a breakdown that does not add up to its own total — the
+    same one-instant argument `read_halt_state` makes for the halt and its reason, applied
+    inside one payload rather than across two rows.
+
+    The scan is over `status = 'failed'` only, which `ix_outbox_pending (status,
+    created_at)` serves, and grouping adds a sort over rows the DLQ-depth alert exists to
+    keep few. It is not free on the dispatcher's 10-second tick, and it is still the right
+    trade: a marginally cheaper metric query that can drift from the operator's readout is
+    the more expensive of the two.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT job, count(*) AS depth, min(created_at) AS oldest "
+                "FROM outbox_messages WHERE status = 'failed' "
+                # Biggest first — an operator sizing a replay reads the largest share
+                # first — then by name so equal shares render in a stable order rather
+                # than shuffling between polls.
+                "GROUP BY job ORDER BY count(*) DESC, job"
+            )
+        )
+    ).all()
+    by_job = tuple(
+        DeadLetterJobDepth(job=row[0], depth=int(row[1]), oldest_created_at=row[2]) for row in rows
+    )
+    return DeadLetterQueue(
+        depth=sum(entry.depth for entry in by_job),
+        oldest_created_at=min((entry.oldest_created_at for entry in by_job), default=None),
+        by_job=by_job,
+    )
+
+
 async def record_outbox_metrics(session: AsyncSession) -> None:
     row = (
         await session.execute(
@@ -427,15 +501,29 @@ async def record_outbox_metrics(session: AsyncSession) -> None:
         )
     ).first()
     record_outbox_lag(float(row[0]) if row else 0.0)
-    dlq = (
-        await session.execute(text("SELECT count(*) FROM outbox_messages WHERE status = 'failed'"))
-    ).scalar()
-    record_outbox_dlq_depth(int(dlq or 0))
+    # The metric reads the SAME aggregate the ops console does — see
+    # `read_dead_letter_queue` on why this is not a local `count(*)` any more.
+    record_outbox_dlq_depth((await read_dead_letter_queue(session)).depth)
 
 
-async def replay_dead_letters(session: AsyncSession, *, limit: int = 100) -> int:
+async def replay_dead_letters(
+    session: AsyncSession, *, job: str | None = None, limit: int = 100
+) -> int:
     """The ops "replay dead letter" action. Attempts reset so the message gets a fresh
     budget; the caller writes the audit note.
+
+    `job` scopes the run to one kind of side effect; `None` means every job, which is what
+    this function has always done and still does. The scope is a bound on the blast
+    radius, and the LIMIT is why it is worth having rather than a nicety: 100 OLDEST rows
+    across every job means a flood of dead-lettered emails can consume the whole run while
+    the CRM webhooks an operator came to recover stay parked, and the operator reads
+    `replayed: 100` as success. Scoping makes "replay the thing I am here about" reachable
+    in one act instead of N runs of the wrong one.
+
+    ONE definition of replay, not two: the scope is a predicate inside the same statement,
+    so the ordering, the claim and the CAS guard below are identical whether or not it is
+    set. A separate `replay_one_job` would be the second definition, and the first time
+    the guard changed only one of them would get it.
 
     Claimed exactly like `claim_outbox_batch`, and for the same three reasons:
 
@@ -450,18 +538,31 @@ async def replay_dead_letters(session: AsyncSession, *, limit: int = 100) -> int
       lock and, on waking, re-checks only its OWN WHERE clause; without the status in
       it, a message that was dead when the CTE ran and published by the time the lock
       was granted is flipped back to pending and delivered twice.
+
+    The `job` predicate deliberately does NOT get the same treatment, and the asymmetry is
+    the point: `status` is re-checked on the outer UPDATE because it CHANGES under us —
+    `mark_outbox_published` and the dispatcher both write it — while `job` is written once
+    by `enqueue_outbox` and by no UPDATE anywhere in this codebase. Repeating an immutable
+    predicate would imply it can move and teach the next reader the wrong lesson about
+    which columns need a CAS.
+
+    The cast is not decoration: an untyped NULL parameter leaves Postgres unable to infer
+    the type of `:job` in `IS NULL` and the statement fails to prepare
+    (postgresql.org/docs/16/typeconv-func.html — parameter types are resolved before
+    execution, and a bare `NULL` has none).
     """
     result = await session.execute(
         text(
             "WITH picked AS MATERIALIZED ("
             "  SELECT id FROM outbox_messages WHERE status = 'failed' "
+            "  AND (CAST(:job AS text) IS NULL OR job = CAST(:job AS text)) "
             "  ORDER BY created_at, id LIMIT :limit FOR UPDATE SKIP LOCKED"
             ") "
             "UPDATE outbox_messages o SET status = 'pending', attempt_count = 0, "
             "locked_until = NULL, updated_at = now() FROM picked "
             "WHERE o.id = picked.id AND o.status = 'failed'"
         ),
-        {"limit": limit},
+        {"limit": limit, "job": job},
     )
     return int(rowcount_of(result) or 0)
 
@@ -601,6 +702,8 @@ __all__ = [
     "IDEMPOTENCY_TTL",
     "OUTBOX_CLAIM_LEASE",
     "OUTBOX_MAX_ATTEMPTS",
+    "DeadLetterJobDepth",
+    "DeadLetterQueue",
     "IdempotencyClaim",
     "InboxClaim",
     "OutboxMessageRow",
@@ -616,6 +719,7 @@ __all__ = [
     "mark_inbox_processed",
     "mark_outbox_failed",
     "mark_outbox_published",
+    "read_dead_letter_queue",
     "record_outbox_metrics",
     "replay_dead_letters",
     "scope_key",

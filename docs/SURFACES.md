@@ -291,13 +291,28 @@ Admin realm (`/admin/…`)
   (D-45): `X-Confirm-Action: halt_outbound` / `release_outbound` / `set_load_shed:<mode>`,
   joined with `+` when one request does both. The old blanket `set_platform_state` string
   authorises nothing; the refusal prints the header that would have worked. The **outbox
-  replay** takes the same treatment with the bare action `replay_dead_letters` — no
-  `:<target>` suffix, because unlike a mode or a tenant its target does not vary: there is
-  one dead-letter queue. It is the most destructive control on this screen and was the
-  only one without a header, which is worth stating plainly: replaying does not merely
-  flip rows, it RE-SENDS — real HMAC-signed webhooks into clients' CRMs, real Sheets
-  appends, real emails, across every tenant at once. `GET /v1/ops/audit/verify` is the one
-  deliberate exception on this router: it reads and writes nothing.
+  replay** takes the same treatment, and its target DOES vary: `replay_dead_letters` for
+  the whole queue, `replay_dead_letters:<job>` when scoped to one job, refused in both
+  directions so a header can never authorise a wider act than the request performs. It is
+  the most destructive control on this screen and was until recently the only one without
+  a header, which is worth stating plainly: replaying does not merely flip rows, it
+  RE-SENDS — real HMAC-signed webhooks into clients' CRMs, real Sheets appends, real
+  emails, across every tenant at once. Scoping exists because of the 100-row cap: an
+  operator recovering one client's CRM webhooks out of a queue full of dead-lettered
+  emails would otherwise replay 100 emails, read `replayed: 100` as success, and leave
+  every webhook parked. Per-TENANT scoping is not offered and cannot be: `outbox_messages`
+  is an infra table with no `tenant_id` (BACKEND-PATTERNS §4), tenant ids sit unindexed
+  inside the JSONB payload, and the console says so rather than letting an operator assume
+  the scope bounds WHOSE data moves.
+  `GET /v1/ops/platform` carries **`outbox_dead_letters`** — depth, per-`job` breakdown and
+  the oldest entry's age, from ONE grouped aggregate that is also the source of the
+  `outbox_dlq_depth` metric, so the number an operator confirms against and the number the
+  alert fires on cannot drift. It is there rather than on a route of its own for a reason
+  worth keeping: `ops:manage` is a MUTATING permission, so a new GET declaring it would
+  have to be written into `ADMIN_CONSOLE_GETS` — an allowlist whose own test warns that
+  entries are how it becomes a hole. A field on an already-exempt route adds none.
+  `GET /v1/ops/audit/verify` is the one deliberate exception on this router: it reads and
+  writes nothing.
 - **Spend-cap recompute** (`POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute`,
   `ops:manage`, step-up bound to the tenant, audited on the same session as the write).
   Re-derives `spend_state.capped` from counters already metered against the ceiling now

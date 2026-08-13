@@ -429,28 +429,50 @@ export function useSetPlatformState() {
 }
 
 /**
- * The step-up string for the dead-letter replay — `ops/routes.py`'s
- * `OUTBOX_REPLAY_CONFIRMATION`, mirrored.
+ * How deep the outbox DLQ is, what is in it, and how old the head of it is.
  *
- * A CONSTANT rather than a function, unlike `platformConfirmation` and
- * `spendCapConfirmation`, because nothing about this action varies: there is one
- * dead-letter queue and it is global, so there is no target for a `:<suffix>` to bind.
- * What the string does carry is uniqueness — no other header this console sends is equal
- * to it — which is the property that stops a confirmation captured for a load-shed tweak
- * or one client's recompute authorising a cross-tenant redelivery.
+ * It rides `GET /v1/ops/platform` rather than an endpoint of its own — `PlatformStateOut`
+ * argues that choice where the field is declared. What matters on this side: it arrives
+ * with the platform read, so it is unreadable exactly when that read is, and the panel
+ * has to say "we could not read the depth" rather than render a zero.
+ */
+export type DeadLetterQueue = Schemas["DeadLetterQueueOut"];
+
+/**
+ * The step-up string for an UNSCOPED dead-letter replay — every job, every tenant.
  *
- * Exported so `tests/ops.test.tsx` can pin the literal, for the same reason the other two
- * are: `runbooks/webhook-delivery-failures.md` prints it for the curl fallback, so a
- * reformat here has to fail a test rather than quietly leave the console sending a header
- * the API refuses.
+ * `ops/routes.py`'s `OUTBOX_REPLAY_CONFIRMATION`, mirrored, and it stays this exact
+ * literal because `runbooks/webhook-delivery-failures.md` §3 prints it for the curl
+ * fallback. Pinned by `tests/ops.test.tsx` for the same reason the other two strings are:
+ * a reformat here has to fail a test rather than quietly leave the console — or an
+ * operator following the runbook — sending a header the API refuses.
  */
 export const OUTBOX_REPLAY_CONFIRMATION = "replay_dead_letters";
 
 /**
- * Flip dead-lettered outbox messages back to pending — for EVERY tenant, up to 100 per
- * run, oldest first (`reliability.service.replay_dead_letters`).
+ * The step-up string for ONE replay, bound to the scope it will use.
  *
- * IT SENDS THE HEADER NOW, and it is the same header the console has always collected the
+ * This was a bare constant, on the argument that nothing about the action varied: there
+ * was one global dead-letter queue and so no target for a `:<suffix>` to bind. The replay
+ * now takes an optional `job`, so that is no longer true and the string moves with it —
+ * a header reading `replay_dead_letters` on a request that replays only the CRM webhooks
+ * describes an action other than the one being performed, and (the dangerous direction) a
+ * header captured for one job must not authorise a redelivery of everything.
+ *
+ * `null` keeps the unsuffixed literal, which is what makes the runbook's curl and this
+ * console's "all jobs" choice the same request. The shape is `spendCapConfirmation`'s,
+ * for the same reason: the suffix carries the part of the action an operator could get
+ * wrong by replaying a header they already had.
+ */
+export function outboxReplayConfirmation(job: string | null): string {
+  return job === null ? OUTBOX_REPLAY_CONFIRMATION : `${OUTBOX_REPLAY_CONFIRMATION}:${job}`;
+}
+
+/**
+ * Flip dead-lettered outbox messages back to pending — up to 100 per run, oldest first,
+ * for EVERY tenant (`reliability.service.replay_dead_letters`).
+ *
+ * IT SENDS THE HEADER, and it is the same header the console has always collected the
  * typed word for. This hook used to send none, correctly reading it off a route that
  * accepted none — and the route was wrong, not the hook: `replay_dead_letters` has no
  * tenant predicate (`outbox_messages` carries no `tenant_id`), and what the next dispatch
@@ -458,22 +480,34 @@ export const OUTBOX_REPLAY_CONFIRMATION = "replay_dead_letters";
  * people's systems. That is the most outward-facing write in this console and it was the
  * only one reachable by a single unconfirmed POST.
  *
+ * `job` scopes the run to one kind of side effect and travels in the QUERY STRING, where
+ * the route wants it — the scope is part of this request's identity rather than its
+ * content, so it belongs somewhere an access log records. `null` means every job.
+ *
  * A `step_up_required` refusal therefore means the console and the API disagree about the
  * string — a version skew, not an operator error — and the ops screen renders it as that
  * rather than as a red generic failure the operator would answer by clicking again.
  *
- * Nothing to invalidate: no query in this console reads the outbox. The count in the
- * response IS the result, and the screen renders it rather than a toast.
+ * IT INVALIDATES THE PLATFORM READ, which it did not have to before: the dead-letter
+ * depth now rides `GET /v1/ops/platform` (`PlatformStateOut.outbox_dead_letters`), so
+ * without this the panel would print a fresh "12 moved" beside a depth measured before
+ * they moved — two numbers about the same queue from two instants, which is the defect
+ * that read exists to prevent.
  */
 export type OutboxReplayResult = Schemas["ReplayOut"];
 
 export function useReplayOutbox() {
+  const client = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      apiRequest<OutboxReplayResult>(adminSession(), "/v1/ops/outbox/replay", {
-        method: "POST",
-        confirmAction: OUTBOX_REPLAY_CONFIRMATION,
-      }),
+    mutationFn: (job: string | null) =>
+      apiRequest<OutboxReplayResult>(
+        adminSession(),
+        job === null
+          ? "/v1/ops/outbox/replay"
+          : `/v1/ops/outbox/replay?job=${encodeURIComponent(job)}`,
+        { method: "POST", confirmAction: outboxReplayConfirmation(job) },
+      ),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "platform"] }),
   });
 }
 

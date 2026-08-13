@@ -91,11 +91,38 @@ function routes(
   return { [PLATFORM]: platformAnswer, [ADMIN_ME_PATH]: identity, ...extra };
 }
 
+/**
+ * A dead-letter queue with something in it, which is the DEFAULT for this suite.
+ *
+ * Deliberate: the replay control is disabled on a queue of depth 0 (there is nothing to
+ * replay, and running it anyway records an `ops.outbox_replay` entry for a redelivery
+ * nobody performed), so every case below that is about the confirmation, the header or
+ * the result needs a non-empty queue to be about anything at all. The empty case has its
+ * own test rather than being everyone's premise.
+ */
+function deadLetters(over: Partial<PlatformState["outbox_dead_letters"]> = {}) {
+  return {
+    depth: 9,
+    oldest_at: "2026-08-04T04:15:00Z",
+    by_job: [
+      { job: "deliver_outbound_webhook", depth: 6, oldest_at: "2026-08-04T04:15:00Z" },
+      { job: "send_hot_lead_email", depth: 3, oldest_at: "2026-08-11T09:00:00Z" },
+    ],
+    ...over,
+  };
+}
+
+/** What the server answers a replay with: the count it moved, and the scope it used. */
+function replayed(count: number, job: string | null = null): OutboxReplayResult {
+  return { replayed: count, job };
+}
+
 function platform(over: Partial<PlatformState> = {}): PlatformState {
   return {
     load_shed_mode: "normal",
     outbound_halted: false,
     halt_reason: null,
+    outbox_dead_letters: deadLetters(),
     tm_registration: {
       status: "active",
       tm_id: "TM-110022",
@@ -483,20 +510,37 @@ describe("the step-up strings", () => {
  * the verdict it is about rather than reading the button in the instant after render,
  * which is a state the operator sees for a few milliseconds and no test should assert on.
  */
-async function armReplay(): Promise<HTMLButtonElement> {
+async function armReplay(scope = "*"): Promise<HTMLButtonElement> {
   const button = (await screen.findByRole("button", {
     name: /Replay dead letters/,
   })) as HTMLButtonElement;
   // Identity settled, permission held — and still dead, because nothing is typed yet.
   await waitFor(() => expect(button.disabled).toBe(true));
+  // The scope has NO default: the form opens on "— choose —" so that clicking the obvious
+  // button can never be a cross-tenant redelivery of everything, chosen by nobody. `"*"`
+  // is the every-job option; a job name scopes the run to that job.
+  //
+  // Wait for the DEPTH, not just for the button: the panel paints its button on the first
+  // frame and its scope select only once `outbox_dead_letters` has arrived, so querying
+  // synchronously here would read the millisecond before the answer landed.
+  await waitFor(() =>
+    expect(
+      screen.queryByLabelText(/What to replay/) !== null ||
+        screen.queryByText("We do not know how many messages are parked") !== null,
+    ).toBe(true),
+  );
+  // `query` rather than `get`: the select is offered only when the breakdown could be
+  // READ. On an unreadable queue there is nothing to enumerate, so the run is unscoped
+  // and the panel says so — asserted directly in its own case below. The pattern is a
+  // regex because the label carries its hint text as well as its name.
+  const select = screen.queryByLabelText(/What to replay/);
+  if (select) fireEvent.change(select, { target: { value: scope } });
   fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
   await waitFor(() => expect(button.disabled).toBe(false));
   return button;
 }
 
 describe("the outbox dead-letter replay", () => {
-  const replayed = (count: number): OutboxReplayResult => ({ replayed: count });
-
   it("is dead WITH the reason for a session that lacks ops:manage", async () => {
     const { container } = renderAdminPage(
       <OpsPage />,
@@ -548,6 +592,10 @@ describe("the outbox dead-letter replay", () => {
     expect(container.textContent).toContain("delivered a second time");
 
     // A near-miss must not do it, even once the session is known to be allowed.
+    // `find`, not `get`: the panel renders its button immediately and its scope select
+    // only once the depth has arrived, so a synchronous query here would be asserting on
+    // the millisecond before the read landed.
+    fireEvent.change(await screen.findByLabelText(/What to replay/), { target: { value: "*" } });
     fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "replay" } });
     await waitFor(() => expect(container.textContent).toContain("Recorded in the audit log"));
     expect(button.disabled).toBe(true);
@@ -639,6 +687,194 @@ describe("the outbox dead-letter replay", () => {
     await screen.findByText("The outbox could not be claimed.");
     expect(screen.queryByText(/moved back to pending/)).toBeNull();
     expect(container.textContent).not.toContain("Nothing was dead-lettered");
+  });
+});
+
+/**
+ * The depth — the half that makes the confirmation an informed one.
+ *
+ * The step-up landed on this endpoint and left a different defect: the operator was asked
+ * to confirm a redelivery of unknown SIZE, unknown mix and unknown AGE, and the panel said
+ * so in its own words because no endpoint published a count. Every other confirmation on
+ * this router binds to something the operator can SEE — a tenant id, a target mode, a
+ * direction — and a confirmation you cannot size is a habit rather than a control.
+ *
+ * Ranked by what each failure costs, worst first:
+ *
+ * 1. **A depth we could not read must never render as "nothing to replay."** It is
+ *    `halted ?? false` in a different costume — the same defect BUILD-LOG §52 removed from
+ *    this exact screen — and here it would talk an operator out of a recovery they came to
+ *    perform. Loading is a skeleton, failure is a refusal, and neither is a number.
+ * 2. **The depth is on screen BEFORE the confirmation, not after it.** A count that only
+ *    exists in the response is a measurement taken after the irreversible act.
+ * 3. **The control's state matches what the depth says**: dead on an empty queue with the
+ *    reason beside it, alive on an unreadable one because a recovery lever must not vanish
+ *    when the platform is behaving strangely.
+ * 4. **The scope is chosen, never defaulted**, and the header carries whichever was
+ *    chosen — a header saying "everything" on a request that replays one job describes an
+ *    action other than the one being performed.
+ */
+describe("the dead-letter depth, before the click", () => {
+  it("shows the size, the mix and the age above the confirmation", async () => {
+    const { container } = renderAdminPage(<OpsPage />, routes(platform(), SUPERADMIN));
+
+    await screen.findByText("9 messages are parked in the dead-letter queue");
+    // The mix, because 9 CRM webhooks and 9 hot-lead emails are different things to
+    // re-send — this is the sentence a bare total cannot say.
+    expect(container.textContent).toContain("deliver_outbound_webhook");
+    expect(container.textContent).toContain("send_hot_lead_email");
+
+    // ORDER is the property, not mere presence: a count rendered under the button is a
+    // measurement taken after the irreversible act.
+    const body = container.textContent ?? "";
+    expect(body.indexOf("9 messages are parked")).toBeLessThan(body.indexOf("Type REPLAY"));
+
+    // And the chosen scope is sized in its own sentence, immediately above the
+    // confirmation, so the operator confirms a number rather than a verb.
+    fireEvent.change(await screen.findByLabelText(/What to replay/), {
+      target: { value: "deliver_outbound_webhook" },
+    });
+    await screen.findByText(/About to re-send up to 6 of the 6 parked/);
+    fireEvent.change(screen.getByLabelText(/What to replay/), { target: { value: "*" } });
+    // No stray word where the job name would have been on an unscoped run.
+    await screen.findByText("About to re-send up to 9 of the 9 parked messages, oldest first.");
+  });
+
+  it("REFUSES to state a depth it could not read, rather than showing zero", async () => {
+    // The screen's one unrecoverable lie, in this panel's dialect. "Nothing is
+    // dead-lettered" over a failed read sends an operator away from the recovery they came
+    // for — and the button must survive, because this control does not move a state we
+    // failed to read.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(problem(503, { title: "Service unavailable" }), SUPERADMIN, {
+        [REPLAY]: replayed(4),
+      }),
+    );
+
+    await screen.findByText("We do not know how many messages are parked");
+    expect(container.textContent).not.toContain("Nothing is dead-lettered");
+    expect(container.textContent).not.toContain("messages are parked in the dead-letter queue");
+    // Nothing to enumerate, so nothing to choose from: the run is unscoped and says so.
+    expect(screen.queryByLabelText(/What to replay/)).toBeNull();
+
+    const button = (await screen.findByRole("button", {
+      name: /Replay dead letters/,
+    })) as HTMLButtonElement;
+    fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
+    await waitFor(() => expect(button.disabled).toBe(false));
+  });
+
+  it("kills the button on an EMPTY queue, with the reason where the button is", async () => {
+    // 0 and "we could not read it" are opposite facts, and this is the one that is a fact.
+    // The server would accept an empty replay and write an ops.outbox_replay row for a
+    // redelivery nobody performed — the load-shed panel's objection to re-asserting the
+    // current mode, one step earlier where the operator can still see it.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        platform({ outbox_dead_letters: { depth: 0, oldest_at: null, by_job: [] } }),
+        SUPERADMIN,
+      ),
+    );
+
+    await screen.findByText("Nothing is dead-lettered");
+    const button = (await screen.findByRole("button", {
+      name: /Replay dead letters/,
+    })) as HTMLButtonElement;
+    fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
+    await waitFor(() => {
+      expect(container.textContent).toContain("so there is nothing to replay");
+    });
+    expect(button.disabled).toBe(true);
+    // The panel is still HERE. runbooks/webhook-delivery-failures.md sends operators to it
+    // by name, and one that vanished would make "the runbook is wrong" indistinguishable
+    // from "there is nothing parked".
+    expect(container.textContent).toContain("Dead-lettered outbox messages");
+  });
+
+  it("will not replay until a scope is chosen, and there is no default", async () => {
+    const { calls, container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, { [REPLAY]: replayed(9) }),
+    );
+
+    const button = (await screen.findByRole("button", {
+      name: /Replay dead letters/,
+    })) as HTMLButtonElement;
+    fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
+    await waitFor(() => expect(container.textContent).toContain("Choose what to replay first"));
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
+  it("scopes the request AND the confirmation to the job that was chosen", async () => {
+    const { calls, container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        "/v1/ops/outbox/replay?job=deliver_outbound_webhook": replayed(
+          6,
+          "deliver_outbound_webhook",
+        ),
+      }),
+    );
+
+    fireEvent.click(await armReplay("deliver_outbound_webhook"));
+
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    const post = calls.find((c) => c.method === "POST");
+    // The scope travels in the query string — it is part of this request's identity, not
+    // its content, so it belongs somewhere an access log records.
+    expect(post?.path).toBe("/v1/ops/outbox/replay?job=deliver_outbound_webhook");
+    // And the header names the SAME scope. A header saying "replay everything" on a
+    // request that replays one job describes an action other than the one performed.
+    expect(post?.headers["X-Confirm-Action"]).toBe(
+      "replay_dead_letters:deliver_outbound_webhook",
+    );
+    expect(post?.headers["X-Confirm-Action"]).not.toBe(OUTBOX_REPLAY_CONFIRMATION);
+    // The SERVER's scope in the result, not this form's memory of it: a `replayed: 0`
+    // under a mistyped job is an operator's typo, and reading it back is what shows that.
+    await waitFor(() => expect(container.textContent).toContain("6 messages moved back"));
+  });
+
+  it("forgets a confirmation typed for a different scope", async () => {
+    // The load-shed panel's rule on a bigger blast radius: the header is bound to the
+    // scope, so a word typed for "just the webhooks" must not survive a change to "every
+    // job" and authorise the larger act.
+    renderAdminPage(<OpsPage />, routes(platform(), SUPERADMIN, { [REPLAY]: replayed(9) }));
+
+    const button = (await screen.findByRole("button", {
+      name: /Replay dead letters/,
+    })) as HTMLButtonElement;
+    fireEvent.change(await screen.findByLabelText(/What to replay/), {
+      target: { value: "deliver_outbound_webhook" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
+    await waitFor(() => expect(button.disabled).toBe(false));
+
+    fireEvent.change(screen.getByLabelText(/What to replay/), { target: { value: "*" } });
+
+    expect((screen.getByPlaceholderText("REPLAY") as HTMLInputElement).value).toBe("");
+    expect(button.disabled).toBe(true);
+  });
+
+  it("re-reads the depth after a replay instead of leaving a stale one beside it", async () => {
+    // Two numbers about one queue from two instants is the defect `GET /v1/ops/platform`
+    // exists to prevent; a panel that printed "6 moved" beside a depth measured before
+    // they moved would have reintroduced it inside a single card.
+    const { calls } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, { [REPLAY]: replayed(9) }),
+    );
+
+    fireEvent.click(await armReplay());
+
+    await waitFor(() => {
+      expect(calls.filter((c) => c.method === "GET" && c.path === PLATFORM).length).toBeGreaterThan(
+        1,
+      );
+    });
   });
 });
 
