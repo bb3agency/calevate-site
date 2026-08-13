@@ -510,9 +510,18 @@ async def enqueue_hot_lead_whatsapp(
 ) -> bool:
     """Queue the WhatsApp alert through the OUTBOX, in the caller's transaction.
 
-    Written to be the entire wiring change: one `await` inside the session block that
-    `notifications.notify_hot_lead` already holds open. Returns whether a message was
-    enqueued, so the caller can log it without needing to know why not.
+    Called from `notifications.notify_hot_lead` — one `await` inside the session block
+    that job already holds open, so the outbox row and the email's delivery record share
+    one transaction and one fate. Returns whether a message was enqueued, so the caller
+    can log it without needing to know why not.
+
+    The `whatsapp_enabled` gate is HERE rather than at the call site because the caller
+    should not have to know that a disabled channel is a no-op: the email job asks for
+    the second channel unconditionally and this decides whether there is one. Note what
+    that means for the timeline — while the channel is off, nothing is queued and so
+    nothing is RECORDED, which is the deliberate difference from the campaign escalation
+    below (`enqueue_campaign_escalation`, which is not gated and records its refusal):
+    that path has no second channel, this one has email as its channel of record.
 
     Queued once per (lead, call) — the outbox is never deleted from, so it is also the
     right place to ask "did a previous run already promise this?", which is what keeps
