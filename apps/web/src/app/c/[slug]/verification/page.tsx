@@ -3,7 +3,7 @@
 import type { ComponentType } from "react";
 import { PhoneIncoming, PhoneOutgoing, PhoneOff, ShieldAlert, ShieldCheck } from "lucide-react";
 
-import { Card, NOTICE_TONES, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import { Card, NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import {
   DOCUMENT_KINDS,
   KYC_STATUS_COPY,
@@ -180,12 +180,8 @@ function Verdict({ record }: { record: KycRecord }) {
   const copy = verdictCopy(record);
   const Icon = record.is_verified ? ShieldCheck : ShieldAlert;
   return (
-    <div
-      className={`flex items-start gap-3 rounded-card border p-4 text-sm ${NOTICE_TONES[copy.tone]}`}
-    >
-      <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+    <NoticeBox tone={copy.tone} icon={<Icon className="h-5 w-5" />} title={copy.headline}>
       <div className="min-w-0">
-        <p className="text-base font-semibold">{copy.headline}</p>
         {record.is_verified ? (
           <p className="mt-1">
             {describeVerification(record)} {copy.next}
@@ -210,7 +206,7 @@ function Verdict({ record }: { record: KycRecord }) {
           </p>
         )}
       </div>
-    </div>
+    </NoticeBox>
   );
 }
 

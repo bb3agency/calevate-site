@@ -6,7 +6,7 @@ import { ArrowLeft, Clock, Info, ShieldAlert, ShieldCheck, XCircle } from "lucid
 
 import {
   Card,
-  NOTICE_TONES,
+  NoticeBox,
   ProblemNotice,
   Skeleton,
   formatIST,
@@ -214,12 +214,8 @@ function VerdictBox({ hold, state }: { hold: FirstCampaignHold; state: FirstCamp
   const refusal = state === "rejected" ? (hold.decision_note ?? hold.reason) : null;
   const Icon = verdict.icon;
   return (
-    <div
-      className={`flex items-start gap-3 rounded-card border p-4 text-sm ${NOTICE_TONES[verdict.tone]}`}
-    >
-      <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+    <NoticeBox tone={verdict.tone} icon={<Icon className="h-5 w-5" />} title={verdict.headline}>
       <div className="min-w-0">
-        <p className="text-base font-semibold">{verdict.headline}</p>
         <p className="mt-1">{verdict.next}</p>
 
         {refusal && (
@@ -249,7 +245,7 @@ function VerdictBox({ hold, state }: { hold: FirstCampaignHold; state: FirstCamp
           </p>
         )}
       </div>
-    </div>
+    </NoticeBox>
   );
 }
 

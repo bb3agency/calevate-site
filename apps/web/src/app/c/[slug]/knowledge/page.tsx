@@ -23,7 +23,8 @@ import {
 } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
-import { useAgents, useKbChunks, useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
+import { useAgents } from "@/lib/api/agents";
+import { useKbChunks, useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
 import { lookup } from "@/lib/lookup";
 
 /**

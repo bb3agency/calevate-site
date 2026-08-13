@@ -286,6 +286,51 @@ export const NOTICE_TONES: Record<NoticeTone, string> = {
     "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300",
 };
 
+/**
+ * A verdict, in the tone the verdict deserves.
+ *
+ * `NOTICE_TONES` above argued against a component, on the grounds that the boxes differ
+ * in what they say and only the palette is common. That held while there were two of
+ * them. There are now eight call sites across both realms, and the design pass added a
+ * SECOND common part — the icon medallion — so each site was independently choosing a
+ * gap, a padding, a radius and an icon size, and they had already drifted: `rounded-xl`
+ * on one admin screen against `rounded-card` on the client ones, `gap-2` against
+ * `gap-3`, `p-3` against `p-4`. The palette map stays exported, because a few callers
+ * legitimately want the classes alone (a one-line badge, a table cell).
+ *
+ * `title` is optional: several of these are a single sentence, and forcing a heading
+ * would make callers invent one.
+ */
+export function NoticeBox({
+  tone,
+  icon,
+  title,
+  children,
+  className,
+}: {
+  tone: NoticeTone;
+  icon?: ReactNode;
+  title?: ReactNode;
+  children?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={clsx(
+        "flex items-start gap-3 rounded-card border p-4 text-sm",
+        NOTICE_TONES[tone],
+        className,
+      )}
+    >
+      {icon && <span className="mt-0.5 shrink-0">{icon}</span>}
+      <div className="min-w-0 flex-1">
+        {title && <p className="text-base font-semibold">{title}</p>}
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="py-10 text-center">

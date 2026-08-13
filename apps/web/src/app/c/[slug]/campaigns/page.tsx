@@ -49,7 +49,7 @@ import {
 import { FIRST_CAMPAIGN_BLOCKERS } from "@/lib/api/firstCampaign";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
-import { useAgents } from "@/lib/api/kb";
+import { useAgents } from "@/lib/api/agents";
 
 /**
  * Outbound campaigns (FLOWS §5, SURFACES §2b).
