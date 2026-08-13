@@ -22,15 +22,25 @@ carries the validated Aadhaar/PAN/Luhn/UPI logic plus the spoken-digit-word norm
 that a fresh regex here would not. On top of it sits ONE extra sweep this context needs
 and that one does not: any run of 7+ digits.
 
-That sweep is not belt-and-braces, it is load-bearing, and here is the concrete case.
-The pipeline's phone pattern is `(?:\\+91[ -]?)?\\b([6-9]\\d{9})\\b` — an Indian mobile
-with an OPTIONAL country code — and on the E.164 string this harness actually handles,
-`+919876543210`, it does not match at all: there is no word boundary anywhere inside a
-continuous digit run, so the `\\b` after the optional `+91` can never be satisfied. It
-is right for what it guards (spoken transcript text, where a looser rule would mask
-appointment references and prices out of every Telugu call) and wrong for what this
-guards (E.164 strings, and possibly not Indian ones — a vendor trial dials whatever
-number the founder could buy). Different input, different threshold.
+THE PROPERTY THIS MODULE ADDS, stated as a property and deliberately not as a regex:
+**no free-standing run of 7+ digits leaves this harness, whatever it looks like.** The
+shared redactor recognises SHAPES it knows — Indian mobiles, Aadhaar, PAN, Luhn-valid
+cards, UPI handles, digits spoken as words — and it is tuned for the input it guards,
+spoken transcript text, where a looser rule would mask an appointment time or a price out
+of every Telugu call. This module guards a different input: E.164 strings from a vendor
+trial that dials whatever number the founder could buy, execution ids, and whatever a
+gate's `detail` string happens to interpolate. A shape-based pattern cannot be complete
+over that, so the second layer is threshold-based instead, and it is load-bearing rather
+than decorative — it owns every digit run the first layer was never designed to claim.
+
+This paragraph used to quote the pipeline's phone pattern and reason from its exact
+text about which strings it could not match. That was a true observation about a defect
+of the day, written down as though it were a durable design constraint: the pattern has
+since been fixed and widened, and prose that quotes a regex goes stale the moment
+someone improves it — silently, and in the direction of a reader believing this layer
+matters less than it does. `tests/pilot_redaction_test.py` therefore asserts the ABSENCE
+of the digits rather than which layer masked them, so either layer may own a string
+without a docstring having to be right about it.
 """
 
 from __future__ import annotations

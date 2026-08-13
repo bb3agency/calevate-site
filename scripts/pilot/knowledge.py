@@ -60,12 +60,16 @@ from __future__ import annotations
 import contextlib
 import itertools
 import math
+import os
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Literal, Protocol
+from pathlib import Path
+from typing import Any, Literal, Protocol
 
 from calevate_shared.engine import EngineAgentRef, EngineKBRef, KBSourceRef
+from pydantic import BaseModel, ValidationError
+from pydantic import Field as PydanticField
 
 from scripts.pilot.results import GateRun, SubCheck, failed, not_run, passed
 
@@ -1214,26 +1218,357 @@ async def run_gate8(inputs: KnowledgeProbeInputs) -> GateRun:
     )
 
 
+# --- wiring into the harness ---------------------------------------------------
+#
+# `scripts/pilot/runner.py` names this module in OPTIONAL_GATE_MODULES and reads a
+# `GATES: {number: runner}` mapping. Everything above this line is seams and arithmetic;
+# everything below is how an operator's day-of observations reach them.
+#
+# WHY A FILE AND NOT CLI FLAGS. `latency.py` (gate 4) and `concurrency.py` (gate 13)
+# already answered this question for gates whose inputs are typed in by a human rather
+# than measured by the harness: a JSON file under `docs/evidence/` with an env override.
+# This gate has more of those inputs than either, so a flag per field would be a shell
+# line nobody can review; and the runner's `--attest` vocabulary is CLOSED and owned by
+# another module, so extending it means editing someone else's file mid-flight. One way
+# per problem: the same seam, the same spelling, a third gate.
+
+#: Where gate 8's observations live, and the override for a run against a copy.
+INPUTS_ENV = "CALEVATE_PILOT_GATE8_INPUTS"
+DEFAULT_INPUTS_PATH = "docs/evidence/gate8-inputs.json"
+
+#: Reported on every run of this gate, because it governs how its numbers must be read.
+#: Nothing in gate 8 is a harness measurement: there is no automatic scorer for "did the
+#: agent answer this Telugu question correctly", no way to time a tool call from outside
+#: the call, and no token counter of ours inside their prompt. Every number in the inputs
+#: file was observed by a person, exactly as gate 4's stopwatch samples are.
+OPERATOR_SOURCED_FINDING = (
+    "EVERY GATE-8 NUMBER IS OPERATOR-OBSERVED, NOT HARNESS-MEASURED. Retrieval outcomes, "
+    "tool-call latencies, per-turn token counts and batch outcomes are typed into the "
+    "inputs file by the person who ran the calls (the same arrangement as gate 4's "
+    "stopwatch ledger); the harness owns the arithmetic, the thresholds and the verdicts. "
+    "The two KB-lifecycle probes are the exception — they drive the adapter live."
+)
+
+#: The two D-41 instruments this file deliberately does NOT offer, and why. Both
+#: `agent_ref_reader` and `still_answered` must answer about the handle the probe mints
+#: DURING the run, so a pre-recorded answer in a JSON file would be an answer about a
+#: different handle at a different time — a measurement of nothing, wearing a verdict.
+#: The row therefore stays INCONCLUSIVE with the missing-`get_agent` finding attached,
+#: which is the true state of the world and is what OPERATIONS §2 already records.
+UNSUPPLIABLE_INSTRUMENTS_FINDING = (
+    "D-41's dangling-`rag_id` question cannot be answered from an inputs file: both "
+    "instruments (an agent read-back, or a live call asking about the withdrawn source) "
+    "must address the handle the probe creates during the run, so a pre-recorded answer "
+    "would describe a different handle. It needs `get_agent` on the contract or a live "
+    "call wired into the harness — reported, not worked around."
+)
+
+
+class KbSourceInput(BaseModel):
+    """A knowledge source to attach during the KB-lifecycle probes.
+
+    The text may live beside the file rather than in it (`text_path`): a Telugu FAQ is
+    business content, and `docs/evidence/` is committed — keeping it out of the JSON
+    means the evidence file stays reviewable at a glance.
+    """
+
+    kb_id: str
+    title: str
+    text: str | None = None
+    text_path: str | None = None
+
+    def resolve(self) -> KBSourceRef:
+        if self.text is not None:
+            body = self.text
+        elif self.text_path is not None:
+            body = Path(self.text_path).read_text(encoding="utf-8")
+        else:
+            raise ProbeMisuseError(
+                f"kb source {self.kb_id!r} carries neither `text` nor `text_path`; "
+                "attaching an empty knowledge base would measure retrieval against nothing"
+            )
+        return KBSourceRef(kb_id=self.kb_id, title=self.title, text=body)
+
+
+class AgentProbeInput(BaseModel):
+    """One pilot agent and the source to attach to it. DESTRUCTIVE: the probes attach
+    and then delete, so this must name a pilot agent and never a published client one."""
+
+    agent_ref: str
+    source: KbSourceInput
+
+    def resolve(self) -> KbProbeAgent:
+        return KbProbeAgent(ref=self.agent_ref, source=self.source.resolve())
+
+
+class RetrievalOutcomeInput(BaseModel):
+    """One scored Telugu question. `question_id` is opaque — the question and the
+    agent's answer stay in the operator's sheet with the recordings (hard rule 6)."""
+
+    question_id: str
+    answered: bool
+    latency_ms: float | None = PydanticField(default=None, ge=0)
+
+
+class SlowEndpointInput(BaseModel):
+    injected_delay_ms: int = PydanticField(ge=0)
+    behaviour: Literal["answered", "apologised", "hung", "dropped"]
+    gave_up_after_ms: int | None = PydanticField(default=None, ge=0)
+
+
+class HistoryInput(BaseModel):
+    turn_index: int = PydanticField(ge=0)
+    input_tokens: int | None = PydanticField(default=None, ge=0)
+    cached_input_tokens: int | None = PydanticField(default=None, ge=0)
+
+
+class ContactOutcomeInput(BaseModel):
+    contact_id: str
+    attempts: int = PydanticField(ge=0)
+    terminal_status: str | None = None
+    retried_after: list[str] = PydanticField(default_factory=list)
+
+
+class Gate8Inputs(BaseModel):
+    """What the operator supplies. Every field optional; absent stays absent, and an
+    absent probe reports NOT RUN with its reason rather than vanishing from the gate."""
+
+    primary_agent: AgentProbeInput | None = None
+    control_agent: AgentProbeInput | None = None
+    kb_handle: str | None = None
+    kb_mode: str = "multilingual"
+    #: Defaults to the ids actually scored, in order. Set it explicitly when the sheet
+    #: has ten questions and only eight came back — the denominator is the sheet, and a
+    #: recall that silently shrinks its denominator is a recall that always looks good.
+    question_ids: list[str] = PydanticField(default_factory=list)
+    builtin_retrieval: list[RetrievalOutcomeInput] = PydanticField(default_factory=list)
+    external_retrieval: list[RetrievalOutcomeInput] = PydanticField(default_factory=list)
+    #: Bounded to a fraction, because pydantic coerces "0.8 percent of a typo" into a
+    #: float perfectly happily: an unbounded threshold above 1.0 makes the retrieval row
+    #: impossible to pass and reads as the vendor failing rather than as a typo.
+    min_recall: float = PydanticField(default=0.8, ge=0.0, le=1.0)
+    tool_call_latencies_ms: list[float] | None = None
+    slow_endpoint: list[SlowEndpointInput] | None = None
+    history: list[HistoryInput] | None = None
+    batch_outcomes: list[ContactOutcomeInput] | None = None
+
+    def resolved_question_ids(self) -> tuple[str, ...]:
+        seen: dict[str, None] = {}
+        for outcome in [*self.builtin_retrieval, *self.external_retrieval]:
+            seen.setdefault(outcome.question_id, None)
+        return tuple(self.question_ids) or tuple(seen)
+
+
+class Gate8InputsError(ValueError):
+    """The inputs file exists but cannot be read as evidence.
+
+    Raised rather than tolerated: a partially-parsed file would drop observations
+    silently, and a gate that quietly scored six of ten questions is worse than one that
+    refused to score any.
+    """
+
+
+def replay_scorer(outcomes: Sequence[RetrievalOutcomeInput]) -> RetrievalScorer:
+    """Turn recorded outcomes into the `RetrievalScorer` seam.
+
+    An id with no recorded outcome RAISES rather than scoring `answered=False`: a
+    question nobody asked and a question the agent failed are opposite facts, and
+    defaulting one to the other would move recall in the direction that passes the gate.
+    """
+    by_id = {outcome.question_id: outcome for outcome in outcomes}
+
+    async def score(question_id: str) -> RetrievalOutcome:
+        recorded = by_id.get(question_id)
+        if recorded is None:
+            raise ProbeMisuseError(
+                f"question {question_id!r} has no recorded outcome in the gate 8 inputs "
+                "file. An unasked question is not a failed one — record it or remove it "
+                "from `question_ids`."
+            )
+        return RetrievalOutcome(
+            question_id=recorded.question_id,
+            answered=recorded.answered,
+            latency_ms=recorded.latency_ms,
+        )
+
+    return score
+
+
+def build_probe_inputs(inputs: Gate8Inputs, engine: KbEngine | None) -> KnowledgeProbeInputs:
+    """Project the operator's file onto the probe seams.
+
+    `engine` is the live adapter and is used only by the two KB-lifecycle probes, which
+    are DESTRUCTIVE (they attach a knowledge base and then delete it). What stops them
+    running is the ABSENCE OF AGENTS to point them at: `run_gate8` reaches them only when
+    `primary_agent`/`control_agent` are set, so the engine is handed over unconditionally
+    here rather than re-guarded. The rejected alternative — nulling the engine as well —
+    is a second copy of one rule, and no test can tell the two copies apart, which is how
+    a guard survives long after the rule it mirrors has moved.
+
+    See `UNSUPPLIABLE_INSTRUMENTS_FINDING` for the two seams left deliberately unsupplied.
+    """
+    primary = inputs.primary_agent.resolve() if inputs.primary_agent else None
+    control = inputs.control_agent.resolve() if inputs.control_agent else None
+    return KnowledgeProbeInputs(
+        engine=engine,
+        primary_agent=primary,
+        control_agent=control,
+        kb_handle=inputs.kb_handle,
+        kb_mode=inputs.kb_mode,
+        question_ids=inputs.resolved_question_ids(),
+        builtin_scorer=(
+            replay_scorer(inputs.builtin_retrieval) if inputs.builtin_retrieval else None
+        ),
+        external_scorer=(
+            replay_scorer(inputs.external_retrieval) if inputs.external_retrieval else None
+        ),
+        min_recall=inputs.min_recall,
+        tool_call_latencies_ms=(
+            tuple(inputs.tool_call_latencies_ms)
+            if inputs.tool_call_latencies_ms is not None
+            else None
+        ),
+        slow_endpoint=(
+            tuple(
+                SlowEndpointObservation(
+                    injected_delay_ms=o.injected_delay_ms,
+                    behaviour=o.behaviour,
+                    gave_up_after_ms=o.gave_up_after_ms,
+                )
+                for o in inputs.slow_endpoint
+            )
+            if inputs.slow_endpoint is not None
+            else None
+        ),
+        history=(
+            tuple(
+                HistoryObservation(
+                    turn_index=o.turn_index,
+                    input_tokens=o.input_tokens,
+                    cached_input_tokens=o.cached_input_tokens,
+                )
+                for o in inputs.history
+            )
+            if inputs.history is not None
+            else None
+        ),
+        batch_outcomes=(
+            tuple(
+                ContactOutcome(
+                    contact_id=o.contact_id,
+                    attempts=o.attempts,
+                    terminal_status=o.terminal_status,
+                    retried_after=tuple(o.retried_after),
+                )
+                for o in inputs.batch_outcomes
+            )
+            if inputs.batch_outcomes is not None
+            else None
+        ),
+    )
+
+
+def load_gate8_inputs(path_str: str | None = None) -> Gate8Inputs | None:
+    """Read the operator's file, or None when there is none. Never invents inputs."""
+    path = Path(path_str or os.environ.get(INPUTS_ENV) or DEFAULT_INPUTS_PATH)
+    if not path.exists():
+        return None
+    try:
+        return Gate8Inputs.model_validate_json(path.read_text(encoding="utf-8"))
+    except (ValidationError, ValueError) as exc:
+        # The message can quote the file's own content, which may hold a Telugu FAQ or a
+        # number the operator pasted by accident. Type and path only (hard rule 6).
+        raise Gate8InputsError(
+            f"{path} could not be read as gate 8 inputs: {type(exc).__name__}"
+        ) from exc
+
+
+async def run_gate_8(ctx: Any) -> GateRun:
+    """Gate 8 for `scripts.pilot.runner`.
+
+    Places no calls of its own — the KB-lifecycle probes drive the adapter's KB surface
+    and everything else is replayed observation — so it needs no call budget and can
+    never dial. A `ProbeMisuseError` is caught and returned as a BLOCKED gate rather than
+    allowed to propagate: it means the run cannot be trusted, and on the day that matters
+    it must not also take the remaining gates down with it.
+    """
+    try:
+        inputs = load_gate8_inputs()
+    except Gate8InputsError as exc:
+        return GateRun(number=GATE_NUMBER, title=GATE_TITLE, blocked=str(exc))
+
+    if inputs is None:
+        return GateRun(
+            number=GATE_NUMBER,
+            title=GATE_TITLE,
+            blocked=(
+                f"no inputs file at {DEFAULT_INPUTS_PATH} (override with ${INPUTS_ENV}); "
+                "it carries the Telugu retrieval scores, the tool-call latencies, the "
+                "per-turn token counts and the batch outcomes — all observed on live "
+                "calls, none of them derivable here."
+            ),
+            findings=(OPERATOR_SOURCED_FINDING, UNSUPPLIABLE_INSTRUMENTS_FINDING),
+        )
+
+    engine = getattr(ctx, "engine", None)
+    try:
+        probe_inputs = build_probe_inputs(inputs, engine)
+        result = await run_gate8(probe_inputs)
+    except ProbeMisuseError as exc:
+        return GateRun(number=GATE_NUMBER, title=GATE_TITLE, blocked=f"probe misuse: {exc}")
+    except OSError as exc:
+        return GateRun(
+            number=GATE_NUMBER,
+            title=GATE_TITLE,
+            blocked=f"a knowledge source named in the inputs file could not be read: "
+            f"{type(exc).__name__}",
+        )
+    return GateRun(
+        number=result.number,
+        title=result.title,
+        checks=result.checks,
+        findings=(*result.findings, OPERATOR_SOURCED_FINDING, UNSUPPLIABLE_INSTRUMENTS_FINDING),
+    )
+
+
+GATES = {GATE_NUMBER: run_gate_8}
+
+
 __all__ = [
     "CHECK_NAMES",
+    "DEFAULT_INPUTS_PATH",
     "DOCUMENTED_MAX_ATTEMPTS",
     "DOCUMENTED_RETRY_OUTCOMES",
+    "GATES",
     "GATE_NUMBER",
     "GATE_TITLE",
+    "INPUTS_ENV",
+    "OPERATOR_SOURCED_FINDING",
+    "UNSUPPLIABLE_INSTRUMENTS_FINDING",
     "AgentKbRefReader",
+    "AgentProbeInput",
     "ContactOutcome",
+    "ContactOutcomeInput",
+    "Gate8Inputs",
+    "Gate8InputsError",
+    "HistoryInput",
     "HistoryObservation",
     "KbEngine",
     "KbModeLedger",
     "KbProbeAgent",
+    "KbSourceInput",
     "KnowledgeProbeInputs",
     "ProbeMisuseError",
     "ProbeOutput",
     "RetrievalOutcome",
+    "RetrievalOutcomeInput",
     "RetrievalScorer",
+    "SlowEndpointInput",
     "SlowEndpointObservation",
     "WithdrawnSourceStillAnswered",
+    "build_probe_inputs",
     "inconclusive",
+    "load_gate8_inputs",
     "percentile",
     "probe_batch_campaign",
     "probe_h1_history_handling",
@@ -1241,5 +1576,7 @@ __all__ = [
     "probe_kb_delete_clears_agent_reference",
     "probe_telugu_retrieval",
     "probe_tool_call_budget",
+    "replay_scorer",
     "run_gate8",
+    "run_gate_8",
 ]

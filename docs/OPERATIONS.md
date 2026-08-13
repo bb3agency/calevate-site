@@ -47,7 +47,7 @@ platform choice does): **is the Sarvam LLM genuinely free per token** — perman
 promotional, or rate-limited? If durable it removes the R-04 Gemini-3.x step
 (~₹0.55–0.65/min). Also pin Bulbul V3's "beta pricing" (₹30/10k chars) — beta prices move.
 
-### Running it — gates 1, 2 and 6 are executable, the rest are not (yet)
+### Running it — 1, 2, 6 run on credentials alone; 4, 7, 8, 13 run on an inputs file; 3, 5, 9-12 are human
 
 The table above is the specification; `scripts/pilot/` is the part of it a machine can
 decide. Start with the shopping list, on day one and not on day three:
@@ -105,11 +105,46 @@ What the harness found before any credentials existed, and what it therefore can
   dangling-`rag_id` question (D-41) cannot be answered through the adapter.
 - gate 1's edge half (nginx rejecting a non-allowlisted source) needs an HTTP POST from
   another host against the deployed receiver; the harness exercises the in-app half only.
+- gate 7's **currency** criterion cannot be answered from our own snapshot:
+  `BolnaEngine._cost` sets `source_currency="USD"` as a literal and divides `total_cost`
+  by 100, so the cents assumption is unfalsifiable from inside. The harness corroborates
+  against the vendor's own reported total instead — a ratio of exactly 100 is the
+  signature of the assumption being wrong, and every INR row inherits the factor.
+- gate 7's **transcript** criterion can only see a TOTAL parse failure.
+  `bolna.parse_transcript` returns `[]` for a shape it does not recognise and folds an
+  unprefixed line into the previous turn, and `ExecutionSnapshot` has no rejected-turn
+  count, so a partial loss is invisible; the harness scores zero turns on a `completed`
+  call that carried audio, plus per-turn structural defects.
+- gate 7's **time-to-`completed`** has no post-hoc route: nothing in the contract records
+  when an execution became `completed`, so it is polled live from an operator-supplied
+  disconnect instant or it is absent. `now - ended_at` is deliberately not used — it is a
+  bound that grows with how long the operator took to run the harness.
 
-Gates 9-12 are conversations with human beings and the harness says so rather than
-leaving a blank row. Gates 3, 4, 5, 7, 8 and 13 belong to other modules under
-`scripts/pilot/`; any gate with no implementation registered is reported by number as
-NOT RUN.
+**Which gates the harness can execute, precisely.** Nine of the thirteen are registered
+in `scripts/pilot/`, in two classes, and the difference between them is what an operator
+has to bring:
+
+- **1, 2, 6 — credentials and a tunnel.** `make pilot` runs these and nothing else by
+  default; they need the API key, and gates 1 and 6 additionally need the deliveries and
+  execution ids named above.
+- **4, 7, 8, 13 — plus one JSON inputs file each**, because their inputs are OBSERVED by
+  a person rather than measurable from our side: gate 4's stopwatch samples and the
+  pasted `latency_data`; gate 7's observed disconnect instant and the vendor's own cost
+  figure off the dashboard (our snapshot cannot answer the currency question — the
+  adapter hard-codes USD cents, so reading it back is the harness agreeing with itself);
+  gate 8's Telugu retrieval scores, tool-call latencies, per-turn token counts and batch
+  outcomes. Each reads `docs/evidence/gate<n>-inputs.json` (gate 4:
+  `gate4-observations.json`), overridable with `CALEVATE_PILOT_GATE<n>_INPUTS`. **An
+  absent file is NOT RUN with the path in the reason — never a pass, and never a zero.**
+  Gate 13 also needs a call budget: it dials to find the ceiling.
+- **3, 5, 9-12 are human and always will be**, and the harness says which kind rather
+  than leaving a blank row: 3 and 5 are LISTENING gates (Telugu recognition quality;
+  barge-in and end-of-utterance judged by ear), 9-12 are written answers and support
+  threads. `--attest` records what a human observed, labelled as an attestation and never
+  as a measurement.
+
+Any gate with no implementation registered is still reported by number as NOT RUN, so a
+slice that regresses out of the registry is visible rather than silently absent.
 
 Deliverable: filled scorecard committed to `docs/evidence/bolna-pilot-scorecard.md`
 (template in repo), with captured payloads saved as adapter fixtures. Passing closes the
