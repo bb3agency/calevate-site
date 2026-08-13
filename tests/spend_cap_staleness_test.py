@@ -14,6 +14,17 @@ clear it, forever.
 
 Both readers of the flag therefore check the month. These tests are the reason that is
 not an optimisation.
+
+**The staleness is a property of the ROW, not of the flag.** `spend_state` is one row
+per tenant (PK `tenant_id`), stamped with the month it counts and reset by the meter on
+rollover — so `minutes_used` and `spend_used` go stale in exactly the same way `capped`
+does, and every reader of any column of that row owes the same check. Three of them were
+found taking half of it or none: `usage_summary` month-checked the flag and then read
+`spend_used` out of the same row without it, `crm.service.dashboard` selected
+`minutes_used` with no month at all, and neither could answer a `?month=` query about a
+closed month, which the row cannot answer at all. They all go through
+`billing.caps.read_spend_counters` now, which hands back the counters TOGETHER so a
+caller cannot take half the check.
 """
 
 from __future__ import annotations
@@ -24,6 +35,8 @@ from decimal import Decimal
 from apps.api.admin import service as admin_service
 from apps.api.billing.service import current_billing_month, usage_summary
 from apps.api.compliance.service import check_dispatch, spend_capped
+from apps.api.crm.service import dashboard
+from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 
@@ -113,3 +126,117 @@ async def test_the_panel_and_the_gate_agree_while_the_cap_is_live() -> None:
         gate_says = await spend_capped(session, tenant_id=tenant_id)
     assert summary["capped"] is True
     assert gate_says is True
+
+
+async def test_the_usage_panel_does_not_report_a_closed_months_spend() -> None:
+    """The SAME staleness, one column to the left of the flag.
+
+    `usage_summary` checked the month for `capped` and then read `spend_used` out of the
+    same row without it — one predicate applied to one of the two columns it was written
+    for. A tenant whose row still carried July was shown July's rupees as August's spend,
+    beside a minutes figure correctly read from `usage_events` for August.
+
+    Both now come from `read_spend_counters`, which returns the counters TOGETHER so a
+    caller cannot take half the check.
+    """
+    tenant_id, _agent_id = await _capped_tenant(_last_month())
+
+    async with tenant_session(tenant_id) as session:
+        summary = await usage_summary(session, tenant_id=tenant_id)
+
+    assert summary["capped"] is False
+    assert summary["spend_used_inr"] == Decimal("0.00"), (
+        "a closed month's counter was reported as this month's spend"
+    )
+
+
+async def test_the_usage_panel_reports_a_live_months_spend() -> None:
+    """The other direction, so the fix above cannot be satisfied by always saying zero."""
+    tenant_id, _agent_id = await _capped_tenant(current_billing_month())
+
+    async with tenant_session(tenant_id) as session:
+        summary = await usage_summary(session, tenant_id=tenant_id)
+
+    assert summary["capped"] is True
+    assert summary["spend_used_inr"] == Decimal("5000.00")
+
+
+async def test_a_closed_month_query_is_answered_from_the_ledger_not_the_live_row() -> None:
+    """`?month=` on a month that is over.
+
+    `spend_state` is one row per tenant with no history (PK `tenant_id`), so the live
+    row's rupees belong to whatever month the meter last stamped — never to the month
+    being asked about. The statement for a closed month comes from `usage_events`, the
+    same place its minutes already came from.
+    """
+    tenant_id, _agent_id = await _capped_tenant(current_billing_month())
+    closed = _last_month()
+    # A ledger row inside the CLOSED month: 120 seconds at ₹0.50/s of supplier cost.
+    # `occurred_at` is bucketed by `_IST_MONTH`, so the 15th is safely inside it whatever
+    # the timezone offset does at the boundaries.
+    async with tenant_session(tenant_id) as session:
+        agent_id = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar()
+        call_id = uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
+                "status, duration_s, started_at, created_at, updated_at) VALUES (:i, :t, :a, :e, "
+                "'outbound', '+919876500001', 'completed', 120, :at, now(), now())"
+            ),
+            {
+                "i": call_id,
+                "t": tenant_id,
+                "a": agent_id,
+                "e": f"exec_{uuid.uuid4().hex[:12]}",
+                "at": f"{closed}-15T10:00:00+05:30",
+            },
+        )
+        await session.execute(
+            text(
+                "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, "
+                "unit_cost_paid, occurred_at, created_at) VALUES (:i, :t, :c, 'telephony_s', "
+                "120, 0.5000, :at, now())"
+            ),
+            {
+                "i": uuid7(),
+                "t": tenant_id,
+                "c": call_id,
+                "at": f"{closed}-15T10:00:00+05:30",
+            },
+        )
+        summary = await usage_summary(session, tenant_id=tenant_id, month=closed)
+
+    assert summary["month"] == closed
+    assert summary["minutes_used"] == Decimal("2.00"), "the minutes come from the ledger"
+    assert summary["spend_used_inr"] == Decimal("60.00"), (
+        "the closed month reported the live row's ₹5000 instead of its own ₹60"
+    )
+
+
+async def test_the_dashboard_tile_does_not_report_a_closed_months_minutes() -> None:
+    """The third reader of the same row, and the one a client looks at daily.
+
+    `crm.service.dashboard` selected `minutes_used FROM spend_state LIMIT 1` — the
+    pre-fix predicate, with no month at all — and published it as `minutes_used_month`.
+    The tenant this bites is precisely the one that hits a cap: outbound-only, so nothing
+    meters until a dial goes out, so the row keeps last month's stamp and the dashboard
+    reports last month's minutes beside a call count that correctly says zero.
+    """
+    tenant_id, _agent_id = await _capped_tenant(_last_month())
+
+    async with tenant_session(tenant_id) as session:
+        tile = await dashboard(session)
+
+    assert tile.minutes_used_month == Decimal("0"), (
+        "a closed month's minutes were reported as this month's usage"
+    )
+
+
+async def test_the_dashboard_tile_reports_a_live_months_minutes() -> None:
+    """And still reports real usage, so the fix above is not "always say zero"."""
+    tenant_id, _agent_id = await _capped_tenant(current_billing_month())
+
+    async with tenant_session(tenant_id) as session:
+        tile = await dashboard(session)
+
+    assert tile.minutes_used_month == Decimal("500.0000")

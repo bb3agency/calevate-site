@@ -34,6 +34,8 @@ that only says "do not obey the caller".
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 from typing import Any
 from uuid import uuid4
@@ -41,10 +43,18 @@ from uuid import uuid4
 import pytest
 import scripts.eval as ev
 from apps.api.compliance.optout import detect_opt_out, normalize_utterance
-from apps.api.crm.service import _csv_value
+from apps.api.crm.service import export_leads_csv
+from apps.api.db.base import uuid7
+from apps.api.db.session import tenant_session
 from apps.api.integrations.service import sheet_row
 from apps.workers.extraction import OfflineExtractor, extract_call
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec, coerce_value
+from sqlalchemy import text
+
+# The tenant/agent/extraction-schema fixture the export needs, borrowed rather than
+# re-built: `leads_scale_test` already owns the shape of a client account with leads in
+# it, and a second copy here would drift from the one the export is really read against.
+from tests.leads_scale_test import _org
 
 #: A formula a caller can dictate down a phone. INVENTED — the host is a reserved
 #: example domain (RFC 2606), and nothing in this file is real personal data.
@@ -107,14 +117,72 @@ def test_the_sheets_export_neutralises_a_dictated_formula(payload: str) -> None:
     assert not cell.startswith(("=", "+", "-", "@"))
 
 
+#: Every character `FORMULA_LEADERS` names that a spreadsheet EXECUTES. `\t` and `\r`
+#: are deliberately absent: they are in the leader set because a value ARRIVING with one
+#: can shift how the field parses, and the tab is also OWASP's own Excel remedy — so
+#: forbidding a leading tab on the way OUT would make the fix look like a violation of
+#: itself. "What we refuse to accept" and "what we refuse to emit" are different lists.
+EXECUTABLE_LEADERS = ("=", "+", "-", "@", "\uff1d", "\uff0b", "\uff0d", "\uff20")
+
+
+async def _exported_rows(payload: str) -> list[list[str]]:
+    """One tenant, one lead carrying `payload` in the name, the phone AND an extraction
+    field, exported through the real `export_leads_csv`. Returns the parsed CSV.
+
+    THE TEST DRIVES THE ROUTE, NOT THE HELPER, and that is the whole point of it. The
+    version this replaced asserted on `_csv_value` in isolation while its own docstring
+    talked about the `name` column — and `name` was written to the file RAW, three
+    positions to the left of the cell being tested. A green helper test sat on top of a
+    live hole for a release, because a guard exercised only where it is already applied
+    cannot report the column where it is not.
+
+    The phone is hostile too. `leads.phone_e164` is plain `text` with no format CHECK
+    (migration `05bba2f3c19c`), so what reaches it is whatever a writer put there — and
+    even the well-formed case leads with `+`, which Excel evaluates.
+
+    So is the HEADER. The trailing columns are labels from the tenant's own extraction
+    schema, and the person who opens the file is the client's staff, not the person who
+    authored the label. A thinner threat than the `name` column's, and still a cell.
+    """
+    org = await _org()
+    async with tenant_session(org.tenant_id) as session:
+        await session.execute(
+            text("UPDATE extraction_schemas SET fields = CAST(:f AS jsonb) WHERE agent_id = :a"),
+            {
+                "a": org.agents[0],
+                "f": json.dumps(
+                    [{"key": "intent", "label": payload, "type": "text", "description": "what"}]
+                ),
+            },
+        )
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status, "
+                "data, created_at, updated_at) VALUES (:i, :t, :a, :p, :n, 'webhook', 'new', "
+                "CAST(:d AS jsonb), now(), now())"
+            ),
+            {
+                "i": uuid7(),
+                "t": org.tenant_id,
+                "a": org.agents[0],
+                "p": payload,
+                "n": payload,
+                "d": json.dumps({"intent": payload}),
+            },
+        )
+        body = await export_leads_csv(session)
+    return [row for row in csv.reader(io.StringIO(body)) if row]
+
+
 @pytest.mark.parametrize("payload", [FORMULA_PAYLOAD, *OTHER_LEADERS])
-def test_the_csv_export_neutralises_a_dictated_formula(payload: str) -> None:
+async def test_the_csv_export_neutralises_a_dictated_formula(payload: str) -> None:
     """The same value, the same client, the other door.
 
-    `export_leads_csv` builds every extraction cell through `_csv_value` and hands the
-    result back as `text/csv` with an attachment disposition — a file whose whole purpose
-    is to be opened by a spreadsheet. The name column is written from `leads.name`, which
-    on a voice lead is whatever the caller said their name was.
+    `export_leads_csv` hands its result back as `text/csv` with an attachment
+    disposition — a file whose whole purpose is to be opened by a spreadsheet. The name
+    column is written from `leads.name`, which on a voice lead is whatever the caller
+    said their name was, and on a web-form lead is whatever the body said
+    (`ingest.service` writes it verbatim).
 
     THIS WAS A STRICT XFAIL AND IS NOW A PASSING TEST, which is the whole argument for
     writing findings that way. The red-team slice could not edit `apps/`, so it asserted
@@ -127,21 +195,55 @@ def test_the_csv_export_neutralises_a_dictated_formula(payload: str) -> None:
     Sheets apostrophe — the two consumers share the leader SET and not the rendering, for
     the reason set out in that module.
     """
-    cell = _csv_value(payload)
-    # What must be true: the cell does not BEGIN with a character Excel executes.
-    #
-    # The original form of this assertion also forbade a leading TAB, and that was
-    # wrong in a way worth recording — the tab is OWASP's remedy for Excel, not one of
-    # its dangers. `\t` and `\r` are in `FORMULA_LEADERS` because a value ARRIVING with
-    # one is suspicious (it can shift how the field parses); neither executes. Conflating
-    # "what we refuse to accept" with "what we refuse to emit" made the fix look like a
-    # violation of itself.
-    assert not cell.startswith(("=", "+", "-", "@", "\uff1d", "\uff0b", "\uff0d", "\uff20")), cell
-    # And the guard actually fired rather than the payload merely being harmless.
-    assert cell.startswith("\t"), cell
-    # A benign value is untouched: a guard that prefixed every cell would corrupt the
-    # client's own data in the name of protecting it.
-    assert _csv_value("Sri Clinic") == "Sri Clinic"
+    rows = await _exported_rows(payload)
+
+    # What must be true of the FILE: no cell in it BEGINS with a character Excel
+    # executes. Asserted over every cell rather than over the columns this test happens
+    # to know about, so a column added later is covered by a test written before it.
+    for row in rows:
+        for cell in row:
+            assert not cell.startswith(EXECUTABLE_LEADERS), cell
+
+    header, lead = rows[0], rows[1]
+    assert header[:2] == ["phone", "name"]
+    # The header carries the hostile extraction LABEL, disarmed like any other cell.
+    assert header[-1] == f"\t{payload}", "the header cell was written raw"
+    # And the guard actually FIRED on each column carrying the hostile value, rather
+    # than the value having been dropped, truncated or renamed on the way out.
+    assert lead[0] == f"\t{payload}", "the phone cell was written raw"
+    assert lead[1] == f"\t{payload}", "the name cell was written raw"
+    assert lead[-1] == f"\t{payload}", "the extraction cell was written raw"
+
+
+async def test_a_benign_export_is_not_mangled_by_the_guard() -> None:
+    """The other direction: a guard that prefixed every cell would corrupt a client's
+    own data in the name of protecting it, and nobody would notice until they re-imported
+    the file. Only the cells that would have executed are touched."""
+    org = await _org()
+    async with tenant_session(org.tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status, "
+                "data, created_at, updated_at) VALUES (:i, :t, :a, '919812345678', 'Sri Clinic', "
+                "'webhook', 'new', CAST(:d AS jsonb), now(), now())"
+            ),
+            {
+                "i": uuid7(),
+                "t": org.tenant_id,
+                "a": org.agents[0],
+                "d": json.dumps({"intent": "book"}),
+            },
+        )
+        body = await export_leads_csv(session)
+
+    rows = [row for row in csv.reader(io.StringIO(body)) if row]
+    assert rows[0][:6] == ["phone", "name", "status", "source", "calls", "created_at"]
+    assert rows[1][:4] == ["919812345678", "Sri Clinic", "new", "webhook"]
+    assert rows[1][-1] == "book"
+    # `created_at` keeps its ISO-8601 `T`: the renderer spells `datetime` out rather
+    # than letting `str()` write a space, which would be a format change smuggled in
+    # under a security fix.
+    assert "T" in rows[1][5] and rows[1][5].startswith("20")
 
 
 # --- What `coerce_value` does and does not check --------------------------------

@@ -15,7 +15,12 @@ Three properties this file exists to guarantee:
    zeros and store an empty transcript. `snapshot.billable_ready` is that gate.
 3. **Every step is re-runnable.** Upserts, not inserts; CAS on status transitions;
    `usage_events` written once per (call, unit) because the ledger is append-only and
-   a double-run would double-bill (hard rule 4 + 7).
+   a double-run would double-bill (hard rule 4 + 7). Both jobs lean on this: neither
+   would be allowed a retry ladder without it.
+
+Both jobs also share ONE failure policy — `_is_transient` decides, `_abandon_ingest` and
+`_abandon_post_call` act on it — because arq 0.28 retries a job only for `arq.Retry`,
+and a job that signals "try again" by re-raising is a job with `max_tries` in name only.
 
 SLO: lead visible in the client dashboard under 2 minutes after hangup — measured with
 `record_pipeline_lag`, not assumed.
@@ -352,10 +357,100 @@ async def _upsert_call_row(tenant_id: UUID, agent_id: UUID, snapshot: ExecutionS
 # --- job 2: the pipeline ------------------------------------------------------
 
 
+def _post_call_target(payload: dict[str, Any]) -> tuple[UUID, UUID, str]:
+    """The three ids this job runs on, or a PERMANENT failure.
+
+    A malformed job payload is fixed for the life of the job: three parses of the same
+    dict fail three identical times, thirty seconds and two minutes apart. Raising it as
+    a `validation` ProblemError is how it says so — `_is_transient` reads the kind, so
+    this needs no second retry policy of its own (the ingest job's split is the whole
+    policy for both jobs).
+
+    Ids only in the message, never the payload (hard rule 6): the job payload is ours,
+    but "log the thing that broke" is exactly how a transcript ends up in a log line the
+    day someone adds a field to it.
+    """
+    try:
+        return (
+            UUID(str(payload["tenant_id"])),
+            UUID(str(payload["call_id"])),
+            str(payload["execution_id"]),
+        )
+    except (KeyError, ValueError, TypeError) as exc:
+        raise ProblemError(
+            kind="validation",
+            code="post_call_payload_invalid",
+            title="Unusable post-call job payload",
+            detail="The post-call job was enqueued without a usable tenant, call or execution id.",
+        ) from exc
+
+
+async def _abandon_post_call(
+    *, exc: Exception, attempt: int, call_id: str, execution_id: str
+) -> NoReturn:
+    """Ask for a retry, or stop loudly. The pipeline's half of `_abandon_ingest`.
+
+    **`arq.Retry`, not a bare `raise`** — arq 0.28 retries a job only for `Retry`,
+    `RetryJob` or `CancelledError`; every other exception sets `finish=True` and the job
+    leaves the queue after ONE attempt (`arq/worker.py::run_job`, the `else` branch at
+    the end of its handler — read at 0.28.0, and `WorkerSettings.max_tries` says the same
+    thing). Everything outside the recording copy raised plainly here, so `max_tries = 3`
+    was decorative for this job: one database blip mid-pipeline dropped extraction, the
+    lead upsert, metering and the hot-lead alert to manual replay, and the reconciliation
+    poller could not pick it up because the call row was already `completed` (see
+    `_already_completed`).
+
+    The retry is safe to take because every stage is re-runnable and, specifically,
+    because the two irreversible ones refuse a second write: `_meter` returns early when
+    `usage_events` already holds a row for the call, and `charge_for_call` dedupes on
+    `ref = call_id` under the per-tenant credit lock. `pipeline_audit_test` proves that
+    against a failure injected AFTER metering rather than asserting it.
+
+    Terminal is LOUD. A permanent failure here is a call whose lead never arrives, and
+    the 2-minute SLO means nobody is coming to look unless something says so.
+    """
+    if _is_transient(exc) and attempt < WORKER_MAX_TRIES:
+        raise Retry(defer=_retry_after(attempt)) from exc
+    alert(
+        "WORKER_TERMINAL",
+        "post_call_abandoned",
+        detail=(
+            f"{type(exc).__name__} after {attempt} attempt(s)"
+            if _is_transient(exc)
+            else f"{type(exc).__name__} is permanent, not retried"
+        ),
+        call_id=call_id,
+        execution_id=execution_id,
+    )
+    raise exc
+
+
 async def run_post_call_pipeline(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    tenant_id = UUID(str(payload["tenant_id"]))
-    call_id = UUID(str(payload["call_id"]))
-    execution_id = str(payload["execution_id"])
+    """The heavy half, behind the retry ladder `WorkerSettings.max_tries` promises.
+
+    The stages live in `_post_call_stages`; this wrapper exists only to own the failure
+    policy, so no stage has to remember one and none of them can quietly opt out.
+    """
+    # arq's number, never ours — the same reason `ingest_engine_event` reads it here.
+    attempt = int(ctx.get("job_try", 1))
+    # For the alert only, and only when the payload was too broken to parse. Ids.
+    call_hint = str(payload.get("call_id") or "unknown")
+    execution_hint = str(payload.get("execution_id") or "unknown")
+    try:
+        tenant_id, call_id, execution_id = _post_call_target(payload)
+        return await _post_call_stages(tenant_id, call_id, execution_id)
+    except Retry:
+        # A stage that already chose its own ladder — `StorageUnavailableError` is an
+        # `arq.Retry` subclass with its own defer. Re-deciding it here would overwrite
+        # the delay it picked and hide which stage asked.
+        raise
+    except Exception as exc:
+        await _abandon_post_call(
+            exc=exc, attempt=attempt, call_id=call_hint, execution_id=execution_hint
+        )
+
+
+async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -> str:
     started = time.perf_counter()
 
     snapshot = await get_engine().get_execution(execution_id)
@@ -1081,6 +1176,33 @@ async def _already_completed(engine_name: str, snapshot: ExecutionSnapshot) -> b
     not tenant-scoped precisely so this resolution needs no RLS exemption (hard rule 1).
     An execution we cannot map is handed to ingest anyway: it alerts on the unmapped
     agent, which is the outcome we want for a mis-provisioned agent.
+
+    **THIS ASKS "IS THE CALL ROW WRITTEN", NOT "DID THE PIPELINE FINISH", AND THAT IS
+    STILL A GAP — a deliberate one, recorded here rather than papered over.** Stage one
+    (`ingest_engine_event`) writes `status = 'completed'` and only then enqueues the
+    pipeline, so a pipeline that dies leaves a call this probe skips forever. The retry
+    ladder (`_abandon_post_call`) is what closes that for a blip, and a terminal alert is
+    what closes it for everything else; neither makes the poller able to re-drive a
+    half-finished call.
+
+    Widening the probe was considered and rejected TWICE OVER:
+
+    - There is no honest marker to widen it to. `usage_events`, a lead row, a transcript
+      and an extraction are each absent for calls that are perfectly finished — a
+      cost-less call, a call with no number to key a lead on, a silent call. Treating any
+      absence as "unfinished" re-drives healthy calls on every 10-minute tick and scores
+      each as a repair, which is the exact defect the paragraph above this one records
+      being fixed, and it puts a model round trip on the bill for each one.
+    - Re-driving is SAFE but not FREE. The stages are idempotent (proved in
+      `pipeline_audit_test`, not asserted), so nothing double-bills; the cost is
+      extraction and engine load, which is why "just always re-drive" is not the answer
+      either.
+
+    What it actually needs is a durable stage marker the pipeline writes when it finishes
+    — `calls.pipeline_completed_at`, set in the same transaction as the last stage — so
+    the question can be asked directly instead of inferred. That is a migration plus a
+    model change, and it is the right next slice; until it exists the terminal alert is
+    the operator's only signal, and it names the call id for the replay.
     """
     async with untenanted_session() as session:
         resolved = await _resolve_agent(session, engine_name, snapshot.engine_agent_ref)
