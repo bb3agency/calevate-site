@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { ArrowRight, CircleAlert, Lock, Mail, ShieldCheck } from "lucide-react";
 
 import { Providers } from "@/app/providers";
-import { Card, ProblemNotice } from "@/components/ui";
+import { Card, NoticeBox, ProblemNotice } from "@/components/ui";
+import { ApiProblem } from "@/lib/api/client";
+import { lookup } from "@/lib/lookup";
 import {
   SIGNUP_CONTACT_EMAIL,
   SIGNUP_LANGUAGES,
@@ -21,41 +24,119 @@ import {
  * Self-serve signup — `app.calevate.tech/signup` (D-34 motion 2, FLOWS §2).
  *
  * The symptom: `POST /v1/auth/signup` shipped and nothing called it, so a business that
- * had already created a Clerk account had no way to create its workspace — the product
- * had exactly one door, the one an operator opens by hand.
+ * had already created an account had no way to create its workspace — the product had
+ * exactly one door, the one an operator opens by hand.
  *
  * Three things this page is careful about.
  *
  * **It does not pretend to be a sign-up-from-scratch form.** The endpoint is NOT
  * unauthenticated: it needs a Clerk-verified user who has no organization yet, and the
  * membership is what the call creates. So the page says who it is for, rather than
- * silently 401-ing someone who arrived without an account.
+ * silently 401-ing someone who arrived without an account. It also does not render a
+ * "sign in" button, because **there is no sign-in route in this app** — no ClerkProvider,
+ * no `/sign-in`, nothing to link to. D-34 names email/password + Google OAuth; neither is
+ * built. A button pointing at a 404 is a claim, so the copy states the requirement and
+ * offers the contact address instead.
  *
  * **A closed deployment says it is closed BEFORE the form, not after it.** The kill
  * switch DEFAULTS OFF, so on most deployments every submission is refused with
- * `signup_disabled` — a normal state of the world, not a fault. This page used to
- * learn that only from the refusal, which meant a closed deployment walked a business
- * through five fields and a submit before answering "no"; the form was decoration over
- * a door that was never going to open. `SIGNUP_OPEN` (build-time, defaulting to
- * CLOSED, documented in lib/api/signup.ts) now decides up front, and the same calm
- * panel — with the other door on it — is what the closed deployment renders instead of
- * the form.
+ * `signup_disabled` — a normal state of the world, not a fault. This page used to learn
+ * that only from the refusal, which meant a closed deployment walked a business through
+ * five fields and a submit before answering "no"; the form was decoration over a door
+ * that was never going to open. `SIGNUP_OPEN` (build-time, defaulting to CLOSED,
+ * documented in lib/api/signup.ts) now decides up front, and the same calm panel — with
+ * the other door on it — is what the closed deployment renders instead of the form.
  *
- * The refusal path stays wired up underneath, because the config can only ever be
- * stale and the server is the authority: a build that says open against a server that
- * says closed still lands on the identical panel, and load-shedding — which no
- * build-time flag can predict — still arrives that way with "shortly" attached.
+ * The refusal path stays wired up underneath, because the config can only ever be stale
+ * and the server is the authority: a build that says open against a server that says
+ * closed still lands on the identical panel, and load-shedding — which no build-time
+ * flag can predict — still arrives that way with "shortly" attached.
  *
- * **What a new account can and cannot do is the SERVER's sentence.** `next_steps`
- * comes back on the response for exactly that reason — the wallet gate and the KYC
- * requirement are compliance rules, and encoding them a second time here is how the
- * two copies start disagreeing.
+ * **What a new account can and cannot do is the SERVER's sentence.** `next_steps` comes
+ * back on the response for exactly that reason — the wallet gate and the KYC requirement
+ * are compliance rules, and encoding them a second time here is how the two copies start
+ * disagreeing. The success panel renders NOTHING that did not arrive in the response: no
+ * name, no slug, no role, no next step. There is no optimistic branch, so no path exists
+ * on which this screen can congratulate a business on a workspace the API never created.
+ *
+ * ## Framing, scrolling and the design language
+ *
+ * No app shell wraps this route — `/c` and `/admin` each own a `fixed inset-0` layout and
+ * signup has neither — so it carries its own header and its own scroll container.
+ * `globals.css` sets `html, body { overflow: hidden }` for those shells; without
+ * `flex-1 min-h-0 overflow-y-auto` here, the form is clipped at the fold on a laptop and
+ * the submit button is the part that vanishes.
+ *
+ * Field and button styling matches `/c/<slug>/campaigns`, the console's one existing
+ * form, so the screen a business fills in looks like the product it is about to enter.
+ * Those constants are defined locally in BOTH files and belong in `ui.tsx` — see the note
+ * on `FIELD` below.
  */
+
+/**
+ * The console's field/control shapes, copied deliberately and marked for extraction.
+ *
+ * `/c/<slug>/campaigns` defines this identical set and says they belong in `ui.tsx` "the
+ * moment a second screen needs them". This is that second screen — but `ui.tsx` is out of
+ * this change's slice, so the constants are duplicated here with the pointer attached
+ * rather than the two screens quietly drifting apart. THE FOLLOW-UP IS: move `FIELD`,
+ * `FIELD_LABEL`, `FIELD_HINT`, `PRIMARY_BUTTON` and `SECONDARY_BUTTON` into `ui.tsx` and
+ * delete both copies.
+ */
+const FIELD =
+  "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint";
+const FIELD_LABEL = "text-xs font-medium text-ink-muted";
+const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
+const PRIMARY_BUTTON =
+  "inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-50";
+const SECONDARY_BUTTON =
+  "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5";
+
+/**
+ * The wire name of every field this form owns, and the DOM id its input carries.
+ *
+ * Exists so a server-side field error can be put NEXT TO the input it is about and
+ * announced as that input's description, rather than only in a list at the top of the
+ * page. A validation message a screen-reader user meets while tabbing is the difference
+ * between fixing an answer and re-reading the whole form.
+ *
+ * Read with `lookup` and never `TABLE[name]`: `field` is a string the SERVER chose, and
+ * a wire value of `constructor` resolves to the `Object` function on a plain index —
+ * which is truthy, so the "we do not own this field" branch would never fire and the
+ * message would be dropped from the summary instead (src/lib/lookup.ts).
+ */
+const FIELD_IDS = {
+  business_name: "signup-business-name",
+  slug: "signup-slug",
+  vertical_template: "signup-vertical",
+  language: "signup-language",
+  billing_email: "signup-billing-email",
+} satisfies Record<string, string>;
+
+type ProblemField = NonNullable<ApiProblem["fields"]>[number];
+
+/** The server's message for one field, or nothing. A `find` rather than a table read —
+ * the key here is OUR literal, so there is no dynamic index to make safe. */
+function fieldMessage(fields: ProblemField[], name: string): string | undefined {
+  return fields.find((f) => f.field === name)?.message;
+}
+
 export default function SignupPage() {
   return (
     <Providers>
-      <div className="min-h-full bg-slate-50 dark:bg-slate-950">
-        <main className="mx-auto max-w-xl px-4 py-10">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-app">
+        <header className="border-b border-line bg-surface">
+          <div className="mx-auto flex max-w-xl items-center justify-between gap-4 px-6 py-4">
+            <Link href="/" className="text-base font-semibold tracking-tight text-ink">
+              Calevate
+            </Link>
+            <span className="flex items-center gap-1.5 text-xs text-ink-faint">
+              <Lock aria-hidden className="h-3.5 w-3.5" />
+              Nothing here places a call
+            </span>
+          </div>
+        </header>
+        <main className="mx-auto w-full max-w-xl flex-1 px-6 py-10">
           {/* The gate sits HERE, above the form component, so a closed deployment does
               not mount the form at all: no state, no mutation hook, and therefore no
               submit path that could reach an endpoint certain to refuse it. */}
@@ -75,10 +156,15 @@ export default function SignupPage() {
  * to wait for something that is never going to happen on its own, or send someone to
  * support over a five-minute reduced-mode window.
  *
- * There is deliberately NO form here and no disabled submit button: a control whose
- * only possible outcome is a refusal is not an affordance, it is a trap. What replaces
- * it is the route that does work — a human at Calevate opening the account by hand,
- * which is how every account is opened today anyway.
+ * There is deliberately NO form here and no disabled submit button: a control whose only
+ * possible outcome is a refusal is not an affordance, it is a trap. What replaces it is
+ * the route that does work — a human at Calevate opening the account by hand, which is
+ * how every account is opened today anyway.
+ *
+ * HONESTY FIX carried in with the design pass: this panel used to end "usually the same
+ * day". Nothing measures that — there is no ops SLA for account setup anywhere in the
+ * docs — so it was a turnaround promise made by a screen with no way to keep it. Removed
+ * rather than restyled.
  */
 function SignupClosed({
   deferred,
@@ -91,50 +177,54 @@ function SignupClosed({
 }) {
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
+      <h1 className="text-2xl font-semibold tracking-tight text-ink">
         {deferred ? "Not right now" : "Signing up online is closed"}
       </h1>
-      <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-        <p>
-          {deferred
-            ? "We are not creating new accounts at this moment — the platform is running in a reduced mode. Nothing you entered was wrong; try again shortly."
-            : "Calevate does not open accounts online yet. Every workspace is set up by hand with you, so there is nothing to fill in here — and nothing you have done is wrong."}
-        </p>
-        {/* The server's sentence wins when there is one; it knows why THIS request was
-            refused. The fallback is only for the build-time closure, where no request
-            was made and so no server has spoken. */}
-        <p className="mt-2">
-          {remediation ??
-            (deferred
-              ? "Give it a few minutes and try again."
-              : "Talk to us and we will set your workspace up — usually the same day.")}
-        </p>
-        {!deferred && SIGNUP_CONTACT_EMAIL && (
-          <p className="mt-2">
-            Write to{" "}
-            <a className="font-medium underline" href={`mailto:${SIGNUP_CONTACT_EMAIL}`}>
-              {SIGNUP_CONTACT_EMAIL}
-            </a>
-            , or reply to whoever showed you the demo.
+      <Card>
+        <div className="space-y-3 text-sm text-ink-muted">
+          <p>
+            {deferred
+              ? "We are not creating new accounts at this moment — the platform is running in a reduced mode. Nothing you entered was wrong; try again shortly."
+              : "Calevate does not open accounts online yet. Every workspace is set up by hand with you, so there is nothing to fill in here — and nothing you have done is wrong."}
           </p>
-        )}
-        {!deferred && (
-          <p className="mt-3 text-xs text-slate-500">
-            Already have a workspace? It lives at{" "}
-            <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">/c/your-slug</code> —
-            the URL your account manager gave you.
+          {/* The server's sentence wins when there is one; it knows why THIS request was
+              refused. The fallback is only for the build-time closure, where no request
+              was made and so no server has spoken. */}
+          <p>
+            {remediation ??
+              (deferred
+                ? "Give it a few minutes and try again."
+                : "Talk to us and we will set your workspace up with you.")}
           </p>
-        )}
-        {onRetry && (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="mt-3 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium dark:border-slate-700"
-          >
-            Try again
-          </button>
-        )}
-      </div>
+          {!deferred && SIGNUP_CONTACT_EMAIL && (
+            <p className="flex flex-wrap items-center gap-1.5">
+              <Mail aria-hidden className="h-4 w-4 shrink-0 text-ink-faint" />
+              Write to{" "}
+              <a
+                className="font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+                href={`mailto:${SIGNUP_CONTACT_EMAIL}`}
+              >
+                {SIGNUP_CONTACT_EMAIL}
+              </a>
+              , or reply to whoever showed you the demo.
+            </p>
+          )}
+          {!deferred && (
+            <p className="text-xs text-ink-faint">
+              Already have a workspace? It lives at{" "}
+              <code className="rounded bg-black/5 px-1 font-mono text-ink dark:bg-white/10">
+                /c/your-slug
+              </code>{" "}
+              — the URL your account manager gave you.
+            </p>
+          )}
+          {onRetry && (
+            <button type="button" onClick={onRetry} className={SECONDARY_BUTTON}>
+              Try again
+            </button>
+          )}
+        </div>
+      </Card>
     </div>
   );
 }
@@ -150,16 +240,24 @@ function SignupForm() {
   const derived = slug || previewSlug(businessName);
   const created = signup.data;
 
+  // THE ONLY SOURCE OF A SUCCESS SCREEN. `signup.data` is set by TanStack Query only
+  // after a 2xx that parsed, so there is no state this component can enter where it
+  // reports an account without having been handed one.
   if (created) {
     return (
       <div className="space-y-5">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
+            <ShieldCheck aria-hidden className="h-5 w-5" />
+          </span>
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-ink">
             {created.name} is set up
           </h1>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          <p className="mt-2 text-sm text-ink-muted">
             Your workspace is at{" "}
-            <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">/c/{created.slug}</code>{" "}
+            <code className="rounded bg-black/5 px-1 font-mono text-ink dark:bg-white/10">
+              /c/{created.slug}
+            </code>{" "}
             and you are its {created.role}. The URL is permanent — it cannot be changed
             later.
           </p>
@@ -171,25 +269,21 @@ function SignupForm() {
               frontend is a second copy to keep in step. */}
           <ul className="space-y-2">
             {created.next_steps.map((step) => (
-              <li key={step} className="flex gap-2 text-sm text-slate-700 dark:text-slate-300">
-                <span aria-hidden className="text-slate-400">
-                  ●
-                </span>
+              <li key={step} className="flex gap-2.5 text-sm text-ink-muted">
+                <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
                 <span>{step}</span>
               </li>
             ))}
           </ul>
-          <p className="mt-3 text-xs text-slate-500">
+          <p className="mt-3 text-xs text-ink-faint">
             Your receptionist starts as a draft, so nothing is live and nothing is being
             charged yet.
           </p>
         </Card>
 
-        <Link
-          href={`/c/${created.slug}`}
-          className="inline-block rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white dark:bg-slate-100 dark:text-slate-900"
-        >
+        <Link href={`/c/${created.slug}`} className={PRIMARY_BUTTON}>
           Open {created.name}
+          <ArrowRight aria-hidden className="h-4 w-4" />
         </Link>
       </div>
     );
@@ -210,146 +304,265 @@ function SignupForm() {
     );
   }
 
+  const problem = signup.error instanceof ApiProblem ? signup.error : null;
+  const fields = problem?.fields ?? [];
+  /**
+   * Field messages are shown AT their field, so the summary must not repeat them — but a
+   * message about a field this form does not render would then vanish entirely, and a
+   * dropped refusal is the one outcome worse than a duplicated one. Anything unowned goes
+   * into the summary instead.
+   */
+  const unowned = fields.filter((f) => lookup(FIELD_IDS, f.field) === undefined);
+
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">
           Create your Calevate workspace
         </h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Sign in first — this creates the workspace for the account you are signed in
+        <p className="mt-2 text-sm text-ink-muted">
+          This creates the workspace for the Calevate account you are already signed in
           with, and makes you its owner. If you already belong to a workspace, open it at
           its own URL instead.
         </p>
       </div>
 
-      {signup.error && <ProblemNotice error={signup.error} />}
-
-      <form
-        className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
-        onSubmit={(e) => {
-          e.preventDefault();
-          signup.mutate({
-            business_name: businessName,
-            // Sent only when typed. Absent means the SERVER derives it — the same
-            // `slugify` this form previews with, but with the reserved-word and
-            // collision checks that only it can do.
-            ...(slug.trim() ? { slug: slug.trim() } : {}),
-            vertical_template: vertical,
-            language,
-            plan_tier: "self_serve",
-            ...(email.trim() ? { billing_email: email.trim() } : {}),
-          });
-        }}
-      >
-        <Field label="Business name" hint="What your callers know you as.">
-          <input
-            required
-            minLength={2}
-            maxLength={120}
-            value={businessName}
-            onChange={(e) => setBusinessName(e.target.value)}
-            placeholder="Sri Sai Dental Care"
-            className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
-        </Field>
-
-        <Field
-          label="Workspace URL"
-          hint="Permanent once created — it cannot be changed later."
+      {/*
+       * Two error surfaces, split by WHERE the answer is, not by taste.
+       *
+       * A problem with no field list is about the request as a whole — `ProblemNotice` is
+       * the repo's one way to render that, and it carries `remediation`, `retryable` and
+       * the trace ref support will ask for. A problem WITH a field list is about specific
+       * answers, and the accessible place for those is beside the inputs (`aria-invalid`
+       * + `aria-describedby` below), so the summary here only points at them.
+       */}
+      {problem && fields.length === 0 && <ProblemNotice error={signup.error} />}
+      {problem && fields.length > 0 && (
+        <NoticeBox
+          tone="stop"
+          icon={<CircleAlert aria-hidden className="h-4 w-4" />}
+          title={problem.message}
         >
-          <div className="flex items-center gap-1">
-            <span className="text-sm text-slate-500">/c/</span>
-            <input
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              placeholder={previewSlug(businessName) || "sri-sai-dental"}
-              maxLength={40}
-              className="flex-1 rounded-md border border-slate-300 px-2 py-1.5 font-mono text-sm dark:border-slate-700 dark:bg-slate-950"
-            />
+          <div role="alert" className="mt-1 space-y-1">
+            <p>Check the answers marked below.</p>
+            {problem.remediation && <p>{problem.remediation}</p>}
+            {unowned.length > 0 && (
+              <ul className="list-inside list-disc">
+                {unowned.map((f) => (
+                  <li key={f.field}>{f.message}</li>
+                ))}
+              </ul>
+            )}
+            {problem.traceId && (
+              <p className="font-mono text-[11px]">ref {problem.traceId}</p>
+            )}
           </div>
+        </NoticeBox>
+      )}
+
+      <Card>
+        <form
+          className="space-y-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            // Everything a prospect typed travels in the POST body. Nothing is ever put
+            // in the path or a query string — hard rule 6: a URL lands in access logs,
+            // proxy logs and the Referer header of the next request.
+            signup.mutate({
+              business_name: businessName,
+              // Sent only when typed. Absent means the SERVER derives it — the same
+              // `slugify` this form previews with, but with the reserved-word and
+              // collision checks that only it can do.
+              ...(slug.trim() ? { slug: slug.trim() } : {}),
+              vertical_template: vertical,
+              language,
+              plan_tier: "self_serve",
+              ...(email.trim() ? { billing_email: email.trim() } : {}),
+            });
+          }}
+        >
+          <Field
+            id={FIELD_IDS.business_name}
+            label="Business name"
+            hint="What your callers know you as."
+            error={fieldMessage(fields, "business_name")}
+          >
+            {(props) => (
+              <input
+                {...props}
+                required
+                minLength={2}
+                maxLength={120}
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                placeholder="Sri Sai Dental Care"
+                className={FIELD}
+              />
+            )}
+          </Field>
+
+          <Field
+            id={FIELD_IDS.slug}
+            label="Workspace URL"
+            hint="Permanent once created — it cannot be changed later."
+            error={fieldMessage(fields, "slug")}
+          >
+            {(props) => (
+              <div className="mt-1 flex items-center gap-1">
+                <span className="font-mono text-sm text-ink-faint">/c/</span>
+                <input
+                  {...props}
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value)}
+                  placeholder={previewSlug(businessName) || "sri-sai-dental"}
+                  maxLength={40}
+                  className={`${FIELD} mt-0 font-mono`}
+                />
+              </div>
+            )}
+          </Field>
           {derived && (
-            <p className="mt-1 text-xs text-slate-500">
-              {/* A preview, never a promise: the server checks reserved names and
-                  collisions, and may hand back a different one. */}
-              Your workspace will be at <code>/c/{derived}</code>, unless that name is
-              taken.
+            /* A preview, never a promise: the server checks reserved names and
+               collisions, and may hand back a different one. */
+            <p className="-mt-3 text-xs text-ink-faint">
+              Your workspace will be at{" "}
+              <code className="font-mono">/c/{derived}</code>, unless that name is taken.
             </p>
           )}
-        </Field>
 
-        <Field
-          label="Kind of business"
-          hint="Sets the questions your agent asks and the columns your leads land in."
-        >
-          <select
-            value={vertical}
-            onChange={(e) => setVertical(e.target.value)}
-            className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+          <Field
+            id={FIELD_IDS.vertical_template}
+            label="Kind of business"
+            hint="Sets the questions your agent asks and the columns your leads land in."
+            error={fieldMessage(fields, "vertical_template")}
           >
-            {SIGNUP_VERTICALS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </Field>
+            {(props) => (
+              <select
+                {...props}
+                value={vertical}
+                onChange={(e) => setVertical(e.target.value)}
+                className={FIELD}
+              >
+                {SIGNUP_VERTICALS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
 
-        <Field label="Language your agent speaks">
-          <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value as SignupLanguage)}
-            className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+          <Field
+            id={FIELD_IDS.language}
+            label="Language your agent speaks"
+            error={fieldMessage(fields, "language")}
           >
-            {SIGNUP_LANGUAGES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </Field>
+            {(props) => (
+              <select
+                {...props}
+                value={language}
+                onChange={(e) => setLanguage(e.target.value as SignupLanguage)}
+                className={FIELD}
+              >
+                {SIGNUP_LANGUAGES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
 
-        <Field label="Billing email" hint="Optional — where invoices go.">
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="owner@example.com"
-            className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
-        </Field>
+          <Field
+            id={FIELD_IDS.billing_email}
+            label="Billing email"
+            hint="Optional — where invoices go."
+            error={fieldMessage(fields, "billing_email")}
+          >
+            {(props) => (
+              <input
+                {...props}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="owner@example.com"
+                className={FIELD}
+              />
+            )}
+          </Field>
 
-        <button
-          type="submit"
-          disabled={signup.isPending || businessName.trim().length < 2}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
-        >
-          {signup.isPending ? "Creating…" : "Create workspace"}
-        </button>
-        <p className="text-xs text-slate-500">
-          Creating a workspace does not start any calling. Your agent begins as a draft,
-          the wallet starts empty, and outbound calls stay blocked until there is credit
-          and a verified number.
-        </p>
-      </form>
+          <div className="space-y-2">
+            <button
+              type="submit"
+              disabled={signup.isPending || businessName.trim().length < 2}
+              className={PRIMARY_BUTTON}
+            >
+              {signup.isPending ? "Creating…" : "Create workspace"}
+            </button>
+            <p className="text-xs text-ink-faint">
+              Creating a workspace does not start any calling. Your agent begins as a
+              draft, the wallet starts empty, and outbound calls stay blocked until there
+              is credit and a verified number.
+            </p>
+          </div>
+        </form>
+      </Card>
     </div>
   );
 }
 
+/**
+ * One labelled control, with its hint and its refusal wired to it.
+ *
+ * The children are a RENDER FUNCTION rather than a node because the input needs the
+ * generated ids: `id` to be the label's target, and `aria-describedby` to name the hint
+ * and the error. Passing them down is what makes the association real rather than
+ * visual — a screen reader announces "Workspace URL, invalid, that name is taken" while
+ * tabbing, instead of leaving the user to hunt for a red block at the top of the page.
+ *
+ * `htmlFor` + an explicit `id` rather than a wrapping `<label>`: the URL field wraps its
+ * input in a row with a `/c/` prefix, and a label wrapping two things labels both.
+ */
 function Field({
+  id,
   label,
   hint,
+  error,
   children,
 }: {
+  id: string;
   label: string;
   hint?: string;
-  children: React.ReactNode;
+  error?: string;
+  children: (props: {
+    id: string;
+    "aria-describedby"?: string;
+    "aria-invalid"?: true;
+  }) => ReactNode;
 }) {
+  const hintId = hint ? `${id}-hint` : undefined;
+  const errorId = error ? `${id}-error` : undefined;
+  const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
   return (
-    <label className="block">
-      <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{label}</span>
-      {hint && <span className="mt-0.5 block text-xs text-slate-500">{hint}</span>}
-      <div className="mt-1.5">{children}</div>
-    </label>
+    <div>
+      <label htmlFor={id} className={FIELD_LABEL}>
+        {label}
+      </label>
+      {children({
+        id,
+        "aria-describedby": describedBy,
+        ...(error ? { "aria-invalid": true as const } : {}),
+      })}
+      {hint && (
+        <span id={hintId} className={FIELD_HINT}>
+          {hint}
+        </span>
+      )}
+      {error && (
+        <span id={errorId} className="mt-1 block text-xs font-medium text-rose-700 dark:text-rose-400">
+          {error}
+        </span>
+      )}
+    </div>
   );
 }
