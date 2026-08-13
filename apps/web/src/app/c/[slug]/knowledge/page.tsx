@@ -1,6 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ComponentType } from "react";
+import {
+  Archive,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  CircleHelp,
+  Clock,
+  Send,
+  XCircle,
+} from "lucide-react";
 
 import {
   Card,
@@ -8,31 +18,13 @@ import {
   ProblemNotice,
   RestrictionNote,
   Skeleton,
+  formatCount,
   formatIST,
 } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useAgents, useKbChunks, useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
 import { lookup } from "@/lib/lookup";
-
-const STATUS_COPY: Record<string, { label: string; tone: string }> = {
-  pending_approval: {
-    label: "In review",
-    tone: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
-  },
-  approved: {
-    label: "Approved, not live yet",
-    tone: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
-  },
-  rejected: {
-    label: "Not accepted",
-    tone: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
-  },
-  archived: {
-    label: "Replaced by a newer version",
-    tone: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
-  },
-};
 
 /**
  * Client-side knowledge (FLOWS §7).
@@ -42,7 +34,68 @@ const STATUS_COPY: Record<string, { label: string; tone: string }> = {
  * their change is queued will submit it three more times, and the agent speaks under
  * their PE registration — the wait is a feature they should understand, not a delay
  * they should have to discover.
+ *
+ * Restyled to the console's design language (globals.css tokens, `Card`, lucide icons as
+ * affordances) WITHOUT changing what it fetches or what it submits. The badge ladder is
+ * untouched and is the load-bearing part of the screen — see `sourceBadge` below. What
+ * else changed is what the screen was quietly not saying:
+ *
+ * - **A failed `/v1/agents` left a dead form with no explanation.** The submit button is
+ *   disabled without an agent to teach, and nothing said why — so the one client whose
+ *   agent list failed to load saw a form that simply refused to work. The agents query's
+ *   error now renders, and an account with no agents at all is told so in words.
+ * - **The preview rendered an empty box while it was loading, and again when it failed.**
+ *   `(chunks.data ?? []).map(...)` cannot tell those two from "this submission has no
+ *   answers in it", and the third reading is the one a client takes: that the text they
+ *   pasted arrived empty. Loading is a skeleton, failure is a refusal, and only the
+ *   server's own empty list is rendered as emptiness.
+ * - **The rows never said WHICH agent a source teaches**, though the form insists on the
+ *   choice and `list_sources` returns every agent's sources in one list. A client with
+ *   two agents could not tell whether the answer they were waiting on belonged to the
+ *   receptionist or to the outbound agent.
+ *
+ * The screen renders no `<h1>`: the shell prints the page title from the nav list
+ * (layout.tsx), and a second "Knowledge base" beside it is a visible duplicate.
+ *
+ * Submitting is `kb:write`, which `staff` does not hold and which an impersonating
+ * operator is refused (D-22) — so the control is disabled WITH the reason rather than
+ * left to answer 403. Reading (`agents:read`) stays open, which is the whole point of
+ * "view as client": support can see the knowledge base they are being asked about.
  */
+
+interface StatusCopy {
+  label: string;
+  /** Badge palette. Semantic rather than branded — this is a verdict, not navigation. */
+  tone: string;
+  icon: ComponentType<{ className?: string }>;
+}
+
+/** A state we cannot name, and the archived state, share the quietest treatment. */
+const NEUTRAL_BADGE = "bg-black/5 text-ink-muted dark:bg-white/10";
+
+const STATUS_COPY: Record<string, StatusCopy> = {
+  pending_approval: {
+    label: "In review",
+    tone: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
+    icon: Clock,
+  },
+  approved: {
+    label: "Approved, not live yet",
+    tone: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+    icon: CheckCircle2,
+  },
+  rejected: {
+    label: "Not accepted",
+    tone: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+    icon: XCircle,
+  },
+  archived: {
+    label: "Replaced by a newer version",
+    tone: NEUTRAL_BADGE,
+    icon: Archive,
+  },
+};
+
 export default function KnowledgePage() {
   const session = useClientSession();
   const sources = useKbSources(session);
@@ -70,158 +123,289 @@ export default function KnowledgePage() {
   const agentOptions = agents.data ?? [];
   const selectedAgentId = agentId || agentOptions[0]?.id || "";
 
+  /**
+   * Agent id → name, for the rows. Built from the SAME query the picker uses, so the
+   * two halves of the screen cannot disagree about what an agent is called; read through
+   * `lookup` because `agent_id` is a server string and `Object.fromEntries` produces an
+   * object that inherits `Object.prototype` (src/lib/lookup.ts).
+   */
+  const agentNames: Record<string, string> = Object.fromEntries(
+    agentOptions.map((agent) => [agent.id, agent.name]),
+  );
+
+  /**
+   * There is nothing to teach — as a FACT from the server, not as "the list is empty
+   * right now". While `/v1/agents` is in flight or has failed, `agentOptions` is also
+   * empty, and telling a client they have no agents on the strength of a request that
+   * never landed is the same lie as an empty state over a failed fetch.
+   */
+  const hasNoAgents = Boolean(agents.data) && agentOptions.length === 0;
+
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Knowledge</h1>
-        <p className="mt-0.5 text-sm text-slate-500">
-          What your agent knows. Everything you add is reviewed by your account manager
-          before it goes live.
-        </p>
-      </div>
+    <div className="space-y-5 pb-12">
+      <p className="text-sm text-ink-muted">
+        What your agent knows. Everything you add is reviewed by your account manager
+        before it goes live.
+      </p>
 
       <RestrictionNote reason={write.reason} />
 
       {sources.error && <ProblemNotice error={sources.error} onRetry={() => sources.refetch()} />}
+      {/* Without this the form simply refused to submit and never said why: no agent
+          list means no agent to teach, and the disabled button looked like a bug. */}
+      {agents.error && <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />}
       {submit.error && <ProblemNotice error={submit.error} />}
 
-      <Card title="Add knowledge">
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!selectedAgentId) return;
-            submit.mutate(
-              { agentId: selectedAgentId, name, body },
-              { onSuccess: () => { setName(""); setBody(""); } },
-            );
-          }}
-        >
-          {agentOptions.length > 1 && (
-            <label className="block max-w-sm">
-              <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                Which agent should know this
-              </span>
-              <select
-                value={selectedAgentId}
-                onChange={(e) => setAgentId(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-              >
-                {agentOptions.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <input
-            required
-            minLength={2}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="What is this about? e.g. Clinic hours"
-            className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
-          <textarea
-            required
-            minLength={10}
-            rows={6}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder={
-              "Write it the way you would tell a new receptionist.\n\n" +
-              "Leave a blank line between topics. Short related topics are grouped " +
-              "into one answer; long ones are split."
-            }
-            className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
-          <div className="flex items-center justify-between">
-            {/* Chunking is paragraph-aware, so telling the client that changes how they
-                write — and better input is cheaper than better retrieval. */}
-            <p className="text-xs text-slate-500">
-              Submitting a topic that already exists creates a new version; the previous
-              one stays until this is approved.
-            </p>
-            <button
-              type="submit"
-              disabled={!write.allowed || submit.isPending || !selectedAgentId || body.length < 10}
-              className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+      <div className="grid gap-5 lg:grid-cols-12">
+        <div className="lg:col-span-5">
+          <Card title="Add knowledge">
+            <form
+              className="space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!selectedAgentId) return;
+                submit.mutate(
+                  { agentId: selectedAgentId, name, body },
+                  {
+                    onSuccess: () => {
+                      setName("");
+                      setBody("");
+                    },
+                  },
+                );
+              }}
             >
-              {submit.isPending ? "Submitting…" : "Submit for review"}
-            </button>
-          </div>
-        </form>
-      </Card>
+              {hasNoAgents && (
+                <p className="rounded-lg border border-line bg-app px-3 py-2 text-xs text-ink-muted">
+                  There is no agent on this account yet, so there is nothing to teach.
+                  Your account manager sets the first one up with you.
+                </p>
+              )}
 
-      <Card title="Submitted">
+              {agentOptions.length > 1 ? (
+                <label className="block">
+                  <span className="text-xs font-medium text-ink-muted">
+                    Which agent should know this
+                  </span>
+                  <select
+                    value={selectedAgentId}
+                    onChange={(e) => setAgentId(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink"
+                  >
+                    {agentOptions.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                /* One agent is still a choice the client should be able to check —
+                   the submission is filed against it either way. */
+                agentOptions.length === 1 && (
+                  <p className="text-xs text-ink-muted">
+                    Goes to{" "}
+                    <span className="font-semibold text-ink">{agentOptions[0]?.name}</span>.
+                  </p>
+                )
+              )}
+
+              <input
+                required
+                minLength={2}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                aria-label="What this knowledge is about"
+                placeholder="What is this about? e.g. Clinic hours"
+                className="w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint"
+              />
+              <textarea
+                required
+                minLength={10}
+                rows={8}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                aria-label="What the agent should say"
+                placeholder={
+                  "Write it the way you would tell a new receptionist.\n\n" +
+                  "Leave a blank line between topics. Short related topics are grouped " +
+                  "into one answer; long ones are split."
+                }
+                className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
+              />
+              {/* Chunking is paragraph-aware, so telling the client that changes how they
+                  write — and better input is cheaper than better retrieval. */}
+              <p className="text-xs text-ink-muted">
+                Submitting a topic that already exists creates a new version; the previous
+                one stays until this is approved.
+              </p>
+              <button
+                type="submit"
+                disabled={!write.allowed || submit.isPending || !selectedAgentId || body.length < 10}
+                /* The reason travels WITH the control as well as sitting at the top of
+                   the screen: `RestrictionNote` is above the fold on a phone only by
+                   luck, and a dead button with the explanation off-screen is the 403 we
+                   are trying not to ship. */
+                title={write.reason ?? undefined}
+                className="flex w-full items-center justify-center gap-1.5 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Send className="h-3.5 w-3.5" />
+                {submit.isPending ? "Submitting…" : "Submit for review"}
+              </button>
+            </form>
+          </Card>
+        </div>
+
+        {/* A failed first load gets NO card. An empty panel headed "Submitted" is the
+            same sentence as "nothing submitted", drawn instead of written, and on this
+            screen that sentence tells a client their queued change is not queued. The
+            notice above is the whole answer. `sources.data` survives a failed REFETCH,
+            and those rows are real — so the guard is on the data, not on the error. */}
         {sources.isLoading ? (
-          <Skeleton rows={4} />
-        ) : sources.data?.length ? (
-          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-            {sources.data.map((source) => {
-              // `SourceOut.status` is plain `string` on the wire. Fails VISIBLE: an
-              // unnameable status shows as itself in neutral slate, because a client
-              // whose submission is in an unfamiliar state still has to see that it is
-              // in one. `lookup` rather than a bare index — `STATUS_COPY["constructor"]`
-              // is the `Object` function, which `??` does not treat as missing, so the
-              // badge rendered with `undefined` copy and a stringified function for its
-              // class list (lib/lookup.ts).
-              const copy = lookup(STATUS_COPY, source.status) ?? {
-                label: source.status,
-                tone: "bg-slate-100 text-slate-700",
-              };
-              return (
-                <li key={source.id} className="py-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
-                      {source.name}
-                    </span>
-                    <span className="text-xs text-slate-500">v{source.version}</span>
-                    {source.is_active ? (
-                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                        Live
-                      </span>
-                    ) : (
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${copy.tone}`}>
-                        {copy.label}
-                      </span>
-                    )}
-                    <span className="ml-auto text-xs text-slate-500">
-                      {source.chunks} {source.chunks === 1 ? "answer" : "answers"} ·{" "}
-                      {source.published_at ? formatIST(source.published_at) : "not live yet"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setSelected(selected === source.id ? null : source.id)}
-                      className="rounded-md border border-slate-200 px-2 py-0.5 text-xs dark:border-slate-700"
-                    >
-                      {selected === source.id ? "Hide" : "Preview"}
-                    </button>
-                  </div>
-                  {selected === source.id && (
-                    <div className="mt-2 space-y-2">
-                      {(chunks.data ?? []).map((chunk) => (
-                        <p
-                          key={chunk.idx}
-                          className="rounded-md bg-slate-50 p-2 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-                        >
-                          {chunk.content}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        ) : sources.error ? null : (
-          <EmptyState
-            title="Nothing submitted yet"
-            hint="Add your opening hours, services and prices first — those are what callers ask about."
-          />
+          <div className="lg:col-span-7">
+            <Card title="Submitted">
+              <Skeleton rows={4} />
+            </Card>
+          </div>
+        ) : !sources.data ? null : (
+          <div className="lg:col-span-7">
+            <Card title="Submitted" bodyClassName="p-2">
+              {sources.data.length ? (
+                <ul className="divide-y divide-line">
+                  {sources.data.map((source) => {
+                    // WHICH agent this teaches, or nothing. Absent rather than guessed
+                    // while the agent list is loading or has failed: a source attributed
+                    // to the wrong agent is worse than one attributed to none.
+                    const agentName = lookup(agentNames, source.agent_id);
+                    const open = selected === source.id;
+                    return (
+                      <li key={source.id} className="px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                          <span className="text-sm font-semibold text-ink">{source.name}</span>
+                          <span className="text-xs tabular-nums text-ink-faint">
+                            v{source.version}
+                          </span>
+                          <SourceBadge source={source} />
+                          <span className="ml-auto flex items-center gap-2 text-xs text-ink-faint">
+                            <span className="tabular-nums">
+                              {formatCount(source.chunks)}{" "}
+                              {source.chunks === 1 ? "answer" : "answers"}
+                            </span>
+                            {agentName && <span className="truncate">{agentName}</span>}
+                            {source.published_at && (
+                              <span className="whitespace-nowrap">
+                                Published {formatIST(source.published_at)}
+                              </span>
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setSelected(open ? null : source.id)}
+                            aria-expanded={open}
+                            className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
+                          >
+                            {open ? (
+                              <ChevronUp className="h-3 w-3" />
+                            ) : (
+                              <ChevronDown className="h-3 w-3" />
+                            )}
+                            {open ? "Hide" : "Preview"}
+                          </button>
+                        </div>
+
+                        {open && (
+                          <div className="mt-3 rounded-lg border border-line bg-app p-3">
+                            {/* Three answers that used to look identical: still
+                                fetching, could not fetch, and "the server says there is
+                                nothing in here". Only the third one is emptiness, and
+                                the other two read to a client as text that arrived
+                                blank. */}
+                            {chunks.isLoading ? (
+                              <Skeleton rows={2} />
+                            ) : chunks.error ? (
+                              <ProblemNotice
+                                error={chunks.error}
+                                onRetry={() => void chunks.refetch()}
+                              />
+                            ) : chunks.data?.length ? (
+                              <div className="space-y-2">
+                                {chunks.data.map((chunk) => (
+                                  <p
+                                    key={chunk.idx}
+                                    className="rounded-md border border-line bg-surface p-2 text-xs text-ink-muted"
+                                  >
+                                    {chunk.content}
+                                  </p>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-ink-muted">
+                                There is nothing in this submission for the agent to say.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <EmptyState
+                  title="Nothing submitted yet"
+                  hint="Add your opening hours, services and prices first — those are what callers ask about."
+                />
+              )}
+            </Card>
+          </div>
         )}
-      </Card>
+      </div>
     </div>
+  );
+}
+
+/**
+ * THE two-step ladder this screen exists for (FLOWS §7), and the one thing in this file
+ * that must not be simplified:
+ *
+ *     is_active  →  "Live"       (a caller hears this now)
+ *     otherwise  →  status copy  ("In review", "Approved, not live yet", …)
+ *
+ * `approved` is NOT `live`. Between them sit the version bump, the embeddings, the T0
+ * recompile and the engine KB sync (FLOWS §7), any of which can still be outstanding —
+ * so a badge keyed on `status === "approved"` tells a client the agent is saying
+ * something no caller will hear, and they stop chasing the publish. Both fields are on
+ * every row, so `tsc` catches nothing here; tests/knowledgeApproval.test.tsx does.
+ *
+ * `SourceOut.status` is plain `string` on the wire, so the copy lookup fails VISIBLE: an
+ * unnameable status renders as itself, because a client whose submission is stuck in an
+ * unfamiliar state still has to see that it is stuck and quote the word to support.
+ * `lookup` rather than a bare index — `STATUS_COPY["constructor"]` is the `Object`
+ * function, which `??` does not treat as missing, so the badge rendered with `undefined`
+ * copy and a stringified function for its class list (lib/lookup.ts).
+ */
+function SourceBadge({ source }: { source: { status: string; is_active: boolean } }) {
+  if (source.is_active) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2 py-0.5 text-xs font-semibold text-brand-strong">
+        {/* The design's live-state pip (globals.css), not an icon: "on air" is a state,
+            and the pip is what the console uses for one everywhere else. */}
+        <span className="h-1.5 w-1.5 rounded-full bg-brand-bright" />
+        Live
+      </span>
+    );
+  }
+  const copy = lookup(STATUS_COPY, source.status) ?? {
+    label: source.status,
+    tone: NEUTRAL_BADGE,
+    icon: CircleHelp,
+  };
+  const Icon = copy.icon;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${copy.tone}`}
+    >
+      <Icon className="h-3 w-3" />
+      {copy.label}
+    </span>
   );
 }

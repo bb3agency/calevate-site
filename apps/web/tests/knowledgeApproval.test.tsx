@@ -1,11 +1,17 @@
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import KnowledgePage from "@/app/c/[slug]/knowledge/page";
 import type { Me } from "@/lib/api/client";
 import type { KbSource } from "@/lib/api/kb";
 
-import { expectTextCount, renderClientPage } from "./harness";
+import {
+  expectTextCount,
+  problem,
+  renderClientPage,
+  type ProblemResponse,
+  type Routes,
+} from "./harness";
 
 /**
  * The knowledge approval gate (FLOWS §7), ranked third.
@@ -29,9 +35,16 @@ import { expectTextCount, renderClientPage } from "./harness";
  *
  * The reverse error is just as reachable and lands the other way: a source that IS live
  * showing its old status would have a client resubmitting text the agent already says.
+ *
+ * The second half of the file is about the same gate under FAILURE and under a session
+ * that may not submit. Both produce a screen that looks calm and says the wrong thing:
+ * an empty "Submitted" panel over a failed read tells a client their queued change was
+ * never queued, and a live-looking submit button tells a `staff` user to write two
+ * hundred words for a 403.
  */
 
 const AGENT_ID = "0192f0aa-5555-7000-8000-000000000001";
+const SOURCE_ID = "0192f0aa-6666-7000-8000-000000000001";
 
 const ME: Me = {
   impersonating: false,
@@ -42,11 +55,20 @@ const ME: Me = {
   organization: null,
 };
 
+/**
+ * The other client-realm role. `staff` holds `agents:read` and NOT `kb:write`
+ * (core/rbac.py), so it may read every source on this screen and submit none.
+ */
+const STAFF: Me = { ...ME, role: "staff", permissions: ["agents:read"] };
+
+/** D-22: every MUTATING permission is refused an impersonating principal, `kb:write` included. */
+const OPERATOR_VIEWING: Me = { ...ME, impersonating: true };
+
 const AGENT = { id: AGENT_ID, name: "Front desk", status: "live" };
 
 function source(over: Partial<KbSource> = {}): KbSource {
   return {
-    id: "0192f0aa-6666-7000-8000-000000000001",
+    id: SOURCE_ID,
     agent_id: AGENT_ID,
     name: "Opening hours",
     kind: "text",
@@ -59,12 +81,18 @@ function source(over: Partial<KbSource> = {}): KbSource {
   } as KbSource;
 }
 
-async function renderKnowledge(sources: KbSource[]) {
+async function renderKnowledge(sources: KbSource[] | ProblemResponse, over: Routes = {}) {
   return await renderClientPage(<KnowledgePage />, {
     "/v1/me": ME,
     "/v1/agents": [AGENT],
     "/v1/kb/sources": sources,
+    ...over,
   });
+}
+
+/** The one control on the screen, found the way a client finds it. */
+function submitButton(): HTMLButtonElement {
+  return screen.getByRole("button", { name: /submit for review/i }) as HTMLButtonElement;
 }
 
 describe("the approval gate as the client sees it", () => {
@@ -143,5 +171,96 @@ describe("the approval gate as the client sees it", () => {
     // The `Object.prototype` failure this app has a whole module about: a bare index
     // would have rendered a stringified function into the badge's class list.
     expect(container.innerHTML).not.toContain("native code");
+  });
+});
+
+describe("the gate when we cannot read it, or cannot write to it", () => {
+  it("never says 'nothing submitted' about a list it could not read", async () => {
+    // THE dangerous sentence on this screen. A client whose text is sitting in the
+    // approval queue, shown an empty panel headed "Submitted", concludes the submission
+    // was lost — and either submits it again or rings us about a queue that is working.
+    // The panel is absent entirely; the refusal above is the whole answer.
+    const { container } = await renderKnowledge(
+      problem(503, { title: "Service unavailable", detail: "We could not read your submissions." }),
+    );
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(container.textContent).not.toContain("Nothing submitted yet");
+    expect(screen.queryByText("Submitted")).toBeNull();
+    expect(container.textContent).not.toContain("Live");
+  });
+
+  it("does not read a failed agent list as an account with no agents", async () => {
+    // The same defect one query over: `agents.data ?? []` cannot tell "this account has
+    // no agent" from "we could not ask". Only the first is a fact about the client, and
+    // only the server may state it. The form is dead either way — so it says why.
+    const { container } = await renderKnowledge([source()], {
+      "/v1/agents": problem(500, { title: "Upstream failure" }),
+    });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(container.textContent).not.toContain("There is no agent on this account yet");
+    expect(submitButton().disabled).toBe(true);
+  });
+
+  it("disables the submit control for a role the route refuses, and says which", async () => {
+    // `POST /v1/kb/sources` is `kb:write`, which `staff` does not hold (core/rbac.py).
+    // The button used to render live for them: the 403 arrived after the client had
+    // typed the text, and it reads as a fault in the product rather than as a rule.
+    const { container } = await renderKnowledge([source()], { "/v1/me": STAFF });
+
+    await screen.findByText("Opening hours");
+    expect(submitButton().disabled).toBe(true);
+    expect(container.textContent).toContain("Only an account owner can add knowledge to this account.");
+    // The reason travels with the control as well: on a phone the note at the top of the
+    // screen is nowhere near the button that is refusing to work.
+    expect(submitButton().title).toContain("Only an account owner");
+    // Reading is `agents:read` and stays open — a staff user still sees the queue.
+    expect(container.textContent).toContain("In review");
+  });
+
+  it("disables the submit control inside a read-only view-as session (D-22)", async () => {
+    const { container } = await renderKnowledge([source()], { "/v1/me": OPERATOR_VIEWING });
+
+    await screen.findByText("Opening hours");
+    expect(submitButton().disabled).toBe(true);
+    expect(container.textContent).toContain("viewing this account read-only");
+    expect(container.textContent).toContain("Do it from the admin console instead.");
+  });
+
+  it("does not render a failed preview as a submission with nothing in it", async () => {
+    // The preview answers "what will the agent actually say", so an empty box is read as
+    // "the text I pasted arrived blank" — and a client who believes that deletes the
+    // source and starts again, losing their place in the queue. Loading, failure and a
+    // genuinely empty source were all one silent branch: `(chunks.data ?? []).map(...)`.
+    const { container } = await renderKnowledge([source()], {
+      [`/v1/kb/sources/${SOURCE_ID}/preview`]: problem(503, { title: "Service unavailable" }),
+    });
+
+    await screen.findByText("Opening hours");
+    fireEvent.click(screen.getByRole("button", { name: /preview/i }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(container.textContent).not.toContain(
+      "There is nothing in this submission for the agent to say.",
+    );
+  });
+
+  it("says which agent a source belongs to, and guesses at none", async () => {
+    // Knowledge is filed against ONE agent and `list_sources` returns every agent's
+    // sources together, so a two-agent account cannot otherwise tell whether the answer
+    // it is waiting on belongs to the receptionist or to the outbound agent.
+    const named = await renderKnowledge([source()]);
+    await screen.findByText("Opening hours");
+    expect(named.container.textContent).toContain("Front desk");
+    named.unmount();
+
+    // With the agent list unreadable the row says nothing rather than something: a
+    // source attributed to the wrong agent is worse than one attributed to none.
+    const unnamed = await renderKnowledge([source()], {
+      "/v1/agents": problem(500, { title: "Upstream failure" }),
+    });
+    await screen.findByText("Opening hours");
+    expect(unnamed.container.textContent).not.toContain("Front desk");
   });
 });

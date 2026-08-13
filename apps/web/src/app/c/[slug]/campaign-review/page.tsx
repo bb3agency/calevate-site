@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import type { ComponentType } from "react";
+import { ArrowLeft, Clock, Info, ShieldAlert, ShieldCheck, XCircle } from "lucide-react";
 
 import {
   Card,
@@ -54,10 +56,10 @@ import { useClientRealm, useClientSession } from "@/lib/api/session";
  *    a 403 is a trap; the closed-signup page and `/verification` set that precedent, and
  *    the screen says out loud that the absence is deliberate.
  *
- * Read-only throughout: `org:read` is not a mutating permission, so this page keeps
- * working inside a D-22 "view as client" session — the session a support person is in
- * exactly when a held account is the thing being discussed. There is no `useWriteAccess`
- * here, because there is no control to gate.
+ * Read-only throughout: `org:read` is not a mutating permission and BOTH client roles
+ * hold it (core/rbac.py), so every reader of this page may read all of it and there is
+ * no control to gate. It therefore keeps working inside a D-22 "view as client" session
+ * — the session a support person is in exactly when a held account is being discussed.
  *
  * DELIBERATELY NOT SAID: that a held account can still place single calls from a lead's
  * record. It is true — the gate is on the campaign paths only, and
@@ -66,6 +68,12 @@ import { useClientRealm, useClientSession } from "@/lib/api/session";
  * that explains the hold would turn a documented gap into an advertised workaround.
  * Inbound being unaffected IS said, because that is the fear a blocked client arrives
  * with (D-38: the receptionist is the headline product).
+ *
+ * Restyled to the console's design language (globals.css tokens, `Card`, the shared
+ * `NOTICE_TONES` verdict palette) WITHOUT re-deriving a single verdict client-side: the
+ * box below renders `firstCampaignState`, which reads the SERVER's `held` predicate.
+ * The screen's own `<h1>` is gone — the shell prints "Campaign review" from the nav list
+ * (layout.tsx), and a second copy beside it is a visible duplicate.
  */
 
 interface Verdict {
@@ -73,12 +81,19 @@ interface Verdict {
   tone: NoticeTone;
   /** Whose move it is now — the sentence that separates waiting from acting. */
   next: string;
+  /**
+   * The state at a glance. Keyed on the STATE rather than on the tone: `warn` covers
+   * both "queued" and "held on a rule we cannot name", and those are the two a client
+   * most needs to tell apart before reading a word.
+   */
+  icon: ComponentType<{ className?: string }>;
 }
 
 const VERDICTS: Record<FirstCampaignState, Verdict> = {
   pending: {
     headline: "Your campaigns are with our compliance team.",
     tone: "warn",
+    icon: Clock,
     next:
       "There is nothing to send and nothing to press — the review is already queued, and " +
       "we come to you when it is done.",
@@ -86,6 +101,7 @@ const VERDICTS: Record<FirstCampaignState, Verdict> = {
   rejected: {
     headline: "We reviewed this account and did not release it for campaign calling.",
     tone: "stop",
+    icon: XCircle,
     next:
       "This is not final: put right what is below and tell your account manager, and a " +
       "reviewer will look again.",
@@ -93,11 +109,13 @@ const VERDICTS: Record<FirstCampaignState, Verdict> = {
   held_unknown: {
     headline: "Your campaigns are held for review.",
     tone: "warn",
+    icon: ShieldAlert,
     next: "Ask your account manager where this stands.",
   },
   released: {
     headline: "Your account is cleared for campaign calling.",
     tone: "ok",
+    icon: ShieldCheck,
     next:
       "This check runs once per account, and it is done — no campaign of yours will be " +
       "held for it again.",
@@ -105,6 +123,7 @@ const VERDICTS: Record<FirstCampaignState, Verdict> = {
   never_applied: {
     headline: "This review does not apply to your account.",
     tone: "neutral",
+    icon: Info,
     next:
       "It is a check on accounts that sign up online without us. Yours was set up with " +
       "you by someone here, so no campaign of yours is held for it.",
@@ -118,23 +137,36 @@ export default function CampaignReviewPage() {
   const hold = useFirstCampaignHold(session);
 
   if (hold.isLoading) return <Skeleton rows={6} />;
-  if (hold.error) return <ProblemNotice error={hold.error} onRetry={() => hold.refetch()} />;
-  if (!hold.data) return null;
+
+  /**
+   * A refusal we received, or an answer that never arrived — one branch, because to the
+   * client they are the same sentence and it is not "you are fine".
+   *
+   * The second half used to `return null`. `isLoading` is false whenever the query is
+   * pending but not FETCHING — which is what TanStack Query does while the browser is
+   * offline (`fetchStatus: "paused"`) — so a client on a train got a blank page on the
+   * one screen whose blankness reads as "nothing is holding your campaigns". There is no
+   * `ApiProblem` to render in that case, and `ProblemNotice` says exactly the right
+   * thing for it: we could not reach Calevate, here is a retry.
+   */
+  if (hold.error || !hold.data) {
+    return (
+      <ProblemNotice
+        error={hold.error ?? new Error("The review status did not load.")}
+        onRetry={() => void hold.refetch()}
+      />
+    );
+  }
 
   const data = hold.data;
   const state = firstCampaignState(data);
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
-          Campaign review
-        </h1>
-        <p className="mt-0.5 text-sm text-slate-500">
-          Before a new account makes its first campaign calls, someone at Calevate reads
-          it. This is where your account stands.
-        </p>
-      </div>
+    <div className="space-y-5 pb-12">
+      <p className="text-sm text-ink-muted">
+        Before a new account makes its first campaign calls, someone at Calevate reads
+        it. This is where your account stands.
+      </p>
 
       <VerdictBox hold={data} state={state} />
 
@@ -149,16 +181,15 @@ export default function CampaignReviewPage() {
 
       {state !== "never_applied" && <WhoDecides state={state} />}
 
-      <p className="text-sm">
+      <p className="text-sm text-ink-muted">
         <Link
           href={href(`/c/${session.orgSlug}/campaigns`)}
-          className="font-medium text-sky-700 underline dark:text-sky-400"
+          className="inline-flex items-center gap-1.5 font-semibold text-brand-strong underline dark:text-brand-bright"
         >
+          <ArrowLeft className="h-3.5 w-3.5" />
           Back to your campaigns
         </Link>{" "}
-        <span className="text-slate-600 dark:text-slate-400">
-          — the launch check there lists everything else a campaign is waiting on.
-        </span>
+        — the launch check there lists everything else a campaign is waiting on.
       </p>
     </div>
   );
@@ -181,40 +212,50 @@ export default function CampaignReviewPage() {
 function VerdictBox({ hold, state }: { hold: FirstCampaignHold; state: FirstCampaignState }) {
   const verdict = VERDICTS[state];
   const refusal = state === "rejected" ? (hold.decision_note ?? hold.reason) : null;
+  const Icon = verdict.icon;
   return (
-    <div className={`rounded-lg border p-4 text-sm ${NOTICE_TONES[verdict.tone]}`}>
-      <p className="text-base font-medium">{verdict.headline}</p>
-      <p className="mt-1">{verdict.next}</p>
+    <div
+      className={`flex items-start gap-3 rounded-card border p-4 text-sm ${NOTICE_TONES[verdict.tone]}`}
+    >
+      <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+      <div className="min-w-0">
+        <p className="text-base font-semibold">{verdict.headline}</p>
+        <p className="mt-1">{verdict.next}</p>
 
-      {refusal && (
-        <p className="mt-2 rounded-md bg-white/60 p-2 dark:bg-black/20">
-          <span className="font-medium">What the reviewer said:</span> {refusal}
-        </p>
-      )}
+        {refusal && (
+          <p className="mt-2 rounded-md bg-white/60 p-2 dark:bg-black/20">
+            <span className="font-semibold">What the reviewer said:</span> {refusal}
+          </p>
+        )}
 
-      {/* An unrecognised rule gets the server's own sentence and no invented next step:
-          this build cannot know what a future rule means, and "we will get to it
-          shortly" would be a confident guess about somebody's stopped campaign. */}
-      {state === "held_unknown" && hold.reason && <p className="mt-2">{hold.reason}</p>}
+        {/* An unrecognised rule gets the server's own sentence and no invented next step:
+            this build cannot know what a future rule means, and "we will get to it
+            shortly" would be a confident guess about somebody's stopped campaign. */}
+        {state === "held_unknown" && hold.reason && <p className="mt-2">{hold.reason}</p>}
 
-      {hold.decided_at && (
-        <p className="mt-2 text-xs opacity-80">
-          {state === "released" ? "Released" : "Decided"} {formatIST(hold.decided_at)}.
-        </p>
-      )}
+        {hold.decided_at && (
+          <p className="mt-2 text-xs opacity-80">
+            {state === "released" ? "Released" : "Decided"} {formatIST(hold.decided_at)}.
+          </p>
+        )}
 
-      {/* The fear a blocked client actually arrives with. The gate is on the campaign
-          paths only and an inbound call never reaches one, so their receptionist is
-          answering the phone right now — and they will not believe that unless we say
-          it. */}
-      {state !== "released" && (
-        <p className="mt-2 font-medium">
-          Calls coming IN are unaffected — your agent keeps answering the phone.
-        </p>
-      )}
+        {/* The fear a blocked client actually arrives with. The gate is on the campaign
+            paths only and an inbound call never reaches one, so their receptionist is
+            answering the phone right now — and they will not believe that unless we say
+            it. */}
+        {state !== "released" && (
+          <p className="mt-2 font-semibold">
+            Calls coming IN are unaffected — your agent keeps answering the phone.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
+
+/** The lead-in of a list item: the claim, before the paragraph that qualifies it. */
+const LEAD_IN = "font-semibold text-ink";
+const LIST = "space-y-3 text-sm text-ink-muted";
 
 /**
  * The account/campaign distinction, which is the whole shape of this control.
@@ -230,11 +271,9 @@ function WhatIsHeld({ state }: { state: FirstCampaignState }) {
   const held = state !== "released";
   return (
     <Card title="What is being held, and for how long">
-      <ul className="space-y-3 text-sm text-slate-600 dark:text-slate-400">
+      <ul className={LIST}>
         <li>
-          <span className="font-medium text-slate-800 dark:text-slate-200">
-            It is your account that is reviewed, not each campaign.
-          </span>{" "}
+          <span className={LEAD_IN}>It is your account that is reviewed, not each campaign.</span>{" "}
           {held
             ? "While this stands, every campaign on the account is held — not only the " +
               "first one — so building another one, or deleting this one and starting " +
@@ -242,9 +281,7 @@ function WhatIsHeld({ state }: { state: FirstCampaignState }) {
             : "One decision was made about the account, and it covered all of it."}
         </li>
         <li>
-          <span className="font-medium text-slate-800 dark:text-slate-200">
-            It happens once.
-          </span>{" "}
+          <span className={LEAD_IN}>It happens once.</span>{" "}
           {held
             ? "Once we release the account, no campaign of yours is ever held for this " +
               "again. It is a review of your first campaign, not a signature on every " +
@@ -252,20 +289,15 @@ function WhatIsHeld({ state }: { state: FirstCampaignState }) {
             : "No campaign of yours will be held for this again."}
         </li>
         <li>
-          <span className="font-medium text-slate-800 dark:text-slate-200">
-            What we read.
-          </span>{" "}
-          The contact list and where it came from, what the agent says, and the line that
-          tells the person they are speaking to an AI. That is the check — it is about the
-          calls, not about you.
+          <span className={LEAD_IN}>What we read.</span> The contact list and where it came
+          from, what the agent says, and the line that tells the person they are speaking
+          to an AI. That is the check — it is about the calls, not about you.
         </li>
         <li>
-          <span className="font-medium text-slate-800 dark:text-slate-200">
-            The other checks are separate.
-          </span>{" "}
-          Your DLT template, your business verification and your credit balance each stop a
-          launch on their own, and clearing this one does not clear those. Your campaign
-          screen names whichever ones apply.
+          <span className={LEAD_IN}>The other checks are separate.</span> Your DLT template,
+          your business verification and your credit balance each stop a launch on their
+          own, and clearing this one does not clear those. Your campaign screen names
+          whichever ones apply.
         </li>
       </ul>
     </Card>
@@ -276,7 +308,7 @@ function WhatIsHeld({ state }: { state: FirstCampaignState }) {
 function WhileYouWait() {
   return (
     <Card title="What you can do meanwhile">
-      <ul className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
+      <ul className={LIST}>
         <li>
           Finish the campaign — upload the contact list, choose the number and the DLT
           template, and answer where the list came from. All of that is what we read, so a
@@ -299,28 +331,22 @@ function WhileYouWait() {
 function AfterARefusal() {
   return (
     <Card title="What happens next">
-      <ul className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
+      <ul className={LIST}>
         <li>
-          <span className="font-medium text-slate-800 dark:text-slate-200">
-            Put right what the reviewer named,
-          </span>{" "}
-          then tell your account manager it is done. Changing the campaign on its own does
-          not start a new review — a person has to look again, and they need to know there
-          is something to look at.
+          <span className={LEAD_IN}>Put right what the reviewer named,</span> then tell your
+          account manager it is done. Changing the campaign on its own does not start a new
+          review — a person has to look again, and they need to know there is something to
+          look at.
         </li>
         <li>
-          <span className="font-medium text-slate-800 dark:text-slate-200">
-            A refusal is not permanent.
-          </span>{" "}
-          Accounts are released after the thing that was wrong is fixed; this is a decision
-          about a campaign we read, not a judgement about your business.
+          <span className={LEAD_IN}>A refusal is not permanent.</span> Accounts are released
+          after the thing that was wrong is fixed; this is a decision about a campaign we
+          read, not a judgement about your business.
         </li>
         <li>
-          <span className="font-medium text-slate-800 dark:text-slate-200">
-            If the reason does not make sense, ask.
-          </span>{" "}
-          Quote it back to your account manager — the wording above is exactly what the
-          reviewer recorded, so it is the fastest thing to answer.
+          <span className={LEAD_IN}>If the reason does not make sense, ask.</span> Quote it
+          back to your account manager — the wording above is exactly what the reviewer
+          recorded, so it is the fastest thing to answer.
         </li>
       </ul>
     </Card>
@@ -338,7 +364,7 @@ function AfterARefusal() {
 function WhoDecides({ state }: { state: FirstCampaignState }) {
   return (
     <Card title="Who decides this">
-      <p className="text-sm text-slate-600 dark:text-slate-400">
+      <p className="text-sm text-ink-muted">
         {state === "released"
           ? "A person at Calevate read this account's campaign and recorded the decision. "
           : "A person at Calevate reads the campaign and records the decision. "}
