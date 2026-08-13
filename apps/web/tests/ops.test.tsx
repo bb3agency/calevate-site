@@ -106,6 +106,20 @@ function platform(over: Partial<PlatformState> = {}): PlatformState {
   };
 }
 
+/**
+ * The shell owns the page title. Two headings saying "Operations" is the visible half of
+ * a drift: rename the nav entry and the screen goes on arguing with it. Asserted as the
+ * ABSENCE of an h1 rather than by naming today's string, because the next screen to grow
+ * one would not be caught by a test that only knows this word.
+ */
+describe("the ops screen leaves its title to the shell", () => {
+  it("renders no heading of its own", async () => {
+    const { container } = renderAdminPage(<OpsPage />, routes());
+    await screen.findByText(/outbound calling/i);
+    expect(container.querySelector("h1")).toBeNull();
+  });
+});
+
 describe("the ops screen when the platform state cannot be read", () => {
   it("does NOT report that outbound calling is running", async () => {
     renderAdminPage(

@@ -71,8 +71,8 @@ import {
  * disables the control that caused it with the server's own words rather than inviting a
  * second identical refusal.
  *
- * The `<h1>` stays: the admin shell prints "Calevate admin" and the nav, not the page
- * title. It goes the moment the shell prints one.
+ * NO `<h1>`: the admin shell derives the page title from the same nav list it renders,
+ * so a heading here would print "New client" twice.
  */
 
 /**
@@ -156,7 +156,6 @@ export default function NewClientPage() {
   return (
     <div className="max-w-2xl space-y-5">
       <div>
-        <h1 className="text-xl font-semibold text-ink">New client</h1>
         <p className="mt-0.5 text-sm text-ink-muted">
           Creates the account, its retention policies, a draft receptionist and an
           extraction schema from the vertical template.

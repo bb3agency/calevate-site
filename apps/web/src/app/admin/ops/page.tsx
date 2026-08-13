@@ -133,9 +133,9 @@ import { hasKey, lookup } from "@/lib/lookup";
  * be a uuid typed into a form with no client's name, ceilings or counters next to it,
  * which is the curl's failure mode in a nicer font.
  *
- * The `<h1>` stays: the admin shell (layout.tsx) prints "Calevate admin" and the nav, not
- * the page title, so removing it would leave the screen unnamed. It goes the moment the
- * shell prints one.
+ * NO `<h1>`: the admin shell (layout.tsx) derives the page title from the same nav list
+ * it renders, so a heading here would print "Operations" twice — and would let the nav
+ * entry be renamed while this screen went on arguing with it.
  */
 
 /**
@@ -278,7 +278,6 @@ export default function OpsPage() {
   return (
     <div className="max-w-2xl space-y-5">
       <div>
-        <h1 className="text-xl font-semibold text-ink">Operations</h1>
         <p className="mt-0.5 text-sm text-ink-muted">
           Platform-wide switches. Every change is audit-logged with its reason, and every
           one of them applies to every client at the same instant.
