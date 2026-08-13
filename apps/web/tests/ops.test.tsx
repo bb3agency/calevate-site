@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsPage from "@/app/admin/ops/page";
 import {
+  OUTBOX_REPLAY_CONFIRMATION,
   platformConfirmation,
   type AuditChainVerdict,
   type OutboxReplayResult,
@@ -114,8 +115,17 @@ function platform(over: Partial<PlatformState> = {}): PlatformState {
  */
 describe("the ops screen leaves its title to the shell", () => {
   it("renders no heading of its own", async () => {
-    const { container } = renderAdminPage(<OpsPage />, routes());
-    await screen.findByText(/outbound calling/i);
+    // `routes(platform())` rather than `routes()`: the first argument is REQUIRED, and
+    // omitting it type-errored (TS2554) while vitest passed, because JS handed the stub
+    // `undefined` and the screen fell through to its unreadable-state panel — which also
+    // contains the string this test waits for. So the green came from the failure path.
+    // A rendered SUCCESS is what this assertion is about anyway: a stray `<h1>` would
+    // live in one of the panels that only exist once the platform read succeeds.
+    const { container } = renderAdminPage(<OpsPage />, routes(platform()));
+    // The exact readout, not `/outbound calling/i`: a rendered success says that phrase in
+    // a heading, a button and two paragraphs, and `findByText` throws on more than one
+    // match — which reads as a broken selector rather than as the premise it is.
+    await screen.findByText("Outbound calling is running");
     expect(container.querySelector("h1")).toBeNull();
   });
 });
@@ -438,6 +448,22 @@ describe("the load-shed mode", () => {
 /** The console's mirror of `ops/routes.py::platform_confirmation`, pinned as the ops
  * PROCEDURE it is — two runbooks print these literals for the curl fallback. */
 describe("the step-up strings", () => {
+  it("names the replay action, with no target to bind because there is only one queue", () => {
+    // `runbooks/webhook-delivery-failures.md` prints this for the curl fallback and
+    // `ops/routes.py::OUTBOX_REPLAY_CONFIRMATION` is the server's copy. Pinned here so a
+    // reformat has to fail a test rather than leave the console sending a refused header.
+    expect(OUTBOX_REPLAY_CONFIRMATION).toBe("replay_dead_letters");
+    // And it is not equal to any other header this console sends — the property that
+    // stops a confirmation captured for the smallest action authorising the largest.
+    expect(
+      [
+        platformConfirmation({ outboundHalted: true }),
+        platformConfirmation({ outboundHalted: false }),
+        platformConfirmation({ loadShedMode: "maintenance" }),
+      ].includes(OUTBOX_REPLAY_CONFIRMATION),
+    ).toBe(false);
+  });
+
   it("names the transition, and joins both halves halt-first", () => {
     expect(platformConfirmation({ outboundHalted: true })).toBe("halt_outbound");
     expect(platformConfirmation({ outboundHalted: false })).toBe("release_outbound");
@@ -544,6 +570,57 @@ describe("the outbox dead-letter replay", () => {
 
     await screen.findByText("100 messages moved back to pending");
     expect(container.textContent).toContain("That is the per-run limit");
+  });
+
+  it("sends the step-up header the typed word was always standing in for", async () => {
+    // The half that used to be missing on BOTH sides. The console collected the word and
+    // sent no header, because the route accepted none — so nothing but this screen stood
+    // between a stolen `ops:manage` session and a cross-tenant redelivery.
+    const { calls } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, { [REPLAY]: replayed(2) }),
+    );
+
+    fireEvent.click(await armReplay());
+
+    await waitFor(() => {
+      expect(calls.some((c) => c.method === "POST" && c.path === REPLAY)).toBe(true);
+    });
+    const post = calls.find((c) => c.method === "POST" && c.path === REPLAY);
+    expect(post?.headers["X-Confirm-Action"]).toBe(OUTBOX_REPLAY_CONFIRMATION);
+  });
+
+  it("renders a refused confirmation as a refusal to act on, not a red box to retry", async () => {
+    // `step_up_required` is the one 4xx here that a retry cannot fix: the console DOES
+    // send a header, so a refusal means this build and the API disagree about the string.
+    // Rendered generically it reads as "try again", which sends the identical header.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [REPLAY]: problem(403, {
+          kind: "permission",
+          type: "urn:calevate:error/step_up_required",
+          title: "Confirmation required",
+          detail: "This action needs an explicit confirmation.",
+          remediation: "Repeat the request with the header X-Confirm-Action: replay_dead_letters",
+        }),
+      }),
+    );
+
+    fireEvent.click(await armReplay());
+
+    await screen.findByText(
+      "Refused: this console's confirmation is not the one the API expects",
+    );
+    // The two things a generic error cannot say: nothing happened, and what to do next.
+    expect(container.textContent).toContain("Nothing was changed");
+    expect(container.textContent).toContain("Reload this page first");
+    // The API's own remediation, verbatim — the operator needs the exact header for the
+    // runbook's curl, not this screen's paraphrase of it.
+    expect(container.textContent).toContain("X-Confirm-Action: replay_dead_letters");
+    // And still no count: a refusal is not a result.
+    expect(screen.queryByText(/moved back to pending/)).toBeNull();
+    expect(container.textContent).not.toContain("Nothing was dead-lettered");
   });
 
   it("does not claim anything moved when the replay FAILED", async () => {

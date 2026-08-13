@@ -86,8 +86,11 @@ GROUP BY status;
   request behind it, for when the console is down, is `POST /v1/ops/outbox/replay`
   (`ops:manage`, `apps/api/ops/routes.py`), which calls `replay_dead_letters` — flips up
   to 100 oldest `failed` rows back to `pending` with `attempt_count = 0` and writes an
-  `ops.outbox_replay` audit entry. This endpoint takes NO step-up header; the typed word
-  on the screen is a console guard, not an API one.
+  `ops.outbox_replay` audit entry. **It is step-up confirmed**: send
+  `X-Confirm-Action: replay_dead_letters` or it answers 403 `step_up_required`, and the
+  refusal names the header it wants. The typed word on the screen is the console's own
+  guard; the header is the API's, and they are two controls rather than one — this line
+  used to say the endpoint took no header, which sent an operator mid-incident into a 403.
 
 ## 4. ARQ delivery job and its retry ladder
 

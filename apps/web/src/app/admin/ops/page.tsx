@@ -32,6 +32,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { ApiProblem } from "@/lib/api/client";
 import {
   usePlatformState,
   useReplayOutbox,
@@ -103,16 +104,20 @@ import { hasKey, lookup } from "@/lib/lookup";
  *    The state precondition below is unchanged and is NOT about permissions: a control
  *    that can move a state we could not read is how a halt gets applied twice.
  * 3. **Every control that CHANGES something says what it will do before it is clicked**,
- *    and takes a typed confirmation — echoed to the API as a step-up header wherever the
- *    route demands one (`platformConfirmation`, `spendCapConfirmation`). Not a second
- *    factor and not pretending to be one — it stops the accidental click, and Clerk
- *    re-auth replaces it when admin MFA lands.
+ *    and takes a typed confirmation — echoed to the API as a step-up header, on every one
+ *    of them (`platformConfirmation`, `spendCapConfirmation`,
+ *    `OUTBOX_REPLAY_CONFIRMATION`). Not a second factor and not pretending to be one — it
+ *    stops the accidental click, and Clerk re-auth replaces it when admin MFA lands.
  *
- *    Two asymmetries are deliberate rather than oversights, and each is argued at its
- *    panel: the outbox replay takes the typed word but sends NO header, because the route
- *    accepts none and a header the server ignores would advertise an enforcement that
- *    does not exist; the audit-chain verification takes neither, because it writes
- *    nothing and a confirmation on a read only teaches operators to type past them.
+ *    ONE asymmetry remains and it is argued at its panel: the audit-chain verification
+ *    takes neither a typed word nor a header, because it writes nothing and a
+ *    confirmation on a read only teaches operators to type past them. The outbox replay
+ *    used to be the second: it collected the typed word and sent NO header, honestly,
+ *    because the route accepted none — and the route was the half that was wrong. It is
+ *    the most outward-facing write on this screen (it redelivers other people's clients'
+ *    data into other people's systems) and it was the only one a single unconfirmed POST
+ *    could reach. Both halves closed together; `WriteFailure` renders what a refused
+ *    confirmation now means.
  * 4. **`tm_registration.is_live` is DISPLAYED, never computed.** The launch gate refuses
  *    every tenant's campaign with `tm_registration_missing` from the same property, so a
  *    console that decided for itself whether `submitted` counts would be capable of
@@ -262,6 +267,63 @@ function opsAccess(
   }
   if (query.isLoading || !query.data) return { allowed: false, reason: null };
   return { allowed: true, reason: null };
+}
+
+/**
+ * A failed WRITE on this screen — and the one failure that must not be rendered as a
+ * generic red box.
+ *
+ * `step_up_required` is a 4xx, so `ProblemNotice` would print it in the same rose panel
+ * as "the database is unreachable", under a title the operator answers by clicking the
+ * button again. But every write this screen can make now SENDS its confirmation header —
+ * `platformConfirmation` for the halt and the load-shed mode, the direction string in
+ * `useSetTmRegistration`, `OUTBOX_REPLAY_CONFIRMATION` for the replay — so a step-up
+ * refusal cannot mean "you forgot to confirm" here. It can only mean this console and the
+ * API disagree about the string. That is a version skew, and clicking again with the same
+ * build sends the same header and is refused again. An operator mid-incident needs to be
+ * told that, not to be handed a retry that cannot work.
+ *
+ * Two things it says that a generic error cannot. **Nothing happened**: `_require_step_up`
+ * runs before the work in every handler on `/v1/ops`, and the request's transaction rolls
+ * back regardless, so a refused confirmation never half-applies — the operator does not
+ * have to go and check. And **what to do instead**: reload for the current build, then the
+ * runbook's request by hand, with the header the API itself names in `remediation` printed
+ * verbatim rather than paraphrased.
+ *
+ * Everything else falls through to `ProblemNotice` deliberately. A 503 or a 500 here IS
+ * "try again", and a second bespoke error panel per failure mode is how a screen ends up
+ * with an explanation for the case its author imagined and a blank for the rest.
+ */
+function WriteFailure({ error }: { error: unknown }) {
+  const problem = error instanceof ApiProblem ? error : null;
+  if (problem?.code !== "step_up_required") return <ProblemNotice error={error} />;
+  return (
+    // `NoticeBox` carries no ARIA role of its own, and this one interrupts an operator
+    // mid-task — the same announcement `ProblemNotice` makes for the failures it renders.
+    <div role="alert">
+      <NoticeBox
+        tone="stop"
+        icon={<ShieldAlert aria-hidden className="h-5 w-5" />}
+        title="Refused: this console's confirmation is not the one the API expects"
+      >
+        <p className="mt-1">
+          Nothing was changed. The request was refused before it reached the work, and its
+          transaction rolled back — you do not need to check whether it half-applied.
+        </p>
+        <p className="mt-2">
+          You did type the confirmation, and the console did send it. A refusal at this
+          point means this page is running a different build from the API, so pressing the
+          button again will send the same header and be refused again.{" "}
+          <span className="font-semibold">Reload this page first.</span> If it survives a
+          reload, the API and the console have genuinely diverged: use the request in the
+          runbook by hand, with the header below, and say so in the deploy channel.
+        </p>
+        {problem.remediation && (
+          <p className="mt-2 font-mono text-xs">{problem.remediation}</p>
+        )}
+      </NoticeBox>
+    </div>
+  );
 }
 
 export default function OpsPage() {
@@ -462,7 +524,7 @@ function OutboundHaltPanel({ state, access }: { state: PlatformState; access: Op
             </div>
           </div>
 
-          {setState.error && <ProblemNotice error={setState.error} />}
+          {setState.error && <WriteFailure error={setState.error} />}
 
           <label className="block">
             <span className={FIELD_LABEL}>Reason</span>
@@ -596,7 +658,7 @@ function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAcc
           </p>
         </NoticeBox>
 
-        {setState.error && <ProblemNotice error={setState.error} />}
+        {setState.error && <WriteFailure error={setState.error} />}
 
         <form
           className="space-y-3"
@@ -809,7 +871,7 @@ function TmRegistrationPanel({
           <Fact label="Last verified" value={formatIST(registration.verified_at)} />
         </dl>
 
-        {record.error && <ProblemNotice error={record.error} />}
+        {record.error && <WriteFailure error={record.error} />}
         {/* The SERVER's `is_live` after the write, never this form's opinion of it. */}
         {record.data && (
           <p className="flex items-center gap-2 text-sm text-ink-muted">
@@ -954,10 +1016,13 @@ function TmRegistrationPanel({
  * *after* its side effect landed, so "delivered twice" is the outcome to be sure about
  * before clicking, not the flag in the row.
  *
- * NO STEP-UP HEADER, and the console says so rather than inventing one: the route accepts
- * none (`ops/routes.py`). The typed word below is this screen's own guard and it is
- * honest about being that — see `useReplayOutbox` on why sending a header the server
- * never reads would be worse than sending none.
+ * STEP-UP CONFIRMED, at last. This panel used to collect the typed word and send no
+ * header, correctly reporting that the route accepted none — the honest rendering of a
+ * broken API. `POST /v1/ops/outbox/replay` now requires `X-Confirm-Action:
+ * replay_dead_letters` (`ops/routes.py::OUTBOX_REPLAY_CONFIRMATION`), and `useReplayOutbox`
+ * sends it from the same click that reads the word below. So the typed word is no longer
+ * "the only thing between this button and a redelivery": it is the console's guard, and
+ * the header is the API's, and a stolen session with no console cannot use the second.
  *
  * There is no dead-letter COUNT to show before the click, because no endpoint publishes
  * one. That is stated instead of guessed at: this control does not move a state we failed
@@ -978,7 +1043,7 @@ function OutboxReplayPanel({ access }: { access: OpsAccess }) {
           again — for every client at once, oldest first, up to 100 per run.
         </p>
 
-        {replay.error && <ProblemNotice error={replay.error} />}
+        {replay.error && <WriteFailure error={replay.error} />}
 
         {/* The SERVER's count, rendered as the result it is. A toast would put the one
             number this control produces on a timer. */}
@@ -1028,8 +1093,8 @@ function OutboxReplayPanel({ access }: { access: OpsAccess }) {
               </p>
               <p className="mt-1 text-xs text-ink-faint">
                 Recorded in the audit log as ops.outbox_replay with the number moved. The
-                API asks for no step-up header on this one, so the word below is the only
-                thing between this button and a redelivery.
+                word below is also sent to the API as this action&apos;s step-up
+                confirmation, so a session that did not go through this form cannot run it.
               </p>
             </div>
           </div>

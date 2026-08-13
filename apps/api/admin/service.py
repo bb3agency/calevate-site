@@ -30,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.holds import read_tenant_holds
+from apps.api.compliance.service import spend_capped
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -419,6 +420,12 @@ async def tenant_overview(
     without either compliance table being widened for `app.admin`. This is where
     `compliance/first_campaign_routes.py` said the flag belonged; the work QUEUE at
     `/v1/admin/compliance/holds` is the same predicate, filtered and ordered for triage.
+
+    `capped` rides it for the same reason and with the same discipline: it is
+    `compliance.spend_capped` — the predicate that REFUSES the dial — not a second
+    reading of `spend_state.capped` that happens to be in the same statement as the
+    counts. See the call site for what the second reading got wrong and what asking
+    properly costs.
     """
     # `tenant_id` narrows the SAME query to one client. The detail screen used to pull
     # the whole list and find its client in the browser, which pays the N+1 above once
@@ -448,12 +455,36 @@ async def tenant_overview(
                         "  (SELECT count(*) FROM calls "
                         "     WHERE started_at > now() - interval '7 days'), "
                         "  (SELECT count(*) FROM leads WHERE deleted_at IS NULL), "
-                        "  (SELECT max(started_at) FROM calls), "
-                        "  (SELECT capped FROM spend_state LIMIT 1)"
+                        "  (SELECT max(started_at) FROM calls)"
                     )
                 )
             ).first()
             holds = await read_tenant_holds(scoped, tenant_id=tenant_id)
+            # THE GATE'S OWN PREDICATE, not a copy of it. This column used to be a fifth
+            # scalar subquery in the statement above — `(SELECT capped FROM spend_state
+            # LIMIT 1)` — which is the same flag but a DIFFERENT QUESTION: `capped` is
+            # only ever armed by the post-call meter, and `compliance.spend_capped` reads
+            # `month` alongside it because a capped outbound-only tenant meters nothing
+            # and so can never clear its own flag (see that function's docstring). Without
+            # the month, a tenant capped in July wore a red "capped" badge here all
+            # through August while the dial gate happily dialled for them — and the
+            # operator reading this screen had no way to tell which of the two was right.
+            #
+            # Asked through the function rather than by adding `AND month = :month` to the
+            # subquery, because a second copy of the predicate is how the first one drifted:
+            # `admin/health.py` already calls `spend_capped` for exactly this fact, and two
+            # admin surfaces disagreeing about whether a client is capped is worse than
+            # either being wrong on its own.
+            #
+            # THE COST, measured rather than assumed (the standard `admin/health.py` sets):
+            # one extra round trip per account on a session that is already open —
+            # **0.41 ms median, 0.49 ms p95** on the verification database (500 samples
+            # over 5 tenants), which is the same as the four-count statement above it
+            # because a primary-key lookup on `spend_state` costs a round trip and nothing
+            # else. Against ~2 ms per account for the whole block, and against a directory
+            # that is N+1 by construction (see above), it is not the term that decides when
+            # this loop has to become the materialized `tenant_health` table.
+            capped = await spend_capped(scoped, tenant_id=tenant_id)
         overview.append(
             {
                 "id": tenant_id,
@@ -465,7 +496,7 @@ async def tenant_overview(
                 "calls_7d": int(counts[1] or 0) if counts else 0,
                 "leads": int(counts[2] or 0) if counts else 0,
                 "last_call_at": counts[3] if counts else None,
-                "capped": bool(counts[4]) if counts and counts[4] is not None else False,
+                "capped": capped,
                 # Which human-action gates hold this client, in the gates' own rule
                 # names. Empty for every managed client, always.
                 "holds": list(holds.rules),

@@ -429,16 +429,38 @@ export function useSetPlatformState() {
 }
 
 /**
+ * The step-up string for the dead-letter replay — `ops/routes.py`'s
+ * `OUTBOX_REPLAY_CONFIRMATION`, mirrored.
+ *
+ * A CONSTANT rather than a function, unlike `platformConfirmation` and
+ * `spendCapConfirmation`, because nothing about this action varies: there is one
+ * dead-letter queue and it is global, so there is no target for a `:<suffix>` to bind.
+ * What the string does carry is uniqueness — no other header this console sends is equal
+ * to it — which is the property that stops a confirmation captured for a load-shed tweak
+ * or one client's recompute authorising a cross-tenant redelivery.
+ *
+ * Exported so `tests/ops.test.tsx` can pin the literal, for the same reason the other two
+ * are: `runbooks/webhook-delivery-failures.md` prints it for the curl fallback, so a
+ * reformat here has to fail a test rather than quietly leave the console sending a header
+ * the API refuses.
+ */
+export const OUTBOX_REPLAY_CONFIRMATION = "replay_dead_letters";
+
+/**
  * Flip dead-lettered outbox messages back to pending — for EVERY tenant, up to 100 per
  * run, oldest first (`reliability.service.replay_dead_letters`).
  *
- * NO `confirmAction`, and that is read off the route rather than assumed: `POST
- * /v1/ops/outbox/replay` accepts no `X-Confirm-Action` header (`ops/routes.py`) — it is
- * audited as `ops.outbox_replay` but it is not step-up confirmed. Sending a header the
- * server never reads would be worse than sending none: the next reader would believe an
- * enforcement exists that does not, and would stop asking for the real one. What stands
- * between an operator and an accidental redelivery is the console's own typed
- * confirmation, and the ops screen says so in those words rather than implying more.
+ * IT SENDS THE HEADER NOW, and it is the same header the console has always collected the
+ * typed word for. This hook used to send none, correctly reading it off a route that
+ * accepted none — and the route was wrong, not the hook: `replay_dead_letters` has no
+ * tenant predicate (`outbox_messages` carries no `tenant_id`), and what the next dispatch
+ * tick does with the rows it moves is re-send other people's customer data into other
+ * people's systems. That is the most outward-facing write in this console and it was the
+ * only one reachable by a single unconfirmed POST.
+ *
+ * A `step_up_required` refusal therefore means the console and the API disagree about the
+ * string — a version skew, not an operator error — and the ops screen renders it as that
+ * rather than as a red generic failure the operator would answer by clicking again.
  *
  * Nothing to invalidate: no query in this console reads the outbox. The count in the
  * response IS the result, and the screen renders it rather than a toast.
@@ -450,6 +472,7 @@ export function useReplayOutbox() {
     mutationFn: () =>
       apiRequest<OutboxReplayResult>(adminSession(), "/v1/ops/outbox/replay", {
         method: "POST",
+        confirmAction: OUTBOX_REPLAY_CONFIRMATION,
       }),
   });
 }

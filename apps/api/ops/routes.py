@@ -13,9 +13,12 @@ Two properties hold for every route in this file:
 
 1. **Never shed.** `/v1/ops` is in `ALWAYS_ALLOWED_PREFIXES`, so putting the platform
    into `maintenance` does not remove the ability to take it back out.
-2. **Step-up confirmation for the dangerous ones** (BACKEND-PATTERNS §7). Halting all
-   outbound calling and raising a cap are actions a stolen session must not be able to
-   perform, so they require a fresh confirmation bound to the specific action.
+2. **Step-up confirmation on every WRITE** (BACKEND-PATTERNS §7). Halting all outbound
+   calling, recording our telemarketer registration, recomputing a cap and replaying the
+   dead-letter queue are actions a stolen session must not be able to perform, so each
+   requires a fresh confirmation bound to the specific action. `GET /audit/verify` is the
+   one route here without one, because it writes nothing — demanding a confirmation to
+   run a read only teaches operators to type past confirmations.
 
 Step-up is currently a required `X-Confirm-Action` header that must echo the action
 being taken. That is not a strong second factor and is not pretending to be one — it
@@ -33,6 +36,14 @@ header captured for the Tuesday change satisfied the switch. It now names the ex
 transition — `halt_outbound`, `release_outbound`, `set_load_shed:<mode>`, and the two
 joined for a request that does both — built in ONE place, `platform_confirmation`,
 which the runbooks quote and a test pins.
+
+A confirmation carries a `:<target>` suffix only where the target VARIES: the tenant on
+the spend-cap recompute, the mode on the load-shed change. `halt_outbound` and
+`replay_dead_letters` name actions with exactly one possible target — the platform, and
+the one global dead-letter queue — so a suffix there would bind nothing. What every
+string on this router does have is uniqueness: no header accepted by one route is
+accepted by another, which is what stops a confirmation captured for the smallest action
+authorising the largest.
 
 That was a BREAKING change to an ops surface and was made deliberately rather than
 grandfathered: the old string's whole problem was that it authorised more than the
@@ -527,17 +538,74 @@ async def recompute_spend_cap(
     )
 
 
+# The step-up string for the dead-letter replay.
+#
+# A CONSTANT rather than a function, unlike its two neighbours, and that is the whole
+# argument for its shape: `platform_confirmation` computes (three transitions, and both
+# joined) and `spend_cap_confirmation` interpolates (the tenant it is bound to), while
+# nothing about this action varies. A zero-argument function would be ceremony that
+# implies a parameter exists, and the value would still have to be pinned by a test.
+#
+# WHY NO `:<target>` SUFFIX, i.e. why this is `halt_outbound`'s shape and not
+# `recompute_spend_cap:<id>`'s. The suffix on the other two carries the part of the
+# action an operator could get wrong by replaying a header they already had: the tenant,
+# or the target load-shed mode. This action has no such part — there is exactly one
+# dead-letter queue and it is global, the same way the big red switch is global — so a
+# suffix here would be a fourth spelling of a binding with nothing to bind. What the
+# string is bound to is the ACTION, which is the property §7 asks for and the property
+# `set_platform_state` failed: no other header on this router equals it, so a
+# confirmation captured for a load-shed tweak or one client's recompute cannot replay
+# into a cross-tenant redelivery.
+#
+# It matches `reliability.service.replay_dead_letters` and the console's button label on
+# purpose: an operator types what they were told they are doing.
+OUTBOX_REPLAY_CONFIRMATION = "replay_dead_letters"
+
+
 @router.post(
     "/outbox/replay",
     response_model=ReplayOut,
     openapi_extra=permission_meta("ops:manage"),
-    summary="Flip dead-lettered outbox messages back to pending (audited)",
+    summary="Flip dead-lettered outbox messages back to pending (step-up confirmed, audited)",
+    description=(
+        "Moves up to 100 of the OLDEST dead-lettered outbox messages back to `pending` "
+        "with a fresh attempt budget, for every tenant at once. The next dispatch tick "
+        "re-sends them: HMAC-signed webhooks to clients' own systems, Google Sheets "
+        "appends, notification emails. A message can dead-letter AFTER its side effect "
+        "landed, so the outcome to be sure of before sending this is a second delivery, "
+        "not a flag in a row."
+    ),
 )
 async def replay_outbox(
     session: GlobalSession,
     request: Request,
     principal: Principal = Depends(requires("ops:manage", realm="admin")),
+    x_confirm_action: str | None = Header(default=None),
 ) -> ReplayOut:
+    """The most outward-facing write on this router, and the last one to get a step-up.
+
+    WHY IT NEEDS ONE AT ALL, given it moves no switch. `replay_dead_letters` selects on
+    `status = 'failed'` with NO tenant predicate — `outbox_messages` is an infra table
+    and carries no `tenant_id` column to have one with — so a single POST reaches every
+    client's parked messages. And the flip is not the blast radius: the next dispatch
+    tick DELIVERS them, so the effect is other people's customer data arriving a second
+    time in other people's systems, which is not undoable from here and is visible to the
+    client. Halting outbound calling is loud, reversible and ours; this is quiet,
+    irreversible and theirs. It was the only write here reachable by one unconfirmed POST.
+
+    NO REASON FIELD, deliberately, and this is the one place this router is asymmetric.
+    `set_platform` and the TM registration both require one because they leave a STATE
+    behind that somebody finds later and has to decide whether to lift — `halt_reason`
+    exists for the person who arrives at 3am. A replay leaves no state: it is an
+    instantaneous act whose record is the audit row (who, when, how many) and whose
+    "why" is the incident that is already open in `runbooks/webhook-delivery-failures.md`.
+    Adding a required body here would break the console's form and the runbook's curl to
+    buy a free-text field nobody reads back.
+    """
+    # Bound to the action, checked BEFORE any row moves. See OUTBOX_REPLAY_CONFIRMATION
+    # for why this action's string carries no target suffix.
+    _require_step_up(x_confirm_action, OUTBOX_REPLAY_CONFIRMATION)
+
     count = await replay_dead_letters(session)
     # BACKEND-PATTERNS §4 requires the replay to carry an audit note — a message that
     # was delivered twice needs a record of who asked for the second attempt.
@@ -566,4 +634,9 @@ async def verify_audit_chain(
     return ChainVerifyOut(ok=ok, first_bad_entry_id=bad)
 
 
-__all__ = ["platform_confirmation", "router", "spend_cap_confirmation"]
+__all__ = [
+    "OUTBOX_REPLAY_CONFIRMATION",
+    "platform_confirmation",
+    "router",
+    "spend_cap_confirmation",
+]

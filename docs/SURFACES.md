@@ -290,7 +290,14 @@ Admin realm (`/admin/…`)
   load-shed-only change. **The step-up header names the transition, not the endpoint**
   (D-45): `X-Confirm-Action: halt_outbound` / `release_outbound` / `set_load_shed:<mode>`,
   joined with `+` when one request does both. The old blanket `set_platform_state` string
-  authorises nothing; the refusal prints the header that would have worked.
+  authorises nothing; the refusal prints the header that would have worked. The **outbox
+  replay** takes the same treatment with the bare action `replay_dead_letters` — no
+  `:<target>` suffix, because unlike a mode or a tenant its target does not vary: there is
+  one dead-letter queue. It is the most destructive control on this screen and was the
+  only one without a header, which is worth stating plainly: replaying does not merely
+  flip rows, it RE-SENDS — real HMAC-signed webhooks into clients' CRMs, real Sheets
+  appends, real emails, across every tenant at once. `GET /v1/ops/audit/verify` is the one
+  deliberate exception on this router: it reads and writes nothing.
 - **Spend-cap recompute** (`POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute`,
   `ops:manage`, step-up bound to the tenant, audited on the same session as the write).
   Re-derives `spend_state.capped` from counters already metered against the ceiling now
