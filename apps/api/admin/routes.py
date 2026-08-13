@@ -4,10 +4,12 @@ Every route here is `realm="admin"`, so a client token cannot reach any of them 
 if it somehow carried the permission — the realms are separate Clerk applications and
 `verify_token` will not accept one realm's token for the other.
 
-Impersonation (D-22) is READ-ONLY and both its start and every page view are audited.
-The start endpoint exists so the audit trail records the *intent* ("operator X began
-viewing tenant Y at T"), which is what makes a later "why did you look at this account"
-question answerable.
+Impersonation (D-22) is READ-ONLY and audited on both halves: this module's start
+endpoint records the *intent* ("operator X began viewing tenant Y at T"), and
+`core/auth.py::_record_impersonated_read` records the READS — because the start
+endpoint mints no credential, so nothing forces an operator through it and its row can
+simply be absent. The read-path row is the one that cannot be skipped; this one is what
+makes a later "why did you look at this account" question answerable.
 """
 
 from __future__ import annotations
@@ -624,9 +626,16 @@ async def start_impersonation(
     if slug is None:
         raise ProblemError.not_found("Organization")
 
-    # No credential is minted: the admin keeps their own token and adds the
-    # X-Impersonate-Org header, which the auth layer turns into a read-only principal.
-    # Issuing a client credential would make the audit trail ambiguous about who acted.
+    # NO CREDENTIAL IS MINTED, and that is a NAMED, OPEN GAP rather than a design: the
+    # admin keeps their own token and adds the X-Impersonate-Org header, which the auth
+    # layer turns into a read-only principal — so an operator can enter a tenant without
+    # ever calling this endpoint, and this row will simply be missing for that session.
+    # Issuing a *client* credential is the wrong fix (it makes the audit trail ambiguous
+    # about who acted); the right one is a short-lived signed grant this endpoint mints
+    # and `current_admin` requires, which needs `apps/web` to hold it and a decision-log
+    # entry for its lifetime and revocation. Until that lands, the guarantee that an
+    # impersonated read is recorded comes from the READ path
+    # (`core/auth.py::_record_impersonated_read`), not from this endpoint.
     return {
         "mode": "read_only",
         "header": IMPERSONATE_HEADER,

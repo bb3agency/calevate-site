@@ -7,6 +7,14 @@ Settings field. That third direction is the one a worker slips through: a job th
 calls `os.getenv("SOME_NEW_KEY")` is config that nobody documented, nobody validates at
 boot, and that is simply absent in production until someone notices the feature is off.
 
+A FOURTH direction, added after APP_ENV: a variable the BOOTSTRAP GATE demands must be
+one the TYPE demands too. `Settings.app_env` defaulted to `"local"` while
+`validate_bootstrap_env` said nothing about it, so a deploy that forgot the variable
+booted happily into the one environment where the API accepts a dev token whose subject
+the caller chooses. Two guards that should have caught each other, and neither did.
+`bootstrap_contract_failures` below is what makes re-adding that default a red CI step
+rather than a code review someone has to remember to do.
+
 Run: uv run python -m scripts.check_env_parity
 """
 
@@ -97,6 +105,46 @@ def direct_env_reads(root: Path | None = None) -> dict[str, list[str]]:
     return found
 
 
+def bootstrap_contract_failures(declared: set[str]) -> list[str]:
+    """Every `BOOTSTRAP_REQUIRED` key is a REQUIRED Settings field and is in the example.
+
+    Two separate claims, and the pair is the point:
+
+    - *required field* — the gate refusing to boot without a variable means nothing if
+      the type quietly supplies one. `app_env: Environment = "local"` was exactly that:
+      a fallback that is convenient locally and is unauthenticated admin in production.
+      Anything the gate demands must have no default, so the two agree by construction
+      instead of by coincidence.
+    - *declared in `.env.example`* — a variable a developer cannot discover by copying
+      the template is one every new machine and every new deployment fails on once,
+      loudly, for no reason.
+    """
+    from apps.api.core.settings import BOOTSTRAP_REQUIRED
+
+    failures: list[str] = []
+    fields = Settings.model_fields
+    for key in BOOTSTRAP_REQUIRED:
+        name = key.lower()
+        field = fields.get(name)
+        if field is None:
+            failures.append(
+                f"{key} is in BOOTSTRAP_REQUIRED but is not a Settings field — the boot "
+                "gate demands a variable nothing reads"
+            )
+            continue
+        if not field.is_required():
+            failures.append(
+                f"{key} is in BOOTSTRAP_REQUIRED but Settings.{name} has a default "
+                f"({field.default!r}) — the gate refuses to start without it and the "
+                "type hands one out anyway, so a deployment that forgets it runs on the "
+                "default. Drop the default (apps/api/core/settings.py explains why for "
+                "APP_ENV) or take the key out of BOOTSTRAP_REQUIRED."
+            )
+        if name not in declared:
+            failures.append(f"{key} is in BOOTSTRAP_REQUIRED but not in .env.example")
+    return failures
+
+
 def evaluate(
     declared: set[str],
     settings_fields: set[str],
@@ -128,6 +176,7 @@ def main() -> int:
     reads = direct_env_reads()
 
     failures = evaluate(declared, settings_fields, reads, duplicates)
+    failures.extend(bootstrap_contract_failures(declared))
     if failures:
         print("ENV PARITY: FAIL")
         for failure in failures:

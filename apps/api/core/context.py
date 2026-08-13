@@ -34,7 +34,10 @@ class Principal:
     tenant_id: UUID | None
     role: str | None
     # D-22: an admin viewing a client dashboard gets a READ-ONLY scoped session.
-    # Mutating dependencies refuse when this is True; every page view is audited.
+    # Mutating dependencies refuse when this is True; the read itself is audited by
+    # `core/auth.py::_record_impersonated_read`, which is the only place that can set
+    # this flag — coalesced to one row per (admin, tenant) per minute, for the volume
+    # reason argued there.
     impersonating: bool = False
 
     @property

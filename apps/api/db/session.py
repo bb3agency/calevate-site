@@ -210,7 +210,10 @@ async def admin_session() -> AsyncIterator[AsyncSession]:
     `app.admin` widens `USING` on `organizations` only (migration b57e2f9c4a13); it
     does not unlock calls, leads or transcripts, and it widens no WITH CHECK anywhere.
     To see a client's data an admin enters that tenant through impersonation, which
-    sets `app.tenant_id` normally, is read-only and is audited per page view (D-22).
+    sets `app.tenant_id` normally, is read-only, and writes an `admin.impersonation_read`
+    audit row from `core/auth.py::_record_impersonated_read` — the one function that can
+    produce an impersonating principal, coalesced to one row per (admin, tenant) per
+    minute rather than one per request (D-22, SEC-COMP §5).
 
     CALLERS MUST have verified an admin-realm principal first. This is the one place a
     mistake would be expensive, which is why it is a single small function with a name

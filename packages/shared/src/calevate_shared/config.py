@@ -18,7 +18,24 @@ EngineName = Literal["fake", "bolna"]
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="forbid")
 
-    app_env: Environment = "local"
+    # NO DEFAULT, ON PURPOSE. The environment is STATED, never inferred.
+    #
+    # This field used to default to `"local"`, and `"local"` is the single value under
+    # which `apps/api/core/auth.py::_verify_dev_token` accepts `dev:<realm>:<clerk_id>`
+    # — a credential whose SUBJECT THE CALLER CHOOSES. `runtime_config_missing_keys`
+    # skips its Clerk-key checks under the same branch, so `/healthz/ready` reported a
+    # healthy service while doing it. One forgotten variable therefore switched off
+    # both the authentication and the alarm, and a deploy that never set APP_ENV looked
+    # exactly like one that did.
+    #
+    # A default that is safe locally and catastrophic in production is not a default;
+    # it is a trap with an ergonomics argument attached. Removing it costs one line in
+    # `.env.example` (already there) and one line in every deployment's env file, and
+    # buys: no configuration can be `local` without someone having typed `local`.
+    # `APP_ENV` is in `BOOTSTRAP_REQUIRED` too, so the failure an operator meets is a
+    # sentence naming the variable and its allowed values rather than a Pydantic
+    # traceback listing every optional model key (BACKEND-PATTERNS §2 step 1).
+    app_env: Environment
 
     # App role (NOSUPERUSER NOBYPASSRLS — RLS depends on it). Migrations use
     # alembic_database_url (owner role) and are the only thing that does.
