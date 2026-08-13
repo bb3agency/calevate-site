@@ -2,8 +2,17 @@
 
 import Link from "next/link";
 import { use, useState } from "react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, FileWarning } from "lucide-react";
 
-import { EmptyState, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import {
+  Card,
+  EmptyState,
+  NoticeBox,
+  ProblemNotice,
+  RestrictionNote,
+  Skeleton,
+  formatIST,
+} from "@/components/ui";
 import { useRecordKyc, useTenant, useTenantKyc } from "@/lib/api/admin";
 import {
   DOCUMENT_KINDS,
@@ -22,6 +31,8 @@ import {
   type KycRecordIn,
   type KycStatus,
 } from "@/lib/api/kyc";
+
+import { useAdminAccess } from "../../access";
 
 /**
  * Recording a business's identity verification — R-11's last gate, and an audited write.
@@ -68,6 +79,11 @@ export default function TenantKycPage({
   // the only option — there is no admin-realm read of a tenant's KYC, because
   // `org:read` was chosen precisely so the state stays visible in a read-only session.
   const record = useTenantKyc(slug);
+  // `POST /v1/admin/tenants/{id}/kyc` is `admin:tenants` (admin/routes.py). Disabled with
+  // the reason beside it rather than a 403 after a form has been filled in — see
+  // `../../access.ts` for why the client realm's `useWriteAccess` is the wrong instrument
+  // on an admin screen.
+  const write = useAdminAccess(slug, "admin:tenants", "record an identity verification");
 
   if (tenantQuery.isLoading) return <Skeleton rows={6} />;
   if (tenantQuery.error)
@@ -77,11 +93,17 @@ export default function TenantKycPage({
   return (
     <div className="max-w-3xl space-y-5">
       <div>
-        <Link href={`/admin/tenants/${tenantId}`} className="text-sm text-sky-400 hover:underline">
-          ← {tenant.name}
+        <Link
+          href={`/admin/tenants/${tenantId}`}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          {tenant.name}
         </Link>
-        <h1 className="mt-1 text-xl font-semibold">Identity verification (KYC)</h1>
-        <p className="text-sm text-slate-400">
+        {/* Kept: `admin/layout.tsx` prints no page title, so this is the screen's only
+            name. Delete it if one lands in the shell. */}
+        <h1 className="mt-1 text-xl font-semibold text-ink">Identity verification (KYC)</h1>
+        <p className="text-sm text-ink-muted">
           The subscriber check behind a phone connection. A verified record opens number
           provisioning on every tier and outbound dialling on self-serve and trial
           accounts; inbound answering is never gated by it.
@@ -99,17 +121,18 @@ export default function TenantKycPage({
            unreadable is a blind write over a state that might be an open verification.
            Closing a client's telecom gate by accident is a worse failure than making an
            operator retry a read. */
-        <section className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-          <h2 className="text-sm font-semibold text-slate-100">
-            Cannot record while the current state is unreadable
-          </h2>
-          <p className="mt-1 text-xs text-slate-500">
+        <NoticeBox
+          tone="warn"
+          icon={<AlertTriangle className="h-5 w-5" />}
+          title="Cannot record while the current state is unreadable"
+        >
+          <p className="mt-1 text-xs opacity-90">
             We could not read what is on file for this client. Recording a verification
             replaces the status outright, so doing it now could close a gate that is
-            currently open without anyone seeing it happen. Retry the read above; the
-            form comes back with it.
+            currently open without anyone seeing it happen. Retry the read above; the form
+            comes back with it.
           </p>
-        </section>
+        </NoticeBox>
       ) : (
         <>
           <OnFile record={record.data} />
@@ -123,14 +146,17 @@ export default function TenantKycPage({
             save={save}
             tenantName={tenant.name}
             record={record.data}
+            write={write}
           />
           {save.error != null && <ProblemNotice error={save.error} />}
           {save.data && (
-            <p className="rounded-lg border border-emerald-900 bg-emerald-950/50 p-3 text-xs text-emerald-200">
-              Recorded as <span className="font-medium">{save.data.status}</span>. The
-              panel above has re-read what is now stored, and the client&apos;s own screen
-              and their dial gate reflect it from the next request.
-            </p>
+            <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
+              <p className="text-xs">
+                Recorded as <span className="font-medium">{save.data.status}</span>. The
+                panel above has re-read what is now stored, and the client&apos;s own screen
+                and their dial gate reflect it from the next request.
+              </p>
+            </NoticeBox>
           )}
         </>
       )}
@@ -162,14 +188,13 @@ function recordStamp(record: KycRecord): string {
 function OnFile({ record }: { record: KycRecord }) {
   if (!record.recorded) {
     return (
-      <section className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-        <h2 className="text-sm font-semibold text-slate-100">Nothing on file</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          The normal state of a new account — the API returns this as data, not a 404.
-          This client&apos;s dial gate reads it as <span className="font-mono">kyc_missing</span>,
+      <NoticeBox tone="neutral" icon={<FileWarning className="h-5 w-5" />} title="Nothing on file">
+        <p className="mt-1 text-xs opacity-90">
+          The normal state of a new account — the API returns this as data, not a 404. This
+          client&apos;s dial gate reads it as <span className="font-mono">kyc_missing</span>,
           and any number purchase is refused on every tier.
         </p>
-      </section>
+      </NoticeBox>
     );
   }
 
@@ -187,36 +212,43 @@ function OnFile({ record }: { record: KycRecord }) {
   ].filter((row) => row.value !== null && row.value !== "");
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900">
-      <header className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-4 py-3">
-        <h2 className="text-sm font-semibold text-slate-100">On file</h2>
-        <span
-          className={
-            record.is_verified
-              ? "rounded-full bg-emerald-500 px-2 py-0.5 text-xs font-medium text-emerald-950"
-              : "rounded-full bg-slate-800 px-2 py-0.5 text-xs font-medium text-slate-300"
-          }
-        >
-          {label ?? "unknown"}
-        </span>
-        {/* The server's predicate, displayed and never recomputed. The dial gate, the
-            purchase route and this badge must not be capable of disagreeing about
-            whether `in_review` is good enough. */}
-        <span className="text-xs text-slate-500">
-          {record.is_verified ? "gates open" : "gates closed"}
-        </span>
-      </header>
-      <dl className="grid gap-2 p-4 sm:grid-cols-2">
+    <Card
+      title="On file"
+      action={
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={
+              record.is_verified
+                ? "rounded-full bg-brand-strong px-2 py-0.5 text-xs font-medium text-white"
+                : "rounded-full bg-brand-soft px-2 py-0.5 text-xs font-medium text-brand-strong"
+            }
+          >
+            {label ?? "unknown"}
+          </span>
+          {/* The server's predicate, displayed and never recomputed. The dial gate, the
+              purchase route and this badge must not be capable of disagreeing about
+              whether `in_review` is good enough. */}
+          <span className="text-xs text-ink-muted">
+            {record.is_verified ? "gates open" : "gates closed"}
+          </span>
+        </div>
+      }
+    >
+      <dl className="grid gap-2 sm:grid-cols-2">
         {rows.map((row) => (
           <div key={row.label} className="text-xs">
-            <dt className="text-slate-500">{row.label}</dt>
-            <dd className="mt-0.5 break-all font-medium text-slate-200">{row.value}</dd>
+            <dt className="text-ink-muted">{row.label}</dt>
+            <dd className="mt-0.5 break-all font-medium text-ink">{row.value}</dd>
           </div>
         ))}
       </dl>
-    </section>
+    </Card>
   );
 }
+
+/** Every input on this form, in one place — the design language, not per-field taste. */
+const FIELD =
+  "w-full max-w-md rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50";
 
 const STATUSES = Object.keys(KYC_STATUS_COPY) as KycStatus[];
 const DOCUMENT_KIND_VALUES = Object.keys(DOCUMENT_KINDS) as KycDocumentKind[];
@@ -235,10 +267,12 @@ function RecordForm({
   save,
   tenantName,
   record,
+  write,
 }: {
   save: ReturnType<typeof useRecordKyc>;
   tenantName: string;
   record: KycRecord;
+  write: ReturnType<typeof useAdminAccess>;
 }) {
   const [draft, setDraft] = useState<KycRecordIn>(() => initialDraft(record));
 
@@ -272,29 +306,28 @@ function RecordForm({
   const unsetLabel = record.recorded ? "— leave as filed —" : "— not recorded —";
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900">
-      <header className="border-b border-slate-800 px-4 py-3">
-        <h2 className="text-sm font-semibold text-slate-100">Record a verification</h2>
-        <p className="mt-0.5 text-xs text-slate-500">
-          Upserts — re-recording is what happens on every re-verification, and moving off{" "}
-          <span className="font-mono">verified</span> clears the verification date and the
-          verifier with it.
-        </p>
-      </header>
+    <Card title="Record a verification">
+      <p className="-mt-2 text-xs text-ink-muted">
+        Upserts — re-recording is what happens on every re-verification, and moving off{" "}
+        <span className="font-mono">verified</span> clears the verification date and the
+        verifier with it.
+      </p>
 
       <form
-        className="space-y-4 p-4"
+        className="mt-4 space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
           save.mutate(draft);
         }}
       >
+        <RestrictionNote reason={write.reason} />
         <Field label="Status" htmlFor="kyc-status" hint="What this check concluded.">
           <select
             id="kyc-status"
             value={draft.status}
+            disabled={!write.allowed}
             onChange={(e) => chooseStatus(e.target.value as KycStatus)}
-            className="w-full max-w-md rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+            className={FIELD}
           >
             {STATUSES.map((value) => (
               <option key={value} value={value}>
@@ -312,8 +345,9 @@ function RecordForm({
           <select
             id="kyc-entity"
             value={draft.entity_type ?? ""}
+            disabled={!write.allowed}
             onChange={(e) => set("entity_type", (e.target.value || null) as KycEntityType | null)}
-            className="w-full max-w-md rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+            className={FIELD}
           >
             <option value="">{unsetLabel}</option>
             {ENTITY_TYPE_VALUES.map((value) => (
@@ -336,10 +370,11 @@ function RecordForm({
           <select
             id="kyc-doc-kind"
             value={draft.document_kind ?? ""}
+            disabled={!write.allowed}
             onChange={(e) =>
               set("document_kind", (e.target.value || null) as KycDocumentKind | null)
             }
-            className="w-full max-w-md rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+            className={FIELD}
           >
             <option value="">{unsetLabel}</option>
             {DOCUMENT_KIND_VALUES.map((value) => (
@@ -358,6 +393,7 @@ function RecordForm({
           <input
             id="kyc-doc-ref"
             value={draft.document_ref ?? ""}
+            disabled={!write.allowed}
             onChange={(e) => set("document_ref", e.target.value)}
             maxLength={64}
             autoComplete="off"
@@ -366,8 +402,8 @@ function RecordForm({
             }
             className={
               aadhaarTyped
-                ? "w-full max-w-md rounded-md border border-rose-700 bg-slate-950 px-2 py-1 font-mono text-xs"
-                : "w-full max-w-md rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs"
+                ? `font-mono border-rose-500 dark:border-rose-700 ${FIELD}`
+                : `font-mono ${FIELD}`
             }
           />
         </Field>
@@ -380,10 +416,11 @@ function RecordForm({
           <input
             id="kyc-signatory"
             value={draft.signatory_name ?? ""}
+            disabled={!write.allowed}
             onChange={(e) => set("signatory_name", e.target.value)}
             maxLength={200}
             autoComplete="off"
-            className="w-full max-w-md rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+            className={FIELD}
           />
         </Field>
 
@@ -395,10 +432,11 @@ function RecordForm({
           <input
             id="kyc-evidence"
             value={draft.evidence_ref ?? ""}
+            disabled={!write.allowed}
             onChange={(e) => set("evidence_ref", e.target.value)}
             maxLength={200}
             autoComplete="off"
-            className="w-full max-w-md rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+            className={FIELD}
           />
         </Field>
 
@@ -417,8 +455,9 @@ function RecordForm({
               rows={3}
               maxLength={500}
               value={draft.rejection_reason ?? ""}
+              disabled={!write.allowed}
               onChange={(e) => set("rejection_reason", e.target.value)}
-              className="w-full max-w-md rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+              className={FIELD}
             />
           </Field>
         )}
@@ -428,11 +467,13 @@ function RecordForm({
             closes the gates behind them — a consequence that is obvious when you mean
             it and invisible when you have picked the wrong row. */}
         {record.is_verified && draft.status !== "verified" && (
-          <p className="rounded-lg border border-amber-800 bg-amber-950/40 p-3 text-xs text-amber-200">
-            <span className="font-medium">{tenantName} is verified today.</span> Recording
-            this closes number provisioning on every tier, and stops outbound dialling on
-            a self-serve or trial account. Inbound answering is unaffected either way.
-          </p>
+          <NoticeBox tone="warn" icon={<AlertTriangle className="h-4 w-4" />}>
+            <p className="text-xs">
+              <span className="font-medium">{tenantName} is verified today.</span> Recording
+              this closes number provisioning on every tier, and stops outbound dialling on
+              a self-serve or trial account. Inbound answering is unaffected either way.
+            </p>
+          </NoticeBox>
         )}
 
         <WillRecord draft={draft} tenantName={tenantName} />
@@ -440,17 +481,19 @@ function RecordForm({
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
-            disabled={save.isPending || blocked !== null}
-            className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-900 disabled:opacity-50"
+            disabled={save.isPending || blocked !== null || !write.allowed}
+            className="rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50"
           >
             {save.isPending ? "Recording…" : "Record verification"}
           </button>
           {/* The refusal, given before the click rather than as a 422 — or, for the two
               rules the route does not pre-empt, before a 500 out of an IntegrityError. */}
-          {blocked && <span className="text-xs text-amber-400">{blocked}</span>}
+          {blocked && (
+            <span className="text-xs text-amber-700 dark:text-amber-400">{blocked}</span>
+          )}
         </div>
       </form>
-    </section>
+    </Card>
   );
 }
 
@@ -466,39 +509,39 @@ function RecordForm({
 function WillRecord({ draft, tenantName }: { draft: KycRecordIn; tenantName: string }) {
   const verified = draft.status === "verified";
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-400">
-      <p className="font-medium text-slate-300">This will record, against {tenantName}:</p>
+    <div className="rounded-card border border-line bg-app p-3 text-xs text-ink-muted">
+      <p className="font-medium text-ink">This will record, against {tenantName}:</p>
       <ul className="mt-1.5 space-y-1">
         <li>
-          <span className="text-slate-500">Outcome</span> —{" "}
+          <span className="text-ink-faint">Outcome</span> —{" "}
           {KYC_STATUS_COPY[draft.status].label.toLowerCase()}
           {verified && ", which opens number provisioning on every tier and outbound dialling on self-serve and trial accounts"}
           .
         </li>
         <li>
-          <span className="text-slate-500">Checked against</span> —{" "}
+          <span className="text-ink-faint">Checked against</span> —{" "}
           {draft.document_kind
             ? `${DOCUMENT_KINDS[draft.document_kind].label} ${(draft.document_ref ?? "").trim() || "(no reference yet)"}`
             : "nothing named yet; blank leaves whatever is already filed"}
           .
         </li>
         <li>
-          <span className="text-slate-500">Verified by</span> — the admin account sending
+          <span className="text-ink-faint">Verified by</span> — the admin account sending
           this request. Taken from your session, not from this form.
         </li>
         <li>
-          <span className="text-slate-500">Verified at</span> —{" "}
+          <span className="text-ink-faint">Verified at</span> —{" "}
           {verified
             ? "stamped by the database as this row is written."
             : "cleared, because this is not a verified record."}
         </li>
         <li>
-          <span className="text-slate-500">Audit</span> — one{" "}
+          <span className="text-ink-faint">Audit</span> — one{" "}
           <span className="font-mono">kyc.recorded</span> row with the status and the
           registry reference. The signatory&apos;s name is deliberately not copied into it.
         </li>
       </ul>
-      <p className="mt-2 text-slate-500">
+      <p className="mt-2 text-ink-muted">
         Blank optional fields leave what is already filed alone; only the rejection reason
         is replaced outright.
       </p>
@@ -539,11 +582,14 @@ function Field({
 }) {
   return (
     <div>
-      <label htmlFor={htmlFor} className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+      <label
+        htmlFor={htmlFor}
+        className="text-xs font-semibold uppercase tracking-wide text-ink-muted"
+      >
         {label}
       </label>
       <div className="mt-1">{children}</div>
-      <p className="mt-1 max-w-md text-xs text-slate-500">{hint}</p>
+      <p className="mt-1 max-w-md text-xs text-ink-muted">{hint}</p>
     </div>
   );
 }

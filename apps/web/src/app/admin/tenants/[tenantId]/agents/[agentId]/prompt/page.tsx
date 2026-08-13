@@ -2,8 +2,17 @@
 
 import Link from "next/link";
 import { use, useState } from "react";
+import { AlertTriangle, ArrowLeft } from "lucide-react";
 
-import { EmptyState, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import {
+  Card,
+  EmptyState,
+  NoticeBox,
+  ProblemNotice,
+  RestrictionNote,
+  Skeleton,
+  formatIST,
+} from "@/components/ui";
 import { useTenant } from "@/lib/api/admin";
 import {
   usePromptHistory,
@@ -20,6 +29,8 @@ import {
   useUndoChanges,
   type PendingState,
 } from "@/lib/api/publishing";
+
+import { useAdminAccess } from "../../../../access";
 
 /**
  * One agent's script: its version history, the staged-change controls, and the call
@@ -53,12 +64,18 @@ export default function AgentPromptPage({
 
   const history = usePromptHistory(tenantId, agentId);
   const pending = useTenantPending(slug, agentId);
-  const write = useWritePrompt(tenantId, agentId);
+  const newVersion = useWritePrompt(tenantId, agentId);
   const rollback = useRollbackPrompt(tenantId, agentId);
   // Writing or rolling back a version moves the staged state this page renders, and
   // neither prompt hook can invalidate it alone (it is keyed by slug, which they do
   // not have). The screen that knows both composes them.
   const refreshPublishing = usePublishingRefresh({ tenantId, agentId, slug });
+
+  // Every write on this screen — save, roll back, apply, undo, call cap — is
+  // `agents:write` (agents/prompt_routes.py, agents/publishing_routes.py). One gate, read
+  // once, passed down: five controls that each asked separately would each answer at a
+  // different moment as `/v1/me` resolved.
+  const write = useAdminAccess(slug, "agents:write", "change this agent's script");
 
   const [body, setBody] = useState("");
   const [notes, setNotes] = useState("");
@@ -68,12 +85,15 @@ export default function AgentPromptPage({
       <div>
         <Link
           href={`/admin/tenants/${tenantId}`}
-          className="text-sm text-sky-400 hover:underline"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
         >
-          ← Client
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Client
         </Link>
-        <h1 className="mt-1 text-xl font-semibold">Agent prompt</h1>
-        <p className="text-sm text-slate-400">
+        {/* Kept: `admin/layout.tsx` prints no page title, so this is the screen's only
+            name. Delete it if one lands in the shell. */}
+        <h1 className="mt-1 text-xl font-semibold text-ink">Agent prompt</h1>
+        <p className="text-sm text-ink-muted">
           Every save is a new immutable version, staged rather than published; the live
           one is a separate pointer that only Apply moves.
         </p>
@@ -85,31 +105,34 @@ export default function AgentPromptPage({
         tenantId={tenantId}
         agentId={agentId}
         slug={slug}
+        write={write}
         pending={pending.data}
         isLoading={tenant.isLoading || pending.isLoading}
         error={pending.error}
         onRetry={() => pending.refetch()}
       />
 
-      <CallCapPanel tenantId={tenantId} agentId={agentId} slug={slug} pending={pending.data} />
+      <CallCapPanel
+        tenantId={tenantId}
+        agentId={agentId}
+        slug={slug}
+        pending={pending.data}
+        write={write}
+      />
 
       {history.error && (
         <ProblemNotice error={history.error} onRetry={() => history.refetch()} />
       )}
       {rollback.error && <ProblemNotice error={rollback.error} />}
 
-      {/* Same reason as the tenant page: local panel styling, not the client-realm Card. */}
-      <section className="rounded-xl border border-slate-800 bg-slate-900">
-        <header className="border-b border-slate-800 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-100">Version history</h2>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Rolling back creates a NEW version with that content — history is never
-            rewritten — and it applies IMMEDIATELY: FLOWS §7 defines rollback as
-            republishing an earlier version, which is the recovery path, so it does not
-            wait behind Apply.
-          </p>
-        </header>
-        <div className="p-4">
+      <Card title="Version history">
+        <p className="-mt-2 text-xs text-ink-muted">
+          Rolling back creates a NEW version with that content — history is never rewritten
+          — and it applies IMMEDIATELY: FLOWS §7 defines rollback as republishing an earlier
+          version, which is the recovery path, so it does not wait behind Apply.
+        </p>
+        <div className="mt-3">
+          <RestrictionNote reason={write.reason} />
           {history.isLoading ? (
             <Skeleton rows={4} />
           ) : history.data?.length ? (
@@ -117,29 +140,25 @@ export default function AgentPromptPage({
               {history.data.map((entry) => (
                 <li
                   key={entry.id}
-                  className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 p-3"
+                  className="flex flex-wrap items-center gap-2 rounded-card border border-line p-3"
                 >
-                  <span className="font-mono text-sm font-semibold text-slate-100">
+                  <span className="font-mono text-sm font-semibold text-ink">
                     v{entry.version}
                   </span>
                   <VersionBadges entry={entry} pending={pending.data} />
-                  <span className="text-xs text-slate-500">
-                    {formatIST(entry.created_at)}
-                  </span>
-                  {entry.notes && (
-                    <span className="text-xs text-slate-400">{entry.notes}</span>
-                  )}
+                  <span className="text-xs text-ink-muted">{formatIST(entry.created_at)}</span>
+                  {entry.notes && <span className="text-xs text-ink-muted">{entry.notes}</span>}
                   {!entry.active && (
                     <button
                       type="button"
-                      disabled={rollback.isPending}
+                      disabled={rollback.isPending || !write.allowed}
                       onClick={() =>
                         rollback.mutate(
                           { version: entry.version },
                           { onSuccess: () => void refreshPublishing() },
                         )
                       }
-                      className="ml-auto rounded-md border border-slate-700 px-2 py-1 text-xs disabled:opacity-50"
+                      className="ml-auto rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5"
                     >
                       Roll back to this
                     </button>
@@ -154,19 +173,17 @@ export default function AgentPromptPage({
             />
           )}
         </div>
-      </section>
+      </Card>
 
-      <section className="rounded-xl border border-slate-800 bg-slate-900">
-        <header className="border-b border-slate-800 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-100">New version</h2>
-        </header>
-        <div className="p-4">
-          {write.error && <ProblemNotice error={write.error} />}
+      <Card title="New version">
+        <div>
+          <RestrictionNote reason={write.reason} />
+          {newVersion.error && <ProblemNotice error={newVersion.error} />}
           <form
             className="space-y-2"
             onSubmit={(e) => {
               e.preventDefault();
-              write.mutate(
+              newVersion.mutate(
                 { body, ...(notes.trim() ? { notes: notes.trim() } : {}) },
                 {
                   onSuccess: () => {
@@ -183,21 +200,23 @@ export default function AgentPromptPage({
               minLength={20}
               rows={8}
               value={body}
+              disabled={!write.allowed}
               onChange={(ev) => setBody(ev.target.value)}
               placeholder="The full system prompt for this agent (min 20 characters)."
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200"
+              className={FIELD}
             />
             <input
               value={notes}
+              disabled={!write.allowed}
               onChange={(ev) => setNotes(ev.target.value)}
               maxLength={200}
               placeholder="Notes (optional) — what changed and why"
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200"
+              className={FIELD}
             />
             <button
               type="submit"
-              disabled={write.isPending || body.length < 20}
-              className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-900 disabled:opacity-50"
+              disabled={newVersion.isPending || body.length < 20 || !write.allowed}
+              className={PRIMARY_BUTTON}
             >
               Save as new version
             </button>
@@ -206,15 +225,25 @@ export default function AgentPromptPage({
               to the voice platform immediately" — which was true until two-speed
               publishing landed and is now the single most expensive thing this page
               could get wrong. */}
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-ink-muted">
             Saving stages the version. Callers keep hearing the live one until you press
             Apply above.
           </p>
         </div>
-      </section>
+      </Card>
     </div>
   );
 }
+
+/** The form language of this screen, in one place rather than per control. */
+const FIELD =
+  "w-full rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50";
+
+const PRIMARY_BUTTON =
+  "rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50";
+
+const SECONDARY_BUTTON =
+  "rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5";
 
 /**
  * Which version is staged and which one callers hear.
@@ -248,17 +277,17 @@ function VersionBadges({
   return (
     <>
       {isLive && (
-        <span className="rounded bg-emerald-500 px-1.5 py-0.5 text-xs font-medium text-emerald-950">
+        <span className="rounded bg-brand-strong px-1.5 py-0.5 text-xs font-medium text-white">
           live
         </span>
       )}
       {isStaged && (
-        <span className="rounded bg-amber-400 px-1.5 py-0.5 text-xs font-medium text-amber-950">
+        <span className="rounded bg-amber-200 px-1.5 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-900 dark:text-amber-100">
           staged
         </span>
       )}
       {entry.active && !isLive && !isStaged && (
-        <span className="rounded bg-slate-700 px-1.5 py-0.5 text-xs font-medium text-slate-200">
+        <span className="rounded bg-brand-soft px-1.5 py-0.5 text-xs font-medium text-brand-strong">
           draft
         </span>
       )}
@@ -288,6 +317,7 @@ function PublishingPanel({
   isLoading,
   error,
   onRetry,
+  write,
 }: {
   tenantId: string;
   agentId: string;
@@ -296,6 +326,7 @@ function PublishingPanel({
   isLoading: boolean;
   error: unknown;
   onRetry: () => void;
+  write: ReturnType<typeof useAdminAccess>;
 }) {
   const target = { tenantId, agentId, slug };
   const apply = useApplyChanges(target);
@@ -305,14 +336,12 @@ function PublishingPanel({
   const busy = apply.isPending || undo.isPending;
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900">
-      <header className="border-b border-slate-800 px-4 py-3">
-        <h2 className="text-sm font-semibold text-slate-100">Publishing</h2>
-        {/* The precedence rule §2b asks to be stated in the UI, in the server's own
-            words — the same sentence the client sees on their agents screen. */}
-        {pending && <p className="mt-0.5 text-xs text-slate-500">{pending.precedence_rule}</p>}
-      </header>
-      <div className="space-y-3 p-4">
+    <Card title="Publishing">
+      {/* The precedence rule §2b asks to be stated in the UI, in the server's own
+          words — the same sentence the client sees on their agents screen. */}
+      {pending && <p className="-mt-2 text-xs text-ink-muted">{pending.precedence_rule}</p>}
+      <div className="mt-3 space-y-3">
+        <RestrictionNote reason={write.reason} />
         {error != null && <ProblemNotice error={error} onRetry={onRetry} />}
         {apply.error && <ProblemNotice error={apply.error} />}
         {undo.error && <ProblemNotice error={undo.error} />}
@@ -321,37 +350,38 @@ function PublishingPanel({
           <Skeleton rows={2} />
         ) : !pending ? (
           error == null && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-ink-muted">
               Publishing state is unavailable for this agent.
             </p>
           )
         ) : pending.has_pending && staged ? (
           <>
-            <div className="rounded-lg border border-amber-700 bg-amber-950 p-3 text-sm text-amber-200">
-              <p className="font-medium">{staged.headline}</p>
-              <p className="mt-0.5 text-xs text-amber-300">{staged.why}</p>
-              <p className="mt-0.5 text-xs text-amber-300/80">
-                Staged {formatIST(staged.staged_at)}
-              </p>
-            </div>
+            <NoticeBox
+              tone="warn"
+              icon={<AlertTriangle className="h-5 w-5" />}
+              title={staged.headline}
+            >
+              <p className="mt-0.5 text-xs">{staged.why}</p>
+              <p className="mt-0.5 text-xs opacity-80">Staged {formatIST(staged.staged_at)}</p>
+            </NoticeBox>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || !write.allowed}
                 onClick={() => apply.mutate({ expected_version: staged.staged_version })}
-                className="rounded-md bg-emerald-500 px-3 py-1 text-xs font-medium text-emerald-950 disabled:opacity-50"
+                className={PRIMARY_BUTTON}
               >
                 {apply.isPending ? "Applying…" : "Apply to live calls"}
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || !write.allowed}
                 onClick={() => undo.mutate()}
-                className="rounded-md border border-slate-700 px-3 py-1 text-xs text-slate-200 disabled:opacity-50"
+                className={SECONDARY_BUTTON}
               >
                 {undo.isPending ? "Undoing…" : "Undo"}
               </button>
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-ink-muted">
                 {pending.published
                   ? "Apply pushes this script to the voice platform now."
                   : "This agent is not on the voice platform yet, so Apply moves our pointer only."}
@@ -359,13 +389,13 @@ function PublishingPanel({
             </div>
           </>
         ) : (
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-ink-muted">
             Nothing staged. The live script is what the client&apos;s dashboard describes.
           </p>
         )}
 
         {apply.data && (
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-ink-muted">
             {apply.data.applied
               ? `Applied — callers now hear v${apply.data.live_version}.`
               : `Nothing to apply — v${apply.data.live_version} was already live.`}
@@ -376,14 +406,14 @@ function PublishingPanel({
           </p>
         )}
         {undo.data && (
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-ink-muted">
             {undo.data.undone
               ? `Discarded v${undo.data.discarded_version}. The draft is back to v${undo.data.live_version ?? "—"}; the discarded version stays in the history.`
               : "Nothing was staged, so nothing was discarded."}
           </p>
         )}
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -408,11 +438,13 @@ function CallCapPanel({
   agentId,
   slug,
   pending,
+  write,
 }: {
   tenantId: string;
   agentId: string;
   slug: string;
   pending: PendingState | undefined;
+  write: ReturnType<typeof useAdminAccess>;
 }) {
   const lanes = useTenantLanes(slug);
   const save = useSetCallCap({ tenantId, agentId, slug });
@@ -431,38 +463,35 @@ function CallCapPanel({
   const hasWorstCase = worstCase !== undefined && worstCase !== null;
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900">
-      <header className="border-b border-slate-800 px-4 py-3">
-        <h2 className="text-sm font-semibold text-slate-100">Maximum call length</h2>
-        <p className="mt-0.5 text-xs text-slate-500">
-          Applies immediately — a live agent is re-published with it, so there is nothing
-          to apply. Clearing the box restores the platform default; it never means
-          unlimited.
-        </p>
-      </header>
-      <div className="space-y-3 p-4">
+    <Card title="Maximum call length">
+      <p className="-mt-2 text-xs text-ink-muted">
+        Applies immediately — a live agent is re-published with it, so there is nothing to
+        apply. Clearing the box restores the platform default; it never means unlimited.
+      </p>
+      <div className="mt-3 space-y-3">
+        <RestrictionNote reason={write.reason} />
         {save.error && <ProblemNotice error={save.error} />}
 
         {pending ? (
           <dl className="grid gap-3 sm:grid-cols-2">
             <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">In force</dt>
-              <dd className="text-sm font-medium tabular-nums text-slate-100">
+              <dt className="text-xs uppercase tracking-wide text-ink-muted">In force</dt>
+              <dd className="text-sm font-medium tabular-nums text-ink">
                 {pending.effective_call_cap_s}s
-                <span className="ml-1 text-xs font-normal text-slate-400">
+                <span className="ml-1 text-xs font-normal text-ink-muted">
                   ({minutesReading(pending.effective_call_cap_s)}
                   {pending.call_cap_is_platform_default ? ", platform default" : ", set here"})
                 </span>
               </dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">
+              <dt className="text-xs uppercase tracking-wide text-ink-muted">
                 Worst case, one call
               </dt>
               {/* Null is "no rate on the plan", not free. Rendering ₹0 would be a lie
                   the client would then see on their own screen. The value is an exact
                   NUMERIC string and is never parsed (hard rule 7). */}
-              <dd className="text-sm font-medium tabular-nums text-slate-100">
+              <dd className="text-sm font-medium tabular-nums text-ink">
                 {hasWorstCase ? `₹${worstCase}` : "no rate on this plan"}
               </dd>
             </div>
@@ -479,7 +508,7 @@ function CallCapPanel({
           }}
         >
           <div className="flex flex-col gap-1">
-            <label htmlFor="call-cap" className="text-xs text-slate-400">
+            <label htmlFor="call-cap" className="text-xs text-ink-muted">
               Seconds
             </label>
             <input
@@ -489,21 +518,22 @@ function CallCapPanel({
               value={field}
               min={lanes.data?.call_cap_min_s}
               max={lanes.data?.call_cap_max_s}
+              disabled={!write.allowed}
               onChange={(ev) => setSeconds(ev.target.value)}
               placeholder={
                 lanes.data ? String(lanes.data.call_cap_default_s) : "platform default"
               }
-              className="w-32 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm tabular-nums text-slate-200"
+              className={`w-32 tabular-nums ${FIELD}`}
             />
           </div>
           <button
             type="submit"
-            disabled={save.isPending}
-            className="rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-900 disabled:opacity-50"
+            disabled={save.isPending || !write.allowed}
+            className={PRIMARY_BUTTON}
           >
             {save.isPending ? "Saving…" : "Set cap"}
           </button>
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-ink-muted">
             {parsed === null
               ? "Empty — restores the platform default."
               : `${minutesReading(parsed)} per call.`}
@@ -514,7 +544,7 @@ function CallCapPanel({
         </form>
 
         {save.data && (
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-ink-muted">
             Saved — {save.data.effective_call_cap_s}s per call
             {save.data.is_platform_default ? " (platform default)" : ""}.
             {save.data.engine_synced
@@ -523,7 +553,7 @@ function CallCapPanel({
           </p>
         )}
       </div>
-    </section>
+    </Card>
   );
 }
 
