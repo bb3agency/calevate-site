@@ -4,6 +4,7 @@
 # in the repo root would make `make guardrails` print "nothing to be done" and exit 0:
 # the CI gate reporting success without running a single check.
 .PHONY: help dev up down check lint lint-check types test db-reset eval eval-ci \
+        qa-report \
         gen-api conformance smoke guardrails web-check coverage-ratchet \
         coverage-ratchet-accept
 
@@ -24,6 +25,7 @@ help:  ## List targets
 	@echo '  make web-check   - frontend typecheck + vitest suite'
 	@echo '  make db-reset    - drop, migrate, seed'
 	@echo '  make eval CLIENT=slug - regression harness (core5)'
+	@echo '  make qa-report CLIENT=slug VERTICAL=clinic - client-facing QA report'
 	@echo '  make gen-api     - OpenAPI snapshot -> typed TS client'
 	@echo '  make guardrails  - executable governance (D-29)'
 	@echo '  make coverage-ratchet - suite under coverage + the per-surface ratchet [CI gate]'
@@ -136,6 +138,18 @@ eval:  ## make eval CLIENT=<slug>   [regression harness; fails on a REGRESSION, 
 
 eval-ci:  ## The ratchet exactly as CI runs it — part of the gate, not an extra
 	uv run python -m scripts.eval --client=ci
+
+# G3 ships this to every client monthly, so VERTICAL is required for the same reason
+# CLIENT is: a clinic's report listing property calls is not the asset it is sold as,
+# and a default would produce one silently rather than refusing.
+REQUIRE_VERTICAL = $(or $(VERTICAL),$(error make qa-report needs VERTICAL=<clinic|real_estate>))
+# Its own CLIENT guard rather than `REQUIRE_CLIENT`: that one's message names `make eval`,
+# and an error telling you to fix a different command than the one you ran is the kind of
+# small lie that costs somebody ten minutes. The duplication is the message, not the rule.
+REQUIRE_QA_CLIENT = $(or $(CLIENT),$(error make qa-report needs CLIENT=<slug>))
+
+qa-report:  ## make qa-report CLIENT=<slug> VERTICAL=<clinic|real_estate>   [client-facing QA report, ROADMAP M3]
+	uv run python -m scripts.qa_report --client=$(REQUIRE_QA_CLIENT) --vertical=$(REQUIRE_VERTICAL)
 
 gen-api:
 	pnpm -C apps/web gen:api
