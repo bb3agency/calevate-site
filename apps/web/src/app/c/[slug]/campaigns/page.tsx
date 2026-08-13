@@ -2,13 +2,30 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import {
+  Activity,
+  ArrowLeft,
+  CheckCircle2,
+  CircleAlert,
+  CloudOff,
+  ListPlus,
+  Pause,
+  PhoneCall,
+  PhoneOff,
+  Play,
+  Plus,
+  Rocket,
+  Users,
+} from "lucide-react";
 
 import {
   Card,
   EmptyState,
   ProblemNotice,
   RestrictionNote,
+  Skeleton,
   StatTile,
+  formatCount,
   formatIST,
 } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -45,7 +62,64 @@ import { useAgents } from "@/lib/api/kb";
  *
  * The client never sees a bypass, because there isn't one: `POST /launch` re-runs the
  * identical gate server-side (hard rule 5).
+ *
+ * ## What the design pass changed, and what it deliberately did not
+ *
+ * Restyled to the console's design language (globals.css tokens, `Card`, lucide icons as
+ * affordances) with the gate's BEHAVIOUR untouched: `ready` is still the server's verdict
+ * and never `blockers.length === 0`, `PLATFORM_BLOCKER` is still split out before
+ * anything is counted, and every blocker still carries its `owner`. Three things that
+ * were wrong underneath the old styling are fixed here rather than carried across, all
+ * of them the same defect — a number or an assertion this screen made up:
+ *
+ * - **The four tiles rendered `0` for a campaign we could not read.** `contacts`,
+ *   `connected` and `dnc_blocked` all defaulted (`?? 0`, `?? parsed.length`) and the row
+ *   was unconditional, so a failed or in-flight `GET /v1/campaigns/{id}` painted
+ *   "Contacts 0 · Connected 0 · Not called 0" over a campaign that might be mid-dial.
+ *   Loading is a `Skeleton` now, failure is the `ProblemNotice` above and nothing else,
+ *   and the tiles render only from a response that arrived.
+ * - **"Start another campaign" carried the previous campaign's consent declaration into
+ *   the next form.** See the reset handler: that is an audited statement about a
+ *   SPECIFIC list, and pre-filling it is exactly what the `consentSource` initialiser
+ *   below says must never happen.
+ * - **The launch control could sit dead under "Everything checks out." with its reason
+ *   a screenful away.** `leads:dispatch` is the permission `POST /launch` requires, and
+ *   a `staff` user or an impersonating operator (D-22) does not hold it — so the control
+ *   now carries the refusal itself, the way the leads Export button does.
+ *
+ * The screen renders no `<h1>`: the shell prints the page title from the nav list
+ * (layout.tsx), and a second "Campaigns" beside it is a visible duplicate.
  */
+
+/**
+ * The screen's field and control styling, written once.
+ *
+ * Local constants rather than a fifth trip to `ui.tsx`: this is the only screen in the
+ * console with a real FORM on it, so a `Field`/`PrimaryButton` primitive would be
+ * generalised from one caller. They belong in `ui.tsx` the moment a second screen needs
+ * them — which is a note for whoever builds `/agents`, not a reason to move them today.
+ */
+const FIELD =
+  "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint";
+const FIELD_LABEL = "text-xs font-medium text-ink-muted";
+const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
+const PRIMARY_BUTTON =
+  "inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-50";
+const SECONDARY_BUTTON =
+  "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5";
+
+/**
+ * A radio rendered as a card.
+ *
+ * Selection is a brand ring plus a tick, NOT a brand fill. `--brand-soft` has no dark
+ * value by design (it is the medallion tint, and `ui.tsx` uses it with a fixed dark-green
+ * foreground), so a filled card would need its own text colour in each theme to stay
+ * readable — a two-colour pair that the next person to add an option will get wrong. A
+ * ring changes nothing about the text.
+ */
+const CHOICE_CARD = "relative block cursor-pointer rounded-card border p-3 transition-colors";
+const CHOICE_ON = "border-brand ring-1 ring-brand bg-surface";
+const CHOICE_OFF = "border-line bg-surface hover:border-ink-faint";
 
 /**
  * A blocker in the client's words, plus WHOSE desk it lands on.
@@ -223,22 +297,31 @@ function PlatformOutageNotice({ reason }: { reason: string }) {
   return (
     <div
       role="status"
-      className="rounded-lg border border-slate-300 bg-slate-100 p-3 text-sm dark:border-slate-700 dark:bg-slate-800"
+      // Deliberately QUIET — `bg-app` inside a `bg-surface` card, the same recessed
+      // treatment `RestrictionNote` uses. Rose would paint our own outage as this
+      // client's fault, and amber would put it in the same visual class as the to-do
+      // bullets it was pulled out of.
+      className="flex gap-3 rounded-card border border-line bg-app p-4 text-sm"
     >
-      <p className="font-medium text-slate-900 dark:text-slate-100">
-        Outbound calling is paused across Calevate — nothing for you to do here.
-      </p>
-      <p className="mt-1 text-slate-700 dark:text-slate-300">
-        Our own telemarketer registration with the DLT registrar is not live at the
-        moment, so no campaign on Calevate can launch — not just yours. This is on us
-        and there is no setting on your side that changes it. We are on it, and this
-        campaign will be launchable again the moment it is restored. Calls coming IN are
-        unaffected and keep being answered.
-      </p>
-      {/* The server's own sentence, kept but demoted: it is the precise reason support
-          and the audit trail will quote, and it should not be the headline a business
-          owner reads first. */}
-      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{reason}</p>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/5 text-ink-muted dark:bg-white/10">
+        <CloudOff aria-hidden className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <p className="font-semibold text-ink">
+          Outbound calling is paused across Calevate — nothing for you to do here.
+        </p>
+        <p className="mt-1 text-ink-muted">
+          Our own telemarketer registration with the DLT registrar is not live at the
+          moment, so no campaign on Calevate can launch — not just yours. This is on us
+          and there is no setting on your side that changes it. We are on it, and this
+          campaign will be launchable again the moment it is restored. Calls coming IN are
+          unaffected and keep being answered.
+        </p>
+        {/* The server's own sentence, kept but demoted: it is the precise reason support
+            and the audit trail will quote, and it should not be the headline a business
+            owner reads first. */}
+        <p className="mt-2 text-xs text-ink-faint">{reason}</p>
+      </div>
     </div>
   );
 }
@@ -344,10 +427,13 @@ export default function CampaignsPage() {
    * `leads:dispatch` (campaigns/routes.py), which is a MUTATING permission: `staff`
    * does not hold it, and an impersonating operator is refused it however senior they
    * are. The note is rendered once at the top rather than four times, because the
-   * reason is the same one every time and the four controls are never all on screen
-   * together. The server still refuses; every ProblemNotice below stays.
+   * reason is the same one every time; the launch control is the single exception and
+   * says why at its own call site. The server still refuses; every ProblemNotice below
+   * stays.
    */
   const write = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
+  /** The refusal as a control attribute, so a dead button explains itself on hover. */
+  const refusal = write.allowed ? undefined : write.reason ?? undefined;
 
   const create = useCreateCampaign(session);
   const addContacts = useAddContacts(session, campaignId);
@@ -388,16 +474,37 @@ export default function CampaignsPage() {
   const status = progress.data?.status ?? null;
   const counts = progress.data?.contacts ?? {};
 
+  /**
+   * Back to the list, with the audited answer CLEARED.
+   *
+   * The bug this closes: `consentSource`/`consentDate` used to survive the reset, so the
+   * create form re-opened with the previous campaign's declaration pre-selected and
+   * "Create campaign" already live. A client clicking straight through would then have
+   * stated, on the record, that a list they have not described yet came from the same
+   * place on the same date as the last one — the exact "assertion nobody made" the
+   * `consentSource` initialiser above forbids, written into a record whose whole purpose
+   * is to answer a complaint later.
+   *
+   * The number, template, classification and concurrency deliberately DO survive: they
+   * are settings the gate re-checks on every launch, not statements about a list, and a
+   * client running a second campaign from the same number should not have to say so
+   * twice.
+   */
+  const startAnother = () => {
+    setCampaignId(null);
+    setName("");
+    setCsv("");
+    setConsentSource("");
+    setConsentDate("");
+  };
+
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Campaigns</h1>
-        <p className="mt-0.5 text-sm text-slate-500">
-          Call a list of people. Calls go out between 9am and 9pm, numbers on the
-          do-not-call list are never dialled, and anyone who doesn&apos;t answer is
-          tried again later.
-        </p>
-      </div>
+    <div className="space-y-5 pb-12">
+      <p className="max-w-2xl text-sm text-ink-muted">
+        Call a list of people. Calls go out between 9am and 9pm, numbers on the
+        do-not-call list are never dialled, and anyone who doesn&apos;t answer is
+        tried again later.
+      </p>
 
       <RestrictionNote reason={write.reason} />
 
@@ -409,8 +516,16 @@ export default function CampaignsPage() {
       {launch.error && <ProblemNotice error={launch.error} />}
       {setStatus.error && <ProblemNotice error={setStatus.error} />}
 
-      {!campaignId && (campaigns.data?.length ?? 0) > 0 && (
+      {/* A skeleton, not an empty list: "you have no campaigns" is a claim about this
+          business, and the request had not answered yet. */}
+      {!campaignId && campaigns.isLoading && (
         <Card title="Your campaigns">
+          <Skeleton rows={3} />
+        </Card>
+      )}
+
+      {!campaignId && (campaigns.data?.length ?? 0) > 0 && (
+        <Card title="Your campaigns" bodyClassName="px-6 py-2">
           {/* SYMPTOM this fixed: a draft built before the provenance rule existed is
               now blocked, and nothing on the landing view said so — the client saw a
               normal-looking draft, opened it, and met a refusal with no hint it was
@@ -419,7 +534,7 @@ export default function CampaignsPage() {
               WHICH drafts were affected. It can now: `consent_provenance_blocker` names
               the exact rule per row, so the warning moved onto the rows it is about and
               the rows it is not about say nothing. */}
-          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          <ul className="divide-y divide-line">
             {(campaigns.data ?? []).map((campaign) => {
               const blocker = campaign.consent_provenance_blocker ?? null;
               // The worst-behaved of the copy tables, because `note` is tested for
@@ -430,19 +545,21 @@ export default function CampaignsPage() {
               // `undefined` for anything the table does not own (lib/lookup.ts).
               const note = lookup(LIST_PROVENANCE_COPY, blocker);
               return (
-                <li key={campaign.id} className="py-2.5">
+                <li key={campaign.id} className="py-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => setCampaignId(campaign.id)}
-                      className="text-sm font-medium text-slate-800 underline-offset-2 hover:underline dark:text-slate-200"
+                      className="text-sm font-semibold text-ink underline-offset-2 hover:underline"
                     >
                       {campaign.name}
                     </button>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    <span className="rounded-full bg-black/5 px-2 py-0.5 text-xs font-medium capitalize text-ink-muted dark:bg-white/10">
                       {campaign.status}
                     </span>
-                    <span className="text-xs text-slate-500">{campaign.classification}</span>
+                    <span className="text-xs capitalize text-ink-faint">
+                      {campaign.classification}
+                    </span>
                     {/* The badge is the rule in the client's words. The enum name itself
                         is never rendered — it is the launch gate's vocabulary, not a
                         sentence anyone reading this list can act on. */}
@@ -453,18 +570,18 @@ export default function CampaignsPage() {
                         {note.badge}
                       </span>
                     )}
-                    <span className="ml-auto text-xs text-slate-500">
-                      {campaign.connected}/{campaign.contacts} reached ·{" "}
+                    <span className="ml-auto text-xs tabular-nums text-ink-faint">
+                      {formatCount(campaign.connected)}/{formatCount(campaign.contacts)} reached ·{" "}
                       {campaign.launched_at ? formatIST(campaign.launched_at) : "not launched"}
                     </span>
                   </div>
                   {note && (
-                    <p className="mt-1 max-w-2xl text-xs text-slate-600 dark:text-slate-400">
+                    <p className="mt-1 max-w-2xl text-xs text-ink-muted">
                       {note.text}{" "}
                       <button
                         type="button"
                         onClick={() => setCampaignId(campaign.id)}
-                        className="font-medium underline underline-offset-2"
+                        className="font-semibold text-ink underline underline-offset-2"
                       >
                         {note.action}
                       </button>
@@ -480,7 +597,7 @@ export default function CampaignsPage() {
       {!campaignId ? (
         <Card title="New campaign">
           <form
-            className="space-y-4"
+            className="space-y-5"
             onSubmit={(e) => {
               e.preventDefault();
               if (!selectedAgentId) return;
@@ -504,28 +621,26 @@ export default function CampaignsPage() {
               );
             }}
           >
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Name</span>
+            <label className="block max-w-sm">
+              <span className={FIELD_LABEL}>Name</span>
               <input
                 required
                 minLength={2}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Diwali service reminder"
-                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                className={FIELD}
               />
             </label>
 
             {/* Only when there is something to choose: one agent needs no question. */}
             {agentOptions.length > 1 && (
               <label className="block max-w-sm">
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  Which agent makes these calls
-                </span>
+                <span className={FIELD_LABEL}>Which agent makes these calls</span>
                 <select
                   value={selectedAgentId}
                   onChange={(e) => setAgentId(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                  className={FIELD}
                 >
                   {agentOptions.map((agent) => (
                     <option key={agent.id} value={agent.id}>
@@ -533,28 +648,24 @@ export default function CampaignsPage() {
                     </option>
                   ))}
                 </select>
-                <span className="mt-1 block text-xs text-slate-500">
+                <span className={FIELD_HINT}>
                   Its script and voice are what your customers will hear.
                 </span>
               </label>
             )}
 
             <fieldset>
-              <legend className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                What kind of calls are these?
-              </legend>
+              <legend className={FIELD_LABEL}>What kind of calls are these?</legend>
               {/* Not a cosmetic choice: the category decides which number series may
                   dial (DATA-MODEL §6), so it is asked in plain language up front
                   rather than discovered as a launch blocker. */}
-              <div className="mt-1 grid gap-2 sm:grid-cols-3">
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
                 {CLASSIFICATIONS.map((option) => (
                   <label
                     key={option.value}
-                    className={
-                      classification === option.value
-                        ? "cursor-pointer rounded-lg border-2 border-slate-900 p-3 dark:border-slate-100"
-                        : "cursor-pointer rounded-lg border border-slate-200 p-3 hover:border-slate-400 dark:border-slate-700"
-                    }
+                    className={`${CHOICE_CARD} ${
+                      classification === option.value ? CHOICE_ON : CHOICE_OFF
+                    }`}
                   >
                     <input
                       type="radio"
@@ -563,24 +674,28 @@ export default function CampaignsPage() {
                       checked={classification === option.value}
                       onChange={() => setClassification(option.value)}
                     />
-                    <span className="block text-sm font-medium text-slate-800 dark:text-slate-200">
+                    {classification === option.value && (
+                      <CheckCircle2
+                        aria-hidden
+                        className="absolute right-2 top-2 h-4 w-4 text-brand"
+                      />
+                    )}
+                    <span className="block pr-6 text-sm font-semibold text-ink">
                       {option.label}
                     </span>
-                    <span className="mt-0.5 block text-xs text-slate-500">{option.hint}</span>
+                    <span className="mt-0.5 block text-xs text-ink-faint">{option.hint}</span>
                   </label>
                 ))}
               </div>
             </fieldset>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2">
               <label className="block">
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  Calling from
-                </span>
+                <span className={FIELD_LABEL}>Calling from</span>
                 <select
                   value={numberId}
                   onChange={(e) => setNumberId(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                  className={FIELD}
                 >
                   <option value="">Choose a number…</option>
                   {(numbers.data ?? []).map((number) => (
@@ -590,20 +705,18 @@ export default function CampaignsPage() {
                   ))}
                 </select>
                 {numbers.data?.length === 0 && (
-                  <span className="mt-1 block text-xs text-slate-500">
+                  <span className={FIELD_HINT}>
                     No numbers yet — your account manager sets these up.
                   </span>
                 )}
               </label>
 
               <label className="block">
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  DLT template
-                </span>
+                <span className={FIELD_LABEL}>DLT template</span>
                 <select
                   value={templateId}
                   onChange={(e) => setTemplateId(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                  className={FIELD}
                 >
                   <option value="">Choose a template…</option>
                   {(templates.data ?? []).map((template) => (
@@ -614,7 +727,7 @@ export default function CampaignsPage() {
                   ))}
                 </select>
                 {templates.data?.length === 0 && (
-                  <span className="mt-1 block text-xs text-slate-500">
+                  <span className={FIELD_HINT}>
                     None registered yet. Calls can&apos;t go out without one.
                   </span>
                 )}
@@ -622,18 +735,16 @@ export default function CampaignsPage() {
             </div>
 
             <label className="block max-w-xs">
-              <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                Calls at the same time
-              </span>
+              <span className={FIELD_LABEL}>Calls at the same time</span>
               <input
                 type="number"
                 min={1}
                 max={10}
                 value={concurrency}
                 onChange={(e) => setConcurrency(Number(e.target.value))}
-                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                className={FIELD}
               />
-              <span className="mt-1 block text-xs text-slate-500">
+              <span className={FIELD_HINT}>
                 Lower means the list takes longer. Lines are always kept free for people
                 calling you.
               </span>
@@ -652,40 +763,34 @@ export default function CampaignsPage() {
                   type="checkbox"
                   checked={restrictHours}
                   onChange={(e) => setRestrictHours(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 dark:border-slate-600"
+                  className="h-4 w-4 rounded border-line accent-brand"
                 />
-                <span className="text-sm text-slate-700 dark:text-slate-300">
-                  Only call during specific hours
-                </span>
+                <span className="text-sm text-ink">Only call during specific hours</span>
               </label>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-ink-faint">
                 Calls never go out before 9am or after 9pm — this narrows that further.
               </p>
 
               {restrictHours && (
                 <div className="mt-2 grid max-w-xs gap-3 sm:grid-cols-2">
                   <label className="block">
-                    <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                      From
-                    </span>
+                    <span className={FIELD_LABEL}>From</span>
                     <input
                       type="time"
                       required
                       value={windowStart}
                       onChange={(e) => setWindowStart(e.target.value)}
-                      className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                      className={FIELD}
                     />
                   </label>
                   <label className="block">
-                    <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                      Until
-                    </span>
+                    <span className={FIELD_LABEL}>Until</span>
                     <input
                       type="time"
                       required
                       value={windowEnd}
                       onChange={(e) => setWindowEnd(e.target.value)}
-                      className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                      className={FIELD}
                     />
                   </label>
                 </div>
@@ -712,47 +817,82 @@ export default function CampaignsPage() {
                 that rule as client-side validation would let the two drift. */}
             {create.error && <ProblemNotice error={create.error} />}
 
-            <button
-              type="submit"
-              disabled={
-                !write.allowed ||
-                create.isPending ||
-                !selectedAgentId ||
-                name.length < 2 ||
-                !provenanceAnswered
-              }
-              className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
-            >
-              {create.isPending ? "Creating…" : "Create campaign"}
-            </button>
-            {/* A dead button needs a reason next to it — including this one, which is
-                dead until the provenance question is answered. */}
-            {!provenanceAnswered && (
-              <p className="text-xs text-slate-500">
-                Answer both questions about your list above — a campaign without them
-                can&apos;t be launched.
-              </p>
-            )}
-            {!agents.isLoading && agentOptions.length === 0 && (
-              <p className="text-xs text-slate-500">
-                No agent is set up yet — your account manager builds one before
-                campaigns can run.
-              </p>
-            )}
+            <div className="space-y-2">
+              <button
+                type="submit"
+                title={refusal}
+                disabled={
+                  !write.allowed ||
+                  create.isPending ||
+                  !selectedAgentId ||
+                  name.length < 2 ||
+                  !provenanceAnswered
+                }
+                className={PRIMARY_BUTTON}
+              >
+                <Plus aria-hidden className="h-4 w-4" />
+                {create.isPending ? "Creating…" : "Create campaign"}
+              </button>
+              {/* A dead button needs a reason next to it — including this one, which is
+                  dead until the provenance question is answered. */}
+              {!provenanceAnswered && (
+                <p className="text-xs text-ink-faint">
+                  Answer both questions about your list above — a campaign without them
+                  can&apos;t be launched.
+                </p>
+              )}
+              {!agents.isLoading && agentOptions.length === 0 && (
+                <p className="text-xs text-ink-faint">
+                  No agent is set up yet — your account manager builds one before
+                  campaigns can run.
+                </p>
+              )}
+            </div>
           </form>
         </Card>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-4">
-            <StatTile label="Status" value={status?.replace(/_/g, " ")} />
-            <StatTile label="Contacts" value={progress.data?.total ?? parsed.length} />
-            <StatTile label="Connected" value={counts.connected ?? 0} hint="calls answered" />
-            <StatTile
-              label="Not called"
-              value={counts.dnc_blocked ?? 0}
-              hint="on the do-not-call list"
-            />
-          </div>
+          {/* EVERY FIGURE HERE IS THE SERVER'S OR IS NOT SHOWN.
+              These four used to render unconditionally with `?? 0` and, for the contact
+              count, `?? parsed.length` — so a campaign whose progress request was still
+              in flight, or had failed, was described as "Contacts 0 · Connected 0 · Not
+              called 0". On this screen that is not a cosmetic zero: a client reading it
+              during an outage concludes their campaign dialled nobody. Loading is a
+              skeleton, failure is the notice above and nothing else. */}
+          {progress.isLoading ? (
+            <Card>
+              <Skeleton rows={3} />
+            </Card>
+          ) : progress.data ? (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <StatTile
+                label="Status"
+                value={progress.data.status.replace(/_/g, " ")}
+                icon={<Activity className="h-5 w-5" />}
+              />
+              <StatTile
+                label="Contacts"
+                value={formatCount(progress.data.total)}
+                icon={<Users className="h-5 w-5" />}
+              />
+              {/* `contacts` is a complete GROUP BY over this campaign's rows, so a key
+                  the response omits genuinely means zero — unlike the leads board, where
+                  an absent stage means the server did not say. That is the whole reason
+                  `?? 0` is honest HERE and only inside this branch. */}
+              <StatTile
+                label="Connected"
+                value={formatCount(lookup(counts, "connected") ?? 0)}
+                hint="calls answered"
+                icon={<PhoneCall className="h-5 w-5" />}
+              />
+              <StatTile
+                label="Not called"
+                value={formatCount(lookup(counts, "dnc_blocked") ?? 0)}
+                hint="on the do-not-call list"
+                icon={<PhoneOff className="h-5 w-5" />}
+              />
+            </div>
+          ) : null}
 
           {status === "draft" && (
             <Card title="Contact list">
@@ -761,35 +901,38 @@ export default function CampaignsPage() {
                   rows={6}
                   value={csv}
                   onChange={(e) => setCsv(e.target.value)}
+                  aria-label="Contact list, as CSV"
                   placeholder={"phone,name\n9876543210,Priya\n9876501234,Ravi"}
-                  className="w-full rounded-md border border-slate-200 px-3 py-2 font-mono text-xs dark:border-slate-700 dark:bg-slate-950"
+                  className="w-full rounded-md border border-line bg-surface px-3 py-2 font-mono text-xs text-ink placeholder:text-ink-faint"
                 />
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-ink-faint">
                     {parsed.length > 0
-                      ? `${parsed.length} rows ready. Numbers we can't read are counted and skipped — never guessed.`
+                      ? `${formatCount(parsed.length)} rows ready. Numbers we can't read are counted and skipped — never guessed.`
                       : "Paste your CSV, or one number per line."}
                   </p>
                   <button
                     type="button"
+                    title={refusal}
                     disabled={!write.allowed || addContacts.isPending || parsed.length === 0}
                     onClick={() =>
                       addContacts.mutate(parsed, { onSuccess: () => setCsv("") })
                     }
-                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-slate-600"
+                    className={SECONDARY_BUTTON}
                   >
+                    <ListPlus aria-hidden className="h-4 w-4" />
                     {addContacts.isPending ? "Adding…" : "Add contacts"}
                   </button>
                 </div>
                 {addContacts.data && (
-                  <p className="rounded-md bg-slate-50 p-2 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    Added {addContacts.data.added}.{" "}
+                  <p className="rounded-md border border-line bg-app p-2 text-xs text-ink-muted">
+                    Added {formatCount(addContacts.data.added)}.{" "}
                     {addContacts.data.duplicate > 0 &&
-                      `${addContacts.data.duplicate} ${
+                      `${formatCount(addContacts.data.duplicate)} ${
                         addContacts.data.duplicate === 1 ? "was" : "were"
                       } already on the list. `}
                     {addContacts.data.malformed > 0 &&
-                      `${addContacts.data.malformed} ${
+                      `${formatCount(addContacts.data.malformed)} ${
                         addContacts.data.malformed === 1 ? "number" : "numbers"
                       } couldn't be read and ${
                         addContacts.data.malformed === 1 ? "was" : "were"
@@ -803,24 +946,38 @@ export default function CampaignsPage() {
           {status === "draft" && (
             <Card title="Before you launch">
               {check.isLoading ? (
-                <p className="text-sm text-slate-500">Checking…</p>
+                <Skeleton rows={3} />
               ) : check.error ? (
                 /* Without this the card renders an empty blocker list under a
                    dead button: "you cannot launch, and we will not say why". */
                 <ProblemNotice error={check.error} onRetry={() => check.refetch()} />
               ) : check.data?.ready ? (
                 <div className="space-y-3">
-                  <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                  <p className="flex items-center gap-2 text-sm font-medium text-brand-strong dark:text-brand-bright">
+                    <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0" />
                     Everything checks out.
                   </p>
                   <button
                     type="button"
+                    title={refusal}
                     disabled={!write.allowed || launch.isPending}
                     onClick={() => launch.mutate()}
-                    className="rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                    className={PRIMARY_BUTTON}
                   >
+                    <Rocket aria-hidden className="h-4 w-4" />
                     {launch.isPending ? "Launching…" : "Launch campaign"}
                   </button>
+                  {/* THE ONE PLACE THE TOP-OF-SCREEN RESTRICTION NOTE IS REPEATED, and
+                      the exception is earned: this is the only branch where the sentence
+                      immediately above a dead control says everything is fine. A `staff`
+                      user or an impersonating operator (D-22) reads "Everything checks
+                      out", presses nothing, and has to scroll past the tiles and the
+                      contact list to find out why — which is how a working compliance
+                      gate gets reported as a broken button. The other three controls
+                      keep the single note; they sit under a reason of their own. */}
+                  {!write.allowed && write.reason && (
+                    <p className="text-xs text-ink-muted">{write.reason}</p>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -831,34 +988,35 @@ export default function CampaignsPage() {
                       an empty list under "Before you launch" reads as "we will not say
                       why". Say the true thing: your side is done. */}
                   {clientBlockers.length === 0 ? (
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                    <p className="text-sm text-ink-muted">
                       Everything on your side is ready. There is nothing else to do here.
                     </p>
                   ) : (
-                  <ul className="space-y-2">
-                    {clientBlockers.map((blocker) => {
-                      // The server's own `reason` is the fallback, never dropped: a
-                      // blocker this build has no copy for is still a blocker, and an
-                      // unnamed one would read as "you cannot launch, and we will not
-                      // say why" — the exact failure this card exists to prevent.
-                      const note = lookup(BLOCKER_COPY, blocker.rule);
-                      return (
-                        <li key={blocker.rule} className="flex gap-2 text-sm">
-                          <span aria-hidden className="text-amber-500">
-                            ●
-                          </span>
-                          <span className="text-slate-700 dark:text-slate-300">
-                            {note?.text ?? blocker.reason}
-                            {note?.owner && (
-                              <span className="ml-2 whitespace-nowrap rounded-full border border-slate-300 px-1.5 py-0.5 text-[11px] font-medium text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                                {OWNER_BADGE[note.owner]}
-                              </span>
-                            )}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                    <ul className="space-y-2.5">
+                      {clientBlockers.map((blocker) => {
+                        // The server's own `reason` is the fallback, never dropped: a
+                        // blocker this build has no copy for is still a blocker, and an
+                        // unnamed one would read as "you cannot launch, and we will not
+                        // say why" — the exact failure this card exists to prevent.
+                        const note = lookup(BLOCKER_COPY, blocker.rule);
+                        return (
+                          <li key={blocker.rule} className="flex gap-2.5 text-sm">
+                            <CircleAlert
+                              aria-hidden
+                              className="mt-0.5 h-4 w-4 shrink-0 text-amber-500"
+                            />
+                            <span className="text-ink-muted">
+                              {note?.text ?? blocker.reason}
+                              {note?.owner && (
+                                <span className="ml-2 whitespace-nowrap rounded-full border border-line px-1.5 py-0.5 text-[11px] font-medium text-ink-faint">
+                                  {OWNER_BADGE[note.owner]}
+                                </span>
+                              )}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
                   )}
 
                   {/* The reason above says WHY; this says where to go. Carries the
@@ -869,11 +1027,11 @@ export default function CampaignsPage() {
                     <p className="text-sm">
                       <Link
                         href={href(`/c/${session.orgSlug}/verification`)}
-                        className="font-medium text-sky-700 underline dark:text-sky-400"
+                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
                       >
                         See what we need to verify your business
                       </Link>{" "}
-                      <span className="text-slate-600 dark:text-slate-400">
+                      <span className="text-ink-muted">
                         — incoming calls are unaffected while this is outstanding.
                       </span>
                     </p>
@@ -888,11 +1046,11 @@ export default function CampaignsPage() {
                     <p className="text-sm">
                       <Link
                         href={href(`/c/${session.orgSlug}/campaign-review`)}
-                        className="font-medium text-sky-700 underline dark:text-sky-400"
+                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
                       >
                         {FIRST_CAMPAIGN_REVIEW_LABEL}
                       </Link>{" "}
-                      <span className="text-slate-600 dark:text-slate-400">
+                      <span className="text-ink-muted">
                         — it is a one-off check on your account, not on each campaign, and
                         incoming calls are unaffected.
                       </span>
@@ -916,8 +1074,9 @@ export default function CampaignsPage() {
                   <button
                     type="button"
                     disabled
-                    className="cursor-not-allowed rounded-md bg-slate-200 px-4 py-1.5 text-sm font-medium text-slate-500 dark:bg-slate-800"
+                    className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-line bg-app px-4 py-2 text-sm font-semibold text-ink-faint"
                   >
+                    <Rocket aria-hidden className="h-4 w-4" />
                     Launch campaign
                   </button>
                 </div>
@@ -927,11 +1086,11 @@ export default function CampaignsPage() {
 
           {launch.data && (
             <Card title="Launched">
-              <p className="text-sm text-slate-700 dark:text-slate-300">
-                Calling {launch.data.dialable}{" "}
+              <p className="text-sm text-ink-muted">
+                Calling {formatCount(launch.data.dialable)}{" "}
                 {launch.data.dialable === 1 ? "person" : "people"}.
                 {launch.data.dnc_scrubbed > 0 &&
-                  ` ${launch.data.dnc_scrubbed} were on the do-not-call list and won't be called.`}
+                  ` ${formatCount(launch.data.dnc_scrubbed)} were on the do-not-call list and won't be called.`}
               </p>
             </Card>
           )}
@@ -943,30 +1102,39 @@ export default function CampaignsPage() {
                 status !== "completed" ? (
                   <button
                     type="button"
+                    title={refusal}
                     disabled={!write.allowed || setStatus.isPending}
                     onClick={() => setStatus.mutate(status === "running" ? "pause" : "resume")}
-                    className="rounded-md border border-slate-300 px-3 py-1 text-xs font-medium disabled:opacity-50 dark:border-slate-600"
+                    className={SECONDARY_BUTTON}
                   >
+                    {status === "running" ? (
+                      <Pause aria-hidden className="h-3.5 w-3.5" />
+                    ) : (
+                      <Play aria-hidden className="h-3.5 w-3.5" />
+                    )}
                     {status === "running" ? "Pause" : "Resume"}
                   </button>
                 ) : null
               }
             >
               {progress.data?.total ? (
-                <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                   {Object.entries(counts).map(([key, value]) => (
                     <div key={key}>
-                      <dt className="text-xs uppercase tracking-wide text-slate-500">
+                      {/* The server's own contact-status vocabulary, humanised but not
+                          renamed: inventing a label here would make the campaign screen
+                          and the API disagree about what a row is called. */}
+                      <dt className="text-[11px] uppercase tracking-wider text-ink-faint">
                         {key.replace(/_/g, " ")}
                       </dt>
-                      <dd className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-50">
-                        {value}
+                      <dd className="mt-0.5 text-lg font-semibold tabular-nums text-ink">
+                        {formatCount(value)}
                       </dd>
                     </div>
                   ))}
-                  <div className="col-span-2 sm:col-span-4 text-xs text-slate-500">
+                  <div className="col-span-2 text-xs text-ink-faint sm:col-span-4">
                     Launched {formatIST(progress.data.launched_at)} · up to{" "}
-                    {progress.data.concurrency} calls at a time
+                    {formatCount(progress.data.concurrency)} calls at a time
                   </div>
                 </dl>
               ) : (
@@ -975,15 +1143,8 @@ export default function CampaignsPage() {
             </Card>
           )}
 
-          <button
-            type="button"
-            onClick={() => {
-              setCampaignId(null);
-              setName("");
-              setCsv("");
-            }}
-            className="text-xs text-slate-500 underline"
-          >
+          <button type="button" onClick={startAnother} className={SECONDARY_BUTTON}>
+            <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
             Start another campaign
           </button>
         </>
@@ -1015,12 +1176,10 @@ function ConsentProvenanceFields({
   onCollectedAt: (value: string) => void;
 }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <fieldset>
-        <legend className="text-xs font-medium text-slate-600 dark:text-slate-300">
-          Where did this list come from?
-        </legend>
-        <p className="mt-1 text-xs text-slate-500">
+        <legend className={FIELD_LABEL}>Where did this list come from?</legend>
+        <p className="mt-1 text-xs text-ink-faint">
           You&apos;re putting this on the record: it&apos;s how we can show, later, that the
           people on this list agreed to hear from you. Pick the one that&apos;s true.
         </p>
@@ -1028,11 +1187,7 @@ function ConsentProvenanceFields({
           {CONSENT_SOURCES.map((option) => (
             <label
               key={option.value}
-              className={
-                source === option.value
-                  ? "relative cursor-pointer rounded-lg border-2 border-slate-900 p-3 dark:border-slate-100"
-                  : "relative cursor-pointer rounded-lg border border-slate-200 p-3 hover:border-slate-400 dark:border-slate-700"
-              }
+              className={`${CHOICE_CARD} ${source === option.value ? CHOICE_ON : CHOICE_OFF}`}
             >
               <input
                 type="radio"
@@ -1041,27 +1196,26 @@ function ConsentProvenanceFields({
                 checked={source === option.value}
                 onChange={() => onSource(option.value)}
               />
-              <span className="block text-sm font-medium text-slate-800 dark:text-slate-200">
-                {option.label}
-              </span>
-              <span className="mt-0.5 block text-xs text-slate-500">{option.hint}</span>
+              {source === option.value && (
+                <CheckCircle2 aria-hidden className="absolute right-2 top-2 h-4 w-4 text-brand" />
+              )}
+              <span className="block pr-6 text-sm font-semibold text-ink">{option.label}</span>
+              <span className="mt-0.5 block text-xs text-ink-faint">{option.hint}</span>
             </label>
           ))}
         </div>
       </fieldset>
 
       <label className="block max-w-xs">
-        <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-          When did they agree?
-        </span>
+        <span className={FIELD_LABEL}>When did they agree?</span>
         <input
           type="date"
           value={collectedAt}
           max={todayInputValue()}
           onChange={(e) => onCollectedAt(e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+          className={FIELD}
         />
-        <span className="mt-1 block text-xs text-slate-500">
+        <span className={FIELD_HINT}>
           The date on the form, bill or enquiry. If the list was built up over time, use the
           day the most recent person was added.
         </span>
@@ -1101,17 +1255,17 @@ function ConsentProvenanceAnswer({
 
   return (
     <form
-      className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800"
+      className="space-y-4 rounded-card border border-line bg-app p-4"
       onSubmit={(e) => {
         e.preventDefault();
         if (!source || !iso) return;
         declare.mutate({ source, collected_at: iso });
       }}
     >
-      <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+      <p className="text-sm font-semibold text-ink">
         {correcting ? "Correct where this list came from" : "Record where this list came from"}
       </p>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-ink-faint">
         Your contacts stay as they are — this answers the question against this campaign.
       </p>
 
@@ -1131,8 +1285,9 @@ function ConsentProvenanceAnswer({
 
       <button
         type="submit"
+        title={write.allowed ? undefined : write.reason ?? undefined}
         disabled={!write.allowed || declare.isPending || !source || !iso}
-        className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+        className={PRIMARY_BUTTON}
       >
         {declare.isPending ? "Recording…" : "Record this"}
       </button>
