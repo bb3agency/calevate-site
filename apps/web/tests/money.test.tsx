@@ -112,12 +112,20 @@ describe("worst-case call cost", () => {
     );
   });
 
-  it("renders the exact NUMERIC string, trailing zeros and all", async () => {
+  it("renders the exact NUMERIC digits, trailing zeros and all", async () => {
     // `Number("10159.00")` renders as "10159" — the paise silently vanish — and
     // arithmetic on it is where the last two decimals stop being trustworthy.
+    //
+    // Grouped, because the agents screen now formats this field through `formatINR`
+    // like every other rupee figure in the console (the usage total above moved for the
+    // same reason). It was the last caller printing `₹${wireString}` by hand, which
+    // rendered ₹1,500.00 as "₹1500.00" and a rate of "6.5" as "₹6.5" — one amount, two
+    // shapes, depending on which screen you were looking at. The DIGITS are still the
+    // server's: `formatINR` groups the string and never parses it, which is the half of
+    // hard rule 7 this file exists to hold.
     const { container } = await renderAgents(pending({ worst_case_call_cost_inr: "10159.00" }));
 
-    await screen.findByText("₹10159.00");
+    await screen.findByText("₹10,159.00");
     expect(container.textContent).not.toContain("10158.99");
   });
 
