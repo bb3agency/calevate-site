@@ -8,23 +8,25 @@ JWT it might read differently than we do.
 
 from __future__ import annotations
 
+from datetime import datetime
 from hashlib import sha256
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service as admin_service
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import current_identity, requires
+from apps.api.core.auth import current_identity, requires, tenant_of
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta
-from apps.api.db.session import invite_session, tenant_session
+from apps.api.db.session import invite_session, tenant_session, untenanted_session
+from apps.api.tenancy import members as members_service
 
 router = APIRouter(prefix="/v1", tags=["tenancy"])
 
@@ -162,6 +164,277 @@ async def list_members(
     return [MemberOut(id=row[0], name=row[1], role=row[2]) for row in rows]
 
 
+# --- Team management (ROADMAP M3, "client staff roles") -----------------------------
+#
+# THE PERMISSION SPLIT IS THE DESIGN. Every read on this surface is `org:read`; every
+# write is `org:manage`. That is not symmetry for its own sake — it is D-22. `org:manage`
+# is in `MUTATING_PERMISSIONS`, so an impersonating operator is refused it, and a GET
+# that asked for it would vanish from a support session at exactly the moment support is
+# needed (`tests/impersonation_reads_test.py` walks the live route table and says so).
+# A support engineer must be able to SEE who is on a client's team and must not be able
+# to promote anyone; those two sentences are these two permissions.
+#
+# AUDIT ACTIONS CARRY THE TRANSITION IN THEIR NAME. `audit_log` has no detail column —
+# `write_audit(summary=...)` goes to the log stream, NOT into the hashed row (see its
+# docstring) — so "from what to what" has to live in a column that is actually persisted
+# and hashed. `action` is that column, hence `member.role_changed:staff->owner`. The
+# alternative, a `detail JSONB` column on `audit_log`, is a better answer and belongs to
+# a migration on `apps/api/compliance/`, which this slice does not own.
+
+
+class MemberRoleIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["owner", "staff"]
+    # The role the caller's screen was showing. Not redundant with `role`: it turns the
+    # write into a CAS (BACKEND-PATTERNS §5) so a change another owner made in the
+    # meantime is reported instead of overwritten.
+    expected_role: Literal["owner", "staff"]
+
+
+class MemberRemovedOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+    previous_role: str
+    # Leads this person still owns. Removing them does NOT unassign their work (see
+    # `members.remove_member`), so the number is stated rather than left to be
+    # discovered — an owner who removes a colleague and is told nothing has just made
+    # some number of leads nobody's business without knowing it.
+    leads_still_assigned: int
+
+
+class InvitationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    role: Literal["owner", "staff"]
+
+
+class InvitationOut(BaseModel):
+    """A pending invitation — a live key to this account sitting in an inbox.
+
+    `email_masked`, never `email`: see `members.mask_email` for why the guardrail
+    forbids the raw field here and what the mask keeps.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    email_masked: str
+    role: str
+    invited_at: datetime
+    expires_at: datetime
+
+
+class InvitationCreatedOut(InvitationOut):
+    """The one response that carries the raw token, exactly once.
+
+    It is never stored (only its SHA-256 is) and never logged, so this response is the
+    only place it will ever exist outside the invitee's browser. The client realm has no
+    mailer of its own — `apps/workers/notifications.py` owns email delivery and
+    registering a job there is outside this slice — so the owner is handed the link and
+    sends it. When that job exists this field should stop being returned, because a
+    token that is displayed is a token that can be pasted into the wrong window.
+    """
+
+    token: str
+
+
+@router.post(
+    "/invitations",
+    response_model=InvitationCreatedOut,
+    status_code=201,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Invite a colleague to this account (owner only)",
+)
+async def invite_member(
+    payload: InvitationIn,
+    session: Session,
+    request: Request,
+    # `tenant_of`, not `principal.tenant_id`: the same dependency `deps.db` already
+    # resolved (so it is cached, not re-authenticated) and the one that TYPES the value
+    # as present. `Principal.tenant_id` is `UUID | None` because an admin principal
+    # outside a tenant is a real shape; on a route whose session is tenant-scoped it
+    # cannot be None, and saying so with a dependency beats saying so with a cast.
+    tenant_id: UUID = Depends(tenant_of),
+    principal: Principal = Depends(requires("org:manage")),
+) -> InvitationCreatedOut:
+    invitation_id, token = await members_service.create_team_invitation(
+        session,
+        tenant_id=tenant_id,
+        actor_user_id=principal.user_id,
+        actor_role=principal.role,
+        email=str(payload.email),
+        role=payload.role,
+    )
+    await write_audit(
+        session,
+        action=f"member.invited:{payload.role}",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="invitation",
+        object_id=str(invitation_id),
+        ip=request.client.host if request.client else None,
+    )
+    row = (
+        await session.execute(
+            text("SELECT email, created_at, expires_at FROM invitations WHERE id = :i"),
+            {"i": invitation_id},
+        )
+    ).one()
+    return InvitationCreatedOut(
+        id=invitation_id,
+        email_masked=members_service.mask_email(str(row[0])),
+        role=payload.role,
+        invited_at=row[1],
+        expires_at=row[2],
+        token=token,
+    )
+
+
+@router.get(
+    "/invitations",
+    response_model=list[InvitationOut],
+    openapi_extra=permission_meta("org:read"),
+    summary="Invitations that can still be redeemed",
+)
+async def list_invitations(
+    session: Session, _: Principal = Depends(requires("org:read"))
+) -> list[InvitationOut]:
+    """`org:read`, deliberately. Who currently holds a key to this account is part of
+    "who has access", which is the question a support session exists to answer; the
+    authority to hand one out is the separate thing, and it is `org:manage` above."""
+    return [
+        InvitationOut(
+            id=row.id,
+            email_masked=row.email_masked,
+            role=row.role,
+            invited_at=row.invited_at,
+            expires_at=row.expires_at,
+        )
+        for row in await members_service.list_pending_invitations(session)
+    ]
+
+
+@router.delete(
+    "/invitations/{invitation_id}",
+    response_model=InvitationOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Revoke an unused invitation (owner only)",
+)
+async def revoke_invitation(
+    invitation_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> InvitationOut:
+    # Read before the delete: the response has to name what was revoked, and after the
+    # DELETE the row is gone. Same transaction, so a failed delete returns nothing.
+    row = (
+        await session.execute(
+            text("SELECT email, role, created_at, expires_at FROM invitations WHERE id = :i"),
+            {"i": invitation_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Invitation")
+    await members_service.revoke_invitation(session, invitation_id)
+    await write_audit(
+        session,
+        action=f"member.invitation_revoked:{row[1]}",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="invitation",
+        object_id=str(invitation_id),
+        ip=request.client.host if request.client else None,
+    )
+    return InvitationOut(
+        id=invitation_id,
+        email_masked=members_service.mask_email(str(row[0])),
+        role=str(row[1]),
+        invited_at=row[2],
+        expires_at=row[3],
+    )
+
+
+@router.patch(
+    "/members/{user_id}",
+    response_model=MemberOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Change a colleague's role (owner only)",
+)
+async def set_member_role(
+    user_id: UUID,
+    payload: MemberRoleIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> MemberOut:
+    previous = await members_service.change_member_role(
+        session,
+        actor_user_id=principal.user_id,
+        actor_role=principal.role,
+        target_user_id=user_id,
+        new_role=payload.role,
+        expected_role=payload.expected_role,
+    )
+    if previous != payload.role:
+        await write_audit(
+            session,
+            action=f"member.role_changed:{previous}->{payload.role}",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="membership",
+            # The TARGET's `users.id`. `users` rows outlive memberships, so this stays
+            # resolvable after the person is removed — which is exactly the case a
+            # reader asking "why did they have access?" is asking about.
+            object_id=str(user_id),
+            ip=request.client.host if request.client else None,
+        )
+    name = (
+        await session.execute(
+            text(
+                "SELECT u.name FROM memberships m JOIN users u ON u.id = m.user_id "
+                "WHERE m.user_id = :u"
+            ),
+            {"u": user_id},
+        )
+    ).scalar()
+    return MemberOut(id=user_id, name=name, role=payload.role)
+
+
+@router.delete(
+    "/members/{user_id}",
+    response_model=MemberRemovedOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Remove a colleague from this account (owner only)",
+)
+async def remove_member(
+    user_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> MemberRemovedOut:
+    previous, still_assigned = await members_service.remove_member(
+        session, actor_user_id=principal.user_id, target_user_id=user_id
+    )
+    await write_audit(
+        session,
+        # The role they HELD when access was taken away — the fact a later reader needs,
+        # and the one the deleted row can no longer supply.
+        action=f"member.removed:{previous}",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="membership",
+        object_id=str(user_id),
+        ip=request.client.host if request.client else None,
+    )
+    return MemberRemovedOut(
+        user_id=user_id, previous_role=previous, leads_still_assigned=still_assigned
+    )
+
+
 class AcceptInviteIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -193,6 +466,21 @@ async def accept_invitation(
 
     The burn is a CAS on `used_at IS NULL`, so two clicks on the same emailed link
     produce one membership rather than two.
+
+    THE INVITATION IS BOUND TO THE ADDRESS IT WAS SENT TO. Without that check the link
+    is a pure bearer token: a forwarded email, a link pasted into a group chat, or a
+    shared mailbox hands the account to whoever opens it first — and the audit trail
+    then records a membership for someone nobody invited. Binding is what current
+    practice asks of an invite link (single use, short-lived, and only redeemable by the
+    address that received it — the same rule Auth0/authentik-style invite flows enforce
+    by making the signup email read-only), and it costs an honest invitee nothing: they
+    are signing in with the address the link was sent to.
+
+    The comparison is a plain casefolded equality, NOT `hmac.compare_digest`. Constant
+    time protects a SECRET from being learned a byte at a time; the secret on this path
+    is the token, and it is matched by an indexed lookup on its SHA-256. An address the
+    caller already owns and already typed into Clerk is not a secret, and dressing the
+    comparison up as one would suggest to the next reader that it is.
     """
     user_id, _clerk_id = identity
 
@@ -206,7 +494,7 @@ async def accept_invitation(
         row = (
             await lookup.execute(
                 text(
-                    "SELECT tenant_id FROM invitations WHERE token_hash = :hash "
+                    "SELECT tenant_id, email FROM invitations WHERE token_hash = :hash "
                     "AND used_at IS NULL AND expires_at > now()"
                 ),
                 {"hash": token_hash},
@@ -223,6 +511,32 @@ async def accept_invitation(
             remediation="Ask your account manager for a fresh invite.",
         )
     tenant_id = UUID(str(row[0]))
+    invited_email = str(row[1])
+
+    # `users` is global and unRLS'd (identity crosses tenants), so this needs no tenant
+    # context — and must run before one is opened, so a mismatch never touches the
+    # tenant's data at all.
+    async with untenanted_session() as lookup:
+        recipient = (
+            await lookup.execute(text("SELECT email FROM users WHERE id = :u"), {"u": user_id})
+        ).scalar_one()
+    if str(recipient).strip().casefold() != invited_email.strip().casefold():
+        # A DIFFERENT message from "used or expired", deliberately, and the difference is
+        # safe: reaching this line means the caller already holds a valid unused token,
+        # so they learn nothing about the token they did not already know — and the
+        # honest invitee whose Clerk account uses their other address needs to be told
+        # what actually went wrong rather than being sent to ask for a fresh link that
+        # will fail the same way.
+        raise ProblemError(
+            kind="permission",
+            code="invitation_wrong_recipient",
+            title="This invitation is for a different address",
+            detail="This invitation was sent to someone else's email address.",
+            remediation=(
+                "Sign in with the address the invitation was sent to, or ask an owner of "
+                "the account to invite the address you use."
+            ),
+        )
 
     async with tenant_session(tenant_id) as scoped:
         await admin_service.accept_invitation(scoped, raw_token=payload.token, user_id=user_id)
