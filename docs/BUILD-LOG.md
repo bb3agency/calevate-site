@@ -2148,6 +2148,75 @@ tree, the only safe undo is a file copy you made yourself before the experiment.
 file backup` then `cp backup file` worked correctly on `webhook_routes.py` twenty minutes
 earlier in the same session, which is the whole argument.
 
+**The five slices.** Four agents in parallel, one whole slice each end to end, plus a
+fifth spawned mid-wave from the first one's own finding.
+
+*Lead ownership (M3).* `leads.assigned_to` had existed since the first migration, with a
+foreign key and an ON DELETE SET NULL, and nothing in the repo read or wrote it — an
+explicit `UNWIRED_BASELINE` entry whose text said it closes with the assignment action.
+`lead_events` was the mirror image: six producers write it and no client could read a
+word, so "we called them twice, WhatsApp was refused, the campaign gave up" was a fact we
+recorded and never showed to the person it was about. Two things in it generalise. The
+tenancy check goes through `memberships`, not the FK, because `users` is global and
+un-RLS'd — a foreign user id satisfies a foreign key perfectly, so the FK is not a tenancy
+control and never was. And the timeline PROJECTS its payload rather than serialising it:
+the column is schemaless JSONB from six independent producers, and "none of them stores a
+phone number today" is not a property you can rely on, so the read whitelists keys with
+the producer-by-producer audit written above the function. It also turned up a live 500 —
+`PATCH /v1/leads/{id}` with a status could not be planned at all (`jsonb_build_object` is
+`VARIADIC "any"`, psycopg3 sends a bare `str` as `unknown`), surviving because no test
+had ever sent a body.
+
+*The dispatch tick (D-57).* 22.9s on a 30-second schedule, 25.3s once the database
+carried a million call rows. The measurement chose the design and contradicted the
+obvious fix: 48% of it was session SETUP, 30% the query, 21% the commit, 1% the tenant
+list — two thirds session machinery, and 80% of that CPU inside the worker, so
+bounded-parallel sessions measured 22.9s → 17.2s at 8-way and were not shipped. The
+screening loop moved into Postgres WITHOUT moving out of RLS: a SECURITY INVOKER function
+that sets `app.tenant_id` per tenant and reads under that tenant's own policies, returning
+only tenants that hold a line or run a campaign. 25.29s / 12,071 sessions → 0.32s / 2.
+Overlap was a real bug and not the one it sounds like — an arq cron id embeds its intended
+execution time, so consecutive ticks are different jobs and do overlap, but the claim CAS
+already prevented a double DIAL; what two ticks could both do is spend the whole shared
+line pool, a read-then-act on the resource that keeps other clients' receptionists
+answering.
+
+*The ops surface (D-58).* The most destructive control in the product was the only
+mutation on its router with no step-up, and the console collected a typed confirmation
+word it never sent — a dialog that confirmed nothing to the server. Then the follow-up
+slice asked the better question: a confirmation you cannot SIZE is a habit, not a control.
+Depth, per-job breakdown and oldest age now render above the click, from the same
+aggregate that feeds the metric, and the replay can be scoped by job — which the 100-row
+cap makes necessary rather than nice, since recovering one client's CRM webhooks out of a
+backlog of dead-lettered emails otherwise moves 100 emails and reports success. Separately,
+the client directory had rolled its own `capped` read with no month predicate, so it could
+show a red badge for a tenant the dial gate happily dials.
+
+*The wizard's middle step.* An API shipped in §45 with FLOWS §1's eight fields, and
+nothing in either realm called it. Number provisioning and the test-call gate stay absent
+because they are pilot-gated; the intake step was absent for no reason at all.
+
+**Three of the five agents caught their own broken experiment**, which is the method
+working rather than luck: a permission sabotage that passed because a blocker guard
+already disabled the control; a narrowing sabotage that passed because a Python `continue`
+still stood behind it; a button sabotage that passed because with depth 0 no scope select
+rendered, so the guard under test was doing no work. Each was traced, the fixture or the
+code fixed, and the sabotage then failed as it should. One lease sabotage HUNG rather than
+failing, which is worse than passing — a test whose failure mode is a hang teaches people
+to kill the run — and is now bounded by a timeout.
+
+**Two defects only the FULL suite could find**, both invisible to every agent's targeted
+run: `tm_registration_test` pins the exact key set of `GET /v1/ops/platform` and another
+slice added a field to it (the exact-set assertion is right and did its job); and my own
+new ack-budget test compared the alert's `f"{elapsed:.0f}"` against the header's
+`f"{elapsed:.1f}"`, double-rounding, so at 9.4555 it wanted "10ms" and got "9ms". It
+passed until a measurement landed on a .x5 boundary — a test that fails one run in ten is
+worse than no test, and it was written in the same wave as the entry above complaining
+about exactly that. The gate then caught a real +4 on `dial-path`: two new observability
+paths (the tick-overrun alert, the lease-release failure) whose only test was "hope it
+fires in production". They have tests now, and `dial-path` holds 123 while growing from
+500 statements to 547.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and

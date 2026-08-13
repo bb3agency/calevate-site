@@ -163,6 +163,67 @@ async def test_a_redis_outage_does_not_stop_the_dispatcher(
     assert await dispatch_campaign_tick({}) == "ran"
 
 
+async def test_a_tick_that_overruns_its_own_interval_says_so(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The alert that makes the not-fitting VISIBLE, which is the whole point of D-57.
+
+    A tick that no longer fits inside its schedule is invisible from the outside — the
+    overlap guard above turns the SECOND tick into a refusal, so what an operator sees is
+    campaigns dialling late and nothing saying why. This is the signal that names it.
+
+    It drives the comparison by making the tick genuinely slow rather than by shrinking
+    the interval, because the interval is read from `TICK_SECONDS` in two places (the
+    cron and the dispatcher) and a test that moved it would be asserting against a
+    configuration nothing runs.
+
+    Written because the ratchet said so. This branch and the lease-release failure below
+    were the whole of a +4 regression on `dial-path` — two new observability paths whose
+    only test was "hope it fires in production", which is the same defect as the >500ms
+    ack alert that had CI red for nine commits.
+    """
+
+    async def slow_tick() -> str:
+        await asyncio.sleep(campaign_dispatch.TICK_INTERVAL_S + 0.05)
+        return "ran"
+
+    monkeypatch.setattr(campaign_dispatch, "TICK_INTERVAL_S", 0.05)
+    monkeypatch.setattr(campaign_dispatch, "_run_tick", slow_tick)
+
+    with caplog.at_level("ERROR"):
+        assert await dispatch_campaign_tick({}) == "ran"
+
+    codes = [r.__dict__.get("code") for r in caplog.records if r.__dict__.get("code")]
+    assert "dispatch_tick_overrun" in codes, codes
+
+
+async def test_a_lease_that_cannot_be_released_warns_instead_of_failing_the_tick(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The release is best-effort, and the TTL is what actually guarantees progress.
+
+    If Redis dies between taking the lease and giving it back, raising here would turn a
+    completed tick — contacts already dialled — into a job arq retries, re-running the
+    work for a lease nobody can hold. The lease expires on its own; the correct behaviour
+    is to say so and return the outcome the tick actually produced.
+    """
+
+    class _ReleaseFails:
+        async def set(self, *_a: Any, **_k: Any) -> bool:
+            return True
+
+        async def eval(self, *_a: Any, **_k: Any) -> Any:
+            raise ConnectionError("redis went away mid-tick")
+
+    monkeypatch.setattr(campaign_dispatch, "get_redis", lambda: _ReleaseFails())
+    monkeypatch.setattr(campaign_dispatch, "_run_tick", _ran)
+
+    with caplog.at_level("WARNING"):
+        assert await dispatch_campaign_tick({}) == "ran"
+
+    assert "dispatch_tick_lease_release_failed" in caplog.text
+
+
 async def _ran() -> str:
     return "ran"
 

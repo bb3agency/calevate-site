@@ -387,14 +387,21 @@ async def test_ops_can_read_and_record_the_platform_tm_registration() -> None:
         after = await http.get("/v1/ops/platform", headers={"Authorization": f"Bearer {token}"})
 
     assert before.status_code == 200, before.text
-    # The switchboard read carries all three global facts, so one request answers "may
-    # this platform work right now" completely — and, since the halt is one of them,
-    # WHY not (`halt_reason`, null unless outbound is halted; `platform_halt_test.py`).
+    # The switchboard read carries every global fact, so one request answers "may this
+    # platform work right now" completely — and, since the halt is one of them, WHY not
+    # (`halt_reason`, null unless outbound is halted; `platform_halt_test.py`).
+    #
+    # An EXACT set rather than a subset, deliberately, and it is the assertion that
+    # caught `outbox_dead_letters` arriving from another slice in the same wave: this
+    # route is the admin console's one round trip and the only GET on a router whose
+    # permission is MUTATING, so a field appearing on it is a decision (D-58) and not a
+    # detail. A subset check would have let it land unread.
     assert set(before.json()) == {
         "load_shed_mode",
         "outbound_halted",
         "halt_reason",
         "tm_registration",
+        "outbox_dead_letters",
     }
 
     assert recorded.status_code == 200, recorded.text

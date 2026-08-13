@@ -303,7 +303,22 @@ async def test_breaching_the_budget_raises_the_incident_signal_and_still_acks(
     _, _, fields = raised[0]
     # The detail is the MEASURED number, not the budget: an operator reading the alert
     # needs to know whether we missed by a millisecond or by a second.
-    assert fields["detail"] == f"{float(acked.headers['X-Ack-Ms']):.0f}ms", fields
+    #
+    # Compared with a TOLERANCE rather than for equality, and the reason is a bug this
+    # assertion had on its first day. The header carries `f"{elapsed:.1f}"` and the alert
+    # carries `f"{elapsed:.0f}ms"` — both rounded from the same full-precision float, but
+    # rounded ONCE each. Reconstructing one from the other rounds twice, and Python's
+    # round-half-to-even then disagrees with itself: elapsed 9.4555 gives a detail of
+    # "9ms" and a header of "9.5", and `f"{9.5:.0f}"` is "10". It passed until a run
+    # happened to land on a .x5 boundary — a test that fails on one measurement in ten is
+    # worse than no test, because it teaches people to re-run.
+    assert fields["detail"].endswith("ms"), fields
+    assert (
+        abs(float(fields["detail"].removesuffix("ms")) - float(acked.headers["X-Ack-Ms"])) <= 1.0
+    ), (
+        fields,
+        acked.headers["X-Ack-Ms"],
+    )
     assert fields["engine"] == "bolna", fields
 
 

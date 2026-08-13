@@ -1708,7 +1708,26 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Patch Lead */
+        /**
+         * Edit one lead — status, name, and who owns it
+         * @description Assignment rides on THIS route rather than on a `PUT /leads/{id}/assignee`.
+         *
+         *     The choice was between one route that edits a lead and a second route that edits
+         *     one of its fields, and "one way per problem" decides it: the status select and the
+         *     assignee select sit in the same table row, need the same `leads:write`, and want
+         *     the same cache invalidation — two endpoints would be two mutations, two hooks and
+         *     two places for the next editable field to be added to the wrong one. `staff` holds
+         *     `leads:write` deliberately (core/rbac.py): assignment is how a team divides work,
+         *     not an owner-only setting.
+         *
+         *     The one thing a shared PATCH costs is the null: `"assigned_to": null` must mean
+         *     "unassign" while an ABSENT `assigned_to` means "leave the owner alone", and both
+         *     arrive as `None` on the model. Pydantic v2's `model_fields_set` holds exactly the
+         *     fields the request supplied, so it is what tells them apart
+         *     (pydantic.dev/docs/validation/latest/concepts/models). `AssigneeChange` carries the
+         *     answer onward as a value rather than as a second boolean parameter, so the service
+         *     cannot read the two cases the same way by accident.
+         */
         patch: operations["patch_lead_v1_leads__lead_id__patch"];
         trace?: never;
     };
@@ -1723,6 +1742,37 @@ export interface paths {
         put?: never;
         /** Dispatch one AI call to this lead (D-21) — compliance-gated, idempotent */
         post: operations["call_lead_v1_leads__lead_id__call_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/leads/{lead_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What happened to this lead, newest first — projected, never the raw payload
+         * @description The record existed and nobody could read it.
+         *
+         *     `lead_events` is written by six producers across three deployables — the status
+         *     change, the blocked dial, each call, each hot-lead alert, each WhatsApp attempt,
+         *     each spent campaign ladder — and until now the only reader was the aggregate
+         *     needs-attention query. "We called them twice, the WhatsApp was refused, the campaign
+         *     gave up" was on record and invisible to the person it is about.
+         *
+         *     Bounded rather than unbounded, and the bound is stated in the response: `limit` is
+         *     validated HERE (1..100) rather than clamped in the service, for the reason
+         *     `/v1/attention` gives — `min(limit, 100)` turns a negative limit into a silently
+         *     short page instead of into a bad request.
+         */
+        get: operations["lead_timeline_v1_leads__lead_id__timeline_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1751,6 +1801,40 @@ export interface paths {
          *     client; this was the last route where that was true.
          */
         get: operations["me_v1_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who is on this account's team — ids and display names, never emails
+         * @description The team, for any control that has to name a colleague (M3 lead assignment).
+         *
+         *     THE TENANCY CONTROL IS THE JOIN. `users` is a GLOBAL table with no RLS — identity
+         *     crosses tenants (DATA-MODEL §2) — so `SELECT id, name FROM users` under a tenant
+         *     session would return every user of the platform. `memberships` is FORCE-RLS'd on
+         *     `tenant_id`, so driving the query from it is what scopes the answer, and there is no
+         *     `WHERE tenant_id` here for the reason the whole codebase gives: a hand-written
+         *     filter is a filter that can be forgotten, and its presence invites trusting it
+         *     instead of the policy.
+         *
+         *     Deactivated accounts are excluded. A deactivated user is refused at the auth guard
+         *     on every request (BACKEND-PATTERNS §7), so offering them as an assignee would be
+         *     offering work to somebody who cannot open the account — and `crm.service` refuses
+         *     the assignment for the same reason, so a picker that listed them would be a control
+         *     whose options the server rejects.
+         */
+        get: operations["list_members_v1_members_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1805,7 +1889,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Flip dead-lettered outbox messages back to pending (audited) */
+        /**
+         * Flip dead-lettered outbox messages back to pending (step-up confirmed, audited)
+         * @description Moves up to 100 of the OLDEST dead-lettered outbox messages back to `pending` with a fresh attempt budget, for every tenant at once. The next dispatch tick re-sends them: HMAC-signed webhooks to clients' own systems, Google Sheets appends, notification emails. A message can dead-letter AFTER its side effect landed, so the outcome to be sure of before sending this is a second delivery, not a flag in a row. `job` scopes the run to one kind of side effect and MUST be echoed in the confirmation header (`replay_dead_letters:<job>`); omit it to replay every job, which is `X-Confirm-Action: replay_dead_letters`. Read the depth and the per-job breakdown from `GET /v1/ops/platform` first — `outbox_dead_letters` is published so this confirmation can be an informed one.
+         */
         post: operations["replay_outbox_v1_ops_outbox_replay_post"];
         delete?: never;
         options?: never;
@@ -2738,6 +2825,48 @@ export interface components {
             /** Opens */
             opens?: string | null;
         };
+        /**
+         * DeadLetterJobOut
+         * @description One `job`'s share of the outbox DLQ.
+         *
+         *     COUNTS AND JOB NAMES ONLY (hard rule 6). `outbox_messages.payload` is JSONB holding
+         *     lead fields and phone numbers; `job` is an ARQ job name — a code identifier — and
+         *     nothing derived from a payload reaches this model. See
+         *     `reliability.service.DeadLetterQueue`, which is where that boundary is enforced.
+         */
+        DeadLetterJobOut: {
+            /** Depth */
+            depth: number;
+            /** Job */
+            job: string;
+            /**
+             * Oldest At
+             * Format: date-time
+             */
+            oldest_at: string;
+        };
+        /**
+         * DeadLetterQueueOut
+         * @description How much a replay would re-send, published so the confirmation can be informed.
+         *
+         *     The console asks an operator to confirm `POST /outbox/replay`, whose effect is real
+         *     HMAC-signed webhooks into clients' own systems for every tenant at once. Until this
+         *     field existed the console said so in its own words: there was no count to show before
+         *     the click, so the operator confirmed a redelivery of unknown size, tenancy and age.
+         *
+         *     Three numbers rather than one, because a total does not tell an operator what they are
+         *     about to do: 142 dead letters is a different act depending on whether it is 142 CRM
+         *     webhooks or 142 hot-lead emails, and a different act again depending on whether the
+         *     head of the queue is ten minutes or nine days old.
+         */
+        DeadLetterQueueOut: {
+            /** By Job */
+            by_job: components["schemas"]["DeadLetterJobOut"][];
+            /** Depth */
+            depth: number;
+            /** Oldest At */
+            oldest_at: string | null;
+        };
         /** DeletionRequestAcceptedOut */
         DeletionRequestAcceptedOut: {
             /** Already Open */
@@ -3460,6 +3589,10 @@ export interface components {
         };
         /** LeadOut */
         LeadOut: {
+            /** Assigned To */
+            assigned_to?: string | null;
+            /** Assigned To Name */
+            assigned_to_name?: string | null;
             /** Call Count */
             call_count: number;
             /**
@@ -3499,8 +3632,74 @@ export interface components {
              */
             updated_at: string;
         };
+        /**
+         * LeadTimelineEventOut
+         * @description One line of a lead's history, PROJECTED — never `lead_events.payload` itself.
+         *
+         *     `lead_events.payload` is JSONB written by six producers in three deployables
+         *     (`crm.service.update_lead`, `ingest.service._timeline`, `workers.pipeline`,
+         *     `workers.notifications`, and two paths in `workers.whatsapp`), with no schema
+         *     between them and the column. Every one of them was read before this model was
+         *     written, and today every one of them stores ids, authored rule/reason codes,
+         *     booleans and counters — no phone number, no transcript text, no extraction payload
+         *     (`crm.service.lead_timeline` records the audit key by key).
+         *
+         *     That is a fact about today's writers, not a property of the column, and hard rules 5
+         *     and 6 have to survive the seventh producer. So the read PROJECTS: the service builds
+         *     every field below from a whitelist of keys, and a key nothing here names cannot
+         *     reach a browser however it got into the row. The blob is never serialized, which is
+         *     also why this model needs no `ACKNOWLEDGED_PASSTHROUGH` entry in
+         *     `scripts/check_redaction_exposure.py` — there is no free-form dict to acknowledge.
+         */
+        LeadTimelineEventOut: {
+            /**
+             * Actor Kind
+             * @enum {string}
+             */
+            actor_kind: "system" | "member";
+            /** Actor Name */
+            actor_name?: string | null;
+            /** Call Id */
+            call_id?: string | null;
+            /** Detail */
+            detail?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Title */
+            title: string;
+            /** Type */
+            type: string;
+        };
+        /**
+         * LeadTimelineOut
+         * @description A page of a lead's history, newest first.
+         *
+         *     `total` is the size of the SET, counted with `count(*) OVER ()` in the same pass as
+         *     the rows — never `len(items)`, which is the size of the page (BUILD-LOG §52, and
+         *     `AttentionOut` makes the identical distinction in the identical words).
+         */
+        LeadTimelineOut: {
+            /** Items */
+            items: components["schemas"]["LeadTimelineEventOut"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
         /** LeadUpdateIn */
         LeadUpdateIn: {
+            /** Assigned To */
+            assigned_to?: string | null;
             /** Name */
             name?: string | null;
             /** Status */
@@ -3569,6 +3768,32 @@ export interface components {
             role: string | null;
             /** User Id */
             user_id: string | null;
+        };
+        /**
+         * MemberOut
+         * @description One colleague, as a control that has to NAME them needs them.
+         *
+         *     **No email, and that is a rule rather than a preference.** `email` is in
+         *     `scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model
+         *     declaring it fails the guardrail unless the route is allowlisted as role-checked and
+         *     audited — which an assignee picker is not, and should not have to be. Nothing on
+         *     this surface needs it either: the control writes an id and prints a name.
+         *
+         *     `name` is nullable because `users.name` is: the Clerk mirror composes it from
+         *     first/last name and stores NULL when the account has neither
+         *     (`tenancy/clerk_webhooks.py`). The screen says "Unnamed member" rather than falling
+         *     back to an address — a fallback that leaks is not a fallback.
+         */
+        MemberOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name?: string | null;
+            /** Role */
+            role: string;
         };
         /**
          * MessagingConsentOut
@@ -3801,6 +4026,7 @@ export interface components {
             load_shed_mode: string;
             /** Outbound Halted */
             outbound_halted: boolean;
+            outbox_dead_letters: components["schemas"]["DeadLetterQueueOut"];
             tm_registration: components["schemas"]["TmRegistrationOut"];
         };
         /** ProgressOut */
@@ -3905,6 +4131,8 @@ export interface components {
         };
         /** ReplayOut */
         ReplayOut: {
+            /** Job */
+            job: string | null;
             /** Replayed */
             replayed: number;
         };
@@ -7576,6 +7804,7 @@ export interface operations {
                 status?: string | null;
                 search?: string | null;
                 agent_id?: string | null;
+                assigned_to?: string | null;
             };
             header?: never;
             path?: never;
@@ -7609,6 +7838,7 @@ export interface operations {
                 agent_id?: string | null;
                 status?: string | null;
                 search?: string | null;
+                assigned_to?: string | null;
             };
             header?: never;
             path?: never;
@@ -7735,6 +7965,40 @@ export interface operations {
             };
         };
     };
+    lead_timeline_v1_leads__lead_id__timeline_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadTimelineOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     me_v1_me_get: {
         parameters: {
             query?: never;
@@ -7751,6 +8015,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_members_v1_members_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberOut"][];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -7830,8 +8123,12 @@ export interface operations {
     };
     replay_outbox_v1_ops_outbox_replay_post: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                job?: string | null;
+            };
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
