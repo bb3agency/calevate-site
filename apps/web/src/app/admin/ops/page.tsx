@@ -13,6 +13,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
+import { useAdminAccess, type AdminAccess } from "@/app/admin/access";
 import {
   Card,
   DANGER_BUTTON,
@@ -25,7 +26,6 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
-import { ApiProblem } from "@/lib/api/client";
 import {
   usePlatformState,
   useSetPlatformState,
@@ -55,20 +55,23 @@ import { lookup } from "@/lib/lookup";
  *    every control is dead while it is null.
  * 2. **The controls are gated on the permission the ROUTE requires, before the click.**
  *    `GET /v1/ops/platform` and every write on this router are `ops:manage`, which only
- *    `superadmin` holds (core/rbac.py) — an `operator` can reach this page in the nav
- *    and is refused by the API. Because the READ carries the same permission, a 403 on
- *    it is a complete answer about the write, so the controls disable themselves with
- *    that reason rather than offering a button whose only outcome is a 403 that reads
- *    like a fault.
+ *    `superadmin` holds (core/rbac.py) — an `operator` who types this URL is refused by
+ *    the API on everything here. The gate is `useAdminAccess` (`@/app/admin/access`),
+ *    reading the admin realm's own identity at `GET /v1/admin/me`, so the controls
+ *    disable themselves with the reason rather than offering a button whose only outcome
+ *    is a 403 that reads like a fault.
  *
- *    NOT `useAdminAccess` (app/admin/tenants/access.ts), and the reason is structural
- *    rather than stylistic: that hook asks `/v1/me` through an IMPERSONATING session,
- *    which needs a tenant slug — `current_any` only consults the admin realm when
- *    `X-Impersonate-Org` is present (core/auth.py). This screen has no tenant; its whole
- *    subject is the row that belongs to no tenant. Deriving the answer from this route's
- *    own 403 is also strictly better here than a preview would be: the read and the
- *    writes carry the IDENTICAL permission, so the refusal we already hold is the same
- *    refusal the button would collect, with no second request and no impersonation.
+ *    This screen used to derive that from its OWN 403 instead, because there was no
+ *    admin-realm identity endpoint to ask — `/v1/me` reaches the admin realm only when
+ *    `X-Impersonate-Org` is present (core/auth.py), and this screen's whole subject is
+ *    the row that belongs to no tenant, so it had no slug to impersonate into. That was
+ *    sound (the read and the writes carry the identical permission) and it is still not
+ *    the mechanism, for two reasons: it could answer only once a request had FAILED, and
+ *    it was one of three different answers to one question — the same question the nav
+ *    has to ask about screens nobody has opened.
+ *
+ *    The state precondition below is unchanged and is NOT about permissions: a control
+ *    that can move a state we could not read is how a halt gets applied twice.
  * 3. **Every control says what it will do before it is clicked**, and takes a typed
  *    confirmation the API also demands as a step-up header (`platform_confirmation`).
  *    Not a second factor and not pretending to be one — it stops the accidental click,
@@ -125,36 +128,35 @@ interface OpsAccess {
 }
 
 /**
- * May this session move a platform switch? — derived from the READ, not from a role list.
+ * May this session move a platform switch? — two conditions, and they are not the same
+ * kind of thing.
  *
- * The read and every write on `/v1/ops` carry the identical permission (`ops:manage`,
- * superadmin only), which is what makes this sound rather than convenient: a 403 on the
- * GET is the server's own answer to the question the buttons are about to ask. Anything
- * else that stopped the read disables them too, and says something different — because
- * "you may not do this" and "we could not find out what the switch is set to" are
- * different sentences and only one of them is about the operator.
+ * **The permission** comes from the admin realm's identity read (`useAdminAccess`), which
+ * is the console's one answer to "may I" everywhere. It names `ops:manage`, and it can say
+ * so before any request on this screen has failed.
  *
- * Never returns `allowed: true` without a response in hand. A control that can move a
- * state we cannot read is how a halt gets lifted twice, or lifted by someone who thought
- * they were applying it.
+ * **The state** is this screen's own precondition and has nothing to do with authority:
+ * never `allowed: true` without a platform response in hand, because a control that can
+ * move a state we cannot read is how a halt gets lifted twice, or lifted by someone who
+ * thought they were applying it. "You may not do this" and "we could not find out what
+ * the switch is set to" are different sentences and only one of them is about the
+ * operator, so the two conditions keep their own words.
  */
 // Not exported: a Next.js page module may only export the default and the framework's
 // own named exports, so this is asserted through the DOM (tests/ops.test.tsx) rather
 // than called directly.
-function opsAccess(query: {
-  data: PlatformState | undefined;
-  error: unknown;
-  isLoading: boolean;
-}): OpsAccess {
-  if (query.error instanceof ApiProblem && query.error.status === 403) {
-    return {
-      allowed: false,
-      reason:
-        "Your admin account cannot change platform-wide switches — that needs ops:manage, " +
-        "which only a superadmin holds. It is the same permission that reads this page, " +
-        "which is why nothing above could be loaded either.",
-    };
-  }
+function opsAccess(
+  access: AdminAccess,
+  query: {
+    data: PlatformState | undefined;
+    error: unknown;
+    isLoading: boolean;
+  },
+): OpsAccess {
+  // Permission first: it is the only half that is about the OPERATOR, and while the
+  // identity read is in flight it already answers `allowed: false` with no sentence, so
+  // nothing here flashes an explanation it is about to withdraw.
+  if (!access.allowed) return { allowed: false, reason: access.reason };
   if (query.error) {
     return {
       allowed: false,
@@ -170,7 +172,8 @@ function opsAccess(query: {
 
 export default function OpsPage() {
   const state = usePlatformState();
-  const access = opsAccess(state);
+  const mayManage = useAdminAccess("ops:manage", "change platform-wide switches");
+  const access = opsAccess(mayManage, state);
 
   return (
     <div className="max-w-2xl space-y-5">

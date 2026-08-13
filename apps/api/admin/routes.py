@@ -31,7 +31,7 @@ from apps.api.core.auth import requires
 from apps.api.core.context import IMPERSONATE_HEADER, Principal
 from apps.api.core.deps import admin_db, db, global_db
 from apps.api.core.errors import ProblemError
-from apps.api.core.rbac import permission_meta
+from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
 
@@ -43,6 +43,96 @@ AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 TenantSession = Annotated[AsyncSession, Depends(db)]
 
 Vertical = Literal["clinic", "real_estate", "insurance", "education", "custom"]
+
+
+# --- Identity: who the console is talking as ----------------------------------
+
+
+class AdminMeOut(BaseModel):
+    """The admin realm's own identity document.
+
+    `MeOut` (tenancy/routes.py) minus everything that is a property of a TENANT. There
+    is no `organization`, because an admin principal resolved without
+    `X-Impersonate-Org` has no tenant at all; and no `impersonating`, because a console
+    screen that had to enter a client to ask who it was is precisely the shape this
+    route removes. What is left — the role and the permission set — is the whole of what
+    the console legitimately needs to preview its own gates.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Constant by construction, and stated anyway: a component that can receive either
+    # identity document must be able to tell them apart without inspecting the URL it
+    # happened to call, and `MeOut.realm` is how the client realm already says it.
+    realm: Literal["admin"]
+    # `admin_users.id`, not the Clerk id: the value that appears in `audit_log.actor_id`,
+    # so an operator reading "who am I" and an auditor reading "who did this" see one id.
+    user_id: UUID
+    role: str
+    # The ROLE's full set, exactly as `/v1/me` reports it for the client realm. It is a
+    # PREVIEW — every endpoint still enforces its own permission — and it is what lets a
+    # control or a nav entry the session cannot use say so before the click.
+    permissions: list[str]
+
+
+@router.get(
+    "/me",
+    response_model=AdminMeOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="Who this operator is — the admin realm's own identity, no tenant involved",
+    description=(
+        "The admin console's answer to 'who am I and what may I do'. Authenticates an "
+        "admin token with NO impersonation header and reads no tenant: the role comes "
+        "from `admin_users` and the permission set from the role table, so nothing here "
+        "depends on which client happens to be open."
+    ),
+)
+async def admin_me(
+    principal: Principal = Depends(requires("org:read", realm="admin")),
+) -> AdminMeOut:
+    """The admin realm's `/v1/me`, and the reason it had to be its own route.
+
+    `/v1/me` resolves through `current_any`, which consults the ADMIN realm only when
+    `X-Impersonate-Org` is present (`core/auth.py`) — so a bare admin token asking it is
+    verified as a CLIENT token and refused. The console's only way to learn its own role
+    was therefore to impersonate some tenant and read the answer from inside it, which
+    needs a slug the cross-tenant screens do not have and spends `admin:impersonate` on a
+    client nobody opened. Two admin screens could not do even that and derived their gate
+    from their own route's 403 instead: three workarounds for one missing endpoint.
+
+    **`org:read`, not `admin:tenants`.** The rule first: D-22 forbids gating a GET on a
+    permission read-only impersonation refuses, `admin:tenants` is in
+    `MUTATING_PERMISSIONS`, and `tests/impersonation_reads_test.py` walks the live route
+    table for exactly that mistake — the same choice `holds_routes.py` and
+    `health_routes.py` argue, and this route does not inherit the exemption list the
+    older `/v1/admin/tenants` GETs carry. The reason beyond the rule is stronger: an
+    identity read gated on the authority to MANAGE tenants would answer "what may I do"
+    only to the accounts that may already do the most, and a narrower role could learn
+    its own limits only by collecting 403s — which is the workaround this route deletes.
+    `org:read` is the least-privileged permission in the table, every role in either
+    realm holds it, and it is what `/v1/me` requires, so both identity endpoints answer
+    to the same authority.
+
+    **`realm="admin"` is what separates the realms**, never the permission: client roles
+    hold `org:read` too, and it is the dependency's resolution against `admin_users` that
+    a client token cannot pass.
+
+    No session dependency on purpose. `Depends(db)` would drag in `tenant_of`, which for
+    an admin principal without the header has no tenant to give — the un-callable shape
+    `tests/route_shape_test.py` pins. This route touches no tenant table at all.
+    """
+    if principal.user_id is None or principal.role is None:  # pragma: no cover
+        # Unreachable: `requires()` refuses a principal with no role, and
+        # `_load_admin_principal` only returns one whose id came from `admin_users`. A
+        # refusal rather than a cast, because this response is what the console believes
+        # about itself — the one place a silently widened `None` would become a screen.
+        raise ProblemError.forbidden("This account has no admin access.")
+    return AdminMeOut(
+        realm="admin",
+        user_id=principal.user_id,
+        role=principal.role,
+        permissions=sorted(ROLE_PERMISSIONS.get(principal.role, frozenset())),
+    )
 
 
 class TenantSummary(BaseModel):

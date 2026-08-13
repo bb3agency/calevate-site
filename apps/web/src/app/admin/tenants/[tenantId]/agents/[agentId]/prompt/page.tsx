@@ -32,7 +32,7 @@ import {
   type PendingState,
 } from "@/lib/api/publishing";
 
-import { useAdminAccess } from "../../../../access";
+import { useAdminAccess } from "@/app/admin/access";
 
 /**
  * One agent's script: its version history, the staged-change controls, and the call
@@ -76,8 +76,8 @@ export default function AgentPromptPage({
   // Every write on this screen — save, roll back, apply, undo, call cap — is
   // `agents:write` (agents/prompt_routes.py, agents/publishing_routes.py). One gate, read
   // once, passed down: five controls that each asked separately would each answer at a
-  // different moment as `/v1/me` resolved.
-  const write = useAdminAccess(slug, "agents:write", "change this agent's script");
+  // different moment as `/v1/admin/me` resolved.
+  const write = useAdminAccess("agents:write", "change this agent's script");
 
   const [body, setBody] = useState("");
   const [notes, setNotes] = useState("");

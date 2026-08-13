@@ -229,6 +229,21 @@ Client realm (`/c/<slug>/…`)
   **`/usage`** (usage panel + the §2b client cap editor).
 
 Admin realm (`/admin/…`)
+- **Who this operator is** (`GET /v1/admin/me`, `org:read`, admin realm) — the console's
+  own identity read: the `admin_users` id, the role and the role's permission set, with no
+  tenant touched and no impersonation header accepted as a substitute. It exists because
+  `/v1/me` resolves through `current_any`, which reaches the admin realm only when
+  `X-Impersonate-Org` is present, so a bare admin token asking it is verified as a CLIENT
+  token and refused — leaving the console to learn its own role by entering some client, or
+  to guess it from a 403 on whatever the current screen happened to read. `org:read`, not
+  `admin:tenants`: D-22 forbids gating a GET on a permission read-only impersonation
+  refuses, and beyond that rule an identity read gated on the authority to manage tenants
+  would answer "what may I do" only to the accounts that may already do the most. It drives
+  every admin-realm gate (`@/app/admin/access`) and the SIDEBAR: an entry whose screen the
+  session cannot use is shown and DEAD with the permission named, never hidden — the same
+  doctrine the client console applies to controls — while an identity that is unread or
+  unreadable leaves every entry live, because the API is the enforcement and an operator
+  must not be locked out of the never-shed ops surface by a slow read.
 - **The client health board** (`/admin/health`; `GET /v1/admin/client-health`) — §1's
   "tenant health board", built as an EXCEPTION REPORT rather than the per-client tile grid
   that inventory imagined. Only accounts with at least one live signal appear, most broken

@@ -212,6 +212,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who this operator is — the admin realm's own identity, no tenant involved
+         * @description The admin console's answer to 'who am I and what may I do'. Authenticates an admin token with NO impersonation header and reads no tenant: the role comes from `admin_users` and the permission set from the role table, so nothing here depends on which client happens to be open.
+         */
+        get: operations["admin_me_v1_admin_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants": {
         parameters: {
             query?: never;
@@ -1968,6 +1988,33 @@ export interface components {
             already_suppressed: number;
             /** Malformed */
             malformed: number;
+        };
+        /**
+         * AdminMeOut
+         * @description The admin realm's own identity document.
+         *
+         *     `MeOut` (tenancy/routes.py) minus everything that is a property of a TENANT. There
+         *     is no `organization`, because an admin principal resolved without
+         *     `X-Impersonate-Org` has no tenant at all; and no `impersonating`, because a console
+         *     screen that had to enter a client to ask who it was is precisely the shape this
+         *     route removes. What is left — the role and the permission set — is the whole of what
+         *     the console legitimately needs to preview its own gates.
+         */
+        AdminMeOut: {
+            /** Permissions */
+            permissions: string[];
+            /**
+             * Realm
+             * @constant
+             */
+            realm: "admin";
+            /** Role */
+            role: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
         };
         /** AgentOut */
         AgentOut: {
@@ -4800,6 +4847,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HeldTenantOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_me_v1_admin_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminMeOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

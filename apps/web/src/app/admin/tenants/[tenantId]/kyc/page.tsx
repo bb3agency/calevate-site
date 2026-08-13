@@ -32,7 +32,7 @@ import {
   type KycStatus,
 } from "@/lib/api/kyc";
 
-import { useAdminAccess } from "../../access";
+import { useAdminAccess } from "@/app/admin/access";
 
 /**
  * Recording a business's identity verification — R-11's last gate, and an audited write.
@@ -81,9 +81,9 @@ export default function TenantKycPage({
   const record = useTenantKyc(slug);
   // `POST /v1/admin/tenants/{id}/kyc` is `admin:tenants` (admin/routes.py). Disabled with
   // the reason beside it rather than a 403 after a form has been filled in — see
-  // `../../access.ts` for why the client realm's `useWriteAccess` is the wrong instrument
-  // on an admin screen.
-  const write = useAdminAccess(slug, "admin:tenants", "record an identity verification");
+  // `@/app/admin/access` for why the client realm's `useWriteAccess` is the wrong
+  // instrument on an admin screen.
+  const write = useAdminAccess("admin:tenants", "record an identity verification");
 
   if (tenantQuery.isLoading) return <Skeleton rows={6} />;
   if (tenantQuery.error)

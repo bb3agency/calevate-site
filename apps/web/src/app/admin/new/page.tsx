@@ -61,14 +61,15 @@ import {
  *   generated union, so a language this API does not accept fails the build instead of the
  *   request.
  *
- * There is no permission gate to preview here, and that is a fact about the API rather
- * than an omission: both writes are `admin:tenants` (admin/routes.py), which BOTH admin
- * roles hold (core/rbac.py). `useAdminAccess` (app/admin/tenants/access.ts) cannot be
- * asked either — it reads `/v1/me` through an impersonating session, which needs a
- * tenant slug, and at step 1 the tenant does not exist yet. A 403
- * would therefore be a genuine surprise — so if one arrives, the control that caused it
- * disables itself with the server's own words rather than inviting a second identical
- * refusal.
+ * There is no permission PREVIEW on this screen, which is now a choice rather than a
+ * limitation: `useAdminAccess` (`@/app/admin/access`) can be asked from anywhere since
+ * `GET /v1/admin/me` landed, and the shell already gates the "New client" nav entry on
+ * the same `admin:tenants` both writes require (admin/routes.py) — so a role that may
+ * not create clients meets the refusal one step earlier, in the sidebar, where it is not
+ * standing over a filled-in form. What stays here is the complementary mechanism, and it
+ * is not a substitute for the preview: a refusal that HAS arrived, for any reason,
+ * disables the control that caused it with the server's own words rather than inviting a
+ * second identical refusal.
  *
  * The `<h1>` stays: the admin shell prints "Calevate admin" and the nav, not the page
  * title. It goes the moment the shell prints one.

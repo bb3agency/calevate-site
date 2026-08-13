@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Eye, Plus } from "lucide-react";
 
+import { useAdminAccess, type AdminAccess } from "@/app/admin/access";
 import {
   Card,
   EmptyState,
@@ -14,7 +15,6 @@ import {
   formatIST,
 } from "@/components/ui";
 import { useTenants } from "@/lib/api/admin";
-import { ApiProblem } from "@/lib/api/client";
 import { holdRule } from "@/lib/api/holds";
 import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -55,52 +55,37 @@ const TENANT_STATUS_TONES: Record<string, string> = {
 };
 
 /**
- * May this session create a client? — derived from the READ, not from a role list.
+ * May this session create a client? — the server's own answer, plus this screen's own
+ * precondition.
  *
- * There is no admin-realm identity endpoint to ask: `/v1/me` resolves an admin principal
- * only when the impersonation header is present (`core/auth.py`), so an admin token asking
- * it is refused as a client token. What makes the answer available anyway is that
- * `GET /v1/admin/tenants` and `POST /v1/admin/tenants` carry the IDENTICAL permission
- * (`admin:tenants`, `admin/routes.py`): a 403 on the list is the server's own answer to
- * the question the button is about to ask, so the refusal can be given before the click
- * rather than as a 403 afterwards that reads like a fault.
+ * The permission half is `useAdminAccess` (`@/app/admin/access`) reading
+ * `GET /v1/admin/me`: `POST /v1/admin/tenants` is `admin:tenants` (`admin/routes.py`), and
+ * the identity document says whether this operator holds it. This screen used to derive
+ * that from a 403 on its own directory read — sound, because the list and the create
+ * carry the identical permission, but it could only answer AFTER a request had failed, it
+ * answered for no other permission, and it was the second of three different mechanisms
+ * for one question. The identity endpoint replaced all three.
  *
- * Anything else that stopped the read disables it too, and says something different —
- * "you may not" and "we could not find out" are different sentences, and only one of them
- * is about the operator. It never returns `allowed: true` without a response in hand,
- * because a directory that could not be read is also a directory whose slug collisions we
- * cannot see.
- *
- * `useAdminAccess` (admin/tenants/access.ts) is the repo's other answer and the better one
- * where it applies: it asks `/v1/me` through an IMPERSONATING session, which is the only
- * way an admin token can reach that endpoint, and gets the admin role's real permission
- * set back. It needs a tenant SLUG to impersonate into, and this screen is the one that
- * has none — it is the cross-tenant directory, and in the case that matters (the 403)
- * there is no list to borrow a slug from. Borrowing some arbitrary client's slug to ask
- * who we are would also put an `admin:impersonate` audit entry against a tenant nobody
- * opened. So this screen takes the same route `opsAccess` (admin/ops/page.tsx) takes,
- * which is sound for the same reason: read and write share one permission.
- *
- * Not shared with `opsAccess` as code: the two differ in the permission, the sentence and
- * the query, and the common part is three lines of `instanceof`. If a third screen needs
- * it, it belongs beside `useAdminAccess` as its permission-shaped sibling.
+ * The second half is NOT about permissions and does not move: a directory that could not
+ * be read is a directory whose slug collisions we cannot see, so the button stays dead
+ * while the list is missing whatever the reason. "You may not" and "we could not find
+ * out" are different sentences, and only one of them is about the operator.
  *
  * Not exported: a Next.js page module may only export the default and the framework's own
  * named exports, so this is asserted through the DOM.
  */
-function createAccess(query: { error: unknown; isLoading: boolean }): {
-  allowed: boolean;
-  reason: string | null;
-} {
-  if (query.error instanceof ApiProblem && query.error.status === 403) {
-    return {
-      allowed: false,
-      reason:
-        "Your admin account cannot create clients — that needs admin:tenants. It is the " +
-        "same permission that lists them, which is why the directory could not be read " +
-        "either.",
-    };
-  }
+function createAccess(
+  access: AdminAccess,
+  query: { error: unknown; isLoading: boolean },
+): { allowed: boolean; reason: string | null } {
+  // Identity first: it is the only half that can say the refusal is about the OPERATOR,
+  // and while it is unknown it already returns `allowed: false` with no sentence.
+  if (!access.allowed) return { allowed: false, reason: access.reason };
+  // One sentence for every read failure, 403 included. The old code split them so a 403
+  // could name `admin:tenants`; the identity read answers that question above now, and a
+  // 403 arriving HERE while the identity says the permission is held is not an
+  // authorization fact this screen can explain — the `ProblemNotice` shows what the
+  // server actually said.
   if (query.error) {
     return {
       allowed: false,
@@ -116,7 +101,8 @@ function createAccess(query: { error: unknown; isLoading: boolean }): {
 export default function AdminClientsPage() {
   const tenants = useTenants();
   const rows = tenants.data;
-  const create = createAccess(tenants);
+  const mayCreate = useAdminAccess("admin:tenants", "create clients");
+  const create = createAccess(mayCreate, tenants);
 
   return (
     <div className="space-y-4 pb-12">
@@ -127,10 +113,10 @@ export default function AdminClientsPage() {
               directory and the cheapest thing to get wrong. */}
           {rows && ` ${formatCount(rows.length)} ${rows.length === 1 ? "account" : "accounts"}.`}
         </p>
-        {/* Gated on `admin:tenants` — the permission the route behind it requires — using
-            the read's own refusal (see `createAccess`). A dead link rather than a link to
-            a form that will refuse the submission: the wasted work is the form, not the
-            click. */}
+        {/* Gated on `admin:tenants` — the permission the route behind it requires — from
+            the console's own identity read (see `createAccess`). A dead control rather
+            than a link to a form that will refuse the submission: the wasted work is the
+            form, not the click. */}
         {create.allowed ? (
           <Link
             href="/admin/new"

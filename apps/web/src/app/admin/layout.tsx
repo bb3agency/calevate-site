@@ -7,6 +7,7 @@ import {
   Building2,
   HeartPulse,
   Hourglass,
+  Lock,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -16,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 
+import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { Providers } from "@/app/providers";
 import { NOTICE_TONES } from "@/components/ui";
 import { useHeldTenants } from "@/lib/api/admin";
@@ -54,6 +56,13 @@ interface NavItem {
   href: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
+  /**
+   * The permission the screen behind this entry actually needs — the one its own routes
+   * declare (`openapi_extra=permission_meta(...)`), not a guess about seniority.
+   */
+  permission: string;
+  /** What the entry lets you do, completing "…so you cannot ___" in the refusal. */
+  action: string;
 }
 
 interface NavGroup {
@@ -72,23 +81,66 @@ interface NavGroup {
  * or held on a gate nobody has looked at, is precisely the one nobody navigates to
  * (`admin/health.py`, `admin/holds.py`). Discovery must not depend on already knowing
  * which client to open.
+ *
+ * Each entry carries the PERMISSION its screen needs, taken from the routes that screen
+ * calls: the directory and the wizard are `admin:tenants` (`admin/routes.py`), the health
+ * board and the hold queue are `org:read` (their modules argue why a read of a work list
+ * is not the authority to act on it), and Operations is `ops:manage` — which only
+ * `superadmin` holds (`core/rbac.py`), so every route that screen calls refuses an
+ * `operator`. That entry is the reason this list grew a permission column at all: it was
+ * offered to every admin role, and an operator following it got a page that is nothing
+ * but a 403.
  */
 const NAV: NavGroup[] = [
   {
     heading: null,
     items: [
-      { href: "/admin", label: "Clients", icon: Building2 },
-      { href: "/admin/health", label: "Client health", icon: HeartPulse },
-      { href: "/admin/holds", label: "Held accounts", icon: Hourglass },
+      {
+        href: "/admin",
+        label: "Clients",
+        icon: Building2,
+        permission: "admin:tenants",
+        action: "open the client directory",
+      },
+      {
+        href: "/admin/health",
+        label: "Client health",
+        icon: HeartPulse,
+        permission: "org:read",
+        action: "open the client health board",
+      },
+      {
+        href: "/admin/holds",
+        label: "Held accounts",
+        icon: Hourglass,
+        permission: "org:read",
+        action: "open the hold queue",
+      },
     ],
   },
   {
     heading: "Onboarding",
-    items: [{ href: "/admin/new", label: "New client", icon: UserPlus }],
+    items: [
+      {
+        href: "/admin/new",
+        label: "New client",
+        icon: UserPlus,
+        permission: "admin:tenants",
+        action: "create clients",
+      },
+    ],
   },
   {
     heading: "Platform",
-    items: [{ href: "/admin/ops", label: "Operations", icon: SlidersHorizontal }],
+    items: [
+      {
+        href: "/admin/ops",
+        label: "Operations",
+        icon: SlidersHorizontal,
+        permission: "ops:manage",
+        action: "open the operations console",
+      },
+    ],
   },
 ];
 
@@ -114,13 +166,73 @@ function currentTitle(pathname: string): string {
   return best?.label ?? "Clients";
 }
 
+/**
+ * An entry this session cannot use is SHOWN AND DEAD, never hidden — and the choice is
+ * the console's existing doctrine rather than a preference.
+ *
+ * The client realm never hides a control the session may not use: `useWriteAccess` +
+ * `RestrictionNote` disable it and print why (`lib/api/hooks.ts`), and `/c/[slug]/usage`
+ * — a whole SCREEN a `staff` member may not read — keeps its nav entry and answers with a
+ * sentence rather than vanishing from the sidebar. Three things make that the right
+ * default here too:
+ *
+ * 1. **A console whose shape depends on the viewer cannot be talked about.** "Open
+ *    Operations and halt outbound" is a sentence one operator says to another during an
+ *    incident; an entry that is simply absent reads as a broken build, and the next move
+ *    is a support ticket about missing navigation rather than a message to a superadmin.
+ * 2. **Hiding buys no security.** The API is the enforcement (`requires()` on every
+ *    route), the role table is in the repo, and the permission name is the most useful
+ *    part of the refusal — it is what the operator has to ask for.
+ * 3. **It is one mechanism, not two.** The controls INSIDE these screens are disabled
+ *    with their reason; a nav that hid instead would mean the console answered the same
+ *    question two different ways depending on where you asked it.
+ *
+ * The one case that must not be treated as a refusal is not knowing: see `adminAccess`,
+ * where navigation deliberately fails OPEN.
+ */
 function Sidebar({ isMobileOpen, onClose }: { isMobileOpen: boolean; onClose: () => void }) {
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  // ONE identity read for the whole nav — `adminAccess` is a pure verdict on it, so the
+  // number of entries can change without breaking the rules of hooks.
+  const me = useAdminMe();
 
   const renderItem = (item: NavItem) => {
     const active = pathname === item.href;
     const Icon = item.icon;
+    const access = adminAccess(me, item.permission, item.action);
+
+    // `refused`, not `!allowed`: while the identity read is in flight, and if it FAILED,
+    // every entry stays a live link. Nothing appears or disappears under the pointer, and
+    // an unreadable identity cannot lock an operator out of a console whose ops surface is
+    // never load-shed for exactly that reason (BACKEND-PATTERNS §6).
+    if (access.refused) {
+      return (
+        <div key={item.href} className="mb-1">
+          <span
+            aria-disabled="true"
+            title={access.reason ?? item.label}
+            className={`flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-ink-faint ${
+              isCollapsed ? "justify-center" : ""
+            }`}
+          >
+            <Icon className="h-4 w-4 shrink-0 text-ink-faint" />
+            {!isCollapsed && (
+              <>
+                <span className="flex-1 truncate">{item.label}</span>
+                <Lock aria-hidden className="h-3.5 w-3.5 shrink-0" />
+              </>
+            )}
+          </span>
+          {/* Beside the dead entry, not only in a `title` a mouse has to discover: a
+              greyed-out label with no sentence is indistinguishable from a broken build. */}
+          {!isCollapsed && access.reason && (
+            <p className="px-3 pb-1 text-[11px] leading-snug text-ink-faint">{access.reason}</p>
+          )}
+        </div>
+      );
+    }
+
     return (
       <Link
         key={item.href}
@@ -231,23 +343,26 @@ function Sidebar({ isMobileOpen, onClose }: { isMobileOpen: boolean; onClose: ()
 }
 
 /**
- * What this console knows about the session it is running in — which is the REALM, and
- * nothing else.
+ * What this console knows about the session it is running in — the REALM, and now the
+ * ROLE the server says it has.
  *
- * The client shell puts the organization and the role here, read from `/v1/me`. The admin
- * realm has no such endpoint: `/v1/me` resolves through `current_any`, which only reaches
- * the admin realm when the `X-Impersonate-Org` header is present (`core/auth.py`), so an
- * admin token asking it is refused as a client token. There is therefore no honest way
- * for this shell to print an operator's name, role or permissions today.
+ * The role arrives from `GET /v1/admin/me` (`admin/routes.py`), which is what this block
+ * was waiting for: until that route existed, `/v1/me` resolved through `current_any` and
+ * reached the admin realm only when `X-Impersonate-Org` was present (`core/auth.py`), so
+ * an admin token asking it was refused as a client token and there was no honest way to
+ * print anything about the operator at all.
  *
- * So it prints the one thing that IS true and matters most — that this session is not
- * inside any single client — rather than an invented name. An operator console that shows
- * a plausible identity it did not verify is worse than one that shows none: it is the
- * exact surface where "whose account am I in" must never be a guess. The gap is recorded
- * in the report accompanying this change; the block gains a name and a role the day an
- * admin-realm identity read exists.
+ * Still no NAME, and that is not an omission: the identity document deliberately carries
+ * none (`MeOut` carries none either), because a console that displays a plausible identity
+ * it did not verify is worse than one that displays none — this is the exact surface where
+ * "whose account am I in" must never be a guess. Until the answer lands, the line says the
+ * one thing that is true regardless: this session is not inside any single client.
  */
 function IdentityFooter({ isCollapsed }: { isCollapsed: boolean }) {
+  // Same query key as the nav's, so this shares that request rather than adding one.
+  const me = useAdminMe();
+  const role = me.data?.role;
+
   return (
     <div className="border-t border-line p-4">
       <div className={`flex items-center rounded-lg p-2 ${isCollapsed ? "justify-center" : "gap-3"}`}>
@@ -260,7 +375,9 @@ function IdentityFooter({ isCollapsed }: { isCollapsed: boolean }) {
         {!isCollapsed && (
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-ink">Admin realm</p>
-            <p className="truncate text-xs text-ink-muted">Signed in across every client</p>
+            <p className="truncate text-xs text-ink-muted">
+              {role ? `${role} · signed in across every client` : "Signed in across every client"}
+            </p>
           </div>
         )}
       </div>

@@ -1,9 +1,9 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import type { KbSource, Margin, TenantSummary } from "@/lib/api/admin";
-import type { Me } from "@/lib/api/client";
 import type { Routes } from "./harness";
 
 import { problem } from "./harness";
@@ -40,7 +40,7 @@ const APPROVED_PATH = "/v1/kb/sources?status=approved";
 const AGENTS_PATH = "/v1/agents";
 const NUMBERS_PATH = "/v1/campaigns/numbers";
 const TEMPLATES_PATH = "/v1/campaigns/templates";
-const ME_PATH = "/v1/me";
+const ME_PATH = ADMIN_ME_PATH;
 
 function tenant(over: Partial<TenantSummary> = {}): TenantSummary {
   return {
@@ -60,23 +60,22 @@ function tenant(over: Partial<TenantSummary> = {}): TenantSummary {
 }
 
 /**
- * The admin's own identity, as `/v1/me` answers it through the impersonating read.
+ * The admin's own identity, as `GET /v1/admin/me` answers it.
  *
- * `impersonating: true` is the truthful shape — that IS how an admin console asks who it
- * is (see `src/app/admin/tenants/access.ts`) — and the gate must not read it as a refusal:
- * every write on this screen goes to the admin surface, where impersonation is not
- * involved. A hook that refused on `impersonating` would disable every control on every
- * admin screen for a reason that is not true.
+ * No `impersonating` field and no organization, and that is the fix rather than a shorter
+ * fixture: the console used to read `/v1/me` THROUGH an impersonating session — the only
+ * way an admin token could reach it (core/auth.py) — which meant every gate on this screen
+ * depended on entering a client, and on a hook remembering not to read `impersonating` as
+ * a refusal. Every write here goes to the admin surface with the tenant in the path, where
+ * impersonation is not involved at all.
  */
-function me(permissions: string[]): Me {
+function me(permissions: string[]): AdminMe {
   return {
     realm: "admin",
     user_id: "0192f0aa-7777-7000-8000-0000000000cc",
     role: "operator",
     permissions,
-    impersonating: true,
-    organization: null,
-  } as Me;
+  } as AdminMe;
 }
 
 const OPERATOR = me(["org:read", "billing:read", "agents:read", "kb:write", "admin:tenants"]);
@@ -217,9 +216,12 @@ describe("the client detail screen", () => {
       ],
     });
 
-    // The gate answers only once `/v1/me` has, so the sentence is what settles the render.
+    // The gate answers only once `/v1/admin/me` has, so the sentence settles the render.
     await screen.findAllByText(/does not have the admin:tenants permission/);
 
+    // `findByRole`, not `getByRole`: the identity read no longer waits for the tenant to
+    // supply a slug (it needs none), so the refusal can now paint a tick BEFORE the lists
+    // whose controls it is refusing. Each control is awaited on its own panel's arrival.
     for (const name of [
       "Approve",
       "Reject",
@@ -229,7 +231,7 @@ describe("the client detail screen", () => {
       "Register template",
       "Record registration",
     ]) {
-      const button = screen.getByRole("button", { name });
+      const button = await screen.findByRole("button", { name });
       expect((button as HTMLButtonElement).disabled, `${name} must be disabled`).toBe(true);
     }
 

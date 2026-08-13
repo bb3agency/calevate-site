@@ -140,6 +140,41 @@
         "title": "AddNumbersOut",
         "type": "object"
       },
+      "AdminMeOut": {
+        "additionalProperties": false,
+        "description": "The admin realm's own identity document.\n\n`MeOut` (tenancy/routes.py) minus everything that is a property of a TENANT. There\nis no `organization`, because an admin principal resolved without\n`X-Impersonate-Org` has no tenant at all; and no `impersonating`, because a console\nscreen that had to enter a client to ask who it was is precisely the shape this\nroute removes. What is left \u2014 the role and the permission set \u2014 is the whole of what\nthe console legitimately needs to preview its own gates.",
+        "properties": {
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "realm": {
+            "const": "admin",
+            "title": "Realm",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "realm",
+          "user_id",
+          "role",
+          "permissions"
+        ],
+        "title": "AdminMeOut",
+        "type": "object"
+      },
       "AgentOut": {
         "additionalProperties": false,
         "properties": {
@@ -7071,6 +7106,35 @@
           }
         },
         "summary": "Accounts held for a human decision \u2014 KYC and first-campaign review (R-11)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/me": {
+      "get": {
+        "description": "The admin console's answer to 'who am I and what may I do'. Authenticates an admin token with NO impersonation header and reads no tenant: the role comes from `admin_users` and the permission set from the role table, so nothing here depends on which client happens to be open.",
+        "operationId": "admin_me_v1_admin_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminMeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Who this operator is \u2014 the admin realm's own identity, no tenant involved",
         "tags": [
           "admin"
         ],

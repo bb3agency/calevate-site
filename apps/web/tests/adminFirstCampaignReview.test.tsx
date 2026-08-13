@@ -1,9 +1,9 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import FirstCampaignReviewPage from "@/app/admin/tenants/[tenantId]/first-campaign-review/page";
 import type { TenantSummary } from "@/lib/api/admin";
-import type { Me } from "@/lib/api/client";
 import {
   FIRST_CAMPAIGN_REVIEW_PATH,
   type FirstCampaignHold,
@@ -41,7 +41,7 @@ const TENANT = "0192f0aa-7777-7000-8000-0000000000f1";
 const SLUG = "sri-traders";
 const TENANT_PATH = `/v1/admin/tenants/${TENANT}`;
 const CAMPAIGNS_PATH = "/v1/campaigns";
-const ME_PATH = "/v1/me";
+const ME_PATH = ADMIN_ME_PATH;
 
 function tenant(): TenantSummary {
   return {
@@ -59,15 +59,14 @@ function tenant(): TenantSummary {
   } as TenantSummary;
 }
 
-function me(permissions: string[]): Me {
+/** The admin realm's own identity document (`GET /v1/admin/me`) — no tenant in it. */
+function me(permissions: string[]): AdminMe {
   return {
     realm: "admin",
     user_id: "0192f0aa-7777-7000-8000-0000000000f2",
     role: "operator",
     permissions,
-    impersonating: true,
-    organization: null,
-  } as Me;
+  } as AdminMe;
 }
 
 const REVIEWER = me(["org:read", "leads:read", "admin:tenants"]);

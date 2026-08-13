@@ -1,10 +1,11 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsPage from "@/app/admin/ops/page";
 import type { PlatformState } from "@/lib/api/admin";
 
-import { problem, renderAdminPage } from "./harness";
+import { problem, renderAdminPage, type Routes } from "./harness";
 
 /**
  * The operations screen — the highest-consequence surface in either realm, because its
@@ -18,9 +19,11 @@ import { problem, renderAdminPage } from "./harness";
  *    switch off the list, and an operator who has just ordered a halt believes it did not
  *    take. `?? false` was the shape that produced it.
  * 2. **A control this session may not use is dead WITH its reason.** Every route on
- *    `/v1/ops` is `ops:manage` (superadmin only), so an `operator` reaches this page from
- *    the nav and is refused by the API. The read carries the same permission, so a 403 on
- *    it answers the question the buttons are about to ask.
+ *    `/v1/ops` is `ops:manage` (superadmin only), so an `operator` who reaches this page
+ *    is refused by the API on everything here. The answer comes from the admin realm's
+ *    own identity read (`GET /v1/admin/me`) rather than from a 403 on this screen's own
+ *    read, so it can be given before any request has failed — and the nav no longer
+ *    offers the entry to a session that would meet nothing but that 403.
  * 3. **The switch is not one accidental click.** A typed confirmation plus a reason, both
  *    required, and the reason measured after trimming — the API strips it and refuses
  *    anything under three characters, so a button that lights up on `"   "` teaches an
@@ -34,6 +37,30 @@ import { problem, renderAdminPage } from "./harness";
  */
 
 const PLATFORM = "/v1/ops/platform";
+
+/** Who the console is. `ops:manage` is superadmin-only (core/rbac.py). */
+function me(permissions: string[]): AdminMe {
+  return {
+    realm: "admin",
+    user_id: "0192f0aa-7777-7000-8000-0000000000c1",
+    role: permissions.includes("ops:manage") ? "superadmin" : "operator",
+    permissions,
+  } as AdminMe;
+}
+
+const SUPERADMIN = me(["org:read", "admin:tenants", "ops:manage"]);
+const OPERATOR = me(["org:read", "admin:tenants"]);
+
+/**
+ * This screen's routes: the platform state, plus the identity its gate is read from.
+ *
+ * A helper rather than a spread in every case, because the identity is now a PREMISE of
+ * the screen — a test that omitted it would assert the behaviour of a console that does
+ * not know who it is, which is a state the shell never renders.
+ */
+function routes(platformAnswer: unknown, identity: unknown = SUPERADMIN): Routes {
+  return { [PLATFORM]: platformAnswer, [ADMIN_ME_PATH]: identity };
+}
 
 function platform(over: Partial<PlatformState> = {}): PlatformState {
   return {
@@ -53,13 +80,16 @@ function platform(over: Partial<PlatformState> = {}): PlatformState {
 
 describe("the ops screen when the platform state cannot be read", () => {
   it("does NOT report that outbound calling is running", async () => {
-    renderAdminPage(<OpsPage />, {
-      [PLATFORM]: problem(503, {
-        title: "Service unavailable",
-        detail: "The database is not reachable.",
-        retryable: true,
-      }),
-    });
+    renderAdminPage(
+      <OpsPage />,
+      routes(
+        problem(503, {
+          title: "Service unavailable",
+          detail: "The database is not reachable.",
+          retryable: true,
+        }),
+      ),
+    );
 
     // The honest statement, and it is the headline rather than a footnote.
     await screen.findByText("We do not know whether outbound calling is halted");
@@ -72,9 +102,10 @@ describe("the ops screen when the platform state cannot be read", () => {
   });
 
   it("says the read failed rather than blaming the operator's permissions", async () => {
-    const { container } = renderAdminPage(<OpsPage />, {
-      [PLATFORM]: problem(503, { title: "Service unavailable", retryable: true }),
-    });
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(problem(503, { title: "Service unavailable", retryable: true })),
+    );
 
     await screen.findByText("We do not know whether outbound calling is halted");
     expect(container.textContent).toContain("the current state could not be read");
@@ -83,27 +114,46 @@ describe("the ops screen when the platform state cannot be read", () => {
   });
 
   it("disables every control WITH the reason when the session lacks ops:manage", async () => {
-    const { container } = renderAdminPage(<OpsPage />, {
-      [PLATFORM]: problem(403, {
-        title: "Forbidden",
-        detail: "This action requires the ops:manage permission.",
-      }),
-    });
+    // An `operator`: the API refuses this screen's read AND its writes with the same
+    // permission, and the console now knows which one is missing before either lands.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        problem(403, {
+          title: "Forbidden",
+          detail: "This action requires the ops:manage permission.",
+        }),
+        OPERATOR,
+      ),
+    );
 
     await screen.findByText("We do not know whether outbound calling is halted");
-    // The permission the ROUTE requires, named — an `operator` who reaches this page from
-    // the nav learns why rather than meeting a 403 that reads like a fault.
+    // The permission the ROUTE requires, named — the operator learns what to ask for
+    // rather than meeting a 403 that reads like a fault.
     expect(container.textContent).toContain("ops:manage");
-    expect(container.textContent).toContain("only a superadmin holds");
+    expect(container.textContent).toContain("Ask a superadmin");
     // Still no state claim, and still no control.
     expect(screen.queryByText("Outbound calling is running")).toBeNull();
     expect(screen.queryByRole("button", { name: /Halt all outbound calling/ })).toBeNull();
+  });
+
+  it("blames the read, not the operator, when a superadmin's own read fails", async () => {
+    // The pair to the case above, and the distinction the old mechanism could not make:
+    // a 503 and a 403 both stopped the read, and only one of them is about the session.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(problem(503, { title: "Service unavailable", retryable: true }), SUPERADMIN),
+    );
+
+    await screen.findByText("We do not know whether outbound calling is halted");
+    expect(container.textContent).toContain("the current state could not be read");
+    expect(container.textContent).not.toContain("ops:manage");
   });
 });
 
 describe("the big red switch", () => {
   it("will not fire on one click, and needs the reason the audit log will hold", async () => {
-    renderAdminPage(<OpsPage />, { [PLATFORM]: platform() });
+    renderAdminPage(<OpsPage />, routes(platform()));
 
     const halt = await screen.findByRole("button", { name: /Halt all outbound calling/ });
     expect((halt as HTMLButtonElement).disabled).toBe(true);
@@ -124,7 +174,7 @@ describe("the big red switch", () => {
   });
 
   it("refuses a whitespace reason the server would strip and reject", async () => {
-    renderAdminPage(<OpsPage />, { [PLATFORM]: platform() });
+    renderAdminPage(<OpsPage />, routes(platform()));
 
     const halt = await screen.findByRole("button", { name: /Halt all outbound calling/ });
     fireEvent.change(screen.getByPlaceholderText(/DLT complaint spike/), {
@@ -135,7 +185,7 @@ describe("the big red switch", () => {
   });
 
   it("says what the click will do BEFORE it is clicked, and sends the step-up header", async () => {
-    const { calls, container } = renderAdminPage(<OpsPage />, { [PLATFORM]: platform() });
+    const { calls, container } = renderAdminPage(<OpsPage />, routes(platform()));
 
     const halt = await screen.findByRole("button", { name: /Halt all outbound calling/ });
     expect(container.textContent).toContain(
@@ -166,12 +216,15 @@ describe("the big red switch", () => {
   });
 
   it("shows the halt's own reason, so nobody has to grep for why calls stopped", async () => {
-    const { container } = renderAdminPage(<OpsPage />, {
-      [PLATFORM]: platform({
-        outbound_halted: true,
-        halt_reason: "registrar suspension — do not lift without Sri",
-      }),
-    });
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        platform({
+          outbound_halted: true,
+          halt_reason: "registrar suspension — do not lift without Sri",
+        }),
+      ),
+    );
 
     await screen.findByText("Outbound calling is HALTED for every client");
     expect(container.textContent).toContain("registrar suspension — do not lift without Sri");
@@ -181,9 +234,10 @@ describe("the big red switch", () => {
   });
 
   it("says a halt carries no reason rather than implying it was routine", async () => {
-    const { container } = renderAdminPage(<OpsPage />, {
-      [PLATFORM]: platform({ outbound_halted: true, halt_reason: null }),
-    });
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform({ outbound_halted: true, halt_reason: null })),
+    );
 
     await screen.findByText("Outbound calling is HALTED for every client");
     expect(container.textContent).toContain("none was recorded with this halt");
@@ -194,9 +248,10 @@ describe("the big red switch", () => {
     // that turns `TABLE[mode]` into the `Object` FUNCTION — truthy, so `??` never fires
     // and the page renders `function Object() { [native code] }` under a heading an
     // operator reads mid-incident. `lookup()` returns undefined for it.
-    const { container } = renderAdminPage(<OpsPage />, {
-      [PLATFORM]: platform({ load_shed_mode: "constructor" }),
-    });
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform({ load_shed_mode: "constructor" })),
+    );
 
     await screen.findByText("Outbound calling is running");
     expect(container.textContent).toContain("constructor");
@@ -209,17 +264,20 @@ describe("our own telemarketer registration", () => {
   it("reports the server's is_live even when the status looks reassuring", async () => {
     // The exact disagreement the panel exists to prevent: a status a reader would call
     // good, and a gate that is refusing every tenant. The server owns `is_live`.
-    const { container } = renderAdminPage(<OpsPage />, {
-      [PLATFORM]: platform({
-        tm_registration: {
-          status: "active",
-          tm_id: "TM-110022",
-          registered_at: "2026-01-04T06:30:00Z",
-          verified_at: null,
-          is_live: false,
-        },
-      }),
-    });
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        platform({
+          tm_registration: {
+            status: "active",
+            tm_id: "TM-110022",
+            registered_at: "2026-01-04T06:30:00Z",
+            verified_at: null,
+            is_live: false,
+          },
+        }),
+      ),
+    );
 
     await screen.findByText("NOT LIVE — no tenant can launch");
     expect(container.textContent).toContain("NO tenant can launch an outbound campaign");
@@ -227,9 +285,7 @@ describe("our own telemarketer registration", () => {
   });
 
   it("keeps the registration form dead while the session lacks the permission", async () => {
-    renderAdminPage(<OpsPage />, {
-      [PLATFORM]: problem(403, { title: "Forbidden" }),
-    });
+    renderAdminPage(<OpsPage />, routes(problem(403, { title: "Forbidden" }), OPERATOR));
 
     await screen.findByText("We do not know whether outbound calling is halted");
     // The panel needs the read to render at all, so the refused session gets no form —

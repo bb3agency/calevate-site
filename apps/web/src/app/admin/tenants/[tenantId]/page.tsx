@@ -50,7 +50,7 @@ import {
 import { holdRule } from "@/lib/api/holds";
 import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
 
-import { useAdminAccess } from "../access";
+import { useAdminAccess } from "@/app/admin/access";
 
 /**
  * One client: health, the read-only view-as link, and the KB approval queue.
@@ -71,7 +71,8 @@ import { useAdminAccess } from "../access";
  *
  * Every control that WRITES is gated on the permission its route requires
  * (`admin:tenants`, `apps/api/admin/routes.py`) and disabled with the reason beside it —
- * see `../access.ts` for why the client realm's `useWriteAccess` cannot be used here.
+ * see `@/app/admin/access` for why the client realm's `useWriteAccess` cannot be used
+ * here, and where the permission set is read from (`GET /v1/admin/me`).
  *
  * The `<h1>` stays: unlike the client shell, `admin/layout.tsx` prints no page title, so
  * removing it would leave the screen unnamed. If a title lands in the shell, this is the
@@ -102,7 +103,7 @@ export default function TenantDetailPage({
   const [selected, setSelected] = useState<string | null>(null);
   const preview = useKbPreview(slug, selected);
   const decide = useKbDecision(tenantId);
-  const kbWrite = useAdminAccess(slug, "admin:tenants", "decide on this client's knowledge");
+  const kbWrite = useAdminAccess("admin:tenants", "decide on this client's knowledge");
 
   if (tenantQuery.isLoading) return <Skeleton rows={6} />;
   // A 403, a 500 or a dropped connection is not "no such client" — saying so sends
@@ -734,7 +735,7 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
   const register = useRegisterTemplate(tenantId);
   const setStatus = useSetTemplateStatus(tenantId);
   // Every write in this panel is `admin:tenants` on `/v1/admin/tenants/{id}/...`.
-  const write = useAdminAccess(slug, "admin:tenants", "change this client's telecom setup");
+  const write = useAdminAccess("admin:tenants", "change this client's telecom setup");
 
   const [e164, setE164] = useState("");
   const [series, setSeries] = useState<"140" | "160" | "standard">("160");

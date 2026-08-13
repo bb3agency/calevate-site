@@ -43,7 +43,7 @@ import {
 } from "@/lib/api/firstCampaign";
 import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
 
-import { useAdminAccess } from "../../access";
+import { useAdminAccess } from "@/app/admin/access";
 
 /**
  * Releasing (or refusing) an account's campaign calling — R-11's last hold.
@@ -106,7 +106,7 @@ export default function FirstCampaignReviewPage({
   // taking the confirmation of the write down at the moment the write landed.
   const decide = useFirstCampaignDecision(tenantId);
   const hold = useTenantFirstCampaignHold(slug);
-  const write = useAdminAccess(slug, "admin:tenants", "record a review decision");
+  const write = useAdminAccess("admin:tenants", "record a review decision");
 
   if (tenantQuery.isLoading) return <Skeleton rows={6} />;
   if (tenantQuery.error)
