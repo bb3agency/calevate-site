@@ -1391,6 +1391,75 @@
         "title": "ClientHealthOut",
         "type": "object"
       },
+      "ConcludeExperimentIn": {
+        "additionalProperties": false,
+        "description": "`promote` is null for \"stop it and keep the control\" \u2014 the commonest honest\nending of an A/B test, and a first-class option rather than a cancel button.",
+        "properties": {
+          "promote": {
+            "anyOf": [
+              {
+                "pattern": "^[AB]$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promote"
+          }
+        },
+        "title": "ConcludeExperimentIn",
+        "type": "object"
+      },
+      "ConcludeExperimentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "engine_synced": {
+            "title": "Engine Synced",
+            "type": "boolean"
+          },
+          "experiment_id": {
+            "format": "uuid",
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "new_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Version"
+          },
+          "promoted_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promoted Label"
+          }
+        },
+        "required": [
+          "experiment_id",
+          "promoted_label",
+          "new_version",
+          "applied",
+          "engine_synced"
+        ],
+        "title": "ConcludeExperimentOut",
+        "type": "object"
+      },
       "ConsentProvenanceIn": {
         "additionalProperties": false,
         "description": "Where this list's consent came from, and when (SEC-COMP \u00a73).\n\n`source` is a Literal, not a string: the wire type IS the enum, so the generated\nTypeScript client offers a client the five real answers instead of a free-text box\nsomebody types \"yes\" into. `purchased_list` is offered because the gate has to be\nable to refuse it by name \u2014 see campaigns/models.py.",
@@ -2689,6 +2758,258 @@
         "title": "EscalationContact",
         "type": "object"
       },
+      "ExperimentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "attributed_directions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Attributed Directions",
+            "type": "array"
+          },
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "caveat": {
+            "title": "Caveat",
+            "type": "string"
+          },
+          "concluded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concluded At"
+          },
+          "conversion_metric": {
+            "title": "Conversion Metric",
+            "type": "string"
+          },
+          "conversion_metric_label": {
+            "title": "Conversion Metric Label",
+            "type": "string"
+          },
+          "coverage_note": {
+            "title": "Coverage Note",
+            "type": "string"
+          },
+          "difference_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difference High"
+          },
+          "difference_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difference Low"
+          },
+          "difference_point": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difference Point"
+          },
+          "experiment_id": {
+            "format": "uuid",
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "leader_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leader Label"
+          },
+          "minimum_calls_per_variant": {
+            "title": "Minimum Calls Per Variant",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "promoted_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promoted Label"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "variants": {
+            "items": {
+              "$ref": "#/components/schemas/VariantOut"
+            },
+            "title": "Variants",
+            "type": "array"
+          },
+          "verdict": {
+            "title": "Verdict",
+            "type": "string"
+          },
+          "winner_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Label"
+          }
+        },
+        "required": [
+          "experiment_id",
+          "agent_id",
+          "name",
+          "status",
+          "conversion_metric",
+          "conversion_metric_label",
+          "started_at",
+          "concluded_at",
+          "promoted_label",
+          "variants",
+          "minimum_calls_per_variant",
+          "basis",
+          "verdict",
+          "leader_label",
+          "winner_label",
+          "difference_point",
+          "difference_low",
+          "difference_high",
+          "headline",
+          "caveat",
+          "attributed_directions",
+          "coverage_note"
+        ],
+        "title": "ExperimentOut",
+        "type": "object"
+      },
+      "ExperimentRulesOut": {
+        "additionalProperties": false,
+        "description": "What a script test can be scored on, and the rules the comparison obeys \u2014\npublished rather than described, so the console cannot paraphrase them into\nsomething friendlier than the server enforces.\n\nPresent on every read, including the one that reports no experiment: this is what\nthe Start form needs, and it is needed precisely when there is nothing running.",
+        "properties": {
+          "default_metric": {
+            "title": "Default Metric",
+            "type": "string"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricOut"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "minimum_calls_per_variant": {
+            "title": "Minimum Calls Per Variant",
+            "type": "integer"
+          },
+          "peeking_caveat": {
+            "title": "Peeking Caveat",
+            "type": "string"
+          },
+          "split_min_bp": {
+            "title": "Split Min Bp",
+            "type": "integer"
+          },
+          "split_total_bp": {
+            "title": "Split Total Bp",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "metrics",
+          "default_metric",
+          "minimum_calls_per_variant",
+          "split_min_bp",
+          "split_total_bp",
+          "peeking_caveat"
+        ],
+        "title": "ExperimentRulesOut",
+        "type": "object"
+      },
+      "ExperimentStateOut": {
+        "additionalProperties": false,
+        "description": "A wrapper so that \"this agent has never run a test\" is a fact the client gets,\nrather than a 404 it has to interpret \u2014 a 404 on this read would be\nindistinguishable from a wrong agent id, and the console would have to guess.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "experiment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExperimentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rules": {
+            "$ref": "#/components/schemas/ExperimentRulesOut"
+          }
+        },
+        "required": [
+          "agent_id",
+          "rules",
+          "experiment"
+        ],
+        "title": "ExperimentStateOut",
+        "type": "object"
+      },
       "ExtractionField": {
         "additionalProperties": false,
         "properties": {
@@ -3103,6 +3424,30 @@
         "title": "IngestActivityOut",
         "type": "object"
       },
+      "IntakeDraftOut": {
+        "additionalProperties": false,
+        "description": "What a draft save did: it stored the sheet, and here is what is still missing.\n\nNo `prompt_version` and no `kb_source_id` \u2014 not \"null\", ABSENT \u2014 because a draft\nmints neither, and a nullable field would invite a screen to render \"prompt version:\n\u2014\" beside a save that was never supposed to touch the prompt.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "agent_id",
+          "blockers"
+        ],
+        "title": "IntakeDraftOut",
+        "type": "object"
+      },
       "IntakeFacts": {
         "additionalProperties": false,
         "description": "Exactly FLOWS \u00a71 step 3's list, in its order. Every field is optional-by-default\nbecause the step is resumable and an operator fills it over days \u2014 the gate that\ndecides an agent is ready to publish is step 7's test call, not this form.",
@@ -3321,6 +3666,10 @@
             "title": "Escalation Contacts",
             "type": "array"
           },
+          "language_primary": {
+            "title": "Language Primary",
+            "type": "string"
+          },
           "languages": {
             "items": {
               "type": "string"
@@ -3337,6 +3686,30 @@
                 "type": "null"
               }
             ]
+          },
+          "saved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved At"
+          },
+          "sheet_agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet Agent Id"
           },
           "submitted_at": {
             "anyOf": [
@@ -3357,9 +3730,117 @@
           "languages",
           "prose_answers",
           "compiled_t0_context",
-          "submitted_at"
+          "submitted_at",
+          "saved_at",
+          "language_primary",
+          "sheet_agent_id"
         ],
         "title": "IntakeStateOut",
+        "type": "object"
+      },
+      "InvitationCreatedOut": {
+        "additionalProperties": false,
+        "description": "The one response that carries the raw token, exactly once.\n\nIt is never stored (only its SHA-256 is) and never logged, so this response is the\nonly place it will ever exist outside the invitee's browser. The client realm has no\nmailer of its own \u2014 `apps/workers/notifications.py` owns email delivery and\nregistering a job there is outside this slice \u2014 so the owner is handed the link and\nsends it. When that job exists this field should stop being returned, because a\ntoken that is displayed is a token that can be pasted into the wrong window.",
+        "properties": {
+          "email_masked": {
+            "title": "Email Masked",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "invited_at": {
+            "format": "date-time",
+            "title": "Invited At",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email_masked",
+          "role",
+          "invited_at",
+          "expires_at",
+          "token"
+        ],
+        "title": "InvitationCreatedOut",
+        "type": "object"
+      },
+      "InvitationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "owner",
+              "staff"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ],
+        "title": "InvitationIn",
+        "type": "object"
+      },
+      "InvitationOut": {
+        "additionalProperties": false,
+        "description": "A pending invitation \u2014 a live key to this account sitting in an inbox.\n\n`email_masked`, never `email`: see `members.mask_email` for why the guardrail\nforbids the raw field here and what the mask keeps.",
+        "properties": {
+          "email_masked": {
+            "title": "Email Masked",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "invited_at": {
+            "format": "date-time",
+            "title": "Invited At",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email_masked",
+          "role",
+          "invited_at",
+          "expires_at"
+        ],
+        "title": "InvitationOut",
         "type": "object"
       },
       "InviteIn": {
@@ -4314,6 +4795,58 @@
         "title": "MemberOut",
         "type": "object"
       },
+      "MemberRemovedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "leads_still_assigned": {
+            "title": "Leads Still Assigned",
+            "type": "integer"
+          },
+          "previous_role": {
+            "title": "Previous Role",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "previous_role",
+          "leads_still_assigned"
+        ],
+        "title": "MemberRemovedOut",
+        "type": "object"
+      },
+      "MemberRoleIn": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_role": {
+            "enum": [
+              "owner",
+              "staff"
+            ],
+            "title": "Expected Role",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "owner",
+              "staff"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "expected_role"
+        ],
+        "title": "MemberRoleIn",
+        "type": "object"
+      },
       "MessagingConsentOut": {
         "additionalProperties": false,
         "description": "Never the number. `status: \"none\"` means nobody has ever asked this person,\nwhich is a 200 and the normal state of the world, not a 404.",
@@ -4417,6 +4950,25 @@
           "lead_retrieval_reason"
         ],
         "title": "MetaSetupOut",
+        "type": "object"
+      },
+      "MetricOut": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "MetricOut",
         "type": "object"
       },
       "NumberCreatedOut": {
@@ -5783,6 +6335,99 @@
         "title": "StaffMember",
         "type": "object"
       },
+      "StartExperimentIn": {
+        "additionalProperties": false,
+        "properties": {
+          "challenger_disclosure": {
+            "anyOf": [
+              {
+                "maxLength": 400,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Challenger Disclosure"
+          },
+          "challenger_version": {
+            "minimum": 1.0,
+            "title": "Challenger Version",
+            "type": "integer"
+          },
+          "control_disclosure": {
+            "anyOf": [
+              {
+                "maxLength": 400,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Control Disclosure"
+          },
+          "control_version": {
+            "minimum": 1.0,
+            "title": "Control Version",
+            "type": "integer"
+          },
+          "conversion_metric": {
+            "default": "call_outcome_resolved",
+            "title": "Conversion Metric",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Name",
+            "type": "string"
+          },
+          "split_bp": {
+            "default": 5000,
+            "maximum": 9500.0,
+            "minimum": 500.0,
+            "title": "Split Bp",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "control_version",
+          "challenger_version"
+        ],
+        "title": "StartExperimentIn",
+        "type": "object"
+      },
+      "StartExperimentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "engine_synced": {
+            "title": "Engine Synced",
+            "type": "boolean"
+          },
+          "experiment_id": {
+            "format": "uuid",
+            "title": "Experiment Id",
+            "type": "string"
+          },
+          "variant_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Variant Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "experiment_id",
+          "variant_ids",
+          "engine_synced"
+        ],
+        "title": "StartExperimentOut",
+        "type": "object"
+      },
       "SubjectExportIn": {
         "additionalProperties": false,
         "description": "`extra=\"forbid\"` so a caller cannot smuggle a second selector (a lead id, a\ntenant slug) into a request whose whole security argument is \"one phone number\".",
@@ -6427,6 +7072,65 @@
         "title": "UndoOut",
         "type": "object"
       },
+      "UnfinishedOnboardingOut": {
+        "additionalProperties": false,
+        "description": "One account the wizard can be resumed on \u2014 the account, never anyone at it.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "draft_saved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft Saved At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "name",
+          "slug",
+          "agent_id",
+          "created_at",
+          "draft_saved_at",
+          "blockers"
+        ],
+        "title": "UnfinishedOnboardingOut",
+        "type": "object"
+      },
       "UsagePanelOut": {
         "additionalProperties": false,
         "description": "GET /v1/usage \u2014 this month's usage and what it costs (SURFACES \u00a72b).\n\n**Every money field is a STRING.** The values are `Decimal` all the way through\nbilling (hard rule 7) and the route stringifies them at the boundary, because a\nJSON float cannot hold a rupee amount exactly. They must stay strings to the\nscreen; `Number()` on INR is how \u20b910,159.00 becomes \u20b910,158.999999999998.\n\nOur supplier cost (`unit_cost_paid`) is deliberately absent \u2014 that is the admin\nmargin panel, and a client who can see it is a client negotiating against it.",
@@ -6555,6 +7259,92 @@
           "credit_balance_inr"
         ],
         "title": "UsagePanelOut",
+        "type": "object"
+      },
+      "VariantOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attributed": {
+            "title": "Attributed",
+            "type": "integer"
+          },
+          "conversions": {
+            "title": "Conversions",
+            "type": "integer"
+          },
+          "dialled": {
+            "title": "Dialled",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "integer"
+          },
+          "published": {
+            "title": "Published",
+            "type": "boolean"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "rate_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate High"
+          },
+          "rate_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Low"
+          },
+          "variant_id": {
+            "format": "uuid",
+            "title": "Variant Id",
+            "type": "string"
+          },
+          "weight_bp": {
+            "title": "Weight Bp",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "variant_id",
+          "label",
+          "prompt_version",
+          "weight_bp",
+          "published",
+          "dialled",
+          "attributed",
+          "conversions",
+          "rate",
+          "rate_low",
+          "rate_high"
+        ],
+        "title": "VariantOut",
         "type": "object"
       },
       "Voice": {
@@ -7395,6 +8185,39 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/admin/onboarding/unfinished": {
+      "get": {
+        "description": "Every account still in onboarding whose intake has never been submitted, most recently worked on first, with the agent to resume at and what is still missing. Read-only: resuming is a draft save or a submit on the account's own route.",
+        "operationId": "list_unfinished_onboardings_v1_admin_onboarding_unfinished_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UnfinishedOnboardingOut"
+                  },
+                  "title": "Response List Unfinished Onboardings V1 Admin Onboarding Unfinished Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Onboardings started and not finished \u2014 where a wizard resumes (FLOWS \u00a71)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/v1/admin/tenants": {
       "get": {
         "operationId": "list_tenants_v1_admin_tenants_get",
@@ -7627,6 +8450,130 @@
         "x-calevate-permission": "agents:write"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment": {
+      "post": {
+        "description": "Both arms name versions this agent already has, so no new script is authored here. Each arm is published to the voice platform as its own engine agent carrying its own disclosure line.",
+        "operationId": "start_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartExperimentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartExperimentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Start an A/B script test between two existing prompt versions",
+        "tags": [
+          "agents",
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment/conclude": {
+      "post": {
+        "description": "Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS \u00a77) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears \u2014 the test still ends.",
+        "operationId": "conclude_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_conclude_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConcludeExperimentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConcludeExperimentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop the test, and optionally promote an arm through the publish path",
+        "tags": [
+          "agents",
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {
       "get": {
         "description": "No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's\nscope directly rather than opening the cross-tenant directory it does not need.",
@@ -7731,6 +8678,67 @@
           }
         },
         "summary": "Wizard step 3 \u2014 the client's business facts (FLOWS \u00a71 step 3)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake/draft": {
+      "post": {
+        "description": "Stores a PARTIAL intake sheet and does nothing else: no compiled block, no prompt version, no knowledge-base seed, no publish. Answers a half-filled form with 200 and the list of what still blocks a submit; answers a malformed one with 422, the same way the submit does. Saving a draft never makes an agent ready \u2014 the submit is still gated on the full set.",
+        "operationId": "save_intake_draft_v1_admin_tenants__tenant_id__agents__agent_id__intake_draft_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntakeFacts"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntakeDraftOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Wizard step 3 \u2014 save the answers as they stand (FLOWS \u00a71, 'resume anytime')",
         "tags": [
           "admin"
         ],
@@ -9004,6 +10012,47 @@
           }
         },
         "summary": "Get Agent",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/{agent_id}/experiment": {
+      "get": {
+        "description": "`agents:read`, not `agents:write`: this is the view that explains whether a test can be stopped, so it must be readable through read-only impersonation (D-22). `basis` says whether the comparison is entitled to be made at all \u2014 `insufficient_data` carries no difference interval and no winner.",
+        "operationId": "experiment_v1_agents__agent_id__experiment_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperimentStateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The running script test, its conversion attribution and the comparison rules",
         "tags": [
           "agents"
         ],
@@ -10721,9 +11770,78 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/invitations": {
+      "get": {
+        "description": "`org:read`, deliberately. Who currently holds a key to this account is part of\n\"who has access\", which is the question a support session exists to answer; the\nauthority to hand one out is the separate thing, and it is `org:manage` above.",
+        "operationId": "list_invitations_v1_invitations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InvitationOut"
+                  },
+                  "title": "Response List Invitations V1 Invitations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Invitations that can still be redeemed",
+        "tags": [
+          "tenancy"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "operationId": "invite_member_v1_invitations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationCreatedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Invite a colleague to this account (owner only)",
+        "tags": [
+          "tenancy"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/invitations/accept": {
       "post": {
-        "description": "The one authenticated route that does NOT require a membership \u2014 creating one is\nthe point (see `current_identity`).\n\nThe burn is a CAS on `used_at IS NULL`, so two clicks on the same emailed link\nproduce one membership rather than two.",
+        "description": "The one authenticated route that does NOT require a membership \u2014 creating one is\nthe point (see `current_identity`).\n\nThe burn is a CAS on `used_at IS NULL`, so two clicks on the same emailed link\nproduce one membership rather than two.\n\nTHE INVITATION IS BOUND TO THE ADDRESS IT WAS SENT TO. Without that check the link\nis a pure bearer token: a forwarded email, a link pasted into a group chat, or a\nshared mailbox hands the account to whoever opens it first \u2014 and the audit trail\nthen records a membership for someone nobody invited. Binding is what current\npractice asks of an invite link (single use, short-lived, and only redeemable by the\naddress that received it \u2014 the same rule Auth0/authentik-style invite flows enforce\nby making the signup email read-only), and it costs an honest invitee nothing: they\nare signing in with the address the link was sent to.\n\nThe comparison is a plain casefolded equality, NOT `hmac.compare_digest`. Constant\ntime protects a SECRET from being learned a byte at a time; the secret on this path\nis the token, and it is matched by an indexed lookup on its SHA-256. An address the\ncaller already owns and already typed into Clerk is not a secret, and dressing the\ncomparison up as one would suggest to the next reader that it is.",
         "operationId": "accept_invitation_v1_invitations_accept_post",
         "requestBody": {
           "content": {
@@ -10757,6 +11875,46 @@
         "tags": [
           "tenancy"
         ]
+      }
+    },
+    "/v1/invitations/{invitation_id}": {
+      "delete": {
+        "operationId": "revoke_invitation_v1_invitations__invitation_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invitation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Invitation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Revoke an unused invitation (owner only)",
+        "tags": [
+          "tenancy"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/kb/sources": {
@@ -11499,6 +12657,94 @@
           "tenancy"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/members/{user_id}": {
+      "delete": {
+        "operationId": "remove_member_v1_members__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberRemovedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Remove a colleague from this account (owner only)",
+        "tags": [
+          "tenancy"
+        ],
+        "x-calevate-permission": "org:manage"
+      },
+      "patch": {
+        "operationId": "set_member_role_v1_members__user_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberRoleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Change a colleague's role (owner only)",
+        "tags": [
+          "tenancy"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/numbers/purchase": {

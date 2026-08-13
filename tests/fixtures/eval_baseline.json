@@ -135,6 +135,9 @@
     "relative_number_attribution": [
       "capture_miss"
     ],
+    "rt_re_dnc_telugu_optout_late_and_mixed": [
+      "capture_miss"
+    ],
     "silent_call": [
       "outcome"
     ],

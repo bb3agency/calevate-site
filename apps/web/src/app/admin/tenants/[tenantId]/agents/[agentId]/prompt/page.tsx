@@ -24,11 +24,16 @@ import {
 } from "@/lib/api/prompts";
 import {
   useApplyChanges,
+  useConcludeExperiment,
   usePublishingRefresh,
   useSetCallCap,
+  useStartExperiment,
+  useTenantExperiment,
   useTenantLanes,
   useTenantPending,
   useUndoChanges,
+  type Experiment,
+  type ExperimentVariant,
   type PendingState,
 } from "@/lib/api/publishing";
 
@@ -120,6 +125,14 @@ export default function AgentPromptPage({
         slug={slug}
         pending={pending.data}
         write={write}
+      />
+
+      <ExperimentPanel
+        tenantId={tenantId}
+        agentId={agentId}
+        slug={slug}
+        write={write}
+        versions={history.data}
       />
 
       {history.error && (
@@ -553,6 +566,395 @@ function CallCapPanel({
       </div>
     </Card>
   );
+}
+
+/**
+ * A/B script testing with conversion attribution (ROADMAP M3).
+ *
+ * THE ONE THING THIS PANEL MUST NOT DO is print a number that reads as a verdict. The
+ * server answers three different things and they are rendered three different ways:
+ *
+ * - `basis: "insufficient_data"` — the counts are shown and NO comparison is drawn.
+ *   No difference interval, no winner badge, and the arm that is ahead is labelled
+ *   "ahead so far", which is an ordering, not a claim. §52's rule applied to a
+ *   statistic: a comparison the server refused to make must not be inferable from two
+ *   percentages sitting next to each other, so the reason is printed in the same block.
+ * - `verdict: "inconclusive"` — enough calls, and the plausible range for the gap still
+ *   contains zero. This is the commonest correct answer and it is stated plainly.
+ * - `verdict: "winner"` — the only state that gets a winner badge.
+ *
+ * `headline` and `caveat` are the SERVER's sentences, printed verbatim. A UI that
+ * paraphrased them would be a second statistical opinion, and the second one is where
+ * the drift starts (`publishing.ts`'s lane table makes the same argument).
+ *
+ * §52 for the failure paths: loading is a skeleton, a failed read is a refusal, and
+ * neither is an empty state. An experiment whose results endpoint 503s must NOT render
+ * as "no conversions yet" or as "no test running" — both are claims about the world,
+ * and a dead endpoint is a fact about our ignorance. The Start form is withheld under a
+ * failure for the same reason it is withheld under a load: it needs `rules` from the
+ * same read, and a form defaulted from nothing would submit a split nobody chose.
+ */
+function ExperimentPanel({
+  tenantId,
+  agentId,
+  slug,
+  write,
+  versions,
+}: {
+  tenantId: string;
+  agentId: string;
+  slug: string;
+  write: ReturnType<typeof useAdminAccess>;
+  versions: PromptVersion[] | undefined;
+}) {
+  const target = { tenantId, agentId, slug };
+  const state = useTenantExperiment(slug, agentId);
+  const start = useStartExperiment(target);
+  const conclude = useConcludeExperiment(target);
+
+  const experiment = state.data?.experiment ?? null;
+  const running = experiment?.status === "running";
+
+  return (
+    <Card title="Script test (A/B)">
+      <p className="-mt-2 text-xs text-ink-muted">
+        Two published scripts against comparable outbound traffic. Which arm a call ran is
+        recorded on the call, so the attribution never changes when the split does.
+      </p>
+      <div className="mt-3 space-y-3">
+        <RestrictionNote reason={write.reason} />
+        {state.error != null && (
+          <ProblemNotice error={state.error} onRetry={() => state.refetch()} />
+        )}
+        {start.error && <ProblemNotice error={start.error} />}
+        {conclude.error && <ProblemNotice error={conclude.error} />}
+
+        {state.isLoading && !state.data ? (
+          <Skeleton rows={3} />
+        ) : !state.data ? (
+          /* No results and no problem to show: say we cannot tell, and offer nothing
+             else. A Start form here would be a control built on rules we never read. */
+          state.error == null && (
+            <p className="text-xs text-ink-muted">
+              Script-test state is unavailable for this agent.
+            </p>
+          )
+        ) : (
+          <>
+            {experiment && <ExperimentResults experiment={experiment} />}
+            {running ? (
+              <div className="flex flex-wrap items-center gap-2">
+                {experiment.variants.map((variant) => (
+                  <button
+                    key={variant.label}
+                    type="button"
+                    disabled={conclude.isPending || !write.allowed}
+                    onClick={() => conclude.mutate({ promote: variant.label })}
+                    className={SECONDARY_BUTTON_SM}
+                  >
+                    Promote {variant.label} (v{variant.prompt_version})
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  disabled={conclude.isPending || !write.allowed}
+                  onClick={() => conclude.mutate({ promote: null })}
+                  className={SECONDARY_BUTTON_SM}
+                >
+                  Stop, keep the control
+                </button>
+                <span className="text-xs text-ink-muted">
+                  Promoting saves the winning script as a new version and applies it — the
+                  same Apply the panel above uses.
+                </span>
+              </div>
+            ) : (
+              <StartExperimentForm
+                rules={state.data.rules}
+                versions={versions}
+                write={write}
+                pending={start.isPending}
+                onStart={(payload) => start.mutate(payload)}
+              />
+            )}
+            {conclude.data && (
+              <p className="text-xs text-ink-muted">
+                {conclude.data.promoted_label
+                  ? `Promoted variant ${conclude.data.promoted_label} as v${conclude.data.new_version}.` +
+                    (conclude.data.applied
+                      ? conclude.data.engine_synced
+                        ? " The voice platform has it."
+                        : " The agent is not live, so nothing was sent to the voice platform."
+                      : " It is STAGED — press Apply above to put it on live calls.")
+                  : "Stopped. Callers keep hearing the control script."}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * The counts, the intervals, and exactly as much of a conclusion as the server allowed.
+ *
+ * Every percentage is accompanied by its plausible range, because a bare "17%" over 46
+ * calls is the number this whole feature exists to stop somebody quoting.
+ */
+function ExperimentResults({ experiment }: { experiment: Experiment }) {
+  const measured = experiment.basis === "measured";
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className="text-sm font-medium text-ink">{experiment.name}</span>
+        <span className="text-xs text-ink-muted">
+          {experiment.status === "running" ? "running" : "concluded"} · scoring{" "}
+          {experiment.conversion_metric_label} · started {formatIST(experiment.started_at)}
+        </span>
+        {experiment.winner_label && (
+          <span className="rounded bg-brand-strong px-1.5 py-0.5 text-xs font-medium text-white">
+            winner: {experiment.winner_label}
+          </span>
+        )}
+      </div>
+
+      <NoticeBox
+        // `ok` ONLY for a winner. An inconclusive or under-powered result gets the
+        // neutral tone rather than a green one — a colour is read before a sentence is,
+        // and a green box over "not enough data" would say the opposite of the words in
+        // it.
+        tone={experiment.verdict === "winner" ? "ok" : "neutral"}
+        icon={<AlertTriangle className="h-5 w-5" />}
+        title={experiment.headline}
+      >
+        {/* The server's own caveat, verbatim. It is about repeated reading, which is
+            exactly what a screen invites. */}
+        <p className="mt-0.5 text-xs">{experiment.caveat}</p>
+        {experiment.coverage_note && (
+          <p className="mt-0.5 text-xs opacity-80">{experiment.coverage_note}</p>
+        )}
+      </NoticeBox>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead className="text-ink-muted">
+            <tr>
+              <th className="py-1 pr-3 font-medium">Arm</th>
+              <th className="py-1 pr-3 font-medium">Share</th>
+              <th className="py-1 pr-3 font-medium">Dialled</th>
+              <th className="py-1 pr-3 font-medium">Completed</th>
+              <th className="py-1 pr-3 font-medium">Converted</th>
+              <th className="py-1 font-medium">Rate (95% range)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {experiment.variants.map((variant) => (
+              <tr key={variant.label} className="border-t border-line">
+                <td className="py-1.5 pr-3 font-mono font-semibold text-ink">
+                  {variant.label} · v{variant.prompt_version}
+                  {experiment.leader_label === variant.label && (
+                    // AHEAD, not better. The word is the whole point: on an unearned
+                    // basis this is the only comparative statement allowed on screen.
+                    <span className="ml-1.5 font-sans text-[11px] font-normal text-ink-muted">
+                      ahead so far
+                    </span>
+                  )}
+                </td>
+                <td className="py-1.5 pr-3 tabular-nums">{variant.weight_bp / 100}%</td>
+                <td className="py-1.5 pr-3 tabular-nums">{variant.dialled}</td>
+                <td className="py-1.5 pr-3 tabular-nums">{variant.attributed}</td>
+                <td className="py-1.5 pr-3 tabular-nums">{variant.conversions}</td>
+                <td className="py-1.5 tabular-nums">{rateReading(variant)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {measured && experiment.difference_low !== null && experiment.difference_high !== null ? (
+        <p className="text-xs text-ink-muted">
+          Gap between the arms: {pointsReading(experiment.difference_low)} to{" "}
+          {pointsReading(experiment.difference_high)} (A minus B, 95% confidence).
+        </p>
+      ) : (
+        /* Deliberately not a dash, not a zero and not an empty cell: the reason the
+           comparison is absent is more useful than the space it would occupy. */
+        <p className="text-xs text-ink-muted">
+          No gap is published below {experiment.minimum_calls_per_variant} completed calls
+          per arm — the comparison is not valid at smaller samples.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Start a test between two versions this agent already has.
+ *
+ * No prompt is authored here: the challenger is written through the New version form
+ * below, which is the one place a `prompt_versions` row is born. That keeps this a
+ * choice between existing, auditable scripts rather than a second editor.
+ */
+function StartExperimentForm({
+  rules,
+  versions,
+  write,
+  pending,
+  onStart,
+}: {
+  rules: NonNullable<ReturnType<typeof useTenantExperiment>["data"]>["rules"];
+  versions: PromptVersion[] | undefined;
+  write: ReturnType<typeof useAdminAccess>;
+  pending: boolean;
+  onStart: (payload: {
+    name: string;
+    control_version: number;
+    challenger_version: number;
+    split_bp: number;
+    conversion_metric: string;
+  }) => void;
+}) {
+  const [name, setName] = useState("");
+  const [control, setControl] = useState<string>("");
+  const [challenger, setChallenger] = useState<string>("");
+  const [metric, setMetric] = useState(rules.default_metric);
+
+  // Two versions are the minimum a test can exist between, and saying so is more use
+  // than a disabled control with no explanation.
+  if (!versions || versions.length < 2) {
+    return (
+      <p className="text-xs text-ink-muted">
+        A test needs two prompt versions. Write a challenger below, then start one.
+      </p>
+    );
+  }
+
+  const parsed = { control: Number(control), challenger: Number(challenger) };
+  const ready =
+    name.trim().length >= 3 &&
+    Number.isFinite(parsed.control) &&
+    Number.isFinite(parsed.challenger) &&
+    parsed.control !== parsed.challenger &&
+    control !== "" &&
+    challenger !== "";
+
+  return (
+    <form
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onStart({
+          name: name.trim(),
+          control_version: parsed.control,
+          challenger_version: parsed.challenger,
+          // 50/50 is the only split this screen offers: a ramp is a real feature of the
+          // API, and an unexplained slider is how somebody ships a 95/5 test that can
+          // never reach the minimum on the small arm.
+          split_bp: rules.split_total_bp / 2,
+          conversion_metric: metric,
+        });
+      }}
+    >
+      <input
+        value={name}
+        disabled={!write.allowed}
+        onChange={(event) => setName(event.target.value)}
+        maxLength={120}
+        placeholder="What is being tested (e.g. 'direct booking greeting')"
+        className={FIELD}
+      />
+      <div className="flex flex-wrap gap-2">
+        <VersionSelect
+          label="Control (A)"
+          value={control}
+          onChange={setControl}
+          versions={versions}
+          disabled={!write.allowed}
+        />
+        <VersionSelect
+          label="Challenger (B)"
+          value={challenger}
+          onChange={setChallenger}
+          versions={versions}
+          disabled={!write.allowed}
+        />
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-ink-muted">Counts as a conversion</span>
+          <select
+            value={metric}
+            disabled={!write.allowed}
+            onChange={(event) => setMetric(event.target.value)}
+            className={FIELD}
+          >
+            {rules.metrics.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <button type="submit" disabled={pending || !ready || !write.allowed} className={PRIMARY_BUTTON_SM}>
+        {pending ? "Starting…" : "Start test (50/50)"}
+      </button>
+      <p className="text-xs text-ink-muted">
+        Each arm is published to the voice platform with its own disclosure line. Outbound
+        calls only. No comparison is reported until each arm has{" "}
+        {rules.minimum_calls_per_variant} completed calls.
+      </p>
+    </form>
+  );
+}
+
+function VersionSelect({
+  label,
+  value,
+  onChange,
+  versions,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  versions: PromptVersion[];
+  disabled: boolean;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs text-ink-muted">{label}</span>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className={FIELD}
+        aria-label={label}
+      >
+        <option value="">Choose a version</option>
+        {versions.map((version) => (
+          <option key={version.id} value={version.version}>
+            v{version.version}
+            {version.notes ? ` — ${version.notes}` : ""}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** A rate with its plausible range, or the reason there is no rate. Never "0%" for an
+ *  arm with no completed calls — that is a claim, and the server sent null. */
+function rateReading(variant: ExperimentVariant): string {
+  if (variant.rate === null || variant.rate_low === null || variant.rate_high === null) {
+    return "no completed calls yet";
+  }
+  const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
+  return `${pct(variant.rate)} (${pct(variant.rate_low)}–${pct(variant.rate_high)})`;
+}
+
+/** Percentage POINTS, signed, because the gap can legitimately run either way. */
+function pointsReading(value: number): string {
+  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)} pts`;
 }
 
 /** Seconds in the units an operator argues about caps in. Presentation only — the

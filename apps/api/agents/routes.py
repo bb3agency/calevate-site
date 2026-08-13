@@ -190,4 +190,10 @@ async def publish(
     return PublishOut(agent_id=agent_id, engine_agent_ref=ref, status="live")
 
 
+# A/B script testing (ROADMAP M3) lives in `agents/experiment_routes.py` and is mounted
+# in `main._mount_routers` with every other router. It was briefly ADOPTED here with
+# `router.routes.extend(...)` because the slice that built it could not edit `main.py`;
+# that worked, but it made this the one router in the app mounted by a neighbour, and
+# two ways to mount a router is the drift CLAUDE.md names even when both work.
+
 __all__ = ["router"]

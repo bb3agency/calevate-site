@@ -31,7 +31,16 @@ from dataclasses import dataclass, field
 _AADHAAR_RE = re.compile(r"\b(\d{4})[ -]?(\d{4})[ -]?(\d{4})\b")
 _PAN_RE = re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b", re.IGNORECASE)
 _CARD_RE = re.compile(r"\b(?:\d[ -]?){13,19}\b")
-_PHONE_RE = re.compile(r"(?:\+91[ -]?)?\b([6-9]\d{9})\b")
+# The `\b` after an optional `+91` CANNOT MATCH when the prefix is present with no
+# separator: `1` and `9` are both word characters, so there is no boundary between
+# them. That made the country-code branch dead code for exactly the format this
+# product stores — `phone_e164`, per CLAUDE.md's "Phone: E.164 strings" — and
+# `+919876543210` travelled through `redact()` unmasked into hot-lead notification
+# email, under a docstring promising it was masked. Digit lookarounds instead of `\b`:
+# they anchor on "not part of a longer run of digits", which is the property actually
+# wanted, and they hold whether or not a `+91` precedes. Group 1 is still the ten
+# national digits, so the `last2` tail is unchanged.
+_PHONE_RE = re.compile(r"(?<![0-9])\+?(?:91[ -]?)?([6-9]\d{9})(?![0-9])")
 _OTP_RE = re.compile(
     r"\b(?:otp|o\.?t\.?p|code|pin|password)\b[^0-9]{0,20}(\d{4,8})\b", re.IGNORECASE
 )

@@ -27,8 +27,10 @@
  *   drops the agent's own `language_primary` before storing (`languages_extra` means the
  *   OTHERS, DATA-MODEL §3) and `read_intake` returns only the extras. So the draft holds
  *   every language including the primary — which is what an operator means by "which
- *   languages does this business work in" — and the round trip re-adds it from the agent's
- *   primary rather than from the response.
+ *   languages does this business work in" — and the round trip re-adds it from
+ *   `language_primary`, which the SAME response now carries. It used to be re-added from
+ *   a copy the wizard happened to hold because it had chosen it one step earlier; a
+ *   resume has chosen nothing, so the response had to start answering it.
  * - **`prose_answers: null` is not "no answers".** It is "this org last submitted before
  *   migration c1f3a7d92b46, so the prose survives only as a compiled sentence". It is
  *   ALSO what a brand-new agent returns, and the two must not be rendered the same way —
@@ -37,15 +39,22 @@
  *   the closed day (`_hours_map`); absent means nobody filled it in. The prefill keeps
  *   both, because the agent says different things about them.
  *
- * ## What is NOT here, and is a gap in the API rather than in this module
+ * ## The draft half, which used to be the gap
  *
- * `save_intake_draft` exists in `apps/api/admin/intake.py` — it writes the answer sheet
- * with no compile, no prompt version and no KB seed, and it is what FLOWS §1's "draft
- * state saved at every step (resume anytime)" is made of — but NO ROUTE EXPOSES IT. The
- * only write reachable from a browser is the submit, which runs `submission_blockers`
- * first and refuses a half-filled sheet. So a partial intake cannot be persisted at all,
- * and this module deliberately does not pretend otherwise: there is no "Save draft"
- * control anywhere on the step.
+ * `save_intake_draft` had no route in front of it, so the only write a browser could
+ * reach was the submit — which runs `submission_blockers` first and refuses a half-filled
+ * sheet. A partial intake could not be persisted at all, and because nothing partial
+ * could be stored there was nothing to resume either. Both halves are now here:
+ * `useSaveIntakeDraft` writes the sheet and nothing else, and `useUnfinishedOnboardings`
+ * is how an operator finds the client they were half-way through.
+ *
+ * The DRAFT body is built by the same `toIntakeBody` as the submit, deliberately. The
+ * server applies identical STRUCTURAL validation to both (the price pattern, E.164, the
+ * length caps) and differs only in not running the completeness gate, so a second body
+ * shaper "for drafts" would be a second set of rules for one endpoint pair to disagree
+ * about. What differs is the PREFLIGHT: the submit is withheld while `intakeBlockers`
+ * would refuse it, and the draft never is — refusing to save a draft for incompleteness
+ * is refusing the only thing a draft is for.
  */
 
 import {
@@ -71,6 +80,11 @@ export type IntakeFacts = Schemas["IntakeFacts"];
 export type IntakeState = Schemas["IntakeStateOut"];
 /** What the submit DID: which prompt version, and whether one was minted at all. */
 export type IntakeResult = Schemas["IntakeOut"];
+/** What a DRAFT save did: the sheet is stored, and here is what still blocks a submit.
+ *  Carries no prompt version and no KB source because a draft mints neither. */
+export type IntakeDraftResult = Schemas["IntakeDraftOut"];
+/** One account whose wizard was started and never finished. */
+export type UnfinishedOnboarding = Schemas["UnfinishedOnboardingOut"];
 
 export type DayHours = Schemas["DayHours"];
 export type Weekday = DayHours["day"];
@@ -202,9 +216,15 @@ const text = (value: string | null | undefined): string => value ?? "";
  * is a compiled sentence, and parsing it back into fields would be this form asserting a
  * price it read out of a string it wrote. `prosePrefillGap` is what tells the operator
  * that is what happened, so the emptiness is explained rather than silently trusted.
+ *
+ * The primary language comes from the RESPONSE (`state.language_primary`) rather than
+ * from a caller-supplied copy. It used to be a parameter, which worked for exactly one
+ * caller — the wizard, which had chosen the value one step earlier — and had no answer
+ * for a resume that starts at a tenant id. One source, and it is the agent's own row.
  */
-export function draftFromState(state: IntakeState, primaryLanguage: string): IntakeDraft {
+export function draftFromState(state: IntakeState): IntakeDraft {
   const prose = state.prose_answers;
+  const primaryLanguage = state.language_primary;
   return {
     business_hours: DAYS.map((day) => {
       // `hasOwn` and not a truthiness test: `null` IS the closed day and `undefined` is
@@ -517,9 +537,16 @@ export function intakePath(tenantId: string, agentId: string): string {
   return `/v1/admin/tenants/${tenantId}/agents/${agentId}/intake`;
 }
 
+export function intakeDraftPath(tenantId: string, agentId: string): string {
+  return `${intakePath(tenantId, agentId)}/draft`;
+}
+
 export function intakeQueryKey(tenantId: string, agentId: string) {
   return ["admin", "intake", tenantId, agentId] as const;
 }
+
+export const unfinishedOnboardingsKey = ["admin", "onboarding", "unfinished"] as const;
+export const UNFINISHED_ONBOARDINGS_PATH = "/v1/admin/onboarding/unfinished";
 
 /**
  * What is durably stored for this agent — `agents:read`, admin realm.
@@ -580,6 +607,58 @@ export function useRecordIntake(
         client.invalidateQueries({ queryKey: intakeQueryKey(tenantId, agentId) }),
         client.invalidateQueries({ queryKey: promptHistoryKey(tenantId, agentId) }),
         client.invalidateQueries({ queryKey: ["admin", "kb"] }),
+        // The account leaves the resume list the moment its intake is submitted.
+        client.invalidateQueries({ queryKey: unfinishedOnboardingsKey }),
       ]),
+  });
+}
+
+/**
+ * Save the answers as they stand — `agents:write`, the same authority as the submit.
+ *
+ * Two caches, and NEITHER of them is the prompt history or the KB queue: a draft mints
+ * no prompt version and seeds no source, so invalidating those would be this module
+ * claiming work the route explicitly does not do.
+ *
+ * - the intake read, because the sheet it returns is exactly what was just written;
+ * - the resume list, because `blockers` and `draft_saved_at` on that account's row have
+ *   both just changed, and a stale list is how an operator resumes into an answer they
+ *   already gave.
+ *
+ * Refetching the intake read does NOT disturb the form: `/admin/new` seeds its draft
+ * from the prefill ONCE, so a response arriving mid-edit updates `submitted_at` and the
+ * compiled block without touching a control the operator is typing in.
+ */
+export function useSaveIntakeDraft(
+  tenantId: string,
+  agentId: string,
+): UseMutationResult<IntakeDraftResult, Error, IntakeFacts> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (facts: IntakeFacts) =>
+      apiRequest<IntakeDraftResult>(adminSession(), intakeDraftPath(tenantId, agentId), {
+        method: "POST",
+        body: facts,
+      }),
+    onSuccess: () =>
+      void Promise.all([
+        client.invalidateQueries({ queryKey: intakeQueryKey(tenantId, agentId) }),
+        client.invalidateQueries({ queryKey: unfinishedOnboardingsKey }),
+      ]),
+  });
+}
+
+/**
+ * Which onboardings are unfinished — `org:read`, admin realm.
+ *
+ * The list the wizard resumes from. It is a READ of accounts (no phone numbers, no
+ * answers), which is why the route carries the read permission while every write it
+ * leads to still carries `agents:write`.
+ */
+export function useUnfinishedOnboardings(): UseQueryResult<UnfinishedOnboarding[]> {
+  return useQuery({
+    queryKey: unfinishedOnboardingsKey,
+    queryFn: () =>
+      apiRequest<UnfinishedOnboarding[]>(adminSession(), UNFINISHED_ONBOARDINGS_PATH),
   });
 }

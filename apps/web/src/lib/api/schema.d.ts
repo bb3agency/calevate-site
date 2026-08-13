@@ -232,6 +232,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/onboarding/unfinished": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Onboardings started and not finished — where a wizard resumes (FLOWS §1)
+         * @description Every account still in onboarding whose intake has never been submitted, most recently worked on first, with the agent to resume at and what is still missing. Read-only: resuming is a draft save or a submit on the account's own route.
+         */
+        get: operations["list_unfinished_onboardings_v1_admin_onboarding_unfinished_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants": {
         parameters: {
             query?: never;
@@ -312,6 +332,46 @@ export interface paths {
         patch: operations["set_call_cap_v1_admin_tenants__tenant_id__agents__agent_id__call_cap_patch"];
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start an A/B script test between two existing prompt versions
+         * @description Both arms name versions this agent already has, so no new script is authored here. Each arm is published to the voice platform as its own engine agent carrying its own disclosure line.
+         */
+        post: operations["start_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment/conclude": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop the test, and optionally promote an arm through the publish path
+         * @description Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS §7) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears — the test still ends.
+         */
+        post: operations["conclude_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_conclude_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {
         parameters: {
             query?: never;
@@ -331,6 +391,26 @@ export interface paths {
          * @description Compiles the answers into the agent's [T0 FACTS] block, stores the block as `prompt_versions.compiled_t0_context` (D-39), seeds the knowledge base with the same facts awaiting approval, and re-publishes a live agent. Idempotent: unchanged answers mint no new prompt version.
          */
         post: operations["record_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Wizard step 3 — save the answers as they stand (FLOWS §1, 'resume anytime')
+         * @description Stores a PARTIAL intake sheet and does nothing else: no compiled block, no prompt version, no knowledge-base seed, no publish. Answers a half-filled form with 200 and the list of what still blocks a submit; answers a malformed one with 422, the same way the submit does. Saving a draft never makes an agent ready — the submit is still gated on the full set.
+         */
+        post: operations["save_intake_draft_v1_admin_tenants__tenant_id__agents__agent_id__intake_draft_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -771,6 +851,26 @@ export interface paths {
         };
         /** Get Agent */
         get: operations["get_agent_v1_agents__agent_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/experiment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The running script test, its conversion attribution and the comparison rules
+         * @description `agents:read`, not `agents:write`: this is the view that explains whether a test can be stopped, so it must be readable through read-only impersonation (D-22). `basis` says whether the comparison is entitled to be made at all — `insufficient_data` carries no difference interval and no winner.
+         */
+        get: operations["experiment_v1_agents__agent_id__experiment_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1514,6 +1614,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Invitations that can still be redeemed
+         * @description `org:read`, deliberately. Who currently holds a key to this account is part of
+         *     "who has access", which is the question a support session exists to answer; the
+         *     authority to hand one out is the separate thing, and it is `org:manage` above.
+         */
+        get: operations["list_invitations_v1_invitations_get"];
+        put?: never;
+        /** Invite a colleague to this account (owner only) */
+        post: operations["invite_member_v1_invitations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/invitations/accept": {
         parameters: {
             query?: never;
@@ -1530,9 +1653,41 @@ export interface paths {
          *
          *     The burn is a CAS on `used_at IS NULL`, so two clicks on the same emailed link
          *     produce one membership rather than two.
+         *
+         *     THE INVITATION IS BOUND TO THE ADDRESS IT WAS SENT TO. Without that check the link
+         *     is a pure bearer token: a forwarded email, a link pasted into a group chat, or a
+         *     shared mailbox hands the account to whoever opens it first — and the audit trail
+         *     then records a membership for someone nobody invited. Binding is what current
+         *     practice asks of an invite link (single use, short-lived, and only redeemable by the
+         *     address that received it — the same rule Auth0/authentik-style invite flows enforce
+         *     by making the signup email read-only), and it costs an honest invitee nothing: they
+         *     are signing in with the address the link was sent to.
+         *
+         *     The comparison is a plain casefolded equality, NOT `hmac.compare_digest`. Constant
+         *     time protects a SECRET from being learned a byte at a time; the secret on this path
+         *     is the token, and it is matched by an indexed lookup on its SHA-256. An address the
+         *     caller already owns and already typed into Clerk is not a secret, and dressing the
+         *     comparison up as one would suggest to the next reader that it is.
          */
         post: operations["accept_invitation_v1_invitations_accept_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/invitations/{invitation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke an unused invitation (owner only) */
+        delete: operations["revoke_invitation_v1_invitations__invitation_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1841,6 +1996,24 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/v1/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a colleague from this account (owner only) */
+        delete: operations["remove_member_v1_members__user_id__delete"];
+        options?: never;
+        head?: never;
+        /** Change a colleague's role (owner only) */
+        patch: operations["set_member_role_v1_members__user_id__patch"];
         trace?: never;
     };
     "/v1/numbers/purchase": {
@@ -2561,6 +2734,31 @@ export interface components {
             tenant_id: string;
         };
         /**
+         * ConcludeExperimentIn
+         * @description `promote` is null for "stop it and keep the control" — the commonest honest
+         *     ending of an A/B test, and a first-class option rather than a cancel button.
+         */
+        ConcludeExperimentIn: {
+            /** Promote */
+            promote?: string | null;
+        };
+        /** ConcludeExperimentOut */
+        ConcludeExperimentOut: {
+            /** Applied */
+            applied: boolean;
+            /** Engine Synced */
+            engine_synced: boolean;
+            /**
+             * Experiment Id
+             * Format: uuid
+             */
+            experiment_id: string;
+            /** New Version */
+            new_version: number | null;
+            /** Promoted Label */
+            promoted_label: string | null;
+        };
+        /**
          * ConsentProvenanceIn
          * @description Where this list's consent came from, and when (SEC-COMP §3).
          *
@@ -3143,6 +3341,100 @@ export interface components {
             /** Phone E164 */
             phone_e164: string;
         };
+        /** ExperimentOut */
+        ExperimentOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Attributed Directions */
+            attributed_directions: string[];
+            /** Basis */
+            basis: string;
+            /** Caveat */
+            caveat: string;
+            /** Concluded At */
+            concluded_at: string | null;
+            /** Conversion Metric */
+            conversion_metric: string;
+            /** Conversion Metric Label */
+            conversion_metric_label: string;
+            /** Coverage Note */
+            coverage_note: string;
+            /** Difference High */
+            difference_high: number | null;
+            /** Difference Low */
+            difference_low: number | null;
+            /** Difference Point */
+            difference_point: number | null;
+            /**
+             * Experiment Id
+             * Format: uuid
+             */
+            experiment_id: string;
+            /** Headline */
+            headline: string;
+            /** Leader Label */
+            leader_label: string | null;
+            /** Minimum Calls Per Variant */
+            minimum_calls_per_variant: number;
+            /** Name */
+            name: string;
+            /** Promoted Label */
+            promoted_label: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Status */
+            status: string;
+            /** Variants */
+            variants: components["schemas"]["VariantOut"][];
+            /** Verdict */
+            verdict: string;
+            /** Winner Label */
+            winner_label: string | null;
+        };
+        /**
+         * ExperimentRulesOut
+         * @description What a script test can be scored on, and the rules the comparison obeys —
+         *     published rather than described, so the console cannot paraphrase them into
+         *     something friendlier than the server enforces.
+         *
+         *     Present on every read, including the one that reports no experiment: this is what
+         *     the Start form needs, and it is needed precisely when there is nothing running.
+         */
+        ExperimentRulesOut: {
+            /** Default Metric */
+            default_metric: string;
+            /** Metrics */
+            metrics: components["schemas"]["MetricOut"][];
+            /** Minimum Calls Per Variant */
+            minimum_calls_per_variant: number;
+            /** Peeking Caveat */
+            peeking_caveat: string;
+            /** Split Min Bp */
+            split_min_bp: number;
+            /** Split Total Bp */
+            split_total_bp: number;
+        };
+        /**
+         * ExperimentStateOut
+         * @description A wrapper so that "this agent has never run a test" is a fact the client gets,
+         *     rather than a 404 it has to interpret — a 404 on this read would be
+         *     indistinguishable from a wrong agent id, and the console would have to guess.
+         */
+        ExperimentStateOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            experiment: components["schemas"]["ExperimentOut"] | null;
+            rules: components["schemas"]["ExperimentRulesOut"];
+        };
         /** ExtractionField */
         ExtractionField: {
             /**
@@ -3310,6 +3602,23 @@ export interface components {
             items: components["schemas"]["IngestActivityItemOut"][];
         };
         /**
+         * IntakeDraftOut
+         * @description What a draft save did: it stored the sheet, and here is what is still missing.
+         *
+         *     No `prompt_version` and no `kb_source_id` — not "null", ABSENT — because a draft
+         *     mints neither, and a nullable field would invite a screen to render "prompt version:
+         *     —" beside a save that was never supposed to touch the prompt.
+         */
+        IntakeDraftOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Blockers */
+            blockers: string[];
+        };
+        /**
          * IntakeFacts
          * @description Exactly FLOWS §1 step 3's list, in its order. Every field is optional-by-default
          *     because the step is resumable and an operator fills it over days — the gate that
@@ -3401,11 +3710,92 @@ export interface components {
             escalation_contacts: {
                 [key: string]: string | null;
             }[];
+            /** Language Primary */
+            language_primary: string;
             /** Languages */
             languages: string[];
             prose_answers: components["schemas"]["IntakeProse"] | null;
+            /** Saved At */
+            saved_at: string | null;
+            /** Sheet Agent Id */
+            sheet_agent_id: string | null;
             /** Submitted At */
             submitted_at: string | null;
+        };
+        /**
+         * InvitationCreatedOut
+         * @description The one response that carries the raw token, exactly once.
+         *
+         *     It is never stored (only its SHA-256 is) and never logged, so this response is the
+         *     only place it will ever exist outside the invitee's browser. The client realm has no
+         *     mailer of its own — `apps/workers/notifications.py` owns email delivery and
+         *     registering a job there is outside this slice — so the owner is handed the link and
+         *     sends it. When that job exists this field should stop being returned, because a
+         *     token that is displayed is a token that can be pasted into the wrong window.
+         */
+        InvitationCreatedOut: {
+            /** Email Masked */
+            email_masked: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Invited At
+             * Format: date-time
+             */
+            invited_at: string;
+            /** Role */
+            role: string;
+            /** Token */
+            token: string;
+        };
+        /** InvitationIn */
+        InvitationIn: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "staff";
+        };
+        /**
+         * InvitationOut
+         * @description A pending invitation — a live key to this account sitting in an inbox.
+         *
+         *     `email_masked`, never `email`: see `members.mask_email` for why the guardrail
+         *     forbids the raw field here and what the mask keeps.
+         */
+        InvitationOut: {
+            /** Email Masked */
+            email_masked: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Invited At
+             * Format: date-time
+             */
+            invited_at: string;
+            /** Role */
+            role: string;
         };
         /** InviteIn */
         InviteIn: {
@@ -3795,6 +4185,31 @@ export interface components {
             /** Role */
             role: string;
         };
+        /** MemberRemovedOut */
+        MemberRemovedOut: {
+            /** Leads Still Assigned */
+            leads_still_assigned: number;
+            /** Previous Role */
+            previous_role: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
+        /** MemberRoleIn */
+        MemberRoleIn: {
+            /**
+             * Expected Role
+             * @enum {string}
+             */
+            expected_role: "owner" | "staff";
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "staff";
+        };
         /**
          * MessagingConsentOut
          * @description Never the number. `status: "none"` means nobody has ever asked this person,
@@ -3834,6 +4249,13 @@ export interface components {
             subscribe_field: string;
             /** Verify Token */
             verify_token: string;
+        };
+        /** MetricOut */
+        MetricOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
         };
         /** NumberCreatedOut */
         NumberCreatedOut: {
@@ -4349,6 +4771,41 @@ export interface components {
             /** Role */
             role?: string | null;
         };
+        /** StartExperimentIn */
+        StartExperimentIn: {
+            /** Challenger Disclosure */
+            challenger_disclosure?: string | null;
+            /** Challenger Version */
+            challenger_version: number;
+            /** Control Disclosure */
+            control_disclosure?: string | null;
+            /** Control Version */
+            control_version: number;
+            /**
+             * Conversion Metric
+             * @default call_outcome_resolved
+             */
+            conversion_metric: string;
+            /** Name */
+            name: string;
+            /**
+             * Split Bp
+             * @default 5000
+             */
+            split_bp: number;
+        };
+        /** StartExperimentOut */
+        StartExperimentOut: {
+            /** Engine Synced */
+            engine_synced: boolean;
+            /**
+             * Experiment Id
+             * Format: uuid
+             */
+            experiment_id: string;
+            /** Variant Ids */
+            variant_ids: string[];
+        };
         /**
          * SubjectExportIn
          * @description `extra="forbid"` so a caller cannot smuggle a second selector (a lead id, a
@@ -4591,6 +5048,35 @@ export interface components {
             undone: boolean;
         };
         /**
+         * UnfinishedOnboardingOut
+         * @description One account the wizard can be resumed on — the account, never anyone at it.
+         */
+        UnfinishedOnboardingOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Blockers */
+            blockers: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Draft Saved At */
+            draft_saved_at: string | null;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
          * UsagePanelOut
          * @description GET /v1/usage — this month's usage and what it costs (SURFACES §2b).
          *
@@ -4637,6 +5123,34 @@ export interface components {
             plan_tier: string;
             /** Spend Used Inr */
             spend_used_inr: string;
+        };
+        /** VariantOut */
+        VariantOut: {
+            /** Attributed */
+            attributed: number;
+            /** Conversions */
+            conversions: number;
+            /** Dialled */
+            dialled: number;
+            /** Label */
+            label: string;
+            /** Prompt Version */
+            prompt_version: number;
+            /** Published */
+            published: boolean;
+            /** Rate */
+            rate: number | null;
+            /** Rate High */
+            rate_high: number | null;
+            /** Rate Low */
+            rate_low: number | null;
+            /**
+             * Variant Id
+             * Format: uuid
+             */
+            variant_id: string;
+            /** Weight Bp */
+            weight_bp: number;
         };
         /**
          * Voice
@@ -5129,6 +5643,35 @@ export interface operations {
             };
         };
     };
+    list_unfinished_onboardings_v1_admin_onboarding_unfinished_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnfinishedOnboardingOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_tenants_v1_admin_tenants_get: {
         parameters: {
             query?: never;
@@ -5294,6 +5837,78 @@ export interface operations {
             };
         };
     };
+    start_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartExperimentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartExperimentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    conclude_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_conclude_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConcludeExperimentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConcludeExperimentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_get: {
         parameters: {
             query?: never;
@@ -5349,6 +5964,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntakeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    save_intake_draft_v1_admin_tenants__tenant_id__agents__agent_id__intake_draft_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntakeFacts"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeDraftOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -6194,6 +6845,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    experiment_v1_agents__agent_id__experiment_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperimentStateOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -7569,6 +8251,68 @@ export interface operations {
             };
         };
     };
+    list_invitations_v1_invitations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    invite_member_v1_invitations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationCreatedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     accept_invitation_v1_invitations_accept_post: {
         parameters: {
             query?: never;
@@ -7589,6 +8333,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AcceptInviteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    revoke_invitation_v1_invitations__invitation_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invitation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -8044,6 +8819,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemberOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_member_v1_members__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberRemovedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_member_role_v1_members__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberRoleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

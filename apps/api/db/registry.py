@@ -41,6 +41,11 @@ TENANT_TABLES = [
     "campaign_contacts",
     "dlt_templates",
     "prompt_versions",
+    # A/B script testing (ROADMAP M3, migration b3c8f27d41ae): the experiment, its two
+    # arms, and the arm each call actually ran.
+    "prompt_experiments",
+    "prompt_experiment_variants",
+    "call_variant_assignments",
     "extraction_schemas",
     "phone_numbers",
     "calls",

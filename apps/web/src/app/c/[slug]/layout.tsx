@@ -22,6 +22,7 @@ import {
   PhoneCall,
   PhoneOff,
   ShieldCheck,
+  UserCog,
   Target,
   Users,
   X,
@@ -89,6 +90,7 @@ function navigation(slug: string): NavGroup[] {
     {
       heading: "Settings & account",
       items: [
+        { href: `/c/${slug}/settings/team`, label: "Team", icon: UserCog },
         { href: `/c/${slug}/integrations`, label: "Integrations", icon: Blocks },
         { href: `/c/${slug}/usage`, label: "Usage", icon: Activity },
         { href: `/c/${slug}/verification`, label: "Verification", icon: ShieldCheck },

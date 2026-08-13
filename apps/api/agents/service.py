@@ -47,6 +47,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import assignment
 from apps.api.agents.models import CALL_CAP_DEFAULT_S
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -167,8 +168,141 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
         ),
         {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id},
     )
+    await republish_running_variants(session, tenant_id=tenant_id, agent_id=agent_id)
     log.info("agent_published", extra={"agent_id": str(agent_id), "engine": engine.name})
     return ref
+
+
+_VARIANT_CONFIG_SQL = (
+    "SELECT v.id, v.label, v.disclosure_line, pv.body, v.engine_agent_ref "
+    "FROM prompt_experiment_variants v "
+    "JOIN prompt_experiments e ON e.id = v.experiment_id "
+    "JOIN prompt_versions pv ON pv.id = v.prompt_version_id "
+    "WHERE e.agent_id = :aid AND e.status = 'running' ORDER BY v.label"
+)
+
+
+def _variant_config(
+    tenant_id: UUID,
+    agent: dict[str, object],
+    variant_id: UUID,
+    label: str,
+    body: str,
+    disclosure: str,
+) -> AgentConfig:
+    """The agent's own config with the arm's identity, script and disclosure substituted.
+
+    Built from `_to_config` rather than beside it, deliberately: an arm must differ from
+    its agent in exactly the three fields below. If a future config field (a new model
+    slot, a new cap) is added to `_to_config` and NOT to a hand-rolled variant builder,
+    the arms silently run a different configuration from the agent and every measured
+    difference is confounded by it — which is the one bug an A/B test cannot survive.
+
+    `agent_id` becomes the VARIANT's id, and that is a statement of fact rather than a
+    trick: on the engine, an arm IS its own agent object with its own ref and its own
+    routing row, and the identity we hand the vendor has to be one-to-one with the thing
+    it names. Neither adapter reads this field to correlate anything back to us —
+    `bolna.py` never touches it, `fake.py` derives its deterministic ref from it — so
+    passing the agent's id would give the fake ONE ref for both arms and silently publish
+    the second script over the first. The bridge back to the real agent is
+    `engine_agent_routes`, which is written below and is the only mapping any inbound
+    path consults.
+    """
+    return _to_config(tenant_id, agent).model_copy(
+        update={
+            "agent_id": str(variant_id),
+            "name": f"{agent['name']} [variant {label}]",
+            "system_prompt": body,
+            # Hard rule 5 travels WITH the arm. The column is NOT NULL and non-empty at
+            # the schema, so there is no value of it that publishes an undisclosed agent.
+            "disclosure_line": disclosure,
+        }
+    )
+
+
+async def publish_variant(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    variant_id: UUID,
+    label: str,
+    body: str,
+    disclosure_line: str,
+    existing_ref: str | None,
+) -> str:
+    """Create or update the engine agent that speaks ONE arm.
+
+    Why an engine agent per arm rather than a per-call prompt override: the portability
+    contract carries the script on the AGENT (`AgentConfig.system_prompt`) and
+    `start_outbound_call` takes a ref and a `CallContext` of variables — there is no
+    prompt slot on a call, in our protocol or in Bolna's. Inventing one would mean
+    widening `VoiceEngine` for a feature one adapter can serve, which is the vendor leak
+    hard rule 2 exists to stop.
+
+    The routing row is written here for the same reason `publish_agent` writes one: an
+    inbound webhook naming the arm's ref must resolve to a tenant and an agent, or the
+    reconciliation poller cannot map the call at all.
+    """
+    agent = await _load_agent(session, tenant_id, agent_id)
+    engine = get_engine()
+    config = _variant_config(tenant_id, agent, variant_id, label, body, disclosure_line)
+    if existing_ref:
+        await engine.update_agent(existing_ref, config)
+        ref = existing_ref
+    else:
+        ref = await engine.create_agent(config)
+    await session.execute(
+        text(
+            "UPDATE prompt_experiment_variants SET engine_agent_ref = :ref, updated_at = now() "
+            "WHERE id = :vid"
+        ),
+        {"ref": ref, "vid": variant_id},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
+            "active, created_at, updated_at) VALUES (:engine, :ref, :tid, :aid, true, now(), "
+            "now()) ON CONFLICT (engine, engine_agent_ref) DO UPDATE SET "
+            "tenant_id = EXCLUDED.tenant_id, agent_id = EXCLUDED.agent_id, active = true, "
+            "updated_at = now()"
+        ),
+        {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id},
+    )
+    log.info(
+        "agent_variant_published",
+        extra={"agent_id": str(agent_id), "variant_id": str(variant_id), "label": label},
+    )
+    return ref
+
+
+async def republish_running_variants(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
+) -> int:
+    """Push the agent's CURRENT configuration onto every running arm.
+
+    Called from `publish_agent`, so the fast lane keeps working during an experiment.
+    Without it, setting a call cap or a voice while a test runs updates the agent object
+    the engine is no longer dialling and leaves both arms on the old config — a
+    cost-runaway guard that silently stops guarding is the worst possible shape for that
+    bug. Each arm keeps its OWN script and disclosure; everything else follows the agent.
+
+    Returns the number of arms republished (0 when nothing is running), which is what
+    the caller logs.
+    """
+    rows = (await session.execute(text(_VARIANT_CONFIG_SQL), {"aid": agent_id})).all()
+    for row in rows:
+        await publish_variant(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            variant_id=UUID(str(row[0])),
+            label=str(row[1]),
+            disclosure_line=str(row[2]),
+            body=str(row[3]),
+            existing_ref=row[4],
+        )
+    return len(rows)
 
 
 async def dispatch_call(
@@ -186,6 +320,17 @@ async def dispatch_call(
     A `queued` call row is written BEFORE the engine call returns, so a dispatch that
     succeeds at the vendor but fails on our side still shows up rather than becoming an
     invisible charge.
+
+    A/B SCRIPT TESTING (ROADMAP M3) IS WIRED HERE, and here is the only place it could
+    be. This function is the platform's single outbound entry point — the property
+    `scripts/check_compliance_invariants` asserts in its first section — so an
+    assignment made here covers the campaign dispatcher, the D-21 "call this lead"
+    button and the callback path without any of them knowing an experiment exists.
+    Nothing about the gate changes: the caller has already been refused or allowed
+    before this line, and choosing WHICH published script to speak cannot un-refuse it.
+
+    The arm decides which engine agent is dialled, and the assignment is written in the
+    SAME transaction as the call row it describes.
     """
     agent = await _load_agent(session, tenant_id, agent_id)
     ref = agent["engine_agent_ref"]
@@ -196,9 +341,20 @@ async def dispatch_call(
             remediation="Publish the agent from the admin console first.",
         )
 
+    # The stable unit: the lead when there is one, the destination otherwise. See
+    # `agents/assignment.py` for why it is not the call id.
+    arm = await assignment.assign(
+        session, agent_id=agent_id, unit_key=str(lead_id) if lead_id else phone_e164
+    )
+    # An arm that has never been published has no engine agent to dial. Falling back to
+    # the agent's own ref rather than failing: the client's call is the thing that
+    # matters, and a call that ran the control is a call, whereas a refused dial is an
+    # outage caused by an experiment. It is not recorded as assigned — see below.
+    dial_ref = arm.arm.engine_agent_ref if arm and arm.arm.engine_agent_ref else ref
+
     engine = get_engine()
     handle = await engine.start_outbound_call(
-        ref,
+        dial_ref,
         phone_e164,
         CallContext(
             lead_id=str(lead_id) if lead_id else None,
@@ -206,22 +362,30 @@ async def dispatch_call(
             context_note=context_note,
         ),
     )
-    await session.execute(
-        text(
-            "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
-            "status, lead_id, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
-            "'outbound', :to_e, 'queued', :lid, now(), now()) "
-            "ON CONFLICT (engine_call_id) DO NOTHING"
-        ),
-        {
-            "id": uuid7(),
-            "tid": tenant_id,
-            "aid": agent_id,
-            "ecid": handle,
-            "to_e": phone_e164,
-            "lid": lead_id,
-        },
-    )
+    call_id = uuid7()
+    inserted = (
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
+                "status, lead_id, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
+                "'outbound', :to_e, 'queued', :lid, now(), now()) "
+                "ON CONFLICT (engine_call_id) DO NOTHING RETURNING id"
+            ),
+            {
+                "id": call_id,
+                "tid": tenant_id,
+                "aid": agent_id,
+                "ecid": handle,
+                "to_e": phone_e164,
+                "lid": lead_id,
+            },
+        )
+    ).first()
+    # No row back = this engine call id was already ours, so the call already carries
+    # whatever arm it was first assigned. Re-recording would be the one way an
+    # assignment could ever move, which is exactly what must not happen.
+    if inserted is not None and arm is not None and arm.arm.engine_agent_ref:
+        await assignment.record(session, tenant_id=tenant_id, call_id=call_id, assignment=arm)
     return handle
 
 
@@ -291,5 +455,7 @@ __all__ = [
     "effective_call_cap",
     "provision_number",
     "publish_agent",
+    "publish_variant",
+    "republish_running_variants",
     "set_number_dlt_status",
 ]

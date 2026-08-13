@@ -50,6 +50,12 @@ const INTAKE = `${TENANTS}/${CREATED.id}/agents/${CREATED.agent_id}/intake`;
 // realm who this session is. Stubbed here as premise rather than assertion — this file's
 // subject is the invite, and `adminNewIntake.test.tsx` owns the gate.
 const ADMIN_ME = "/v1/admin/me";
+// Step 1 lists the onboardings somebody started and did not finish, so an operator
+// resumes instead of recreating a client under a slug the first attempt already holds
+// (slugs are immutable). Stubbed EMPTY as a premise: this file's subject is the invite,
+// and an unstubbed read renders that panel's refusal card over every test here — which
+// is the panel behaving correctly, and noise in the wrong file.
+const UNFINISHED = "/v1/admin/onboarding/unfinished";
 const OPERATOR = {
   realm: "admin",
   user_id: "0192f0aa-7777-7000-8000-0000000000f2",
@@ -79,6 +85,7 @@ describe("creating the account", () => {
         detail: "That slug already belongs to another client.",
         remediation: "Choose a different slug.",
       }),
+      [UNFINISHED]: [],
     });
 
     fillName();
@@ -100,6 +107,7 @@ describe("creating the account", () => {
       [TENANTS]: CREATED,
       [ADMIN_ME]: OPERATOR,
       [INTAKE]: NO_INTAKE,
+      [UNFINISHED]: [],
     });
 
     fillName();
@@ -119,6 +127,7 @@ describe("creating the account", () => {
         detail: "This action requires the admin:tenants permission.",
         remediation: "Ask a superadmin to create the account.",
       }),
+      [UNFINISHED]: [],
     });
 
     fillName();
@@ -141,6 +150,7 @@ describe("the owner invite", () => {
       [TENANTS]: CREATED,
       [ADMIN_ME]: OPERATOR,
       [INTAKE]: NO_INTAKE,
+      [UNFINISHED]: [],
       ...routes,
     });
     fillName();

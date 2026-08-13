@@ -47,6 +47,70 @@ platform choice does): **is the Sarvam LLM genuinely free per token** — perman
 promotional, or rate-limited? If durable it removes the R-04 Gemini-3.x step
 (~₹0.55–0.65/min). Also pin Bulbul V3's "beta pricing" (₹30/10k chars) — beta prices move.
 
+### Running it — gates 1, 2 and 6 are executable, the rest are not (yet)
+
+The table above is the specification; `scripts/pilot/` is the part of it a machine can
+decide. Start with the shopping list, on day one and not on day three:
+
+```
+uv run python -m scripts.pilot reachability   # can this machine reach api.bolna.ai at all?
+make pilot-preflight     # uv run python -m scripts.pilot preflight
+make pilot               # DRY RUN of gates 1, 2, 6 — places no calls, spends nothing
+```
+
+**Run the reachability probe first.** It needs no key, no credit and no number, and it
+answers the one question that invalidates the whole session: a sandboxed or corporate
+network that refuses the CONNECT to `api.bolna.ai` blocks every API gate, for a reason
+that has nothing to do with Bolna. (The environment this harness was written in is
+exactly such a network.) It is also the first row of the preflight; exit 4 means
+unreachable, and skipping it with `--no-network` reports it UNVERIFIABLE rather than
+assuming it is fine.
+
+Preflight names every missing credential and prerequisite, which gates each one blocks,
+and where to get it; it reports a key as present or absent and never prints one. `make
+pilot` executes gates **1** (webhook trust), **2** (API provisioning) and **6** (webhook
+loss + poller recovery) through the `VoiceEngine` adapter — never raw HTTP, because the
+pilot's job is to verify the adapter we will ship, not a curl that bypasses it.
+
+Placing real calls requires an explicit opt-in and a ceiling, and refuses to run against
+a production-shaped configuration:
+
+```
+uv run python -m scripts.pilot run --gates 2 --to +91XXXXXXXXXX \
+    --yes-place-real-calls-and-spend-money --max-calls 2 --out pilot-results.json
+```
+
+Gate 1 needs the raw deliveries your tunnel received (`--webhook-capture <file>`,
+repeatable); gate 6 needs the execution ids whose webhook you dropped
+(`--missed-execution <id>`) plus what you saw with your own eyes
+(`--attest gate6.call_continued=yes`, `--attest gate6.retries_observed=0`) — those two
+are recorded as operator attestations, never as measurements. **Exit 2 means "nothing
+went red and nothing was verified either"**; only exit 0 is a pass. Every gate result is
+PASS, FAIL or **NOT RUN**, and NOT RUN never renders as green.
+
+What the harness found before any credentials existed, and what it therefore cannot do:
+
+- gate 2's **`scheduled_at`** criterion is not expressible through `VoiceEngine.
+  start_outbound_call`, and the Bolna adapter's `POST /call` body carries no such field.
+  Gate 2 cannot report a full pass until the contract grows one.
+- gate 2's **"attach number"** step cannot run through the adapter at all —
+  `BolnaEngine.provision_number` raises `engine_capability_unverified` (M1 defers
+  numbers to the telephony provider), so that step is a dashboard action, which is what
+  "via API only, no dashboard" forbids.
+- there is **no agent read-back** on the contract (`create_agent` and `update_agent`
+  exist; nothing reads an agent's current config), so "update prompt" is confirmed only
+  as ACCEPTED — the vendor took the PUT — never as APPLIED. The only end-to-end proof
+  available is indirect: the prompt's effect on a live call, which is what the
+  `user_data` round-trip check measures. The same missing method is why gate 8's
+  dangling-`rag_id` question (D-41) cannot be answered through the adapter.
+- gate 1's edge half (nginx rejecting a non-allowlisted source) needs an HTTP POST from
+  another host against the deployed receiver; the harness exercises the in-app half only.
+
+Gates 9-12 are conversations with human beings and the harness says so rather than
+leaving a blank row. Gates 3, 4, 5, 7, 8 and 13 belong to other modules under
+`scripts/pilot/`; any gate with no implementation registered is reported by number as
+NOT RUN.
+
 Deliverable: filled scorecard committed to `docs/evidence/bolna-pilot-scorecard.md`
 (template in repo), with captured payloads saved as adapter fixtures. Passing closes the
 D-31 gate and A-1/A-8; a red hard gate reopens the engine decision (no fallback engine

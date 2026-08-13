@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import {
   ArrowLeft,
+  ArrowRight,
   Building2,
   CheckCircle2,
   KeyRound,
@@ -22,6 +23,8 @@ import {
   PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
+  Skeleton,
+  formatIST,
 } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
 import {
@@ -30,7 +33,14 @@ import {
   type CreateOrgIn,
   type CreateOrgOut,
 } from "@/lib/api/admin";
-import { draftFromState, useIntake, type IntakeDraft } from "@/lib/api/intake";
+import {
+  blockerCopy,
+  draftFromState,
+  useIntake,
+  useUnfinishedOnboardings,
+  type IntakeDraft,
+  type UnfinishedOnboarding,
+} from "@/lib/api/intake";
 
 import { IntakeStep } from "./IntakeStep";
 import { WIZARD_LANGUAGES } from "./languages";
@@ -146,16 +156,63 @@ function refusalReason(error: unknown): string | null {
   return null;
 }
 
+/**
+ * The account the wizard's later steps are about, however it got here.
+ *
+ * Two motions reach step 2 now — creating an account, and RESUMING one whose intake was
+ * left half-answered (FLOWS §1: "draft state saved at every step (resume anytime)") —
+ * and they carry different evidence. `CreateOrgOut` is what the creation returned;
+ * `UnfinishedOnboardingOut` is a row off the resume list. This is their intersection,
+ * plus `origin`, because the panels below must not tell an operator resuming a
+ * three-week-old onboarding that an account was just created.
+ *
+ * Modelling it as a union of the two wire types was the alternative, and it pushes a
+ * discriminant check into every reader for two shapes that agree on everything the
+ * steps use. The narrow record is the same value both motions already hold.
+ */
+interface WizardAccount {
+  id: string;
+  slug: string;
+  status: string;
+  agent_id: string;
+  origin: "created" | "resumed";
+  /** The business's name as the SERVER holds it. `null` for a fresh creation, where
+   *  `CreateOrgOut` carries no name and what was typed is offered separately as what
+   *  was submitted — a distinction this screen already draws and keeps. */
+  name: string | null;
+}
+
+const createdAccount = (created: CreateOrgOut): WizardAccount => ({
+  id: created.id,
+  slug: created.slug,
+  status: created.status,
+  agent_id: created.agent_id,
+  origin: "created",
+  name: null,
+});
+
+const resumedAccount = (row: UnfinishedOnboarding): WizardAccount => ({
+  id: row.tenant_id,
+  slug: row.slug,
+  // The resume list is exactly "still in onboarding", so this is a fact about the row
+  // rather than a default: `unfinished_onboardings` filters on it in SQL.
+  status: "onboarding",
+  agent_id: row.agent_id,
+  origin: "resumed",
+  name: row.name,
+});
+
 export default function NewClientPage() {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [vertical, setVertical] = useState<CreateOrgIn["vertical_template"]>("clinic");
   const [language, setLanguage] = useState<CreateOrgIn["language"]>("te-IN");
   const [email, setEmail] = useState("");
-  // The ONLY evidence that an account exists. Set from the mutation's `onSuccess` and
-  // from nowhere else — every sentence in step 2 reads off this object, so the screen
-  // structurally cannot report a creation the server did not confirm.
-  const [created, setCreated] = useState<CreateOrgOut | null>(null);
+  // The ONLY evidence that an account exists. Set from the creation mutation's
+  // `onSuccess` or from a row the resume list returned, and from nowhere else — every
+  // sentence in step 2 reads off this object, so the screen structurally cannot report
+  // an account the server did not describe.
+  const [created, setCreated] = useState<WizardAccount | null>(null);
   /**
    * Which of the two POST-CREATION steps is on screen.
    *
@@ -190,6 +247,8 @@ export default function NewClientPage() {
         </p>
       </div>
 
+      {!created && <ResumePanel onResume={(row) => setCreated(resumedAccount(row))} />}
+
       {!created ? (
         <Card title="Account details">
           <form
@@ -204,7 +263,7 @@ export default function NewClientPage() {
                   language,
                   billing_email: email.trim() || null,
                 },
-                { onSuccess: setCreated },
+                { onSuccess: (account) => setCreated(createdAccount(account)) },
               );
             }}
           >
@@ -338,12 +397,102 @@ export default function NewClientPage() {
           created={created}
           submittedName={name}
           defaultEmail={email}
-          primaryLanguage={language}
           step={step}
           onStep={setStep}
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Where an unfinished onboarding is picked back up — FLOWS §1's "resume anytime", which
+ * had no surface at all while nothing could be saved partially.
+ *
+ * ## Why the list is HERE
+ *
+ * Starting an onboarding and continuing one are the same task, so they are the same
+ * screen: the operator who wants to finish yesterday's client opens "New client",
+ * exactly as they did to begin it, and the wizard picks up from the row's tenant and
+ * agent ids. The considered alternative was the tenant DIRECTORY, which is the roster
+ * of every account and deliberately "stays dumb: counts, not judgements"
+ * (`admin.service.tenant_overview`) — putting four onboarding columns there would make
+ * every finished client render them empty, and would send an operator to a second
+ * screen to do a thing this one exists for. A standalone `/admin/onboarding` page was
+ * the third option and is a fourth place to look for the same work.
+ *
+ * ## BUILD-LOG §52, and why it bites hard on THIS list
+ *
+ * loading is a skeleton; a failed read is a REFUSAL. "No unfinished onboardings" over a
+ * 503 is the worst sentence on this page: it tells an operator their half-finished
+ * client is not waiting for them, which is the one thing they came here to check — and
+ * the next thing they do is create the account again, under a slug the first attempt
+ * already took. The empty state is rendered ONLY for an answered, genuinely empty list.
+ */
+function ResumePanel({ onResume }: { onResume: (row: UnfinishedOnboarding) => void }) {
+  const unfinished = useUnfinishedOnboardings();
+
+  if (unfinished.isError) {
+    return (
+      <Card title="Unfinished onboardings">
+        <ProblemNotice error={unfinished.error} onRetry={() => void unfinished.refetch()} />
+        <p className="mt-3 text-xs text-ink-muted">
+          We could not read which onboardings are unfinished, so this list is not saying
+          there are none. Retry before creating an account — a client you already started
+          holds their slug, and it is immutable.
+        </p>
+      </Card>
+    );
+  }
+
+  if (unfinished.isPending) {
+    return (
+      <Card title="Unfinished onboardings">
+        <Skeleton rows={2} />
+      </Card>
+    );
+  }
+
+  if (unfinished.data.length === 0) return null;
+
+  return (
+    <Card title="Unfinished onboardings">
+      <p className="-mt-2 text-xs text-ink-muted">
+        Accounts created but never through step 3, most recently worked on first. Picking
+        one reopens the intake with whatever was saved.
+      </p>
+      <ul className="mt-4 space-y-2">
+        {unfinished.data.map((row) => (
+          <li
+            key={row.tenant_id}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-app p-3"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-ink">{row.name}</p>
+              <p className="mt-0.5 text-xs text-ink-faint">
+                <span className="font-mono">/c/{row.slug}</span>
+                {" · "}
+                {/* Two different states, said differently. A never-opened intake is not
+                    a zero and not "saved never"; it is an account whose step 3 nobody
+                    has started, which is what the server's `null` means. */}
+                {row.draft_saved_at
+                  ? `draft saved ${formatIST(row.draft_saved_at)}`
+                  : `created ${formatIST(row.created_at)} — intake never opened`}
+              </p>
+              {row.blockers.length > 0 && (
+                <p className="mt-1 text-xs text-ink-muted">
+                  Still needed: {row.blockers.map(blockerCopy).join(" ")}
+                </p>
+              )}
+            </div>
+            <button type="button" onClick={() => onResume(row)} className={SECONDARY_BUTTON}>
+              Resume
+              <ArrowRight aria-hidden className="h-4 w-4" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 
@@ -377,14 +526,12 @@ function AfterCreate({
   created,
   submittedName,
   defaultEmail,
-  primaryLanguage,
   step,
   onStep,
 }: {
-  created: CreateOrgOut;
+  created: WizardAccount;
   submittedName: string;
   defaultEmail: string;
-  primaryLanguage: CreateOrgIn["language"];
   step: "intake" | "invite";
   onStep: (step: "intake" | "invite") => void;
 }) {
@@ -393,24 +540,41 @@ function AfterCreate({
   // this cannot address a step at an agent that was never created.
   const intake = useIntake(created.id, created.agent_id);
   const [draft, setDraft] = useState<IntakeDraft | null>(null);
-  if (draft === null && intake.data) setDraft(draftFromState(intake.data, primaryLanguage));
+  // The primary language comes from the response now, not from step 1's local state:
+  // a RESUMED account never went through step 1 in this browser, so the only honest
+  // source for "which language does this agent answer in" is the agent's own row.
+  if (draft === null && intake.data) setDraft(draftFromState(intake.data));
 
   return (
     <div className="space-y-4">
       {/* Above BOTH steps, because it is a standing fact about the account rather than
-          part of either one — and it reads off the server's own `slug` and `status`. */}
+          part of either one — and it reads off the server's own `slug` and `status`.
+          A RESUMED account was not created just now and must not say it was: the two
+          headings are the same fact ("this is the account the steps below are about")
+          told truthfully about two different moments. */}
       <NoticeBox
         tone="ok"
         icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
-        title="Account created"
+        title={created.origin === "created" ? "Account created" : `Resuming ${created.name}`}
       >
         <p className="mt-1">
           Live at <span className="font-mono font-semibold">/c/{created.slug}</span>, status{" "}
-          <span className="font-semibold">{created.status}</span>. Retention policies, a
-          draft inbound receptionist and an extraction schema are in place. The agent is{" "}
-          <strong>draft</strong> — nothing is client-visible until it is published.
+          <span className="font-semibold">{created.status}</span>.{" "}
+          {created.origin === "created" ? (
+            <>
+              Retention policies, a draft inbound receptionist and an extraction schema are
+              in place. The agent is <strong>draft</strong> — nothing is client-visible
+              until it is published.
+            </>
+          ) : (
+            <>
+              The intake below is prefilled from what was saved for this client. The agent
+              is still <strong>draft</strong> — nothing is client-visible until it is
+              published.
+            </>
+          )}
         </p>
-        {submittedName && (
+        {created.origin === "created" && submittedName && (
           <p className="mt-1 text-xs">Submitted as &ldquo;{submittedName}&rdquo;.</p>
         )}
       </NoticeBox>
@@ -419,7 +583,6 @@ function AfterCreate({
         <IntakeStep
           tenantId={created.id}
           agentId={created.agent_id}
-          primaryLanguage={primaryLanguage}
           state={intake}
           draft={draft}
           onDraftChange={setDraft}
@@ -451,7 +614,7 @@ function CreatedPanel({
   defaultEmail,
   onBack,
 }: {
-  created: CreateOrgOut;
+  created: WizardAccount;
   defaultEmail: string;
   onBack: () => void;
 }) {

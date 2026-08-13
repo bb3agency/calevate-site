@@ -124,6 +124,154 @@ class PromptVersion(PKMixin, TimestampMixin, Base):
     published_at: Mapped[datetime | None]
 
 
+EXPERIMENT_STATUSES = ("running", "concluded")
+
+# Exactly two arms. Not a limitation we ran out of time for — a third arm needs a
+# multiplicity correction (the family-wise error rate of three pairwise 95% intervals is
+# not 5%), and `agents/proportions.py` implements none. Two labels, fixed, so the shape
+# of the comparison is a property of the schema rather than of the reader's memory.
+VARIANT_LABELS = ("A", "B")
+
+# Traffic split in basis points, so a 50/50 is 5000/5000 and an INTEGER column can hold
+# a 2.5% ramp. The two variants of an experiment must sum to 10000 — enforced by
+# `agents/experiments.py` on the only path that writes them, because a CHECK cannot see
+# its sibling row.
+SPLIT_TOTAL_BP = 10_000
+# A ramp below 5% cannot reach `MIN_CALLS_PER_VARIANT` in any campaign this platform
+# dials, so an experiment configured that way is one that can only ever report "not
+# enough data" — a control that looks like it is running and can never conclude.
+SPLIT_MIN_BP = 500
+
+# What "converted" means, as SQL over the assigned call. Two definitions because the
+# verticals genuinely measure different things — a receptionist resolves a call, a sales
+# agent produces a lead somebody eventually wins — and hardcoding one would be wrong for
+# half the clients. Two is the whole list: this mapping IS the enum, so a metric with no
+# predicate cannot be stored, and the CHECK constraint in migration b3c8f27d41ae repeats
+# the same two names against the database.
+CONVERSION_METRICS: dict[str, str] = {
+    # The post-call pipeline's own verdict on the conversation (workers/extraction.py
+    # writes `calls.outcome_tag`).
+    "call_outcome_resolved": "c.outcome_tag = 'resolved'",
+    # The commercial outcome: the lead this call belongs to was eventually won. Lags the
+    # call by however long the client's sales cycle takes, which is why it is not the
+    # default — an experiment read too early on this metric shows two zeroes.
+    "lead_won": "EXISTS (SELECT 1 FROM leads l WHERE l.id = c.lead_id AND l.status = 'won')",
+}
+DEFAULT_CONVERSION_METRIC = "call_outcome_resolved"
+
+
+class PromptExperiment(PKMixin, TimestampMixin, Base):
+    """One A/B script test on one agent (ROADMAP M3).
+
+    At most ONE may be running per agent at a time — a partial unique index in the
+    migration, not a code check, because two overlapping experiments would each attribute
+    the same calls and neither result would mean anything.
+    """
+
+    __tablename__ = "prompt_experiments"
+    __table_args__ = (
+        CheckConstraint(f"status IN {EXPERIMENT_STATUSES!r}", name="ck_prompt_experiments_status"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, server_default="running")
+    conversion_metric: Mapped[str] = mapped_column(String, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(nullable=False)
+    concluded_at: Mapped[datetime | None]
+    # Which arm the operator promoted, or NULL for an experiment that was stopped
+    # without promoting either. NULL is a real answer here — "we learned nothing and
+    # kept the control" is the commonest honest ending of an A/B test.
+    promoted_variant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("prompt_experiment_variants.id", use_alter=True, ondelete="SET NULL")
+    )
+
+
+class PromptExperimentVariant(PKMixin, TimestampMixin, Base):
+    """One arm: an EXISTING immutable prompt version, its disclosure line, its share of
+    traffic, and the engine agent that actually speaks it.
+
+    The body is not copied here. A variant names a `prompt_versions` row, so the script
+    an experiment ran stays readable in the same history a rollback reads, and there is
+    exactly one place a prompt body lives (`agents/prompts.py`'s immutability promise).
+
+    `disclosure_line` IS copied, and is NOT NULL with a non-empty CHECK, because hard
+    rule 5 says an agent always has one and a variant is what the caller actually hears.
+    A variant whose disclosure could be absent would be a way to publish an undisclosed
+    agent through a feature flag.
+    """
+
+    __tablename__ = "prompt_experiment_variants"
+    __table_args__ = (
+        UniqueConstraint("experiment_id", "label", name="uq_prompt_experiment_variants_label"),
+        CheckConstraint(f"label IN {VARIANT_LABELS!r}", name="ck_prompt_experiment_variants_label"),
+        CheckConstraint(
+            f"weight_bp BETWEEN {SPLIT_MIN_BP} AND {SPLIT_TOTAL_BP - SPLIT_MIN_BP}",
+            name="ck_prompt_experiment_variants_weight_range",
+        ),
+        # Hard rule 5, at the schema, in the same shape `agents.disclosure_nonempty` has.
+        CheckConstraint(
+            "length(btrim(disclosure_line)) > 0",
+            name="ck_prompt_experiment_variants_disclosure_nonempty",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    experiment_id: Mapped[UUID] = mapped_column(
+        ForeignKey("prompt_experiments.id", ondelete="CASCADE"), nullable=False
+    )
+    label: Mapped[str] = mapped_column(String, nullable=False)
+    prompt_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("prompt_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    disclosure_line: Mapped[str] = mapped_column(Text, nullable=False)
+    weight_bp: Mapped[int] = mapped_column(Integer, nullable=False)
+    # The engine's own agent for this arm. Two arms means two engine agents, because the
+    # vendor contract carries the script ON the agent (`AgentConfig.system_prompt`) and
+    # `start_outbound_call` takes only a ref — there is no per-call prompt override to
+    # reach for. NULL until the arm is published.
+    engine_agent_ref: Mapped[str | None] = mapped_column(Text)
+
+
+class CallVariantAssignment(PKMixin, TimestampMixin, Base):
+    """WHICH ARM THIS CALL GOT. The fact, recorded once, at the moment the call is made.
+
+    This row is the entire reason the attribution can be trusted. The alternative —
+    recomputing the bucket at read time from the call's phone number and the experiment's
+    split — gives a DIFFERENT answer the moment anybody ramps the split, silently
+    reassigning calls that already happened to the arm they never ran. Assignment is
+    deterministic so it can be reproduced; it is stored because a reproduction is not
+    evidence.
+
+    UNIQUE on `call_id`: one call, one arm, forever. No UPDATE path exists in this
+    codebase and none should be added — a correction is a data question for an operator,
+    not a code path.
+    """
+
+    __tablename__ = "call_variant_assignments"
+    __table_args__ = (UniqueConstraint("call_id", name="uq_call_variant_assignments_call_id"),)
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    call_id: Mapped[UUID] = mapped_column(
+        ForeignKey("calls.id", ondelete="CASCADE"), nullable=False
+    )
+    experiment_id: Mapped[UUID] = mapped_column(
+        ForeignKey("prompt_experiments.id", ondelete="RESTRICT"), nullable=False
+    )
+    variant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("prompt_experiment_variants.id", ondelete="RESTRICT"), nullable=False
+    )
+
+
 class ExtractionSchema(PKMixin, TimestampMixin, Base):
     """fields JSONB validated by Pydantic on write (DATA-MODEL §3 shape).
     Changing a schema creates a NEW version; leads render by the version active at

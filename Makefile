@@ -4,6 +4,7 @@
 # in the repo root would make `make guardrails` print "nothing to be done" and exit 0:
 # the CI gate reporting success without running a single check.
 .PHONY: help dev up down check lint lint-check types test db-reset eval eval-ci \
+        qa-report \
         gen-api conformance smoke guardrails web-check coverage-ratchet \
         coverage-ratchet-accept
 
@@ -24,6 +25,7 @@ help:  ## List targets
 	@echo '  make web-check   - frontend typecheck + vitest suite'
 	@echo '  make db-reset    - drop, migrate, seed'
 	@echo '  make eval CLIENT=slug - regression harness (core5)'
+	@echo '  make qa-report CLIENT=slug VERTICAL=clinic - client-facing QA report'
 	@echo '  make gen-api     - OpenAPI snapshot -> typed TS client'
 	@echo '  make guardrails  - executable governance (D-29)'
 	@echo '  make coverage-ratchet - suite under coverage + the per-surface ratchet [CI gate]'
@@ -137,6 +139,18 @@ eval:  ## make eval CLIENT=<slug>   [regression harness; fails on a REGRESSION, 
 eval-ci:  ## The ratchet exactly as CI runs it — part of the gate, not an extra
 	uv run python -m scripts.eval --client=ci
 
+# G3 ships this to every client monthly, so VERTICAL is required for the same reason
+# CLIENT is: a clinic's report listing property calls is not the asset it is sold as,
+# and a default would produce one silently rather than refusing.
+REQUIRE_VERTICAL = $(or $(VERTICAL),$(error make qa-report needs VERTICAL=<clinic|real_estate>))
+# Its own CLIENT guard rather than `REQUIRE_CLIENT`: that one's message names `make eval`,
+# and an error telling you to fix a different command than the one you ran is the kind of
+# small lie that costs somebody ten minutes. The duplication is the message, not the rule.
+REQUIRE_QA_CLIENT = $(or $(CLIENT),$(error make qa-report needs CLIENT=<slug>))
+
+qa-report:  ## make qa-report CLIENT=<slug> VERTICAL=<clinic|real_estate>   [client-facing QA report, ROADMAP M3]
+	uv run python -m scripts.qa_report --client=$(REQUIRE_QA_CLIENT) --vertical=$(REQUIRE_VERTICAL)
+
 gen-api:
 	pnpm -C apps/web gen:api
 
@@ -174,3 +188,18 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# set against the Makefile, the package scripts, the decision log and the code's own
 	# vocabulary. Negative controls in tests/docs_drift_guard_test.py.
 	uv run python -m scripts.check_docs_drift
+
+# --- Bolna pilot (OPERATIONS §2, ROADMAP gate G0) -----------------------------
+# Its own .PHONY line rather than an edit to the one at the top: these targets were
+# added while other slices were editing this file, and an append cannot collide.
+.PHONY: pilot-preflight pilot
+
+pilot-preflight:  ## What the Bolna pilot still needs — credentials, tunnel, number, credit
+	uv run python -m scripts.pilot preflight
+
+## DRY RUN. Placing a real call needs the explicit opt-in flag and --max-calls, which
+## are deliberately NOT in this target: a make target that can dial a telephone is a
+## make target somebody runs by accident. Exit 2 is normal here and means "nothing went
+## red, and nothing was verified either" — a dry run proves nothing about the vendor.
+pilot:  ## Dry run of the API-executable pilot gates (1 webhook trust, 2 provisioning, 6 webhook loss)
+	uv run python -m scripts.pilot run --gates 1,2,6

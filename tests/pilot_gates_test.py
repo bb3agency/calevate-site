@@ -1,0 +1,549 @@
+"""Gates 1, 2 and 6 executed end to end — including every failure path.
+
+WHY THIS FILE IS THE POINT OF THE SLICE. A pilot harness that has never run is exactly
+as unverified as the vendor it exists to verify, and it gets exactly one chance, on a
+day when a founder is holding a phone and burning PSTN credit. So every branch of every
+gate runs here against `fake` and against small doubles built on top of it: the pass, the
+fail, and the not-run.
+
+WHY DOUBLES AND NOT JUST `FakeEngine`. `fake` is a conformance control, not a Bolna
+simulator, and it deliberately does not model three things these gates turn on: it
+performs no source-IP check (`method="none"`), it does not echo `user_data` into a
+transcript, and it provisions numbers happily where the real adapter refuses. Each
+double adds exactly ONE of those behaviours, so the test says which vendor property it
+is standing in for instead of a general-purpose mock saying nothing.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from apps.api.core.errors import ProblemError
+from apps.api.engine.fake import FakeEngine
+from calevate_shared.config import Settings
+from calevate_shared.engine import (
+    EngineAgentRef,
+    ExecutionSnapshot,
+    NumberSpec,
+    ProvisionedNumber,
+    WebhookVerdict,
+)
+from calevate_shared.events import TranscriptTurn
+from scripts.pilot.gates_api import (
+    DOCUMENTED_EGRESS_IP,
+    GateContext,
+    compare_delivery,
+    run_gate_1,
+    run_gate_2,
+    run_gate_6,
+)
+
+
+def _settings() -> Settings:
+    return Settings(  # type: ignore[call-arg]
+        app_env="local",
+        database_url="postgresql+psycopg://u:p@localhost:5432/x",
+        redis_url="redis://localhost:6379/0",
+        object_store_endpoint="http://localhost:9000",
+        object_store_bucket="calevate",
+        webhook_base_url="https://pilot.example.com",
+        engine="fake",
+    )
+
+
+def _ctx(engine: Any, **overrides: Any) -> GateContext:
+    return GateContext(engine=engine, settings=_settings(), **overrides)
+
+
+def _check(result: Any, name: str) -> Any:
+    matches = [c for c in result.checks if c.name == name]
+    assert matches, f"no sub-check named {name!r} in gate {result.number}"
+    return matches[0]
+
+
+# --- doubles ------------------------------------------------------------------
+
+
+class SourceIpEngine(FakeEngine):
+    """`fake` plus the one property gate 1 measures: a source-IP allowlist.
+
+    Stands in for `BolnaEngine.verify_webhook`, which is the only adapter that has one.
+    """
+
+    def verify_webhook(
+        self, headers: dict[str, str], body: bytes, source_ip: str
+    ) -> WebhookVerdict:
+        if source_ip == DOCUMENTED_EGRESS_IP:
+            return WebhookVerdict(ok=True, method="source_ip")
+        return WebhookVerdict(ok=False, method="source_ip", reason="not allowlisted")
+
+
+class OpenAllowlistEngine(SourceIpEngine):
+    """An allowlist that is not one — the defect gate 1 exists to catch."""
+
+    def verify_webhook(
+        self, headers: dict[str, str], body: bytes, source_ip: str
+    ) -> WebhookVerdict:
+        return WebhookVerdict(ok=True, method="source_ip")
+
+
+class EchoingEngine(FakeEngine):
+    """`fake` plus `user_data` round-tripping into the prompt (gate 2's real question).
+
+    The shipped fake stores the CallContext and never surfaces it, so the round-trip
+    check has no positive path against it. This double closes that by having the agent
+    speak the nonce back, which is exactly what the pilot instructs the live agent to do.
+    """
+
+    async def get_execution(self, call_id: str) -> ExecutionSnapshot:
+        snapshot = await super().get_execution(call_id)
+        call = self._calls.get(call_id) or {}
+        nonce = (call.get("context") or {}).get("fields", {}).get("pilot_nonce")
+        if not nonce:
+            return snapshot
+        spoken = TranscriptTurn(
+            call_id=call_id,
+            idx=len(snapshot.transcript),
+            speaker="agent",
+            text=f"Mee reference {nonce}.",
+        )
+        return snapshot.model_copy(update={"transcript": [*snapshot.transcript, spoken]})
+
+
+class CallerEchoEngine(EchoingEngine):
+    """The nonce comes back in a CALLER turn only.
+
+    A human on a pilot call reading the reference aloud must not pass a check about
+    whether the ENGINE rendered it into the prompt.
+    """
+
+    async def get_execution(self, call_id: str) -> ExecutionSnapshot:
+        snapshot = await super().get_execution(call_id)
+        last = len(snapshot.transcript) - 1
+        turns = [
+            t.model_copy(update={"speaker": "caller"}) if t.idx == last else t
+            for t in snapshot.transcript
+        ]
+        return snapshot.model_copy(update={"transcript": turns})
+
+
+class NoNumberEngine(EchoingEngine):
+    """Mirrors `BolnaEngine.provision_number`, which refuses (M1 defers it)."""
+
+    async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:
+        raise ProblemError(
+            kind="dependency",
+            code="engine_capability_unverified",
+            title="Number provisioning is not automated yet",
+            detail="Numbers are provisioned with the telephony provider directly (M1).",
+        )
+
+
+class BrokenAgentEngine(FakeEngine):
+    async def create_agent(self, cfg: Any) -> EngineAgentRef:
+        raise ProblemError(
+            kind="dependency",
+            code="engine_rejected",
+            title="Voice engine rejected the request",
+            detail="The voice platform could not complete this operation.",
+        )
+
+
+class RefRewritingEngine(EchoingEngine):
+    """Returns a snapshot for a DIFFERENT execution than the one asked for."""
+
+    async def get_execution(self, call_id: str) -> ExecutionSnapshot:
+        snapshot = await super().get_execution(call_id)
+        return snapshot.model_copy(update={"engine_call_id": "some-other-execution"})
+
+
+class UnmappableEngine(EchoingEngine):
+    """A snapshot with no agent ref — every reconciled call becomes unmappable."""
+
+    async def get_execution(self, call_id: str) -> ExecutionSnapshot:
+        snapshot = await super().get_execution(call_id)
+        return snapshot.model_copy(update={"engine_agent_ref": None})
+
+
+class NotYetBillableEngine(FakeEngine):
+    async def list_executions(self, *, since: datetime) -> list[ExecutionSnapshot]:
+        return [
+            s.model_copy(update={"billable_ready": False})
+            for s in await super().list_executions(since=since)
+        ]
+
+
+class DeadPollerEngine(FakeEngine):
+    async def list_executions(self, *, since: datetime) -> list[ExecutionSnapshot]:
+        raise ProblemError(
+            kind="dependency",
+            code="engine_unreachable",
+            title="Voice engine unreachable",
+            detail="The voice platform did not respond.",
+        )
+
+
+# --- gate 2 -------------------------------------------------------------------
+
+
+async def test_gate_2_cannot_pass_because_scheduled_at_is_not_in_our_contract() -> None:
+    """The headline finding: even with a perfect vendor, gate 2 is NOT RUN as written."""
+    engine = EchoingEngine()
+    result = await run_gate_2(_ctx(engine, calls_remaining=1, to_e164="+919000000001"))
+    assert _check(result, "create_agent").status == "pass"
+    assert _check(result, "update_prompt").status == "pass"
+    assert _check(result, "start_call").status == "pass"
+    assert _check(result, "get_execution").status == "pass"
+    assert _check(result, "user_data_round_trip").status == "pass"
+    assert _check(result, "scheduled_at").status == "not_run"
+    assert result.status == "not_run"
+    assert any("scheduled_at" in f for f in result.findings)
+
+
+async def test_gate_2_reports_number_attachment_as_a_dashboard_step() -> None:
+    result = await run_gate_2(_ctx(NoNumberEngine(), calls_remaining=1, to_e164="+919000000001"))
+    attach = _check(result, "attach_number")
+    assert attach.status == "not_run"
+    assert "dashboard" in attach.detail
+    assert any("provision_number" in f for f in result.findings)
+
+
+async def test_gate_2_dry_run_places_no_call() -> None:
+    ctx = _ctx(EchoingEngine(), calls_remaining=0, to_e164="+919000000001")
+    result = await run_gate_2(ctx)
+    assert _check(result, "start_call").status == "not_run"
+    assert "dry run" in _check(result, "start_call").detail
+    assert ctx.created_executions == []
+
+
+async def test_gate_2_fails_loudly_when_the_agent_cannot_be_created() -> None:
+    result = await run_gate_2(_ctx(BrokenAgentEngine(), calls_remaining=1, to_e164="+91900000001"))
+    assert result.status == "fail"
+    assert _check(result, "create_agent").status == "fail"
+
+
+async def test_gate_2_fails_when_user_data_never_reaches_the_prompt() -> None:
+    """The shipped `fake` does not echo `user_data`, so this is also the honest answer
+    for a vendor that silently drops it — the failure that breaks every D-21 callback."""
+    result = await run_gate_2(_ctx(FakeEngine(), calls_remaining=1, to_e164="+919000000001"))
+    round_trip = _check(result, "user_data_round_trip")
+    assert round_trip.status == "fail"
+    assert result.status == "fail"
+
+
+async def test_gate_2_does_not_accept_the_caller_saying_the_nonce() -> None:
+    result = await run_gate_2(_ctx(CallerEchoEngine(), calls_remaining=1, to_e164="+919000000001"))
+    assert _check(result, "user_data_round_trip").status == "fail"
+
+
+async def test_gate_2_fails_when_the_snapshot_names_another_execution() -> None:
+    result = await run_gate_2(
+        _ctx(RefRewritingEngine(), calls_remaining=1, to_e164="+919000000001")
+    )
+    assert _check(result, "get_execution").status == "fail"
+
+
+async def test_gate_2_fails_when_a_snapshot_cannot_be_mapped_to_a_tenant() -> None:
+    result = await run_gate_2(_ctx(UnmappableEngine(), calls_remaining=1, to_e164="+919000000001"))
+    fetched = _check(result, "get_execution")
+    assert fetched.status == "fail"
+    assert "engine_agent_ref" in fetched.detail
+
+
+async def test_gate_2_never_writes_the_destination_number_anywhere() -> None:
+    """Layer one of hard rule 6: the gate does not produce PII, so the scrubber has
+    nothing to catch. Asserted on the RAW result, before any scrubbing runs."""
+    number = "+919876543210"
+    result = await run_gate_2(_ctx(EchoingEngine(), calls_remaining=1, to_e164=number))
+    serialized = repr(result.as_dict())
+    assert number not in serialized
+    assert "9876543210" not in serialized
+
+
+# --- gate 1 -------------------------------------------------------------------
+
+
+def _delivery(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": "exec-1",
+        "status": "completed",
+        "agent_id": "agent-1",
+        "direction": "inbound",
+        "from_number": "+911140000000",
+        "to_number": "+919876543210",
+        "recording_url": "https://fake-engine.local/recordings/exec-1.wav",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _seeded(engine: FakeEngine, call_id: str = "exec-1") -> FakeEngine:
+    engine.seed_inbound_call(
+        call_id=call_id,
+        agent_ref="agent-1",
+        from_e164="+911140000000",
+        to_e164="+919876543210",
+    )
+    return engine
+
+
+async def test_gate_1_passes_when_the_hint_agrees_with_the_truth() -> None:
+    engine = _seeded(SourceIpEngine())
+    result = await run_gate_1(_ctx(engine, captured_webhooks=[_delivery()]))
+    assert _check(result, "accepts_documented_egress").status == "pass"
+    assert _check(result, "rejects_other_sources").status == "pass"
+    assert _check(result, "payload_matches_get_execution").status == "pass"
+    assert _check(result, "execution_id_dedupe").status == "pass"
+    assert result.status == "pass"
+
+
+async def test_gate_1_reports_a_mismatch_as_a_result_and_names_no_numbers() -> None:
+    """D-31 makes the poller the guarantee of record because the webhook is a hint. This
+    is the one moment we learn whether the hint agrees with the truth at all — and the
+    finding is the FIELD NAME, never the two values."""
+    engine = _seeded(SourceIpEngine())
+    result = await run_gate_1(
+        _ctx(engine, captured_webhooks=[_delivery(to_number="+919111111111")])
+    )
+    mismatch = _check(result, "payload_matches_get_execution")
+    assert mismatch.status == "fail"
+    assert "to_e164" in mismatch.detail
+    assert "9111111111" not in repr(result.as_dict())
+    assert result.status == "fail"
+
+
+async def test_gate_1_catches_an_allowlist_that_accepts_everyone() -> None:
+    engine = _seeded(OpenAllowlistEngine())
+    result = await run_gate_1(_ctx(engine, captured_webhooks=[_delivery()]))
+    rejected = _check(result, "rejects_other_sources")
+    assert rejected.status == "fail"
+    assert result.status == "fail"
+
+
+async def test_gate_1_does_not_score_an_engine_that_verifies_nothing() -> None:
+    """`fake` accepts every source by design. Scoring that acceptance would report a
+    green source-IP control that does not exist — `method` is in the contract so this
+    is decidable rather than guessed."""
+    engine = _seeded(FakeEngine())
+    result = await run_gate_1(_ctx(engine, captured_webhooks=[_delivery()]))
+    assert _check(result, "accepts_documented_egress").status == "not_run"
+    assert _check(result, "rejects_other_sources").status == "not_run"
+    # The payload comparison is engine-independent and still runs.
+    assert _check(result, "payload_matches_get_execution").status == "pass"
+    assert result.status == "not_run"
+
+
+async def test_gate_1_without_captures_is_not_run_not_pass() -> None:
+    result = await run_gate_1(_ctx(_seeded(SourceIpEngine())))
+    assert _check(result, "payload_matches_get_execution").status == "not_run"
+    assert _check(result, "execution_id_dedupe").status == "not_run"
+    assert result.status == "not_run"
+
+
+async def test_gate_1_refuses_to_key_a_delivery_with_no_execution_id() -> None:
+    engine = _seeded(SourceIpEngine())
+    result = await run_gate_1(_ctx(engine, captured_webhooks=[_delivery(), {"status": "queued"}]))
+    dedupe = _check(result, "execution_id_dedupe")
+    assert dedupe.status == "fail"
+    assert dedupe.measurements["unkeyable"] == 1
+
+
+async def test_gate_1_counts_repeat_deliveries_of_one_transition() -> None:
+    """TRD §5 says at-most-once. A repeat is not a failure of dedupe — it is evidence
+    against a documented claim, and the finding says so."""
+    engine = _seeded(SourceIpEngine())
+    result = await run_gate_1(_ctx(engine, captured_webhooks=[_delivery(), _delivery()]))
+    dedupe = _check(result, "execution_id_dedupe")
+    assert dedupe.status == "pass"
+    assert dedupe.measurements["deliveries"] == 2
+    assert dedupe.measurements["distinct_transitions"] == 1
+    assert dedupe.measurements["repeat_deliveries"] == 1
+    assert any("at-most-once" in f for f in result.findings)
+
+
+def test_the_dedupe_key_separates_transitions_of_one_execution() -> None:
+    """Keying on the execution id alone swallowed `completed` — the only transition that
+    carries cost, recording and transcript. The receiver keys on the pair; so does this."""
+    engine = FakeEngine()
+    queued = engine.parse_webhook(_delivery(status="queued"))
+    completed = engine.parse_webhook(_delivery(status="completed"))
+    from scripts.pilot.gates_api import dedupe_key
+
+    assert dedupe_key(queued) != dedupe_key(completed)
+    assert dedupe_key(completed) == dedupe_key(engine.parse_webhook(_delivery()))
+
+
+def test_fields_absent_on_both_sides_agree() -> None:
+    engine = FakeEngine()
+    event = engine.parse_webhook({"id": "x", "status": "queued"})
+    snapshot = ExecutionSnapshot(
+        engine_call_id="x",
+        status="queued",
+        raw_status="queued",
+        terminal=False,
+        billable_ready=False,
+        direction="outbound",
+    )
+    assert compare_delivery(event, snapshot) == []
+
+
+# --- gate 6 -------------------------------------------------------------------
+
+
+async def test_gate_6_proves_the_poller_recovers_every_missed_execution() -> None:
+    engine = FakeEngine()
+    _seeded(engine, "exec-a")
+    _seeded(engine, "exec-b")
+    result = await run_gate_6(
+        _ctx(
+            engine,
+            missed_execution_ids=["exec-a", "exec-b"],
+            attestations={"gate6.call_continued": "yes", "gate6.retries_observed": "0"},
+            since=datetime.now(UTC) - timedelta(hours=1),
+        )
+    )
+    assert _check(result, "poller_lists_missed_executions").status == "pass"
+    assert _check(result, "poller_recovers_billable_data").status == "pass"
+    assert _check(result, "call_continues_without_receiver").status == "pass"
+    assert _check(result, "no_retry_as_documented").status == "pass"
+    assert result.status == "pass"
+    assert any("PAGINATION" in f for f in result.findings)
+
+
+async def test_gate_6_fails_when_the_poller_cannot_see_a_lost_execution() -> None:
+    """The guarantee of record failing is the worst result in the whole scorecard: a
+    call that is simply gone — no lead, no usage event, no recording."""
+    engine = FakeEngine()
+    _seeded(engine, "exec-a")
+    result = await run_gate_6(
+        _ctx(
+            engine,
+            missed_execution_ids=["exec-a", "exec-never-listed"],
+            since=datetime.now(UTC) - timedelta(hours=1),
+        )
+    )
+    listed = _check(result, "poller_lists_missed_executions")
+    assert listed.status == "fail"
+    assert listed.measurements["recovered"] == 1
+    # Payload completeness is unjudgeable when the execution is missing entirely.
+    assert _check(result, "poller_recovers_billable_data").status == "not_run"
+    assert result.status == "fail"
+
+
+async def test_gate_6_flags_a_recovery_that_carries_no_billable_data() -> None:
+    engine = NotYetBillableEngine()
+    _seeded(engine, "exec-a")
+    result = await run_gate_6(
+        _ctx(
+            engine,
+            missed_execution_ids=["exec-a"],
+            since=datetime.now(UTC) - timedelta(hours=1),
+        )
+    )
+    assert _check(result, "poller_lists_missed_executions").status == "pass"
+    assert _check(result, "poller_recovers_billable_data").status == "fail"
+
+
+async def test_gate_6_fails_when_the_poller_itself_is_unreachable() -> None:
+    engine = DeadPollerEngine()
+    _seeded(engine, "exec-a")
+    result = await run_gate_6(
+        _ctx(engine, missed_execution_ids=["exec-a"], since=datetime.now(UTC) - timedelta(hours=1))
+    )
+    assert _check(result, "poller_lists_missed_executions").status == "fail"
+    assert result.status == "fail"
+
+
+async def test_gate_6_treats_an_unexpected_retry_as_a_contradicted_document() -> None:
+    engine = FakeEngine()
+    _seeded(engine, "exec-a")
+    result = await run_gate_6(
+        _ctx(
+            engine,
+            missed_execution_ids=["exec-a"],
+            attestations={"gate6.call_continued": "yes", "gate6.retries_observed": "3"},
+            since=datetime.now(UTC) - timedelta(hours=1),
+        )
+    )
+    retry = _check(result, "no_retry_as_documented")
+    assert retry.status == "fail"
+    assert retry.measurements["retries_observed"] == 3
+    assert any("TRD §5 CONTRADICTED" in f for f in result.findings)
+
+
+async def test_gate_6_without_attestations_is_not_run_not_pass() -> None:
+    engine = FakeEngine()
+    _seeded(engine, "exec-a")
+    result = await run_gate_6(
+        _ctx(engine, missed_execution_ids=["exec-a"], since=datetime.now(UTC) - timedelta(hours=1))
+    )
+    assert _check(result, "call_continues_without_receiver").status == "not_run"
+    assert _check(result, "no_retry_as_documented").status == "not_run"
+    assert result.status == "not_run"
+
+
+async def test_gate_6_records_a_dropped_call_as_a_failure() -> None:
+    engine = FakeEngine()
+    _seeded(engine, "exec-a")
+    result = await run_gate_6(
+        _ctx(
+            engine,
+            missed_execution_ids=["exec-a"],
+            attestations={"gate6.call_continued": "no", "gate6.retries_observed": "0"},
+            since=datetime.now(UTC) - timedelta(hours=1),
+        )
+    )
+    continued = _check(result, "call_continues_without_receiver")
+    assert continued.status == "fail"
+    assert continued.attested is True
+
+
+async def test_gate_6_uses_the_executions_gate_2_created() -> None:
+    """The two gates share one run: the executions gate 2 placed are the ones whose
+    webhooks gate 6 drops, so an operator does not have to copy ids by hand."""
+    engine = EchoingEngine()
+    ctx = _ctx(
+        engine,
+        calls_remaining=1,
+        to_e164="+919000000001",
+        since=datetime.now(UTC) - timedelta(hours=1),
+    )
+    await run_gate_2(ctx)
+    assert ctx.created_executions
+    result = await run_gate_6(ctx)
+    assert _check(result, "poller_lists_missed_executions").status == "pass"
+
+
+async def test_a_bad_attestation_value_is_not_silently_treated_as_no() -> None:
+    engine = FakeEngine()
+    _seeded(engine, "exec-a")
+    result = await run_gate_6(
+        _ctx(
+            engine,
+            missed_execution_ids=["exec-a"],
+            attestations={"gate6.retries_observed": "none"},
+            since=datetime.now(UTC) - timedelta(hours=1),
+        )
+    )
+    assert _check(result, "no_retry_as_documented").status == "not_run"
+
+
+def test_start_outbound_call_still_has_no_scheduled_at_parameter() -> None:
+    """The finding, pinned. If the contract grows `scheduled_at`, this test fails and
+    whoever added it is told to promote gate 2's sub-check from NOT RUN to a real check
+    — which is the only way that stops being a permanent hole in the scorecard."""
+    import inspect
+
+    from calevate_shared.engine import VoiceEngine
+
+    signature = inspect.signature(VoiceEngine.start_outbound_call)
+    assert set(signature.parameters) == {"self", "ref", "to", "ctx"}
+    assert "scheduled_at" not in signature.parameters
+
+
+def test_the_context_carries_no_way_to_find_a_number_it_was_not_given() -> None:
+    ctx = GateContext(engine=FakeEngine(), settings=_settings())
+    assert ctx.to_e164 is None
+    assert not hasattr(ctx, "session")
+    assert not hasattr(ctx, "tenant_id")

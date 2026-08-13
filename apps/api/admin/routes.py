@@ -332,10 +332,41 @@ class IntakeStateOut(BaseModel):
 
     business_hours: dict[str, dict[str, str] | None]
     escalation_contacts: list[dict[str, str | None]]
+    # The EXTRA languages (DATA-MODEL §3) — never the whole set, which is why
+    # `language_primary` sits beside it.
     languages: list[str]
     prose_answers: intake.IntakeProse | None
     compiled_t0_context: str | None
     submitted_at: datetime | None
+    # When the sheet was last written by EITHER path. `saved_at > submitted_at` is
+    # "there is a draft the agent has not been rebuilt from" — the state FLOWS §1's
+    # "resume anytime" is about, and one no other field can express.
+    saved_at: datetime | None
+    # The agent's own primary. Without it `languages` is unrenderable by anyone who did
+    # not just choose the primary themselves — see `read_intake` for the full argument.
+    language_primary: str
+    # Which agent the stored answers were last written through (provenance, not
+    # ownership: the sheet is per-ORG, the compile is per-agent). `None` for a
+    # pre-migration org that has no sheet.
+    sheet_agent_id: UUID | None
+
+
+class IntakeDraftOut(BaseModel):
+    """What a draft save did: it stored the sheet, and here is what is still missing.
+
+    No `prompt_version` and no `kb_source_id` — not "null", ABSENT — because a draft
+    mints neither, and a nullable field would invite a screen to render "prompt version:
+    —" beside a save that was never supposed to touch the prompt.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    # `submission_blockers`' codes, in the server's vocabulary, so the sentence beside
+    # the Save button and the sentence in a later `intake_incomplete` refusal name one
+    # condition. An empty list means the next submit would be accepted — it does NOT
+    # mean anything has been compiled.
+    blockers: list[str]
 
 
 @router.post(
@@ -393,6 +424,79 @@ async def record_intake(
     return IntakeOut.model_validate(result)
 
 
+@router.post(
+    "/tenants/{tenant_id}/agents/{agent_id}/intake/draft",
+    response_model=IntakeDraftOut,
+    openapi_extra=permission_meta("agents:write"),
+    summary="Wizard step 3 — save the answers as they stand (FLOWS §1, 'resume anytime')",
+    description=(
+        "Stores a PARTIAL intake sheet and does nothing else: no compiled block, no "
+        "prompt version, no knowledge-base seed, no publish. Answers a half-filled form "
+        "with 200 and the list of what still blocks a submit; answers a malformed one "
+        "with 422, the same way the submit does. Saving a draft never makes an agent "
+        "ready — the submit is still gated on the full set."
+    ),
+)
+async def save_intake_draft(
+    tenant_id: UUID,
+    agent_id: UUID,
+    payload: intake.IntakeFacts,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("agents:write", realm="admin")),
+) -> IntakeDraftOut:
+    """FLOWS §1's "draft state saved at every step (resume anytime)", which had a service
+    function and no way in from a browser — so the only reachable write ran the
+    submission gate first and a half-finished intake could not be persisted at all.
+
+    **The line between STRUCTURAL and COMPLETENESS validation, which is the whole design
+    of this route.** It takes the SAME `intake.IntakeFacts` body model as the submit, so
+    every structural rule still applies to a draft: `extra="forbid"`, the `HH:MM` and
+    E.164 and price patterns, the length caps, the list maxima. A draft is a form
+    half-filled, never a form filled in wrongly — and the reason is not tidiness, it is
+    that `read_intake` parses the stored sheet back through this same model on the way
+    out. A sheet that went in unvalidated comes back as `intake_sheet_unreadable` and
+    the resume silently degrades to a blank form, which is the exact §52 failure this
+    slice exists to prevent: the operator retypes and overwrites.
+    What is NOT applied is `submission_blockers` — missing hours, no address, no service,
+    no escalation contact. Those are completeness, they are what a draft is FOR, and
+    gating on them would make the route useless for its only purpose. They come back in
+    the response instead, as information.
+
+    **`agents:write`, matching the submit and the rest of the wizard**, because this
+    writes the client's answers onto their org row; there is no weaker authority under
+    which a partial write is more acceptable than a whole one.
+
+    **Audited.** The submit's row records what was compiled; this one records that an
+    operator wrote a client's answers, which is a change to tenant data whoever made it.
+    Counts only, never the answers (hard rule 6). This is affordable because the console
+    saves DELIBERATELY — one press, not one per keystroke. An autosave landing on this
+    route would grow the hash-chained log per debounce interval, and the choice to audit
+    would have to be revisited with it.
+    """
+    async with tenant_session(tenant_id) as scoped:
+        result = await intake.save_intake_draft(
+            scoped, tenant_id=tenant_id, agent_id=agent_id, facts=payload
+        )
+    await write_audit(
+        session,
+        action="agent.intake_drafted",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="agent",
+        object_id=str(agent_id),
+        ip=request.client.host if request.client else None,
+        # COUNTS and CODES, never the answers: the same rule the submit's row follows,
+        # and the escalation contacts on this sheet are phone numbers.
+        summary={
+            "blockers": len(result["blockers"]),
+            "services": len(payload.services),
+            "faqs": len(payload.faqs),
+        },
+    )
+    return IntakeDraftOut.model_validate(result)
+
+
 @router.get(
     "/tenants/{tenant_id}/agents/{agent_id}/intake",
     response_model=IntakeStateOut,
@@ -409,6 +513,82 @@ async def read_intake(
     async with tenant_session(tenant_id) as scoped:
         state = await intake.read_intake(scoped, agent_id=agent_id)
     return IntakeStateOut.model_validate(state)
+
+
+class UnfinishedOnboardingOut(BaseModel):
+    """One account the wizard can be resumed on — the account, never anyone at it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
+    name: str
+    slug: str
+    # Where to resume: the agent the answers were written through, or the account's
+    # draft receptionist. The wizard addresses step 3 by (tenant, agent), so a row
+    # without this would be a link the operator has to complete by guessing.
+    agent_id: UUID
+    created_at: datetime
+    # `null` = the intake step was never opened. Distinct from "opened and left partly
+    # answered", which is what a timestamp here means, and the two want different
+    # actions — so no zero, no "—", no invented "never".
+    draft_saved_at: datetime | None
+    # `submission_blockers`' codes for what IS stored. The evidence for the word
+    # "unfinished", in the same vocabulary the step itself prints.
+    blockers: list[str]
+
+
+@router.get(
+    "/onboarding/unfinished",
+    response_model=list[UnfinishedOnboardingOut],
+    openapi_extra=permission_meta("org:read"),
+    summary="Onboardings started and not finished — where a wizard resumes (FLOWS §1)",
+    description=(
+        "Every account still in onboarding whose intake has never been submitted, most "
+        "recently worked on first, with the agent to resume at and what is still "
+        "missing. Read-only: resuming is a draft save or a submit on the account's own "
+        "route."
+    ),
+)
+async def list_unfinished_onboardings(
+    session: AdminSession,
+    principal: Principal = Depends(requires("org:read", realm="admin")),
+) -> list[UnfinishedOnboardingOut]:
+    """The other half of "draft state saved at every step (resume anytime)".
+
+    A draft that can be written and not FOUND is resumable only by an operator who
+    still has the tab open, which is the one case a draft is not for. This is where
+    "which onboardings are unfinished" is answerable without opening a database.
+
+    **Why here and not on the tenant directory.** The directory (`/v1/admin/tenants`)
+    is the roster — every account, with counters beside a name — and it deliberately
+    "stays dumb: counts, not judgements" (`admin.service.tenant_overview`). Unfinished
+    onboardings are a WORK LIST: a small, shrinking set, ordered by recency of work,
+    carrying per-row blockers that mean nothing to the other 90% of the roster. Putting
+    them on the directory would either add four columns every finished client renders
+    empty, or hide them behind a filter nobody sets. It is also the wrong PLACE: the
+    operator resuming an onboarding is doing the thing "New client" does, so this list
+    is rendered on `/admin/new` itself and the wizard picks up from the row's ids — one
+    screen for starting and continuing the same task, rather than a fourth place to
+    look. The precedent is `holds_routes.py`, which is the same shape (a bounded ops
+    work list with its own rule codes) for the same reason.
+
+    **`org:read`, not `admin:tenants`.** D-22 forbids gating a GET on a permission
+    read-only impersonation refuses, and this is a read. Resuming still requires
+    `agents:write` at the routes that write.
+    """
+    del principal  # the dependency IS the authorization; the identity is not needed
+    return [
+        UnfinishedOnboardingOut(
+            tenant_id=row.tenant_id,
+            name=row.name,
+            slug=row.slug,
+            agent_id=row.agent_id,
+            created_at=row.created_at,
+            draft_saved_at=row.draft_saved_at,
+            blockers=list(row.blockers),
+        )
+        for row in await intake.unfinished_onboardings(session)
+    ]
 
 
 @router.post(
