@@ -23,10 +23,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.business_hours import count_after_hours_calls
 from apps.api.core.errors import ProblemError
-from apps.api.crm.performance import IST_HOUR_SQL
+from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
     CallDetailOut,
     CallSummaryOut,
+    DashboardDayOut,
     DashboardOut,
     LeadOut,
     LeadStatus,
@@ -596,6 +597,62 @@ def _csv_value(value: Any) -> str:
 
 # --- dashboard ----------------------------------------------------------------
 
+DASHBOARD_DAYS = 7
+
+# status → the class the 7-day chart counts it in. A PARTITION of
+# `crm.models.CALL_STATUSES`: every status the CHECK constraint allows appears in
+# exactly one class, which is what makes the four counts add to the bucket total.
+# `DashboardDayOut` holds the reasoning for each class and names the UI colours it
+# matches; `tests/dashboard_daily_test.py::test_the_classes_partition_...` is what
+# stops a ninth status from silently unbalancing every bucket.
+DAILY_CALL_CLASSES: dict[str, tuple[str, ...]] = {
+    "completed": ("completed",),
+    "no_answer": ("no_answer", "busy", "voicemail"),
+    "failed": ("failed",),
+    "in_flight": ("queued", "ringing", "in_progress"),
+}
+
+# `= ANY(:param)` rather than this module's usual `IN {TUPLE!r}` interpolation: `repr`
+# of a ONE-element tuple carries a trailing comma, and `IN ('completed',)` is a SQL
+# syntax error. A bound array parameter is arity-proof and needs no quoting rules.
+_DAILY_CLASS_COUNTS_SQL = ", ".join(
+    f"count(r.status) FILTER (WHERE r.status = ANY(:class_{name})) AS {name}"
+    for name in DAILY_CALL_CLASSES
+)
+
+# The 7-day series, zero-filled, in ONE round trip. `generate_series` over the days is
+# the boring documented answer to "a bucket per day whether or not it has rows", and
+# the LEFT JOIN is what keeps a silent day at zero instead of absent.
+#
+# `count(r.status)`, never `count(*)`: on the unmatched side of a LEFT JOIN `count(*)`
+# counts the day row itself and scores an empty day as 1. `calls.status` is NOT NULL,
+# so counting it counts matched calls and nothing else.
+#
+# The `recent` bound is a plain comparison against the raw timestamptz, not against the
+# IST day: `calls` today carries no index on `started_at` (the tenant policy's
+# `ix_calls_tenant_id` is what bounds this scan, as it does for every other aggregate in
+# this function), but a predicate written as a function of the column could not use one
+# if it ever landed, and this one can.
+#
+# 8 days is a deliberate SUPERSET of the 7-day window, not an off-by-one: the oldest
+# bucket opens at IST midnight six days back, which is at most 6d23h59m before `now()`,
+# so a 7-day bound could clip it and 8 cannot. The day join discards the surplus.
+_DAILY_7D_SQL = f"""
+WITH days AS (
+    SELECT {IST_TODAY_SQL} - days_back AS ist_date
+    FROM generate_series({DASHBOARD_DAYS - 1}, 0, -1) AS days_back
+),
+recent AS (
+    SELECT status, {IST_DAY_SQL} AS ist_date
+    FROM calls
+    WHERE started_at >= now() - interval '{DASHBOARD_DAYS + 1} days'
+)
+SELECT d.ist_date, count(r.status) AS total, {_DAILY_CLASS_COUNTS_SQL}
+FROM days d LEFT JOIN recent r ON r.ist_date = d.ist_date
+GROUP BY d.ist_date
+ORDER BY d.ist_date
+"""
+
 
 async def dashboard(session: AsyncSession) -> DashboardOut:
     """One round trip per tile would be four round trips; these are cheap aggregates
@@ -614,6 +671,12 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
     zero and read it as calls being lost. What is new is that the response says which
     of the two it is (`after_hours_basis`), so the number is never silently a guess
     wearing the clothes of a fact.
+
+    **The 7-day chart series is one query, not seven.** `daily_7d` joins a
+    `generate_series` of the seven IST calendar days against the calls in that window,
+    so an empty day comes back as a zero bucket from the same pass that counts the busy
+    ones. Seven dated round trips would have been the same rows read seven times and
+    would still have needed the zero-fill written by hand.
     """
     since_7d = datetime.now(UTC) - timedelta(days=7)
     today = datetime.now(UTC).date()
@@ -665,6 +728,12 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
             {"since": since_7d},
         )
     ).first()
+    daily = (
+        await session.execute(
+            text(_DAILY_7D_SQL),
+            {f"class_{name}": list(statuses) for name, statuses in DAILY_CALL_CLASSES.items()},
+        )
+    ).all()
     minutes = (await session.execute(text("SELECT minutes_used FROM spend_state LIMIT 1"))).scalar()
 
     # One cheap existence check decides which definition the tile is entitled to. It is
@@ -696,6 +765,19 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
         leads_new_7d=int(leads[0] or 0) if leads else 0,
         hot_leads_open=int(leads[1] or 0) if leads else 0,
         minutes_used_month=Decimal(minutes) if minutes is not None else None,
+        # Named columns rather than positional: six of them, and a chart that swaps
+        # `failed` for `no_answer` is wrong in a way nobody reading it would notice.
+        daily_7d=[
+            DashboardDayOut(
+                ist_date=row.ist_date,
+                total=int(row.total),
+                completed=int(row.completed),
+                no_answer=int(row.no_answer),
+                failed=int(row.failed),
+                in_flight=int(row.in_flight),
+            )
+            for row in daily
+        ],
     )
 
 
@@ -853,6 +935,8 @@ async def link_callback(session: AsyncSession, *, handle: str, parent_call_id: U
 
 __all__ = [
     "CALLBACK_OUTCOMES",
+    "DAILY_CALL_CLASSES",
+    "DASHBOARD_DAYS",
     "LEAD_STATUSES",
     "MAX_CALLBACK_DEPTH",
     "MAX_EXPORT_ROWS",

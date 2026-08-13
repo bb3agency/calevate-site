@@ -18,7 +18,7 @@ and `tests/call_summary_redaction_test.py` is what proves the claim.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -156,6 +156,49 @@ class CallbackEligibilityOut(Strict):
     follow_up_number: int | None = None
 
 
+class DashboardDayOut(Strict):
+    """One IST calendar day of the dashboard's 7-day call chart.
+
+    **The four class counts PARTITION `calls.status`** — every value the CHECK
+    constraint allows (`crm.models.CALL_STATUSES`) belongs to exactly one of them, so
+    `completed + no_answer + failed + in_flight == total` on every bucket and an owner
+    can check the arithmetic against the bar they are looking at.
+    `tests/dashboard_daily_test.py` pins both halves of that claim: the partition
+    against the constraint's own tuple, and the sum against real rows.
+
+    The grouping is the one the product already uses. `CALL_STATUS_STYLES` in
+    apps/web/src/components/ui.tsx already paints these exact sets in these exact
+    colours, so a bar and a status badge on the same screen never disagree about what a
+    call was:
+
+    - `completed` (green) — the one status that means a conversation happened.
+    - `no_answer` (amber) — `no_answer`, `busy`, `voicemail`. Three ways a dial reaches
+      the network and not a person. Deliberately NOT folded into `failed`: nothing
+      malfunctioned, and the owner's next move ("ring them back") is a different move
+      from the one a failure calls for.
+    - `failed` (red) — the dial itself broke. Ours to fix, not the callee's.
+    - `in_flight` — `queued`, `ringing`, `in_progress`. Not an outcome YET, and a
+      FOURTH field rather than a silent omission: today's bar always carries some, and
+      a reader seeing three bands add to less than `total` cannot tell a live call from
+      a dropped row. The chart draws three bands and may show this one as the gap.
+
+    No status is dropped. A ninth one added to `CALL_STATUSES` without a class here
+    fails the partition test rather than quietly unbalancing every bucket.
+    """
+
+    # The IST calendar day — not UTC, and not the browser's zone. Serialized `YYYY-MM-DD`
+    # and meant to be rendered verbatim: re-parsing it as an instant in a client-side
+    # timezone is how "Tuesday" becomes "Monday" for a reader in London.
+    ist_date: date
+    # Calls that STARTED on this day. A row with a NULL `started_at` was never dialled,
+    # so it has no calendar day and appears in no bucket.
+    total: int
+    completed: int
+    no_answer: int
+    failed: int
+    in_flight: int
+
+
 class DashboardOut(Strict):
     calls_today: int
     calls_7d: int
@@ -178,6 +221,25 @@ class DashboardOut(Strict):
     after_hours_basis: Literal["business_hours", "default_window"] = "default_window"
     # Client-facing spend is INR NUMERIC, never a float (hard rule 7).
     minutes_used_month: Decimal | None = None
+    # The stacked bar chart: the last 7 IST calendar days, OLDEST FIRST, ending today.
+    #
+    # ALWAYS exactly 7 entries. A day with no calls answers zero rather than going
+    # missing — the same rule `PerformanceOut.busiest_hours_ist` follows with its 24
+    # hours, and for the same reason: a chart that omits its silent buckets reads as
+    # data loss, and the UI must never have to tell "no calls that day" apart from "the
+    # server did not say". The zero-fill is the server's job, not the chart's, because
+    # only the server knows which seven days it meant.
+    #
+    # No default: `dashboard()` always emits all seven, so an empty list is a bug that
+    # should surface loudly here rather than render as a week of flat bars.
+    #
+    # These bars do NOT sum to `calls_7d`, and that is not a defect in either. `calls_7d`
+    # is a rolling 168 hours back from this instant; this is seven IST calendar days
+    # ending tonight, so it holds today's part-day and reaches further back than the
+    # rolling window on every day but one. Two different questions — "how busy has the
+    # last week been" and "what did each day look like" — and a chart that had to agree
+    # with a headline number would have to lie about one of them.
+    daily_7d: list[DashboardDayOut]
 
 
 # --- panels that used to answer `dict[str, Any]` --------------------------------
@@ -302,6 +364,7 @@ __all__ = [
     "CallSummaryOut",
     "CallbackEligibilityOut",
     "CallbackOut",
+    "DashboardDayOut",
     "DashboardOut",
     "LeadListOut",
     "LeadOut",

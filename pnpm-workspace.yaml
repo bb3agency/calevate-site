@@ -8,10 +8,29 @@ minimumReleaseAgeExclude:
   - "rolldown"
   - "@rolldown/*"
 
+# THE ONLY override list in this repo. pnpm reads `overrides` here (or `pnpm.overrides`
+# in package.json) and IGNORES a bare top-level `overrides` in package.json — that is
+# npm/yarn's field. A second copy there looks authoritative, is inert, and drifts, so it
+# was removed rather than kept in sync by hand.
 overrides:
   eslint-import-resolver-typescript: "3.7.0"
   unrs-resolver: "npm:oxc-resolver@1.1.2"
-  "brace-expansion@<1.1.18": ">=1.1.18"
+  # CVE-2026-69152: `expand()` does not enforce `maxLength` while building comma
+  # alternatives and padded sequences, so crafted input exhausts memory or blocks the
+  # event loop. Patched in 1.1.18, 2.1.4, 3.0.6 and 5.0.9; the 4.x line has no patch of
+  # its own, so its consumers move to 5.0.9.
+  # https://security.snyk.io/vuln/SNYK-JS-BRACEEXPANSION-18512280
+  #
+  # EACH LINE IS PINNED TO ITS OWN MAJOR, and that is the whole point. A bare
+  # `>=1.1.18` lets pnpm satisfy minimatch@3's `^1.1.7` with 5.0.9 — a package that is
+  # `"type": "module"` and exports NAMED bindings, where 1.x exports the function
+  # itself. minimatch calls it as a function, so `pnpm lint` died with
+  # `TypeError: expand is not a function` and took the whole frontend gate with it.
+  # A security override that silently crosses a major is a broken build wearing a
+  # patch's clothes; keep the range inside the major the consumer asked for.
+  "brace-expansion@<1.1.18": "^1.1.18"
+  "brace-expansion@>=2 <2.1.4": "^2.1.4"
+  "brace-expansion@>=3 <3.0.6": "^3.0.6"
   "brace-expansion@>=4 <5.0.9": ">=5.0.9"
   postcss: ">=8.5.23"
   nanoid: ">=3.3.17"
@@ -20,7 +39,7 @@ overrides:
 # Build scripts are opt-in in pnpm 11. sharp = Next.js image optimization
 # (first-party toolchain dep). unrs-resolver was REMOVED here after the Jul 2026
 # supply-chain incident (see incident_report.md + CLAUDE.md hard rule 9): it is
-# pinned out of the tree via `resolutions` above, and no unknown package gets
+# pinned out of the tree via `overrides` above, and no unknown package gets
 # build permission again without verifying legitimacy first.
 allowBuilds:
   sharp: true

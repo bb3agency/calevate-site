@@ -2574,6 +2574,53 @@ export interface components {
              */
             tenant_id: string;
         };
+        /**
+         * DashboardDayOut
+         * @description One IST calendar day of the dashboard's 7-day call chart.
+         *
+         *     **The four class counts PARTITION `calls.status`** — every value the CHECK
+         *     constraint allows (`crm.models.CALL_STATUSES`) belongs to exactly one of them, so
+         *     `completed + no_answer + failed + in_flight == total` on every bucket and an owner
+         *     can check the arithmetic against the bar they are looking at.
+         *     `tests/dashboard_daily_test.py` pins both halves of that claim: the partition
+         *     against the constraint's own tuple, and the sum against real rows.
+         *
+         *     The grouping is the one the product already uses. `CALL_STATUS_STYLES` in
+         *     apps/web/src/components/ui.tsx already paints these exact sets in these exact
+         *     colours, so a bar and a status badge on the same screen never disagree about what a
+         *     call was:
+         *
+         *     - `completed` (green) — the one status that means a conversation happened.
+         *     - `no_answer` (amber) — `no_answer`, `busy`, `voicemail`. Three ways a dial reaches
+         *       the network and not a person. Deliberately NOT folded into `failed`: nothing
+         *       malfunctioned, and the owner's next move ("ring them back") is a different move
+         *       from the one a failure calls for.
+         *     - `failed` (red) — the dial itself broke. Ours to fix, not the callee's.
+         *     - `in_flight` — `queued`, `ringing`, `in_progress`. Not an outcome YET, and a
+         *       FOURTH field rather than a silent omission: today's bar always carries some, and
+         *       a reader seeing three bands add to less than `total` cannot tell a live call from
+         *       a dropped row. The chart draws three bands and may show this one as the gap.
+         *
+         *     No status is dropped. A ninth one added to `CALL_STATUSES` without a class here
+         *     fails the partition test rather than quietly unbalancing every bucket.
+         */
+        DashboardDayOut: {
+            /** Completed */
+            completed: number;
+            /** Failed */
+            failed: number;
+            /** In Flight */
+            in_flight: number;
+            /**
+             * Ist Date
+             * Format: date
+             */
+            ist_date: string;
+            /** No Answer */
+            no_answer: number;
+            /** Total */
+            total: number;
+        };
         /** DashboardOut */
         DashboardOut: {
             /**
@@ -2593,6 +2640,8 @@ export interface components {
             calls_7d: number;
             /** Calls Today */
             calls_today: number;
+            /** Daily 7D */
+            daily_7d: components["schemas"]["DashboardDayOut"][];
             /** Hot Leads Open */
             hot_leads_open: number;
             /** Leads New 7D */
