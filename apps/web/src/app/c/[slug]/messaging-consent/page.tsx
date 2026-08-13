@@ -19,6 +19,7 @@ import {
   RestrictionNote,
   formatIST,
   type NoticeTone,
+  PRIMARY_BUTTON_SM,
 } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
@@ -115,8 +116,6 @@ const FIELD_BASE =
   "rounded-md border border-line bg-surface py-1.5 text-sm text-ink placeholder:text-ink-faint";
 const FIELD = `${FIELD_BASE} px-3`;
 const FIELD_ICON = `${FIELD_BASE} pl-8 pr-3`;
-const PRIMARY_BUTTON =
-  "flex items-center gap-1.5 rounded-md bg-brand-strong px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function MessagingConsentPage() {
   const session = useClientSession();
@@ -247,7 +246,7 @@ export default function MessagingConsentPage() {
           <button
             type="submit"
             disabled={consentLookup.isPending || lookupPhone.trim().length < 8}
-            className={PRIMARY_BUTTON}
+            className={PRIMARY_BUTTON_SM}
           >
             {consentLookup.isPending ? "Checking…" : "Check"}
           </button>
@@ -406,7 +405,7 @@ export default function MessagingConsentPage() {
               <button
                 type="submit"
                 disabled={record.isPending || phone.trim().length < 8 || blocked !== null}
-                className={PRIMARY_BUTTON}
+                className={PRIMARY_BUTTON_SM}
               >
                 <BadgeCheck className="h-4 w-4" />
                 {record.isPending

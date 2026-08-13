@@ -24,6 +24,7 @@ import {
   formatCount,
   formatIST,
   type NoticeTone,
+  PRIMARY_BUTTON_SM,
 } from "@/components/ui";
 import {
   DNC_LIST_LIMIT,
@@ -145,8 +146,6 @@ const FIELD_BASE =
 const FIELD = `${FIELD_BASE} px-3`;
 /** The same field with room for a leading icon. */
 const FIELD_ICON = `${FIELD_BASE} pl-8 pr-3`;
-const PRIMARY_BUTTON =
-  "flex items-center gap-1.5 rounded-md bg-brand-strong px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function DoNotCallPage() {
   const session = useClientSession();
@@ -230,7 +229,7 @@ export default function DoNotCallPage() {
           <button
             type="submit"
             disabled={check.isPending || phone.trim().length < 8}
-            className={PRIMARY_BUTTON}
+            className={PRIMARY_BUTTON_SM}
           >
             {check.isPending ? "Checking…" : "Check"}
           </button>
@@ -326,7 +325,7 @@ export default function DoNotCallPage() {
               <button
                 type="submit"
                 disabled={add.isPending || parsed.length === 0 || tooMany}
-                className={PRIMARY_BUTTON}
+                className={PRIMARY_BUTTON_SM}
               >
                 <ListPlus className="h-4 w-4" />
                 {add.isPending

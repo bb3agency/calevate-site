@@ -22,6 +22,7 @@ import {
   Skeleton,
   formatCount,
   formatIST,
+  PRIMARY_BUTTON_SM,
 } from "@/components/ui";
 import { API_BASE } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -103,8 +104,6 @@ const SAMPLE_PAYLOAD = JSON.stringify(
 const FIELD_BASE =
   "rounded-md border border-line bg-surface px-3 py-1.5 text-ink placeholder:text-ink-faint";
 const FIELD = `${FIELD_BASE} text-sm`;
-const PRIMARY_BUTTON =
-  "flex items-center gap-1.5 rounded-md bg-brand-strong px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50";
 const QUIET_BUTTON =
   "flex items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5";
 const CODE = "break-all rounded bg-app px-2 py-1 font-mono text-xs text-ink";
@@ -213,7 +212,7 @@ export default function LeadSourcesPage() {
           <button
             type="submit"
             disabled={!write.allowed || test.isPending || !testSourceId.trim()}
-            className={PRIMARY_BUTTON}
+            className={PRIMARY_BUTTON_SM}
           >
             <FlaskConical className="h-4 w-4" />
             {test.isPending ? "Checking…" : "Run test — no call is placed"}
@@ -320,7 +319,7 @@ export default function LeadSourcesPage() {
           <button
             type="submit"
             disabled={!write.allowed || metaSetup.isPending || !metaSourceId.trim()}
-            className={PRIMARY_BUTTON}
+            className={PRIMARY_BUTTON_SM}
           >
             <Webhook className="h-4 w-4" />
             {metaSetup.isPending ? "Loading…" : "Show setup details"}

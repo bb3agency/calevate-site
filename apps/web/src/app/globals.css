@@ -16,6 +16,11 @@
      behind every icon medallion. */
   --brand: #16a05d;
   --brand-strong: #0f6b3d;
+  /* The pressed/hover green under `--brand-strong`. It exists because the primary
+     button in the design DARKENS on hover rather than lightening, and approximating
+     that with `hover:bg-brand` inverted the button's resting shade across four
+     screens before anyone noticed. */
+  --brand-deep: #0c5932;
   --brand-bright: #22c55e;
   --brand-soft: #eaf8f0;
 
@@ -53,6 +58,7 @@
 @theme inline {
   --color-brand: var(--brand);
   --color-brand-strong: var(--brand-strong);
+  --color-brand-deep: var(--brand-deep);
   --color-brand-bright: var(--brand-bright);
   --color-brand-soft: var(--brand-soft);
 

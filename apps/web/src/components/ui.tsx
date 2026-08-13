@@ -307,8 +307,24 @@ export const FIELD =
   "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint";
 export const FIELD_LABEL = "text-xs font-medium text-ink-muted";
 export const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
+/**
+ * `bg-brand-strong`, not `bg-brand`, and this was worth checking rather than assuming.
+ *
+ * The design's primary button rests at #0F6B3D (brand-strong) and DARKENS to #0c5932 on
+ * hover; #16A05D (brand) is the medallion and fill colour, not a button. The version
+ * first promoted here rested on `brand` and lightened — so the four screens that had
+ * written their own copy (the three compliance screens and the prompt history) were the
+ * ones matching the design, and the shared constant was the outlier. Two greens for one
+ * button is exactly the drift extracting it was supposed to end.
+ */
 export const PRIMARY_BUTTON =
-  "inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50";
+
+/** The same buttons at the size an inline action wants. */
+export const PRIMARY_BUTTON_SM =
+  "inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50";
+export const SECONDARY_BUTTON_SM =
+  "inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5";
 export const SECONDARY_BUTTON =
   "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5";
 /**

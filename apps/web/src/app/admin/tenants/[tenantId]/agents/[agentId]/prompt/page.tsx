@@ -12,6 +12,8 @@ import {
   RestrictionNote,
   Skeleton,
   formatIST,
+  PRIMARY_BUTTON_SM,
+  SECONDARY_BUTTON_SM,
 } from "@/components/ui";
 import { useTenant } from "@/lib/api/admin";
 import {
@@ -216,7 +218,7 @@ export default function AgentPromptPage({
             <button
               type="submit"
               disabled={newVersion.isPending || body.length < 20 || !write.allowed}
-              className={PRIMARY_BUTTON}
+              className={PRIMARY_BUTTON_SM}
             >
               Save as new version
             </button>
@@ -239,11 +241,7 @@ export default function AgentPromptPage({
 const FIELD =
   "w-full rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50";
 
-const PRIMARY_BUTTON =
-  "rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50";
 
-const SECONDARY_BUTTON =
-  "rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5";
 
 /**
  * Which version is staged and which one callers hear.
@@ -369,7 +367,7 @@ function PublishingPanel({
                 type="button"
                 disabled={busy || !write.allowed}
                 onClick={() => apply.mutate({ expected_version: staged.staged_version })}
-                className={PRIMARY_BUTTON}
+                className={PRIMARY_BUTTON_SM}
               >
                 {apply.isPending ? "Applying…" : "Apply to live calls"}
               </button>
@@ -377,7 +375,7 @@ function PublishingPanel({
                 type="button"
                 disabled={busy || !write.allowed}
                 onClick={() => undo.mutate()}
-                className={SECONDARY_BUTTON}
+                className={SECONDARY_BUTTON_SM}
               >
                 {undo.isPending ? "Undoing…" : "Undo"}
               </button>
@@ -529,7 +527,7 @@ function CallCapPanel({
           <button
             type="submit"
             disabled={save.isPending || !write.allowed}
-            className={PRIMARY_BUTTON}
+            className={PRIMARY_BUTTON_SM}
           >
             {save.isPending ? "Saving…" : "Set cap"}
           </button>
