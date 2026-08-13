@@ -107,18 +107,6 @@ def test_the_sheets_export_neutralises_a_dictated_formula(payload: str) -> None:
     assert not cell.startswith(("=", "+", "-", "@"))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "FINDING (reported, not fixed — this slice may not edit apps/). "
-        "`crm/service.py::_csv_value` writes caller-supplied extraction values into "
-        "/leads/export.csv with no formula guard, while "
-        "`integrations/service.py::_disarm` guards the byte-identical value on the "
-        "Sheets path. Two ways of writing untrusted lead data into a spreadsheet, one "
-        "hardened — the 'one way per problem' defect CLAUDE.md names, and the "
-        "unhardened one is the path a client double-clicks in Excel."
-    ),
-)
 @pytest.mark.parametrize("payload", [FORMULA_PAYLOAD, *OTHER_LEADERS])
 def test_the_csv_export_neutralises_a_dictated_formula(payload: str) -> None:
     """The same value, the same client, the other door.
@@ -128,12 +116,32 @@ def test_the_csv_export_neutralises_a_dictated_formula(payload: str) -> None:
     is to be opened by a spreadsheet. The name column is written from `leads.name`, which
     on a voice lead is whatever the caller said their name was.
 
-    Asserting the DESIRED behaviour rather than the current one is deliberate: an xfail
-    that asserts today's bug would have to be rewritten by whoever fixes it, and would
-    read as if the bug were the specification.
+    THIS WAS A STRICT XFAIL AND IS NOW A PASSING TEST, which is the whole argument for
+    writing findings that way. The red-team slice could not edit `apps/`, so it asserted
+    the DESIRED behaviour and let the marker carry the report; the fix landed in the next
+    commit and the marker came off without a line of the assertion changing. An xfail that
+    had asserted today's bug would have had to be rewritten by whoever fixed it, and would
+    have read as if the bug were the specification.
+
+    The guard is `core.spreadsheet_safety.disarm_for_csv`, a TAB prefix rather than the
+    Sheets apostrophe — the two consumers share the leader SET and not the rendering, for
+    the reason set out in that module.
     """
     cell = _csv_value(payload)
-    assert not cell.startswith(("=", "+", "-", "@", "\t", "\r")), cell
+    # What must be true: the cell does not BEGIN with a character Excel executes.
+    #
+    # The original form of this assertion also forbade a leading TAB, and that was
+    # wrong in a way worth recording — the tab is OWASP's remedy for Excel, not one of
+    # its dangers. `\t` and `\r` are in `FORMULA_LEADERS` because a value ARRIVING with
+    # one is suspicious (it can shift how the field parses); neither executes. Conflating
+    # "what we refuse to accept" with "what we refuse to emit" made the fix look like a
+    # violation of itself.
+    assert not cell.startswith(("=", "+", "-", "@", "\uff1d", "\uff0b", "\uff0d", "\uff20")), cell
+    # And the guard actually fired rather than the payload merely being harmless.
+    assert cell.startswith("\t"), cell
+    # A benign value is untouched: a guard that prefixed every cell would corrupt the
+    # client's own data in the name of protecting it.
+    assert _csv_value("Sri Clinic") == "Sri Clinic"
 
 
 # --- What `coerce_value` does and does not check --------------------------------

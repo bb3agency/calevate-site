@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.business_hours import count_after_hours_calls
 from apps.api.core.errors import ProblemError
+from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
     CallDetailOut,
@@ -729,7 +730,12 @@ async def export_leads_csv(
         )
 
     buffer = io.StringIO()
-    writer = csv.writer(buffer)
+    # QUOTE_ALL, because the formula guard below depends on it. OWASP's Excel
+    # mitigation is a TAB prefix *inside the quoted field* — unquoted, the leading
+    # tab is not reliably part of the value, and the guard stops guarding. Quoting
+    # everything also removes the class of bug where a client's own comma or newline
+    # shifts every column to its right, which is the same defect one layer down.
+    writer = csv.writer(buffer, quoting=csv.QUOTE_ALL)
     writer.writerow(
         ["phone", "name", "status", "source", "calls", "created_at", *[c.label for c in columns]]
     )
@@ -1020,11 +1026,19 @@ def _actor_uuid(actor: Any) -> UUID | None:
 
 
 def _csv_value(value: Any) -> str:
+    """Render one extraction field for the export a client opens in Excel.
+
+    DISARMED, because every value here is caller-supplied — a name, a business, a note
+    the agent transcribed — and a cell beginning `=`, `+`, `-` or `@` executes on open.
+    The Sheets writer has guarded the byte-identical value since D-23; this path did not,
+    and it is the one a human double-clicks. `core.spreadsheet_safety` holds the shared
+    leader set, the reason the two paths render the fix differently, and the sources.
+    """
     if value is None:
         return ""
     if isinstance(value, bool):
         return "yes" if value else "no"
-    return str(value)
+    return disarm_for_csv(str(value))
 
 
 # --- dashboard ----------------------------------------------------------------
