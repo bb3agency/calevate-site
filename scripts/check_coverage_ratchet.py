@@ -131,17 +131,25 @@ WHAT IT CAN SEE, ON EVIDENCE — never on a flag somebody remembers to pass:
 
 WHAT IT CANNOT SEE, SAID PLAINLY:
 
-* **a branch whose execution depends on how FAST the machine is.** The clearest instance
-  is real and still live: `apps/voice-runtime/webhook_routes.py:182` raises
-  `webhook_ack_slow` only when an ack exceeds the 500ms budget of hard rule 3 — never on
-  an idle laptop, sometimes on a contended CI runner. That one line plus the partial
-  branch above it is exactly the 2 units by which `voice-runtime-ack` differs here (24)
-  from CI (22), and NOTHING in this process can distinguish it from a real change: there
-  is no honest in-process signal for "the runner was slower today", and a duration
-  compared against a remembered duration would cry wolf between any two machines. The
-  durable fix is in the CODE, not here — a test that drives the slow path deterministically
-  would cover it in both places — and until then the arrangement carries it: CI's number is
-  the authority, because CI is the environment every PR is measured in.
+* **a branch whose execution depends on how FAST the machine is.** NOTHING in this process
+  can distinguish one from a real change: there is no honest in-process signal for "the
+  runner was slower today", and a duration compared against a remembered duration would cry
+  wolf between any two machines. The instance this repo actually had is worth keeping,
+  because of what it cost. `apps/voice-runtime/webhook_routes.py:182` raises
+  `webhook_ack_slow` only when an ack exceeds the 500ms budget of hard rule 3 — never on an
+  idle laptop, sometimes on a contended CI runner. That line plus the partial branch above
+  it is 2 units, and since this gate is an EQUALITY it went red in BOTH directions across
+  nine consecutive commits: first as an improvement nobody had locked in (a busy runner
+  measured 22 against a budget of 24), then, once 22 was written into the baseline, eight
+  times as a regression nobody had introduced (every runner since measured 24). Two
+  sessions read that as a coverage change and edited the number — which is the failure mode
+  this whole file exists to prevent, arriving through the one hole it could not see.
+  **It is fixed in the CODE, where it belonged**: `test_breaching_the_budget_raises_the_
+  incident_signal_and_still_acks` drives the slow path by lowering the THRESHOLD rather
+  than faking the clock, so the branch is covered identically on every machine and both
+  numbers are 22 by construction. There is now no known speed-dependent branch and no
+  CI-is-the-authority carve-out; if a future one appears, the fix is another such test, not
+  another edited number.
 * a skip whose cause is not one of the probed services — an optional dependency, a
   platform guard, a fixture that gave up. Those change the number and, from inside this
   process, look exactly like a real change. The counts and the commonest reasons are
@@ -1232,9 +1240,11 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "\nD-29: coverage ratchets, not targets. The number is a count of UNCOVERED "
             "units per hard-rule surface, and it only goes down. This run WAS vouched for "
-            "(whole suite, green, services up, both stores fresh) — so unless one of the "
-            "lines above is a branch that only fires on a slower machine (the docstring "
-            "names the one we know of), the difference is the code."
+            "(whole suite, green, services up, both stores fresh), and no branch guarded "
+            "here is known to depend on machine speed any more — so the difference is the "
+            "code. If you believe you have found a new speed-dependent branch, the fix is "
+            "a test that drives it deterministically (see the one for webhook_ack_slow), "
+            "never an edit to the number below."
         )
         return EXIT_FAIL
 
