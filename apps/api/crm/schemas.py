@@ -306,9 +306,26 @@ class AttentionItemOut(Strict):
 
 
 class AttentionOut(Strict):
+    """The queue, and the two numbers that say what it is a page OF.
+
+    `counts` and `total` are counted SEPARATELY from the rows (crm/attention.py argues
+    it, and `LeadListOut.status_counts_matching_search` above is the same decision on the
+    leads table). They are the size of the set, never the size of the page: `items` is
+    capped at the request's `limit` and these are not, so `total > len(items)` is the
+    normal state of a busy account and the screen says so in words. The bug this
+    replaces capped each of the four sources at 25 and then counted what came back, so a
+    client with 40 blocked leads read 25 — on the badge, in the nav bell, and in the "of
+    M" the shortfall sentence divides by.
+    """
+
+    # Everything the four sources match, inside the queue's 14-day window. The nav bell
+    # renders this, so it is the number an owner sees most often.
     total: int
-    # kind → count, for the nav badge. Only the kinds present appear.
+    # kind → count, for the summary chips. Only the kinds present appear: absent means
+    # genuinely zero, which is what lets the screen skip a chip rather than draw "0".
     counts: dict[str, int]
+    # The newest `limit` across all four sources. Truly the newest: each source is
+    # fetched to the merged limit, so nothing older is shown above something newer.
     items: list[AttentionItemOut]
 
 

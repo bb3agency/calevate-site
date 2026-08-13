@@ -37,6 +37,11 @@ export type AttentionKind = AttentionItem["kind"];
 /**
  * `counts` is keyed by `AttentionKind`, but the server OMITS kinds with nothing in
  * them, so a lookup is genuinely absent rather than zero — read it as `counts[k] ?? 0`.
+ *
+ * `counts` and `total` describe the whole set; `items` is the newest `limit` of it. They
+ * are counted by their own queries server-side rather than taken from the rows, so
+ * `total > items.length` is normal on a busy account and is the shortfall the screen
+ * spells out. Never recompute either from `items` — that is the exact bug the API fixed.
  */
 export type AttentionQueue = Schemas["AttentionOut"];
 

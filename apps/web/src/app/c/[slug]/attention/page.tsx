@@ -79,9 +79,16 @@ const UNKNOWN_TONE = "bg-black/5 text-ink-muted dark:bg-white/10";
  *   now requires the server to have SAID zero (`total === 0`), and when there is no data
  *   at all there is no panel, only the refusal.
  * - **The list is capped and the counts are not.** `/v1/attention` merges four sources
- *   and slices to `limit` (50), newest first, while `total` counts everything it found —
- *   so a busy account was shown 50 rows under a badge reading 78 with nothing to explain
- *   the gap. The gap is now stated, along with which end of the queue is missing.
+ *   and slices to `limit` (50), newest first, while `counts`/`total` are counted
+ *   separately from the rows and cover everything that EXISTS — so a busy account is
+ *   shown 50 rows under a badge reading 78 with nothing to explain the gap. The gap is
+ *   now stated, along with which end of the queue is missing.
+ *
+ *   This screen prints the server's numbers as fact, which is right — inventing a "25+"
+ *   is not a screen's job — and the server has to earn it. It did not until
+ *   crm/attention.py stopped counting its own capped page; both numbers in "showing the
+ *   N most recent of M" are now true, M included, and each source is fetched to the
+ *   merged limit so "most recent" means most recent across all four.
  *
  * Hard rule 6 holds at the row and it holds SERVER-side: `title` names a blocked lead by
  * its captured name, falling back to a MASKED number (crm/attention.py::blocked_leads),
@@ -234,7 +241,11 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
           {/* The queue is capped at `limit` while `total` is not, and the API sorts newest
               first before it slices — so the rows that fall off are the OLDEST. Saying
               which end is missing is the difference between a list a client can trust and
-              one they quietly stop believing when the badge disagrees with it. */}
+              one they quietly stop believing when the badge disagrees with it.
+
+              `total` is the server's count of the whole set, never `items.length` under
+              another name, so this sentence's denominator is a real number and this
+              condition is a real question rather than one that answers itself. */}
           {data.total > data.items.length && (
             <p className="border-t border-line px-4 py-3 text-xs text-ink-faint">
               Showing the {formatCount(data.items.length)} most recent of{" "}

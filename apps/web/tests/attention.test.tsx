@@ -20,8 +20,12 @@ import { problem, renderClientPage } from "./harness";
  *    falling back to a MASKED number (crm/attention.py) — hard rule 6 holds here as it
  *    does on the calls log, and this screen is the one an owner forwards to their staff.
  * 3. **A count that disagrees with the list.** The API caps the list and does not cap
- *    the total, so a busy account sees 50 rows under a badge reading 78. Saying which
- *    end is missing is what keeps the badge believable.
+ *    the total — `counts`/`total` are counted separately from the rows, so they are the
+ *    size of the SET — and a busy account sees 50 rows under a badge reading 78. Saying
+ *    which end is missing is what keeps the badge believable. The screen must print the
+ *    server's numbers rather than count what it rendered: recounting would say 50 and 2,
+ *    which is the under-reporting bug crm/attention.py just removed, reintroduced one
+ *    layer up.
  * 4. **An item this build cannot name, dropped.** An unknown kind fails VISIBLE: hiding
  *    an item is the exact failure the screen exists to prevent.
  */
@@ -119,9 +123,12 @@ describe("the needs-attention queue", () => {
   });
 
   it("admits that the list is shorter than the count it is under", async () => {
-    // The API merges four sources, sorts newest first and slices to `limit`; `total`
-    // counts everything it found. Two rows under a badge reading 78 is how a client
-    // learns to distrust the badge.
+    // A real `/v1/attention` body for a busy account: the API merges four sources, sorts
+    // newest first and slices to `limit`, while `counts`/`total` are counted by their own
+    // queries over the whole 14-day set (crm/attention.py). So M here is 78 — one blocked
+    // lead and one stalled campaign are on screen out of 40 and 38 that exist — and the
+    // screen has to say the other 76 are there. Two rows under a silent badge reading 78
+    // is how a client learns to distrust the badge.
     const { container } = await renderClientPage(
       page,
       routes({
@@ -132,10 +139,18 @@ describe("the needs-attention queue", () => {
       }),
     );
 
+    // M is the server's count of what EXISTS, not the 2 rows rendered and not the 50-row
+    // cap: a screen that recounted its own list would say "2 of 2" and never draw this
+    // sentence at all.
     await screen.findByText(/Showing the 2 most recent of 78/);
     // And which end is missing, because "showing 2 of 78" alone leaves an owner
     // wondering whether the important one is the one that fell off.
     expect(container.textContent).toContain("Older items are not listed.");
+    // The chips carry the same claim per kind: 40 blocked with one blocked row on screen.
+    const summary = screen.getByRole("group", { name: "Queue summary" });
+    expect(summary.textContent).toContain("40");
+    expect(summary.textContent).toContain("38");
+    expect(container.querySelectorAll("li").length, "one row per item, no more").toBe(2);
   });
 
   it("does not claim a shortfall when the whole queue is on screen", async () => {

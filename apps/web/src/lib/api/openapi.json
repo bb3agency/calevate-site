@@ -351,6 +351,7 @@
       },
       "AttentionOut": {
         "additionalProperties": false,
+        "description": "The queue, and the two numbers that say what it is a page OF.\n\n`counts` and `total` are counted SEPARATELY from the rows (crm/attention.py argues\nit, and `LeadListOut.status_counts_matching_search` above is the same decision on the\nleads table). They are the size of the set, never the size of the page: `items` is\ncapped at the request's `limit` and these are not, so `total > len(items)` is the\nnormal state of a busy account and the screen says so in words. The bug this\nreplaces capped each of the four sources at 25 and then counted what came back, so a\nclient with 40 blocked leads read 25 \u2014 on the badge, in the nav bell, and in the \"of\nM\" the shortfall sentence divides by.",
         "properties": {
           "counts": {
             "additionalProperties": {

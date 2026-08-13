@@ -2096,7 +2096,19 @@ export interface components {
             /** Title */
             title: string;
         };
-        /** AttentionOut */
+        /**
+         * AttentionOut
+         * @description The queue, and the two numbers that say what it is a page OF.
+         *
+         *     `counts` and `total` are counted SEPARATELY from the rows (crm/attention.py argues
+         *     it, and `LeadListOut.status_counts_matching_search` above is the same decision on the
+         *     leads table). They are the size of the set, never the size of the page: `items` is
+         *     capped at the request's `limit` and these are not, so `total > len(items)` is the
+         *     normal state of a busy account and the screen says so in words. The bug this
+         *     replaces capped each of the four sources at 25 and then counted what came back, so a
+         *     client with 40 blocked leads read 25 — on the badge, in the nav bell, and in the "of
+         *     M" the shortfall sentence divides by.
+         */
         AttentionOut: {
             /** Counts */
             counts: {
