@@ -140,6 +140,41 @@
         "title": "AddNumbersOut",
         "type": "object"
       },
+      "AdminMeOut": {
+        "additionalProperties": false,
+        "description": "The admin realm's own identity document.\n\n`MeOut` (tenancy/routes.py) minus everything that is a property of a TENANT. There\nis no `organization`, because an admin principal resolved without\n`X-Impersonate-Org` has no tenant at all; and no `impersonating`, because a console\nscreen that had to enter a client to ask who it was is precisely the shape this\nroute removes. What is left \u2014 the role and the permission set \u2014 is the whole of what\nthe console legitimately needs to preview its own gates.",
+        "properties": {
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "realm": {
+            "const": "admin",
+            "title": "Realm",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "realm",
+          "user_id",
+          "role",
+          "permissions"
+        ],
+        "title": "AdminMeOut",
+        "type": "object"
+      },
       "AgentOut": {
         "additionalProperties": false,
         "properties": {
@@ -316,6 +351,7 @@
       },
       "AttentionOut": {
         "additionalProperties": false,
+        "description": "The queue, and the two numbers that say what it is a page OF.\n\n`counts` and `total` are counted SEPARATELY from the rows (crm/attention.py argues\nit, and `LeadListOut.status_counts_matching_search` above is the same decision on the\nleads table). They are the size of the set, never the size of the page: `items` is\ncapped at the request's `limit` and these are not, so `total > len(items)` is the\nnormal state of a busy account and the screen says so in words. The bug this\nreplaces capped each of the four sources at 25 and then counted what came back, so a\nclient with 40 blocked leads read 25 \u2014 on the badge, in the nav bell, and in the \"of\nM\" the shortfall sentence divides by.",
         "properties": {
           "counts": {
             "additionalProperties": {
@@ -1949,6 +1985,68 @@
           "day"
         ],
         "title": "DayHours",
+        "type": "object"
+      },
+      "DeadLetterJobOut": {
+        "additionalProperties": false,
+        "description": "One `job`'s share of the outbox DLQ.\n\nCOUNTS AND JOB NAMES ONLY (hard rule 6). `outbox_messages.payload` is JSONB holding\nlead fields and phone numbers; `job` is an ARQ job name \u2014 a code identifier \u2014 and\nnothing derived from a payload reaches this model. See\n`reliability.service.DeadLetterQueue`, which is where that boundary is enforced.",
+        "properties": {
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "oldest_at": {
+            "format": "date-time",
+            "title": "Oldest At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job",
+          "depth",
+          "oldest_at"
+        ],
+        "title": "DeadLetterJobOut",
+        "type": "object"
+      },
+      "DeadLetterQueueOut": {
+        "additionalProperties": false,
+        "description": "How much a replay would re-send, published so the confirmation can be informed.\n\nThe console asks an operator to confirm `POST /outbox/replay`, whose effect is real\nHMAC-signed webhooks into clients' own systems for every tenant at once. Until this\nfield existed the console said so in its own words: there was no count to show before\nthe click, so the operator confirmed a redelivery of unknown size, tenancy and age.\n\nThree numbers rather than one, because a total does not tell an operator what they are\nabout to do: 142 dead letters is a different act depending on whether it is 142 CRM\nwebhooks or 142 hot-lead emails, and a different act again depending on whether the\nhead of the queue is ten minutes or nine days old.",
+        "properties": {
+          "by_job": {
+            "items": {
+              "$ref": "#/components/schemas/DeadLetterJobOut"
+            },
+            "title": "By Job",
+            "type": "array"
+          },
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "oldest_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest At"
+          }
+        },
+        "required": [
+          "depth",
+          "oldest_at",
+          "by_job"
+        ],
+        "title": "DeadLetterQueueOut",
         "type": "object"
       },
       "DeletionRequestAcceptedOut": {
@@ -3727,6 +3825,29 @@
       "LeadOut": {
         "additionalProperties": false,
         "properties": {
+          "assigned_to": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned To"
+          },
+          "assigned_to_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned To Name"
+          },
           "call_count": {
             "title": "Call Count",
             "type": "integer"
@@ -3823,9 +3944,129 @@
         "title": "LeadOut",
         "type": "object"
       },
+      "LeadTimelineEventOut": {
+        "additionalProperties": false,
+        "description": "One line of a lead's history, PROJECTED \u2014 never `lead_events.payload` itself.\n\n`lead_events.payload` is JSONB written by six producers in three deployables\n(`crm.service.update_lead`, `ingest.service._timeline`, `workers.pipeline`,\n`workers.notifications`, and two paths in `workers.whatsapp`), with no schema\nbetween them and the column. Every one of them was read before this model was\nwritten, and today every one of them stores ids, authored rule/reason codes,\nbooleans and counters \u2014 no phone number, no transcript text, no extraction payload\n(`crm.service.lead_timeline` records the audit key by key).\n\nThat is a fact about today's writers, not a property of the column, and hard rules 5\nand 6 have to survive the seventh producer. So the read PROJECTS: the service builds\nevery field below from a whitelist of keys, and a key nothing here names cannot\nreach a browser however it got into the row. The blob is never serialized, which is\nalso why this model needs no `ACKNOWLEDGED_PASSTHROUGH` entry in\n`scripts/check_redaction_exposure.py` \u2014 there is no free-form dict to acknowledge.",
+        "properties": {
+          "actor_kind": {
+            "enum": [
+              "system",
+              "member"
+            ],
+            "title": "Actor Kind",
+            "type": "string"
+          },
+          "actor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Name"
+          },
+          "call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "occurred_at",
+          "actor_kind",
+          "title"
+        ],
+        "title": "LeadTimelineEventOut",
+        "type": "object"
+      },
+      "LeadTimelineOut": {
+        "additionalProperties": false,
+        "description": "A page of a lead's history, newest first.\n\n`total` is the size of the SET, counted with `count(*) OVER ()` in the same pass as\nthe rows \u2014 never `len(items)`, which is the size of the page (BUILD-LOG \u00a752, and\n`AttentionOut` makes the identical distinction in the identical words).",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LeadTimelineEventOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "LeadTimelineOut",
+        "type": "object"
+      },
       "LeadUpdateIn": {
         "additionalProperties": false,
         "properties": {
+          "assigned_to": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned To"
+          },
           "name": {
             "anyOf": [
               {
@@ -4039,6 +4280,38 @@
           "impersonating"
         ],
         "title": "MeOut",
+        "type": "object"
+      },
+      "MemberOut": {
+        "additionalProperties": false,
+        "description": "One colleague, as a control that has to NAME them needs them.\n\n**No email, and that is a rule rather than a preference.** `email` is in\n`scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model\ndeclaring it fails the guardrail unless the route is allowlisted as role-checked and\naudited \u2014 which an assignee picker is not, and should not have to be. Nothing on\nthis surface needs it either: the control writes an id and prints a name.\n\n`name` is nullable because `users.name` is: the Clerk mirror composes it from\nfirst/last name and stores NULL when the account has neither\n(`tenancy/clerk_webhooks.py`). The screen says \"Unnamed member\" rather than falling\nback to an address \u2014 a fallback that leaks is not a fallback.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "role"
+        ],
+        "title": "MemberOut",
         "type": "object"
       },
       "MessagingConsentOut": {
@@ -4657,6 +4930,9 @@
             "title": "Outbound Halted",
             "type": "boolean"
           },
+          "outbox_dead_letters": {
+            "$ref": "#/components/schemas/DeadLetterQueueOut"
+          },
           "tm_registration": {
             "$ref": "#/components/schemas/TmRegistrationOut"
           }
@@ -4665,7 +4941,8 @@
           "load_shed_mode",
           "outbound_halted",
           "halt_reason",
-          "tm_registration"
+          "tm_registration",
+          "outbox_dead_letters"
         ],
         "title": "PlatformStateOut",
         "type": "object"
@@ -4976,13 +5253,25 @@
       "ReplayOut": {
         "additionalProperties": false,
         "properties": {
+          "job": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job"
+          },
           "replayed": {
             "title": "Replayed",
             "type": "integer"
           }
         },
         "required": [
-          "replayed"
+          "replayed",
+          "job"
         ],
         "title": "ReplayOut",
         "type": "object"
@@ -7071,6 +7360,35 @@
           }
         },
         "summary": "Accounts held for a human decision \u2014 KYC and first-campaign review (R-11)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/me": {
+      "get": {
+        "description": "The admin console's answer to 'who am I and what may I do'. Authenticates an admin token with NO impersonation header and reads no tenant: the role comes from `admin_users` and the permission set from the role table, so nothing here depends on which client happens to be open.",
+        "operationId": "admin_me_v1_admin_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminMeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Who this operator is \u2014 the admin realm's own identity, no tenant involved",
         "tags": [
           "admin"
         ],
@@ -10784,6 +11102,23 @@
               ],
               "title": "Agent Id"
             }
+          },
+          {
+            "in": "query",
+            "name": "assigned_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Assigned To"
+            }
           }
         ],
         "responses": {
@@ -10864,6 +11199,23 @@
               ],
               "title": "Search"
             }
+          },
+          {
+            "in": "query",
+            "name": "assigned_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Assigned To"
+            }
           }
         ],
         "responses": {
@@ -10924,6 +11276,7 @@
         "x-calevate-permission": "leads:read"
       },
       "patch": {
+        "description": "Assignment rides on THIS route rather than on a `PUT /leads/{id}/assignee`.\n\nThe choice was between one route that edits a lead and a second route that edits\none of its fields, and \"one way per problem\" decides it: the status select and the\nassignee select sit in the same table row, need the same `leads:write`, and want\nthe same cache invalidation \u2014 two endpoints would be two mutations, two hooks and\ntwo places for the next editable field to be added to the wrong one. `staff` holds\n`leads:write` deliberately (core/rbac.py): assignment is how a team divides work,\nnot an owner-only setting.\n\nThe one thing a shared PATCH costs is the null: `\"assigned_to\": null` must mean\n\"unassign\" while an ABSENT `assigned_to` means \"leave the owner alone\", and both\narrive as `None` on the model. Pydantic v2's `model_fields_set` holds exactly the\nfields the request supplied, so it is what tells them apart\n(pydantic.dev/docs/validation/latest/concepts/models). `AssigneeChange` carries the\nanswer onward as a value rather than as a second boolean parameter, so the service\ncannot read the two cases the same way by accident.",
         "operationId": "patch_lead_v1_leads__lead_id__patch",
         "parameters": [
           {
@@ -10965,7 +11318,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Patch Lead",
+        "summary": "Edit one lead \u2014 status, name, and who owns it",
         "tags": [
           "crm"
         ],
@@ -11022,6 +11375,70 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/leads/{lead_id}/timeline": {
+      "get": {
+        "description": "The record existed and nobody could read it.\n\n`lead_events` is written by six producers across three deployables \u2014 the status\nchange, the blocked dial, each call, each hot-lead alert, each WhatsApp attempt,\neach spent campaign ladder \u2014 and until now the only reader was the aggregate\nneeds-attention query. \"We called them twice, the WhatsApp was refused, the campaign\ngave up\" was on record and invisible to the person it is about.\n\nBounded rather than unbounded, and the bound is stated in the response: `limit` is\nvalidated HERE (1..100) rather than clamped in the service, for the reason\n`/v1/attention` gives \u2014 `min(limit, 100)` turns a negative limit into a silently\nshort page instead of into a bad request.",
+        "operationId": "lead_timeline_v1_leads__lead_id__timeline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lead_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lead Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadTimelineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What happened to this lead, newest first \u2014 projected, never the raw payload",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
     "/v1/me": {
       "get": {
         "description": "`requires(\"org:read\")`, not `current_any`: the declaration in `openapi_extra`\nabove and the dependency here must name the same permission.\n\nNothing about who gets in changes \u2014 `requires()` defaults to `realm=\"any\"` and so\nresolves the identical principal, `org:read` is not in `MUTATING_PERMISSIONS` so an\nimpersonating admin is still admitted (D-22), and every role the DB enums allow\nholds `org:read`. What changes is that the route now enforces what it advertises,\nwhich is the property `assert_policy_registry_complete` checks at boot and\n`tests/authz_audit_test.py` asserts for every route at once. A declaration with no\nlock behind it reads as protected in the OpenAPI schema and the generated TS\nclient; this was the last route where that was true.",
@@ -11045,6 +11462,39 @@
           }
         },
         "summary": "Who am I, in which account, with what permissions",
+        "tags": [
+          "tenancy"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/members": {
+      "get": {
+        "description": "The team, for any control that has to name a colleague (M3 lead assignment).\n\nTHE TENANCY CONTROL IS THE JOIN. `users` is a GLOBAL table with no RLS \u2014 identity\ncrosses tenants (DATA-MODEL \u00a72) \u2014 so `SELECT id, name FROM users` under a tenant\nsession would return every user of the platform. `memberships` is FORCE-RLS'd on\n`tenant_id`, so driving the query from it is what scopes the answer, and there is no\n`WHERE tenant_id` here for the reason the whole codebase gives: a hand-written\nfilter is a filter that can be forgotten, and its presence invites trusting it\ninstead of the policy.\n\nDeactivated accounts are excluded. A deactivated user is refused at the auth guard\non every request (BACKEND-PATTERNS \u00a77), so offering them as an assignee would be\noffering work to somebody who cannot open the account \u2014 and `crm.service` refuses\nthe assignment for the same reason, so a picker that listed them would be a control\nwhose options the server rejects.",
+        "operationId": "list_members_v1_members_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MemberOut"
+                  },
+                  "title": "Response List Members V1 Members Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Who is on this account's team \u2014 ids and display names, never emails",
         "tags": [
           "tenancy"
         ],
@@ -11124,7 +11574,44 @@
     },
     "/v1/ops/outbox/replay": {
       "post": {
+        "description": "Moves up to 100 of the OLDEST dead-lettered outbox messages back to `pending` with a fresh attempt budget, for every tenant at once. The next dispatch tick re-sends them: HMAC-signed webhooks to clients' own systems, Google Sheets appends, notification emails. A message can dead-letter AFTER its side effect landed, so the outcome to be sure of before sending this is a second delivery, not a flag in a row. `job` scopes the run to one kind of side effect and MUST be echoed in the confirmation header (`replay_dead_letters:<job>`); omit it to replay every job, which is `X-Confirm-Action: replay_dead_letters`. Read the depth and the per-job breakdown from `GET /v1/ops/platform` first \u2014 `outbox_dead_letters` is published so this confirmation can be an informed one.",
         "operationId": "replay_outbox_v1_ops_outbox_replay_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "job",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -11143,7 +11630,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Flip dead-lettered outbox messages back to pending (audited)",
+        "summary": "Flip dead-lettered outbox messages back to pending (step-up confirmed, audited)",
         "tags": [
           "ops"
         ],

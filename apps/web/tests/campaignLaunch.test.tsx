@@ -14,8 +14,12 @@ import { expectTextCount, renderClientPage } from "./harness";
  * Not `toBeDisabled()`: `@testing-library/jest-dom` is deliberately not a dependency
  * (see vitest.config.mts), and `disabled` is the property the browser actually acts on.
  */
+function launchButton(): HTMLButtonElement {
+  return screen.getByRole("button", { name: "Launch campaign" }) as HTMLButtonElement;
+}
+
 function launchButtonDisabled(): boolean {
-  return (screen.getByRole("button", { name: "Launch campaign" }) as HTMLButtonElement).disabled;
+  return launchButton().disabled;
 }
 
 /**
@@ -95,9 +99,9 @@ function check(...blockers: { rule: string; reason: string }[]): LaunchCheck {
  * `enabled` on it. Seeding it any other way would be testing a screen state the app
  * cannot reach.
  */
-async function openLaunchPanel(launchCheck: LaunchCheck) {
+async function openLaunchPanel(launchCheck: LaunchCheck, me: Me = ME) {
   const rendered = await renderClientPage(<CampaignsPage />, {
-    "/v1/me": ME,
+    "/v1/me": me,
     "/v1/campaigns": [CAMPAIGN],
     "/v1/agents": [AGENT],
     "/v1/campaigns/numbers": [],
@@ -251,6 +255,17 @@ describe("the launch panel with nothing outstanding", () => {
     expect(launchButtonDisabled()).toBe(false);
   });
 
+  it("says nothing about permissions to a viewer who holds them", async () => {
+    // The other half of the pair below: the refusal copy must not be ambient. An owner
+    // who CAN launch and is shown "Only an account owner can…" beside a live button is
+    // being told the control is dead when it is not.
+    const { container } = await openLaunchPanel(check());
+
+    await screen.findByText("Everything checks out.");
+    expect(container.textContent).not.toContain("Only an account owner can");
+    expect(launchButton().title).toBe("");
+  });
+
   it("does not treat an empty blocker list as ready", async () => {
     // `ready` is the server's verdict and the panel keys on it, not on
     // `blockers.length === 0`. They agree today; a future gate that reports a
@@ -265,5 +280,74 @@ describe("the launch panel with nothing outstanding", () => {
     expect(container.textContent).not.toContain("Everything checks out.");
     expect(launchButtonDisabled()).toBe(true);
     expect(container.textContent).toContain("Everything on your side is ready");
+  });
+});
+
+/**
+ * Who may press it — the second way this panel can authorise wrongly.
+ *
+ * `POST /v1/campaigns/{id}/launch` requires `leads:dispatch` (campaigns/routes.py), which
+ * `staff` does not hold (core/rbac.py) and which an impersonating operator is refused
+ * however senior they are (D-22, `MUTATING_PERMISSIONS`). `/launch-check` deliberately
+ * requires only `leads:read`, so BOTH of those viewers reach a panel that can legitimately
+ * say "Everything checks out." over a button they may not press.
+ *
+ * That combination is the one this screen must not ship: an encouraging sentence, a dead
+ * control, and the explanation a screenful away at the top of the page. It is the same
+ * defect the leads Export button had — a refusal delivered after the click, or not at all,
+ * reads as a fault in the product rather than as the boundary it is. So the reason is
+ * asserted ON THE CONTROL (`title`, which is what a hover answers) as well as beside it.
+ *
+ * The server still refuses either way. This is a preview of its answer, never a substitute
+ * for it — which is why the assertions are about what is SAID, not about the request.
+ */
+describe("the launch panel for a viewer who may not launch", () => {
+  const STAFF: Me = { ...ME, role: "staff", permissions: ["leads:read"] };
+  const STAFF_REASON = "Only an account owner can start or run campaigns.";
+
+  const OPERATOR: Me = { ...ME, impersonating: true };
+  const OPERATOR_REASON =
+    "You are viewing this account read-only, so you cannot start or run campaigns from here.";
+
+  it("refuses a staff user at the control, with the reason attached to it", async () => {
+    const { container } = await openLaunchPanel(check(), STAFF);
+
+    // The gate itself is clean, and the panel must keep saying so — hiding the verdict
+    // from a staff user would make them report a compliance problem that does not exist.
+    await screen.findByText("Everything checks out.");
+    expect(launchButtonDisabled()).toBe(true);
+    // On the control, so a hover answers without scrolling.
+    expect(launchButton().title).toBe(STAFF_REASON);
+    // …and beside it. Twice on the page is deliberate here and only here: once in the
+    // screen-level RestrictionNote, once under the button that the sentence above it
+    // has just told the reader is ready to press.
+    expectTextCount(container, STAFF_REASON, 2);
+  });
+
+  it("refuses an impersonating operator the same way, and never as a 403 to come", async () => {
+    const { container, calls } = await openLaunchPanel(check(), OPERATOR);
+
+    expect(launchButtonDisabled()).toBe(true);
+    expect(launchButton().title).toContain(OPERATOR_REASON);
+    expect(container.textContent).toContain(OPERATOR_REASON);
+    // D-22 is read-only: nothing on this screen may have POSTed on the way to rendering
+    // a disabled button. A screen that mutates first and explains afterwards is the
+    // failure the whole doctrine exists to prevent.
+    expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
+  });
+
+  it("still shows a blocked campaign its blockers when the viewer may not launch", async () => {
+    // The failure mode this rules out: gating the EXPLANATION on the mutating permission.
+    // `/launch-check` is `leads:read` precisely so support and staff see the same reasons
+    // the owner does — a staff user who can see neither the reason nor the button has
+    // nothing to relay to the person who can act.
+    const { container } = await openLaunchPanel(
+      check({ rule: "no_contacts", reason: "The campaign has no contacts." }),
+      STAFF,
+    );
+
+    expect(container.querySelectorAll("li")).toHaveLength(1);
+    expect(container.textContent).toContain("Upload the contact list.");
+    expect(launchButtonDisabled()).toBe(true);
   });
 });

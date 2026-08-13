@@ -40,6 +40,7 @@ from apps.api.crm.schemas import (
     DashboardOut,
     LeadListOut,
     LeadOut,
+    LeadTimelineOut,
     LeadUpdateIn,
     PerformanceOut,
     RecordingLinkOut,
@@ -170,6 +171,13 @@ async def get_leads(
     status: str | None = None,
     search: str | None = Query(None, max_length=60),
     agent_id: UUID | None = None,
+    # "My leads", as a real predicate on a real column. A UUID rather than a `me`
+    # literal, for two reasons: the same parameter then answers "show me Priya's leads"
+    # off the owner column without a second spelling, and `me` would have to mean
+    # something for an admin viewing this account through D-22 impersonation, whose
+    # `principal.user_id` is an `admin_users` row that can own no lead. The screen sends
+    # its own id from `/v1/me` and says so where the control is.
+    assigned_to: UUID | None = None,
     _: Principal = Depends(requires("leads:read")),
 ) -> LeadListOut:
     # `agent_id` filters the ROWS as well as choosing the columns. It used to do only
@@ -177,7 +185,13 @@ async def get_leads(
     # query parameter meant, and a two-agent tenant read one agent's leads under the
     # other's capture list. See `service._lead_scope` for the reasoning.
     page = await service.list_leads_page(
-        session, limit=limit, offset=offset, status=status, search=search, agent_id=agent_id
+        session,
+        limit=limit,
+        offset=offset,
+        status=status,
+        search=search,
+        agent_id=agent_id,
+        assigned_to=assigned_to,
     )
     return LeadListOut(
         items=page.items,
@@ -216,10 +230,14 @@ async def export_leads(
     # and stays audited, and a narrower request is not a cheaper permission.
     status: str | None = None,
     search: str | None = Query(None, max_length=60),
+    # The fourth, added in the same change that added it to the list rather than a
+    # release later — that gap is exactly how the status/search divergence above
+    # happened, and it is the one route where the gap ships full phone numbers.
+    assigned_to: UUID | None = None,
     principal: Principal = Depends(requires("calls:read_raw")),
 ) -> Response:
     csv_body = await service.export_leads_csv(
-        session, agent_id=agent_id, status=status, search=search
+        session, agent_id=agent_id, status=status, search=search, assigned_to=assigned_to
     )
     # An export leaves our redaction behind (SEC-COMP §4 says redaction runs BEFORE any
     # transcript leaves the system — a lead export is contact data, not transcript, and
@@ -240,6 +258,10 @@ async def export_leads(
             "status": status,
             "agent_id": str(agent_id) if agent_id else None,
             "searched": bool(search),
+            # An id, not a name (hard rule 6 logs ids) — and recorded for the same
+            # reason `status` is: "exported my own eight leads" and "exported the
+            # account" must not be the same audit row.
+            "assigned_to": str(assigned_to) if assigned_to else None,
             "rows": max(csv_body.count("\n") - 1, 0),
         },
     )
@@ -258,7 +280,10 @@ async def get_lead(
 
 
 @router.patch(
-    "/leads/{lead_id}", response_model=LeadOut, openapi_extra=permission_meta("leads:write")
+    "/leads/{lead_id}",
+    response_model=LeadOut,
+    openapi_extra=permission_meta("leads:write"),
+    summary="Edit one lead — status, name, and who owns it",
 )
 async def patch_lead(
     lead_id: UUID,
@@ -266,13 +291,70 @@ async def patch_lead(
     session: Session,
     principal: Principal = Depends(requires("leads:write")),
 ) -> LeadOut:
+    """Assignment rides on THIS route rather than on a `PUT /leads/{id}/assignee`.
+
+    The choice was between one route that edits a lead and a second route that edits
+    one of its fields, and "one way per problem" decides it: the status select and the
+    assignee select sit in the same table row, need the same `leads:write`, and want
+    the same cache invalidation — two endpoints would be two mutations, two hooks and
+    two places for the next editable field to be added to the wrong one. `staff` holds
+    `leads:write` deliberately (core/rbac.py): assignment is how a team divides work,
+    not an owner-only setting.
+
+    The one thing a shared PATCH costs is the null: `"assigned_to": null` must mean
+    "unassign" while an ABSENT `assigned_to` means "leave the owner alone", and both
+    arrive as `None` on the model. Pydantic v2's `model_fields_set` holds exactly the
+    fields the request supplied, so it is what tells them apart
+    (pydantic.dev/docs/validation/latest/concepts/models). `AssigneeChange` carries the
+    answer onward as a value rather than as a second boolean parameter, so the service
+    cannot read the two cases the same way by accident.
+    """
     return await service.update_lead(
         session,
         lead_id,
         status=payload.status,
         name=payload.name,
+        assignee=(
+            service.AssigneeChange(user_id=payload.assigned_to)
+            if "assigned_to" in payload.model_fields_set
+            else None
+        ),
         actor=str(principal.user_id),
     )
+
+
+@router.get(
+    "/leads/{lead_id}/timeline",
+    response_model=LeadTimelineOut,
+    # `leads:read`, and it has to be: D-22 refuses every MUTATING permission to a
+    # read-only impersonating admin, so gating a lead's history on `leads:write` would
+    # hide it from support at the exact moment support is looking
+    # (`tests/impersonation_reads_test.py` asserts the rule over the whole route table).
+    # Reading what happened to a lead is not the authority to change it.
+    openapi_extra=permission_meta("leads:read"),
+    summary="What happened to this lead, newest first — projected, never the raw payload",
+)
+async def lead_timeline(
+    lead_id: UUID,
+    session: Session,
+    limit: int = Query(50, ge=1, le=service.MAX_TIMELINE_PAGE),
+    offset: int = Query(0, ge=0),
+    _: Principal = Depends(requires("leads:read")),
+) -> LeadTimelineOut:
+    """The record existed and nobody could read it.
+
+    `lead_events` is written by six producers across three deployables — the status
+    change, the blocked dial, each call, each hot-lead alert, each WhatsApp attempt,
+    each spent campaign ladder — and until now the only reader was the aggregate
+    needs-attention query. "We called them twice, the WhatsApp was refused, the campaign
+    gave up" was on record and invisible to the person it is about.
+
+    Bounded rather than unbounded, and the bound is stated in the response: `limit` is
+    validated HERE (1..100) rather than clamped in the service, for the reason
+    `/v1/attention` gives — `min(limit, 100)` turns a negative limit into a silently
+    short page instead of into a bad request.
+    """
+    return await service.lead_timeline(session, lead_id, limit=limit, offset=offset)
 
 
 @router.post(

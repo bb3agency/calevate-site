@@ -1,9 +1,33 @@
 "use client";
 
-import { useState } from "react";
-
-import { Card, EmptyState, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import { useState, type ReactNode } from "react";
 import {
+  CheckCircle2,
+  Globe2,
+  ListPlus,
+  Lock,
+  PhoneOff,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
+
+import {
+  Card,
+  EmptyState,
+  NOTICE_TONES,
+  ProblemNotice,
+  RestrictionNote,
+  Skeleton,
+  StatTile,
+  formatCount,
+  formatIST,
+  type NoticeTone,
+  PRIMARY_BUTTON_SM,
+} from "@/components/ui";
+import {
+  DNC_LIST_LIMIT,
   MAX_NUMBERS_PER_ADD,
   parsePastedNumbers,
   useAddDncNumbers,
@@ -13,7 +37,7 @@ import {
   type DncEntry,
   type DncSource,
 } from "@/lib/api/dnc";
-import { useMe } from "@/lib/api/hooks";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
@@ -36,6 +60,36 @@ import { lookup } from "@/lib/lookup";
  * 3. **Checking a number is a POST.** The number is the personal data; a GET would put
  *    it in browser history, access logs and the referrer of the next page. It never
  *    goes in the URL, and the answer is held in component state, not a query cache.
+ *
+ * ## What the design pass changed
+ *
+ * Styling moved to the tokens in `globals.css` (`bg-surface`, `border-line`, `text-ink*`,
+ * `rounded-card`) and the shared primitives, so this screen inherits a rebrand instead of
+ * arguing with one. Four things that were WRONG under the old styling, and are fixed here
+ * rather than restyled:
+ *
+ * - **It printed its own `<h1>Do not call</h1>`**, which the app shell already renders
+ *   from the nav list (layout.tsx). Two headings saying the same words is the visible
+ *   half of a drift: rename the nav entry and the screen keeps arguing with it.
+ * - **A failed `/v1/me` silently deleted the Add form and said nothing.** The permission
+ *   test was hand-rolled (`me.data && permissions.includes(...)`), so "we could not find
+ *   out" and "you may not" rendered identically — as an empty space. It now goes through
+ *   `useWriteAccess`, the one place in this app that answers "may this session write",
+ *   which has a sentence for the error case and is the same mechanism the messaging
+ *   consent and lead-source screens already use.
+ * - **The count of the list was nowhere**, so "your suppression list is empty" and "the
+ *   list did not load" looked alike. It is now stated — and stated as a TRUNCATION when
+ *   the response is `DNC_LIST_LIMIT` long, because the endpoint clamps and has no offset,
+ *   so the row count stops being the account's total at exactly that point.
+ * - **Every Remove button had the same accessible name.** A screen reader on a list of
+ *   forty suppressions heard "Remove, button" forty times with nothing to tell them
+ *   apart; each now names the masked number it would un-suppress.
+ *
+ * Hard rule 6 is the whole job here. The list is masked at the API (`mask_phone` — last
+ * two digits), the check sends the raw number in a POST BODY and never in a URL, and the
+ * add response carries counts only. Nothing on this screen renders a number the server
+ * did not already mask, and the only place a full number exists is the input the user
+ * typed it into.
  */
 
 /** Why a number is on the list, in the client's words. The values are the API's. */
@@ -80,13 +134,35 @@ const SOURCE_OPTIONS: { value: DncSource; label: string; note: string }[] = [
   },
 ];
 
+/**
+ * Form controls, once — a screen whose inputs disagree about padding reads as two.
+ *
+ * Split rather than overridden at the call site: `${FIELD} pl-8` is two utilities for
+ * one property, and which one wins is decided by Tailwind's own emission order rather
+ * than by the order they are written in. That is a coin toss dressed as a style.
+ */
+const FIELD_BASE =
+  "rounded-md border border-line bg-surface py-1.5 text-sm text-ink placeholder:text-ink-faint";
+const FIELD = `${FIELD_BASE} px-3`;
+/** The same field with room for a leading icon. */
+const FIELD_ICON = `${FIELD_BASE} pl-8 pr-3`;
+
 export default function DoNotCallPage() {
   const session = useClientSession();
-  const me = useMe(session);
   const entries = useDncList(session);
   const add = useAddDncNumbers(session);
   const remove = useRemoveDncEntry(session);
   const check = useCheckDncNumber(session);
+
+  /**
+   * Adding and removing both need `leads:dispatch` — the same authority that lets
+   * someone cause a call, because suppressing a number is that decision in the other
+   * direction. `staff` does not hold it, and an impersonating operator is refused every
+   * mutating permission (D-22). Checking a number is `leads:read`, so it is deliberately
+   * NOT gated: it is the question people arrive with, and it stays answerable inside a
+   * read-only support session, which is exactly when someone is asking it.
+   */
+  const write = useWriteAccess(session, "leads:dispatch", "add or remove numbers on this list");
 
   const [paste, setPaste] = useState("");
   const [source, setSource] = useState<DncSource>("manual");
@@ -95,44 +171,32 @@ export default function DoNotCallPage() {
   const parsed = parsePastedNumbers(paste);
   const tooMany = parsed.length > MAX_NUMBERS_PER_ADD;
 
-  /**
-   * Adding and removing both need `leads:dispatch` — the same authority that lets
-   * someone cause a call, because suppressing a number is that decision in the other
-   * direction. `staff` does not hold it, and an impersonating operator is refused every
-   * mutating permission (D-22). Checking a number is `leads:read`, so it stays open to
-   * both. Rendering the forms regardless would be rendering a 403.
-   */
-  const canSuppress = Boolean(
-    me.data && me.data.permissions.includes("leads:dispatch") && !me.data.impersonating,
-  );
+  /* `entries.data`, not `entries.data ?? []`: the difference between "the server said
+     none" and "the server did not answer" is the whole of this screen's honesty, and an
+     empty array erases it. Everything counted or emptied below hangs off this. */
+  const rows = entries.data;
+  /* At the endpoint's ceiling the row count stops being a total (no offset, clamped
+     limit), so the header says which of the two it is showing. */
+  const truncated = rows !== undefined && rows.length >= DNC_LIST_LIMIT;
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Do not call</h1>
-        <p className="mt-0.5 text-sm text-slate-500">
-          Numbers your agents will never dial. The list is checked live before every
-          single call, so anything added here takes effect straight away — including
-          for a campaign that is already running.
-        </p>
-      </div>
+    <div className="space-y-5 pb-12">
+      <p className="text-sm text-ink-muted">
+        Numbers your agents will never dial. The list is checked live before every single
+        call, so anything added here takes effect straight away — including for a campaign
+        that is already running.
+      </p>
 
-      {me.data && !canSuppress && (
-        <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-          {me.data.impersonating
-            ? "You are viewing this account read-only, so the list can be read and checked here but not changed."
-            : "You can see and check this list. Adding or removing numbers is done by an account owner."}
-        </p>
-      )}
+      <RestrictionNote reason={write.reason} />
 
       {/* Checking comes first: it is the question someone actually arrives with
           ("did we stop calling this person?"), and it is the one thing everyone with
           access to the account may do. */}
       <Card title="Check a number">
-        <p className="text-sm text-slate-600 dark:text-slate-400">
+        <p className="text-sm text-ink-muted">
           Ask whether one number is suppressed. This asks the same question the system
           asks itself before it dials, so the answer cannot disagree with what actually
-          happens.
+          happens. Anyone with access to this account can check.
         </p>
         <form
           className="mt-3 flex flex-wrap items-center gap-2"
@@ -143,26 +207,29 @@ export default function DoNotCallPage() {
             check.mutate(phone.trim());
           }}
         >
-          <input
-            required
-            value={phone}
-            onChange={(e) => {
-              setPhone(e.target.value);
-              // A stale verdict beside a changed number is worse than no verdict.
-              check.reset();
-            }}
-            minLength={8}
-            maxLength={20}
-            inputMode="tel"
-            autoComplete="off"
-            placeholder="9876543210 or +919876543210"
-            aria-label="Phone number to check"
-            className="w-64 rounded-md border border-slate-200 px-3 py-1.5 font-mono text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+            <input
+              required
+              value={phone}
+              onChange={(e) => {
+                setPhone(e.target.value);
+                // A stale verdict beside a changed number is worse than no verdict.
+                check.reset();
+              }}
+              minLength={8}
+              maxLength={20}
+              inputMode="tel"
+              autoComplete="off"
+              placeholder="9876543210 or +919876543210"
+              aria-label="Phone number to check"
+              className={`${FIELD_ICON} w-64 font-mono`}
+            />
+          </div>
           <button
             type="submit"
             disabled={check.isPending || phone.trim().length < 8}
-            className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+            className={PRIMARY_BUTTON_SM}
           >
             {check.isPending ? "Checking…" : "Check"}
           </button>
@@ -174,33 +241,36 @@ export default function DoNotCallPage() {
           </div>
         )}
 
+        {/* A failed check renders the notice above and NOTHING else: "not on the
+            do-not-call list" is the single most dangerous sentence this screen can print
+            about a request that never landed. */}
         {check.data && (
           <div className="mt-3">
             {!check.data.valid ? (
-              <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+              <Verdict tone="warn" icon={<ShieldAlert className="h-4 w-4" />}>
                 That does not look like a phone number we can dial. Indian mobiles work
                 as ten digits, or write the full number starting with +.
-              </p>
+              </Verdict>
             ) : check.data.suppressed ? (
-              <p className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">
+              <Verdict tone="stop" icon={<PhoneOff className="h-4 w-4" />}>
                 This number is suppressed — no agent will call it.
                 {check.data.scope === "global"
                   ? " It is on the national list, so it cannot be removed from this account."
                   : " It was added to your account's list."}
-              </p>
+              </Verdict>
             ) : (
-              <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+              <Verdict tone="ok" icon={<CheckCircle2 className="h-4 w-4" />}>
                 This number is not on the do-not-call list. Other checks — calling hours,
                 consent — still apply to any actual call.
-              </p>
+              </Verdict>
             )}
           </div>
         )}
       </Card>
 
-      {canSuppress && (
+      {write.allowed && (
         <Card title="Add numbers">
-          <p className="text-sm text-slate-600 dark:text-slate-400">
+          <p className="text-sm text-ink-muted">
             Paste as many as you like — one per line, or separated by commas. Numbers
             can be ten digits or the full +91 form; we work out the rest.
           </p>
@@ -208,10 +278,7 @@ export default function DoNotCallPage() {
             className="mt-3 space-y-3"
             onSubmit={(e) => {
               e.preventDefault();
-              add.mutate(
-                { numbers: parsed, source },
-                { onSuccess: () => setPaste("") },
-              );
+              add.mutate({ numbers: parsed, source }, { onSuccess: () => setPaste("") });
             }}
           >
             <textarea
@@ -221,18 +288,18 @@ export default function DoNotCallPage() {
               spellCheck={false}
               aria-label="Numbers to suppress"
               placeholder={"9876543210\n+919876543211\n9876543212"}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 font-mono text-sm dark:border-slate-700 dark:bg-slate-950"
+              className={`${FIELD} w-full font-mono`}
             />
 
             <div className="flex flex-wrap items-center gap-2">
-              <label htmlFor="dnc-source" className="text-sm text-slate-600 dark:text-slate-400">
+              <label htmlFor="dnc-source" className="text-sm text-ink-muted">
                 Reason
               </label>
               <select
                 id="dnc-source"
                 value={source}
                 onChange={(e) => setSource(e.target.value as DncSource)}
-                className="rounded-md border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                className={FIELD}
               >
                 {SOURCE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -240,7 +307,7 @@ export default function DoNotCallPage() {
                   </option>
                 ))}
               </select>
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-ink-faint">
                 {SOURCE_OPTIONS.find((o) => o.value === source)?.note}
               </span>
             </div>
@@ -249,8 +316,8 @@ export default function DoNotCallPage() {
                 a client who pasted 5,000 rows deserves to be told before they wait. */}
             {tooMany && (
               <p className="text-sm text-amber-700 dark:text-amber-400">
-                That is {parsed.length.toLocaleString("en-IN")} numbers. Add up to{" "}
-                {MAX_NUMBERS_PER_ADD.toLocaleString("en-IN")} at a time.
+                That is {formatCount(parsed.length)} numbers. Add up to{" "}
+                {formatCount(MAX_NUMBERS_PER_ADD)} at a time.
               </p>
             )}
 
@@ -258,17 +325,18 @@ export default function DoNotCallPage() {
               <button
                 type="submit"
                 disabled={add.isPending || parsed.length === 0 || tooMany}
-                className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+                className={PRIMARY_BUTTON_SM}
               >
+                <ListPlus className="h-4 w-4" />
                 {add.isPending
                   ? "Adding…"
                   : parsed.length === 1
                     ? "Add 1 number"
-                    : `Add ${parsed.length.toLocaleString("en-IN")} numbers`}
+                    : `Add ${formatCount(parsed.length)} numbers`}
               </button>
               {parsed.length > 0 && !tooMany && (
-                <span className="text-xs text-slate-500">
-                  {parsed.length.toLocaleString("en-IN")} distinct{" "}
+                <span className="text-xs text-ink-faint">
+                  {formatCount(parsed.length)} distinct{" "}
                   {parsed.length === 1 ? "entry" : "entries"} found in what you pasted.
                 </span>
               )}
@@ -284,25 +352,29 @@ export default function DoNotCallPage() {
           {/* Counts, and only counts — the API never echoes the numbers back and this
               screen must not imply that it could. */}
           {add.data && (
-            <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+            <div className="mt-4 space-y-3">
               <div className="grid gap-3 sm:grid-cols-3">
-                <AddCount
-                  value={add.data.added}
-                  label="added"
+                <StatTile
+                  label="Added"
+                  value={formatCount(add.data.added)}
+                  icon={<PhoneOff className="h-5 w-5" />}
+                  tone="strong"
                   hint="Suppressed from now on."
                 />
-                <AddCount
-                  value={add.data.already_suppressed}
-                  label="already on the list"
+                <StatTile
+                  label="Already on the list"
+                  value={formatCount(add.data.already_suppressed)}
+                  icon={<ShieldCheck className="h-5 w-5" />}
                   hint="Nothing to do — they were suppressed already."
                 />
-                <AddCount
-                  value={add.data.malformed}
-                  label="not a usable number"
+                <StatTile
+                  label="Not a usable number"
+                  value={formatCount(add.data.malformed)}
+                  icon={<ShieldAlert className="h-5 w-5" />}
                   hint="Skipped rather than guessed at."
                 />
               </div>
-              <p className="mt-3 text-xs text-slate-500">
+              <p className="text-xs text-ink-faint">
                 We report totals, not which number went where: a list of who asked us to
                 stop calling them is itself personal data. Use the check above if you
                 need to confirm one number.
@@ -315,37 +387,53 @@ export default function DoNotCallPage() {
       <Card
         title="Suppressed numbers"
         action={
-          <span className="text-xs text-slate-500">
-            Numbers are shown with the last two digits only.
-          </span>
+          /* No count until the server has sent one. "0 entries" while the first request
+             is in flight is a statement about the client's compliance posture, and it is
+             the wrong one. */
+          rows ? (
+            <span className="text-xs text-ink-faint">
+              {truncated
+                ? `Showing the ${formatCount(DNC_LIST_LIMIT)} most recently added`
+                : `${formatCount(rows.length)} ${rows.length === 1 ? "entry" : "entries"}`}{" "}
+              · last two digits only
+            </span>
+          ) : undefined
         }
+        bodyClassName="p-2"
       >
         {remove.error != null && (
-          <div className="mb-3">
+          <div className="mb-3 px-4 pt-2">
             <ProblemNotice error={remove.error} />
           </div>
         )}
         {entries.error != null && (
-          <div className="mb-3">
+          <div className="mb-3 px-4 pt-2">
             <ProblemNotice error={entries.error} onRetry={() => entries.refetch()} />
           </div>
         )}
 
+        {/* Loading is a skeleton, failure is the notice above and NOTHING ELSE, and the
+            empty state is reached only through a `rows` the server actually sent. "Nobody
+            is suppressed yet" under a failed request is the worst sentence on this
+            screen: it reads as "nobody is suppressed", which is a compliance claim we
+            would be making on no evidence. */}
         {entries.isLoading ? (
-          <Skeleton rows={5} />
-        ) : entries.data?.length ? (
-          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-            {entries.data.map((entry) => (
+          <div className="p-4">
+            <Skeleton rows={5} />
+          </div>
+        ) : !rows ? null : rows.length ? (
+          <ul className="divide-y divide-line">
+            {rows.map((entry) => (
               <EntryRow
                 key={entry.id}
                 entry={entry}
-                canSuppress={canSuppress}
+                canSuppress={write.allowed}
                 removing={remove.isPending && remove.variables === entry.id}
                 onRemove={() => remove.mutate(entry.id)}
               />
             ))}
           </ul>
-        ) : entries.error != null ? null : (
+        ) : (
           <EmptyState
             title="Nobody is suppressed yet"
             hint="Anyone who tells an agent to stop calling is added here automatically. You can also add numbers yourself."
@@ -356,15 +444,29 @@ export default function DoNotCallPage() {
   );
 }
 
-function AddCount({ value, label, hint }: { value: number; label: string; hint: string }) {
+/**
+ * A compliance verdict, in the four tones `NOTICE_TONES` already defines.
+ *
+ * Local rather than shared for the reason ui.tsx gives at `NOTICE_TONES`: only the
+ * palette is common between screens, the shape is not. (This one carries an icon and one
+ * paragraph; the consent screen's carries two.)
+ */
+function Verdict({
+  tone,
+  icon,
+  children,
+}: {
+  tone: NoticeTone;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <div>
-      <div className="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-50">
-        {value.toLocaleString("en-IN")}
-      </div>
-      <div className="text-xs font-medium text-slate-700 dark:text-slate-300">{label}</div>
-      <div className="mt-0.5 text-xs text-slate-500">{hint}</div>
-    </div>
+    <p className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${NOTICE_TONES[tone]}`}>
+      <span className="mt-0.5 shrink-0" aria-hidden>
+        {icon}
+      </span>
+      <span>{children}</span>
+    </p>
   );
 }
 
@@ -384,37 +486,57 @@ function EntryRow({
   const global = entry.scope === "global";
 
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 text-sm">
-      <span className="font-mono tabular-nums text-slate-800 dark:text-slate-200">
-        {entry.phone_masked}
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
+      <span
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+          global ? "bg-black/5 text-ink-muted dark:bg-white/10" : "bg-brand-soft text-brand-strong"
+        }`}
+        aria-hidden
+      >
+        {global ? <Globe2 className="h-4 w-4" /> : <PhoneOff className="h-4 w-4" />}
       </span>
+      {/* MASKED at the API — `phone_masked` is the only form of the number that exists
+          on this response, and the only one this screen may render (hard rule 6). */}
+      <span className="font-mono tabular-nums text-ink">{entry.phone_masked}</span>
       {global && (
         // Shown, never removable: it is not this account's entry, and hiding it would
         // leave a client wondering why a number they can't find is never dialled.
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+        <span className="rounded-full border border-line bg-app px-2 py-0.5 text-xs font-medium text-ink-muted">
           national list
         </span>
       )}
-      <span className="text-xs text-slate-500">
+      {/* Fails VISIBLE: a source this build cannot name still gets its row and its raw
+          value, because a suppression the client cannot see is one they will ask us to
+          explain. */}
+      <span className="text-xs text-ink-muted">
         {source?.label ?? entry.source ?? "unknown reason"}
       </span>
-      <span className="ml-auto text-xs text-slate-500">{formatIST(entry.added_at)}</span>
-      {/* `removable` is the server's own `is_removable()` verdict, rendered rather than
-          re-derived. No button appears where the API would answer dnc_global_entry or
-          dnc_consumer_optout — the reason takes its place instead. */}
+      <span className="ml-auto whitespace-nowrap text-xs text-ink-faint">
+        {formatIST(entry.added_at)}
+      </span>
+      {/* `removable` is the server's own `is_removable()` verdict, RENDERED rather than
+          re-derived from `scope`/`source` here. Two rules that agree today drift apart
+          the day one of them changes, and the direction this one drifts in is a Remove
+          button on a consumer opt-out. */}
       {entry.removable ? (
         canSuppress ? (
           <button
             type="button"
             disabled={removing}
             onClick={onRemove}
-            className="rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            // Named for the row: forty buttons called "Remove" are forty identical
+            // announcements to a screen reader. The masked number is what the API gave
+            // us and is safe to speak.
+            aria-label={`Remove ${entry.phone_masked} from the do-not-call list`}
+            className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 disabled:opacity-50 dark:hover:bg-white/5"
           >
+            <Trash2 className="h-3.5 w-3.5" />
             {removing ? "Removing…" : "Remove"}
           </button>
         ) : null
       ) : (
-        <span className="text-xs text-slate-400">
+        <span className="flex items-center gap-1.5 text-xs text-ink-faint">
+          <Lock className="h-3.5 w-3.5" aria-hidden />
           {global ? "removed by operations only" : "opt-out — cannot be undone"}
         </span>
       )}

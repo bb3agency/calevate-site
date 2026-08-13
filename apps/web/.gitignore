@@ -32,6 +32,11 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the declaration of what the browser's variables ARE, which is a checked
+# artefact: `scripts/check_web_env_parity.py` reads it, and a template nobody can see
+# is not a template. The repo root's .gitignore makes the same exception; this one has
+# to repeat it because the deeper file wins.
+!.env.example
 
 # vercel
 .vercel

@@ -49,10 +49,14 @@ export function useSubmitKnowledge(session: Session) {
   });
 }
 
-export function useAgents(session: Session) {
-  return useQuery({
-    queryKey: ["agents", session.orgSlug],
-    queryFn: () => apiRequest<Schemas["AgentOut"][]>(session, "/v1/agents"),
-    staleTime: 5 * 60_000,
-  });
-}
+/*
+ * `useAgents` deliberately does NOT live here.
+ *
+ * It existed twice — once here and once in `agents.ts` — fetching the same
+ * `/v1/agents` with two separately-written cache keys that happened to be equal
+ * (`["agents", org]` vs `agentKeys.all(org)`). `publishing.ts` invalidates the literal
+ * `["agents", slug]` after an Apply, so the knowledge and campaigns screens refreshed
+ * only by that coincidence: change either spelling and two of the four callers would
+ * have gone on showing a stale agent list with nothing to indicate it. Import it from
+ * `@/lib/api/agents`, which owns the key registry.
+ */

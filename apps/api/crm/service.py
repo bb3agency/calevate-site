@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -31,8 +32,11 @@ from apps.api.crm.schemas import (
     DashboardOut,
     LeadOut,
     LeadStatus,
+    LeadTimelineEventOut,
+    LeadTimelineOut,
     TranscriptTurnOut,
 )
+from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 
 # The SAME pass that produced `text_redacted` — see `redacted_summary`. Imported at
@@ -281,11 +285,30 @@ async def lead_columns(
     return [ExtractionField.model_validate(f) for f in row[0]]
 
 
+# The lead row's columns, in `_lead_out`'s order, and the join that names its owner.
+#
+# `memberships` carries the join rather than `users` directly, and that is the whole
+# tenancy control on this line: `users` is a GLOBAL table with no RLS (DATA-MODEL §2 —
+# identity crosses tenants), so `JOIN users ON users.id = l.assigned_to` would happily
+# print a stranger's name. `memberships` IS force-RLS'd on `tenant_id`, so a row this
+# tenant may not see resolves to NULL and `LeadOut.assigned_to_name` says so.
+_LEAD_COLUMNS = (
+    "l.id, l.phone_e164, l.name, l.status, l.source, l.data, l.schema_version, "
+    "l.call_count, l.is_repeat_caller, l.last_call_id, l.created_at, l.updated_at, "
+    "l.assigned_to, owner.name AS assigned_to_name"
+)
+_LEAD_OWNER_JOIN = (
+    "LEFT JOIN memberships m ON m.user_id = l.assigned_to "
+    "LEFT JOIN users owner ON owner.id = m.user_id"
+)
+
+
 def _lead_scope(
     params: dict[str, Any],
     *,
     search: str | None,
     agent_id: UUID | None,
+    assigned_to: UUID | None = None,
 ) -> list[str]:
     """The filters that define WHICH leads a request is about, minus `status`.
 
@@ -294,6 +317,10 @@ def _lead_scope(
     three copies of a WHERE clause. `status` is deliberately not here: the counts need
     the scope WITHOUT it (see `list_leads_page`).
 
+    Every clause is qualified `l.`, and every caller therefore says `FROM leads l`. That
+    is not decoration: the row query joins `users` to name the owner, and `users.name`
+    and `leads.name` would otherwise make the search clause an ambiguous-column error.
+
     `agent_id` filters ROWS. It used to select only the extraction schema that supplies
     the table's COLUMNS while every agent's rows came back, so a two-agent tenant read
     agent B's leads under agent A's capture list — and the export's own too-large
@@ -301,17 +328,27 @@ def _lead_scope(
     cap it advertised. `leads.agent_id` is NOT NULL and part of
     UNIQUE(tenant_id, phone_e164, agent_id), so a lead belongs to exactly one agent and
     "rows for this agent" is well defined (DATA-MODEL §5).
+
+    `assigned_to` is the "my leads" filter and lives HERE for the reason the paragraph
+    above records about `agent_id`: a filter the screen applies and the export ignores
+    is how somebody narrows the table to their own twenty leads, presses Export and
+    mails a supplier the whole contact list. It is a real predicate on a real column —
+    never a slice of the page — and migration d2b6f04a17c9 measured the partial index
+    that keeps it off a sequential scan.
     """
-    clauses = ["deleted_at IS NULL"]
+    clauses = ["l.deleted_at IS NULL"]
     if search:
         # Name or phone suffix. Never a LIKE on the full number in a logged query
         # string — the route passes this as a bound parameter for that reason.
-        clauses.append("(name ILIKE :search OR phone_e164 LIKE :phone_suffix)")
+        clauses.append("(l.name ILIKE :search OR l.phone_e164 LIKE :phone_suffix)")
         params["search"] = f"%{search}%"
         params["phone_suffix"] = f"%{search}"
     if agent_id:
-        clauses.append("agent_id = :agent_id")
+        clauses.append("l.agent_id = :agent_id")
         params["agent_id"] = agent_id
+    if assigned_to:
+        clauses.append("l.assigned_to = :assigned_to")
+        params["assigned_to"] = assigned_to
     return clauses
 
 
@@ -335,6 +372,7 @@ async def list_leads_page(
     status: str | None = None,
     search: str | None = None,
     agent_id: UUID | None = None,
+    assigned_to: UUID | None = None,
 ) -> LeadPage:
     """A page of leads and a truthful per-status breakdown of the set it came from.
 
@@ -354,12 +392,12 @@ async def list_leads_page(
     come here to find out which it is.
     """
     params: dict[str, Any] = {"limit": min(limit, MAX_PAGE), "offset": offset}
-    scope = _lead_scope(params, search=search, agent_id=agent_id)
+    scope = _lead_scope(params, search=search, agent_id=agent_id, assigned_to=assigned_to)
     scope_where = f"WHERE {' AND '.join(scope)}"
 
     grouped = (
         await session.execute(
-            text(f"SELECT status, count(*) FROM leads {scope_where} GROUP BY status"), params
+            text(f"SELECT l.status, count(*) FROM leads l {scope_where} GROUP BY l.status"), params
         )
     ).all()
     # Zero-fill: a status the tenant has none of must answer 0, not go missing. The UI
@@ -374,21 +412,23 @@ async def list_leads_page(
 
     row_clauses = list(scope)
     if status:
-        row_clauses.append("status = :status")
+        row_clauses.append("l.status = :status")
         params["status"] = status
     rows = (
         await session.execute(
             text(
-                "SELECT id, phone_e164, name, status, source, data, schema_version, "
-                "call_count, is_repeat_caller, last_call_id, created_at, updated_at "
-                f"FROM leads WHERE {' AND '.join(row_clauses)} "
+                f"SELECT {_LEAD_COLUMNS} "
+                f"FROM leads l {_LEAD_OWNER_JOIN} WHERE {' AND '.join(row_clauses)} "
                 # `id DESC` is not decoration. OFFSET pagination is only correct over a
                 # TOTAL order, and `updated_at` is not one: leads written by a single
                 # import share it to the microsecond, and Postgres is free to order ties
                 # differently per query — so a row lands on two pages while another
                 # lands on none, with `total` staying right throughout. Offset itself is
                 # kept deliberately (see the note in `list_leads`).
-                "ORDER BY updated_at DESC, id DESC LIMIT :limit OFFSET :offset"
+                # Qualified `l.`, like every other column here: `memberships` and `users`
+                # both carry an `id` and an `updated_at`, so the owner join turns a bare
+                # ORDER BY into an ambiguous-column error rather than a wrong sort.
+                "ORDER BY l.updated_at DESC, l.id DESC LIMIT :limit OFFSET :offset"
             ),
             params,
         )
@@ -438,6 +478,8 @@ def _lead_out(r: Any) -> LeadOut:
         last_call_id=r[9],
         created_at=r[10],
         updated_at=r[11],
+        assigned_to=r[12],
+        assigned_to_name=r[13],
     )
 
 
@@ -445,9 +487,8 @@ async def get_lead(session: AsyncSession, lead_id: UUID) -> LeadOut:
     row = (
         await session.execute(
             text(
-                "SELECT id, phone_e164, name, status, source, data, schema_version, "
-                "call_count, is_repeat_caller, last_call_id, created_at, updated_at "
-                "FROM leads WHERE id = :lid AND deleted_at IS NULL"
+                f"SELECT {_LEAD_COLUMNS} FROM leads l {_LEAD_OWNER_JOIN} "
+                "WHERE l.id = :lid AND l.deleted_at IS NULL"
             ),
             {"lid": lead_id},
         )
@@ -469,12 +510,105 @@ async def lead_phone(session: AsyncSession, lead_id: UUID) -> tuple[str, str | N
     return str(row[0]), row[1]
 
 
+@dataclass(frozen=True, slots=True)
+class AssigneeChange:
+    """A request to change who owns a lead. `user_id=None` is UNASSIGN.
+
+    The type exists so that "leave the owner alone" and "this lead has no owner" are
+    different VALUES rather than the same `None`: passing `AssigneeChange | None` makes
+    the absent case unrepresentable as an accident, which a bare `UUID | None` parameter
+    could not do. `crm.routes.patch_lead` builds it from Pydantic's `model_fields_set`,
+    which is where the client's `null` is told apart from an omitted key.
+    """
+
+    user_id: UUID | None
+
+
+async def _write_lead_event(
+    session: AsyncSession,
+    lead_id: UUID,
+    *,
+    event_type: str,
+    payload_sql: str,
+    params: dict[str, Any],
+) -> None:
+    """One timeline row, taking `tenant_id` from the lead itself.
+
+    `SELECT ... FROM leads` rather than a bound tenant id: under RLS the lead row is
+    already proven to be this tenant's (the UPDATE above matched it), so reading the
+    tenant off it cannot write an event into an account the caller cannot see, and the
+    caller does not have to hold a tenant id it never needed.
+
+    **EVERY PARAMETER INSIDE `payload_sql` MUST CARRY AN EXPLICIT CAST**, and that is a
+    correctness rule rather than a style one. `jsonb_build_object` is declared
+    `VARIADIC "any"`, so it gives Postgres nothing to resolve an untyped parameter
+    against; psycopg3 sends a bare `str` as `unknown`, and the statement fails to PLAN
+    with `IndeterminateDatatype: could not determine data type of parameter $n`. It is a
+    500 on every call, not a wrong value, and it is what `PATCH /v1/leads/{id}` did with
+    a status from the day the status select shipped until this slice's first test tried
+    it — the route had no test that sent a body. `tests/lead_assignment_test.py`'s
+    status-change cases are what keeps it fixed.
+    """
+    await session.execute(
+        text(
+            "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, "
+            f"created_at, updated_at) SELECT :event_id, tenant_id, id, '{event_type}', "
+            f"{payload_sql}, :actor, now(), now() FROM leads WHERE id = :lid"
+        ),
+        {"event_id": uuid7(), "lid": lead_id, **params},
+    )
+
+
+async def _assert_assignable(session: AsyncSession, user_id: UUID) -> None:
+    """Refuse an owner who is not on this tenant's team.
+
+    THE TENANCY CONTROL IS THE RLS ON `memberships`, not this function's SQL:
+    `leads.assigned_to` is a foreign key to `users`, which is a GLOBAL table, so the
+    constraint would cheerfully accept another tenant's user id and the column would
+    then point at a person the account has never heard of. `memberships` is FORCE-RLS'd
+    on `tenant_id`, so under the request's own session this SELECT can only ever see
+    colleagues — and a foreign id therefore finds nothing and is refused here.
+
+    Deliberately NOT folded into the UPDATE's WHERE clause as an EXISTS. That would be
+    one statement and would close a TOCTOU window, but `rowcount == 0` would then mean
+    either "no such lead" or "no such member", and the two send a person to different
+    places — errors are part of the interface. The window it leaves is harmless by
+    construction: `assigned_to` grants the assignee NOTHING (it is a pointer, not a
+    permission), so the worst a lost race can produce is a lead owned by somebody whose
+    membership was revoked in the same millisecond, which the next read renders as
+    "no longer on this account" and the next assignment fixes.
+
+    `deactivated_at` is checked too: a membership outlives a deactivation (the auth
+    guard re-checks the user on every request, BACKEND-PATTERNS §7), so assigning work
+    to a disabled account would otherwise be accepted and would look like an owner.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM memberships m JOIN users u ON u.id = m.user_id "
+                "WHERE m.user_id = :uid AND u.deactivated_at IS NULL"
+            ),
+            {"uid": user_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.business_rule(
+            "lead_assignee_not_a_member",
+            "That person is not on this account's team, so this lead cannot be assigned to them.",
+            remediation=(
+                "Pick someone from the team list, or invite them to the account first "
+                "and assign the lead once they have accepted."
+            ),
+        )
+
+
 async def update_lead(
     session: AsyncSession,
     lead_id: UUID,
     *,
     status: str | None,
     name: str | None,
+    assignee: AssigneeChange | None = None,
     actor: str,
 ) -> LeadOut:
     sets: list[str] = []
@@ -485,6 +619,13 @@ async def update_lead(
     if name is not None:
         sets.append("name = :name")
         params["name"] = name
+    if assignee is not None:
+        # Validated BEFORE the write, so a refused assignment leaves no partial edit —
+        # a body carrying both a status and a bad assignee must move neither.
+        if assignee.user_id is not None:
+            await _assert_assignable(session, assignee.user_id)
+        sets.append("assigned_to = :assigned_to")
+        params["assigned_to"] = assignee.user_id
     if not sets:
         return await get_lead(session, lead_id)
 
@@ -499,14 +640,31 @@ async def update_lead(
         raise ProblemError.not_found("Lead")
     if status is not None:
         # The lead timeline is what makes "who moved this to won?" answerable.
-        await session.execute(
-            text(
-                "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, "
-                "created_at, updated_at) SELECT gen_random_uuid(), tenant_id, id, "
-                "'status_change', jsonb_build_object('status', :status), :actor, now(), now() "
-                "FROM leads WHERE id = :lid"
-            ),
-            {"lid": lead_id, "status": status, "actor": actor},
+        await _write_lead_event(
+            session,
+            lead_id,
+            event_type="status_change",
+            payload_sql="jsonb_build_object('status', CAST(:status AS text))",
+            params={"status": status, "actor": actor},
+        )
+    if assignee is not None:
+        # UNASSIGNMENT IS AN EVENT TOO, and the `NULL` is the point: an owner who leaves
+        # is exactly the case somebody asks the timeline about later, so it is recorded
+        # rather than inferred from the absence of a later assignment.
+        #
+        # The payload carries the assignee's ID and never their NAME. A name copied into
+        # a timeline row is a name that goes stale the day they change it and stays
+        # readable after they leave the account; the read resolves it through
+        # `memberships` instead, so the tenant's own policy decides who can be named.
+        await _write_lead_event(
+            session,
+            lead_id,
+            event_type="assignment",
+            payload_sql="jsonb_build_object('assigned_to', CAST(:assigned_to AS text))",
+            params={
+                "assigned_to": str(assignee.user_id) if assignee.user_id else None,
+                "actor": actor,
+            },
         )
     return await get_lead(session, lead_id)
 
@@ -517,6 +675,7 @@ async def export_leads_csv(
     agent_id: UUID | None = None,
     status: str | None = None,
     search: str | None = None,
+    assigned_to: UUID | None = None,
 ) -> str:
     """CSV export with schema-driven columns (TRD §7 (e)).
 
@@ -529,7 +688,9 @@ async def export_leads_csv(
     It took `agent_id` alone, so a client who narrowed the table to `hot` and pressed
     Export downloaded every contact in the account — a difference between what the
     screen showed and what the file held, on the one route that emits unmasked numbers.
-    Sharing the WHERE builder is what keeps the two in step as filters grow.
+    Sharing the WHERE builder is what keeps the two in step as filters grow, and
+    `assigned_to` is the first filter added since: it arrived here in the same change
+    that added it to the list, rather than a release later.
 
     Bounded by `MAX_EXPORT_ROWS`: every other read in this module is paged, and this
     one builds the entire file in memory inside the request. The bound now applies to
@@ -537,19 +698,20 @@ async def export_leads_csv(
     """
     columns = await lead_columns(session, agent_id)
     params: dict[str, Any] = {"limit": MAX_EXPORT_ROWS + 1}
-    clauses = _lead_scope(params, search=search, agent_id=agent_id)
+    clauses = _lead_scope(params, search=search, agent_id=agent_id, assigned_to=assigned_to)
     if status:
-        clauses.append("status = :status")
+        clauses.append("l.status = :status")
         params["status"] = status
     rows = (
         await session.execute(
             text(
-                "SELECT phone_e164, name, status, source, call_count, created_at, data "
-                f"FROM leads WHERE {' AND '.join(clauses)} "
+                "SELECT l.phone_e164, l.name, l.status, l.source, l.call_count, "
+                "l.created_at, l.data "
+                f"FROM leads l WHERE {' AND '.join(clauses)} "
                 # Tiebreaker for the same reason as the list — here the stakes are which
                 # rows survive the LIMIT, so an unstable sort means two exports of one
                 # unchanged account hand back two different sets of people.
-                "ORDER BY created_at DESC, id DESC LIMIT :limit"
+                "ORDER BY l.created_at DESC, l.id DESC LIMIT :limit"
             ),
             # One row over the cap, so hitting it is detectable without a second count.
             params,
@@ -585,6 +747,276 @@ async def export_leads_csv(
             ]
         )
     return buffer.getvalue()
+
+
+# --- the lead timeline --------------------------------------------------------
+#
+# THE PAYLOAD AUDIT. `lead_events.payload` is JSONB and six producers in three
+# deployables write it. Every one was read before a line of the projection below was
+# written, and this is what each can hold — the list is the reason the read projects
+# rather than serializing the column, and the reason a seventh producer does not
+# silently join it:
+#
+#   type=status_change  crm.service.update_lead
+#       {status}                              our own six-value enum.
+#   type=assignment     crm.service.update_lead
+#       {assigned_to}                         a user id, or null for an unassignment.
+#                                             Never a name — see `update_lead`.
+#   type=note           ingest.service._timeline (kind='blocked')
+#       {kind, rule}                          `rule` is a compliance-gate rule NAME
+#                                             (`dnc`, `calling_hours`), authored by us.
+#   type=call           ingest.service._timeline (kind='call')
+#       {kind, engine_call_id}                the ENGINE's handle for the dial — a
+#                                             vendor identifier (hard rule 2), so it is
+#                                             read and deliberately not emitted.
+#   type=call           workers.pipeline._upsert_lead
+#       {call_id, status}                     our call id + our call-status enum.
+#   type=notification   workers.notifications._record_attempt
+#       {call_id, channel, delivered, attempts, triggers}
+#                                             `triggers` are hot-lead RULE names.
+#   type=notification   workers.whatsapp._record_attempt
+#       {call_id, channel, delivered, status, reason, template, attempts, triggers}
+#   type=notification   workers.whatsapp._record_escalation_attempt
+#       {channel, kind, campaign_id, contact_id, delivered, status, reason, template,
+#        attempts}                            `reason` is an AUTHORED code and says so
+#                                             at `SendResult.reason` ("never vendor
+#                                             prose — a provider error string is
+#                                             untrusted text that may quote the payload
+#                                             we just sent it").
+#
+# So: no producer stores a phone number, transcript text or an extraction payload
+# TODAY. That is a fact about six functions, not a property of a schemaless column, and
+# hard rules 5 and 6 have to hold for the seventh. The projection is therefore a
+# whitelist of KEYS, and `_code` is a second gate on the VALUES.
+
+# What an authored code looks like: snake_case, ASCII, bounded. Free prose — the shape
+# that could carry a caller's words or a vendor's echo — has capitals, spaces or
+# punctuation and does not match, so a producer that one day writes an error MESSAGE
+# where its siblings write an error CODE degrades to "no detail" instead of to a leak.
+_AUTHORED_CODE = re.compile(r"\A[a-z][a-z0-9_]{0,63}\Z")
+
+# How many timeline rows one request may take. A lead that has been called weekly for a
+# year has ~50 events; the cap exists so a pathological row count cannot turn one page
+# view into an unbounded read, and the response states `total` so the screen can say
+# what it is a page OF rather than implying it holds everything.
+MAX_TIMELINE_PAGE = 100
+
+# The channel a notification went out on, in the client's words. Falls back to the
+# stored code rather than to silence: an unrecognised channel is a channel we shipped
+# and forgot to name here, and hiding the row would hide "we tried to tell you".
+_CHANNEL_LABELS = {"email": "email", "whatsapp": "WhatsApp"}
+
+
+def _code(payload: dict[str, Any], key: str) -> str | None:
+    """A payload value that LOOKS like the authored code its producer promised."""
+    value = payload.get(key)
+    return value if isinstance(value, str) and _AUTHORED_CODE.match(value) else None
+
+
+def _timeline_uuid(payload: dict[str, Any], key: str) -> UUID | None:
+    """A payload value that is one of OUR ids, or nothing. A key holding anything else
+    — including a phone number, which is what this guard is really for — is dropped."""
+    value = payload.get(key)
+    if not isinstance(value, str):
+        return None
+    try:
+        return UUID(value)
+    except ValueError:
+        return None
+
+
+def _project_event(
+    event_type: str, payload: dict[str, Any], member_names: dict[UUID, str | None]
+) -> tuple[str, str | None, UUID | None]:
+    """`(title, detail, call_id)` for one row — the ONLY place a payload is read.
+
+    Everything returned is either prose written here or a value that passed `_code` /
+    `_timeline_uuid`. Nothing is passed through, and an event this build does not
+    recognise gets an honest, contentless line rather than being dropped: a client
+    reading their own history must not silently lose a row because we shipped a
+    producer before we shipped its copy (`attention.BLOCK_REMEDIES` makes the same
+    choice for a rule whose remedy has not been written yet).
+    """
+    if event_type == "status_change":
+        status = _code(payload, "status")
+        return (f"Moved to {status}" if status else "Status changed", None, None)
+
+    if event_type == "assignment":
+        owner = _timeline_uuid(payload, "assigned_to")
+        if owner is None:
+            return ("Owner removed", "This lead is unassigned.", None)
+        name = member_names.get(owner)
+        return (
+            f"Assigned to {name}" if name else "Assigned",
+            None if name else "The owner is no longer on this account.",
+            None,
+        )
+
+    if event_type == "call":
+        # Two producers, two shapes. The pipeline's row names OUR call, so the screen
+        # can link to it; the ingest row names only the engine's handle, which is a
+        # vendor identifier and stays inside the engine boundary (hard rule 2).
+        call_id = _timeline_uuid(payload, "call_id")
+        status = _code(payload, "status")
+        if call_id is None:
+            return ("Call placed", None, None)
+        return (f"Call {status}" if status else "Call", None, call_id)
+
+    if event_type == "note":
+        if _code(payload, "kind") == "blocked":
+            # The SAME copy deck the needs-attention queue renders, so a client reading
+            # "why was this not called?" in two places is told one thing. Imported here
+            # rather than at module scope because `crm.attention` imports `mask_phone`
+            # from this module — a module-level import would be a cycle.
+            from apps.api.crm.attention import BLOCK_REMEDIES
+
+            rule = _code(payload, "rule") or "unknown"
+            return (
+                "Call blocked",
+                BLOCK_REMEDIES.get(rule, f"Blocked by the {rule} rule."),
+                None,
+            )
+        return ("Note", None, None)
+
+    if event_type == "notification":
+        channel_code = _code(payload, "channel")
+        channel = _CHANNEL_LABELS.get(channel_code or "", channel_code or "a message")
+        escalation = _code(payload, "kind") == "campaign_escalation"
+        what = "Follow-up message" if escalation else "Hot-lead alert"
+        delivered = payload.get("delivered") is True
+        if delivered:
+            return (f"{what} sent by {channel}", None, _timeline_uuid(payload, "call_id"))
+        attempts = payload.get("attempts")
+        tries = f" after {attempts} attempt(s)" if isinstance(attempts, int) else ""
+        reason = _code(payload, "reason")
+        return (
+            f"{what} not sent by {channel}",
+            f"We could not deliver it{tries}." + (f" ({reason})" if reason else ""),
+            _timeline_uuid(payload, "call_id"),
+        )
+
+    # A type the database allows and this build does not know — the state a deploy
+    # sitting behind its own migration is in. `LeadTimelineEventOut.type` is a plain
+    # string for exactly this, so the row still reaches the screen with its timestamp
+    # and its actor, and the screen renders it under a neutral icon.
+    return ("Activity", None, None)
+
+
+async def _member_names(session: AsyncSession, user_ids: set[UUID]) -> dict[UUID, str | None]:
+    """Display names for ids that belong to THIS tenant's team, and nothing else.
+
+    Through `memberships` (force-RLS'd) rather than `users` (global, no RLS), so an id
+    from another tenant — or one that was never a member — resolves to no entry and the
+    projection says "no longer on this account" instead of naming a stranger. Resolved
+    as one `= ANY(...)` after the page is fetched rather than as a join on `actor::text`
+    inside it: the cast join is unindexable and would be evaluated before the LIMIT.
+    """
+    if not user_ids:
+        return {}
+    rows = (
+        await session.execute(
+            text(
+                "SELECT m.user_id, u.name FROM memberships m JOIN users u ON u.id = m.user_id "
+                "WHERE m.user_id = ANY(:ids)"
+            ),
+            {"ids": list(user_ids)},
+        )
+    ).all()
+    return {UUID(str(row[0])): row[1] for row in rows}
+
+
+async def lead_timeline(
+    session: AsyncSession, lead_id: UUID, *, limit: int = 50, offset: int = 0
+) -> LeadTimelineOut:
+    """Everything that happened to one lead, newest first.
+
+    The record already existed — "we called them twice, the WhatsApp was refused, the
+    campaign gave up" is written by six producers — and no client could read it. This is
+    that read, and it is a READ: `leads:read`, no audit row, nothing mutated.
+
+    The lead's existence is probed separately from its events, because zero events is a
+    legitimate answer for a lead nobody has touched and a missing lead is a 404. Under
+    RLS both probes are already tenant-scoped, so another tenant's lead id is a 404 and
+    not an empty timeline — the same answer `ProblemError.not_found` gives everywhere
+    else, and deliberately indistinguishable from a lead that never existed.
+    """
+    exists = (
+        await session.execute(
+            text("SELECT 1 FROM leads WHERE id = :lid AND deleted_at IS NULL"), {"lid": lead_id}
+        )
+    ).first()
+    if exists is None:
+        raise ProblemError.not_found("Lead")
+
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, type, payload, actor, created_at, count(*) OVER () AS matching "
+                "FROM lead_events WHERE lead_id = :lid "
+                # `id DESC` for the same reason the leads list carries it: several rows
+                # of one post-call pipeline run share `created_at`, and OFFSET over a
+                # non-total order shows one row twice and another never.
+                "ORDER BY created_at DESC, id DESC LIMIT :limit OFFSET :offset"
+            ),
+            {"lid": lead_id, "limit": min(limit, MAX_TIMELINE_PAGE), "offset": offset},
+        )
+    ).all()
+
+    # Every id this page might have to NAME, resolved in one query: the person who acted
+    # and, for an assignment, the person acted upon.
+    wanted: set[UUID] = set()
+    for row in rows:
+        actor = _actor_uuid(row[3])
+        if actor is not None:
+            wanted.add(actor)
+        if row[1] == "assignment":
+            target = _timeline_uuid(row[2] or {}, "assigned_to")
+            if target is not None:
+                wanted.add(target)
+    names = await _member_names(session, wanted)
+
+    items: list[LeadTimelineEventOut] = []
+    for row in rows:
+        payload: dict[str, Any] = row[2] or {}
+        title, detail, call_id = _project_event(str(row[1]), payload, names)
+        actor = _actor_uuid(row[3])
+        items.append(
+            LeadTimelineEventOut(
+                id=row[0],
+                type=str(row[1]),
+                occurred_at=row[4],
+                actor_kind="member" if actor is not None else "system",
+                actor_name=names.get(actor) if actor is not None else None,
+                title=title,
+                detail=detail,
+                call_id=call_id,
+            )
+        )
+    return LeadTimelineOut(
+        items=items,
+        # The size of the SET, from the same pass as the rows (`count(*) OVER ()` is
+        # evaluated after WHERE and before LIMIT). Never `len(items)`, which is the size
+        # of the page — the distinction BUILD-LOG §52 records four defects for.
+        total=int(rows[0].matching) if rows else 0,
+        limit=min(limit, MAX_TIMELINE_PAGE),
+        offset=offset,
+    )
+
+
+def _actor_uuid(actor: Any) -> UUID | None:
+    """`lead_events.actor` as a member id, or None for the platform.
+
+    The column is free TEXT: the workers write the literal `'system'` and the API writes
+    `str(principal.user_id)`. Anything that does not parse as a UUID is treated as the
+    platform rather than as a person, which is the fail-safe direction — an unparseable
+    actor rendered as "a colleague" would put a person's name on something nobody did.
+    """
+    if not isinstance(actor, str):
+        return None
+    try:
+        return UUID(actor)
+    except ValueError:
+        return None
 
 
 def _csv_value(value: Any) -> str:
@@ -941,6 +1373,8 @@ __all__ = [
     "MAX_CALLBACK_DEPTH",
     "MAX_EXPORT_ROWS",
     "MAX_PAGE",
+    "MAX_TIMELINE_PAGE",
+    "AssigneeChange",
     "CallbackPlan",
     "LeadPage",
     "dashboard",
@@ -949,6 +1383,7 @@ __all__ = [
     "get_lead",
     "lead_columns",
     "lead_phone",
+    "lead_timeline",
     "link_callback",
     "list_calls",
     "list_leads",

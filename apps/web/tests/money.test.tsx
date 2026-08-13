@@ -48,7 +48,12 @@ const AGENT_ID = "0192f0aa-1111-7000-8000-000000000001";
 
 const ME: Me = {
   impersonating: false,
-  permissions: ["org:read"],
+  // `billing:read` because the Usage screen now gates itself on the permission its own
+  // endpoints require (`GET /v1/usage`, `GET /v1/billing/caps`) rather than letting a
+  // staff session collect a 403 that renders like an outage. A principal without it is
+  // one the API would refuse, so asserting money rendering for one asserted nothing the
+  // product can reach; `tests/usage.test.tsx` covers the refusal itself.
+  permissions: ["org:read", "billing:read"],
   realm: "client",
   role: "owner",
   user_id: "user_1",
@@ -112,12 +117,20 @@ describe("worst-case call cost", () => {
     );
   });
 
-  it("renders the exact NUMERIC string, trailing zeros and all", async () => {
+  it("renders the exact NUMERIC digits, trailing zeros and all", async () => {
     // `Number("10159.00")` renders as "10159" — the paise silently vanish — and
     // arithmetic on it is where the last two decimals stop being trustworthy.
+    //
+    // Grouped, because the agents screen now formats this field through `formatINR`
+    // like every other rupee figure in the console (the usage total above moved for the
+    // same reason). It was the last caller printing `₹${wireString}` by hand, which
+    // rendered ₹1,500.00 as "₹1500.00" and a rate of "6.5" as "₹6.5" — one amount, two
+    // shapes, depending on which screen you were looking at. The DIGITS are still the
+    // server's: `formatINR` groups the string and never parses it, which is the half of
+    // hard rule 7 this file exists to hold.
     const { container } = await renderAgents(pending({ worst_case_call_cost_inr: "10159.00" }));
 
-    await screen.findByText("₹10159.00");
+    await screen.findByText("₹10,159.00");
     expect(container.textContent).not.toContain("10158.99");
   });
 
@@ -191,7 +204,11 @@ describe("the month's total", () => {
   it("carries paise into rupees rather than printing 100 of them", async () => {
     const { container } = await renderUsage(usage({ monthly_fee_inr: "10158.99", overage_cost_inr: "0.01" }));
 
-    expect(rowValue(container, TOTAL)).toBe("₹10159.00");
+    // Grouped the way an Indian reader groups a rupee figure, because the screen now
+    // formats money through `formatINR` — the same primitive the dashboard already used
+    // for this same field, so the two surfaces can no longer print one amount two ways.
+    // The DIGITS are still the server's: `formatINR` groups a string and never parses it.
+    expect(rowValue(container, TOTAL)).toBe("₹10,159.00");
     expect(container.textContent).not.toContain("10158.100");
   });
 
@@ -206,7 +223,8 @@ describe("the month's total", () => {
   it("keeps a credit (a negative total) signed and exact", async () => {
     const { container } = await renderUsage(usage({ monthly_fee_inr: "-5.75", overage_cost_inr: "1.25" }));
 
-    expect(rowValue(container, TOTAL)).toBe("₹-4.50");
+    // The sign leads, as it does on a statement: `formatINR` puts it before the symbol.
+    expect(rowValue(container, TOTAL)).toBe("-₹4.50");
     expect(container.textContent).not.toContain("NaN");
   });
 });

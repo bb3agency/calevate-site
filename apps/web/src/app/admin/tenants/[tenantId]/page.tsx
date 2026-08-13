@@ -2,13 +2,41 @@
 
 import Link from "next/link";
 import { use, useState } from "react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BookOpenCheck,
+  Bot,
+  Eye,
+  FileCheck2,
+  Hash,
+  PhoneCall,
+  ReceiptIndianRupee,
+  ScrollText,
+  ShieldCheck,
+  Sparkles,
+  Users,
+} from "lucide-react";
 
-import { EmptyState, NOTICE_TONES, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import {
+  Card,
+  EmptyState,
+  FIELD_LABEL,
+  NoticeBox,
+  ProblemNotice,
+  RestrictionNote,
+  Skeleton,
+  StatTile,
+  formatCount,
+  formatINR,
+  formatIST,
+} from "@/components/ui";
 import {
   useKbDecision,
   useKbPreview,
   useMargin,
   useProvisionNumber,
+  useRecomputeSpendCap,
   useRecordDltRegistration,
   useRegisterTemplate,
   useSetNumberDltStatus,
@@ -18,11 +46,15 @@ import {
   useTenantKbQueue,
   useTenantNumbers,
   useTenantTemplates,
+  viewAsSession,
   type PeStatus,
   type TmLinkStatus,
 } from "@/lib/api/admin";
+import { useCaps } from "@/lib/api/caps";
 import { holdRule } from "@/lib/api/holds";
 import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
+
+import { useAdminAccess } from "@/app/admin/access";
 
 /**
  * One client: health, the read-only view-as link, and the KB approval queue.
@@ -31,6 +63,24 @@ import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
  * that split is D-22 ("no acting-as: mutations still go through admin surfaces"), and
  * it is why the buttons here post to `/v1/admin/tenants/.../kb/...` rather than to the
  * client-realm KB routes the queue was read from.
+ *
+ * ## What the design pass changed here beyond colour
+ *
+ * Every panel on this screen read its list as `data ?? []` and rendered the empty case
+ * when the request FAILED, which on an operator console is the expensive direction: a
+ * failed read of `/v1/campaigns/numbers` printed "No numbers provisioned", and the next
+ * thing an operator does with that sentence is buy a second number for a client who
+ * already has one. Loading is a `Skeleton`, a failure is a `ProblemNotice`, and "there
+ * are none" is now a claim this screen only makes when the server made it.
+ *
+ * Every control that WRITES is gated on the permission its route requires
+ * (`admin:tenants`, `apps/api/admin/routes.py`) and disabled with the reason beside it —
+ * see `@/app/admin/access` for why the client realm's `useWriteAccess` cannot be used
+ * here, and where the permission set is read from (`GET /v1/admin/me`).
+ *
+ * The `<h1>` stays: unlike the client shell, `admin/layout.tsx` prints no page title, so
+ * removing it would leave the screen unnamed. If a title lands in the shell, this is the
+ * copy to delete.
  */
 export default function TenantDetailPage({
   params,
@@ -57,6 +107,7 @@ export default function TenantDetailPage({
   const [selected, setSelected] = useState<string | null>(null);
   const preview = useKbPreview(slug, selected);
   const decide = useKbDecision(tenantId);
+  const kbWrite = useAdminAccess("admin:tenants", "decide on this client's knowledge");
 
   if (tenantQuery.isLoading) return <Skeleton rows={6} />;
   // A 403, a 500 or a dropped connection is not "no such client" — saying so sends
@@ -67,116 +118,128 @@ export default function TenantDetailPage({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <Link href="/admin" className="text-sm text-sky-400 hover:underline">
-            ← Clients
+          <Link
+            href="/admin"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Clients
           </Link>
-          <h1 className="mt-1 text-xl font-semibold">{tenant.name}</h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="mt-1 text-xl font-semibold text-ink">{tenant.name}</h1>
+          <p className="text-sm text-ink-muted">
             /c/{tenant.slug} · {tenant.status} · {tenant.vertical_template ?? "no template"}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {/* The telecom gate in front of everything below: no verification, no number
               on any tier, and no outbound dialling at all on a self-serve account. It
               gets its own screen rather than a panel here because it is an audited
               write with four fields an auditor will ask about, and because the current
               record has to be read from the tenant's own view of it. */}
-          <Link
-            href={`/admin/tenants/${tenantId}/kyc`}
-            className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
-          >
+          <NavLink href={`/admin/tenants/${tenantId}/kyc`} icon={<ShieldCheck className="h-4 w-4" />}>
             Identity (KYC)
-          </Link>
+          </NavLink>
           {/* The other human-decision gate, and the only one that had no screen at all:
               `POST .../first-campaign-review` was reachable by curl and nothing else. It
               is a sibling of KYC rather than a panel here for the same reasons — an
               audited compliance decision with a note an auditor will read, over a state
               that has to be read from the tenant's own view of it. */}
-          <Link
+          <NavLink
             href={`/admin/tenants/${tenantId}/first-campaign-review`}
-            className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
+            icon={<FileCheck2 className="h-4 w-4" />}
           >
             Campaign review
-          </Link>
-          <Link
+          </NavLink>
+          <NavLink
             href={`/admin/tenants/${tenantId}/invoice`}
-            className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
+            icon={<ReceiptIndianRupee className="h-4 w-4" />}
           >
             Invoice
-          </Link>
+          </NavLink>
           {/* `?view=admin` tells the client-realm shell to build the IMPERSONATING
               session (admin token + X-Impersonate-Org) instead of a client one — see
               lib/api/session.tsx. Without it the link handed over a client token the
               operator does not have, so `me.impersonating` was always false and the
               read-only banner never appeared. The marker selects a credential; it
-              grants nothing, and the API verifies the admin identity regardless. */}
-          <Link
+              grants nothing, and the API verifies the admin identity regardless.
+
+              "read-only" is now IN THE LABEL rather than only in a `title` a mouse has
+              to find and a keyboard never will. D-22 is the promise this link makes, and
+              a promise that only appears on hover is not one the operator has read. */}
+          <NavLink
             href={`/c/${tenant.slug}?${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}`}
-            className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
+            icon={<Eye className="h-4 w-4" />}
             title="Read-only (D-22). Every page view is audit-logged."
           >
-            View as client
-          </Link>
+            View as client (read-only)
+          </NavLink>
         </div>
       </div>
 
       <HoldsBanner tenantId={tenantId} holds={tenant.holds} />
 
-      <div className="grid gap-3 sm:grid-cols-4">
-        <Stat label="Live agents" value={tenant.live_agents} />
-        <Stat label="Calls (7d)" value={tenant.calls_7d} />
-        <Stat label="Leads" value={tenant.leads} />
-        <Stat label="Last call" value={formatIST(tenant.last_call_at)} />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile
+          label="Live agents"
+          value={formatCount(tenant.live_agents)}
+          icon={<Bot className="h-5 w-5" />}
+        />
+        <StatTile
+          label="Calls (7d)"
+          value={formatCount(tenant.calls_7d)}
+          icon={<PhoneCall className="h-5 w-5" />}
+        />
+        <StatTile label="Leads" value={formatCount(tenant.leads)} icon={<Users className="h-5 w-5" />} />
+        <StatTile
+          label="Last call"
+          value={formatIST(tenant.last_call_at)}
+          icon={<Sparkles className="h-5 w-5" />}
+        />
       </div>
 
-      {queue.error && <ProblemNotice error={queue.error} onRetry={() => queue.refetch()} />}
       {decide.error && <ProblemNotice error={decide.error} />}
 
-      {/* Same reason as the ops page: local panel styling, not the client-realm Card. */}
-      <section className="rounded-xl border border-slate-800 bg-slate-900">
-        <header className="border-b border-slate-800 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-100">Knowledge awaiting approval</h2>
-        </header>
-        <div className="p-4">
-        {queue.isLoading ? (
+      <Card title="Knowledge awaiting approval">
+        <RestrictionNote reason={kbWrite.reason} />
+        {queue.error ? (
+          /* Never an empty queue on a failed read: "nothing is waiting" is a claim about
+             this client's work, and an expired token is not evidence for it. */
+          <ProblemNotice error={queue.error} onRetry={() => queue.refetch()} />
+        ) : queue.isLoading ? (
           <Skeleton rows={3} />
         ) : queue.data?.length ? (
           <ul className="space-y-2">
             {queue.data.map((source) => (
-              <li key={source.id} className="rounded-lg border border-slate-800 p-3">
-                <div className="flex items-center justify-between gap-3">
+              <li key={source.id} className="rounded-card border border-line p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-medium text-slate-100">
-                      {source.name}{" "}
-                      <span className="text-xs text-slate-500">v{source.version}</span>
+                    <p className="text-sm font-medium text-ink">
+                      {source.name} <span className="text-xs text-ink-faint">v{source.version}</span>
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-ink-muted">
                       {source.chunks} chunks · {source.kind}
                     </p>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
+                  <div className="flex flex-wrap gap-2">
+                    {/* Preview is a READ and stays available to anyone who reached this
+                        screen — refusing to show what is queued would make an operator
+                        without the decision permission unable to even brief the one who
+                        has it. */}
+                    <SecondaryButton
                       onClick={() => setSelected(selected === source.id ? null : source.id)}
-                      className="rounded-md border border-slate-700 px-2 py-1 text-xs"
                     >
                       {selected === source.id ? "Hide" : "Preview"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={decide.isPending}
-                      onClick={() =>
-                        decide.mutate({ sourceId: source.id, decision: "approve" })
-                      }
-                      className="rounded-md bg-emerald-500 px-2 py-1 text-xs font-medium text-emerald-950 disabled:opacity-50"
+                    </SecondaryButton>
+                    <PrimaryButton
+                      disabled={decide.isPending || !kbWrite.allowed}
+                      onClick={() => decide.mutate({ sourceId: source.id, decision: "approve" })}
                     >
                       Approve
-                    </button>
-                    <button
-                      type="button"
-                      disabled={decide.isPending}
+                    </PrimaryButton>
+                    <DangerButton
+                      disabled={decide.isPending || !kbWrite.allowed}
                       onClick={() =>
                         decide.mutate({
                           sourceId: source.id,
@@ -184,26 +247,28 @@ export default function TenantDetailPage({
                           reason: "Not suitable for the agent",
                         })
                       }
-                      className="rounded-md border border-rose-800 px-2 py-1 text-xs text-rose-300 disabled:opacity-50"
                     >
                       Reject
-                    </button>
+                    </DangerButton>
                   </div>
                 </div>
                 {selected === source.id && (
                   <div className="mt-3 space-y-2">
-                    {/* Chunk-by-chunk is how it is reviewed because chunk-by-chunk is
-                        how it will be retrieved and read aloud. */}
-                    {(preview.data ?? []).map((chunk) => (
-                      <div
-                        key={chunk.idx}
-                        className="rounded-md bg-slate-950 p-2 text-xs text-slate-300"
-                      >
-                        <span className="mr-2 text-slate-600">#{chunk.idx}</span>
-                        {chunk.content}
-                        <span className="ml-2 text-slate-600">({chunk.chars} chars)</span>
-                      </div>
-                    ))}
+                    {preview.error ? (
+                      <ProblemNotice error={preview.error} onRetry={() => preview.refetch()} />
+                    ) : preview.isLoading ? (
+                      <Skeleton rows={2} />
+                    ) : (
+                      /* Chunk-by-chunk is how it is reviewed because chunk-by-chunk is
+                         how it will be retrieved and read aloud. */
+                      (preview.data ?? []).map((chunk) => (
+                        <div key={chunk.idx} className="rounded-md bg-app p-2 text-xs text-ink-muted">
+                          <span className="mr-2 text-ink-faint">#{chunk.idx}</span>
+                          {chunk.content}
+                          <span className="ml-2 text-ink-faint">({chunk.chars} chars)</span>
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
               </li>
@@ -215,50 +280,154 @@ export default function TenantDetailPage({
             hint="Approved sources still need publishing before the agent knows them."
           />
         )}
-        </div>
-      </section>
+      </Card>
 
       {/* Approve moves a source to `approved`; publishing is the separate step that
           pushes it to the engine and makes it the live version (FLOWS §7). Both are
           ours, so both need a button — an approved source with nowhere to press is
-          work that silently stops halfway. */}
-      {awaitingPublish.length > 0 ? (
-        <section className="rounded-xl border border-slate-800 bg-slate-900">
-          <header className="border-b border-slate-800 px-4 py-3">
-            <h2 className="text-sm font-semibold text-slate-100">Approved, awaiting publish</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              The agent does not know these until they are published.
-            </p>
-          </header>
-          <ul className="divide-y divide-slate-800 px-4">
+          work that silently stops halfway.
+          The whole panel used to vanish on a failed read of the approved list, which is
+          the same silence as an empty one: a source stuck at "Approved, not live yet"
+          on the client's screen and nothing here to explain why. */}
+      {publishQueue.error ? (
+        <Card title="Approved, awaiting publish">
+          <ProblemNotice error={publishQueue.error} onRetry={() => publishQueue.refetch()} />
+        </Card>
+      ) : awaitingPublish.length > 0 ? (
+        <Card title="Approved, awaiting publish" bodyClassName="px-6 pb-4">
+          <p className="pt-2 text-xs text-ink-muted">
+            The agent does not know these until they are published.
+          </p>
+          <RestrictionNote reason={kbWrite.reason} />
+          <ul className="divide-y divide-line">
             {awaitingPublish.map((source) => (
               <li key={source.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm">
-                <span className="font-medium text-slate-100">{source.name}</span>
-                <span className="text-xs text-slate-500">
+                <span className="font-medium text-ink">{source.name}</span>
+                <span className="text-xs text-ink-muted">
                   v{source.version} · {source.chunks} chunks
                 </span>
-                <button
-                  type="button"
-                  disabled={decide.isPending}
-                  onClick={() => decide.mutate({ sourceId: source.id, decision: "publish" })}
-                  className="ml-auto rounded-md bg-sky-500 px-2 py-1 text-xs font-medium text-sky-950 disabled:opacity-50"
-                >
-                  Publish
-                </button>
+                <span className="ml-auto">
+                  <PrimaryButton
+                    disabled={decide.isPending || !kbWrite.allowed}
+                    onClick={() => decide.mutate({ sourceId: source.id, decision: "publish" })}
+                  >
+                    Publish
+                  </PrimaryButton>
+                </span>
               </li>
             ))}
           </ul>
-        </section>
+        </Card>
       ) : null}
 
       <AgentsPanel tenantId={tenantId} slug={slug} />
 
       <MarginPanel tenantId={tenantId} />
 
+      {/* Beside the margin because both are this client's money, and on THIS screen
+          rather than on /admin/ops because the route names a tenant in its path and binds
+          its step-up confirmation to that tenant id — see the panel. */}
+      <SpendCapPanel tenantId={tenantId} slug={slug} directoryCapped={tenant.capped} />
+
       <CampaignSetup tenantId={tenantId} slug={slug} />
     </div>
   );
 }
+
+/** The screen-to-screen affordances in the header, in one shape rather than four. */
+function NavLink({
+  href,
+  icon,
+  title,
+  children,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      title={title}
+      className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink hover:bg-black/5 dark:hover:bg-white/5"
+    >
+      {icon}
+      {children}
+    </Link>
+  );
+}
+
+const BUTTON_BASE =
+  "rounded-md px-2.5 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50";
+
+function PrimaryButton({
+  children,
+  disabled,
+  onClick,
+  type = "button",
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+  onClick?: () => void;
+  type?: "button" | "submit";
+}) {
+  return (
+    <button
+      type={type === "submit" ? "submit" : "button"}
+      disabled={disabled}
+      onClick={onClick}
+      className={`${BUTTON_BASE} bg-brand-strong text-white hover:bg-brand`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SecondaryButton({
+  children,
+  disabled,
+  onClick,
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`${BUTTON_BASE} border border-line bg-surface text-ink hover:bg-black/5 dark:hover:bg-white/5`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function DangerButton({
+  children,
+  disabled,
+  onClick,
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`${BUTTON_BASE} border border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950`}
+    >
+      {children}
+    </button>
+  );
+}
+
+const FIELD =
+  "rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
  * What is holding this account, at the top of its own page.
@@ -275,8 +444,11 @@ export default function TenantDetailPage({
 function HoldsBanner({ tenantId, holds }: { tenantId: string; holds: string[] }) {
   if (holds.length === 0) return null;
   return (
-    <section className={`rounded-xl border p-4 text-sm ${NOTICE_TONES.warn}`}>
-      <p className="font-medium">This account is waiting on us.</p>
+    <NoticeBox
+      tone="warn"
+      icon={<AlertTriangle className="h-5 w-5" />}
+      title="This account is waiting on us."
+    >
       <ul className="mt-2 space-y-2 text-xs">
         {holds.map((rule) => {
           const copy = holdRule(rule);
@@ -284,10 +456,11 @@ function HoldsBanner({ tenantId, holds }: { tenantId: string; holds: string[] })
             <li key={rule} className="flex flex-wrap items-baseline gap-2">
               <span className="font-medium">{copy?.label ?? rule}</span>
               <span className="opacity-80">
-                {copy?.blocks ?? "This console does not recognise this rule; the gate that emitted it does."}
+                {copy?.blocks ??
+                  "This console does not recognise this rule; the gate that emitted it does."}
               </span>
               {copy && (
-                <Link href={copy.screen(tenantId)} className="underline">
+                <Link href={copy.screen(tenantId)} className="font-medium underline">
                   {copy.cta}
                 </Link>
               )}
@@ -295,42 +468,53 @@ function HoldsBanner({ tenantId, holds }: { tenantId: string; holds: string[] })
           );
         })}
       </ul>
-    </section>
+    </NoticeBox>
   );
 }
 
 /** The tenant's agents, each linking to its prompt history, the Apply/Undo controls
  * and the call cap — the entry point those screens need, since a prompt belongs to an
- * agent, not to the tenant. */
+ * agent, not to the tenant.
+ *
+ * It used to `return null` on anything but a populated list, so a failed read and a
+ * client with no agents were the same blank space — and "this client has no agents" is
+ * the more alarming of the two to be wrong about. */
 function AgentsPanel({ tenantId, slug }: { tenantId: string; slug: string }) {
   const agents = useTenantAgents(slug);
-  if (!agents.data?.length) return null;
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900">
-      <header className="border-b border-slate-800 px-4 py-3">
-        <h2 className="text-sm font-semibold text-slate-100">Agents</h2>
-      </header>
-      <ul className="divide-y divide-slate-800 px-4">
-        {agents.data.map((agent) => (
-          <li key={agent.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm">
-            <span className="font-medium text-slate-100">{agent.name}</span>
-            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
-              {agent.status}
-            </span>
-            <span className="text-xs text-slate-500">{agent.direction}</span>
-            <Link
-              href={`/admin/tenants/${tenantId}/agents/${agent.id}/prompt`}
-              className="ml-auto rounded-md border border-slate-700 px-2 py-0.5 text-xs"
-            >
-              Prompt &amp; publishing
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
+    <Card title="Agents" bodyClassName="px-6 pb-4 pt-2">
+      {agents.error ? (
+        <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />
+      ) : agents.isLoading || !agents.data ? (
+        <Skeleton rows={2} />
+      ) : agents.data.length === 0 ? (
+        <EmptyState
+          title="No agents yet"
+          hint="Nothing answers or dials for this client until one is built."
+        />
+      ) : (
+        <ul className="divide-y divide-line">
+          {agents.data.map((agent) => (
+            <li key={agent.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm">
+              <span className="font-medium text-ink">{agent.name}</span>
+              <span className="rounded bg-brand-soft px-1.5 py-0.5 text-xs font-medium text-brand-strong">
+                {agent.status}
+              </span>
+              <span className="text-xs text-ink-muted">{agent.direction}</span>
+              <Link
+                href={`/admin/tenants/${tenantId}/agents/${agent.id}/prompt`}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-0.5 text-xs font-medium text-ink hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <ScrollText className="h-3.5 w-3.5" />
+                Prompt &amp; publishing
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
-
 
 /**
  * Per-client margin (D-12), the number gate G2 turns on.
@@ -339,45 +523,296 @@ function AgentsPanel({ tenantId, slug }: { tenantId: string; slug: string }) {
  * pricing, and a client who can see it is a client negotiating against it. Their own
  * usage panel shows what they used and what it costs them, which is the half that is
  * theirs.
+ *
+ * MONEY: `revenue_inr` / `cost_inr` / `margin_inr` are exact decimal STRINGS and go
+ * through `formatINR`, which formats the digits and never parses them. They used to be
+ * interpolated raw as `₹{string}`, which printed `₹1015900.00` — ungrouped, and a
+ * server-sent `1015900.0` would have printed a single paise digit. These are TOTALS, so
+ * two decimals is what they mean; the rate on the invoice is the one figure that must
+ * NOT be rounded like a rupee, and it is not shown here.
  */
 function MarginPanel({ tenantId }: { tenantId: string }) {
   const margin = useMargin(tenantId);
-  if (margin.error) return <ProblemNotice error={margin.error} />;
-  if (!margin.data) return null;
+  if (margin.error) return <ProblemNotice error={margin.error} onRetry={() => margin.refetch()} />;
+  if (!margin.data)
+    return (
+      <Card title="Margin">
+        <Skeleton rows={2} />
+      </Card>
+    );
   const data = margin.data;
   const negative = data.margin_inr.trim().startsWith("-");
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900">
-      <header className="border-b border-slate-800 px-4 py-3">
-        <h2 className="text-sm font-semibold text-slate-100">
-          Margin · {data.month}
-        </h2>
-      </header>
-      <div className="grid gap-3 p-4 sm:grid-cols-4">
-        <Stat label="Revenue" value={`₹${data.revenue_inr}`} />
-        <Stat label="Our cost" value={`₹${data.cost_inr}`} />
-        <div className="rounded-xl border border-slate-800 bg-slate-900 p-3">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Margin</div>
-          <div
+    <Card title={`Margin · ${data.month}`}>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile label="Revenue" value={formatINR(data.revenue_inr)} />
+        <StatTile label="Our cost" value={formatINR(data.cost_inr)} />
+        <div className="rounded-card border border-line bg-surface p-5">
+          <p className="text-[13px] font-medium text-ink-muted">Margin</p>
+          <p
             className={
               negative
-                ? "mt-1 text-lg font-semibold tabular-nums text-rose-400"
-                : "mt-1 text-lg font-semibold tabular-nums text-emerald-400"
+                ? "mt-1 text-2xl font-bold tracking-tight tabular-nums text-rose-600 dark:text-rose-400"
+                : "mt-1 text-2xl font-bold tracking-tight tabular-nums text-brand-strong dark:text-brand-bright"
             }
           >
-            ₹{data.margin_inr}
-          </div>
+            {formatINR(data.margin_inr)}
+          </p>
         </div>
         {/* null, not 0%: "nothing billed yet" and "we made nothing" are different
             facts, and an operator acts differently on each. */}
-        <Stat label="Margin %" value={data.margin_pct === null ? "not billed yet" : `${data.margin_pct}%`} />
-        <div className="sm:col-span-4 text-xs text-slate-500">
-          {data.minutes_used} minutes across {data.calls} calls. Cost is what we actually
-          paid, stamped per usage row at capture time with the fx rate used.
-        </div>
+        <StatTile
+          label="Margin %"
+          value={data.margin_pct === null ? "not billed yet" : `${data.margin_pct}%`}
+        />
       </div>
-    </section>
+      <p className="mt-3 text-xs text-ink-muted">
+        {data.minutes_used} minutes across {formatCount(data.calls)} calls. Cost is what we
+        actually paid, stamped per usage row at capture time with the fx rate used.
+      </p>
+    </Card>
+  );
+}
+
+/**
+ * The spend cap that is stopping this client's outbound dialling, and the one control
+ * that clears it — `POST /v1/ops/tenants/{id}/spend-cap/recompute`.
+ *
+ * ## Why this lives here and not on /admin/ops
+ *
+ * It was the fourth operator endpoint with no path in the console, and the only one on
+ * that list that names a TENANT: the route puts the tenant in its path and binds its
+ * step-up confirmation to that tenant id, precisely so a header captured for one client
+ * cannot be replayed against another (`spend_cap_confirmation`, `ops/routes.py`). Putting
+ * it on the platform screen would mean a picker — a uuid or a dropdown, with no client's
+ * name, no ceiling and no counters beside it, which is `runbooks/calls-stopped.md` §2's
+ * curl in a nicer font and with the same failure available: the right button pressed for
+ * the wrong client. Here, the operator is already looking at the account they mean, at
+ * the ceilings that decide the answer, having arrived from the directory row badged
+ * "capped" or from the runbook, which now names this screen.
+ *
+ * ## Where the flag is read from, which is not the obvious place
+ *
+ * `TenantSummary.capped` is already in hand on this screen and is NOT the state this
+ * control moves. It is `SELECT capped FROM spend_state LIMIT 1` with no month predicate
+ * (`admin/service.py`), while the compliance gate asks `spend_capped()`, which treats a
+ * row stamped with a CLOSED month as no cap at all. So a tenant capped in July shows
+ * `capped: true` on the directory in August while nothing is actually refusing their
+ * dials. `CapsOut.capped` comes from `read_spend_counters`, which applies the same month
+ * test as the gate — so that is the flag rendered here, and the directory's is reported
+ * as the disagreement it is when the two differ.
+ *
+ * Read through impersonation (`billing:read`, non-mutating, so D-22 allows it and there
+ * is no admin-realm twin of this read), WRITTEN through the admin surface with the tenant
+ * in the path — the same split as KYC and the first-campaign hold.
+ *
+ * ## No cap state, no control
+ *
+ * A failed caps read renders the failure and NOTHING ELSE. The ops screen's rule, applied
+ * where it belongs: this button's whole subject is a flag, and a screen that offered it
+ * over an unreadable one would let an operator "release" a client who was never capped
+ * and report success to them.
+ */
+function SpendCapPanel({
+  tenantId,
+  slug,
+  directoryCapped,
+}: {
+  tenantId: string;
+  slug: string;
+  directoryCapped: boolean;
+}) {
+  const caps = useCaps(viewAsSession(slug));
+  const recompute = useRecomputeSpendCap(tenantId);
+  // `ops:manage`, not `admin:tenants` — this is the one control on this screen whose route
+  // lives under `/v1/ops`, and only `superadmin` holds it (core/rbac.py). Gating it with
+  // the panel's neighbours would offer an `operator` a button whose only outcome is a 403.
+  const write = useAdminAccess("ops:manage", "recompute a client's spend cap");
+  const [confirm, setConfirm] = useState("");
+
+  const data = caps.data;
+  const ready = confirm === "RECOMPUTE";
+
+  return (
+    <Card title="Spend cap">
+      {caps.error ? (
+        <>
+          <p className="mb-3 text-sm text-ink-muted">
+            The cap state could not be read, so nothing is offered here. Recomputing a flag
+            whose current value we do not know could report a client released who was never
+            capped.
+          </p>
+          <ProblemNotice error={caps.error} onRetry={() => caps.refetch()} />
+        </>
+      ) : caps.isLoading || !data ? (
+        <Skeleton rows={3} />
+      ) : (
+        <div className="space-y-4">
+          <NoticeBox
+            tone={data.capped ? "stop" : "ok"}
+            icon={
+              data.capped ? (
+                <AlertTriangle className="h-5 w-5" />
+              ) : (
+                <ShieldCheck className="h-5 w-5" />
+              )
+            }
+            title={
+              data.capped
+                ? "Outbound calling is STOPPED for this client by the spend cap"
+                : "Not capped — the spend cap is not stopping this client"
+            }
+          >
+            <p className="mt-1 text-xs">
+              {data.capped
+                ? "Every outbound dial is refused with rule spend_cap. Inbound calls are unaffected — their receptionist keeps answering."
+                : "Their dialling is not refused on this rule. Any other blocker on this account is listed above."}
+            </p>
+            {/* The two flags come from different predicates and CAN disagree; when they
+                do, the reason is almost always a row still stamped with a closed billing
+                month. Saying so turns a confusing screen into a diagnosis. */}
+            {directoryCapped !== data.capped && (
+              <p className="mt-2 text-xs">
+                The client directory shows this account as{" "}
+                {directoryCapped ? "capped" : "not capped"}, which disagrees. That badge
+                reads the flag without checking its billing month; this one applies the
+                same month test the compliance gate does. A row left over from a closed
+                month is the usual cause, and the recompute below writes nothing for it.
+              </p>
+            )}
+          </NoticeBox>
+
+          {/* MONEY AS STRINGS. Every rupee field here is an exact decimal the API sent as
+              text (hard rule 7); `formatINR` groups the digits and never parses them. */}
+          <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <CapFact
+              label={`Spent · ${data.month}`}
+              value={formatINR(data.spend_used_inr)}
+              note={`${data.minutes_used} minutes`}
+            />
+            <CapFact
+              label="Ceiling in force"
+              value={formatINR(data.effective_cap_spend_inr)}
+              note={
+                data.effective_cap_minutes === null
+                  ? "no minute ceiling"
+                  : `${formatCount(data.effective_cap_minutes)} minutes`
+              }
+            />
+            <CapFact
+              label="Our ceiling (the plan's)"
+              value={formatINR(data.plan_cap_spend_inr)}
+              note={
+                data.plan_cap_minutes === null
+                  ? "no minute ceiling"
+                  : `${formatCount(data.plan_cap_minutes)} minutes`
+              }
+            />
+            {/* Theirs, and only they can move it — the one line that decides whether this
+                button can help at all. */}
+            <CapFact
+              label="Their own ceiling"
+              value={formatINR(data.client_cap_spend_inr)}
+              note={
+                data.client_cap_minutes === null
+                  ? "no minute ceiling"
+                  : `${formatCount(data.client_cap_minutes)} minutes`
+              }
+            />
+          </dl>
+
+          {recompute.error && <ProblemNotice error={recompute.error} />}
+
+          {/* The SERVER's before/after and the numbers that decided it. `capped: true`
+              after a recompute is the route working, so it is rendered as an explanation
+              rather than as a failure. */}
+          {recompute.data && (
+            <NoticeBox
+              tone={recompute.data.capped ? "warn" : "ok"}
+              icon={<ReceiptIndianRupee className="h-5 w-5" />}
+              title={
+                recompute.data.capped
+                  ? "Recomputed — this client is still capped"
+                  : recompute.data.capped_before
+                    ? "Recomputed — the cap is released"
+                    : "Recomputed — this client was not capped and still is not"
+              }
+            >
+              <p className="mt-1 text-xs">
+                {recompute.data.capped
+                  ? `They have spent ${formatINR(recompute.data.spend_used_inr)} of ${formatINR(
+                      recompute.data.effective_cap_spend_inr,
+                    )} this month, so the ceiling in force is still the smaller number. Raise it (or ask them to raise theirs, if the effective ceiling is the client's) and run this again.`
+                  : "Their next dial is allowed. Campaigns pick up at the next dispatch tick."}
+              </p>
+            </NoticeBox>
+          )}
+
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              recompute.mutate(undefined, { onSuccess: () => setConfirm("") });
+            }}
+          >
+            {/* WHAT IT DOES AND WHAT IT CANNOT DO, before the click. The second half is
+                what stops this being read as an "un-cap" button. */}
+            <div className="flex gap-3 rounded-card border border-line bg-app p-4 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+              <div className="min-w-0">
+                <p className="font-semibold text-ink">
+                  This client only — it re-derives the flag, it does not lift the cap
+                </p>
+                <p className="mt-1 text-ink-muted">
+                  It compares the minutes and spend ALREADY metered this month against the
+                  ceiling in force now. A client still over that ceiling stays stopped, so
+                  raise the ceiling first if that is the fix — this is the second half of
+                  that job, not a substitute for it. It never moves a counter, never
+                  touches another client, and never affects inbound calls.
+                </p>
+                <p className="mt-1 text-xs text-ink-faint">
+                  Recorded in the audit log as ops.recompute_spend_cap against your admin
+                  account, and confirmed with a header bound to this client&apos;s id.
+                </p>
+              </div>
+            </div>
+
+            <label className="block">
+              <span className={FIELD_LABEL}>Type RECOMPUTE to confirm</span>
+              <input
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                disabled={!write.allowed}
+                placeholder="RECOMPUTE"
+                className={`${FIELD} mt-1 block w-full font-mono`}
+              />
+            </label>
+
+            <PrimaryButton
+              type="submit"
+              disabled={!write.allowed || !ready || recompute.isPending}
+            >
+              {recompute.isPending ? "Recomputing…" : "Recompute this client's spend cap"}
+            </PrimaryButton>
+
+            <RestrictionNote reason={write.reason} />
+          </form>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** One cap figure with the minute ceiling that goes with it — rupees and minutes are two
+ * ceilings, and `LEAST` is taken over each independently. */
+function CapFact({ label, value, note }: { label: string; value: string; note: string }) {
+  return (
+    <div className="rounded-card border border-line bg-surface p-4">
+      <dt className="text-xs uppercase tracking-wide text-ink-faint">{label}</dt>
+      <dd className="mt-0.5 text-lg font-semibold tabular-nums text-ink">{value}</dd>
+      <dd className="mt-0.5 text-xs text-ink-muted">{note}</dd>
+    </div>
   );
 }
 
@@ -414,7 +849,7 @@ const TM_LINK_STATUSES: { value: TmLinkStatus; label: string }[] = [
  * differs — an unregistered entity is a registration we execute for them; a missing TM
  * link is an authorisation only they can grant on the registrar's portal.
  */
-function DltRegistrationPanel({ tenantId }: { tenantId: string }) {
+function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: ReturnType<typeof useAdminAccess> }) {
   const record = useRecordDltRegistration(tenantId);
   const [status, setStatus] = useState<PeStatus>("not_started");
   const [tmLink, setTmLink] = useState<TmLinkStatus>("not_linked");
@@ -424,10 +859,10 @@ function DltRegistrationPanel({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-3 lg:col-span-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
         DLT entity registration (Principal Entity)
       </h3>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-ink-muted">
         The registrar issues three separate registrations and none implies another: this
         one is the client&apos;s ENTITY, the number header is its own, the voice template
         is a third. The launch gate asks for all three by name.
@@ -439,16 +874,18 @@ function DltRegistrationPanel({ tenantId }: { tenantId: string }) {
            wrote — never the stored state on load. Saying "recorded" and echoing the
            values back is the honest version; claiming to display current state we did
            not read would be worse than showing nothing. */
-        <p className="rounded-lg border border-emerald-900 bg-emerald-950/50 p-2 text-xs text-emerald-200">
-          Recorded: entity <span className="font-medium">{record.data.status}</span>, TM link{" "}
-          <span className="font-medium">{record.data.tm_link_status}</span>
-          {record.data.pe_id && (
-            <>
-              , PE id <span className="font-mono">{record.data.pe_id}</span>
-            </>
-          )}
-          . The client&apos;s launch check reflects this on its next refresh.
-        </p>
+        <NoticeBox tone="ok" icon={<BookOpenCheck className="h-4 w-4" />}>
+          <p className="text-xs">
+            Recorded: entity <span className="font-medium">{record.data.status}</span>, TM link{" "}
+            <span className="font-medium">{record.data.tm_link_status}</span>
+            {record.data.pe_id && (
+              <>
+                , PE id <span className="font-mono">{record.data.pe_id}</span>
+              </>
+            )}
+            . The client&apos;s launch check reflects this on its next refresh.
+          </p>
+        </NoticeBox>
       )}
 
       <form
@@ -469,9 +906,11 @@ function DltRegistrationPanel({ tenantId }: { tenantId: string }) {
       >
         <div className="flex flex-wrap gap-2">
           <select
+            aria-label="Entity registration status"
             value={status}
+            disabled={!write.allowed}
             onChange={(e) => setStatus(e.target.value as PeStatus)}
-            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+            className={FIELD}
           >
             {PE_STATUSES.map((option) => (
               <option key={option.value} value={option.value}>
@@ -480,9 +919,11 @@ function DltRegistrationPanel({ tenantId }: { tenantId: string }) {
             ))}
           </select>
           <select
+            aria-label="Telemarketer link status"
             value={tmLink}
+            disabled={!write.allowed}
             onChange={(e) => setTmLink(e.target.value as TmLinkStatus)}
-            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+            className={FIELD}
           >
             {TM_LINK_STATUSES.map((option) => (
               <option key={option.value} value={option.value}>
@@ -494,34 +935,34 @@ function DltRegistrationPanel({ tenantId }: { tenantId: string }) {
         <div className="flex flex-wrap gap-2">
           <input
             value={peId}
+            disabled={!write.allowed}
             onChange={(e) => setPeId(e.target.value)}
             placeholder="PE id from the registrar (optional)"
-            className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs"
+            className={`flex-1 font-mono ${FIELD}`}
           />
           <input
             value={entityName}
+            disabled={!write.allowed}
             onChange={(e) => setEntityName(e.target.value)}
             placeholder="Registered entity name (optional)"
-            className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+            className={`flex-1 ${FIELD}`}
           />
           <input
             type="date"
+            aria-label="Registered on"
             value={registeredAt}
+            disabled={!write.allowed}
             onChange={(e) => setRegisteredAt(e.target.value)}
-            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+            className={FIELD}
           />
         </div>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-ink-muted">
           Re-recording is normal — this upserts, and it is what happens every time we
           re-verify with the registrar.
         </p>
-        <button
-          type="submit"
-          disabled={record.isPending}
-          className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-900 disabled:opacity-50"
-        >
+        <PrimaryButton type="submit" disabled={record.isPending || !write.allowed}>
           {record.isPending ? "Recording…" : "Record registration"}
-        </button>
+        </PrimaryButton>
       </form>
     </div>
   );
@@ -543,6 +984,8 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
   const setDlt = useSetNumberDltStatus(tenantId);
   const register = useRegisterTemplate(tenantId);
   const setStatus = useSetTemplateStatus(tenantId);
+  // Every write in this panel is `admin:tenants` on `/v1/admin/tenants/{id}/...`.
+  const write = useAdminAccess("admin:tenants", "change this client's telecom setup");
 
   const [e164, setE164] = useState("");
   const [series, setSeries] = useState<"140" | "160" | "standard">("160");
@@ -553,49 +996,59 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
   const [dltRef, setDltRef] = useState("");
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900">
-      <header className="border-b border-slate-800 px-4 py-3">
-        <h2 className="text-sm font-semibold text-slate-100">Campaign setup</h2>
-        <p className="mt-0.5 text-xs text-slate-500">
-          Until a number, an approved template and an active entity registration exist,
-          every campaign this client creates is blocked at launch.
-        </p>
-      </header>
-      <div className="grid gap-4 p-4 lg:grid-cols-2">
+    <Card title="Campaign setup">
+      <p className="-mt-2 text-xs text-ink-muted">
+        Until a number, an approved template and an active entity registration exist,
+        every campaign this client creates is blocked at launch.
+      </p>
+      <div className="mt-4">
+        <RestrictionNote reason={write.reason} />
+      </div>
+      <div className="mt-4 grid gap-6 lg:grid-cols-2">
         <div className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            <Hash className="h-3.5 w-3.5" />
             Numbers
           </h3>
           {provision.error && <ProblemNotice error={provision.error} />}
-          <ul className="space-y-1.5">
-            {(numbers.data ?? []).map((number) => (
-              <li
-                key={number.id}
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 p-2 text-xs"
-              >
-                <span className="font-mono text-slate-200">{number.e164}</span>
-                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
-                  {number.series}
-                </span>
-                <span className="text-slate-500">{number.dlt_status}</span>
-                {number.dlt_status !== "registered" && (
-                  <button
-                    type="button"
-                    disabled={setDlt.isPending}
-                    onClick={() =>
-                      setDlt.mutate({ numberId: number.id, dltStatus: "registered" })
-                    }
-                    className="ml-auto rounded-md border border-slate-700 px-2 py-0.5 disabled:opacity-50"
-                  >
-                    Mark registered
-                  </button>
-                )}
-              </li>
-            ))}
-            {numbers.data?.length === 0 && (
-              <li className="text-xs text-slate-500">No numbers provisioned.</li>
-            )}
-          </ul>
+          {setDlt.error && <ProblemNotice error={setDlt.error} />}
+          {/* A failed read printed "No numbers provisioned" — the sentence an operator
+              acts on by buying a second number for a client who already has one. */}
+          {numbers.error ? (
+            <ProblemNotice error={numbers.error} onRetry={() => numbers.refetch()} />
+          ) : numbers.isLoading || !numbers.data ? (
+            <Skeleton rows={2} />
+          ) : numbers.data.length === 0 ? (
+            <p className="text-xs text-ink-muted">No numbers provisioned.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {numbers.data.map((number) => (
+                <li
+                  key={number.id}
+                  className="flex flex-wrap items-center gap-2 rounded-card border border-line p-2 text-xs"
+                >
+                  {/* The client's OWN published business number, which is the whole
+                      point of the panel — not a called party's, which is the number
+                      hard rule 6 is about. */}
+                  <span className="font-mono text-ink">{number.e164}</span>
+                  <span className="rounded bg-brand-soft px-1.5 py-0.5 font-medium text-brand-strong">
+                    {number.series}
+                  </span>
+                  <span className="text-ink-muted">{number.dlt_status}</span>
+                  {number.dlt_status !== "registered" && (
+                    <span className="ml-auto">
+                      <SecondaryButton
+                        disabled={setDlt.isPending || !write.allowed}
+                        onClick={() => setDlt.mutate({ numberId: number.id, dltStatus: "registered" })}
+                      >
+                        Mark registered
+                      </SecondaryButton>
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
           <form
             className="flex flex-wrap gap-2"
             onSubmit={(e) => {
@@ -605,125 +1058,136 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
           >
             <input
               required
+              aria-label="Number to provision"
               value={e164}
+              disabled={!write.allowed}
               onChange={(ev) => setE164(ev.target.value)}
               placeholder="+918041234567"
-              className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs"
+              className={`flex-1 font-mono ${FIELD}`}
             />
             {/* The series is what the launch gate matches against the campaign's
                 classification — wrong here is a DLT violation later, not a typo. */}
             <select
+              aria-label="Number series"
               value={series}
+              disabled={!write.allowed}
               onChange={(ev) => setSeries(ev.target.value as typeof series)}
-              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+              className={FIELD}
             >
               <option value="140">140 — promotional</option>
               <option value="160">160 — service</option>
               <option value="standard">standard</option>
             </select>
-            <button
+            <PrimaryButton
               type="submit"
-              disabled={provision.isPending || e164.length < 8}
-              className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-900 disabled:opacity-50"
+              disabled={provision.isPending || e164.length < 8 || !write.allowed}
             >
               Add
-            </button>
+            </PrimaryButton>
           </form>
         </div>
 
         <div className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            <ScrollText className="h-3.5 w-3.5" />
             DLT voice templates
           </h3>
           {register.error && <ProblemNotice error={register.error} />}
-          <ul className="space-y-1.5">
-            {(templates.data ?? []).map((template) => (
-              <li key={template.id} className="rounded-lg border border-slate-800 p-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
-                    {template.classification}
-                  </span>
-                  <span className="text-slate-500">{template.status}</span>
-                  {template.status !== "approved" && (
-                    <button
-                      type="button"
-                      disabled={setStatus.isPending}
-                      onClick={() =>
-                        setStatus.mutate({ templateId: template.id, status: "approved" })
-                      }
-                      className="ml-auto rounded-md bg-emerald-500 px-2 py-0.5 font-medium text-emerald-950 disabled:opacity-50"
-                    >
-                      Registrar approved
-                    </button>
-                  )}
-                </div>
-                <p className="mt-1 text-slate-400">{template.body}</p>
-              </li>
-            ))}
-            {templates.data?.length === 0 && (
-              <li className="text-xs text-slate-500">No templates registered.</li>
-            )}
-          </ul>
+          {setStatus.error && <ProblemNotice error={setStatus.error} />}
+          {templates.error ? (
+            <ProblemNotice error={templates.error} onRetry={() => templates.refetch()} />
+          ) : templates.isLoading || !templates.data ? (
+            <Skeleton rows={2} />
+          ) : templates.data.length === 0 ? (
+            <p className="text-xs text-ink-muted">No templates registered.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {templates.data.map((template) => (
+                <li key={template.id} className="rounded-card border border-line p-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded bg-brand-soft px-1.5 py-0.5 font-medium text-brand-strong">
+                      {template.classification}
+                    </span>
+                    <span className="text-ink-muted">{template.status}</span>
+                    {template.status !== "approved" && (
+                      <span className="ml-auto">
+                        <PrimaryButton
+                          disabled={setStatus.isPending || !write.allowed}
+                          onClick={() =>
+                            setStatus.mutate({ templateId: template.id, status: "approved" })
+                          }
+                        >
+                          Registrar approved
+                        </PrimaryButton>
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-ink-muted">{template.body}</p>
+                </li>
+              ))}
+            </ul>
+          )}
           <form
             className="space-y-2"
             onSubmit={(e) => {
               e.preventDefault();
               register.mutate(
                 { classification, body, dlt_ref: dltRef || null },
-                { onSuccess: () => { setBody(""); setDltRef(""); } },
+                {
+                  onSuccess: () => {
+                    setBody("");
+                    setDltRef("");
+                  },
+                },
               );
             }}
           >
             <div className="flex gap-2">
               <select
+                aria-label="Template classification"
                 value={classification}
+                disabled={!write.allowed}
                 onChange={(ev) => setClassification(ev.target.value as typeof classification)}
-                className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+                className={FIELD}
               >
                 <option value="promotional">promotional</option>
                 <option value="service">service</option>
                 <option value="transactional">transactional</option>
               </select>
               <input
+                aria-label="Registrar template id"
                 value={dltRef}
+                disabled={!write.allowed}
                 onChange={(ev) => setDltRef(ev.target.value)}
                 placeholder="registrar template id (optional)"
-                className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+                className={`flex-1 ${FIELD}`}
               />
             </div>
             <textarea
               required
+              aria-label="Template wording"
               minLength={10}
               rows={3}
               value={body}
+              disabled={!write.allowed}
               onChange={(ev) => setBody(ev.target.value)}
               placeholder="The exact wording registered with the DLT registrar."
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs"
+              className={`w-full ${FIELD}`}
             />
-            <button
+            <PrimaryButton
               type="submit"
-              disabled={register.isPending || body.length < 10}
-              className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-900 disabled:opacity-50"
+              disabled={register.isPending || body.length < 10 || !write.allowed}
             >
               Register template
-            </button>
+            </PrimaryButton>
           </form>
         </div>
 
         {/* Beside the numbers and the templates, because they are the same family of
             registrar paperwork and an operator working one is usually working all
             three — not on a separate screen a launch blocker has to send them to. */}
-        <DltRegistrationPanel tenantId={tenantId} />
+        <DltRegistrationPanel tenantId={tenantId} write={write} />
       </div>
-    </section>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900 p-3">
-      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
-    </div>
+    </Card>
   );
 }

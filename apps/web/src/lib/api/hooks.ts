@@ -16,7 +16,6 @@
  */
 
 import {
-  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
@@ -32,7 +31,6 @@ import {
   type CallSummary,
   type Dashboard,
   type Lead,
-  type LeadList,
   type LeadStatus,
   type Me,
   type Session,
@@ -150,22 +148,6 @@ export function useCall(session: Session, callId: string): UseQueryResult<CallDe
     // A call detail page opened while the pipeline is still running fills in as the
     // extraction lands; once it has, there is nothing left to poll for.
     refetchInterval: (q) => (q.state.data?.summary ? false : SLOW_INTERVAL_MS),
-  });
-}
-
-export function useLeads(
-  session: Session,
-  filters: { status?: string; search?: string; limit?: number; offset?: number } = {},
-): UseQueryResult<LeadList> {
-  return useQuery({
-    queryKey: queryKeys.leads(session.orgSlug, filters),
-    queryFn: () => apiRequest<LeadList>(session, `/v1/leads${query(filters)}`),
-    refetchInterval: SLOW_INTERVAL_MS,
-    refetchOnWindowFocus: true,
-    // Changing a filter chip or the search box is a re-filter, not a navigation:
-    // keeping the previous rows on screen beats blanking the table to a skeleton
-    // (and, worse, flashing "No leads yet") on every change of the query key.
-    placeholderData: keepPreviousData,
   });
 }
 

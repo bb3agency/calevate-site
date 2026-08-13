@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import CampaignReviewPage from "@/app/c/[slug]/campaign-review/page";
@@ -9,16 +9,25 @@ import {
   type FirstCampaignHold,
 } from "@/lib/api/firstCampaign";
 
-import { expectTextCount, renderClientPage } from "./harness";
+import { expectTextCount, problem, renderClientPage } from "./harness";
 
 /**
  * What a held client is actually shown — the half of `firstCampaignState` that lives
  * in the DOM.
  *
- * The predicate has its own file; this one asserts the two things the predicate cannot:
- * that a refusal renders the REVIEWER'S NOTE and not the server's composed `reason`
- * (which contains the note, so rendering both prints it twice), and that an
- * unrecognised rule still reaches the client as held.
+ * The predicate has its own file; this one asserts what the predicate cannot: that a
+ * refusal renders the REVIEWER'S NOTE and not the server's composed `reason` (which
+ * contains the note, so rendering both prints it twice), that an unrecognised rule still
+ * reaches the client as held, and — the two added with the design pass — that a request
+ * which never landed produces a refusal rather than a verdict, and that the page has
+ * nothing to press.
+ *
+ * The last one is the load-bearing absence on this screen. The only write is
+ * `POST /v1/admin/tenants/{id}/first-campaign-review` (`admin:tenants`, admin realm,
+ * audited), because the whole control exists for accounts we have never met — an account
+ * that could release itself would be marking the gate green on a review nobody performed.
+ * A control here would be a 403 dressed as a fault, which is the failure mode this
+ * mitigation exists to avoid creating.
  */
 
 const NOTE = "The contact list has no consent evidence. Send us where it came from.";
@@ -112,6 +121,59 @@ describe("campaign review screen", () => {
     const { container } = await renderWith(hold());
     await waitFor(() =>
       expect(container.textContent).toContain("Calls coming IN are unaffected"),
+    );
+  });
+
+  it("does not tell a managed account it is in a queue", async () => {
+    // `never_applied` is not `pending`: this account was set up by a person here, and
+    // nothing of theirs is held. Rendering the hold cards under that headline would have
+    // a client waiting for a release that is never coming, and building no campaigns.
+    const { container } = await renderWith(
+      hold({ held: false, rule: null, reason: null, status: null }),
+    );
+
+    await screen.findByText("This review does not apply to your account.");
+    expect(screen.queryByText("What is being held, and for how long")).toBeNull();
+    expect(screen.queryByText("What you can do meanwhile")).toBeNull();
+    expect(container.textContent).not.toContain("every campaign on the account is held");
+    expect(container.textContent).not.toContain("with our compliance team");
+  });
+
+  it("refuses to state a verdict when the request did not land", async () => {
+    // Every verdict on this screen is actionable, and each of them is wrong for somebody:
+    // "cleared" sends a held client to a launch button that will refuse them, "held"
+    // sends a clear one to their account manager. On a failed read the screen says only
+    // that it could not find out — and it must not go blank either, because a blank page
+    // on the screen a refused client just opened reads as "nothing is holding you".
+    const { container } = await renderClientPage(<CampaignReviewPage />, {
+      [FIRST_CAMPAIGN_REVIEW_PATH]: problem(503, {
+        title: "Service unavailable",
+        detail: "We could not read the review queue.",
+        retryable: true,
+      }),
+    });
+
+    const alert = await screen.findByRole("alert");
+    expect(container.textContent).not.toContain("cleared for campaign calling");
+    expect(container.textContent).not.toContain("does not apply to your account");
+    expect(container.textContent).not.toContain("with our compliance team");
+    expect(container.textContent).not.toContain("held for review");
+    // Not a dead end: the screen has to pass `onRetry` for this to exist.
+    expect(within(alert).getByRole("button", { name: /try again/i })).toBeTruthy();
+  });
+
+  it("offers no control that would release the account", async () => {
+    // Asserted as "no button at all" rather than as "no button called Release": naming
+    // them individually is how the next one arrives unnoticed. The screen says out loud
+    // that the absence is deliberate, so the sentence is pinned with it — a client who
+    // cannot find the control otherwise opens a ticket to be told there is none.
+    const { container } = await renderWith(hold());
+
+    await screen.findByText("Your campaigns are with our compliance team.");
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(container.querySelectorAll("form")).toHaveLength(0);
+    expect(container.textContent).toContain(
+      "There is deliberately no control on this page that releases your own account",
     );
   });
 });

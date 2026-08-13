@@ -32,28 +32,52 @@ dispatcher processes never double-dial a contact. The claim COMMITS before the f
 dial and each dial gets its own transaction — see `_dispatch_for_campaign` for why a
 shared one re-rings people a cancelled tick has already called.
 
-COST SHAPE. A tick is one transaction and one query per tenant in
-`_dispatchable_tenants()` — tenants with a published agent — plus, per campaign it
-actually dials for, one claiming transaction, one per contact dialled, and one to close
-the campaign out. The per-contact transactions are the price of not double-dialling,
-and they are cheap next to the engine round trip they no longer hold a connection open
-across. It used to be one transaction and two queries per
-ORGANIZATION (15,941 sessions / 47,825 queries / 44.9s on the development database, for
-a job scheduled every 30 seconds). What is left is proportional to tenants that have
-ever published an agent, NOT to tenants with a running campaign, because rules 1+2 need
-the platform-wide count of active outbound lines and `calls` is FORCE-RLS'd: the count
-only exists inside a tenant session. Closing that last gap is a TENANCY change, not a
-refactor, and needs a decision-log entry plus a migration — either a GUC that widens
-`campaigns`/`calls` by a status-and-count read the way `app.user_id` widens
-`memberships`, or an ops-owned global index of (tenant, running campaigns, live lines)
-maintained by the campaign lifecycle and the call state transitions. Neither belongs in
-this module alone.
+COST SHAPE (D-57). A tick is ONE query — `dispatch_scan()`, the migration
+`a8d4f21c9b06` function — plus, per campaign it actually dials for, one tenant session
+to read its budget, one claiming transaction, one per contact dialled, and one to close
+the campaign out. The per-contact transactions are the price of not double-dialling, and
+they are cheap next to the engine round trip they no longer hold a connection open
+across.
+
+Two shapes preceded it, both measured on the development database, both for a job
+scheduled every 30 seconds:
+
+    one transaction + two queries per ORGANIZATION   15,941 sessions   44.9s
+    one transaction + one query per DISPATCHABLE tenant  12,070 sessions   22.9s
+    one query, server-side loop (now)                 ~0 + per-campaign  ~0.25s
+
+The middle one is where the previous version stopped, and its own docstring named the
+reason it could go no further: rules 1+2 need the PLATFORM-WIDE count of active outbound
+lines, `calls` is FORCE-RLS'd, and that count therefore only exists inside a tenant
+session — so the tick had to open one for every tenant that could be holding a line,
+whether or not it had anything to dial. It called closing that a tenancy change needing
+a migration, and proposed two ways: a GUC that widens `campaigns`/`calls`, or an
+ops-owned global index of (tenant, running campaigns, live lines).
+
+D-57 took neither. **The loop moved into Postgres instead of the tenancy model moving
+at all**: `dispatch_scan()` is SECURITY INVOKER plpgsql that walks the same tenants and
+asks the same two questions under the same per-tenant `app.tenant_id`, one `set_config`
+per tenant instead of one connection. Nothing is widened, nothing is exempted, no table
+was added — what disappeared is the 12,070 connection checkouts, which the measurement
+said were two thirds of the cost (see `alembic/versions/a8d4f21c9b06_*.py` for the
+full split and for why the rejected `SECURITY DEFINER` version is a hard-rule violation
+wearing a function's clothes).
+
+What the scan still cannot see, stated plainly: it is a superset in the same two ways
+`engine_agent_routes` is, and it does NOT know whether a running campaign has a contact
+DUE — that stays behind RLS inside the claiming transaction, and narrowing on it would
+be wrong anyway, because a running campaign with nothing due is exactly the one that
+needs a visit to be auto-completed and to have its stranded `dialing` rows reaped.
 """
 
 from __future__ import annotations
 
+import secrets
+import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import UUID
 
 from sqlalchemy import text
@@ -70,6 +94,7 @@ from apps.api.compliance.service import check_dispatch
 from apps.api.core.alerting import alert, metrics_log, record_compliance_block
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
+from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
@@ -91,24 +116,55 @@ DEFAULT_CONCURRENCY_CEILING = 10
 # eventually corrects them, but until it does, counting them would let a handful of
 # stale rows permanently zero the outbound pool and silently stop every campaign on the
 # platform. Nothing we bill for runs an hour, so an hour is comfortably past "live".
-ACTIVE_CALL_HORIZON = "1 hour"
+#
+# A `timedelta` bound as a parameter rather than the SQL literal it used to be: it is
+# now read by `dispatch_scan()` too, and a constant that reaches two readers through an
+# f-string into SQL is a constant with two chances to drift.
+ACTIVE_CALL_HORIZON = timedelta(hours=1)
+
+# How often this tick runs. `settings.py` BUILDS its cron registration from these, so
+# the schedule and everything below that reasons about the schedule cannot disagree.
+TICK_INTERVAL_S = 30
+TICK_SECONDS = frozenset(range(0, 60, TICK_INTERVAL_S))
+
+# ONE tick at a time, platform-wide. See `_tick_lease` for why arq does not give us this
+# and why the answer is not `cron(job_id=...)`.
+_TICK_LEASE_KEY = "calevate:campaign_dispatch:tick"
+# Longer than `WorkerSettings.job_timeout` (300s), which is the longest a tick can run
+# before arq cancels it: a lease that expired UNDER a still-running tick would hand the
+# shared line pool to a second one, which is the exact failure it exists to prevent.
+# `settings.py` asserts the relationship at import so the two numbers cannot drift.
+TICK_LEASE_TTL_S = 330
 
 
-async def _dispatchable_tenants() -> list[UUID]:
-    """Every tenant a tick could possibly dial for, or hold an outbound line for.
+class TenantWork(NamedTuple):
+    """One row of `dispatch_scan()`: a tenant that is holding lines, or has work, or both."""
 
-    THE SHAPE OF THE TICK IS THIS FUNCTION. It used to be `SELECT id FROM organizations`
-    under `admin_session`, because `admin_session` can enumerate tenants but cannot read
-    `campaigns` across them — so the tick opened one transaction per ORGANIZATION every
-    30 seconds. Measured on the development database: 15,941 tenant sessions, 47,825
-    queries, 44.9s — a tick that cannot finish inside its own 30s interval. An overrun
-    tick does not dial slowly; the next tick's due contacts pile up behind it and the
-    campaign silently stops dialling.
+    tenant_id: UUID
+    active_outbound: int
+    has_running_campaign: bool
 
-    `engine_agent_routes` is the SAME non-tenant-scoped bridge `_callable_tenants` in
-    `dispatcher.py` and `ingest_engine_event` use, and it exists precisely so a
-    cross-tenant resolution needs no RLS exemption (hard rule 1, `db/registry.py`). It
-    is a proven SUPERSET of what this tick needs, on both counts:
+
+async def _tenants_with_work() -> list[TenantWork]:
+    """The tenants a tick has any reason to touch — ONE query, RLS fully applied.
+
+    THE SHAPE OF THE TICK IS THIS FUNCTION, and it has been rewritten twice. It was
+    `SELECT id FROM organizations` under `admin_session` (one transaction per
+    ORGANIZATION, 15,941 sessions / 44.9s), then `SELECT DISTINCT tenant_id FROM
+    engine_agent_routes` followed by one `tenant_session` per row (12,070 sessions /
+    22.9s). Both were a tick that cannot finish inside its own 30s interval, and an
+    overrun tick does not dial slowly: the next tick's due contacts pile up behind it
+    and the campaign silently stops dialling while the UI still says "running".
+
+    `dispatch_scan()` (migration a8d4f21c9b06) does the SAME walk the second version
+    did — `engine_agent_routes`, the global un-RLS'd routing bridge that
+    `dispatcher.py` and `ingest_engine_event` also resolve through, so no exemption is
+    needed for the enumeration (hard rule 1, `db/registry.py`) — and asks each tenant's
+    two screening questions with `app.tenant_id` set to that ONE tenant. The policies
+    are the same, the answers are the same; what is gone is a connection checkout per
+    tenant, which the measurement said was two thirds of the bill.
+
+    `engine_agent_routes` remains a proven SUPERSET of what a tick needs, on both counts:
 
     - a campaign cannot launch unless its agent is `live` (`launch_blockers`'
       `agent_not_live`), and `publish_agent` writes the route row in the SAME
@@ -119,23 +175,95 @@ async def _dispatchable_tenants() -> list[UUID]:
       (rules 1+2) stays complete.
 
     Unfiltered on `active`, like `dispatcher.py`: an agent unpublished mid-campaign
-    still leaves live calls to count. Ordered so the order in which tenants compete for
-    the shared pool is stable across ticks rather than planner-dependent.
+    still leaves live calls to count. Ordered by tenant id inside the function, so the
+    order in which tenants compete for the shared pool is stable across ticks rather
+    than planner-dependent.
 
-    This is a narrowing, not the end state — see the module docstring's note on what a
-    tick proportional to RUNNING CAMPAIGNS would still need.
+    **Tenants with neither a live line nor a running campaign are not returned at all**,
+    which is what makes the tick's session count proportional to WORK. Their absence is
+    not a silent cap: a tenant is omitted only when the database has just answered
+    "nothing here" for it under its own policies, and `active_outbound` for an omitted
+    tenant is zero by construction, so the platform total below stays exact.
     """
     async with untenanted_session() as session:
         rows = (
-            (
-                await session.execute(
-                    text("SELECT DISTINCT tenant_id FROM engine_agent_routes ORDER BY 1")
-                )
+            await session.execute(
+                text(
+                    "SELECT scanned_tenant_id, active_outbound, has_running_campaign "
+                    "FROM dispatch_scan(:statuses, :horizon)"
+                ),
+                {"statuses": list(ACTIVE_STATUSES), "horizon": ACTIVE_CALL_HORIZON},
             )
-            .scalars()
-            .all()
-        )
-    return [UUID(str(row)) for row in rows]
+        ).all()
+    return [TenantWork(UUID(str(row[0])), int(row[1]), bool(row[2])) for row in rows]
+
+
+@asynccontextmanager
+async def _tick_lease() -> AsyncIterator[bool]:
+    """Single-flight: yields True to the tick that may run, False to one that must not.
+
+    **ARQ DOES NOT PREVENT TWO TICKS OVERLAPPING, and this was a live correctness bug.**
+    arq 0.28 gives a cron job the id `f'{name}:{to_unix_ms(next_run)}'`
+    (`arq/worker.py::run_cron`), and the in-progress key that dedupes it is that id —
+    `arq/constants.py` says so in the comment on `keep_cronjob_progress`: "this can be a
+    long time since each cron job has an ID that is unique for the INTENDED EXECUTION
+    TIME". So the key stops two WORKERS running the tick scheduled for :30; it does
+    nothing about the tick scheduled for :30 starting while the :00 one is still going,
+    because those are different ids. arq's own issue #459 confirms the shape and names
+    the only built-in alternative — a fixed `cron(job_id=...)` — which we cannot use
+    here: a fixed id keeps its in-progress key for `keep_cronjob_progress` = 60s AFTER
+    the job ends, so a 30-second tick would silently become a 60-second one.
+
+    What overlap actually breaks is worth being precise about, because the scary version
+    is already prevented. Two ticks CANNOT double-dial a person: the claim in
+    `_dispatch_for_campaign` is a conditional UPDATE off `status = 'pending'` with
+    `FOR UPDATE SKIP LOCKED`, so the second tick skips whatever the first has locked.
+    What they can both do is READ-THEN-ACT on the shared line pool — each computes
+    `global_budget = pool - total_active` from the same observation and each spends it —
+    and the pool is what keeps another client's inbound receptionist answering
+    (FLOWS §5 rules 1+2). BACKEND-PATTERNS §5 calls read-then-write the thing to replace
+    with a CAS or a lock; there is no row to CAS a platform-wide budget against, so it
+    is a lock.
+
+    Redis, not a Postgres advisory lock, for two reasons: a session-scoped advisory lock
+    would hold one of the worker's 16 pooled connections for the whole tick, and arq
+    already requires Redis to have delivered this job at all — so no Redis means no tick,
+    and the lease adds no failure mode that was not already fatal. `SET NX PX` +
+    compare-and-delete is the primitive BACKEND-PATTERNS §5 names and
+    `compliance/audit.py` already uses; this is that, not a second one.
+
+    FAILS OPEN on a Redis error, like the audit chain's lock: a tick that refuses to run
+    because Redis hiccuped is a campaign that stops dialling, and the claim CAS still
+    stands between that and a double dial.
+
+    The token is `secrets.token_hex`, not a uuid7 — it exists to make the release safe
+    against a lease that has already expired and been retaken, which wants
+    unpredictability rather than the repo's time-ordered id convention.
+    """
+    redis = get_redis()
+    token = secrets.token_hex(16)
+    held = False
+    try:
+        held = bool(await redis.set(_TICK_LEASE_KEY, token, nx=True, px=TICK_LEASE_TTL_S * 1000))
+    except Exception:
+        log.warning("dispatch_tick_lease_unavailable")
+        yield True
+        return
+    try:
+        yield held
+    finally:
+        if held:
+            try:
+                # Compare-and-delete: never release a lease the NEXT tick now holds.
+                await redis.eval(  # type: ignore[misc]
+                    "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                    "return redis.call('del', KEYS[1]) else return 0 end",
+                    1,
+                    _TICK_LEASE_KEY,
+                    token,
+                )
+            except Exception:
+                log.warning("dispatch_tick_lease_release_failed")
 
 
 def _outbound_pool() -> int:
@@ -144,13 +272,76 @@ def _outbound_pool() -> int:
     return max(0, PLATFORM_LINES_TOTAL - reserve)
 
 
+# The tenant's BUDGET read, asked only of tenants `dispatch_scan()` said have a running
+# campaign. Built once at import: `text()` per tenant was measurable client CPU when
+# this ran 12,070 times a tick, and it is a constant either way.
+#
+# The ceiling is a SCALAR SUBQUERY, not a join. `plans` carries
+# effective_from/effective_to, so a tenant that ever changed plan has several rows — and
+# joining campaigns to plans on tenant_id alone multiplies every campaign by the client's
+# billing history, dispatching it once per plan row. The symptom is a campaign dialling
+# twice its slider because the client upgraded last month. Newest row wins, which is the
+# rule invoice.py already uses for the same table.
+#
+# The active-line count that used to be this statement's first column is gone: it now
+# comes from `dispatch_scan()`, which counted it for the platform total in the same
+# breath. Reading it twice would be two observations a few milliseconds apart, and rules
+# 1-3 only add up if the tenant's share and the platform total come from ONE of them.
+_TENANT_BUDGET_SQL = text(
+    # The plan IN EFFECT, not the newest row: a ceiling staged for next month must not
+    # throttle this month's dialling, and one whose window has closed must not keep
+    # granting lines.
+    f"SELECT ({plan_in_effect_sql('concurrency_ceiling', at=NOW_SQL)}), "
+    # Same reason this is a SUBQUERY and not a join to the one above: `campaigns` joined
+    # to `plans` is exactly the multiplication described above. `ORDER BY` inside the
+    # aggregate keeps the oldest-campaign-first rule the tenant budget depends on.
+    "  (SELECT coalesce(json_agg(json_build_object("
+    "       'id', c.id, 'concurrency', c.concurrency, "
+    "       'retry_policy', c.retry_policy, 'calling_hours', c.calling_hours"
+    "     ) ORDER BY c.created_at, c.id), '[]'::json) "
+    "   FROM campaigns c WHERE c.status = 'running')"
+)
+
+
 async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
     """One tick: claim due contacts up to every ceiling, gate each, dial the lawful.
 
-    Runs every 30 seconds. The big red switch is checked ONCE up front — it halts all
-    tenants (FLOWS §5), so there is no reason to walk the campaign list to discover it
-    per contact.
+    Runs every `TICK_INTERVAL_S` seconds, ONE AT A TIME — see `_tick_lease` for why arq
+    does not guarantee that and what two overlapping ticks would spend twice. The big
+    red switch is checked ONCE up front — it halts all tenants (FLOWS §5), so there is no
+    reason to walk the campaign list to discover it per contact.
+
+    The lease is taken before anything else so that "one tick at a time" is a property of
+    the whole function rather than of the part somebody remembered to guard.
     """
+    started = time.perf_counter()
+    async with _tick_lease() as held:
+        if not held:
+            # NOT a silent skip. A refused lease means the previous tick is STILL RUNNING
+            # past its own interval, which is the failure this tick's whole cost shape
+            # exists to prevent, and it is invisible from the outside: campaigns just
+            # dial late. Alerting is the only thing that turns it back into a symptom.
+            alert(
+                "WORKER_STALL",
+                "dispatch_tick_overlap",
+                detail=f"previous tick still running after {TICK_INTERVAL_S}s",
+            )
+            return "skipped_previous_tick_running"
+        outcome = await _run_tick()
+
+    elapsed = time.perf_counter() - started
+    metrics_log.info("metric", extra={"metric": "dispatch_tick_seconds", "value": elapsed})
+    if elapsed > TICK_INTERVAL_S:
+        alert(
+            "WORKER_STALL",
+            "dispatch_tick_overrun",
+            detail=f"tick took {elapsed:.1f}s, interval is {TICK_INTERVAL_S}s",
+        )
+    return outcome
+
+
+async def _run_tick() -> str:
+    """The tick's actual work, under the lease. Split out so the lease has one owner."""
     platform = await get_platform_status()
     if platform.outbound_halted:
         return "halted_by_big_red_switch"
@@ -160,56 +351,28 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
         alert("WORKER_STALL", "outbound_pool_empty", detail="reserve >= total lines")
         return "no_outbound_pool"
 
-    # Global active count first: the pool is shared across ALL tenants — but only
-    # tenants that can hold a line or run a campaign are worth asking (see
-    # `_dispatchable_tenants`).
-    tenants = await _dispatchable_tenants()
+    # One query for the whole platform: who is holding an outbound line, and who has a
+    # campaign to dial. Tenants with neither are not in the result and cost nothing.
+    tenants = await _tenants_with_work()
 
-    total_active = 0
+    # Rules 1+2 are platform-wide, and this sum is exact: a tenant `dispatch_scan()`
+    # omitted has zero live outbound calls by the function's own filter.
+    total_active = sum(work.active_outbound for work in tenants)
+
     running: list[tuple[UUID, UUID, int, dict[str, Any]]] = []  # (tenant, campaign, slots, retry)
-    for tenant_id in tenants:
-        async with tenant_session(tenant_id) as session:
-            # Active lines, the plan ceiling AND this tenant's running campaigns in ONE
-            # round trip. Two statements per tenant was the other half of the cost: the
-            # transaction is per tenant either way, so the campaign list rides along as
-            # a third scalar subquery instead of a second query.
-            #
-            # The ceiling is a SCALAR SUBQUERY, not a join. `plans` carries
-            # effective_from/effective_to, so a tenant that ever changed plan has
-            # several rows — and joining campaigns to plans on tenant_id alone
-            # multiplies every campaign by the client's billing history, dispatching
-            # it once per plan row. The symptom is a campaign dialling twice its slider
-            # because the client upgraded last month. Newest row wins, which is the
-            # rule invoice.py already uses for the same table.
-            row = (
-                await session.execute(
-                    text(
-                        "SELECT (SELECT count(*) FROM calls WHERE direction = 'outbound' "
-                        f"    AND status IN {ACTIVE_STATUSES!r} "
-                        f"    AND updated_at > now() - interval '{ACTIVE_CALL_HORIZON}'), "
-                        # The plan IN EFFECT, not the newest row: a ceiling staged for
-                        # next month must not throttle this month's dialling, and one
-                        # whose window has closed must not keep granting lines.
-                        f"  ({plan_in_effect_sql('concurrency_ceiling', at=NOW_SQL)}), "
-                        # Same reason this is a SUBQUERY and not a join to the two
-                        # above: `campaigns` joined to `plans` is exactly the multiplication
-                        # described above. `ORDER BY` inside the aggregate keeps the
-                        # oldest-campaign-first rule the tenant budget below depends on.
-                        "  (SELECT coalesce(json_agg(json_build_object("
-                        "       'id', c.id, 'concurrency', c.concurrency, "
-                        "       'retry_policy', c.retry_policy, 'calling_hours', c.calling_hours"
-                        "     ) ORDER BY c.created_at, c.id), '[]'::json) "
-                        "   FROM campaigns c WHERE c.status = 'running')"
-                    ),
-                    {"tid": tenant_id},
-                )
-            ).first()
-            active = int((row[0] if row else 0) or 0)
+    for work in tenants:
+        if not work.has_running_campaign:
+            # Holding lines but nothing to dial. It has already been counted into
+            # `total_active`; there is nothing a session could add.
+            continue
+        async with tenant_session(work.tenant_id) as session:
+            row = (await session.execute(_TENANT_BUDGET_SQL, {"tid": work.tenant_id})).first()
             ceiling = int(
-                row[1] if row is not None and row[1] is not None else DEFAULT_CONCURRENCY_CEILING
+                row[0] if row is not None and row[0] is not None else DEFAULT_CONCURRENCY_CEILING
             )
-            total_active += active
-            campaigns: list[dict[str, Any]] = list(row[2] or []) if row is not None else []
+            # The campaign may have been paused between the scan and this read — that is
+            # a race the client WINS, and it costs one session, not a dial.
+            campaigns: list[dict[str, Any]] = list(row[1] or []) if row is not None else []
             if not campaigns:
                 continue
 
@@ -219,7 +382,7 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
             # keeps another tenant's receptionist answering (rule 1's whole point).
             # Oldest campaign first, so which one gets the lines is deterministic
             # rather than whatever order the planner returned.
-            tenant_budget = max(0, ceiling - active)
+            tenant_budget = max(0, ceiling - work.active_outbound)
 
             for campaign in campaigns:
                 campaign_id = campaign["id"]
@@ -243,7 +406,7 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
                 if slots > 0:
                     tenant_budget -= slots
                     running.append(
-                        (UUID(str(tenant_id)), UUID(str(campaign_id)), slots, retry_policy or {})
+                        (work.tenant_id, UUID(str(campaign_id)), slots, retry_policy or {})
                     )
 
     if not running:
@@ -616,6 +779,10 @@ async def _record_failure(
 __all__ = [
     "DEFAULT_CONCURRENCY_CEILING",
     "PLATFORM_LINES_TOTAL",
+    "TICK_INTERVAL_S",
+    "TICK_LEASE_TTL_S",
+    "TICK_SECONDS",
+    "TenantWork",
     "dispatch_campaign_tick",
     "resolve_campaign_contact",
 ]

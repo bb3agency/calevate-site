@@ -41,14 +41,29 @@
  * So the worst a client-realm user achieves by editing the query string is breaking
  * their own page; they cannot claim impersonation, and they cannot read another
  * tenant, because the slug is resolved against an admin identity we verified first.
+ *
+ * ## What the marker now ALSO selects: which Clerk application this document loads
+ *
+ * clerk-js is a browser singleton, so a document hosts exactly one Clerk application
+ * (`lib/auth/clerkRuntime.tsx`). `viewAsSession` presenting an admin-realm token is
+ * therefore only possible if the ADMIN application is the one mounted on this page —
+ * and it must be, because in production the operator arriving here from
+ * admin.calevate.tech has an admin session and no client-realm session at all. So the
+ * same marker, read in the same place, chooses the provider and the session together.
+ * Splitting that decision across two files is how they would eventually disagree, and a
+ * page whose mounted application and presented credential disagree is a 401 nobody can
+ * explain.
  */
 
 import { Suspense, createContext, useContext, useMemo, type ReactNode } from "react";
 
 import { useSearchParams } from "next/navigation";
 
+import { AdminRealmClerkProvider } from "@/lib/auth/adminRealm";
+import { ClientRealmClerkProvider, clientRealmSession } from "@/lib/auth/clientRealm";
+
 import { viewAsSession } from "./admin";
-import { devSession, type Session } from "./client";
+import { type Session } from "./client";
 
 /** `/c/<slug>?view=admin` — set by the admin console's "View as client" link. */
 export const VIEW_AS_PARAM = "view";
@@ -91,7 +106,7 @@ function Resolver({ slug, children }: { slug: string; children: ReactNode }) {
 
   const value = useMemo<ClientRealm>(
     () => ({
-      session: viewAsRequested ? viewAsSession(slug) : devSession(slug),
+      session: viewAsRequested ? viewAsSession(slug) : clientRealmSession(slug),
       viewAsRequested,
       href: (path) =>
         viewAsRequested
@@ -101,7 +116,19 @@ function Resolver({ slug, children }: { slug: string; children: ReactNode }) {
     [slug, viewAsRequested],
   );
 
-  return <ClientRealmContext.Provider value={value}>{children}</ClientRealmContext.Provider>;
+  const realm = <ClientRealmContext.Provider value={value}>{children}</ClientRealmContext.Provider>;
+
+  // `protect` on both: a console screen is signed-in-only in either realm, and the
+  // redirect goes to the sign-in page of whichever application is mounted — so an
+  // operator whose admin session lapsed mid-handoff lands on the ADMIN sign-in, not on
+  // a client one that could never let them back in. In `dev` mode neither provider
+  // mounts anything (there is no Clerk), which is what keeps this the same tree the
+  // test suite renders.
+  return viewAsRequested ? (
+    <AdminRealmClerkProvider protect>{realm}</AdminRealmClerkProvider>
+  ) : (
+    <ClientRealmClerkProvider protect>{realm}</ClientRealmClerkProvider>
+  );
 }
 
 /**

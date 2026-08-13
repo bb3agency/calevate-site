@@ -1,173 +1,294 @@
 "use client";
 
 import { useState } from "react";
+import { Clock, PhoneCall, PhoneIncoming, UserCheck } from "lucide-react";
 
-import { Card, EmptyState, ProblemNotice, Skeleton, StatTile, formatDuration } from "@/components/ui";
+import {
+  Card,
+  EmptyState,
+  FilterChip,
+  ProblemNotice,
+  RestrictionNote,
+  Skeleton,
+  StatTile,
+  formatCount,
+  formatDuration,
+} from "@/components/ui";
+import { useMe } from "@/lib/api/hooks";
+import { usePerformance, type Performance } from "@/lib/api/performance";
 import { useClientSession } from "@/lib/api/session";
-import { usePerformance } from "@/lib/api/performance";
+
+/**
+ * How the phone agent is doing (SURFACES §2), in the console's design language.
+ *
+ * Restyled onto the `globals.css` tokens and the shared primitives — no `slate-*`, no
+ * `bg-white`, no second segmented control where `FilterChip` already exists — WITHOUT
+ * changing what it fetches or what any number means. What did change is what the screen
+ * claims:
+ *
+ * - **It rendered its own `<h1>Performance</h1>`** while the shell prints the page title
+ *   from the nav list (layout.tsx). Two headings saying the same word is the visible half
+ *   of a drift: rename the nav entry and the screen keeps arguing with it.
+ * - **`if (!perf.data) return null`** painted a blank screen with nothing on it — no
+ *   skeleton, no notice, no explanation. Now: a skeleton while there is nothing yet, the
+ *   refusal when the request failed, and the numbers only when the server sent them.
+ * - **A failed REFETCH used to blank the screen too.** `usePerformance` keeps the
+ *   previous period's data (`keepPreviousData`), and those numbers are real, so the
+ *   notice renders ABOVE them rather than instead of them — the same shape the leads
+ *   table settled on.
+ * - **The period toggle and the period the numbers are FOR could disagree.** The chips
+ *   say what was asked for the instant it is clicked; every caption says `data.days`,
+ *   which is what the server actually measured, and the card says "Updating…" while the
+ *   two differ. A "last 90 days" heading over 30 days of numbers is a lie a reader has
+ *   no way to catch.
+ *
+ * The charts follow the dashboard's doctrine (`/c/[slug]/page.tsx`): heights are relative
+ * to the busiest bucket rather than to an invented axis, every bar prints its own number
+ * so the picture is checkable without a tooltip, and a silent bucket renders as a zero
+ * rather than being dropped — the API guarantees all 24 IST hours for that reason.
+ */
 
 const DAY_OPTIONS = [7, 30, 90] as const;
 
-/**
- * How the phone agent is doing (SURFACES §2).
- *
- * Copy is for a shop or clinic owner, not an analyst: "calls answered", not
- * "connect rate KPI". Charts are pure CSS bars — the CSP and bundle discipline
- * forbid a chart library, and two single-series bar charts do not need one.
- */
 export default function PerformancePage() {
   const session = useClientSession();
   const [days, setDays] = useState<number>(30);
   const perf = usePerformance(session, days);
+  const me = useMe(session);
 
-  if (perf.isLoading) return <Skeleton rows={6} />;
-  if (perf.error) return <ProblemNotice error={perf.error} onRetry={() => perf.refetch()} />;
-  if (!perf.data) return null;
+  /**
+   * `GET /v1/performance` requires `calls:read` (crm/routes.py), read off `/v1/me`
+   * rather than from a role list this build would have to keep in step with the server.
+   *
+   * A session without it gets the sentence instead of a red alert: a 403 we can see
+   * coming is not a fault, and rendering it as one teaches a client to report their own
+   * permissions as bugs (the doctrine the leads Export button follows). While `/v1/me`
+   * is in flight `me.data` is undefined and nothing is refused — a screen must not flash
+   * an explanation it is about to withdraw. If `/v1/me` itself failed we do not know, so
+   * the request goes out and the API's own answer is what renders.
+   */
+  const refused = me.data !== undefined && !me.data.permissions.includes("calls:read");
+  if (refused) {
+    return (
+      <RestrictionNote reason="Call reports need permission to read call records, which this account does not have. Ask your account owner for access." />
+    );
+  }
 
   const data = perf.data;
-  const { calls, connected, qualified } = data.funnel;
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Performance</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            How your phone agent did over the last {data.days} days.
-          </p>
-        </div>
-        <div
-          role="group"
-          aria-label="Time period"
-          className="inline-flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-800"
-        >
+    <div className="space-y-5 pb-12">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-ink-muted">
+          {/* `data.days` — the period the SERVER measured, never the one the chip asked
+              for. They differ for as long as a switch is in flight, and that is exactly
+              when a reader would be misled. */}
+          {data
+            ? `How your phone agent did over the last ${data.days} days.`
+            : "How your phone agent did."}
+        </p>
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Time period">
           {DAY_OPTIONS.map((option) => (
-            <button
+            <FilterChip
               key={option}
-              type="button"
-              aria-pressed={days === option}
+              label={`${option} days`}
+              active={days === option}
               onClick={() => setDays(option)}
-              className={
-                days === option
-                  ? "rounded-md bg-slate-900 px-3 py-1 text-xs font-medium text-white dark:bg-slate-100 dark:text-slate-900"
-                  : "rounded-md px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-              }
-            >
-              {option} days
-            </button>
+            />
           ))}
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-4">
-        {/* null vs 0% is a real distinction the server makes on purpose: 0% means
-            calls happened and none turned into conversations (bad news worth
-            showing); null means there were no calls at all (nothing to grade).
-            Collapsing both into "0%" would tell a new client their agent is
-            failing before it has rung once. */}
-        <StatTile
-          label="Calls answered"
-          value={data.connect_rate_pct !== null ? `${data.connect_rate_pct}%` : "—"}
-          hint={data.connect_rate_pct !== null ? "reached a real conversation" : "no calls yet"}
-        />
-        <StatTile
-          label="Turned into leads"
-          value={data.qualify_rate_pct !== null ? `${data.qualify_rate_pct}%` : "—"}
-          hint={
-            data.qualify_rate_pct !== null
-              ? "of answered calls became interested customers"
-              : "no answered calls yet"
-          }
-        />
-        <StatTile
-          label="Average call length"
-          value={formatDuration(data.avg_duration_s)}
-          hint="minutes:seconds"
-        />
-        <StatTile
-          label="Incoming / outgoing"
-          value={`${data.inbound} / ${data.outbound}`}
-          hint="calls received vs calls made"
-        />
-      </div>
+      {perf.error && <ProblemNotice error={perf.error} onRetry={() => void perf.refetch()} />}
 
-      <Card title="From calls to customers">
-        {calls === 0 ? (
-          <EmptyState
-            title="No calls in this period"
-            hint="Once your agent starts taking or making calls, you will see them here."
-          />
-        ) : (
-          <div className="space-y-3">
-            <FunnelBar label="Calls" count={calls} max={calls} shade="bg-sky-600 dark:bg-sky-500" />
-            <FunnelBar
-              label="Answered"
-              count={connected}
-              max={calls}
-              shade="bg-sky-500 dark:bg-sky-600"
-            />
-            <FunnelBar
-              label="Interested"
-              count={qualified}
-              max={calls}
-              shade="bg-sky-400 dark:bg-sky-700"
-            />
-            <p className="text-xs text-slate-500">
-              Answered means the call reached a real conversation — not voicemail or a
-              missed call. Interested counts customers, not calls: three calls to the
-              same person count once.
-            </p>
+      {!data ? (
+        /* Nothing to draw. A skeleton is not a number, and a failed first load has
+           already said so in the notice above — neither branch is allowed to invent a
+           figure to fill the space. */
+        perf.error ? null : (
+          <div className="space-y-5">
+            <Skeleton rows={4} />
+            <Skeleton rows={6} />
           </div>
-        )}
-      </Card>
+        )
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {/* null vs 0% is a distinction the server makes ON PURPOSE (PerformanceOut):
+                0% means calls happened and none turned into conversations — bad news
+                worth showing — while null means there were no calls at all and there is
+                nothing to grade. Collapsing both into "0%" tells a new client their
+                agent is failing before it has rung once. */}
+            <StatTile
+              label="Calls answered"
+              value={ratePct(data.connect_rate_pct) ?? "—"}
+              icon={<PhoneCall className="h-5 w-5" />}
+              hint={
+                data.connect_rate_pct === null || data.connect_rate_pct === undefined
+                  ? "No calls yet — nothing to measure"
+                  : `${formatCount(data.funnel.connected)} of ${formatCount(data.funnel.calls)} reached a real conversation`
+              }
+            />
+            <StatTile
+              label="Turned into leads"
+              value={ratePct(data.qualify_rate_pct) ?? "—"}
+              icon={<UserCheck className="h-5 w-5" />}
+              tone="strong"
+              hint={
+                data.qualify_rate_pct === null || data.qualify_rate_pct === undefined
+                  ? "No answered calls yet — nothing to measure"
+                  : "of answered calls became interested customers"
+              }
+            />
+            <StatTile
+              label="Average call length"
+              value={formatDuration(data.avg_duration_s)}
+              icon={<Clock className="h-5 w-5" />}
+              hint="Completed calls only"
+            />
+            <StatTile
+              label="Incoming / outgoing"
+              value={`${formatCount(data.inbound)} / ${formatCount(data.outbound)}`}
+              icon={<PhoneIncoming className="h-5 w-5" />}
+              hint="Calls received vs calls made"
+            />
+          </div>
 
-      <Card title="Busiest hours (IST)">
-        <HourHistogram hours={data.busiest_hours_ist} />
-        <p className="mt-2 text-xs text-slate-500">
-          When your phone rings the most. Useful for staffing the counter and picking
-          the best time for outgoing calls.
-        </p>
-      </Card>
+          <div className="grid gap-5 lg:grid-cols-12">
+            <div className="lg:col-span-7">
+              <Card title="From calls to customers" action={<Updating busy={perf.isFetching} />}>
+                <Funnel funnel={data.funnel} />
+              </Card>
+            </div>
+            <div className="lg:col-span-5">
+              <Card title="How calls ended" action={<Updating busy={perf.isFetching} />}>
+                <Outcomes outcomes={data.outcomes} />
+              </Card>
+            </div>
+          </div>
 
-      <Card title="How calls ended">
-        <OutcomeList outcomes={data.outcomes} />
-      </Card>
+          <Card title="Busiest hours (IST)" action={<Updating busy={perf.isFetching} />}>
+            <HourHistogram hours={data.busiest_hours_ist} calls={data.funnel.calls} />
+          </Card>
+        </>
+      )}
     </div>
   );
 }
 
 /**
- * One funnel stage: a label, a proportional bar, and the number at the end.
- * Widths are plain CSS percentages of the top of the funnel — no chart library,
- * per bundle/CSP discipline. Non-zero counts get a 2% floor so "3 of 900" still
- * renders a visible sliver instead of disappearing.
+ * A whole-number percentage, or null when the server said there is nothing to measure.
+ *
+ * `=== null` alone would let an `undefined` — a field the response omitted — render as
+ * "undefined%", which is the one output worse than a wrong number.
  */
-function FunnelBar({
-  label,
-  count,
-  max,
-  shade,
-}: {
-  label: string;
-  count: number;
-  max: number;
-  shade: string;
-}) {
-  const pct = max > 0 ? (count / max) * 100 : 0;
-  const width = count > 0 ? Math.max(pct, 2) : 0;
+function ratePct(value: number | null | undefined): string | null {
+  return value === null || value === undefined ? null : `${value}%`;
+}
+
+/** Said, rather than left for the reader to notice numbers moving under them. */
+function Updating({ busy }: { busy: boolean }) {
+  if (!busy) return null;
+  return <span className="text-[11px] font-medium text-ink-faint">Updating…</span>;
+}
+
+/**
+ * Calls → answered → interested, as three bars against the top of the funnel.
+ *
+ * Widths are a share of `calls`, so the bars are read against each other rather than
+ * against an axis nobody drew — and each prints its own count, so the shape can be
+ * checked without hovering anything. A non-zero stage keeps a 2% floor: "3 of 900" must
+ * still be visible, and a stage that exists must not render as one that does not.
+ */
+const FUNNEL_SHADES = ["bg-brand-strong", "bg-brand", "bg-brand-bright"] as const;
+
+function Funnel({ funnel }: { funnel: Performance["funnel"] }) {
+  if (funnel.calls === 0) {
+    return (
+      <EmptyState
+        title="No calls in this period"
+        hint="Once your agent starts taking or making calls, you will see them here."
+      />
+    );
+  }
+  const stages = [
+    { label: "Calls", count: funnel.calls },
+    { label: "Answered", count: funnel.connected },
+    { label: "Interested", count: funnel.qualified },
+  ];
   return (
-    <div className="flex items-center gap-3">
-      <div className="w-20 shrink-0 text-sm text-slate-600 dark:text-slate-400">{label}</div>
-      <div className="h-6 flex-1 overflow-hidden rounded-md bg-slate-100 dark:bg-slate-800">
-        <div
-          className={`h-full rounded-md ${shade}`}
-          style={{ width: `${width}%` }}
-          title={`${label}: ${count}`}
-        />
-      </div>
-      <div className="w-12 shrink-0 text-right text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-50">
-        {count}
-      </div>
+    <div className="space-y-3">
+      {stages.map((stage, index) => (
+        <div key={stage.label} className="flex items-center gap-3">
+          <div className="w-20 shrink-0 text-sm text-ink-muted">{stage.label}</div>
+          <div className="h-6 flex-1 overflow-hidden rounded-md bg-black/[0.04] dark:bg-white/10">
+            <div
+              className={`h-full rounded-md ${FUNNEL_SHADES[index]}`}
+              style={{
+                width: `${stage.count > 0 ? Math.max((stage.count / funnel.calls) * 100, 2) : 0}%`,
+              }}
+              title={`${stage.label}: ${stage.count}`}
+            />
+          </div>
+          <div className="w-14 shrink-0 text-right text-sm font-semibold tabular-nums text-ink">
+            {formatCount(stage.count)}
+          </div>
+        </div>
+      ))}
+      <p className="text-xs text-ink-muted">
+        Answered means the call reached a real conversation — not voicemail or a missed
+        call. Interested counts customers, not calls: three calls to the same person count
+        once.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Outcome → count, busiest first.
+ *
+ * The key is the agent's outcome tag where it set one and the call's own status where it
+ * did not (`COALESCE(outcome_tag, status)` in crm/performance.py), which is why the
+ * caption says so: a reader who thinks these are all tags will read "no_answer" as an
+ * outcome someone chose.
+ *
+ * No `lookup()` needed — these keys are printed, never used to index a copy table, which
+ * is the read `src/lib/lookup.ts` exists to make safe.
+ */
+function Outcomes({ outcomes }: { outcomes: Record<string, number> }) {
+  const rows = Object.entries(outcomes).sort(([, a], [, b]) => b - a);
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        title="Nothing to show yet"
+        hint="Call results will appear here after your first calls."
+      />
+    );
+  }
+  const busiest = Math.max(...rows.map(([, count]) => count));
+  return (
+    <div className="space-y-2.5">
+      {rows.map(([outcome, count]) => (
+        <div key={outcome}>
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="truncate text-[13px] capitalize text-ink-muted">
+              {outcome.replace(/_/g, " ")}
+            </span>
+            <span className="text-[13px] font-semibold tabular-nums text-ink">
+              {formatCount(count)}
+            </span>
+          </div>
+          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-black/[0.04] dark:bg-white/10">
+            <div
+              className="h-full rounded-full bg-brand"
+              style={{ width: `${busiest > 0 ? Math.max((count / busiest) * 100, 2) : 0}%` }}
+            />
+          </div>
+        </div>
+      ))}
+      <p className="pt-1 text-xs text-ink-muted">
+        The tag your agent recorded, or how the call ended when it recorded none.
+      </p>
     </div>
   );
 }
@@ -179,69 +300,83 @@ function hourLabel(hour: number): string {
   return hour < 12 ? `${hour} am` : `${hour - 12} pm`;
 }
 
-/**
- * 24 vertical CSS bars, one per IST hour. All 24 always render — a silent 3am
- * still shows as an empty slot, because a chart that omits quiet hours reads as
- * missing data (the server guarantees 24 buckets for the same reason). Each slot
- * keeps a faint baseline stub so the axis is legible even on an all-zero day.
- */
-function HourHistogram({ hours }: { hours: number[] }) {
-  const max = Math.max(...hours, 1);
-  return (
-    <div>
-      <div className="flex h-28 items-end gap-px sm:gap-0.5">
-        {hours.map((count, hour) => (
-          <div
-            key={hour}
-            className="flex flex-1 flex-col justify-end self-stretch"
-            title={`${hourLabel(hour)}: ${count} ${count === 1 ? "call" : "calls"}`}
-          >
-            <div
-              className={
-                count > 0
-                  ? "rounded-t-sm bg-sky-500 dark:bg-sky-600"
-                  : "rounded-t-sm bg-slate-100 dark:bg-slate-800"
-              }
-              // Zero hours get a 2px stub, busy hours scale to the tallest bar.
-              style={{ height: count > 0 ? `${Math.max((count / max) * 100, 4)}%` : "2px" }}
-            />
-          </div>
-        ))}
-      </div>
-      {/* Axis labels at the quarter marks: each label sits under the bar it names
-          (12a under hour 0, 6a under hour 6, ...), so four equal flex cells with
-          left-aligned text line up with bars 0/6/12/18 of the 24-bar row. */}
-      <div className="mt-1 flex border-t border-slate-200 pt-1 text-[11px] text-slate-500 dark:border-slate-800">
-        <span className="flex-1">12a</span>
-        <span className="flex-1">6a</span>
-        <span className="flex-1">12p</span>
-        <span className="flex-1">6p</span>
-      </div>
-    </div>
-  );
+/** The axis form: "12a", "3p". */
+function shortHourLabel(hour: number): string {
+  if (hour === 0) return "12a";
+  if (hour === 12) return "12p";
+  return hour < 12 ? `${hour}a` : `${hour - 12}p`;
 }
 
-/** Outcome → count, busiest first, in the owner's words (no snake_case on screen). */
-function OutcomeList({ outcomes }: { outcomes: Record<string, number> }) {
-  const rows = Object.entries(outcomes).sort(([, a], [, b]) => b - a);
-  if (rows.length === 0) {
-    return (
-      <EmptyState
-        title="Nothing to show yet"
-        hint="Call results will appear here after your first calls."
-      />
-    );
-  }
+/**
+ * 24 vertical bars, one per IST hour, each printing its own count.
+ *
+ * All 24 always render: the server guarantees 24 buckets and zero-fills the silent ones
+ * (`PerformanceOut.busiest_hours_ist`), and a chart that omits them reads as data loss to
+ * the one reader who would notice 3am missing. A zero hour keeps a baseline stub and
+ * prints its 0 in the faint ink, so "nothing happened" and "nothing was measured" cannot
+ * be confused.
+ *
+ * Heights are relative to the busiest hour, never to a fixed axis — a clinic doing 20
+ * calls a week would otherwise see 24 invisible stubs under a scale nobody told them was
+ * arbitrary. The axis labels sit INSIDE each bar's own column (every third hour), so they
+ * are aligned by construction rather than by four equal-width cells that happen to line
+ * up with a 24-bar row.
+ *
+ * `calls` is the funnel's total for the same period, and it is here to explain a gap the
+ * chart would otherwise be blamed for: the API counts only calls that have a start time,
+ * so a dial that never reached the network is in the funnel and not in these bars.
+ */
+function HourHistogram({ hours, calls }: { hours: number[]; calls: number }) {
+  const busiest = Math.max(...hours, 0);
+  const started = hours.reduce((sum, count) => sum + count, 0);
   return (
-    <dl className="space-y-2 text-sm">
-      {rows.map(([outcome, count]) => (
-        <div key={outcome} className="flex justify-between">
-          <dt className="text-slate-600 capitalize dark:text-slate-400">
-            {outcome.replace(/_/g, " ")}
-          </dt>
-          <dd className="font-semibold tabular-nums text-slate-900 dark:text-slate-50">{count}</dd>
+    <div>
+      <div className="overflow-x-auto">
+        <div className="flex min-w-[620px] items-end gap-1">
+          {hours.map((count, hour) => (
+            <div
+              key={hour}
+              className="flex min-w-0 flex-1 flex-col items-center gap-1.5"
+              title={`${hourLabel(hour)}: ${count} ${count === 1 ? "call" : "calls"}`}
+            >
+              <span
+                className={`text-[10px] tabular-nums ${
+                  count > 0 ? "font-semibold text-ink" : "text-ink-faint"
+                }`}
+              >
+                {count}
+              </span>
+              <div className="flex h-[120px] w-full items-end">
+                <div
+                  className={`w-full rounded-t-sm ${
+                    count > 0 ? "bg-brand" : "bg-black/[0.06] dark:bg-white/10"
+                  }`}
+                  // Relative to the busiest hour; a silent hour keeps a 2px baseline so
+                  // the axis stays legible on an all-zero day.
+                  style={{
+                    height: count > 0 ? `${Math.max((count / busiest) * 100, 4)}%` : "2px",
+                  }}
+                />
+              </div>
+              <span className="h-3 text-[10px] font-medium text-ink-faint">
+                {hour % 3 === 0 ? shortHourLabel(hour) : ""}
+              </span>
+            </div>
+          ))}
         </div>
-      ))}
-    </dl>
+      </div>
+      <p className="mt-2 text-xs text-ink-muted">
+        When your phone rings the most — useful for staffing the counter and picking the
+        best time for outgoing calls. Each bar counts the calls that STARTED in that hour,
+        Indian Standard Time.
+        {started < calls && (
+          <>
+            {" "}
+            {formatCount(started)} of {formatCount(calls)} calls in this period have a
+            start time; the rest never reached the network, so they are not in this chart.
+          </>
+        )}
+      </p>
+    </div>
   );
 }

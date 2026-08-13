@@ -26,7 +26,9 @@
 
 import { useMutation } from "@tanstack/react-query";
 
-import { ApiProblem, apiRequest, devSession, type Session } from "./client";
+import { clientRealmSession } from "@/lib/auth/clientRealm";
+
+import { ApiProblem, apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -44,7 +46,7 @@ export type SignupLanguage = SignupIn["language"];
  * not a member of.
  */
 export function signupSession(): Session {
-  return devSession("");
+  return clientRealmSession("");
 }
 
 /** The four seeded verticals (`scripts/seed.py::VERTICAL_TEMPLATES`) — the API refuses

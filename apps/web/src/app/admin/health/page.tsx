@@ -1,8 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import { ArrowRight, HeartPulse, TriangleAlert } from "lucide-react";
 
-import { EmptyState, NOTICE_TONES, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import {
+  Card,
+  EmptyState,
+  NOTICE_TONES,
+  NoticeBox,
+  ProblemNotice,
+  Skeleton,
+  formatINR,
+  formatIST,
+} from "@/components/ui";
 import { useClientHealth } from "@/lib/api/admin";
 import {
   causeCta,
@@ -52,6 +62,9 @@ import {
  * Hard rule 6 is a property of the payload and nothing here widens it: accounts and
  * machine rule names, no phone number, no transcript, no reviewer prose. All wording comes
  * from this console's own tables and none of it is fetched back from the account.
+ *
+ * The page carries no `<h1>`: the shell derives the title from the nav list it renders the
+ * sidebar from (`app/admin/layout.tsx`), so a heading here would repeat it.
  */
 export default function ClientHealthPage() {
   const board = useClientHealth();
@@ -59,44 +72,56 @@ export default function ClientHealthPage() {
   const breaking = rows.filter((row) => row.severity === "stop");
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold">Client health</h1>
-        <p className="mt-0.5 text-sm text-slate-400">
-          Accounts with something wrong this week, most broken first. Clients with nothing
-          wrong are not listed — the full roster is on Clients.
-        </p>
-      </div>
+    <div className="space-y-4 pb-12">
+      <p className="text-sm text-ink-muted">
+        Accounts with something wrong this week, most broken first. Clients with nothing
+        wrong are not listed — the full roster is on Clients.
+      </p>
 
-      {board.error && <ProblemNotice error={board.error} onRetry={() => board.refetch()} />}
+      {board.error && <ProblemNotice error={board.error} onRetry={() => void board.refetch()} />}
 
       {/* Above the table, not in it: the number an operator carries away is "how many, and
           how bad", and a number that only exists as a row you scroll to is a number nobody
           has. */}
       {!board.isLoading && !board.error && rows.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="text-slate-300">
+          <span className="inline-flex items-center gap-2 font-semibold text-ink">
+            <HeartPulse className="h-4 w-4 text-ink-faint" />
             {rows.length} {rows.length === 1 ? "account" : "accounts"} need attention
           </span>
           {breaking.length > 0 && (
-            <span className={`rounded-md border px-2 py-1 text-xs ${NOTICE_TONES.stop}`}>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${NOTICE_TONES.stop}`}
+            >
+              <TriangleAlert className="h-3.5 w-3.5" />
               {breaking.length} broken now
             </span>
           )}
         </div>
       )}
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900">
+      <Card bodyClassName="p-0">
         {board.isLoading ? (
-          <div className="p-4">
+          <div className="p-6">
             <Skeleton rows={4} />
           </div>
         ) : board.error ? (
           /* Deliberately NOT the empty state. "Every client is fine" is a claim about the
              world, and a failed read is not evidence for it — an operator told the board
-             was clear because a token expired would stop looking. */
-          <div className="p-4 text-sm text-slate-400">
-            The board could not be read, so we cannot say whether any client is in trouble.
+             was clear because a token expired would stop looking. `NoticeBox` rather than a
+             hand-built box, so this refusal is painted by the same tone table as every
+             other verdict in both realms. */
+          <div className="p-6">
+            <NoticeBox
+              tone="warn"
+              icon={<TriangleAlert className="h-5 w-5" />}
+              title="The board could not be read"
+            >
+              <p className="mt-1">
+                So we cannot say whether any client is in trouble. This is not a healthy
+                estate.
+              </p>
+            </NoticeBox>
           </div>
         ) : rows.length === 0 ? (
           <EmptyState
@@ -104,27 +129,27 @@ export default function ClientHealthPage() {
             hint="No account is silent, blocked, near its cap, failing deliveries, or waiting on us to approve knowledge. This list fills up on its own."
           />
         ) : (
-          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-            <table className="w-full min-w-[700px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-2 font-medium">Client</th>
-                <th className="px-4 py-2 font-medium">Calls (7d vs prior)</th>
-                <th className="px-4 py-2 font-medium">What is wrong</th>
-                <th className="px-4 py-2 font-medium">Next step</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {rows.map((row) => (
-                <HealthRow key={row.tenant_id} row={row} />
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead>
+                <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
+                  <th className="px-6 py-3 font-semibold">Client</th>
+                  <th className="px-6 py-3 font-semibold">Calls (7d vs prior)</th>
+                  <th className="px-6 py-3 font-semibold">What is wrong</th>
+                  <th className="px-6 py-3 font-semibold">Next step</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {rows.map((row) => (
+                  <HealthRow key={row.tenant_id} row={row} />
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
-      </div>
+      </Card>
 
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-ink-faint">
         Read-only. Every signal is derived from the same rules that refuse the
         client&apos;s dial, meter their spend and gate their knowledge, so this board cannot
         say an account is fine while the client is looking at a refusal. A row leaves the
@@ -138,57 +163,59 @@ function HealthRow({ row }: { row: ClientHealth }) {
   const trend = trendClaim(row);
 
   return (
-    <tr className="align-top hover:bg-slate-800/50">
-      <td className="px-4 py-2">
-        <Link href={`/admin/tenants/${row.tenant_id}`} className="font-medium hover:underline">
+    <tr className="align-top hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
+      <td className="px-6 py-3">
+        <Link
+          href={`/admin/tenants/${row.tenant_id}`}
+          className="font-semibold text-ink hover:underline"
+        >
           {row.name}
         </Link>
-        <div className="text-xs text-slate-500">/c/{row.slug}</div>
+        <div className="text-xs text-ink-faint">/c/{row.slug}</div>
         <span
-          className={`mt-1 inline-block rounded-md border px-2 py-0.5 text-xs ${
+          className={`mt-1 inline-block rounded-full border px-2.5 py-0.5 text-xs font-medium ${
             NOTICE_TONES[severityTone(row.severity)]
           }`}
         >
           {row.severity === "stop" ? "broken now" : "will break"}
         </span>
       </td>
-      <td className="px-4 py-2">
+      <td className="px-6 py-3">
         {/* The whole `after_hours_basis` argument, rendered. An unearned basis prints the
             REASON we cannot say, never a dash and never a 0% that reads as measured. */}
         {trend.kind === "measured" ? (
           <>
-            <div className="tabular-nums text-slate-200">
-              {trend.to} <span className="text-slate-500">vs {trend.from}</span>
+            <div className="tabular-nums font-medium text-ink">
+              {trend.to} <span className="text-ink-faint">vs {trend.from}</span>
             </div>
-            <div className="text-xs text-slate-500">
+            <div className="text-xs text-ink-muted">
               {trend.droppedPct > 0
                 ? `down ${trend.droppedPct}%`
                 : `up ${Math.abs(trend.droppedPct)}%`}
             </div>
           </>
         ) : (
-          <div className="text-xs text-slate-500">{trend.why}</div>
+          <div className="text-xs text-ink-muted">{trend.why}</div>
         )}
-        <div className="mt-1 text-xs text-slate-600">
-          Last call {formatIST(row.last_call_at)}
-        </div>
+        <div className="mt-1 text-xs text-ink-faint">Last call {formatIST(row.last_call_at)}</div>
       </td>
-      <td className="px-4 py-2">
+      <td className="px-6 py-3">
         <ul className="space-y-2">
           {row.signals.map((signal) => (
-            <SignalCell key={signal.rule} signal={signal} tenantId={row.tenant_id} />
+            <SignalCell key={signal.rule} signal={signal} row={row} />
           ))}
         </ul>
       </td>
-      <td className="px-4 py-2">
+      <td className="px-6 py-3">
         <div className="flex flex-col items-start gap-1">
           {[...remedies(row)].map(([href, cta]) => (
             <Link
               key={href}
               href={href}
-              className="rounded-md border border-slate-700 px-2 py-0.5 text-xs hover:bg-slate-800"
+              className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
             >
               {cta}
+              <ArrowRight className="h-3 w-3" />
             </Link>
           ))}
         </div>
@@ -226,14 +253,38 @@ function remedies(row: ClientHealth): Map<string, string> {
   return found;
 }
 
-function SignalCell({ signal, tenantId }: { signal: HealthSignal; tenantId: string }) {
+/**
+ * The spend behind a `spend_cap_near`, in rupees, or null when there is no ceiling to be
+ * near.
+ *
+ * The percentage is the SERVER's integer, computed from `Decimal`s — this adds the two
+ * amounts it was computed from so an operator can act on it ("raise it by how much?")
+ * without opening the account. Both are printed through `formatINR`, which formats the
+ * DIGITS of the string the API sent and never parses them: `Number("10159.0000")` is how
+ * ₹10,159.00 becomes ₹10,158.999999999998 on the screen an operator quotes to a client
+ * (hard rule 7, and `UsagePanelOut`'s docstring).
+ *
+ * This is a rupee AMOUNT, not a rate, so two decimals is the right precision — the
+ * distinction `/c/[slug]/usage` draws with its own `rupeeRate`, where `overage_rate_inr`
+ * is NUMERIC(12,4) and rounding it to paise would misquote the published price.
+ *
+ * `spend_cap_inr` is nullable: an account with no ceiling cannot be near one, so the whole
+ * line is absent rather than rendering "₹900.50 of —", which reads like a missing figure.
+ */
+function spendLine(row: ClientHealth): string | null {
+  if (row.spend_cap_inr === null) return null;
+  return `${formatINR(row.spend_used_inr)} of ${formatINR(row.spend_cap_inr)}`;
+}
+
+function SignalCell({ signal, row }: { signal: HealthSignal; row: ClientHealth }) {
   const copy = signalCopy(signal.rule);
   const count = signalCount(signal);
+  const spend = signal.rule === "spend_cap_near" ? spendLine(row) : null;
 
   return (
     <li className="text-xs">
       <span
-        className={`inline-block rounded-md border px-2 py-0.5 ${
+        className={`inline-block rounded-full border px-2.5 py-0.5 font-medium ${
           NOTICE_TONES[severityTone(signal.severity)]
         }`}
       >
@@ -242,18 +293,19 @@ function SignalCell({ signal, tenantId }: { signal: HealthSignal; tenantId: stri
             dropping it would hide an account that is genuinely in trouble. */}
         {copy?.label ?? signal.rule}
       </span>
-      {count && <span className="ml-2 text-slate-400">{count}</span>}
-      <div className="mt-0.5 text-slate-500">
+      {count && <span className="ml-2 text-ink-muted">{count}</span>}
+      <div className="mt-0.5 text-ink-muted">
         {copy?.meaning ??
           "This console does not know this signal. The account is flagged by it all the same — open the account."}
       </div>
+      {spend && <div className="mt-0.5 tabular-nums text-ink-faint">{spend}</div>}
       {signal.causes.length > 0 && (
         <ul className="mt-1 space-y-0.5">
           {signal.causes.map((cause) => (
             <li key={cause}>
               <Link
-                href={causeHref(cause, tenantId)}
-                className="text-slate-400 underline-offset-2 hover:underline"
+                href={causeHref(cause, row.tenant_id)}
+                className="text-ink-muted underline-offset-2 hover:underline"
               >
                 {causeLabel(cause)}
               </Link>

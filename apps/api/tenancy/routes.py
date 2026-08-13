@@ -93,6 +93,75 @@ async def me(session: Session, principal: Principal = Depends(requires("org:read
     )
 
 
+class MemberOut(BaseModel):
+    """One colleague, as a control that has to NAME them needs them.
+
+    **No email, and that is a rule rather than a preference.** `email` is in
+    `scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model
+    declaring it fails the guardrail unless the route is allowlisted as role-checked and
+    audited — which an assignee picker is not, and should not have to be. Nothing on
+    this surface needs it either: the control writes an id and prints a name.
+
+    `name` is nullable because `users.name` is: the Clerk mirror composes it from
+    first/last name and stores NULL when the account has neither
+    (`tenancy/clerk_webhooks.py`). The screen says "Unnamed member" rather than falling
+    back to an address — a fallback that leaks is not a fallback.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    name: str | None = None
+    # `owner` or `staff` (DATA-MODEL §2). Present because the picker is also the place a
+    # person answers "who can actually do this?" — and because a role is a fact about
+    # our account, not about the person.
+    role: str
+
+
+@router.get(
+    "/members",
+    response_model=list[MemberOut],
+    # `org:read`: every role in both realms holds it, it is not in MUTATING_PERMISSIONS,
+    # and D-22 therefore leaves it readable to an impersonating operator — who needs to
+    # see the same team list the client sees in order to explain a lead's owner. Not
+    # `org:manage`: reading who is on the team is not the authority to change it.
+    openapi_extra=permission_meta("org:read"),
+    summary="Who is on this account's team — ids and display names, never emails",
+)
+async def list_members(
+    session: Session, _: Principal = Depends(requires("org:read"))
+) -> list[MemberOut]:
+    """The team, for any control that has to name a colleague (M3 lead assignment).
+
+    THE TENANCY CONTROL IS THE JOIN. `users` is a GLOBAL table with no RLS — identity
+    crosses tenants (DATA-MODEL §2) — so `SELECT id, name FROM users` under a tenant
+    session would return every user of the platform. `memberships` is FORCE-RLS'd on
+    `tenant_id`, so driving the query from it is what scopes the answer, and there is no
+    `WHERE tenant_id` here for the reason the whole codebase gives: a hand-written
+    filter is a filter that can be forgotten, and its presence invites trusting it
+    instead of the policy.
+
+    Deactivated accounts are excluded. A deactivated user is refused at the auth guard
+    on every request (BACKEND-PATTERNS §7), so offering them as an assignee would be
+    offering work to somebody who cannot open the account — and `crm.service` refuses
+    the assignment for the same reason, so a picker that listed them would be a control
+    whose options the server rejects.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT m.user_id, u.name, m.role FROM memberships m "
+                "JOIN users u ON u.id = m.user_id "
+                "WHERE u.deactivated_at IS NULL "
+                # Named people first, then by seniority of joining: a picker whose order
+                # changes between renders is a picker people mis-click.
+                "ORDER BY u.name NULLS LAST, m.created_at"
+            )
+        )
+    ).all()
+    return [MemberOut(id=row[0], name=row[1], role=row[2]) for row in rows]
+
+
 class AcceptInviteIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -179,4 +248,4 @@ async def accept_invitation(
     return AcceptInviteOut(tenant_id=tenant_id, slug=str(slug), role=str(role or "owner"))
 
 
-__all__ = ["router"]
+__all__ = ["MemberOut", "router"]

@@ -251,6 +251,102 @@ async def test_an_unkeyable_payload_costs_nothing_but_is_still_timed(trips: _Tri
     assert "X-Ack-Ms" in ignored.headers
 
 
+async def test_breaching_the_budget_raises_the_incident_signal_and_still_acks(
+    trips: _Trips, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Past 500ms the receiver alerts — and the vendor still gets its ack.
+
+    Both halves matter and they pull in opposite directions. Hard rule 3 puts a NUMBER in
+    the contract, so breaching it is an incident signal rather than a log line nobody
+    reads. But the engine delivers at-most-once and never retries (D-31): a receiver that
+    turned a slow ack into an error would convert "we were late" into "the call is lost",
+    which is the failure this budget exists to prevent. So: alert, and ack anyway.
+
+    IT MOVES THE THRESHOLD, NOT THE CLOCK. Patching `_ack_ms` to return a fake number
+    would assert that `alert()` is reachable while measuring nothing; lowering the budget
+    runs the REAL timing path and puts the real elapsed value through the real comparison
+    and into the real alert detail. It is also this file's established way to drive a
+    threshold — `_DURABLE_DEADLINE_S` is patched the same way below — and one way per
+    problem beats two.
+
+    WHY THIS TEST EXISTS AT ALL, which is the part worth remembering: this branch used to
+    have no test, and it fired only when the machine was slow enough to spend 500ms on a
+    request that normally costs single-digit milliseconds. That made its COVERAGE a
+    property of the hardware — covered on a contended CI runner, uncovered on an idle
+    laptop — and the coverage ratchet is an equality, so `voice-runtime-ack` oscillated
+    between 22 and 24 uncovered units and failed CI in BOTH directions across nine
+    commits: once as an improvement nobody locked in, then eight times as a regression
+    nobody introduced. Two sessions read that as a real coverage change and edited the
+    baseline number instead. A branch whose test is "hope the runner is busy" is a branch
+    with no test; this is it.
+    """
+    raised: list[tuple[str, str, dict[str, Any]]] = []
+
+    def _record(kind: str, reason: str, **fields: Any) -> None:
+        raised.append((kind, reason, fields))
+
+    monkeypatch.setattr(webhook_routes, "alert", _record)
+    # Anything a real request spends exceeds zero, on any machine, at any speed.
+    monkeypatch.setattr(webhook_routes, "_ACK_BUDGET_MS", 0.0)
+
+    execution_id, status, _ = _event()
+    async with _client() as http:
+        acked = await http.post(HOOK, json=_body(execution_id, status), headers=HEADERS)
+
+    assert acked.status_code == 202, "a breach is a signal, not a refusal"
+    assert acked.json()["status"] == "accepted"
+    assert trips.enqueues == [webhook_routes.INGEST_JOB], "the work must still be queued"
+
+    assert [(kind, reason) for kind, reason, _ in raised] == [
+        ("ROUTE_HANDLER", "webhook_ack_slow")
+    ], raised
+    _, _, fields = raised[0]
+    # The detail is the MEASURED number, not the budget: an operator reading the alert
+    # needs to know whether we missed by a millisecond or by a second.
+    #
+    # Compared with a TOLERANCE rather than for equality, and the reason is a bug this
+    # assertion had on its first day. The header carries `f"{elapsed:.1f}"` and the alert
+    # carries `f"{elapsed:.0f}ms"` — both rounded from the same full-precision float, but
+    # rounded ONCE each. Reconstructing one from the other rounds twice, and Python's
+    # round-half-to-even then disagrees with itself: elapsed 9.4555 gives a detail of
+    # "9ms" and a header of "9.5", and `f"{9.5:.0f}"` is "10". It passed until a run
+    # happened to land on a .x5 boundary — a test that fails on one measurement in ten is
+    # worse than no test, because it teaches people to re-run.
+    assert fields["detail"].endswith("ms"), fields
+    assert (
+        abs(float(fields["detail"].removesuffix("ms")) - float(acked.headers["X-Ack-Ms"])) <= 1.0
+    ), (
+        fields,
+        acked.headers["X-Ack-Ms"],
+    )
+    assert fields["engine"] == "bolna", fields
+
+
+async def test_an_ack_inside_the_budget_raises_nothing(
+    trips: _Trips, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other direction of the same comparison, at the REAL 500ms budget.
+
+    Without it the test above would pass against a receiver that alerts on every single
+    delivery — which is the same as alerting on none of them, since an alert that always
+    fires is one an operator learns to close.
+    """
+    raised: list[str] = []
+    monkeypatch.setattr(
+        webhook_routes, "alert", lambda kind, reason, **fields: raised.append(reason)
+    )
+
+    execution_id, status, _ = _event()
+    async with _client() as http:
+        acked = await http.post(HOOK, json=_body(execution_id, status), headers=HEADERS)
+
+    assert acked.status_code == 202
+    assert raised == [], raised
+    # And the guard really was the budget rather than a machine that happened to be fast:
+    # this run was inside it, by the receiver's own measurement.
+    assert float(acked.headers["X-Ack-Ms"]) <= webhook_routes._ACK_BUDGET_MS
+
+
 # --- 1b. what the handler must NOT pay for, at width -------------------------
 #
 # `tests/webhook_storm_test.py` measured the ack under concurrency and found a convoy:

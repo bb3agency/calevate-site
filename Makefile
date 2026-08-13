@@ -68,11 +68,15 @@ test:
 ## because the loop a developer runs fifty times a day should not pay for a gate that
 ## only has to be right once per push.
 ##
-## The check scores whatever `.coverage` holds, so the run has to be the whole suite and
-## has to be THIS run — `blind_spots()` refuses a measurement that is stale, filtered, or
-## missing branch data rather than reporting a fictional regression.
+## `-p scripts.check_coverage_ratchet` loads the gate's own pytest plugin, which records
+## what the suite did — outcomes, deselection, whether Postgres and Redis were up, and
+## whether EITHER still held data from an earlier run — into `.coverage-run.json`. The
+## gate REFUSES to score (exit 2) a run that manifest cannot vouch for, instead of turning
+## a partial or differently-seeded run into a fictional regression. Without the flag there
+## is no manifest and the gate refuses, which is the intended failure: a measurement whose
+## provenance is unknown is not a measurement this repo scores.
 coverage-ratchet:  ## Full suite under coverage, then the per-surface ratchet [CI gate]
-	uv run coverage run -m pytest -q
+	uv run coverage run -m pytest -q -p scripts.check_coverage_ratchet
 	uv run python -m scripts.check_coverage_ratchet
 
 coverage-ratchet-accept:  ## Lock in an improvement: rewrite the baseline (shrink-only)
@@ -80,15 +84,21 @@ coverage-ratchet-accept:  ## Lock in an improvement: rewrite the baseline (shrin
 	# budget without a RAISED_BUDGETS waiver in the script, so this command can lock in
 	# progress and can never quietly forgive a regression.
 	#
-	# RUN `make db-reset` FIRST. The baseline is measured, and what the database HOLDS
-	# changes which branches the suite executes — a run against a dev database carrying
-	# a session's worth of leftover tenants is a different number from CI's, and this
-	# gate is an equality, so the difference lands as a failure on somebody else's PR.
-	# That is not hypothetical: the first baseline committed here was measured on a
-	# local database holding 31k accumulated test organizations and was 2 units off
-	# CI's on `compliance-gate`. It is not wired as a prerequisite because `db-reset`
-	# drops the developer's data, and a target that silently does that is worse.
-	uv run coverage run -m pytest -q
+	# START FROM EMPTY STORES: `make db-reset` AND a Redis with nothing in it
+	# (`make down && make up`, or `redis-cli -n <db> flushdb`). What those two HOLD
+	# changes which branches the suite executes — leftover tenants send the dispatch
+	# tick down another path, and a warm audit-head cache deletes `_current_head`'s
+	# Postgres fallback from the measurement entirely — and this gate is an equality, so
+	# the difference lands as a failure on somebody else's PR. That is not hypothetical:
+	# it happened twice, both times "fixed" by copying CI's number back into the fixture.
+	#
+	# A comment was the whole defence, which is why it failed twice: a rule enforced by a
+	# comment is enforced by whoever read it last. It is executable now — the plugin
+	# loaded below records the pre-suite state of both stores, and `--update-baseline`
+	# REFUSES to write from a run that did not start empty. Neither reset is wired as a
+	# prerequisite: a target that silently drops a developer's data is worse than one
+	# that stops and says exactly what to run.
+	uv run coverage run -m pytest -q -p scripts.check_coverage_ratchet
 	uv run python -m scripts.check_coverage_ratchet --update-baseline
 
 smoke:  ## tenant -> agent -> signed webhook -> lead with extraction
@@ -136,6 +146,13 @@ conformance:  ## Keep the exit door oiled — run both adapters
 guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per milestone
 	uv run lint-imports
 	uv run python -m scripts.check_env_parity
+	# The same rule for the OTHER tier's config. `next build` INLINES every
+	# NEXT_PUBLIC_* value, so an undeclared or misspelled browser key is not a build
+	# error — it is the empty string in the bundle and a broken screen in production.
+	# Reads come off the live `apps/web` tree, declarations off `apps/web/.env.example`
+	# (a second file because a real `KEY=` line in the root one fails the check above).
+	# Needs no Node and no database. Negative controls in tests/web_env_parity_guard_test.py.
+	uv run python -m scripts.check_web_env_parity
 	uv run python -m scripts.check_rls_coverage
 	uv run python -m scripts.check_ledger_immutability
 	uv run python -m scripts.check_redaction_exposure

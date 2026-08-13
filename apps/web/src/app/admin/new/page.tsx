@@ -2,240 +2,570 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import {
+  ArrowLeft,
+  Building2,
+  CheckCircle2,
+  KeyRound,
+  ListChecks,
+  Mail,
+  Plus,
+  TriangleAlert,
+} from "lucide-react";
 
-import { ProblemNotice } from "@/components/ui";
-import { useCreateTenant, useInvite, type CreateOrgOut } from "@/lib/api/admin";
+import {
+  Card,
+  FIELD,
+  FIELD_HINT,
+  FIELD_LABEL,
+  NoticeBox,
+  PRIMARY_BUTTON,
+  ProblemNotice,
+  SECONDARY_BUTTON,
+} from "@/components/ui";
+import { ApiProblem } from "@/lib/api/client";
+import {
+  useCreateTenant,
+  useInvite,
+  type CreateOrgIn,
+  type CreateOrgOut,
+} from "@/lib/api/admin";
+import { draftFromState, useIntake, type IntakeDraft } from "@/lib/api/intake";
 
-const VERTICALS = ["clinic", "real_estate", "insurance", "education", "custom"] as const;
-const LANGUAGES = [
-  { value: "te-IN", label: "Telugu" },
-  { value: "hi-IN", label: "Hindi" },
-  { value: "en-IN", label: "English (India)" },
-] as const;
+import { IntakeStep } from "./IntakeStep";
+import { WIZARD_LANGUAGES } from "./languages";
 
 /**
- * New-client wizard, steps 1 and 8 (FLOWS §1).
+ * New-client wizard, steps 1, 3 and 8 (FLOWS §1).
  *
- * The middle steps are deliberately absent rather than stubbed: intake (3) is a guided
- * form we design with client #1 in the room, number provisioning (6) and the test-call
- * gate (7) both depend on the Bolna pilot. A greyed-out button that does nothing is
- * worse than a documented gap, so the checklist below says what is still manual.
+ * Two of the middle steps are still deliberately absent rather than stubbed: number
+ * provisioning (6) and the test-call gate (7) both depend on the Bolna pilot, and a
+ * greyed-out button that does nothing is worse than a documented gap — so the checklist
+ * in step 8 says what is still manual instead.
+ *
+ * **Step 3 is no longer one of them.** Intake had been deferred on the grounds that it
+ * "needs client #1 in the room", which is a real argument against inventing a field list
+ * and no argument at all against building one FLOWS §1 already names. The API landed in
+ * BUILD-LOG §45 with those eight fields and nothing in either realm called it; `IntakeStep`
+ * is the caller. What genuinely needs client #1 is the CONTENT of a clinic's answers, not
+ * the question list.
+ *
+ * ## What this pass changed
+ *
+ * Restyled to the console's design language (globals.css tokens, `Card`, `NoticeBox`,
+ * lucide icons as affordances) with the field, button and radio-card shapes COPIED
+ * VERBATIM from `/c/[slug]/campaigns` — see the constants below. Three things that were
+ * wrong underneath the old styling are fixed rather than carried across:
+ *
+ * - **The success panel described the account from what was TYPED, not from what came
+ *   back.** It read "{name} created as /c/{created.slug}", mixing a local input with a
+ *   server field in one sentence. The account is now named by the server's own `slug` and
+ *   `status`; the typed name is offered separately as what was submitted. The gate on the
+ *   panel was already right (`onSuccess`) and stays: nothing here claims a creation that
+ *   has not answered.
+ * - **A stale invite token could sit under a failed second attempt.** The token is a
+ *   single-use credential shown once. Minting one for `owner@a`, then failing to mint one
+ *   for `owner@b`, left `owner@a`'s token on screen beside a red error — an operator
+ *   copying "the token" would send the wrong person's. It is cleared at submit.
+ * - **`language as "te-IN"` was a cast that lied**: the state was a bare `string`, and the
+ *   cast made any string typecheck as the API's three-member enum. The state now IS the
+ *   generated union, so a language this API does not accept fails the build instead of the
+ *   request.
+ *
+ * There is no permission PREVIEW on the two writes THIS file makes, which is a choice
+ * rather than a limitation: `useAdminAccess` (`@/app/admin/access`) can be asked from
+ * anywhere since `GET /v1/admin/me` landed, and the shell already gates the "New client"
+ * nav entry on the same `admin:tenants` both of them require (admin/routes.py) — so a
+ * role that may not create clients meets the refusal one step earlier, in the sidebar,
+ * where it is not standing over a filled-in form. What stays here is the complementary
+ * mechanism, and it is not a substitute for the preview: a refusal that HAS arrived, for
+ * any reason, disables the control that caused it with the server's own words rather than
+ * inviting a second identical refusal.
+ *
+ * The intake step DOES preview, and the difference is not inconsistency: its route
+ * carries a DIFFERENT permission (`agents:write`, not `admin:tenants`), so reaching this
+ * screen at all says nothing about whether that submit will be allowed — and the form
+ * behind it is forty controls long, which is the worst possible place to learn.
+ *
+ * NO `<h1>`: the admin shell derives the page title from the same nav list it renders,
+ * so a heading here would print "New client" twice.
  */
+
+/**
+ * The screen's field and control styling, written once.
+ *
+ * COPIED VERBATIM from `/c/[slug]/campaigns` — same strings, same order, including the
+ * radio-as-card trio and its reasoning. Its author flagged them as belonging in `ui.tsx`
+ * once a second screen needed them; this is that second screen, and copying identically
+ * is what makes the promotion a lift rather than a reconciliation. They stay local until
+ * someone moves all of them at once.
+ */
+
+/**
+ * A radio rendered as a card.
+ *
+ * Selection is a brand ring plus a tick, NOT a brand fill. `--brand-soft` has no dark
+ * value by design (it is the medallion tint, and `ui.tsx` uses it with a fixed dark-green
+ * foreground), so a filled card would need its own text colour in each theme to stay
+ * readable — a two-colour pair that the next person to add an option will get wrong. A
+ * ring changes nothing about the text.
+ */
+const CHOICE_CARD = "relative block cursor-pointer rounded-card border p-3 transition-colors";
+const CHOICE_ON = "border-brand ring-1 ring-brand bg-surface";
+const CHOICE_OFF = "border-line bg-surface hover:border-ink-faint";
+
+/**
+ * The vertical templates, with what choosing one actually DOES.
+ *
+ * The values are the API's own enum (`CreateOrgIn["vertical_template"]`), so a template
+ * the API stops accepting fails this build rather than the operator's first request. The
+ * hints are the reason the choice matters: it seeds the extraction schema, which becomes
+ * the client's CRM columns — a wrong pick is a schema someone edits later, not a label.
+ */
+const VERTICALS: { value: CreateOrgIn["vertical_template"]; label: string; hint: string }[] = [
+  { value: "clinic", label: "Clinic", hint: "Appointments, department, patient name" },
+  { value: "real_estate", label: "Real estate", hint: "Budget, locality, site-visit interest" },
+  { value: "insurance", label: "Insurance", hint: "Policy type, renewal date, sum assured" },
+  { value: "education", label: "Education", hint: "Course, batch, admission stage" },
+  { value: "custom", label: "Custom", hint: "Minimal schema — build the fields by hand" },
+];
+
+/**
+ * A refusal we have already received, as a reason to stop offering the control.
+ *
+ * Only 403. Everything else — a validation error, a duplicate slug, a dropped connection
+ * — is a reason to try again with different input, and disabling the button on those
+ * would strand the operator with no way forward. A permission refusal is not going to
+ * change on the second click, so the control says so and the `ProblemNotice` beside it
+ * carries the server's full sentence.
+ */
+function refusalReason(error: unknown): string | null {
+  if (error instanceof ApiProblem && error.status === 403) {
+    return error.remediation ?? error.message;
+  }
+  return null;
+}
+
 export default function NewClientPage() {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
-  const [vertical, setVertical] = useState<(typeof VERTICALS)[number]>("clinic");
-  const [language, setLanguage] = useState<string>("te-IN");
+  const [vertical, setVertical] = useState<CreateOrgIn["vertical_template"]>("clinic");
+  const [language, setLanguage] = useState<CreateOrgIn["language"]>("te-IN");
   const [email, setEmail] = useState("");
+  // The ONLY evidence that an account exists. Set from the mutation's `onSuccess` and
+  // from nowhere else — every sentence in step 2 reads off this object, so the screen
+  // structurally cannot report a creation the server did not confirm.
   const [created, setCreated] = useState<CreateOrgOut | null>(null);
-  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  /**
+   * Which of the two POST-CREATION steps is on screen.
+   *
+   * It lives here rather than in `AfterCreate` for one reason: the step counter above is
+   * derived from it, and a counter that read a copy of this state would eventually
+   * disagree with the panel underneath it. Same rule the admin shell applies to its nav
+   * (one list drives both the sidebar and the header title).
+   *
+   * The intake ANSWERS deliberately do not live here — see `AfterCreate`.
+   */
+  const [step, setStep] = useState<"intake" | "invite">("intake");
 
   const createTenant = useCreateTenant();
-  const invite = useInvite();
+  const refusal = refusalReason(createTenant.error);
 
   const derivedSlug =
     slug || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
 
   return (
-    <div className="max-w-2xl space-y-5">
+    <div className="max-w-3xl space-y-5">
       <div>
-        <h1 className="text-xl font-semibold">New client</h1>
-        <p className="mt-0.5 text-sm text-slate-400">
+        <p className="mt-0.5 text-sm text-ink-muted">
           Creates the account, its retention policies, a draft receptionist and an
           extraction schema from the vertical template.
         </p>
+        <p className="mt-2 text-xs font-medium uppercase tracking-wide text-ink-faint">
+          {!created
+            ? "Step 1 of 3 — account details"
+            : step === "intake"
+              ? "Step 2 of 3 — business intake"
+              : "Step 3 of 3 — invite the owner"}
+        </p>
       </div>
 
-      {createTenant.error && <ProblemNotice error={createTenant.error} />}
-
       {!created ? (
-        <form
-          className="space-y-4 rounded-xl border border-slate-800 bg-slate-900 p-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            createTenant.mutate(
-              {
-                name,
-                slug: derivedSlug,
-                vertical_template: vertical,
-                language: language as "te-IN",
-                billing_email: email || null,
-              },
-              { onSuccess: setCreated },
-            );
-          }}
-        >
-          <Field label="Business name">
-            <input
-              required
-              minLength={2}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm"
-              placeholder="Sunrise Clinic"
-            />
-          </Field>
-
-          <Field
-            label="Slug"
-            hint="Appears in every client URL and is IMMUTABLE once created (a DB trigger enforces it)."
+        <Card title="Account details">
+          <form
+            className="space-y-5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              createTenant.mutate(
+                {
+                  name,
+                  slug: derivedSlug,
+                  vertical_template: vertical,
+                  language,
+                  billing_email: email.trim() || null,
+                },
+                { onSuccess: setCreated },
+              );
+            }}
           >
-            <input
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              placeholder={derivedSlug || "sunrise-clinic"}
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 font-mono text-sm"
-            />
-          </Field>
+            <label className="block max-w-sm">
+              <span className={FIELD_LABEL}>Business name</span>
+              <input
+                required
+                minLength={2}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Sunrise Clinic"
+                className={FIELD}
+              />
+            </label>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Vertical template" hint="Pre-fills the extraction schema.">
-              <select
-                value={vertical}
-                onChange={(e) => setVertical(e.target.value as (typeof VERTICALS)[number])}
-                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm"
-              >
-                {VERTICALS.map((v) => (
-                  <option key={v} value={v}>
-                    {v.replace("_", " ")}
-                  </option>
+            <label className="block max-w-sm">
+              <span className={FIELD_LABEL}>Slug</span>
+              <input
+                value={slug}
+                onChange={(e) => setSlug(e.target.value)}
+                placeholder={derivedSlug || "sunrise-clinic"}
+                className={`${FIELD} font-mono`}
+              />
+              <span className={FIELD_HINT}>
+                Appears in every client URL and is IMMUTABLE once created (a DB trigger
+                enforces it). Left blank, we send{" "}
+                <span className="font-mono">{derivedSlug || "—"}</span>.
+              </span>
+            </label>
+
+            <fieldset>
+              <legend className={FIELD_LABEL}>Vertical template</legend>
+              <p className="mt-1 text-xs text-ink-faint">
+                Seeds the extraction schema, which becomes this client&apos;s CRM columns.
+              </p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {VERTICALS.map((option) => (
+                  <label
+                    key={option.value}
+                    className={`${CHOICE_CARD} ${
+                      vertical === option.value ? CHOICE_ON : CHOICE_OFF
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="vertical"
+                      className="sr-only"
+                      checked={vertical === option.value}
+                      onChange={() => setVertical(option.value)}
+                    />
+                    {vertical === option.value && (
+                      <CheckCircle2
+                        aria-hidden
+                        className="absolute right-2 top-2 h-4 w-4 text-brand"
+                      />
+                    )}
+                    <span className="block pr-6 text-sm font-semibold text-ink">
+                      {option.label}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-ink-faint">{option.hint}</span>
+                  </label>
                 ))}
-              </select>
-            </Field>
-            <Field label="Primary language">
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm"
-              >
-                {LANGUAGES.map((l) => (
-                  <option key={l.value} value={l.value}>
-                    {l.label}
-                  </option>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend className={FIELD_LABEL}>Primary language</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                {WIZARD_LANGUAGES.map((option) => (
+                  <label
+                    key={option.value}
+                    className={`${CHOICE_CARD} ${
+                      language === option.value ? CHOICE_ON : CHOICE_OFF
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="language"
+                      className="sr-only"
+                      checked={language === option.value}
+                      onChange={() => setLanguage(option.value)}
+                    />
+                    {language === option.value && (
+                      <CheckCircle2
+                        aria-hidden
+                        className="absolute right-2 top-2 h-4 w-4 text-brand"
+                      />
+                    )}
+                    <span className="block pr-6 text-sm font-semibold text-ink">
+                      {option.label}
+                    </span>
+                    {option.hint && (
+                      <span className="mt-0.5 block text-xs text-ink-faint">{option.hint}</span>
+                    )}
+                  </label>
                 ))}
-              </select>
-            </Field>
-          </div>
+              </div>
+            </fieldset>
 
-          <Field label="Billing email" hint="Where hot-lead alerts and invoices go.">
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm"
-            />
-          </Field>
+            <label className="block max-w-sm">
+              <span className={FIELD_LABEL}>Billing email</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="owner@business.com"
+                className={FIELD}
+              />
+              <span className={FIELD_HINT}>
+                Where hot-lead alerts and invoices go. Offered again as the invite address
+                in step 3.
+              </span>
+            </label>
 
-          <button
-            type="submit"
-            disabled={createTenant.isPending || name.length < 2}
-            className="rounded-md bg-slate-100 px-4 py-2 text-sm font-medium text-slate-900 disabled:opacity-50"
-          >
-            {createTenant.isPending ? "Creating…" : "Create client"}
-          </button>
-        </form>
-      ) : (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-emerald-900 bg-emerald-950/50 p-4 text-sm">
-            <p className="font-medium text-emerald-300">
-              {name} created as <span className="font-mono">/c/{created.slug}</span>
-            </p>
-            <p className="mt-1 text-emerald-200/80">
-              Retention policies, a draft inbound receptionist and an extraction schema
-              are in place. The agent is <strong>draft</strong> — nothing is client-visible
-              until it is published.
-            </p>
-          </div>
+            {createTenant.error && <ProblemNotice error={createTenant.error} />}
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <h2 className="text-sm font-semibold">Still manual for this client</h2>
-            {/* Saying so beats a disabled button that implies the feature exists. */}
-            <ul className="mt-2 space-y-1 text-sm text-slate-400">
-              <li>· Intake interview → prompt + T0 context (FLOWS §1 step 3)</li>
-              <li>· Number provisioning and DLT/PE registration (step 6, pilot-gated)</li>
-              <li>· Test-call sign-off before publish (step 7, pilot-gated)</li>
-            </ul>
-          </div>
-
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <h2 className="text-sm font-semibold">Invite the owner</h2>
-            <p className="mt-1 text-xs text-slate-400">
-              Single-use, valid 72 hours, hashed at rest — the link below is shown once
-              and cannot be recovered.
-            </p>
-            <form
-              className="mt-3 flex gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                // No placeholder fallback: an invite is a single-use credential for a
-                // real inbox, and minting one for `owner@example.com` because the
-                // billing-email field was left blank is a token nobody can use and a
-                // membership row nobody asked for.
-                invite.mutate(
-                  { tenantId: created.id, email: email.trim(), role: "owner" },
-                  { onSuccess: (data) => setInviteToken(data.token) },
-                );
-              }}
+            <button
+              type="submit"
+              title={refusal ?? undefined}
+              disabled={createTenant.isPending || name.trim().length < 2 || Boolean(refusal)}
+              className={PRIMARY_BUTTON}
             >
+              <Building2 aria-hidden className="h-4 w-4" />
+              {createTenant.isPending ? "Creating…" : "Create client"}
+            </button>
+            {refusal && <p className="text-xs text-ink-muted">{refusal}</p>}
+          </form>
+        </Card>
+      ) : (
+        <AfterCreate
+          created={created}
+          submittedName={name}
+          defaultEmail={email}
+          primaryLanguage={language}
+          step={step}
+          onStep={setStep}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Everything after the account exists: the confirmation, then step 3, then step 8.
+ *
+ * ## Why the intake ANSWERS live here and not in `IntakeStep`
+ *
+ * The wizard's two remaining steps swap one panel for the other, so `IntakeStep` unmounts
+ * the moment an operator walks forward to the invite — and a form that lost forty answers
+ * on the way to a button and back would be a worse defect than the missing step it
+ * replaced. The draft is therefore held one level ABOVE the swap, and `IntakeStep` is a
+ * controlled component. The mutation stays inside it on purpose: a submit's outcome
+ * belongs to the visit that made it, and the durable "this has been submitted" comes back
+ * from the server on `submitted_at` rather than from a notice we kept alive.
+ *
+ * ## Seeding the draft from the prefill, during render
+ *
+ * `draft === null` means "the GET has not answered yet", and it is the ONE thing that
+ * keeps a blank form off the screen while the answers are still in flight. It is filled
+ * during render rather than in an effect — React's own documented answer to "adjust state
+ * when something changes" (react.dev/learn/you-might-not-need-an-effect); an effect would
+ * paint an empty form for one frame first, which on a failed-then-retried read is exactly
+ * the empty form BUILD-LOG §52 is about.
+ *
+ * It seeds ONCE. After a submit the query is invalidated and comes back changed, and
+ * re-seeding then would throw away whatever the operator has typed since — the server's
+ * copy is not more current than the form that produced it.
+ */
+function AfterCreate({
+  created,
+  submittedName,
+  defaultEmail,
+  primaryLanguage,
+  step,
+  onStep,
+}: {
+  created: CreateOrgOut;
+  submittedName: string;
+  defaultEmail: string;
+  primaryLanguage: CreateOrgIn["language"];
+  step: "intake" | "invite";
+  onStep: (step: "intake" | "invite") => void;
+}) {
+  // `created.agent_id` is the draft receptionist the creation made — the agent whose
+  // prompt and knowledge base the intake writes. It comes from the SERVER's response, so
+  // this cannot address a step at an agent that was never created.
+  const intake = useIntake(created.id, created.agent_id);
+  const [draft, setDraft] = useState<IntakeDraft | null>(null);
+  if (draft === null && intake.data) setDraft(draftFromState(intake.data, primaryLanguage));
+
+  return (
+    <div className="space-y-4">
+      {/* Above BOTH steps, because it is a standing fact about the account rather than
+          part of either one — and it reads off the server's own `slug` and `status`. */}
+      <NoticeBox
+        tone="ok"
+        icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
+        title="Account created"
+      >
+        <p className="mt-1">
+          Live at <span className="font-mono font-semibold">/c/{created.slug}</span>, status{" "}
+          <span className="font-semibold">{created.status}</span>. Retention policies, a
+          draft inbound receptionist and an extraction schema are in place. The agent is{" "}
+          <strong>draft</strong> — nothing is client-visible until it is published.
+        </p>
+        {submittedName && (
+          <p className="mt-1 text-xs">Submitted as &ldquo;{submittedName}&rdquo;.</p>
+        )}
+      </NoticeBox>
+
+      {step === "intake" ? (
+        <IntakeStep
+          tenantId={created.id}
+          agentId={created.agent_id}
+          primaryLanguage={primaryLanguage}
+          state={intake}
+          draft={draft}
+          onDraftChange={setDraft}
+          onContinue={() => onStep("invite")}
+        />
+      ) : (
+        <CreatedPanel
+          created={created}
+          defaultEmail={defaultEmail}
+          onBack={() => onStep("intake")}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Step 8 — everything here reads off the SERVER's response.
+ *
+ * The creation confirmation itself moved up to `AfterCreate`, which renders it above both
+ * remaining steps: it is a standing fact about the account rather than a part of the
+ * invite. What did NOT move is the rule it was built on — the account is named by the
+ * server's own `slug` and `status`, and the typed name is offered separately as what was
+ * submitted, because `CreateOrgOut` carries no name and a sentence built from the local
+ * input would be this screen asserting what the row holds.
+ */
+function CreatedPanel({
+  created,
+  defaultEmail,
+  onBack,
+}: {
+  created: CreateOrgOut;
+  defaultEmail: string;
+  onBack: () => void;
+}) {
+  const invite = useInvite();
+  const [email, setEmail] = useState(defaultEmail);
+  // The token is shown ONCE and cannot be recovered, so it is state rather than
+  // `invite.data` — and it is cleared at every submit so a token minted for one address
+  // can never sit under a refusal for another.
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const refusal = refusalReason(invite.error);
+
+  return (
+    <div className="space-y-4">
+      <Card title="Still manual for this client">
+        {/* Saying so beats a disabled button that implies the feature exists. The intake
+            line is GONE from this list because the step above now does it — a checklist
+            that still called it manual would be the screen contradicting the screen. */}
+        <ul className="space-y-1.5 text-sm text-ink-muted">
+          <li className="flex gap-2">
+            <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+            Number provisioning and DLT/PE registration (step 6, pilot-gated)
+          </li>
+          <li className="flex gap-2">
+            <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+            Test-call sign-off before publish (step 7, pilot-gated)
+          </li>
+        </ul>
+      </Card>
+
+      <Card title="Invite the owner">
+        <div className="space-y-3">
+          <p className="text-sm text-ink-muted">
+            Single-use, valid 72 hours, hashed at rest — the link below is shown once and
+            cannot be recovered.
+          </p>
+
+          <form
+            className="flex flex-wrap items-start gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              // A previous token must not survive this attempt: an operator copying "the
+              // token" after a failure would send the wrong person's credential.
+              setInviteToken(null);
+              // No placeholder fallback: an invite is a single-use credential for a real
+              // inbox, and minting one for `owner@example.com` because the billing-email
+              // field was left blank is a token nobody can use and a membership row
+              // nobody asked for.
+              invite.mutate(
+                { tenantId: created.id, email: email.trim(), role: "owner" },
+                { onSuccess: (data) => setInviteToken(data.token) },
+              );
+            }}
+          >
+            <label className="block min-w-[16rem] flex-1">
+              <span className={FIELD_LABEL}>Owner&apos;s email</span>
               <input
                 required
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="owner@business.com"
-                className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm"
+                className={FIELD}
               />
-              <button
-                type="submit"
-                disabled={invite.isPending || !email.trim()}
-                className="rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-900 disabled:opacity-50"
-              >
-                Create invite
-              </button>
-            </form>
-            {invite.error && (
-              <div className="mt-3">
-                <ProblemNotice error={invite.error} />
-              </div>
-            )}
-            {inviteToken && (
-              <p className="mt-3 break-all rounded-md bg-slate-950 p-2 font-mono text-xs text-amber-300">
-                {inviteToken}
-              </p>
-            )}
-          </div>
-
-          <div className="flex gap-2">
-            <Link
-              href={`/admin/tenants/${created.id}`}
-              className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
+            </label>
+            <button
+              type="submit"
+              title={refusal ?? undefined}
+              disabled={invite.isPending || !email.trim() || Boolean(refusal)}
+              className={`${PRIMARY_BUTTON} mt-5`}
             >
-              Open client
-            </Link>
-            <Link href="/admin" className="rounded-md border border-slate-700 px-3 py-1.5 text-sm">
-              Back to clients
-            </Link>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+              <Mail aria-hidden className="h-4 w-4" />
+              {invite.isPending ? "Creating…" : "Create invite"}
+            </button>
+          </form>
 
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block">
-      <span className="text-sm font-medium text-slate-200">{label}</span>
-      {hint && <span className="mt-0.5 block text-xs text-slate-500">{hint}</span>}
-      <div className="mt-1">{children}</div>
-    </label>
+          {invite.error && <ProblemNotice error={invite.error} />}
+          {refusal && <p className="text-xs text-ink-muted">{refusal}</p>}
+
+          {inviteToken && (
+            <NoticeBox
+              tone="warn"
+              icon={<KeyRound aria-hidden className="h-5 w-5" />}
+              title="Copy this now — it is not shown again"
+            >
+              <p className="mt-1 break-all font-mono text-xs">{inviteToken}</p>
+              <p className="mt-2 flex items-start gap-2 text-xs">
+                <TriangleAlert aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Anyone holding this becomes an owner of{" "}
+                <span className="font-mono">/c/{created.slug}</span>. Send it to the
+                address above and nowhere else.
+              </p>
+            </NoticeBox>
+          )}
+        </div>
+      </Card>
+
+      <div className="flex flex-wrap gap-2">
+        {/* Back to step 3 with its answers intact — `AfterCreate` holds the draft above
+            this swap precisely so this button is not a way to lose them. It is also the
+            only way back: the endpoint has no draft save, so an unsubmitted intake exists
+            nowhere but in this tab. */}
+        <button type="button" onClick={onBack} className={SECONDARY_BUTTON}>
+          <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
+          Back to the intake
+        </button>
+        <Link href={`/admin/tenants/${created.id}`} className={SECONDARY_BUTTON}>
+          <Plus aria-hidden className="h-3.5 w-3.5" />
+          Open client
+        </Link>
+        <Link href="/admin" className={SECONDARY_BUTTON}>
+          <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
+          Back to clients
+        </Link>
+      </div>
+    </div>
   );
 }

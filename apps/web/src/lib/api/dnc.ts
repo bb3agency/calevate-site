@@ -36,6 +36,18 @@ export type DncSource = Schemas["AddNumbersIn"]["source"];
 /** Mirrors `dnc.MAX_NUMBERS_PER_ADD`; over it the API answers 422, so we stop first. */
 export const MAX_NUMBERS_PER_ADD = 2000;
 
+/**
+ * Mirrors `dnc.MAX_LIST` — and it is the CEILING, not a page size: the endpoint clamps
+ * to it (`min(limit, MAX_LIST)`) and there is no offset, so a list that comes back this
+ * long may be a truncation rather than the whole account.
+ *
+ * Exported because the screen has to say which of those it is looking at. Counting the
+ * rows and calling the answer "how many numbers you have suppressed" is the same defect
+ * the Leads table fixed when its stage tally counted the loaded page: a number that is a
+ * statement about our query, read as a statement about the client's business.
+ */
+export const DNC_LIST_LIMIT = 500;
+
 export const dncKeys = {
   list: (org: string) => ["dnc", org] as const,
 };
@@ -43,7 +55,7 @@ export const dncKeys = {
 export function useDncList(session: Session): UseQueryResult<DncEntry[]> {
   return useQuery({
     queryKey: dncKeys.list(session.orgSlug),
-    queryFn: () => apiRequest<DncEntry[]>(session, "/v1/dnc?limit=500"),
+    queryFn: () => apiRequest<DncEntry[]>(session, `/v1/dnc?limit=${DNC_LIST_LIMIT}`),
     // Suppression is not a live feed — it changes when someone adds to it, and the
     // mutations below invalidate this key when they do.
     staleTime: 60_000,

@@ -677,8 +677,11 @@ async def test_a_sheet_a_client_never_shared_lands_on_their_own_queue(
     assert "permanent" in str(alerts[0][2])
 
     async with tenant_session(tenant_id) as session:
-        items = await attention.failed_deliveries(session)
-    assert len(items) == 1
+        # A source answers a page AND the true size of the set it came from; the count
+        # is the badge's number, so it is asserted here too.
+        source_page = await attention.failed_deliveries(session)
+    items = source_page.items
+    assert (len(items), source_page.total) == (1, 1)
     assert "spreadsheet" in items[0].title
     assert "Share" in items[0].detail and "Editor" in items[0].detail
     assert items[0].rule == SHEET_NOT_SHARED_REASON
@@ -791,7 +794,8 @@ async def test_a_neighbour_tenant_sees_no_row_of_this_failure(
     # The same query, from next door.
     assert await _delivery_row(neighbour, delivery_id) is None
     async with tenant_session(neighbour) as session:
-        assert await attention.failed_deliveries(session) == []
+        neighbours_queue = await attention.failed_deliveries(session)
+        assert (neighbours_queue.items, neighbours_queue.total) == ([], 0)
         assert await service.delivery_status(session, delivery_id) is None
         # And the endpoint itself is invisible, which is what the join depends on.
         assert await service.load_endpoint(session, endpoint_id) is None

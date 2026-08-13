@@ -11,6 +11,8 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import { adminRealmSession } from "@/lib/auth/adminRealm";
+
 import type { CampaignSummary } from "./campaigns";
 import { apiRequest, type Session } from "./client";
 // Types, the endpoint path and the request shaper only — never a client-realm session.
@@ -44,13 +46,20 @@ export type KbSource = Schemas["SourceOut"];
 export type KbChunk = Schemas["ChunkOut"];
 
 /**
- * Local development only, and only where Clerk is absent — the API enforces both
- * conditions (`core/auth.py`). The admin realm carries `dev:admin:` so a client token
- * can never be pasted into an admin surface by accident.
+ * The admin realm's session — an ADMIN Clerk token, or `dev:admin:` locally.
+ *
+ * The credential is chosen in `lib/auth/adminRealm.tsx`, which owns this realm's Clerk
+ * application; the choice is `NEXT_PUBLIC_AUTH_MODE`, never a guess (`lib/auth/mode.ts`).
+ * The local path is the one the API enforces two conditions for — `APP_ENV=local` AND no
+ * Clerk secret for this realm (`core/auth.py::_verify_dev_token`) — and it carries
+ * `dev:admin:` so a client token can never be pasted into an admin surface by accident.
+ *
+ * This function keeps its name and signature because twenty-five call sites (and one
+ * file owned by another change) build their session through it: what changed is which
+ * credential comes back, not where sessions come from.
  */
 export function adminSession(orgSlug = ""): Session {
-  const user = process.env.NEXT_PUBLIC_DEV_ADMIN ?? "admin_local";
-  return { token: `dev:admin:${user}`, orgSlug };
+  return adminRealmSession(orgSlug);
 }
 
 /** Impersonation is READ-ONLY (D-22): this adds the header, it mints no credential. */
@@ -338,25 +347,244 @@ export function useFirstCampaignDecision(tenantId: string) {
   });
 }
 
+/** The four modes `PlatformStateIn.load_shed_mode` accepts, from the GENERATED schema so
+ * that a mode added server-side breaks `tsc` here rather than being silently unofferable. */
+export type LoadShedMode = NonNullable<Schemas["PlatformStateIn"]["load_shed_mode"]>;
+
+/** One state transition of the global row: either half, or both, plus its reason. */
+export interface PlatformTransition {
+  outboundHalted?: boolean;
+  loadShedMode?: LoadShedMode;
+  reason: string;
+}
+
+/**
+ * The step-up string for ONE transition — the console's mirror of `ops/routes.py`'s
+ * `platform_confirmation`, built in ONE place here for the reason it is built in one
+ * place there.
+ *
+ * The API refuses any header that does not name the exact move being made, and it names
+ * three different moves: halting every tenant's dialling, releasing that halt, and moving
+ * the load-shed mode. A single string across all three (the retired `set_platform_state`)
+ * meant a header captured for a routine shedding tweak authorised lifting the global
+ * halt. The load-shed string carries its TARGET MODE for the same reason the spend-cap
+ * string carries its tenant: consent to `reduced` is not consent to `maintenance`.
+ *
+ * A request that does both halves joins them with `+`, halt half first — the fixed order
+ * the server builds and compares against, not a detail this side may choose.
+ *
+ * Exported so `tests/ops.test.tsx` can pin the literals: these strings are an ops
+ * PROCEDURE that two runbooks print, so a reformat here has to fail a test rather than
+ * quietly leave the console sending a header the API refuses.
+ */
+export function platformConfirmation(transition: {
+  outboundHalted?: boolean;
+  loadShedMode?: LoadShedMode;
+}): string {
+  const parts: string[] = [];
+  if (transition.outboundHalted !== undefined) {
+    parts.push(transition.outboundHalted ? "halt_outbound" : "release_outbound");
+  }
+  if (transition.loadShedMode !== undefined) {
+    parts.push(`set_load_shed:${transition.loadShedMode}`);
+  }
+  // No transition ⇒ no header, and the server refuses the BODY with
+  // `platform_state_no_change` before it ever looks at the confirmation. Every form in
+  // the console sends at least one half, so this is unreachable rather than handled.
+  return parts.join("+");
+}
+
+/**
+ * Move the global row — the big red switch, the load-shed mode, or both at once.
+ *
+ * ONE hook for both halves rather than one per switch, because the confirmation rule
+ * spans them: a request that halts AND sheds needs both strings joined, and a second hook
+ * that knew only its own half would send a header the API refuses the moment anyone
+ * combined them. The API models this as one endpoint with one confirmation function; so
+ * does this.
+ *
+ * Only the halves actually being moved are sent. `PlatformStateIn` forbids extra fields
+ * and reads an absent one as "leave it alone", so omitting is how the console says "I am
+ * not touching the load-shed mode" — and it is what keeps the halt request's body
+ * identical to what it was before this hook grew a second half.
+ */
 export function useSetPlatformState() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ outboundHalted, reason }: { outboundHalted: boolean; reason: string }) =>
+    mutationFn: ({ outboundHalted, loadShedMode, reason }: PlatformTransition) =>
       apiRequest<PlatformState>(adminSession(), "/v1/ops/platform", {
         method: "POST",
-        body: { outbound_halted: outboundHalted, reason },
+        body: {
+          ...(outboundHalted === undefined ? {} : { outbound_halted: outboundHalted }),
+          ...(loadShedMode === undefined ? {} : { load_shed_mode: loadShedMode }),
+          reason,
+        },
         // Step-up confirmation (BACKEND-PATTERNS §7): the header must echo the action.
         // It is not a second factor and does not pretend to be — it stops the accidental
         // and the drive-by, and Clerk re-auth replaces it when admin MFA lands.
-        //
-        // Names the exact TRANSITION, not the endpoint (`ops/routes.py:
-        // platform_confirmation`). The old `set_platform_state` covered halting,
-        // releasing and every load-shed change with one string, so a header captured for
-        // a routine shedding tweak authorised lifting the global outbound halt. This
-        // call never sends `load_shed_mode`, so those strings are not needed here.
-        confirmAction: outboundHalted ? "halt_outbound" : "release_outbound",
+        confirmAction: platformConfirmation({ outboundHalted, loadShedMode }),
       }),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "platform"] }),
+  });
+}
+
+/**
+ * How deep the outbox DLQ is, what is in it, and how old the head of it is.
+ *
+ * It rides `GET /v1/ops/platform` rather than an endpoint of its own — `PlatformStateOut`
+ * argues that choice where the field is declared. What matters on this side: it arrives
+ * with the platform read, so it is unreadable exactly when that read is, and the panel
+ * has to say "we could not read the depth" rather than render a zero.
+ */
+export type DeadLetterQueue = Schemas["DeadLetterQueueOut"];
+
+/**
+ * The step-up string for an UNSCOPED dead-letter replay — every job, every tenant.
+ *
+ * `ops/routes.py`'s `OUTBOX_REPLAY_CONFIRMATION`, mirrored, and it stays this exact
+ * literal because `runbooks/webhook-delivery-failures.md` §3 prints it for the curl
+ * fallback. Pinned by `tests/ops.test.tsx` for the same reason the other two strings are:
+ * a reformat here has to fail a test rather than quietly leave the console — or an
+ * operator following the runbook — sending a header the API refuses.
+ */
+export const OUTBOX_REPLAY_CONFIRMATION = "replay_dead_letters";
+
+/**
+ * The step-up string for ONE replay, bound to the scope it will use.
+ *
+ * This was a bare constant, on the argument that nothing about the action varied: there
+ * was one global dead-letter queue and so no target for a `:<suffix>` to bind. The replay
+ * now takes an optional `job`, so that is no longer true and the string moves with it —
+ * a header reading `replay_dead_letters` on a request that replays only the CRM webhooks
+ * describes an action other than the one being performed, and (the dangerous direction) a
+ * header captured for one job must not authorise a redelivery of everything.
+ *
+ * `null` keeps the unsuffixed literal, which is what makes the runbook's curl and this
+ * console's "all jobs" choice the same request. The shape is `spendCapConfirmation`'s,
+ * for the same reason: the suffix carries the part of the action an operator could get
+ * wrong by replaying a header they already had.
+ */
+export function outboxReplayConfirmation(job: string | null): string {
+  return job === null ? OUTBOX_REPLAY_CONFIRMATION : `${OUTBOX_REPLAY_CONFIRMATION}:${job}`;
+}
+
+/**
+ * Flip dead-lettered outbox messages back to pending — up to 100 per run, oldest first,
+ * for EVERY tenant (`reliability.service.replay_dead_letters`).
+ *
+ * IT SENDS THE HEADER, and it is the same header the console has always collected the
+ * typed word for. This hook used to send none, correctly reading it off a route that
+ * accepted none — and the route was wrong, not the hook: `replay_dead_letters` has no
+ * tenant predicate (`outbox_messages` carries no `tenant_id`), and what the next dispatch
+ * tick does with the rows it moves is re-send other people's customer data into other
+ * people's systems. That is the most outward-facing write in this console and it was the
+ * only one reachable by a single unconfirmed POST.
+ *
+ * `job` scopes the run to one kind of side effect and travels in the QUERY STRING, where
+ * the route wants it — the scope is part of this request's identity rather than its
+ * content, so it belongs somewhere an access log records. `null` means every job.
+ *
+ * A `step_up_required` refusal therefore means the console and the API disagree about the
+ * string — a version skew, not an operator error — and the ops screen renders it as that
+ * rather than as a red generic failure the operator would answer by clicking again.
+ *
+ * IT INVALIDATES THE PLATFORM READ, which it did not have to before: the dead-letter
+ * depth now rides `GET /v1/ops/platform` (`PlatformStateOut.outbox_dead_letters`), so
+ * without this the panel would print a fresh "12 moved" beside a depth measured before
+ * they moved — two numbers about the same queue from two instants, which is the defect
+ * that read exists to prevent.
+ */
+export type OutboxReplayResult = Schemas["ReplayOut"];
+
+export function useReplayOutbox() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (job: string | null) =>
+      apiRequest<OutboxReplayResult>(
+        adminSession(),
+        job === null
+          ? "/v1/ops/outbox/replay"
+          : `/v1/ops/outbox/replay?job=${encodeURIComponent(job)}`,
+        { method: "POST", confirmAction: outboxReplayConfirmation(job) },
+      ),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "platform"] }),
+  });
+}
+
+/**
+ * Recompute the audit hash chain and report the first broken link.
+ *
+ * A GET behind `useMutation`, deliberately, and the alternative was considered: TanStack
+ * v5's documented lazy-query shape is `useQuery({ enabled: false })` + `refetch()`. It is
+ * the wrong tool here because it CACHES. A verification is the outcome of one walk at one
+ * instant, not server state to be kept fresh — and a cached "chain intact" verdict
+ * re-rendered an hour later, from a run nobody remembers asking for, is exactly the false
+ * assurance this control exists to remove. A mutation holds no cache, so the verdict on
+ * screen belongs to the run the operator just triggered and to no other, and
+ * `submittedAt` stamps when that was.
+ * (tanstack.com/query/latest/docs/framework/react/guides/disabling-queries)
+ *
+ * It writes nothing and takes no confirmation — see the screen for why demanding one for
+ * a read would be friction that teaches operators to type past confirmations.
+ */
+export type AuditChainVerdict = Schemas["ChainVerifyOut"];
+
+export function useVerifyAuditChain() {
+  return useMutation({
+    mutationFn: () => apiRequest<AuditChainVerdict>(adminSession(), "/v1/ops/audit/verify"),
+  });
+}
+
+/**
+ * The step-up string for ONE tenant's spend-cap recompute — `ops/routes.py`'s
+ * `spend_cap_confirmation`, mirrored.
+ *
+ * Bound to the TENANT and not merely to the verb, which is the property worth keeping in
+ * a named function on this side too: a confirmation sent for one client cannot be
+ * replayed against another. `runbooks/calls-stopped.md` §2 prints this literal for the
+ * curl fallback and `tests/ops_spend_cap_recompute_test.py` pins it server-side.
+ */
+export type SpendCapRecompute = Schemas["SpendCapRecomputeOut"];
+
+export function spendCapConfirmation(tenantId: string): string {
+  return `recompute_spend_cap:${tenantId}`;
+}
+
+/**
+ * Re-derive ONE client's `spend_state.capped` from the counters already metered this
+ * month against the ceiling now in force.
+ *
+ * `adminSession()` with the tenant in the PATH, never `viewAsSession`: `ops:manage` is in
+ * `MUTATING_PERMISSIONS`, so the same call made with an impersonating session would be
+ * correctly refused (D-22). The panel that reads this client's ceilings DOES impersonate,
+ * because that read is `billing:read` and has no admin-realm twin — two sessions on one
+ * panel is D-22 working, the same split as KYC and the first-campaign hold.
+ *
+ * It recomputes; it does not un-cap. A tenant still over their ceiling comes back
+ * `capped: true`, which is the route doing its job — so the screen renders the counters
+ * beside the ceilings, and that answer reads as an explanation rather than a failure.
+ */
+export function useRecomputeSpendCap(tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<SpendCapRecompute>(
+        adminSession(),
+        `/v1/ops/tenants/${tenantId}/spend-cap/recompute`,
+        { method: "POST", confirmAction: spendCapConfirmation(tenantId) },
+      ),
+    // The flag is on three screens at once. `TenantSummary.capped` carries it on this
+    // client's own page and on the directory, and `CapsOut.capped` carries it on the
+    // ceilings panel beside the button — invalidated by the PREFIX of `capsKey`
+    // (`lib/api/caps.ts`), because this hook holds the tenant id and that key is built
+    // from the slug. Without all three, an operator releases a client and walks back to a
+    // screen still badged "capped".
+    onSuccess: () =>
+      void Promise.all([
+        client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] }),
+        client.invalidateQueries({ queryKey: ["admin", "tenants"] }),
+        client.invalidateQueries({ queryKey: ["billing-caps"] }),
+      ]),
   });
 }
 

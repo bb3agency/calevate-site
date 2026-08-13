@@ -79,10 +79,38 @@ GROUP BY status;
   `outbox_lag_seconds` metric (`apps/api/core/alerting.py`) and worker health first.
 - `failed` rows → each one fired alert `OUTBOX_DISPATCH` / `outbox_dead_letter` with
   the message id, and DLQ depth is the `outbox_dlq_depth` metric. Inspect
-  `last_error` on the row. Replay is NOT a hand edit: `POST /v1/ops/outbox/replay`
-  (admin realm, `ops:manage`, `apps/api/ops/routes.py`) calls `replay_dead_letters`
-  — flips up to 100 oldest `failed` rows back to `pending` with `attempt_count = 0`
-  and writes an `ops.outbox_replay` audit entry.
+  `last_error` on the row. Replay is NOT a hand edit. **Console: Operations —
+  `/admin/ops` → "Dead-lettered outbox messages"** (admin realm, `superadmin`). It now
+  shows the queue BEFORE the click — depth, the per-`job` breakdown and the oldest entry's
+  age — so the `GROUP BY status` diagnosis below has a console equivalent and you are not
+  consenting to a redelivery of unknown size. It states the redelivery risk, takes a typed
+  `REPLAY`, requires you to CHOOSE a scope (it opens on no choice, because the default
+  would be the largest possible act), and renders the count the server moved, including
+  the case where that count is the per-run limit and there is more waiting.
+
+  The request behind it, for when the console is down, is `POST /v1/ops/outbox/replay`
+  (`ops:manage`, `apps/api/ops/routes.py`), which calls `replay_dead_letters` — flips up
+  to 100 oldest `failed` rows back to `pending` with `attempt_count = 0` and writes an
+  `ops.outbox_replay` audit entry. **It is step-up confirmed, and the confirmation names
+  the scope**:
+
+  - whole queue — `POST /v1/ops/outbox/replay` with `X-Confirm-Action: replay_dead_letters`
+  - one job — `POST /v1/ops/outbox/replay?job=<job>` with
+    `X-Confirm-Action: replay_dead_letters:<job>`
+
+  Mismatch either way is a 403 `step_up_required`, so a header can never authorise a wider
+  act than the request performs, and the refusal names the header it wants. **Scope it
+  when you can**: the 100-row cap is per run, so replaying the whole queue to recover one
+  client's CRM webhooks out of a backlog of dead-lettered emails moves 100 emails, answers
+  `replayed: 100`, and leaves every webhook parked. `ReplayOut` echoes the scope back, so
+  `replayed: 0` under a mistyped job reads as a typo rather than an empty queue. The typed
+  word on the screen is the console's own guard; the header is the API's, and they are two
+  controls rather than one — this passage twice said something that was true when it was
+  written and false by the time an operator read it, which is the argument for changing it
+  in the same commit as the code.
+
+  Scope bounds WHICH JOB, never whose data: `outbox_messages` is an infra table with no
+  `tenant_id` (BACKEND-PATTERNS §4), so every replay is cross-tenant by construction.
 
 ## 4. ARQ delivery job and its retry ladder
 
@@ -195,7 +223,8 @@ all `org:manage`):
 
 Needs us (admin realm / config row):
 
-- Outbox DLQ inspection and replay (`POST /v1/ops/outbox/replay`, audited).
+- Outbox DLQ inspection and replay (`/admin/ops` → "Dead-lettered outbox messages", or
+  `POST /v1/ops/outbox/replay`; audited either way).
 - Investigating `outbound_webhook_exhausted` / `outbox_dead_letter` alerts.
 - Field mapping changes (`outbound_webhooks.mapping`) and the raw-phone opt-in
   (`include_raw_phone` — an auditable config choice, not a client toggle).
