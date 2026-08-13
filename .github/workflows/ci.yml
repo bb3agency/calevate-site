@@ -128,6 +128,13 @@ jobs:
       - name: "Guardrail: env parity (fail-fast config)"
         run: uv run python -m scripts.check_env_parity
 
+      - name: "Guardrail: web env parity (browser config)"
+        # The other tier's half of the same rule. `next build` inlines NEXT_PUBLIC_*, so a
+        # key that is undeclared, misspelled or secret-shaped ships as an empty string
+        # instead of failing — this is where that becomes a failed build. Runs in THIS job
+        # rather than the frontend one: it is a Python guardrail and needs no Node.
+        run: uv run python -m scripts.check_web_env_parity
+
       - name: "Guardrail: OpenAPI snapshot freshness"
         run: uv run python -m scripts.check_openapi_fresh
 

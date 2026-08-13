@@ -136,6 +136,13 @@ conformance:  ## Keep the exit door oiled — run both adapters
 guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per milestone
 	uv run lint-imports
 	uv run python -m scripts.check_env_parity
+	# The same rule for the OTHER tier's config. `next build` INLINES every
+	# NEXT_PUBLIC_* value, so an undeclared or misspelled browser key is not a build
+	# error — it is the empty string in the bundle and a broken screen in production.
+	# Reads come off the live `apps/web` tree, declarations off `apps/web/.env.example`
+	# (a second file because a real `KEY=` line in the root one fails the check above).
+	# Needs no Node and no database. Negative controls in tests/web_env_parity_guard_test.py.
+	uv run python -m scripts.check_web_env_parity
 	uv run python -m scripts.check_rls_coverage
 	uv run python -m scripts.check_ledger_immutability
 	uv run python -m scripts.check_redaction_exposure

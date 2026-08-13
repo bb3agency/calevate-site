@@ -96,6 +96,18 @@ Rules: `.env` never committed; prod values live only in the secrets manager, inj
 deploy; any new variable is added to `.env.example` + `packages/shared/config.py`
 (Pydantic Settings — the app must fail fast on missing config, not at first use).
 
+**The browser's variables are a SECOND file: `apps/web/.env.example`.** Next loads `.env*`
+from the package directory, not from the repo root, so the file above configures the API,
+the workers and voice-runtime and reaches the browser never. Nothing to do for local work —
+every value in it is the local default — but `cp apps/web/.env.example apps/web/.env.local`
+is the starting point when you have real Clerk keys. Two things make it a different kind of
+file from the one above: `next build` INLINES each `NEXT_PUBLIC_*` value, so changing one
+needs a rebuild rather than a restart and a missing one is the empty string rather than an
+error; and nothing prefixed `NEXT_PUBLIC_` is private, because it ships in the bundle to
+every visitor. Both directions are a CI gate (`scripts/check_web_env_parity.py`), so a new
+browser key goes in `apps/web/.env.example` in the same change as its first read — never in
+the root `.env.example`, where it would fail the API's parity check instead.
+
 ## 5. Database workflow
 
 - New model → autogenerate migration → **hand-review** (autogen misses RLS) → add RLS

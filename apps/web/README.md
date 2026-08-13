@@ -22,10 +22,20 @@ import each other never.
 
 ### Environment
 
+**`apps/web/.env.example` is the canonical list** — every browser variable this package
+reads, with what each one decides. Copy it to `apps/web/.env.local` (git-ignored) or
+leave it alone: every value in it is the local default. Next loads `.env*` from THIS
+directory, never from the repo root, so the root `.env` the API reads has no effect here.
+
 These are **browser** variables: `next build` inlines them, so changing one needs a
-rebuild, not a restart. They are deliberately not `Settings` fields — see the comment
-block beside `CLERK_WEBHOOK_SECRET` in the repo's `.env.example`. Put them in
-`apps/web/.env.local` (git-ignored).
+rebuild, not a restart, and none of them is private — the value ships to every visitor in
+the bundle. They are deliberately not `Settings` fields (D-49). Both directions are a CI
+gate: `scripts/check_web_env_parity.py` fails the build when a key is read and not
+declared, declared and not read, named like a secret, or reached in a form Next cannot
+inline (`process.env[name]`, a destructure, an alias). Adding one means adding it to
+`apps/web/.env.example` in the same change.
+
+The three that Clerk sign-in turns on:
 
 ```bash
 # Which credential the browser presents. Unset = `dev` locally, `clerk` in a
