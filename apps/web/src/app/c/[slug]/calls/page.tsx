@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { use, useState } from "react";
+import { CheckCircle2, PhoneCall, PhoneMissed, XCircle } from "lucide-react";
 
 import {
   Card,
@@ -9,13 +10,68 @@ import {
   ProblemNotice,
   Skeleton,
   StatusBadge,
+  formatCount,
   formatDuration,
   formatIST,
 } from "@/components/ui";
 import { useClientRealm } from "@/lib/api/session";
 import { useCalls } from "@/lib/api/hooks";
+import { lookup } from "@/lib/lookup";
 
-const STATUSES = ["completed", "in_progress", "no_answer", "failed"] as const;
+/**
+ * The call log — every call the agents took or placed, newest first.
+ *
+ * Restyled to the console's design language (globals.css tokens, `Card`, lucide
+ * medallions) without changing what it fetches or what it filters on. Three things
+ * that were wrong under the old styling and are fixed here rather than carried over:
+ *
+ * - It rendered its own `<h1>Calls</h1>`, and the app shell now renders the page title
+ *   from the nav list. Two headings saying the same word is the visible half of a
+ *   drift: rename the nav entry and the screen keeps arguing with it.
+ * - The count of what you are looking at was nowhere on screen, so a filter that
+ *   matched nothing and a filter that matched everything looked the same until you
+ *   read the rows.
+ * - The status filter offered four statuses out of the eight `calls.status` actually
+ *   holds, with `busy`, `voicemail`, `queued` and `ringing` unreachable — a client
+ *   looking for the calls that went to voicemail could not ask for them.
+ *
+ * WHAT IS NOT HERE, deliberately: any figure the API did not send. The summary column
+ * shows `summary` as the API redacted it, the caller column shows `caller_masked`, and
+ * a call with neither shows a dash rather than something invented to fill the cell.
+ */
+
+/**
+ * The filter chips, and the icon each status wears in the row medallion.
+ *
+ * Grouped the way the dashboard's chart groups them and the way `StatusBadge` colours
+ * them, so the three places a status appears on this product agree: a conversation
+ * happened, the dial reached the network but not a person, the dial itself broke, or
+ * it is still running.
+ */
+const STATUS_FILTERS = [
+  { value: "completed", label: "Completed" },
+  { value: "no_answer", label: "No answer" },
+  { value: "busy", label: "Busy" },
+  { value: "voicemail", label: "Voicemail" },
+  { value: "failed", label: "Failed" },
+  { value: "in_progress", label: "In progress" },
+] as const;
+
+const STATUS_ICONS: Record<string, typeof PhoneCall> = {
+  completed: CheckCircle2,
+  no_answer: PhoneMissed,
+  busy: PhoneMissed,
+  voicemail: PhoneMissed,
+  failed: XCircle,
+};
+
+const STATUS_MEDALLIONS: Record<string, string> = {
+  completed: "bg-brand-soft text-brand",
+  no_answer: "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400",
+  busy: "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400",
+  voicemail: "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400",
+  failed: "bg-rose-50 text-rose-600 dark:bg-rose-950 dark:text-rose-400",
+};
 
 export default function CallsPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
@@ -25,78 +81,112 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
   const calls = useCalls(session, { status, limit: 100 });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Calls</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            Caller numbers are masked here; open a call to see its details.
+        <p className="text-sm text-ink-muted">
+          Caller numbers are masked here; open a call to see its details.
+        </p>
+        {/* The denominator, so an empty screen is legibly "nothing matched this
+            filter" rather than possibly "nothing loaded". Only once the query has
+            answered — a count rendered from `data ?? []` while loading says 0 and
+            then jumps, which reads as calls disappearing. */}
+        {calls.data && (
+          <p className="text-sm text-ink-muted">
+            <span className="font-semibold tabular-nums text-ink">
+              {formatCount(calls.data.length)}
+            </span>{" "}
+            {status ? `matching “${status.replace(/_/g, " ")}”` : "calls"}
           </p>
-        </div>
-        <div className="flex gap-1">
-          <FilterChip label="All" active={!status} onClick={() => setStatus(undefined)} />
-          {STATUSES.map((s) => (
-            <FilterChip
-              key={s}
-              label={s.replace(/_/g, " ")}
-              active={status === s}
-              onClick={() => setStatus(s)}
-            />
-          ))}
-        </div>
+        )}
       </div>
 
-      {calls.error && <ProblemNotice error={calls.error} onRetry={() => calls.refetch()} />}
+      <div className="flex flex-wrap gap-1.5">
+        <FilterChip label="All" active={!status} onClick={() => setStatus(undefined)} />
+        {STATUS_FILTERS.map((s) => (
+          <FilterChip
+            key={s.value}
+            label={s.label}
+            active={status === s.value}
+            onClick={() => setStatus(s.value)}
+          />
+        ))}
+      </div>
 
-      <Card>
+      {calls.error && <ProblemNotice error={calls.error} onRetry={() => void calls.refetch()} />}
+
+      <Card bodyClassName="p-2">
         {calls.isLoading ? (
-          <Skeleton rows={6} />
-        ) : calls.data?.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
-                  <th className="py-2 pr-3 font-medium">When</th>
-                  <th className="py-2 pr-3 font-medium">Caller</th>
-                  <th className="py-2 pr-3 font-medium">Status</th>
-                  <th className="py-2 pr-3 font-medium">Length</th>
-                  <th className="py-2 pr-3 font-medium">Outcome</th>
-                  <th className="py-2 font-medium">Summary</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {calls.data.map((call) => (
-                  <tr key={call.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="whitespace-nowrap py-2 pr-3 text-xs text-slate-500">
-                      {formatIST(call.started_at)}
-                    </td>
-                    <td className="whitespace-nowrap py-2 pr-3 tabular-nums text-slate-700 dark:text-slate-300">
-                      {call.caller_masked ?? "—"}
-                    </td>
-                    <td className="py-2 pr-3">
-                      <StatusBadge value={call.status} kind="call" />
-                    </td>
-                    <td className="py-2 pr-3 tabular-nums text-slate-600 dark:text-slate-400">
-                      {formatDuration(call.duration_s)}
-                    </td>
-                    <td className="py-2 pr-3 text-slate-600 dark:text-slate-400">
-                      {call.outcome_tag?.replace(/_/g, " ") ?? "—"}
-                    </td>
-                    <td className="max-w-md py-2">
-                      <Link
-                        href={href(`/c/${slug}/calls/${call.id}`)}
-                        className="line-clamp-1 text-slate-700 hover:underline dark:text-slate-300"
-                      >
-                        {call.summary ?? "Open call"}
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="p-4">
+            <Skeleton rows={6} />
           </div>
-        ) : calls.error ? null : (
-          <EmptyState title="No calls match this filter" />
+        ) : calls.error ? null : calls.data?.length ? (
+          <ul className="divide-y divide-line">
+            {calls.data.map((call) => {
+              const Icon = lookup(STATUS_ICONS, call.status) ?? PhoneCall;
+              return (
+                <li key={call.id}>
+                  <Link
+                    href={href(`/c/${slug}/calls/${call.id}`)}
+                    className="flex items-start gap-4 rounded-lg px-4 py-3 hover:bg-black/[0.02] dark:hover:bg-white/[0.03]"
+                  >
+                    <span
+                      className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                        // `lookup`, never `STATUS_MEDALLIONS[call.status]`: the status is
+                        // a server-chosen string and a bare index reaches
+                        // Object.prototype (src/lib/lookup.ts).
+                        lookup(STATUS_MEDALLIONS, call.status) ??
+                        "bg-black/5 text-ink-muted dark:bg-white/10"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </span>
+
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        {/* MASKED — the only form of a caller's number this screen is
+                            allowed to render (hard rule 6). */}
+                        <span className="truncate text-sm font-semibold tabular-nums text-ink">
+                          {call.caller_masked ?? "Unknown number"}
+                        </span>
+                        <StatusBadge value={call.status} kind="call" />
+                        {call.outcome_tag && (
+                          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-semibold capitalize text-brand-strong">
+                            {call.outcome_tag.replace(/_/g, " ")}
+                          </span>
+                        )}
+                      </span>
+                      {/* The summary as the API redacted it — `text_redacted`'s
+                          treatment applies to derived prose too (crm/schemas.py). */}
+                      <span className="mt-0.5 block truncate text-[13px] text-ink-muted">
+                        {call.summary ?? "No summary yet"}
+                      </span>
+                      <span className="mt-0.5 block truncate text-[11px] text-ink-faint">
+                        {call.agent_name ?? "—"} · {call.direction}
+                      </span>
+                    </span>
+
+                    <span className="shrink-0 text-right">
+                      <span className="block text-[12px] font-medium tabular-nums text-ink-muted">
+                        {formatDuration(call.duration_s)}
+                      </span>
+                      <span className="block whitespace-nowrap text-[11px] text-ink-faint">
+                        {formatIST(call.started_at)}
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <EmptyState
+            title={status ? "No calls match this filter" : "No calls yet"}
+            hint={
+              status
+                ? "Clear the filter to see everything."
+                : "A call appears here within a couple of minutes of the caller hanging up."
+            }
+          />
         )}
       </Card>
     </div>
@@ -116,10 +206,11 @@ function FilterChip({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={
         active
-          ? "rounded-full bg-slate-900 px-3 py-1 text-xs font-medium capitalize text-white dark:bg-slate-100 dark:text-slate-900"
-          : "rounded-full border border-slate-200 px-3 py-1 text-xs font-medium capitalize text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          ? "rounded-full bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white"
+          : "rounded-full border border-line px-3 py-1.5 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
       }
     >
       {label}
