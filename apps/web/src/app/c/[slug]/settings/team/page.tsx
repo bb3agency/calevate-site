@@ -18,6 +18,7 @@ import {
   formatIST,
 } from "@/components/ui";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
+import { lookup } from "@/lib/lookup";
 import {
   ROLE_COPY,
   useInviteMember,
@@ -373,7 +374,10 @@ function MemberRow({
   onRole: (role: MemberRole) => void;
   onRemove: () => void;
 }) {
-  const copy = ROLE_COPY[member.role];
+  // `lookup()`, not `ROLE_COPY[...]`: `member.role` is a WIRE string, and indexing a
+  // literal with one walks the prototype chain — a role of `constructor` resolves to
+  // the `Object` function instead of missing. See src/lib/lookup.ts.
+  const copy = lookup(ROLE_COPY, member.role);
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
       <span
@@ -464,7 +468,7 @@ function InvitationRow({
           screen — enough to recognise who you invited, not enough to be a contact list. */}
       <span className="font-mono text-ink">{invitation.email_masked}</span>
       <span className="text-xs text-ink-muted">
-        {ROLE_COPY[invitation.role]?.label ?? invitation.role}
+        {lookup(ROLE_COPY, invitation.role)?.label ?? invitation.role}
       </span>
       <span className="ml-auto whitespace-nowrap text-xs text-ink-faint">
         expires {formatIST(invitation.expires_at)}

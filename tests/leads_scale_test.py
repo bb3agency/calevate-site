@@ -22,6 +22,8 @@ against the same database.
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import uuid
 from typing import Any
@@ -155,8 +157,20 @@ def _client() -> AsyncClient:
 
 
 def _csv_phones(body: str) -> set[str]:
-    """The phone column of an export, as a set. Header row dropped."""
-    return {line.split(",")[0] for line in body.strip().splitlines()[1:]}
+    """The phone column of an export, as a set. Header row dropped.
+
+    Parsed with `csv.reader` rather than `line.split(",")`. The hand-rolled version read
+    the raw field INCLUDING its quotes, so it broke the moment the writer moved to
+    `QUOTE_ALL` — which it did so the formula guard keeps working, since OWASP's tab
+    prefix has to sit inside the quoted field. It would have broken just as hard on a
+    client whose lead name contains a comma, which is not exotic.
+
+    The lesson is worth the four lines: a test that parses the format under test loosely
+    goes red for reasons that are not its subject, and the next reader has to decide
+    whether the product or the assertion is wrong.
+    """
+    rows = list(csv.reader(io.StringIO(body.strip())))
+    return {row[0] for row in rows[1:] if row}
 
 
 # --------------------------------------------------------------- 1. export filters

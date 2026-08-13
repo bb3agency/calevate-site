@@ -208,7 +208,19 @@ def unmounted_routers(
 
     for module, attribute in routers:
         router = getattr(importlib.import_module(module), attribute, None)
-        endpoints = {route.endpoint for route in getattr(router, "routes", [])}
+        # `getattr(..., "endpoint", None)`, not `route.endpoint`. A nested
+        # `include_router` leaves an `_IncludedRouter` marker in `router.routes`
+        # which has no `.endpoint`, and reading it raised AttributeError — so this
+        # guard CRASHED on a repo shape rather than judging it, which is the worst
+        # way for executable governance to fail: it looks like a broken tool, not a
+        # finding, and the reflex is to work around the guard. Markers carry no
+        # endpoint identity of their own and the routes they stand for are judged
+        # under their own module, so dropping them loses nothing.
+        endpoints = {
+            endpoint
+            for route in getattr(router, "routes", [])
+            if (endpoint := getattr(route, "endpoint", None)) is not None
+        }
         if not endpoints:
             # A router with no routes cannot be half-wired; it is scaffolding, and the
             # first route added to it will be judged here.
