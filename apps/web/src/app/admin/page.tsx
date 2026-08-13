@@ -35,7 +35,8 @@ export default function AdminClientsPage() {
             <Skeleton rows={5} />
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+            <table className="w-full min-w-[800px] text-sm">
             <thead>
               <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
                 <th className="px-4 py-2 font-medium">Client</th>
@@ -115,6 +116,7 @@ export default function AdminClientsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

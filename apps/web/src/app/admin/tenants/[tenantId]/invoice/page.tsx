@@ -86,7 +86,8 @@ export default function TenantInvoicePage({
             </p>
           </section>
 
-          <table className="mt-6 w-full text-sm">
+          <div className="mt-6 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+            <table className="w-full min-w-[600px] text-sm">
             <thead>
               <tr className="border-b border-slate-300 text-xs uppercase tracking-wide text-slate-500">
                 <th className="py-2 text-left font-semibold">Description</th>
@@ -137,6 +138,7 @@ export default function TenantInvoicePage({
               </tr>
             </tfoot>
           </table>
+          </div>
 
           <footer className="mt-6 border-t border-slate-200 pt-3 text-xs text-slate-500">
             {invoice.data.usage.minutes_used} minutes across {invoice.data.usage.calls}{" "}

@@ -1030,8 +1030,8 @@ function ConsentProvenanceFields({
               key={option.value}
               className={
                 source === option.value
-                  ? "cursor-pointer rounded-lg border-2 border-slate-900 p-3 dark:border-slate-100"
-                  : "cursor-pointer rounded-lg border border-slate-200 p-3 hover:border-slate-400 dark:border-slate-700"
+                  ? "relative cursor-pointer rounded-lg border-2 border-slate-900 p-3 dark:border-slate-100"
+                  : "relative cursor-pointer rounded-lg border border-slate-200 p-3 hover:border-slate-400 dark:border-slate-700"
               }
             >
               <input

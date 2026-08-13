@@ -222,7 +222,8 @@ export default function IntegrationsPage() {
         {deliveries.isLoading ? (
           <Skeleton rows={3} />
         ) : deliveries.data?.length ? (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+            <table className="w-full min-w-[500px] text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                 <th className="pb-2 font-medium">Event</th>
@@ -256,6 +257,7 @@ export default function IntegrationsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         ) : deliveries.error ? null : (
           <EmptyState
             title="Nothing sent yet"

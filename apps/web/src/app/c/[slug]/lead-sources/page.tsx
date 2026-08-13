@@ -268,7 +268,8 @@ export default function LeadSourcesPage() {
         {activity.isLoading ? (
           <Skeleton rows={3} />
         ) : activity.data?.items.length ? (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+            <table className="w-full min-w-[700px] text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                 <th className="pb-2 font-medium">Source</th>
@@ -309,6 +310,7 @@ export default function LeadSourcesPage() {
               ))}
             </tbody>
           </table>
+          </div>
         ) : activity.error != null ? null : (
           <EmptyState
             title="No deliveries yet"

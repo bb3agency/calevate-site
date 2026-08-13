@@ -1,9 +1,21 @@
 packages:
   - "apps/web"
 
-resolutions:
+# Rolldown is Vite's bundler; its platform-specific binaries are legitimate but
+# were published recently enough to trip the 24-hour quarantine window. Exclude
+# them specifically rather than disabling the policy for all packages.
+minimumReleaseAgeExclude:
+  - "rolldown"
+  - "@rolldown/*"
+
+overrides:
   eslint-import-resolver-typescript: "3.7.0"
   unrs-resolver: "npm:oxc-resolver@1.1.2"
+  "brace-expansion@<1.1.18": ">=1.1.18"
+  "brace-expansion@>=4 <5.0.9": ">=5.0.9"
+  postcss: ">=8.5.23"
+  nanoid: ">=3.3.17"
+  sharp: ">=0.35.0"
 
 # Build scripts are opt-in in pnpm 11. sharp = Next.js image optimization
 # (first-party toolchain dep). unrs-resolver was REMOVED here after the Jul 2026
