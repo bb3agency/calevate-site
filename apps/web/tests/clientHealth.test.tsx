@@ -164,6 +164,22 @@ describe("the client health board", () => {
     expect(container.textContent).toContain("we cannot say whether any client is in trouble");
     // The one sentence that must never appear on a failed load.
     expect(container.textContent).not.toContain("Every client looks healthy");
+    // Nor the empty state's reassurance, which is the same claim in gentler words.
+    expect(container.textContent).not.toContain("This list fills up on its own");
+  });
+
+  it("prints no headline count over a failed read", async () => {
+    // The count sits ABOVE the table, so it is the part of this screen that could survive
+    // the error branch and go on asserting a number. "0 accounts need attention" over a
+    // dead token is the healthy-estate claim in its most trusted form — a figure — and a
+    // figure is what an operator scans for before they read anything.
+    const { container } = renderAdminPage(<ClientHealthPage />, {
+      [CLIENT_HEALTH_PATH]: problem(503, { title: "Unavailable", status: 503, retryable: true }),
+    });
+
+    await screen.findByText(/could not be read/);
+    expect(container.textContent).not.toContain("need attention");
+    expect(container.textContent).not.toContain("broken now");
   });
 
   it("says every client is healthy, in words, when the board is empty", async () => {
@@ -242,5 +258,82 @@ describe("the client health board", () => {
     await screen.findByText("Sri Traders");
     expect(container.textContent).toContain("99% of the ceiling used");
     expect(container.textContent).not.toContain("10158.99");
+  });
+
+  it("shows the two amounts the percentage came from, formatted from the digits sent", async () => {
+    // The percentage answers "how close", and the next question an operator has is "raise
+    // it by how much" — which the row already carries. `formatINR` groups the DIGITS of
+    // the string and never parses them, so the figure an operator quotes to a client is
+    // the one billing holds (hard rule 7).
+    const { container } = renderAdminPage(<ClientHealthPage />, {
+      [CLIENT_HEALTH_PATH]: [
+        row({
+          spend_used_inr: "900.5000",
+          spend_cap_inr: "1000.0000",
+          signals: [signal({ rule: "spend_cap_near", severity: "warn", count: 90 })],
+        }),
+      ],
+    });
+
+    await screen.findByText("Sri Traders");
+    expect(container.textContent).toContain("₹900.50 of ₹1,000.00");
+    // Indian grouping, and no float anywhere near it: `Number("1000.0000")` formatted by
+    // the browser's default locale would read "1,000" or "1000" and, on other amounts,
+    // would lose a paisa.
+    expect(container.textContent).not.toContain("₹1000.00");
+  });
+
+  it("prints no spend line for an account with no ceiling to be near", async () => {
+    // `spend_cap_inr` is nullable. "₹900.50 of —" reads as a figure we failed to load
+    // rather than a limit that does not exist, and an operator chasing a missing cap on
+    // an uncapped account is work invented by a render.
+    const { container } = renderAdminPage(<ClientHealthPage />, {
+      [CLIENT_HEALTH_PATH]: [
+        row({
+          spend_used_inr: "900.5000",
+          spend_cap_inr: null,
+          signals: [signal({ rule: "spend_cap_near", severity: "warn", count: 90 })],
+        }),
+      ],
+    });
+
+    await screen.findByText("Sri Traders");
+    expect(container.textContent).toContain("90% of the ceiling used");
+    expect(container.textContent).not.toContain("₹");
+    expect(container.textContent).not.toContain(" of —");
+  });
+
+  it("leaves the page title to the shell rather than printing a second one", async () => {
+    // `app/admin/layout.tsx` derives the header from the SAME nav list the sidebar renders,
+    // so a heading here would print "Client health" twice and give the name a second place
+    // to be renamed out of step with the link that leads here.
+    const { container } = renderAdminPage(<ClientHealthPage />, {
+      [CLIENT_HEALTH_PATH]: [row()],
+    });
+
+    await screen.findByText("Sri Traders");
+    expect(container.querySelector("h1")).toBeNull();
+    expect(container.textContent).not.toContain("Client health");
+  });
+
+  it("is painted in design tokens, not in the shell palette it was written against", async () => {
+    // This board was `bg-slate-900` panels with their own `rounded-xl`, written against an
+    // admin shell that no longer exists. A hardcoded colour is a screen the next brand
+    // change and the dark-mode toggle leave behind — the argument `globals.css` makes for
+    // role-named tokens. Asserted by the literals this migration removed rather than by
+    // `slate-` outright, because `NOTICE_TONES` legitimately paints neutral verdicts slate
+    // and is shared with the client realm.
+    const { container } = renderAdminPage(<ClientHealthPage />, {
+      [CLIENT_HEALTH_PATH]: [row()],
+    });
+
+    await screen.findByText("Sri Traders");
+    const markup = container.innerHTML;
+    expect(markup).not.toContain("rounded-xl");
+    expect(markup).not.toContain("bg-slate-800");
+    expect(markup).not.toContain("text-slate-400");
+    expect(markup).not.toContain("text-slate-500");
+    expect(markup).toContain("border-line");
+    expect(markup).toContain("text-ink-muted");
   });
 });

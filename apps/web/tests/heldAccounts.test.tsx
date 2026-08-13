@@ -114,6 +114,23 @@ describe("the hold queue", () => {
     expect(container.textContent).toContain("we cannot say whether anyone is waiting");
     // The one sentence that must never appear on a failed load.
     expect(container.textContent).not.toContain("Nobody is waiting on us");
+    // Nor the empty state's reassurance, which is the same claim in gentler words.
+    expect(container.textContent).not.toContain("This list fills up on its own");
+  });
+
+  it("prints no headline count over a failed read", async () => {
+    // The count sits ABOVE the table, so it is the one part of this screen that could
+    // survive an error branch and go on asserting a number. "0 accounts waiting" over a
+    // dead token is the queue's empty claim in its most trusted form — a figure — and it
+    // is worse than the sentence, because a figure is what an operator scans for.
+    const { container } = renderAdminPage(<HeldAccountsPage />, {
+      [HOLDS_PATH]: problem(503, { title: "Unavailable", status: 503, retryable: true }),
+    });
+
+    await screen.findByText(/could not be read/);
+    expect(container.textContent).not.toContain("accounts waiting");
+    expect(container.textContent).not.toContain("waiting over a week");
+    expect(container.textContent).not.toContain("Longest wait");
   });
 
   it("says nobody is waiting, in words, when nobody is", async () => {
@@ -158,5 +175,43 @@ describe("the hold queue", () => {
     expect(calls.map((c) => c.path)).toEqual([HOLDS_PATH]);
     expect(container.textContent).toContain("First campaign refused");
     expect(container.textContent).not.toMatch(/\+?\d{10}/);
+  });
+
+  it("leaves the page title to the shell rather than printing a second one", async () => {
+    // `app/admin/layout.tsx` derives the header from the SAME nav list the sidebar
+    // renders, so a heading here would be the words "Held accounts" twice on one screen
+    // and — the reason that matters — a second place for them to be renamed. The nav
+    // entry is the one that decides where the link goes, so the page must not carry a
+    // heading that can disagree with it.
+    const { container } = renderAdminPage(<HeldAccountsPage />, {
+      [HOLDS_PATH]: [tenant()],
+    });
+
+    await screen.findByText("Sri Traders");
+    expect(container.querySelector("h1")).toBeNull();
+    expect(container.textContent).not.toContain("Held accounts");
+  });
+
+  it("is painted in design tokens, not in the shell palette it was written against", async () => {
+    // The queue used to be `bg-slate-900` panels on a slate-950 admin shell, with its own
+    // `rounded-xl` where the design language says `rounded-card`. Those are not style
+    // preferences: a screen that hardcodes a colour is a screen the next brand change or
+    // the dark-mode toggle silently leaves behind, which is the whole argument in
+    // `globals.css`. Asserted by absence of the literals this migration removed rather
+    // than by absence of `slate-` outright, because `NOTICE_TONES.neutral` legitimately
+    // paints a fresh wait in slate and is shared with both realms.
+    const { container } = renderAdminPage(<HeldAccountsPage />, {
+      [HOLDS_PATH]: [tenant()],
+    });
+
+    await screen.findByText("Sri Traders");
+    const markup = container.innerHTML;
+    expect(markup).not.toContain("rounded-xl");
+    expect(markup).not.toContain("bg-slate-800");
+    expect(markup).not.toContain("text-slate-400");
+    expect(markup).not.toContain("text-slate-500");
+    // And the tokens are actually reached, so this cannot pass by rendering nothing.
+    expect(markup).toContain("border-line");
+    expect(markup).toContain("text-ink-muted");
   });
 });
