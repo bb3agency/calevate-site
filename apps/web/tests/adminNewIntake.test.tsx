@@ -52,6 +52,9 @@ const CREATED: CreateOrgOut = {
 };
 
 const INTAKE = `${TENANTS}/${CREATED.id}/agents/${CREATED.agent_id}/intake`;
+/** The resume list, read by `/admin/new` before step 1 is even filled in. Empty here:
+ *  these tests are about the step, and `adminNewResume.test.tsx` owns the list. */
+const UNFINISHED = "/v1/admin/onboarding/unfinished";
 
 function me(permissions: string[]): AdminMe {
   return {
@@ -73,6 +76,11 @@ const NO_INTAKE: IntakeState = {
   prose_answers: null,
   compiled_t0_context: null,
   submitted_at: null,
+  saved_at: null,
+  // The agent's own language, which the response now carries: the form's language set
+  // is the EXTRAS plus this, and a caller that arrived by resuming has no other source.
+  language_primary: "te-IN",
+  sheet_agent_id: null,
 };
 
 /** `IntakeOut` when the answers compiled into something new. */
@@ -93,6 +101,7 @@ async function reachIntake(routes: Routes = {}) {
   const render = renderAdminPage(<NewClientPage />, {
     [TENANTS]: CREATED,
     [ADMIN_ME]: OPERATOR,
+    [UNFINISHED]: [],
     [INTAKE]: NO_INTAKE,
     ...routes,
   });
@@ -142,7 +151,7 @@ function fillTheMinimum(): void {
 
 /** Press submit against a freshly stubbed network, and return ITS call log. */
 function submitAgainst(answer: unknown): ApiCall[] {
-  const calls = stubApi({ [INTAKE]: answer, [ADMIN_ME]: OPERATOR });
+  const calls = stubApi({ [INTAKE]: answer, [ADMIN_ME]: OPERATOR, [UNFINISHED]: [] });
   fireEvent.click(screen.getByRole("button", { name: "Submit intake" }));
   return calls;
 }
@@ -169,6 +178,9 @@ const STORED: IntakeState = {
   },
   compiled_t0_context: "[T0 FACTS]\nHours: mon 10:00-19:00; sun closed",
   submitted_at: "2026-08-01T04:30:00Z",
+  saved_at: "2026-08-01T04:30:00Z",
+  language_primary: "te-IN",
+  sheet_agent_id: CREATED.agent_id,
 };
 
 describe("submitting the intake", () => {
@@ -280,7 +292,7 @@ describe("reopening the step", () => {
 
     // The stored EXTRA language came back ticked, and the primary is ticked and fixed.
     expect((screen.getByLabelText(/Hindi/) as HTMLInputElement).checked).toBe(true);
-    expect(container.textContent).toContain("Primary — step 1");
+    expect(container.textContent).toContain("Primary — the agent's own language");
     // The server's own stamp, not a claim this screen made.
     expect(container.textContent).toContain("Last submitted");
 
@@ -344,6 +356,7 @@ describe("when the prefill cannot be read", () => {
     const render = renderAdminPage(<NewClientPage />, {
       [TENANTS]: CREATED,
       [ADMIN_ME]: OPERATOR,
+      [UNFINISHED]: [],
       [INTAKE]: problem(503, {
         title: "Service unavailable",
         detail: "The intake could not be read right now.",

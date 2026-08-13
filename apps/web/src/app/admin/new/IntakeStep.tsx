@@ -7,6 +7,7 @@ import {
   CircleAlert,
   FileWarning,
   Plus,
+  Save,
   ShieldAlert,
   Trash2,
 } from "lucide-react";
@@ -42,6 +43,7 @@ import {
   pruneDraft,
   toIntakeBody,
   useRecordIntake,
+  useSaveIntakeDraft,
   type IntakeDraft,
   type IntakeState,
   type Weekday,
@@ -83,19 +85,31 @@ import type { UseQueryResult } from "@tanstack/react-query";
  * is printed beneath it, because the alternative is an operator submitting blanks over an
  * agent that has been answering callers for months.
  *
- * ## What this step deliberately does NOT offer
+ * ## Saving a draft: an explicit control, not an autosave
  *
- * A "Save draft" button. `apps/api/admin/intake.py::save_intake_draft` is exactly that —
- * the answer sheet with no compile, no prompt version and no KB seed — and it is what
- * FLOWS §1's "draft state saved at every step (resume anytime)" is made of, but no route
- * exposes it. Offering a control that would have to fake it (by submitting, which is
- * gated on the answers being complete) is the screen lying about what it did. The step
- * says plainly that nothing is stored until the submit lands.
+ * `POST …/intake/draft` stores the sheet with no compile, no prompt version and no KB
+ * seed — FLOWS §1's "draft state saved at every step" — and the operator presses a
+ * button for it.
+ *
+ * The rejected alternative was a debounced autosave, and it was rejected on this form
+ * SPECIFICALLY rather than on principle. Half of these controls are pattern-constrained
+ * on the wire: `phone_e164` is `^\+[1-9]\d{7,18}$`, `price_inr` is `^\d+(\.\d{1,2})?$`.
+ * An autosave fires MID-VALUE by construction, so typing "+9198…" would post a body the
+ * server must refuse — correctly, since a sheet stored unvalidated comes back
+ * unparseable and the next resume shows a blank form (`_sheet_answers`). The indicator
+ * would therefore sit on "failed" through most of the typing it was meant to reassure
+ * about, and an indicator that cries wolf teaches the operator to ignore it — the same
+ * defect as a silent failure, one step along. A press is a moment the operator has
+ * finished a thought, and it is the only moment the body is meant to be whole.
+ *
+ * What the press MUST do, and does: report its state honestly. Saving, saved with the
+ * server's own outcome, or a refusal rendered exactly like the submit's — including
+ * field-level messages at their inputs, because a draft is refused for the same
+ * structural reasons a submit is.
  */
 export function IntakeStep({
   tenantId,
   agentId,
-  primaryLanguage,
   state,
   draft,
   onDraftChange,
@@ -103,10 +117,6 @@ export function IntakeStep({
 }: {
   tenantId: string;
   agentId: string;
-  /** The agent's own `language_primary`, chosen in step 1. `record_intake` drops it from
-   *  `languages` before storing (`languages_extra` means the OTHERS), so the form shows it
-   *  as answered-and-fixed rather than as a box that silently un-ticks itself. */
-  primaryLanguage: string;
   state: UseQueryResult<IntakeState>;
   /** `null` until the prefill lands — the form is never rendered from a guess. */
   draft: IntakeDraft | null;
@@ -114,6 +124,7 @@ export function IntakeStep({
   onContinue: () => void;
 }) {
   const record = useRecordIntake(tenantId, agentId);
+  const saveDraft = useSaveIntakeDraft(tenantId, agentId);
   // `agents:write` — the permission the ROUTE declares (`admin/routes.py`), not a guess
   // about seniority. Both admin roles hold it today (`core/rbac.py`), so this gate is
   // rarely the answer; it is here because "rarely" is not "never" and a dead submit
@@ -153,9 +164,26 @@ export function IntakeStep({
   const stored = state.data;
   const body = toIntakeBody(draft);
   const blockers = intakeBlockers(body);
-  const problem = record.error instanceof ApiProblem ? record.error : null;
+  /**
+   * The refusal on screen, from whichever write produced it.
+   *
+   * At most one can exist at a time: an edit resets both (see `update`), and each
+   * button resets the other before firing. That is what keeps `placed` below sound —
+   * a field message is only ever placed against the draft that produced it.
+   */
+  const failure = record.error ?? saveDraft.error ?? null;
+  const problem = failure instanceof ApiProblem ? failure : null;
   const placed = placeIntakeFields(problem?.fields ?? [], body);
   const gap = stored ? prosePrefillGap(stored) : null;
+  /**
+   * The agent's OWN primary language, from the server.
+   *
+   * `stored` is defined whenever `draft` is — the parent seeds the draft from this
+   * query's data and from nothing else — so the fallback is unreachable; it is written
+   * as `""` rather than as a language so that an impossible undefined marks NO option
+   * primary instead of silently asserting Telugu about a clinic that answers in Hindi.
+   */
+  const primaryLanguage = stored?.language_primary ?? "";
 
   /**
    * Every edit goes through here, and it resets the mutation on the way.
@@ -169,6 +197,26 @@ export function IntakeStep({
   const update = (next: IntakeDraft) => {
     onDraftChange(next);
     record.reset();
+    // The draft save's outcome is cleared with it, and for the stronger reason: "Draft
+    // saved" left standing over an edited form tells the operator their current answers
+    // are on file. They are not — that is the sentence a draft feature exists to make
+    // true, so it must never be shown when it is false.
+    saveDraft.reset();
+  };
+
+  /**
+   * Save what is typed, refused only for the reasons the SERVER would refuse it.
+   *
+   * No blocker preflight, deliberately, and this is the mirror image of the submit
+   * button's: `intakeBlockers` withholds the submit because the route would answer 422,
+   * and it must NOT withhold this one because the route answers 200 — refusing to save
+   * a draft for incompleteness refuses the only thing a draft is for.
+   */
+  const onSaveDraft = () => {
+    record.reset();
+    const pruned = pruneDraft(draft);
+    onDraftChange(pruned);
+    saveDraft.mutate(toIntakeBody(pruned));
   };
 
   const setDay = (day: Weekday, change: Partial<{ opens: string; closes: string; closed: boolean }>) =>
@@ -230,6 +278,9 @@ export function IntakeStep({
           // about `services.1.price_inr` lands on the row the operator can see is row 1.
           // `toIntakeBody` prunes internally too; doing it to the draft as well is what
           // keeps the two indexings identical. See `pruneDraft` for the alternative.
+          // A draft save's outcome must not sit under a submit's: one write is on
+          // screen at a time, which is also what keeps `placed` unambiguous.
+          saveDraft.reset();
           const pruned = pruneDraft(draft);
           onDraftChange(pruned);
           record.mutate(toIntakeBody(pruned));
@@ -645,7 +696,9 @@ export function IntakeStep({
                     <span>
                       {option.label}
                       {isPrimary && (
-                        <span className="block text-xs text-ink-faint">Primary — step 1</span>
+                        <span className="block text-xs text-ink-faint">
+                          Primary — the agent&apos;s own language
+                        </span>
                       )}
                     </span>
                   </label>
@@ -692,7 +745,28 @@ export function IntakeStep({
             </div>
           </NoticeBox>
         ) : (
-          record.error != null && <ProblemNotice error={record.error} />
+          failure != null && <ProblemNotice error={failure} />
+        )}
+
+        {saveDraft.data && (
+          <NoticeBox
+            tone="neutral"
+            icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
+            title="Draft saved"
+          >
+            {/* What a draft did and, just as importantly, what it did not: an operator
+                who read "saved" and walked away must not believe the agent now knows
+                any of this. The blockers come from the SERVER's response rather than
+                from the local preview, because this notice is a report of the write. */}
+            <p className="mt-1 text-xs">
+              These answers are on file and this client is on the resume list. Nothing has
+              been compiled into the agent — the submit below still does that.
+              {saveDraft.data.blockers.length > 0 &&
+                ` ${saveDraft.data.blockers.length} answer${
+                  saveDraft.data.blockers.length === 1 ? "" : "s"
+                } still needed before it can be submitted.`}
+            </p>
+          </NoticeBox>
         )}
 
         {record.data && (
@@ -751,6 +825,19 @@ export function IntakeStep({
             <CheckCircle2 aria-hidden className="h-4 w-4" />
             {record.isPending ? "Recording…" : "Submit intake"}
           </button>
+          {/* Never gated on `blockers` — see `onSaveDraft`. Gated on the SAME
+              permission as the submit, because it writes the same client's answers to
+              the same row. */}
+          <button
+            type="button"
+            onClick={onSaveDraft}
+            title={write.reason ?? undefined}
+            disabled={saveDraft.isPending || !write.allowed}
+            className={SECONDARY_BUTTON}
+          >
+            <Save aria-hidden className="h-4 w-4" />
+            {saveDraft.isPending ? "Saving…" : "Save draft"}
+          </button>
           <button type="button" onClick={onContinue} className={SECONDARY_BUTTON}>
             Continue to the owner invite
             <ArrowRight aria-hidden className="h-4 w-4" />
@@ -760,10 +847,18 @@ export function IntakeStep({
             dead". `RestrictionNote` at the top of the form covers the disabled inputs;
             this covers the control at the bottom of a long page. */}
         {write.reason && <p className="text-xs text-ink-muted">{write.reason}</p>}
-        {!stored?.submitted_at && (
+        {/* What is on file, from the SERVER's stamps rather than from a mutation this
+            visit happens to remember — the sentence has to be true for an operator who
+            arrived by resuming, whose saves happened in another session entirely. */}
+        {stored?.saved_at ? (
           <p className="text-xs text-ink-faint">
-            Nothing here is stored until the submit lands. This endpoint has no draft save,
-            so leaving the wizard with the step unsubmitted loses these answers.
+            Draft on file from {formatIST(stored.saved_at)}. Edits since then are only in
+            this browser until you save again; leaving the wizard loses them.
+          </p>
+        ) : (
+          <p className="text-xs text-ink-faint">
+            Nothing here is stored until you save the draft or submit. A saved draft can be
+            picked up from the unfinished list on this screen.
           </p>
         )}
       </form>

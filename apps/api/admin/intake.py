@@ -59,6 +59,8 @@ columns, with the compiled block for display.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -73,6 +75,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
+from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
 
 log = get_logger(__name__)
@@ -695,6 +698,22 @@ async def read_intake(session: AsyncSession, *, agent_id: UUID) -> dict[str, Any
       if a submit has not happened since the last draft.
     - `submitted_at` — whether this sheet has ever been compiled into the agent, so the
       wizard can tell "saved" from "live" instead of guessing.
+    - `saved_at` — when the sheet was last written by either path. With `submitted_at`
+      it is the whole of "is there a draft newer than the last submit", which is the
+      question a resume asks and the reason a draft route exists.
+    - `language_primary` — the agent's own primary language. `languages` above is the
+      EXTRAS by construction, so a caller that does not already hold the primary cannot
+      render the language set at all: it would show "Hindi" for an agent that answers in
+      Telugu and Hindi. The wizard got away without it only because it had just chosen
+      the value one step earlier; a resume from a list has chosen nothing, so the
+      omission stopped being survivable the moment resuming existed.
+    - `sheet_agent_id` — which agent the stored answers were last written THROUGH
+      (`_store_sheet` stamps it on every save). Provenance, not ownership: the sheet
+      belongs to the ORG, one per business, while the compile targets one agent. So a
+      second agent reading this endpoint is told, honestly, that the answers it is
+      being prefilled with were entered against a different agent — a fact only this
+      key carries, and one a caller cannot derive from the path it used. `None` for a
+      pre-migration org, where there is no sheet to have stamped anything.
     """
     row = (
         await session.execute(
@@ -711,6 +730,7 @@ async def read_intake(session: AsyncSession, *, agent_id: UUID) -> dict[str, Any
     if row is None:
         raise ProblemError.not_found("Agent")
     sheet: dict[str, Any] | None = row[4]
+    primary = str(row[5])
     facts = _sheet_answers(sheet, agent_id=agent_id)
     if facts is None:
         escalation = row[1] or {}
@@ -720,9 +740,15 @@ async def read_intake(session: AsyncSession, *, agent_id: UUID) -> dict[str, Any
             "languages": list(row[2] or []),
             "prose_answers": None,
             "compiled_t0_context": row[3],
+            # An unreadable or absent sheet has no timestamps to report. Both stay None
+            # rather than being guessed from `agents.updated_at`: "when were these
+            # answers last saved" and "when was this row last touched" are different
+            # questions, and the second one is answered by every unrelated publish.
             "submitted_at": None,
+            "saved_at": None,
+            "language_primary": primary,
+            "sheet_agent_id": None,
         }
-    primary = str(row[5])
     return {
         "business_hours": _hours_map(facts),
         "escalation_contacts": [c.model_dump() for c in facts.escalation_contacts],
@@ -730,7 +756,149 @@ async def read_intake(session: AsyncSession, *, agent_id: UUID) -> dict[str, Any
         "prose_answers": IntakeProse.from_facts(facts).model_dump(),
         "compiled_t0_context": row[3],
         "submitted_at": (sheet or {}).get("submitted_at"),
+        "saved_at": (sheet or {}).get("saved_at"),
+        "language_primary": primary,
+        "sheet_agent_id": (sheet or {}).get("agent_id"),
     }
+
+
+# --------------------------------------------------- resuming an unfinished onboarding
+
+
+@dataclass(frozen=True, slots=True)
+class UnfinishedOnboarding:
+    """One account whose FLOWS §1 wizard was started and never finished."""
+
+    tenant_id: UUID
+    name: str
+    slug: str
+    # The agent the wizard resumes AT — the sheet's own `agent_id` when that agent is
+    # still there, otherwise the account's oldest live agent (the draft receptionist
+    # `create_organization` makes). Without it a "resume" link would have to guess, and
+    # a guess here writes a client's answers onto the wrong agent's prompt.
+    agent_id: UUID
+    created_at: datetime
+    # When the sheet was last written, or None for an account whose intake step was
+    # never opened at all. The two are DIFFERENT states — "started and abandoned" and
+    # "created and forgotten" — and they need different actions from the operator, so
+    # the row says which rather than reporting a zero.
+    draft_saved_at: datetime | None
+    # `submission_blockers`' own codes, computed from what IS stored. This is the whole
+    # point of the list: "unfinished" is a claim, and the codes are the evidence.
+    blockers: tuple[str, ...]
+
+
+# Candidates, cheaply. The predicate is `submitted_at IS NULL` on the sheet — the ONE
+# stamp `_store_sheet` writes only on the submit path, so it means "step 3 has never
+# been completed" and nothing else. `status = 'onboarding'` is the second half: a
+# suspended or churned account is not an onboarding somebody is half-way through.
+#
+# Only the two envelope stamps are read here, never `answers`. This session is the
+# cross-tenant one (b57e2f9c4a13 widens `organizations` for `app.admin`), and the
+# answers include the client's escalation phone numbers; they are read one tenant at a
+# time under that tenant's own RLS below, the way `admin/holds.py` argues for.
+_UNFINISHED_DIRECTORY = (
+    "SELECT id, name, slug, created_at, intake->>'saved_at' "
+    "FROM organizations "
+    "WHERE deleted_at IS NULL AND status = 'onboarding' "
+    "  AND intake->>'submitted_at' IS NULL "
+    "ORDER BY created_at DESC"
+)
+
+# Inside the tenant: its own sheet, its live agents oldest-first, and whether any of
+# them already carries a compiled block.
+_TENANT_INTAKE_STATE = (
+    "SELECT o.intake, a.id, pv.compiled_t0_context IS NOT NULL "
+    "FROM organizations o "
+    "JOIN agents a ON a.tenant_id = o.id AND a.deleted_at IS NULL "
+    "LEFT JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
+    "WHERE o.id = :tid ORDER BY a.created_at"
+)
+
+
+def _parse_stamp(value: Any) -> datetime | None:
+    """A `to_jsonb(now())` timestamp back as an instant, or None if it is not one.
+
+    `datetime.fromisoformat` accepts Postgres's rendering (`2026-08-13T12:00:00+05:30`)
+    on 3.12. It is parsed in PYTHON rather than cast in SQL on purpose: a
+    `(intake->>'saved_at')::timestamptz` in the ORDER BY turns one hand-patched row into
+    a 500 for the whole list, and this list is read precisely when something has gone
+    sideways.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+async def unfinished_onboardings(directory: AsyncSession) -> list[UnfinishedOnboarding]:
+    """Every account whose onboarding is half-done, most recently worked on first.
+
+    `directory` must be an `admin_session()` — the only session that can enumerate
+    tenants. Each candidate is then ENTERED with its own GUC, so the answers, the agents
+    and the prompt are all read under ordinary RLS; nothing is widened, and this
+    function holds no cross-tenant view of any table but `organizations`.
+
+    Ordered by "when did somebody last touch this", falling back to when the account was
+    created. That is the order an operator resumes in — the client they were talking to
+    an hour ago, not the one that has been sitting unfinished since March — and it is the
+    opposite of `admin/holds.py`'s oldest-first, which is a TRIAGE queue for work nobody
+    has started.
+
+    Two exclusions that are not `submitted_at`, both of which would otherwise put a
+    finished client on a list titled unfinished:
+
+    - an account with no live agent at all is skipped: the wizard has nowhere to resume
+      TO, and a row whose link cannot work is worse than an absent one;
+    - an account whose agent already carries a compiled `[T0 FACTS]` block has had its
+      intake submitted — before migration c1f3a7d92b46 there was no sheet to stamp, so
+      for those orgs the compiled block IS the record of the submit.
+
+    N+1 by construction, the same trade `tenant_overview` and `held_tenants` document
+    and bounded far more tightly than either: the candidate set is accounts that are
+    still in onboarding AND have never submitted step 3.
+    """
+    rows = (await directory.execute(text(_UNFINISHED_DIRECTORY))).all()
+
+    unfinished: list[UnfinishedOnboarding] = []
+    for org in rows:
+        tenant_id = UUID(str(org[0]))
+        async with tenant_session(tenant_id) as scoped:
+            agents = (await scoped.execute(text(_TENANT_INTAKE_STATE), {"tid": tenant_id})).all()
+        if not agents or any(bool(agent[2]) for agent in agents):
+            continue
+        sheet: dict[str, Any] | None = agents[0][0]
+        agent_ids = [UUID(str(agent[1])) for agent in agents]
+        stamped = _parse_uuid((sheet or {}).get("agent_id"))
+        agent_id = stamped if stamped in agent_ids else agent_ids[0]
+        # `_sheet_answers` is the same defensive reader the GET uses, so a sheet this
+        # build cannot parse degrades to "nothing answered" here exactly as it degrades
+        # to "prefill from the derived columns" there — and never to a 500.
+        facts = _sheet_answers(sheet, agent_id=agent_id) or IntakeFacts()
+        unfinished.append(
+            UnfinishedOnboarding(
+                tenant_id=tenant_id,
+                name=str(org[1]),
+                slug=str(org[2]),
+                agent_id=agent_id,
+                created_at=org[3],
+                draft_saved_at=_parse_stamp(org[4]),
+                blockers=tuple(submission_blockers(facts)),
+            )
+        )
+    unfinished.sort(key=lambda row: row.draft_saved_at or row.created_at, reverse=True)
+    return unfinished
+
+
+def _parse_uuid(value: Any) -> UUID | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return UUID(value)
+    except ValueError:
+        return None
 
 
 __all__ = [
@@ -745,6 +913,7 @@ __all__ = [
     "IntakeProse",
     "ServiceItem",
     "StaffMember",
+    "UnfinishedOnboarding",
     "compile_t0_facts",
     "kb_seed_text",
     "read_intake",
@@ -752,4 +921,5 @@ __all__ = [
     "save_intake_draft",
     "splice_t0_block",
     "submission_blockers",
+    "unfinished_onboardings",
 ]
