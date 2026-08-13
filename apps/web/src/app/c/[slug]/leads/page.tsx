@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   CheckCircle2,
@@ -16,22 +17,26 @@ import {
   EmptyState,
   FilterChip,
   ProblemNotice,
+  RestrictionNote,
   Skeleton,
   StatusBadge,
   formatCount,
   formatIST,
 } from "@/components/ui";
 import { useAgents, type Agent } from "@/lib/api/agents";
-import { type CallLeadResult, type Lead, type LeadStatus } from "@/lib/api/client";
-import { useClientSession } from "@/lib/api/session";
+import { type CallLeadResult } from "@/lib/api/client";
+import { useClientRealm } from "@/lib/api/session";
 import {
   useCallLead,
   useExportLeads,
-  useLeads,
   useMe,
   useUpdateLeadStatus,
+  useWriteAccess,
 } from "@/lib/api/hooks";
+import { useAssignLead, useLeads, useMembers, type Lead, type LeadStatus } from "@/lib/api/leads";
 import { lookup } from "@/lib/lookup";
+
+import { AssigneeSelect } from "./AssigneeSelect";
 
 /**
  * The CRM table — every lead an agent captured, and the one place a client works them.
@@ -96,10 +101,15 @@ function scopeLabel(status: string | undefined, search: string, total: number): 
 }
 
 export default function LeadsPage() {
-  const session = useClientSession();
+  // `href` (not just the session) because the name cell now links to the lead's own
+  // screen, and an in-realm link must carry the D-22 operator marker forward or the
+  // next page silently falls back to a client token it does not have.
+  const { session, href } = useClientRealm();
   const [status, setStatus] = useState<string | undefined>();
   const [search, setSearch] = useState("");
   const [view, setView] = useState<ViewMode>("list");
+  /** "Assigned to me" — a member id sent to the SERVER, never a slice of the page. */
+  const [assignedTo, setAssignedTo] = useState<string | undefined>();
   // The search box drives the query KEY, so an undebounced value is one request
   // (and one server-side LIKE) per keystroke. A short pause is what "finished
   // typing" looks like; the input itself stays instant.
@@ -108,11 +118,27 @@ export default function LeadsPage() {
     const timer = setTimeout(() => setSearchTerm(search.trim()), 300);
     return () => clearTimeout(timer);
   }, [search]);
-  // useLeads already accepts a `status` param and filters server-side, so the chips
-  // below drive the query directly — no client-side filtering needed.
-  const leads = useLeads(session, { status, search: searchTerm || undefined, limit: 100 });
+  // Every filter on this screen is a SERVER-side filter — the chips, the search box and
+  // the owner. The page is capped at 100 rows, so a filter applied here would be a
+  // filter over whatever happened to load (BUILD-LOG §52 counts four defects of exactly
+  // that shape, including the stage tally on this very screen).
+  const leads = useLeads(session, {
+    status,
+    search: searchTerm || undefined,
+    assigned_to: assignedTo,
+    limit: 100,
+  });
   const updateStatus = useUpdateLeadStatus(session);
   const exportLeads = useExportLeads(session);
+  const members = useMembers(session);
+  const assignLead = useAssignLead(session);
+  /**
+   * May this session change an owner? The server's own answer to `/v1/me`, run through
+   * the same helper every other gated control on this console uses: it folds the
+   * permission and D-22 impersonation into one `{allowed, reason}` so the select is
+   * disabled WITH the sentence rather than clicking into a 403.
+   */
+  const mayAssign = useWriteAccess(session, "leads:write", "change who owns a lead");
 
   const me = useMe(session);
   // The permission the CSV route requires, read off `/v1/me` rather than from a
@@ -168,6 +194,14 @@ export default function LeadsPage() {
   const readOnly = Boolean(me.data?.impersonating);
 
   /**
+   * The id "Assigned to me" means, from the SERVER's answer to `/v1/me` — never guessed
+   * and never a literal `me` in the query string. Absent while that request is in
+   * flight or failed, in which case the chip does not render at all: a filter we cannot
+   * fill in is a filter that would silently mean "everyone".
+   */
+  const myUserId = me.data?.user_id ?? undefined;
+
+  /**
    * D-21's "dispatch one AI call from the Leads table". `leads:dispatch` is a MUTATING
    * permission: `staff` does not hold it and an impersonating operator (D-22) is refused
    * it, so both cases render no button rather than a 403 waiting to happen.
@@ -176,9 +210,9 @@ export default function LeadsPage() {
   const selectedAgentId = agentId || dialers[0]?.id || "";
   const canCall = Boolean(
     me.data &&
-      me.data.permissions.includes("leads:dispatch") &&
-      !me.data.impersonating &&
-      selectedAgentId,
+    me.data.permissions.includes("leads:dispatch") &&
+    !me.data.impersonating &&
+    selectedAgentId,
   );
 
   const dispatch = (leadId: string) =>
@@ -187,7 +221,9 @@ export default function LeadsPage() {
       // A 200 carrying `status: "blocked"` is the compliance gate answering, not an
       // error — it is recorded against the row like the queued case (same shape the
       // call-detail follow-up card handles).
-      { onSuccess: (result) => setCallResults((prev) => ({ ...prev, [leadId]: result })) },
+      {
+        onSuccess: (result) => setCallResults((prev) => ({ ...prev, [leadId]: result })),
+      },
     );
 
   const callCell = (lead: Lead) =>
@@ -198,6 +234,24 @@ export default function LeadsPage() {
         onCall={() => dispatch(lead.id)}
       />
     ) : null;
+
+  const ownerCell = (lead: Lead, className: string) => (
+    <AssigneeSelect
+      lead={lead}
+      members={members.data}
+      // The picker is only offered when the team list actually ARRIVED. An empty
+      // `<select>` over a failed `/v1/members` would read as "you have no colleagues",
+      // which is a statement about the business made from a request that never landed.
+      unavailableReason={
+        members.error
+          ? "We could not read your team just now, so the owner cannot be changed. Reload the page to try again."
+          : mayAssign.reason
+      }
+      disabled={!mayAssign.allowed || assignLead.isPending}
+      onChange={(userId) => assignLead.mutate({ leadId: lead.id, userId })}
+      className={className}
+    />
+  );
 
   /* A failed first load has no rows to show and must not pretend otherwise — in either
      view. `leads.data` can still be present on a failed REFETCH (keepPreviousData), and
@@ -300,7 +354,11 @@ export default function LeadsPage() {
       {/* Status filter chips replace the old dropdown: one click per status, and the
           active choice stays visible instead of hiding inside a closed select. They
           feed the same server-side `status` param the dropdown did. */}
-      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by status">
+      <div
+        className="flex flex-wrap items-center gap-1.5"
+        role="group"
+        aria-label="Filter by status"
+      >
         <FilterChip
           label="All"
           active={status === undefined}
@@ -310,6 +368,35 @@ export default function LeadsPage() {
           <FilterChip key={s} label={s} active={status === s} onClick={() => setStatus(s)} />
         ))}
       </div>
+
+      {/* A SECOND axis, in its own group: owner is not a stage, and one `role="group"`
+          labelled "Filter by status" containing an owner toggle is a lie to a screen
+          reader. It sends `assigned_to=<my id>` to the server — the count, the stage
+          badges and the export all follow it, because they are all computed over the
+          filtered SET rather than over the rows that happen to have loaded. */}
+      {myUserId && (
+        <div
+          className="flex flex-wrap items-center gap-2"
+          role="group"
+          aria-label="Filter by owner"
+        >
+          <FilterChip
+            label="Assigned to me"
+            active={assignedTo !== undefined}
+            onClick={() => setAssignedTo(assignedTo ? undefined : myUserId)}
+          />
+          {/* The reason WHERE THE CONTROL IS. An impersonating operator is a real
+              person with a real id, so the chip works — it just cannot match anything,
+              because leads are owned by the client's own team and never by us. Saying
+              so beats letting support read an empty table as an outage. */}
+          {me.data?.impersonating && (
+            <span className="text-xs text-ink-muted">
+              You are viewing this account as Calevate operations, so no lead here is assigned to
+              you.
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Said once, plainly, next to the filters it does not obey. Louder while a
           filter IS on, because that is the moment "Export" means something different
@@ -321,14 +408,13 @@ export default function LeadsPage() {
               stage counts follow it), and "the N shown here" is a claim about a table
               that did not load. The warning itself still stands — the button is still
               live — so the sentence shortens instead of disappearing. */}
-          Heads up: the export ignores this filter. It downloads every lead in the
-          account{exportTotal === null ? "" : ` (${formatCount(exportTotal)})`}
+          Heads up: the export ignores this filter. It downloads every lead in the account
+          {exportTotal === null ? "" : ` (${formatCount(exportTotal)})`}
           {leads.data ? `, not the ${formatCount(items.length)} shown here` : ""}.
         </p>
       ) : (
         <p className="text-xs text-ink-muted">
-          The CSV export contains every lead with full phone numbers, and each download
-          is recorded.
+          The CSV export contains every lead with full phone numbers, and each download is recorded.
         </p>
       )}
 
@@ -355,15 +441,25 @@ export default function LeadsPage() {
             <span className="font-semibold text-ink">{dialers[0]?.name}</span>
           )}
           <span>
-            · every call still goes through the do-not-call, calling-hours and consent
-            checks, and can be refused.
+            · every call still goes through the do-not-call, calling-hours and consent checks, and
+            can be refused.
           </span>
         </div>
       )}
 
+      {/* The reason the owner column is dead, said once above the table it is dead in.
+          `RestrictionNote` renders nothing while `/v1/me` is still in flight, so the
+          sentence never flashes and is never retracted. */}
+      <RestrictionNote reason={mayAssign.reason} />
+
       {leads.error && <ProblemNotice error={leads.error} onRetry={() => leads.refetch()} />}
       {updateStatus.error && <ProblemNotice error={updateStatus.error} />}
       {exportLeads.error && <ProblemNotice error={exportLeads.error} />}
+      {/* The team list failing is not the leads list failing: the rows are fine and only
+          the picker is dead, which is why this is its own notice and the owner cells
+          fall back to naming the owner in plain text rather than to an empty select. */}
+      {members.error != null && <ProblemNotice error={members.error} />}
+      {assignLead.error != null && <ProblemNotice error={assignLead.error} />}
       {/* A refusal by the gate comes back 200 and is rendered on the row; this is for
           the real failures (network, 403, a lead with no dialable number). */}
       {callLead.error != null && <ProblemNotice error={callLead.error} />}
@@ -385,6 +481,7 @@ export default function LeadsPage() {
                     <th className={HEAD_CELL}>Name</th>
                     <th className={HEAD_CELL}>Phone</th>
                     <th className={HEAD_CELL}>Status</th>
+                    <th className={HEAD_CELL}>Owner</th>
                     {columns.map((column) => (
                       <th key={column.key} className={HEAD_CELL}>
                         {column.label}
@@ -397,12 +494,19 @@ export default function LeadsPage() {
                 </thead>
                 <tbody className="divide-y divide-line">
                   {items.map((lead) => (
-                    <tr
-                      key={lead.id}
-                      className="hover:bg-black/[0.02] dark:hover:bg-white/[0.03]"
-                    >
+                    <tr key={lead.id} className="hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
                       <td className={`${BODY_CELL} font-semibold text-ink`}>
-                        {lead.name ?? <span className="font-normal text-ink-faint">No name</span>}
+                        {/* The lead's own screen, where the timeline lives. The href
+                            carries the lead ID and never the number — a URL reaches
+                            browser history, referrers and access logs, so hard rule 6
+                            is stricter for a link than for text (the call log draws the
+                            same line). */}
+                        <Link
+                          href={href(`/c/${session.orgSlug}/leads/${lead.id}`)}
+                          className="hover:underline"
+                        >
+                          {lead.name ?? <span className="font-normal text-ink-faint">No name</span>}
+                        </Link>
                         {lead.is_repeat_caller && (
                           <span className="ml-2 rounded-full bg-brand-soft px-2 py-0.5 text-[10px] font-semibold text-brand-strong">
                             repeat
@@ -412,9 +516,7 @@ export default function LeadsPage() {
                       {/* MASKED, always. `phone_masked` is the only number `LeadOut`
                           carries and the only one this screen may render (hard rule 6);
                           full numbers exist on the audited CSV export and nowhere else. */}
-                      <td
-                        className={`${BODY_CELL} whitespace-nowrap tabular-nums text-ink-muted`}
-                      >
+                      <td className={`${BODY_CELL} whitespace-nowrap tabular-nums text-ink-muted`}>
                         {lead.phone_masked}
                       </td>
                       <td className={BODY_CELL}>
@@ -422,9 +524,20 @@ export default function LeadsPage() {
                           value={lead.status}
                           label={`Status for ${lead.name ?? lead.phone_masked}`}
                           disabled={updateStatus.isPending || readOnly}
-                          onChange={(next) => updateStatus.mutate({ leadId: lead.id, status: next })}
+                          onChange={(next) =>
+                            updateStatus.mutate({
+                              leadId: lead.id,
+                              status: next,
+                            })
+                          }
                           className="rounded-md border border-transparent bg-transparent px-1 py-0.5 text-xs capitalize text-ink hover:border-line"
                         />
+                      </td>
+                      <td className={BODY_CELL}>
+                        {ownerCell(
+                          lead,
+                          "rounded-md border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink hover:border-line",
+                        )}
                       </td>
                       {columns.map((column) => (
                         <td key={column.key} className={`${BODY_CELL} text-ink-muted`}>
@@ -485,7 +598,12 @@ export default function LeadsPage() {
                         <p className="truncate text-sm font-semibold text-ink">
                           {/* The list of leads without a captured name is long; the
                               masked phone is the next-best stable identifier. */}
-                          {lead.name ?? lead.phone_masked}
+                          <Link
+                            href={href(`/c/${session.orgSlug}/leads/${lead.id}`)}
+                            className="hover:underline"
+                          >
+                            {lead.name ?? lead.phone_masked}
+                          </Link>
                         </p>
                         <p className="mt-0.5 truncate text-xs text-ink-faint">
                           {lead.source} · {formatIST(lead.updated_at)}
@@ -497,13 +615,23 @@ export default function LeadsPage() {
                           label={`Status for ${lead.name ?? lead.phone_masked}`}
                           disabled={updateStatus.isPending || readOnly}
                           onChange={(next) =>
-                            updateStatus.mutate({ leadId: lead.id, status: next })
+                            updateStatus.mutate({
+                              leadId: lead.id,
+                              status: next,
+                            })
                           }
                           className="mt-1.5 w-full rounded-md border border-line bg-transparent px-1 py-0.5 text-xs capitalize text-ink"
                         />
-                        {/* Same control as the table: the board is where someone
-                            works the pipeline, so leaving dispatch out of it would
-                            make the feature reachable only from the other tab. */}
+                        {/* Same control as the table, for the reason the dispatch
+                            button below states: the board is where someone works the
+                            pipeline, so a feature reachable only from the other tab is
+                            a feature half the users never find. */}
+                        <div className="mt-1.5">
+                          {ownerCell(
+                            lead,
+                            "w-full rounded-md border border-line bg-transparent px-1 py-0.5 text-xs text-ink",
+                          )}
+                        </div>
                         {canCall && <div className="mt-1.5">{callCell(lead)}</div>}
                       </div>
                     ))}
@@ -544,9 +672,7 @@ export default function LeadsPage() {
             of {formatCount(leads.data.total)}
             {status ? ` ${status}` : ""} {leads.data.total === 1 ? "lead" : "leads"}.
           </span>
-          <span>
-            {searchTerm ? "Matching your search" : "In this account"}, by stage:
-          </span>
+          <span>{searchTerm ? "Matching your search" : "In this account"}, by stage:</span>
           {STATUSES.map((s) => (
             <span key={s} className="flex items-center gap-1">
               <StatusBadge value={s} />

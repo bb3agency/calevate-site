@@ -1,9 +1,10 @@
 import { fireEvent, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import LeadsPage from "@/app/c/[slug]/leads/page";
 import type { Agent } from "@/lib/api/agents";
-import type { CallLeadResult, Lead, LeadList, Me } from "@/lib/api/client";
+import type { CallLeadResult, Me } from "@/lib/api/client";
+import type { Lead, LeadList, Member } from "@/lib/api/leads";
 
 import { expectTextCount, problem, renderClientPage } from "./harness";
 
@@ -57,6 +58,15 @@ const DIALER: Agent = {
   direction: "outbound",
 } as unknown as Agent;
 
+/**
+ * The account's team, as `/v1/members` sends it: ids and display names, NO email
+ * (tenancy/routes.py refuses to declare one — `email` is in the redaction guardrail's
+ * `RAW_PII_FIELDS`). `PRIYA` is `ME`, so "Assigned to me" has a real id to send.
+ */
+const PRIYA: Member = { id: "u1", name: "Priya Nair", role: "owner" };
+const KIRAN: Member = { id: "u2", name: "Kiran Babu", role: "staff" };
+const MEMBERS: Member[] = [PRIYA, KIRAN];
+
 function lead(over: Partial<Lead> = {}): Lead {
   return {
     id: "lead-a",
@@ -71,6 +81,8 @@ function lead(over: Partial<Lead> = {}): Lead {
     last_call_id: null,
     created_at: "2026-08-10T06:00:00Z",
     updated_at: "2026-08-13T04:30:00Z",
+    assigned_to: null,
+    assigned_to_name: null,
     ...over,
   } as Lead;
 }
@@ -98,6 +110,7 @@ function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": ME,
     "/v1/agents": [DIALER],
+    "/v1/members": MEMBERS,
     "/v1/leads?limit=100": leadList([]),
     ...over,
   };
@@ -385,6 +398,37 @@ describe("the counts come from the server or are not shown", () => {
     expect(container.textContent).toContain("Matching your search, by stage:");
   });
 
+  it("does not count the assignee filter off the page either", async () => {
+    // The stage badges are the server's, over the server's scope — which now includes
+    // the owner. A screen that filtered rows in the browser would show the ACCOUNT's
+    // tally beside two rows, which is the §52 shape in a new costume.
+    const { container, calls } = await renderClientPage(
+      <LeadsPage />,
+      routes({
+        "/v1/leads?assigned_to=u1&limit=100": leadList([lead({ assigned_to: "u1" })], {
+          total: 1,
+          status_counts_matching_search: {
+            new: 1,
+            contacted: 0,
+            interested: 0,
+            hot: 0,
+            won: 0,
+            lost: 0,
+          },
+        }),
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Assigned to me" }));
+    // `keepPreviousData` leaves the OLD page on screen while the filtered one is in
+    // flight — which is the point of it — so the assertion has to wait for the new
+    // answer rather than reading whatever is there the moment the chip is clicked.
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Showing 1 of 1 lead");
+    });
+    expect(calls.some((c) => c.path === "/v1/leads?assigned_to=u1&limit=100")).toBe(true);
+  });
+
   it("renders no page heading, because the shell already prints one", async () => {
     // The shell renders the title from the nav list (layout.tsx). A second "Leads" here
     // is a visible duplicate, and the copy that drifts when the nav entry is renamed.
@@ -392,5 +436,217 @@ describe("the counts come from the server or are not shown", () => {
 
     await screen.findByText(/by stage/);
     expect(container.querySelectorAll("h1")).toHaveLength(0);
+  });
+});
+
+/**
+ * LEAD OWNERSHIP (ROADMAP M3). `leads.assigned_to` existed from the first migration and
+ * nothing read or wrote it; this is the screen half of closing that.
+ *
+ * The three things worth a test here are the three that would be invisible in review:
+ * the filter is a REQUEST and not a slice, the unassignment is an explicit `null` in the
+ * body, and a dead `/v1/members` refuses rather than rendering an empty team.
+ */
+describe("who owns a lead", () => {
+  const ASSIGNED = leadList([lead({ assigned_to: "u2", assigned_to_name: "Kiran Babu" })], {
+    total: 1,
+    status_counts_matching_search: { new: 1, contacted: 0, interested: 0, hot: 0, won: 0, lost: 0 },
+  });
+
+  it("offers the account's team, and shows the current owner as the selected one", async () => {
+    await renderClientPage(<LeadsPage />, routes({ "/v1/leads?limit=100": ASSIGNED }));
+
+    const select = await screen.findByLabelText("Owner of Ramesh Kumar");
+    expect((select as HTMLSelectElement).value).toBe("u2");
+    const options = Array.from((select as HTMLSelectElement).options).map((o) => o.textContent);
+    expect(options).toEqual(["Unassigned", "Priya Nair", "Kiran Babu"]);
+  });
+
+  it("assigns by sending the member's id to the server", async () => {
+    const { calls } = await renderClientPage(
+      <LeadsPage />,
+      routes({
+        "/v1/leads?limit=100": leadList([lead()], {
+          total: 1,
+          status_counts_matching_search: {
+            new: 1,
+            contacted: 0,
+            interested: 0,
+            hot: 0,
+            won: 0,
+            lost: 0,
+          },
+        }),
+        "/v1/leads/lead-a": lead({ assigned_to: "u2", assigned_to_name: "Kiran Babu" }),
+      }),
+    );
+
+    fireEvent.change(await screen.findByLabelText("Owner of Ramesh Kumar"), {
+      target: { value: "u2" },
+    });
+
+    await vi.waitFor(() => {
+      const patch = calls.find((c) => c.method === "PATCH" && c.path === "/v1/leads/lead-a");
+      expect(patch, "no PATCH reached the server").toBeTruthy();
+      expect(JSON.parse(patch!.body ?? "{}")).toEqual({ assigned_to: "u2" });
+    });
+  });
+
+  it("UNASSIGNS with an explicit null rather than by omitting the key", async () => {
+    /**
+     * The one that a helper stripping empty values would break silently. The API tells
+     * "unassign" from "leave the owner alone" by whether `assigned_to` is PRESENT in the
+     * body (`crm.routes.patch_lead` reads Pydantic's `model_fields_set`), so a dropped
+     * key answers 200 and changes nothing — a button that looks like it worked.
+     */
+    const { calls } = await renderClientPage(
+      <LeadsPage />,
+      routes({ "/v1/leads?limit=100": ASSIGNED, "/v1/leads/lead-a": lead() }),
+    );
+
+    fireEvent.change(await screen.findByLabelText("Owner of Ramesh Kumar"), {
+      target: { value: "" },
+    });
+
+    await vi.waitFor(() => {
+      const patch = calls.find((c) => c.method === "PATCH" && c.path === "/v1/leads/lead-a");
+      expect(patch).toBeTruthy();
+      // Parsed, not string-matched: `"assigned_to":null` and an absent key both render
+      // as "no owner" on screen and only one of them reaches the column.
+      const body = JSON.parse(patch!.body ?? "{}");
+      expect("assigned_to" in body).toBe(true);
+      expect(body.assigned_to).toBeNull();
+    });
+  });
+
+  it("names an owner who has left rather than snapping the row to Unassigned", async () => {
+    // `assigned_to_name` is null for an unassigned lead AND for a member this account
+    // can no longer name. Collapsing the two would make the next change the client made
+    // look like they had removed somebody they never saw.
+    await renderClientPage(
+      <LeadsPage />,
+      routes({
+        "/v1/leads?limit=100": leadList([lead({ assigned_to: "u9", assigned_to_name: null })], {
+          total: 1,
+          status_counts_matching_search: {
+            new: 1,
+            contacted: 0,
+            interested: 0,
+            hot: 0,
+            won: 0,
+            lost: 0,
+          },
+        }),
+      }),
+    );
+
+    const select = (await screen.findByLabelText("Owner of Ramesh Kumar")) as HTMLSelectElement;
+    expect(select.value).toBe("u9");
+    expect(select.selectedOptions[0].textContent).toContain("No longer on this account");
+  });
+
+  it("disables the control WITH the reason for a role that may not assign", async () => {
+    const staff = { ...ME, role: "staff", permissions: ["leads:read", "calls:read"] };
+    const { container } = await renderClientPage(
+      <LeadsPage />,
+      routes({ "/v1/me": staff, "/v1/leads?limit=100": ASSIGNED }),
+    );
+
+    const select = (await screen.findByLabelText("Owner of Ramesh Kumar")) as HTMLSelectElement;
+    expect(select.disabled).toBe(true);
+    // The reason is ON the control, and also said once above the table — a refusal a
+    // screenful away from the dead control is the defect §52 records.
+    expect(select.title).toContain("account owner");
+    expect(container.textContent).toContain("Only an account owner can change who owns a lead");
+  });
+
+  it("refuses rather than rendering an empty team when /v1/members fails", async () => {
+    /**
+     * `?? []` on this fetch would draw a dropdown containing only "Unassigned", which
+     * says "you have no colleagues" from a request that never landed. The owner is still
+     * NAMED, because that came down with the row and is the server's own answer.
+     */
+    const { container } = await renderClientPage(
+      <LeadsPage />,
+      routes({
+        "/v1/leads?limit=100": ASSIGNED,
+        "/v1/members": problem(503, {
+          title: "Service unavailable",
+          detail: "We could not read your team.",
+        }),
+      }),
+    );
+
+    await screen.findByRole("alert");
+    expect(screen.queryByLabelText("Owner of Ramesh Kumar")).toBeNull();
+    expect(container.textContent).toContain("Kiran Babu");
+    expect(container.textContent).toContain("We could not read your team");
+  });
+
+  it("sends the owner filter to the SERVER and never slices the loaded page", async () => {
+    /**
+     * The assertion is on the REQUEST, deliberately. A screen that filtered `items` in
+     * the browser would render the same two rows and pass any assertion about them —
+     * while being wrong about every lead past the 100-row cap.
+     */
+    const { calls } = await renderClientPage(
+      <LeadsPage />,
+      routes({
+        "/v1/leads?limit=100": leadList([lead(), lead({ id: "lead-b", name: "Priya's lead" })]),
+        "/v1/leads?assigned_to=u1&limit=100": leadList([lead({ assigned_to: "u1" })], {
+          total: 1,
+          status_counts_matching_search: {
+            new: 1,
+            contacted: 0,
+            interested: 0,
+            hot: 0,
+            won: 0,
+            lost: 0,
+          },
+        }),
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Assigned to me" }));
+
+    await vi.waitFor(() => {
+      expect(calls.some((c) => c.path === "/v1/leads?assigned_to=u1&limit=100")).toBe(true);
+    });
+    // …and clicking it again clears the filter, rather than leaving the client stuck in
+    // a view they cannot get out of without a reload.
+    fireEvent.click(screen.getByRole("button", { name: "Assigned to me" }));
+    await vi.waitFor(() => {
+      expect(
+        calls.filter((c) => c.path === "/v1/leads?limit=100").length,
+        "the unfiltered list was asked for again",
+      ).toBeGreaterThan(1);
+    });
+  });
+
+  it("tells an impersonating operator why the filter will be empty", async () => {
+    // D-22: leads belong to the client's team, never to us. The chip works — it just
+    // matches nothing — so the sentence is beside it rather than a dead control.
+    const { container } = await renderClientPage(
+      <LeadsPage />,
+      routes({ "/v1/me": { ...ME, impersonating: true } }),
+    );
+
+    await screen.findByRole("button", { name: "Assigned to me" });
+    expect(container.textContent).toContain("as Calevate operations");
+  });
+
+  it("links each lead to its own screen by id, never by number", async () => {
+    const { container } = await renderClientPage(
+      <LeadsPage />,
+      routes({ "/v1/leads?limit=100": leadList([lead()]) }),
+    );
+
+    const link = (await screen.findByRole("link", { name: /Ramesh Kumar/ })) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/c/acme/leads/lead-a");
+    // A URL reaches browser history, referrers and access logs — hard rule 6 is stricter
+    // for a link than for text.
+    for (const anchor of Array.from(container.querySelectorAll("a"))) {
+      expect(anchor.getAttribute("href") ?? "").not.toContain("9876543210");
+    }
   });
 });

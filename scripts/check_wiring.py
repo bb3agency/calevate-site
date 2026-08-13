@@ -99,10 +99,6 @@ UNWIRED_BASELINE: dict[str, str] = {
         "`calling_hours` and launches on demand — there is no scheduling surface in "
         "either realm yet (SURFACES §4); closes with scheduled launch"
     ),
-    "Lead.assigned_to": (
-        "lead ownership. No assignment surface exists in either realm — CRM is "
-        "read+export in M2 (SURFACES §3); closes with the assignment action"
-    ),
     "Plan.setup_fee": (
         "one-time onboarding charge. Invoicing quotes monthly + overage only "
         "(billing/invoice.py); closes when onboarding is billed through the invoice "

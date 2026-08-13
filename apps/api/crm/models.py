@@ -40,7 +40,16 @@ SENTIMENTS = ("positive", "neutral", "negative")
 SPEAKERS = ("agent", "caller")
 LEAD_SOURCES = ("inbound_call", "webhook", "campaign", "manual")
 LEAD_STATUSES = ("new", "contacted", "interested", "hot", "won", "lost")  # fixed enum, D-21
-LEAD_EVENT_TYPES = ("status_change", "note", "call", "notification")
+# `assignment` is a MEMBER rather than another `note` kind, and the choice is not
+# cosmetic. The precedent that governs is `status_change`, not the `note` reuse in
+# `ingest/service.py`: both are "a person changed a field on the lead", and modelling
+# one of them as a type while the other hides inside a payload discriminator would be
+# two ways of recording one shape of event. The ingest reuse exists because "blocked"
+# has no natural member here AND that milestone shipped no migration — this slice ships
+# one anyway (the assignee index), so the member costs nothing extra. Widening a CHECK
+# is additive, so hard rule 8's two-step deprecation does not apply (migration
+# d2b6f04a17c9).
+LEAD_EVENT_TYPES = ("status_change", "note", "call", "notification", "assignment")
 
 
 class Call(PKMixin, TimestampMixin, Base):

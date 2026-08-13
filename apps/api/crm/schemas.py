@@ -88,6 +88,17 @@ class LeadOut(Strict):
     last_call_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
+    # WHO OWNS THIS LEAD (ROADMAP M3). The id is what the assignee control writes back,
+    # the name is what a person reads — and the two are separate fields rather than one
+    # resolved string because a name is not an identity: two colleagues called Ravi are
+    # not a bug the picker has to solve.
+    assigned_to: UUID | None = None
+    # NULL for an unassigned lead AND for an assignee this tenant can no longer name —
+    # a member who was removed, or (impossibly, but the query does not assume it) a user
+    # from another tenant. The resolution goes through `memberships`, which is RLS'd, so
+    # a foreign id resolves to nothing rather than to a stranger's name. The screen says
+    # "someone who has left" for the second case and never invents a name for it.
+    assigned_to_name: str | None = None
 
 
 class LeadListOut(Strict):
@@ -101,8 +112,12 @@ class LeadListOut(Strict):
     total: int
     limit: int
     offset: int
-    # status → count for all six statuses, over the SAME search and agent scope as the
-    # page, but NOT narrowed by `status`. The name carries the scope on purpose: the
+    # status → count for all six statuses, over the SAME search, agent and ASSIGNEE
+    # scope as the page, but NOT narrowed by `status`. (The name predates the assignee
+    # filter and is kept — a shipped field name is a contract, and it was already
+    # imprecise about `agent_id`; `crm.service._lead_scope` is the definition.) Under a
+    # "my leads" chip these are therefore MY leads by stage, which is the only reading
+    # that answers the question the screen is asking. The name carries the scope on purpose: the
     # screen renders this as a badge row, and the two wrong readings of an unlabelled
     # `status_counts` are both damaging. Narrowed by status it would be one real number
     # and five zeroes — which is exactly the bug this replaces, where filtering to `hot`
@@ -120,6 +135,82 @@ class LeadUpdateIn(Strict):
     # clients cannot add their own.
     status: LeadStatus | None = None
     name: str | None = Field(default=None, max_length=120)
+    # THE OWNER, and the one field here where `null` is a value rather than a silence.
+    #
+    # A PATCH body that omits `assigned_to` means "leave the owner alone"; a body that
+    # sends `"assigned_to": null` means "this lead has no owner", which is a real event
+    # — the person who owned it left, or handed it back. Pydantic v2 tells the two apart
+    # through `model_fields_set`, which holds exactly the fields the request supplied and
+    # not the ones that took their default (pydantic.dev/docs/validation/latest/concepts/
+    # models — "fields_set"); `crm.routes.patch_lead` reads it. Every other field here is
+    # non-nullable in the domain, so `None` can keep meaning "unchanged" for them.
+    #
+    # A dedicated `PUT /v1/leads/{id}/assignee` was the alternative, and it would have
+    # made the null unambiguous without the sentinel. Rejected because it would put TWO
+    # routes on "edit this lead" — the status select and the assignee select sit in the
+    # same table row, are the same permission, and would otherwise be two mutations, two
+    # cache invalidations and two places for the next field to be added wrongly.
+    assigned_to: UUID | None = None
+
+
+class LeadTimelineEventOut(Strict):
+    """One line of a lead's history, PROJECTED — never `lead_events.payload` itself.
+
+    `lead_events.payload` is JSONB written by six producers in three deployables
+    (`crm.service.update_lead`, `ingest.service._timeline`, `workers.pipeline`,
+    `workers.notifications`, and two paths in `workers.whatsapp`), with no schema
+    between them and the column. Every one of them was read before this model was
+    written, and today every one of them stores ids, authored rule/reason codes,
+    booleans and counters — no phone number, no transcript text, no extraction payload
+    (`crm.service.lead_timeline` records the audit key by key).
+
+    That is a fact about today's writers, not a property of the column, and hard rules 5
+    and 6 have to survive the seventh producer. So the read PROJECTS: the service builds
+    every field below from a whitelist of keys, and a key nothing here names cannot
+    reach a browser however it got into the row. The blob is never serialized, which is
+    also why this model needs no `ACKNOWLEDGED_PASSTHROUGH` entry in
+    `scripts/check_redaction_exposure.py` — there is no free-form dict to acknowledge.
+    """
+
+    id: UUID
+    # A STRING, not a `Literal` of the five values `crm.models.LEAD_EVENT_TYPES` allows.
+    # The database CHECK is the enum's home, and a build older than the database it is
+    # talking to would otherwise 500 on `extra="forbid"` and take a client's whole
+    # history off the screen rather than one unfamiliar row. The screen reads this
+    # through `lookup` with a visible fallback — the same call the call-detail transcript
+    # makes for `speaker`, and for the same reason.
+    type: str
+    occurred_at: datetime
+    # "system" when the platform did it (a call landed, an alert went out), "member"
+    # when a person did. The two are told apart HERE rather than by the screen sniffing
+    # `actor_name`, because "a colleague we can no longer name" and "the platform" are
+    # different sentences and both would otherwise render as an absent name.
+    actor_kind: Literal["system", "member"]
+    # The member's own name. None for a system event, and None for a member this tenant
+    # can no longer name (removed, deactivated, or — see `LeadOut.assigned_to_name` —
+    # never theirs to begin with). Resolved through `memberships`, so RLS decides.
+    actor_name: str | None = None
+    # Client-safe prose, composed by the service from the whitelist. Same doctrine as
+    # `AttentionItemOut.title`/`detail`, which already projects rows from this table.
+    title: str
+    detail: str | None = None
+    # The call this line is about, when there is one, so the screen can link to it.
+    # OUR id — never the engine's handle, which is a vendor identifier (hard rule 2).
+    call_id: UUID | None = None
+
+
+class LeadTimelineOut(Strict):
+    """A page of a lead's history, newest first.
+
+    `total` is the size of the SET, counted with `count(*) OVER ()` in the same pass as
+    the rows — never `len(items)`, which is the size of the page (BUILD-LOG §52, and
+    `AttentionOut` makes the identical distinction in the identical words).
+    """
+
+    items: list[LeadTimelineEventOut]
+    total: int
+    limit: int
+    offset: int
 
 
 class CallLeadIn(Strict):
@@ -386,6 +477,8 @@ __all__ = [
     "LeadListOut",
     "LeadOut",
     "LeadStatus",
+    "LeadTimelineEventOut",
+    "LeadTimelineOut",
     "LeadUpdateIn",
     "PerformanceFunnelOut",
     "PerformanceOut",
