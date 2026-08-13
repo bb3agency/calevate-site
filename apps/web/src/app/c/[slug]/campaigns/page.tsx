@@ -27,6 +27,11 @@ import {
   StatTile,
   formatCount,
   formatIST,
+  FIELD,
+  FIELD_HINT,
+  FIELD_LABEL,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
 } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
@@ -99,14 +104,6 @@ import { useAgents } from "@/lib/api/agents";
  * generalised from one caller. They belong in `ui.tsx` the moment a second screen needs
  * them — which is a note for whoever builds `/agents`, not a reason to move them today.
  */
-const FIELD =
-  "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint";
-const FIELD_LABEL = "text-xs font-medium text-ink-muted";
-const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
-const PRIMARY_BUTTON =
-  "inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-50";
-const SECONDARY_BUTTON =
-  "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5";
 
 /**
  * A radio rendered as a card.

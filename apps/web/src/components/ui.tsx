@@ -286,6 +286,41 @@ export const NOTICE_TONES: Record<NoticeTone, string> = {
     "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300",
 };
 
+/*
+ * FORM AND BUTTON CLASSES, once.
+ *
+ * These were written in `/c/[slug]/campaigns` when it was the console's only real form,
+ * with a note saying they belonged here "the moment a second screen needs them". Four
+ * more arrived — signup, the onboarding wizard, the ops controls and the compliance
+ * screens — and each copied them VERBATIM, which is the good outcome of that note and
+ * also the last moment to act on it: five identical string literals stay identical only
+ * until someone improves one.
+ *
+ * Exported as class strings rather than as `<Input>` / `<Button>` components because
+ * the call sites differ in everything except appearance — `<input>`, `<select>`,
+ * `<textarea>`, `<button>`, `<label>`, and one `<a>` styled as a button. A component
+ * would have to re-expose every native prop of five elements to earn its place.
+ * shadcn/ui, which `ui.tsx`'s own header says arrives with the design pass, is the
+ * eventual answer; this is the honest interim and it costs one import.
+ */
+export const FIELD =
+  "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint";
+export const FIELD_LABEL = "text-xs font-medium text-ink-muted";
+export const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
+export const PRIMARY_BUTTON =
+  "inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-50";
+export const SECONDARY_BUTTON =
+  "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5";
+/**
+ * The button that does something a person cannot undo.
+ *
+ * Rose, deliberately not `PRIMARY_BUTTON`: the control that stops every tenant's
+ * dialling must not sit in the same visual class as "Create campaign". An operator's
+ * eye should refuse to find it there.
+ */
+export const DANGER_BUTTON =
+  "inline-flex items-center gap-2 rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50";
+
 /**
  * A verdict, in the tone the verdict deserves.
  *

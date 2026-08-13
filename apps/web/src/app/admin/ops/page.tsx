@@ -13,7 +13,18 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
-import { Card, NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import {
+  Card,
+  DANGER_BUTTON,
+  FIELD,
+  FIELD_HINT,
+  FIELD_LABEL,
+  NoticeBox,
+  PRIMARY_BUTTON,
+  ProblemNotice,
+  Skeleton,
+  formatIST,
+} from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
 import {
   usePlatformState,
@@ -88,14 +99,6 @@ import { lookup } from "@/lib/lookup";
  * for it in a way that matters — an operator's eye should not find it in the same class
  * as "Create campaign".
  */
-const FIELD =
-  "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint";
-const FIELD_LABEL = "text-xs font-medium text-ink-muted";
-const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
-const PRIMARY_BUTTON =
-  "inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-50";
-const DANGER_BUTTON =
-  "inline-flex items-center gap-2 rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
  * What each load-shed mode actually sheds, in one place.

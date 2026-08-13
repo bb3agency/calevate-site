@@ -5,7 +5,16 @@ import { useState, type ReactNode } from "react";
 import { ArrowRight, CircleAlert, Lock, Mail, ShieldCheck } from "lucide-react";
 
 import { Providers } from "@/app/providers";
-import { Card, NoticeBox, ProblemNotice } from "@/components/ui";
+import {
+  Card,
+  FIELD,
+  FIELD_HINT,
+  FIELD_LABEL,
+  NoticeBox,
+  PRIMARY_BUTTON,
+  ProblemNotice,
+  SECONDARY_BUTTON,
+} from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
 import {
@@ -83,14 +92,6 @@ import {
  * `FIELD_LABEL`, `FIELD_HINT`, `PRIMARY_BUTTON` and `SECONDARY_BUTTON` into `ui.tsx` and
  * delete both copies.
  */
-const FIELD =
-  "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint";
-const FIELD_LABEL = "text-xs font-medium text-ink-muted";
-const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
-const PRIMARY_BUTTON =
-  "inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-50";
-const SECONDARY_BUTTON =
-  "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5";
 
 /**
  * The wire name of every field this form owns, and the DOM id its input carries.
