@@ -1,8 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import {
+  BadgeCheck,
+  CalendarClock,
+  CircleHelp,
+  FileSearch,
+  MessageSquareOff,
+  PhoneOff,
+  Search,
+  ShieldAlert,
+} from "lucide-react";
 
-import { Card, ProblemNotice, RestrictionNote, formatIST } from "@/components/ui";
+import {
+  Card,
+  NOTICE_TONES,
+  ProblemNotice,
+  RestrictionNote,
+  formatIST,
+  type NoticeTone,
+} from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -45,6 +62,33 @@ import {
  *
  * No delete control exists anywhere on this page: the ledger is append-only (hard rule
  * 4) and a withdrawal is a new record that supersedes the grant before it.
+ *
+ * ## THIS IS NOT CONSENT TO BE CALLED, and the screen may never blur the two
+ *
+ * SEC-COMP §4 is explicit: a campaign's `consent_source` provenance and a `callback`
+ * ledger row "never satisfy it, and nothing backfills it". They are different purposes
+ * under DPDP §6, they are refused by different gates, and a follow-up message still has
+ * to pass `check_dispatch` — the do-not-call read — before this record is even consulted.
+ * So every sentence here that could be read as clearance for a CALL is either absent or
+ * says which gate it belongs to.
+ *
+ * ## What the design pass changed
+ *
+ * Tokens from `globals.css` and the shared `NOTICE_TONES` palette replace the hardcoded
+ * slate/emerald/amber literals and this file's private copy of that table — two tables
+ * describing the same four states is where a design language starts to drift. Three
+ * honesty problems fixed on the way through:
+ *
+ * - **It printed its own `<h1>`**, which the app shell already renders from the nav list.
+ * - **A status this build does not know rendered as "nobody has asked them yet".**
+ *   `MessagingConsentOut.status` is a bare `string`, so `none` (a real state: nobody ever
+ *   asked, and a 200) shared a branch with every member the API might grow. Those are
+ *   different sentences — one is a fact about the person, the other is a fact about our
+ *   build — and the second one now says so and shows the value, so support can act on it.
+ * - **The lookup mutation was named `lookup`**, shadowing the `lookup()` this file
+ *   imports for its wire-string reads. The one call site that needed the import was at
+ *   module scope, so it worked — and would have stopped working the moment anyone needed
+ *   a copy-table read inside the component, in a way that reads as a typo.
  */
 
 /** The three answers, as the person on the phone would put them. */
@@ -65,10 +109,19 @@ const STATUS_COPY: Record<ConsentStatus, { label: string; hint: string }> = {
 
 const NO_STATUSES: ConsentStatus[] = ["declined", "withdrawn"];
 
+/** Form controls, once — see the same constants, and the reason they split, on the
+ *  do-not-call screen. */
+const FIELD_BASE =
+  "rounded-md border border-line bg-surface py-1.5 text-sm text-ink placeholder:text-ink-faint";
+const FIELD = `${FIELD_BASE} px-3`;
+const FIELD_ICON = `${FIELD_BASE} pl-8 pr-3`;
+const PRIMARY_BUTTON =
+  "flex items-center gap-1.5 rounded-md bg-brand-strong px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50";
+
 export default function MessagingConsentPage() {
   const session = useClientSession();
 
-  const lookup = useLookupMessagingConsent(session);
+  const consentLookup = useLookupMessagingConsent(session);
   const record = useRecordMessagingConsent(session);
 
   /**
@@ -140,31 +193,26 @@ export default function MessagingConsentPage() {
           setEvidence({});
           setCallId("");
           // Any verdict on screen was read before this write and may now be wrong.
-          lookup.reset();
+          consentLookup.reset();
         },
       },
     );
   };
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
-          Messaging consent
-        </h1>
-        <p className="mt-0.5 text-sm text-slate-500">
-          Who has agreed to receive WhatsApp messages from you. Campaign follow-ups are
-          only sent to people recorded here — and this is separate from calling, which
-          is governed by the do-not-call list.
-        </p>
-      </div>
+    <div className="space-y-5 pb-12">
+      <p className="text-sm text-ink-muted">
+        Who has agreed to receive WhatsApp messages from you. Campaign follow-ups are
+        only sent to people recorded here — and this is a separate permission from
+        calling, which is governed by the do-not-call list.
+      </p>
 
       <RestrictionNote reason={write.reason} />
 
       {/* The question people actually arrive with, and the one thing everyone with
           access to the account may do. */}
       <Card title="Can we message this number?">
-        <p className="text-sm text-slate-600 dark:text-slate-400">
+        <p className="text-sm text-ink-muted">
           Asks the same question the system asks itself before it sends a follow-up, so
           the answer cannot disagree with what actually happens.
         </p>
@@ -172,51 +220,57 @@ export default function MessagingConsentPage() {
           className="mt-3 flex flex-wrap items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            lookup.mutate(lookupPhone.trim());
+            consentLookup.mutate(lookupPhone.trim());
           }}
         >
-          <input
-            required
-            value={lookupPhone}
-            onChange={(e) => {
-              setLookupPhone(e.target.value);
-              // A stale verdict beside a changed number is worse than no verdict.
-              // (TanStack Query v5 `reset()` clears mutation state —
-              // tanstack.com/query/v5/docs/framework/react/reference/useMutation)
-              lookup.reset();
-            }}
-            minLength={8}
-            maxLength={20}
-            inputMode="tel"
-            autoComplete="off"
-            placeholder="9876543210 or +919876543210"
-            aria-label="Phone number to check"
-            className="w-64 rounded-md border border-slate-200 px-3 py-1.5 font-mono text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+            <input
+              required
+              value={lookupPhone}
+              onChange={(e) => {
+                setLookupPhone(e.target.value);
+                // A stale verdict beside a changed number is worse than no verdict.
+                // (TanStack Query v5 `reset()` clears mutation state —
+                // tanstack.com/query/v5/docs/framework/react/reference/useMutation)
+                consentLookup.reset();
+              }}
+              minLength={8}
+              maxLength={20}
+              inputMode="tel"
+              autoComplete="off"
+              placeholder="9876543210 or +919876543210"
+              aria-label="Phone number to check"
+              className={`${FIELD_ICON} w-64 font-mono`}
+            />
+          </div>
           <button
             type="submit"
-            disabled={lookup.isPending || lookupPhone.trim().length < 8}
-            className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+            disabled={consentLookup.isPending || lookupPhone.trim().length < 8}
+            className={PRIMARY_BUTTON}
           >
-            {lookup.isPending ? "Checking…" : "Check"}
+            {consentLookup.isPending ? "Checking…" : "Check"}
           </button>
         </form>
 
-        {lookup.error != null && (
+        {/* A failed lookup is a refusal and nothing else. Every verdict this box can
+            render is a claim about a PERSON's wishes; none of them may be printed on the
+            strength of a request that never landed. */}
+        {consentLookup.error != null && (
           <div className="mt-3">
-            <ProblemNotice error={lookup.error} />
+            <ProblemNotice error={consentLookup.error} />
           </div>
         )}
-        {lookup.data && (
+        {consentLookup.data && (
           <div className="mt-3">
-            <Verdict state={lookup.data} />
+            <Verdict state={consentLookup.data} />
           </div>
         )}
       </Card>
 
       {write.allowed && (
         <Card title="Record what a customer said">
-          <p className="text-sm text-slate-600 dark:text-slate-400">
+          <p className="text-sm text-ink-muted">
             Every record is kept — nothing here is edited or deleted. If someone changes
             their mind, record the new answer and it replaces the old one from that
             moment.
@@ -243,15 +297,13 @@ export default function MessagingConsentPage() {
                 inputMode="tel"
                 autoComplete="off"
                 placeholder="9876543210 or +919876543210"
-                className="w-64 rounded-md border border-slate-200 px-3 py-1.5 font-mono text-sm dark:border-slate-700 dark:bg-slate-950"
+                className={`${FIELD} w-64 font-mono`}
               />
             </Field>
 
             {/* The answer first: it is what decides which sources may carry it. */}
             <fieldset>
-              <legend className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                What did they say?
-              </legend>
+              <legend className="text-sm font-medium text-ink">What did they say?</legend>
               <div className="mt-2 flex flex-wrap gap-2">
                 <Choice
                   name="answer"
@@ -266,7 +318,7 @@ export default function MessagingConsentPage() {
                   label="They do not want messages"
                 />
               </div>
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-xs text-ink-muted">
                 {answer === "yes"
                   ? STATUS_COPY.granted.hint
                   : "A refusal is never held up: it needs no evidence and can be recorded by anyone here."}
@@ -279,7 +331,7 @@ export default function MessagingConsentPage() {
                   id="consent-status"
                   value={status}
                   onChange={(e) => setStatus(e.target.value as ConsentStatus)}
-                  className="rounded-md border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                  className={FIELD}
                 >
                   {NO_STATUSES.map((value) => (
                     <option key={value} value={value}>
@@ -287,7 +339,7 @@ export default function MessagingConsentPage() {
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-slate-500">{STATUS_COPY[status].hint}</p>
+                <p className="mt-1 text-xs text-ink-muted">{STATUS_COPY[status].hint}</p>
               </Field>
             )}
 
@@ -296,7 +348,7 @@ export default function MessagingConsentPage() {
                 id="consent-source"
                 value={source}
                 onChange={(e) => chooseSource(e.target.value as ConsentSource)}
-                className="w-full max-w-md rounded-md border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                className={`${FIELD} w-full max-w-md`}
               >
                 {sourceOptions.map((value) => (
                   <option key={value} value={value}>
@@ -304,11 +356,11 @@ export default function MessagingConsentPage() {
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-xs text-slate-500">{spec.hint}</p>
+              <p className="mt-1 text-xs text-ink-muted">{spec.hint}</p>
               {/* Said once, where someone would otherwise go looking for the missing
                   option: your own staff cannot assert an opt-in on a customer's behalf. */}
               {answer === "yes" && (
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-ink-muted">
                   Recording it on a customer&apos;s behalf is not on this list — an
                   opt-in has to come from the customer.
                 </p>
@@ -322,9 +374,9 @@ export default function MessagingConsentPage() {
                   value={callId}
                   onChange={(e) => setCallId(e.target.value)}
                   placeholder="Call ID from the Calls page"
-                  className="w-full max-w-md rounded-md border border-slate-200 px-3 py-1.5 font-mono text-sm dark:border-slate-700 dark:bg-slate-950"
+                  className={`${FIELD} w-full max-w-md font-mono`}
                 />
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-ink-muted">
                   {answer === "yes"
                     ? "Required: a spoken opt-in has to name the call it was spoken on."
                     : "Optional for a refusal."}
@@ -341,9 +393,9 @@ export default function MessagingConsentPage() {
                     setEvidence((prev) => ({ ...prev, [field.key]: e.target.value }))
                   }
                   placeholder={field.placeholder}
-                  className="w-full max-w-md rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                  className={`${FIELD} w-full max-w-md`}
                 />
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-ink-muted">
                   {field.hint}
                   {answer === "no" && " Optional here."}
                 </p>
@@ -354,8 +406,9 @@ export default function MessagingConsentPage() {
               <button
                 type="submit"
                 disabled={record.isPending || phone.trim().length < 8 || blocked !== null}
-                className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+                className={PRIMARY_BUTTON}
               >
+                <BadgeCheck className="h-4 w-4" />
                 {record.isPending
                   ? "Recording…"
                   : answer === "yes"
@@ -363,7 +416,12 @@ export default function MessagingConsentPage() {
                     : "Record their refusal"}
               </button>
               {/* The refusal, given before the click rather than as a 422 after it. */}
-              {blocked && <span className="text-xs text-amber-700 dark:text-amber-400">{blocked}</span>}
+              {blocked && (
+                <span className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                  <ShieldAlert className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
+                  {blocked}
+                </span>
+              )}
             </div>
           </form>
 
@@ -374,7 +432,7 @@ export default function MessagingConsentPage() {
           )}
           {record.data && (
             <div className="mt-4">
-              <p className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+              <p className="mb-2 text-sm font-medium text-ink">
                 Recorded. This is where that number now stands:
               </p>
               <Verdict state={record.data} />
@@ -384,35 +442,44 @@ export default function MessagingConsentPage() {
       )}
 
       <Card title="How this record works">
-        <ul className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
-          <li>
-            <span className="font-medium text-slate-800 dark:text-slate-200">
-              An opt-in lasts {CONSENT_VALIDITY_DAYS} days.
-            </span>{" "}
+        <ul className="space-y-3 text-sm text-ink-muted">
+          <Rule
+            icon={<CalendarClock className="h-4 w-4" />}
+            title={`An opt-in lasts ${CONSENT_VALIDITY_DAYS} days.`}
+          >
             After that it stops authorising messages and someone has to ask again. A
             check above will say so rather than quietly failing on the day it lapses.
-          </li>
-          <li>
-            <span className="font-medium text-slate-800 dark:text-slate-200">
-              Nothing is ever deleted.
-            </span>{" "}
+          </Rule>
+          <Rule icon={<FileSearch className="h-4 w-4" />} title="Nothing is ever deleted.">
             Recording a refusal adds a new entry that supersedes the earlier one, so the
             history of what someone agreed to — and when — stays intact.
-          </li>
-          <li>
-            <span className="font-medium text-slate-800 dark:text-slate-200">
-              Agreeing to a call is not agreeing to a message.
-            </span>{" "}
+          </Rule>
+          <Rule
+            icon={<PhoneOff className="h-4 w-4" />}
+            title="Agreeing to a call is not agreeing to a message."
+          >
             Someone who asked to be called back has not opted in to WhatsApp, and
-            nothing here fills that in for them.
-          </li>
-          <li>
-            <span className="font-medium text-slate-800 dark:text-slate-200">
-              This is in addition to do-not-call.
-            </span>{" "}
+            nothing here fills that in for them. It is a separate purpose, and nothing
+            backfills it from your campaign lists or your call records.
+          </Rule>
+          <Rule
+            icon={<ShieldAlert className="h-4 w-4" />}
+            title="This is in addition to do-not-call."
+          >
             A follow-up still passes the same do-not-call and calling-hours checks a
             call does; consent never replaces them.
-          </li>
+          </Rule>
+          {/* SEC-COMP §4, TCCCPR 2018 as amended (Second Amendment, 12 Feb 2025): explicit
+              consent under Reg. 2(y) is recorded by the Consent Registrar on DLT through
+              Digital Consent Acquisition — a registrar function we cannot perform. What
+              is captured here is OUR evidence. Saying so is not a disclaimer: a client
+              who believes this screen produces registrar-grade consent will use it to
+              answer a regulator, and that is the sentence they will be answering with. */}
+          <Rule icon={<CircleHelp className="h-4 w-4" />} title="This is your evidence, not a DLT record.">
+            It is what you would produce if a number is challenged — who agreed, when,
+            and on what. It is not the registrar-recorded consent that Indian telecom
+            rules define separately, and it does not stand in for one.
+          </Rule>
         </ul>
       </Card>
     </div>
@@ -430,7 +497,7 @@ export default function MessagingConsentPage() {
 function Verdict({ state }: { state: MessagingConsent }) {
   if (state.messageable) {
     return (
-      <Box tone="ok">
+      <Box tone="ok" icon={<BadgeCheck className="h-4 w-4" />}>
         <p className="font-medium">You may send this person WhatsApp messages.</p>
         <p className="mt-1">
           {describeCapture(state)} This stays current until {formatIST(state.expires_at)}.
@@ -441,7 +508,7 @@ function Verdict({ state }: { state: MessagingConsent }) {
 
   if (state.status === "granted") {
     return (
-      <Box tone="warn">
+      <Box tone="warn" icon={<CalendarClock className="h-4 w-4" />}>
         <p className="font-medium">Not messageable — their opt-in has expired.</p>
         <p className="mt-1">
           {describeCapture(state)} An opt-in stays current for {CONSENT_VALIDITY_DAYS}{" "}
@@ -454,7 +521,7 @@ function Verdict({ state }: { state: MessagingConsent }) {
 
   if (state.status === "declined" || state.status === "withdrawn") {
     return (
-      <Box tone="stop">
+      <Box tone="stop" icon={<MessageSquareOff className="h-4 w-4" />}>
         <p className="font-medium">
           {state.status === "withdrawn"
             ? "Not messageable — they asked us to stop."
@@ -465,14 +532,34 @@ function Verdict({ state }: { state: MessagingConsent }) {
     );
   }
 
-  // `status: "none"` — and any status a future API grows that this build predates.
-  // Neutral on purpose: nobody having asked yet is the normal state of the world,
-  // not a fault, and it is still a no.
+  // `status: "none"` — nobody has ever asked this person. A 200 and the normal state of
+  // the world, not a 404 and not an error (MessagingConsentOut says so in its docstring),
+  // so it is neutral in tone and still a no.
+  if (state.status === "none") {
+    return (
+      <Box tone="neutral" icon={<CircleHelp className="h-4 w-4" />}>
+        <p className="font-medium">Not messageable — nobody has asked them yet.</p>
+        <p className="mt-1">
+          Campaign follow-ups will skip this number until someone records what they said.
+          Recording it needs the customer&apos;s own answer, not an assumption.
+        </p>
+      </Box>
+    );
+  }
+
+  /* Any status this build predates. `MessagingConsentOut.status` is a bare `string`, so
+     the API can grow a member without this file changing — and "nobody has asked them
+     yet" would then be a confident, wrong sentence about a person whose record we simply
+     cannot read. The verdict is unaffected (it comes from `messageable`, which is false
+     here); what changes is that the screen stops explaining a record it does not
+     understand, and shows the value so support can. */
   return (
-    <Box tone="neutral">
-      <p className="font-medium">Not messageable — nobody has asked them yet.</p>
+    <Box tone="neutral" icon={<CircleHelp className="h-4 w-4" />}>
+      <p className="font-medium">Not messageable — this record is one we cannot read.</p>
       <p className="mt-1">
-        Campaign follow-ups will skip this number until someone records what they said.
+        The system will not message this number. Quote{" "}
+        <span className="font-mono text-xs">{state.status}</span> to us and we will
+        explain what it means.
       </p>
     </Box>
   );
@@ -496,16 +583,51 @@ function describeCapture(state: MessagingConsent): string {
   return "";
 }
 
-const TONES = {
-  ok: "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
-  warn: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200",
-  stop: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200",
-  neutral:
-    "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300",
-} as const;
+/**
+ * The verdict box. Palette from `NOTICE_TONES` (ui.tsx) — the four states this product
+ * already has words for — rather than a fifth private copy of the same four colours.
+ */
+function Box({
+  tone,
+  icon,
+  children,
+}: {
+  tone: NoticeTone;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${NOTICE_TONES[tone]}`}>
+      <span className="mt-0.5 shrink-0" aria-hidden>
+        {icon}
+      </span>
+      <div>{children}</div>
+    </div>
+  );
+}
 
-function Box({ tone, children }: { tone: keyof typeof TONES; children: React.ReactNode }) {
-  return <div className={`rounded-lg border p-3 text-sm ${TONES[tone]}`}>{children}</div>;
+function Rule({
+  icon,
+  title,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <li className="flex items-start gap-3">
+      <span
+        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
+        aria-hidden
+      >
+        {icon}
+      </span>
+      <span>
+        <span className="font-medium text-ink">{title}</span> {children}
+      </span>
+    </li>
+  );
 }
 
 function Field({
@@ -515,14 +637,11 @@ function Field({
 }: {
   label: string;
   htmlFor: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div>
-      <label
-        htmlFor={htmlFor}
-        className="text-sm font-medium text-slate-700 dark:text-slate-300"
-      >
+      <label htmlFor={htmlFor} className="text-sm font-medium text-ink">
         {label}
       </label>
       <div className="mt-1">{children}</div>
@@ -545,17 +664,11 @@ function Choice({
     <label
       className={
         checked
-          ? "cursor-pointer rounded-md border border-slate-900 bg-slate-900 px-3 py-1.5 text-sm font-medium text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-          : "cursor-pointer rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          ? "cursor-pointer rounded-md border border-brand-strong bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white"
+          : "cursor-pointer rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
       }
     >
-      <input
-        type="radio"
-        name={name}
-        checked={checked}
-        onChange={onChange}
-        className="sr-only"
-      />
+      <input type="radio" name={name} checked={checked} onChange={onChange} className="sr-only" />
       {label}
     </label>
   );

@@ -1,17 +1,17 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
 import type { Me } from "@/lib/api/client";
-import type { DncEntry } from "@/lib/api/dnc";
+import { DNC_LIST_LIMIT, type DncEntry } from "@/lib/api/dnc";
 
-import { renderClientPage } from "./harness";
+import { problem, renderClientPage } from "./harness";
 
 /**
  * The suppression list — ranked second, because it is the only client screen whose
  * mistakes are made of personal data rather than of copy.
  *
- * Two separate obligations meet here and they fail in opposite directions:
+ * Three separate obligations meet here and they fail in different directions:
  *
  * - **Hard rule 5**, on the verdicts. `removable` is the server's `is_removable()`
  *   answer and the screen renders it rather than re-deriving it. A row that grows a
@@ -22,6 +22,10 @@ import { renderClientPage } from "./harness";
  *   referrer of the next page and browser history. That is a property of the REQUEST,
  *   not of the DOM, and the harness records every request the screen made — so it can
  *   be asserted directly instead of trusted.
+ * - **The refusal, on every path that could otherwise print a compliance claim.** "Nobody
+ *   is suppressed yet" under a failed list request reads as "nobody is suppressed", and
+ *   "not on the do-not-call list" under a failed check reads as clearance to dial. Both
+ *   are sentences about a request that never landed, and both have a test below.
  *
  * The number planted below is a full E.164 string that appears NOWHERE in any masked
  * payload. Every "must not appear" assertion in this file is therefore load-bearing: if
@@ -29,7 +33,8 @@ import { renderClientPage } from "./harness";
  */
 
 const RAW_PHONE = "+919876543210";
-const MASKED = "+9198••••3210";
+/** What `crm.service.mask_phone` actually produces: six dots and the last two digits. */
+const MASKED = "••••••10";
 
 const ME: Me = {
   impersonating: false,
@@ -43,6 +48,8 @@ const ME: Me = {
 /** A viewer who may read and check the list but not change it (`staff`). */
 const READ_ONLY_ME: Me = { ...ME, permissions: ["leads:read"], role: "staff" };
 
+const LIST_PATH = `/v1/dnc?limit=${DNC_LIST_LIMIT}`;
+
 function entry(over: Partial<DncEntry> = {}): DncEntry {
   return {
     id: "0192f0aa-4444-7000-8000-000000000001",
@@ -55,10 +62,22 @@ function entry(over: Partial<DncEntry> = {}): DncEntry {
   } as DncEntry;
 }
 
+/**
+ * Every Remove button on screen, by its ACCESSIBLE name rather than its label.
+ *
+ * The buttons are named for the row they act on ("Remove ••••••10 from the do-not-call
+ * list") because forty identically-named buttons are forty identical announcements to a
+ * screen reader. A literal `{ name: "Remove" }` would therefore match none of them and
+ * every `queryByRole(...).toBeNull()` in this file would pass without testing anything.
+ */
+function removeButtons(): HTMLElement[] {
+  return screen.queryAllByRole("button", { name: /^Remove / });
+}
+
 async function renderList(entries: DncEntry[], me: Me = ME) {
   return await renderClientPage(<DoNotCallPage />, {
     "/v1/me": me,
-    "/v1/dnc?limit=500": entries,
+    [LIST_PATH]: entries,
   });
 }
 
@@ -67,7 +86,7 @@ describe("what the list says may be undone", () => {
     const { container } = await renderList([entry({ source: "manual" })]);
 
     await screen.findByText(MASKED);
-    expect(screen.getByRole("button", { name: "Remove" })).toBeDefined();
+    expect(removeButtons()).toHaveLength(1);
     expect(container.textContent).toContain("Added by your team");
   });
 
@@ -80,7 +99,7 @@ describe("what the list says may be undone", () => {
     ]);
 
     await screen.findByText(MASKED);
-    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(removeButtons()).toHaveLength(0);
     expect(container.textContent).toContain("opt-out — cannot be undone");
     // The reason takes the button's place — a row with neither is a dead end.
     expect(container.textContent).toContain("Opted out on a call");
@@ -98,7 +117,31 @@ describe("what the list says may be undone", () => {
     expect(container.textContent).toContain("national list");
     expect(container.textContent).toContain("removed by operations only");
     expect(container.textContent).not.toContain("opt-out — cannot be undone");
-    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(removeButtons()).toHaveLength(0);
+  });
+
+  it("withholds Remove when the SERVER says not removable, whatever our own rule would say", async () => {
+    // THE POINT OF `removable`. This row is `manual` + `tenant`, which is exactly the
+    // pair `is_removable()` currently answers true for — so a screen that re-derived the
+    // rule instead of rendering the flag would put a button here, and every such button
+    // is a 400 the client reads as our bug. The flag is the only input.
+    const { container } = await renderList([
+      entry({ removable: false, source: "manual", scope: "tenant" }),
+    ]);
+
+    await screen.findByText(MASKED);
+    expect(removeButtons()).toHaveLength(0);
+    expect(container.textContent).toContain("cannot be undone");
+  });
+
+  it("offers Remove when the SERVER says removable, for a source our own rule would refuse", async () => {
+    // The same assertion from the other side, and the one that catches a "helpful"
+    // client-side filter on `source`: if the server ever widens `REMOVABLE_SOURCES`, the
+    // screen must follow it that day and not at the next frontend release.
+    await renderList([entry({ removable: true, source: "call_optout", scope: "tenant" })]);
+
+    await screen.findByText(MASKED);
+    expect(removeButtons()).toHaveLength(1);
   });
 
   it("keeps the row for a reason this build cannot name, rather than blanking it", async () => {
@@ -109,7 +152,7 @@ describe("what the list says may be undone", () => {
 
     await screen.findByText(MASKED);
     expect(container.textContent).toContain("a_source_added_later");
-    expect(screen.getByRole("button", { name: "Remove" })).toBeDefined();
+    expect(removeButtons()).toHaveLength(1);
   });
 
   it("withholds Remove from a viewer who lacks the permission, on a removable row", async () => {
@@ -118,13 +161,153 @@ describe("what the list says may be undone", () => {
     const { container } = await renderList([entry()], READ_ONLY_ME);
 
     await screen.findByText(MASKED);
-    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
-    expect(container.textContent).toContain(
-      "Adding or removing numbers is done by an account owner",
-    );
+    expect(removeButtons()).toHaveLength(0);
+    expect(container.textContent).toContain("Only an account owner can add or remove numbers");
     // …and the row must not acquire the permanence copy it has not earned: this entry
     // IS removable, by someone else.
     expect(container.textContent).not.toContain("cannot be undone");
+    // The write form goes with the permission, rather than waiting to answer 403.
+    expect(screen.queryByLabelText("Numbers to suppress")).toBeNull();
+  });
+
+  it("deletes by entry id, and never sends the number anywhere", async () => {
+    const { calls } = await renderList([entry()]);
+
+    await screen.findByText(MASKED);
+    fireEvent.click(removeButtons()[0]);
+
+    const deletes = () => calls.filter((call) => call.method === "DELETE");
+    await waitFor(() => expect(deletes()).toHaveLength(1));
+    expect(deletes()[0].path).toBe("/v1/dnc/0192f0aa-4444-7000-8000-000000000001");
+    // Not even the masked form travels: the row is addressed by its own id.
+    expect(deletes()[0].url).not.toContain("•");
+    expect(deletes()[0].url).not.toContain("10");
+  });
+});
+
+describe("when the list itself does not load", () => {
+  it("refuses, and does NOT report that nobody is suppressed", async () => {
+    // The worst sentence this screen can print. "Nobody is suppressed yet" under a
+    // request that never landed is not an empty state, it is a compliance claim made on
+    // no evidence — and the client acts on it by launching a campaign.
+    const { container } = await renderClientPage(<DoNotCallPage />, {
+      "/v1/me": ME,
+      [LIST_PATH]: problem(503, {
+        title: "Service unavailable",
+        detail: "We could not read your suppression list.",
+      }),
+    });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(container.textContent).not.toContain("Nobody is suppressed yet");
+    // …and no count either: the header states one only when the server sent rows.
+    expect(container.textContent).not.toContain("last two digits only");
+  });
+
+  it("says so when it cannot even find out whether you may write", async () => {
+    // `/v1/me` failing used to delete the Add card in silence — "we could not ask" and
+    // "you may not" rendered identically, as empty space, and the client's only clue was
+    // a form that had been there yesterday.
+    const { container } = await renderClientPage(<DoNotCallPage />, {
+      "/v1/me": problem(503, { title: "Service unavailable" }),
+      [LIST_PATH]: [],
+    });
+
+    await screen.findByText(/We could not check whether you can add or remove numbers/);
+    expect(screen.queryByLabelText("Numbers to suppress")).toBeNull();
+    expect(container.textContent).not.toContain("Only an account owner");
+  });
+
+  it("does not print the row count as a total when the response is at the endpoint's ceiling", async () => {
+    // `/v1/dnc` clamps to `MAX_LIST` and has no offset, so a full-length response is a
+    // TRUNCATION. Calling its length "500 entries" would be the Leads table's old stage
+    // tally all over again: a number about our query, read as a number about the client.
+    const rows = Array.from({ length: DNC_LIST_LIMIT }, (_, i) =>
+      entry({
+        id: `0192f0aa-4444-7000-8000-${String(i).padStart(12, "0")}`,
+        phone_masked: `••••••${String(i % 100).padStart(2, "0")}`,
+      }),
+    );
+    const { container } = await renderClientPage(<DoNotCallPage />, {
+      "/v1/me": ME,
+      [LIST_PATH]: rows,
+    });
+
+    await screen.findByText("Showing the 500 most recently added", { exact: false });
+    expect(container.textContent).not.toContain("500 entries");
+    // A real full-length list, so the timeout is explicit and generous rather than left
+    // at vitest's 5s default: this renders five hundred rows, and it shares a machine
+    // with `wireLookupGuard`'s whole-program `tsc` build. It runs in under two seconds
+    // idle and blew the default the first time the suite ran them together — and a guard
+    // that fails on a busy machine is a guard somebody deletes.
+  }, 30_000);
+
+  it("renders no heading of its own — the shell already prints the page title", async () => {
+    const { container } = await renderList([]);
+
+    await screen.findByText("Nobody is suppressed yet");
+    expect(container.querySelector("h1")).toBeNull();
+  });
+});
+
+describe("adding numbers", () => {
+  async function addTwo(answer: unknown) {
+    const rendered = await renderClientPage(<DoNotCallPage />, {
+      "/v1/me": ME,
+      [LIST_PATH]: [],
+      "/v1/dnc": answer,
+    });
+    const box = (await screen.findByLabelText("Numbers to suppress")) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: `${RAW_PHONE}\n9876543211` } });
+    fireEvent.click(screen.getByRole("button", { name: /^Add 2 numbers/ }));
+    return { ...rendered, box };
+  }
+
+  it("sends the numbers in the body and never in a URL", async () => {
+    const { calls } = await addTwo({ added: 2, already_suppressed: 0, malformed: 0 });
+
+    await screen.findByText("Added");
+    const posted = calls.filter((c) => c.path === "/v1/dnc" && c.method === "POST");
+    expect(posted).toHaveLength(1);
+    expect(posted[0].body).toContain("9876543211");
+    for (const call of calls) {
+      expect(
+        call.url,
+        `${call.method} ${call.path} carries a number in its URL`,
+      ).not.toContain("9876543210");
+    }
+  });
+
+  it("answers with counts only — never with which number went where", async () => {
+    // `AddNumbersOut` is three integers BY DESIGN: who asked us to stop calling them is
+    // itself personal data, so neither the response nor the audit row carries numbers.
+    // A screen that echoed the pasted list back as a per-number result would reintroduce
+    // exactly what the API refused to send.
+    const { container, box } = await addTwo({
+      added: 1,
+      already_suppressed: 1,
+      malformed: 0,
+    });
+
+    await screen.findByText("Added");
+    expect(container.textContent).toContain("Already on the list");
+    expect(container.textContent).toContain("Not a usable number");
+    // Cleared on success, so the numbers do not sit on screen next to a result that
+    // cannot speak about them individually.
+    expect(box.value).toBe("");
+    expect(container.textContent).not.toContain("9876543210");
+    expect(container.textContent).not.toContain("9876543211");
+  });
+
+  it("renders a refusal instead of counts when the add fails", async () => {
+    const { container } = await addTwo(
+      problem(422, { title: "Too many numbers", detail: "Add up to 2,000 at a time." }),
+    );
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    // No tile may appear: "Added 0" beside a failed request reads as "we processed your
+    // list and none of it counted", which is a different and much worse sentence.
+    expect(container.textContent).not.toContain("Suppressed from now on");
   });
 });
 
@@ -132,7 +315,7 @@ describe("checking a number", () => {
   async function check(answer: unknown, me: Me = ME) {
     const rendered = await renderClientPage(<DoNotCallPage />, {
       "/v1/me": me,
-      "/v1/dnc?limit=500": [],
+      [LIST_PATH]: [],
       "/v1/dnc/check": answer,
     });
     fireEvent.change(await screen.findByLabelText("Phone number to check"), {
@@ -162,6 +345,14 @@ describe("checking a number", () => {
     }
   });
 
+  it("stays available to a viewer who may not write, because the read permission differs", async () => {
+    // `/v1/dnc/check` is `leads:read`; only add/remove are `leads:dispatch`. Gating the
+    // check on the write permission would take the answer away from `staff` and from a
+    // read-only support session — the two principals most likely to be asking it.
+    await check({ valid: true, suppressed: true, scope: "tenant" }, READ_ONLY_ME);
+    await screen.findByText(/This number is suppressed/);
+  });
+
   it("does not render a bad number as a clean bill of health", async () => {
     // The dangerous confusion on this card. `valid: false` means we could not parse it
     // at all — rendering the green "not on the do-not-call list" panel would tell a
@@ -171,6 +362,18 @@ describe("checking a number", () => {
     await screen.findByText(/does not look like a phone number/);
     expect(container.textContent).not.toContain("not on the do-not-call list");
     expect(container.textContent).not.toContain("This number is suppressed");
+  });
+
+  it("renders a refusal, not a verdict, when the check itself fails", async () => {
+    // Same shape as the list failure and a worse consequence: this card's green panel is
+    // the one a client reads as permission to dial, so a request that never landed must
+    // produce no panel at all.
+    const { container } = await check(problem(503, { title: "Service unavailable" }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(container.textContent).not.toContain("not on the do-not-call list");
+    expect(container.textContent).not.toContain("This number is suppressed");
+    expect(container.textContent).not.toContain("does not look like a phone number");
   });
 
   it("says a clear number is clear WITHOUT saying it may be called", async () => {
