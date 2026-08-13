@@ -12,6 +12,8 @@
  * generic "something went wrong" for all of them.
  */
 
+import { AUTH_MODE_ENV, IS_PRODUCTION_BUILD } from "@/lib/auth/mode";
+
 import type { components } from "./schema";
 
 export const API_BASE =
@@ -41,22 +43,108 @@ export class ApiProblem extends Error {
 }
 
 /**
+ * A refusal this browser produced itself, wearing the API's error shape.
+ *
+ * Auth can fail before any request leaves: the deployment names Clerk but carries no
+ * publishable key, Clerk never loaded, the session expired between two clicks. Those
+ * are the failures a user is most likely to meet and least able to interpret, so they
+ * must arrive with a sentence and a remediation — which is exactly what `ProblemNotice`
+ * already renders, from `ApiProblem`, on every screen in the app. Inventing a second
+ * error shape would mean teaching twenty screens about it.
+ *
+ * `status: 0` is the honest part: it is the conventional "no HTTP response happened"
+ * (XHR's `status` for a request that never completed), so nothing here claims the
+ * server said anything. `retryable: false` follows from the causes — a missing
+ * environment variable does not fix itself on a second attempt — and keeps both the
+ * retry button (`ProblemNotice`) and the query retry policy (`app/providers.tsx`) off.
+ */
+export class AuthProblem extends ApiProblem {
+  constructor(code: string, detail: string, remediation: string) {
+    super(0, {
+      kind: "auth",
+      // `ApiProblem` reads the last path segment of `type` as the machine code, so this
+      // keeps `error.code` usable by callers the same way a server problem would.
+      type: `urn:calevate:browser/${code}`,
+      title: "You are not signed in",
+      detail,
+      remediation,
+      retryable: false,
+    });
+    this.name = "AuthProblem";
+  }
+}
+
+/**
+ * How `apiRequest` obtains the bearer credential for ONE call.
+ *
+ * A function, and asked per request, because a Clerk session token lives about SIXTY
+ * SECONDS — clerk-js refreshes it on a recurring interval and `getToken()` hands back
+ * the current one ("How Clerk works: cookies", clerk.com/docs/guides/how-clerk-works).
+ * A console tab left open over lunch would therefore send an expired token on its next
+ * poll if the string had been captured once when the session object was built. The
+ * dashboard polls every twenty seconds, so "left open" is the normal case, not an edge.
+ *
+ * **The union is deliberate: a credential that is already known is returned, not
+ * promised.** The local `dev:<realm>:<id>` token needs no round trip, and making it
+ * `async` anyway would push the `fetch` call one microtask later than the request that
+ * caused it — which is observable. It showed up immediately: tests that wait for the
+ * screen to settle and then inspect the requests began to race, because the request was
+ * no longer issued synchronously with the query that asked for it. Ordering is behaviour
+ * here, so the fast path stays synchronous instead of the assertions being taught to
+ * wait for an implementation detail.
+ *
+ * It can also THROW — synchronously or as a rejection — and callers must let it: see
+ * `AuthProblem`.
+ */
+export type TokenSource = () => string | Promise<string>;
+
+/**
  * Session context the API needs on every call.
  *
- * `token` is a Clerk session token in staging/prod. Locally, when Clerk is not
- * configured, the API accepts `dev:<realm>:<clerk_user_id>` — see `core/auth.py`,
- * where that path requires BOTH `APP_ENV=local` AND an absent Clerk secret.
+ * `token` resolves to a Clerk session token in a Clerk deployment and to
+ * `dev:<realm>:<clerk_user_id>` locally — see `core/auth.py`, where that second path
+ * requires BOTH `APP_ENV=local` AND an absent Clerk secret. Which one a given realm
+ * builds is decided in that realm's own module, never here: this file is the transport
+ * and knows nothing about realms.
  */
 export interface Session {
-  token: string;
+  token: TokenSource;
   orgSlug: string;
   /** Admin realm only (D-22): read-only "view as client". */
   impersonateOrg?: string;
 }
 
+/**
+ * The LOCAL credential, for one realm — the second guard described in `lib/auth/mode.ts`.
+ *
+ * `lib/auth/mode.ts` already refuses to resolve `"dev"` in a production build. This
+ * checks the same fact again, at the moment the credential would be handed to `fetch`,
+ * because the two guards protect against different mistakes: the first against a
+ * misconfigured deployment, this one against a future refactor that reaches the dev
+ * builder by some path that skipped the mode. A dev token is worth a full account
+ * takeover on any API still running with `APP_ENV=local`, so it gets belt and braces.
+ */
+export function devToken(realm: "client" | "admin", clerkUserId: string): TokenSource {
+  return () => {
+    if (IS_PRODUCTION_BUILD) {
+      throw new AuthProblem(
+        "dev_token_refused",
+        "This build asked for a local development token, which is never valid here.",
+        `Set ${AUTH_MODE_ENV}=clerk and configure this realm's Clerk publishable key.`,
+      );
+    }
+    return `dev:${realm}:${clerkUserId}`;
+  };
+}
+
+/**
+ * The client realm's LOCAL session. Kept as the local path (never removed, never
+ * "temporarily" reachable in production): `lib/auth/clientRealm.tsx` selects it when
+ * `AUTH_MODE` is `dev`, and the whole frontend test suite runs through it.
+ */
 export function devSession(orgSlug: string): Session {
   const user = process.env.NEXT_PUBLIC_DEV_USER ?? "user_local";
-  return { token: `dev:client:${user}`, orgSlug };
+  return { token: devToken("client", user), orgSlug };
 }
 
 // PUT is here for `/v1/billing/caps`, which states the WHOLE client-side pair of
@@ -85,8 +173,17 @@ export async function apiRequest<T>(
   path: string,
   { method = "GET", body, idempotencyKey, confirmAction, signal }: RequestOptions = {},
 ): Promise<T> {
+  // Resolved HERE, per call, rather than when the session object was built — a Clerk
+  // token expires in about a minute (see `TokenSource`). The `await` is skipped when the
+  // source already has the string, so a local request still reaches `fetch` in the same
+  // tick as the query that asked for it. If it throws, the throw propagates: an
+  // `AuthProblem` reaching the screen as an error is the point, and catching it to send
+  // the request anyway would put `Bearer undefined` on the wire.
+  const requested = session.token();
+  const token = typeof requested === "string" ? requested : await requested;
+
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${session.token}`,
+    Authorization: `Bearer ${token}`,
     "X-Org-Slug": session.orgSlug,
   };
   if (body !== undefined) headers["Content-Type"] = "application/json";

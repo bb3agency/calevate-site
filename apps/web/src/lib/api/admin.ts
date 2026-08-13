@@ -11,6 +11,8 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import { adminRealmSession } from "@/lib/auth/adminRealm";
+
 import type { CampaignSummary } from "./campaigns";
 import { apiRequest, type Session } from "./client";
 // Types, the endpoint path and the request shaper only — never a client-realm session.
@@ -44,13 +46,20 @@ export type KbSource = Schemas["SourceOut"];
 export type KbChunk = Schemas["ChunkOut"];
 
 /**
- * Local development only, and only where Clerk is absent — the API enforces both
- * conditions (`core/auth.py`). The admin realm carries `dev:admin:` so a client token
- * can never be pasted into an admin surface by accident.
+ * The admin realm's session — an ADMIN Clerk token, or `dev:admin:` locally.
+ *
+ * The credential is chosen in `lib/auth/adminRealm.tsx`, which owns this realm's Clerk
+ * application; the choice is `NEXT_PUBLIC_AUTH_MODE`, never a guess (`lib/auth/mode.ts`).
+ * The local path is the one the API enforces two conditions for — `APP_ENV=local` AND no
+ * Clerk secret for this realm (`core/auth.py::_verify_dev_token`) — and it carries
+ * `dev:admin:` so a client token can never be pasted into an admin surface by accident.
+ *
+ * This function keeps its name and signature because twenty-five call sites (and one
+ * file owned by another change) build their session through it: what changed is which
+ * credential comes back, not where sessions come from.
  */
 export function adminSession(orgSlug = ""): Session {
-  const user = process.env.NEXT_PUBLIC_DEV_ADMIN ?? "admin_local";
-  return { token: `dev:admin:${user}`, orgSlug };
+  return adminRealmSession(orgSlug);
 }
 
 /** Impersonation is READ-ONLY (D-22): this adds the header, it mints no credential. */

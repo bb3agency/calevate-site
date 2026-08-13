@@ -16,6 +16,13 @@ import {
   SECONDARY_BUTTON,
 } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
+import {
+  CLIENT_SIGN_IN_PATH,
+  CLIENT_SIGN_UP_PATH,
+  ClientRealmClerkProvider,
+  ClientRealmSignedIn,
+  ClientRealmSignedOut,
+} from "@/lib/auth/clientRealm";
 import { lookup } from "@/lib/lookup";
 import {
   SIGNUP_CONTACT_EMAIL,
@@ -41,11 +48,16 @@ import {
  * **It does not pretend to be a sign-up-from-scratch form.** The endpoint is NOT
  * unauthenticated: it needs a Clerk-verified user who has no organization yet, and the
  * membership is what the call creates. So the page says who it is for, rather than
- * silently 401-ing someone who arrived without an account. It also does not render a
- * "sign in" button, because **there is no sign-in route in this app** — no ClerkProvider,
- * no `/sign-in`, nothing to link to. D-34 names email/password + Google OAuth; neither is
- * built. A button pointing at a 404 is a claim, so the copy states the requirement and
- * offers the contact address instead.
+ * silently 401-ing someone who arrived without an account.
+ *
+ * This used to end "and there is no sign-in route in this app — no ClerkProvider, no
+ * `/sign-in`, nothing to link to", which was true and was the hole: a stranger who
+ * followed the landing page's one call to action arrived at a form they could not
+ * submit, and the only exit was an email address. Both routes exist now (`/sign-up`
+ * creates the Clerk account, `/sign-in` returns to an existing one), this page mounts
+ * the CLIENT Clerk application, and a stranger gets sent to the first of them instead of
+ * being told what they lack. The two steps stay separate because they are separate:
+ * Clerk owns the identity, our Postgres owns the workspace (D-37).
  *
  * **A closed deployment says it is closed BEFORE the form, not after it.** The kill
  * switch DEFAULTS OFF, so on most deployments every submission is refused with
@@ -124,27 +136,97 @@ function fieldMessage(fields: ProblemField[], name: string): string | undefined 
 
 export default function SignupPage() {
   return (
-    <Providers>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-app">
-        <header className="border-b border-line bg-surface">
-          <div className="mx-auto flex max-w-xl items-center justify-between gap-4 px-6 py-4">
-            <Link href="/" className="text-base font-semibold tracking-tight text-ink">
-              Calevate
+    // The CLIENT Clerk application, mounted here because this route is outside the
+    // `/c/<slug>` shell that mounts it for the console. In a local build it mounts
+    // nothing at all and the identity gates below fall through, which is what keeps
+    // this screen's test suite rendering the form.
+    <ClientRealmClerkProvider>
+      <Providers>
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-app">
+          <header className="border-b border-line bg-surface">
+            <div className="mx-auto flex max-w-xl items-center justify-between gap-4 px-6 py-4">
+              <Link href="/" className="text-base font-semibold tracking-tight text-ink">
+                Calevate
+              </Link>
+              <span className="flex items-center gap-1.5 text-xs text-ink-faint">
+                <Lock aria-hidden className="h-3.5 w-3.5" />
+                Nothing here places a call
+              </span>
+            </div>
+          </header>
+          <main className="mx-auto w-full max-w-xl flex-1 px-6 py-10">
+            {/* The kill switch is checked FIRST, above both the form and the account
+                gate: on a deployment that opens no workspaces, sending a stranger off to
+                create a Clerk account would be walking them one screen further into a
+                door that is shut. The gate sits above the form component for the same
+                shape of reason — a closed deployment does not mount the form at all, so
+                no state and no mutation hook exist to reach an endpoint certain to
+                refuse them. */}
+            {!SIGNUP_OPEN ? (
+              <SignupClosed deferred={false} />
+            ) : (
+              <>
+                <ClientRealmSignedIn>
+                  <SignupForm />
+                </ClientRealmSignedIn>
+                <ClientRealmSignedOut>
+                  <NeedsAnAccount />
+                </ClientRealmSignedOut>
+              </>
+            )}
+          </main>
+        </div>
+      </Providers>
+    </ClientRealmClerkProvider>
+  );
+}
+
+/**
+ * The stranger's panel — the one that used to be a sentence saying what they lacked.
+ *
+ * `POST /v1/auth/signup` resolves the caller from their token alone
+ * (`core/auth.py::current_identity`), so an account is a hard prerequisite and not a
+ * nicety. What changed is that there is now somewhere to send them: the account door is
+ * a route in this app, and after it Clerk returns them here — `fallbackRedirectUrl` on
+ * `/sign-up` names this page — so the two steps read as one journey.
+ */
+function NeedsAnAccount() {
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold tracking-tight text-ink">
+        Create your Calevate workspace
+      </h1>
+      <Card>
+        <div className="space-y-3 text-sm text-ink-muted">
+          <p>
+            Setting up a workspace takes two steps: a Calevate account first, then the
+            workspace itself. Nothing calls anyone at either step.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link href={CLIENT_SIGN_UP_PATH} className={PRIMARY_BUTTON}>
+              Create an account
+              <ArrowRight aria-hidden className="h-4 w-4" />
             </Link>
-            <span className="flex items-center gap-1.5 text-xs text-ink-faint">
-              <Lock aria-hidden className="h-3.5 w-3.5" />
-              Nothing here places a call
-            </span>
+            <Link href={CLIENT_SIGN_IN_PATH} className={SECONDARY_BUTTON}>
+              I already have one
+            </Link>
           </div>
-        </header>
-        <main className="mx-auto w-full max-w-xl flex-1 px-6 py-10">
-          {/* The gate sits HERE, above the form component, so a closed deployment does
-              not mount the form at all: no state, no mutation hook, and therefore no
-              submit path that could reach an endpoint certain to refuse it. */}
-          {SIGNUP_OPEN ? <SignupForm /> : <SignupClosed deferred={false} />}
-        </main>
-      </div>
-    </Providers>
+          {SIGNUP_CONTACT_EMAIL && (
+            <p className="flex flex-wrap items-center gap-1.5 text-xs">
+              <Mail aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
+              Would rather talk to a person? Write to{" "}
+              <a
+                className="font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+                href={`mailto:${SIGNUP_CONTACT_EMAIL}`}
+              >
+                {SIGNUP_CONTACT_EMAIL}
+              </a>
+              .
+            </p>
+          )}
+        </div>
+      </Card>
+    </div>
   );
 }
 

@@ -138,6 +138,17 @@ export default function Home() {
               </code>{" "}
               — the URL your account manager gave you.
             </p>
+            {/* The door back in. It exists as of the Clerk integration — before that
+                this card named a URL and stopped, because there was no sign-in route to
+                point at. `/c/<slug>` redirects here by itself when a session has
+                lapsed; this is for the person who reached for the front page instead. */}
+            <Link
+              href="/sign-in"
+              className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+            >
+              Sign in
+              <ArrowRight aria-hidden className="h-3.5 w-3.5" />
+            </Link>
             {/* Local development only: `NEXT_PUBLIC_DEV_ORG_SLUG` is unset in every
                 deployed build, so this renders nothing rather than offering a stranger a
                 link into somebody's tenant. */}
