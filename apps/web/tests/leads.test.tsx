@@ -41,7 +41,9 @@ const ME: Me = {
   user_id: "u1",
   realm: "client",
   role: "owner",
-  permissions: ["leads:read", "leads:write", "leads:dispatch"],
+  // An OWNER, which is the only client role holding `calls:read_raw` — the
+  // permission the CSV export route requires (core/rbac.py).
+  permissions: ["leads:read", "leads:write", "leads:dispatch", "calls:read_raw"],
   impersonating: false,
   organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
 } as unknown as Me;
@@ -114,6 +116,34 @@ const QUEUED: CallLeadResult = {
   blocked_rule: null,
   call_handle: "call-1",
 };
+
+/**
+ * The export button is gated on the permission the ROUTE requires, not on the one the
+ * list requires. `/v1/leads/export.csv` is the only place a client's contact list
+ * leaves us with full phone numbers, so it demands `calls:read_raw` — which `staff`
+ * does not hold. Rendering it enabled for everyone turned a deliberate restriction
+ * into what looks like a broken button.
+ */
+describe("the CSV export offers itself only to a session that may use it", () => {
+  it("disables the button for a role without calls:read_raw", async () => {
+    const staff = { ...ME, role: "staff", permissions: ["leads:read", "leads:write"] };
+    await renderClientPage(<LeadsPage />, routes({ "/v1/me": staff }));
+
+    const button = (await screen.findByRole("button", {
+      name: /Export all as CSV/,
+    })) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toContain("account owner");
+  });
+
+  it("enables it for a session the server would accept", async () => {
+    await renderClientPage(<LeadsPage />, routes());
+    const button = (await screen.findByRole("button", {
+      name: /Export all as CSV/,
+    })) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+  });
+});
 
 describe("what the screen says when it could not read the leads", () => {
   it("renders the refusal and no rows, in the list view", async () => {

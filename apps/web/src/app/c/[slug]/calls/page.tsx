@@ -7,6 +7,7 @@ import { CheckCircle2, PhoneCall, PhoneMissed, XCircle } from "lucide-react";
 import {
   Card,
   EmptyState,
+  FilterChip,
   ProblemNotice,
   Skeleton,
   StatusBadge,
@@ -190,30 +191,5 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
         )}
       </Card>
     </div>
-  );
-}
-
-function FilterChip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={
-        active
-          ? "rounded-full bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white"
-          : "rounded-full border border-line px-3 py-1.5 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
-      }
-    >
-      {label}
-    </button>
   );
 }

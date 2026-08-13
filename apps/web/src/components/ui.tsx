@@ -258,7 +258,7 @@ export function ProblemNotice({ error, onRetry }: { error: unknown; onRetry?: ()
 export function RestrictionNote({ reason }: { reason: string | null }) {
   if (!reason) return null;
   return (
-    <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+    <p className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-muted">
       {reason}
     </p>
   );
@@ -289,8 +289,8 @@ export const NOTICE_TONES: Record<NoticeTone, string> = {
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="py-10 text-center">
-      <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{title}</p>
-      {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
+      <p className="text-sm font-medium text-ink">{title}</p>
+      {hint && <p className="mt-1 text-xs text-ink-muted">{hint}</p>}
     </div>
   );
 }
@@ -299,9 +299,47 @@ export function Skeleton({ rows = 3 }: { rows?: number }) {
   return (
     <div className="space-y-2" aria-hidden>
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="h-8 animate-pulse rounded bg-slate-100 dark:bg-slate-800" />
+        <div key={i} className="h-8 animate-pulse rounded bg-black/5 dark:bg-white/10" />
       ))}
     </div>
+  );
+}
+
+/**
+ * A one-of-N filter, as a pill.
+ *
+ * Extracted rather than copied a third time: the calls log and the leads table had
+ * grown byte-similar copies of this, and the second copy is where a design language
+ * starts to drift — one screen gets the new active colour and the other keeps the old
+ * one, and nobody notices because neither is wrong on its own screen.
+ *
+ * `aria-pressed` rather than a `role="tab"`: these are toggles over one list, not
+ * panels, and a screen reader should hear the state of the control rather than be told
+ * to expect a tabpanel that does not exist.
+ */
+export function FilterChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={clsx(
+        "rounded-full px-3 py-1.5 text-xs capitalize",
+        active
+          ? "bg-brand-strong font-semibold text-white"
+          : "border border-line bg-surface font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5",
+      )}
+    >
+      {label}
+    </button>
   );
 }
 

@@ -14,6 +14,7 @@ import {
 import {
   Card,
   EmptyState,
+  FilterChip,
   ProblemNotice,
   Skeleton,
   StatusBadge,
@@ -114,6 +115,11 @@ export default function LeadsPage() {
   const exportLeads = useExportLeads(session);
 
   const me = useMe(session);
+  // The permission the CSV route requires, read off `/v1/me` rather than from a
+  // hardcoded role list — the server is the authority on what this session may do.
+  // While `/v1/me` is in flight this is false, so the control starts refused and
+  // relaxes, rather than offering an action it may be about to withdraw.
+  const mayExport = me.data?.permissions?.includes("calls:read_raw") ?? false;
   const agents = useAgents(session);
   const callLead = useCallLead(session);
   const [agentId, setAgentId] = useState("");
@@ -266,12 +272,25 @@ export default function LeadsPage() {
             accepts `agent_id` and nothing else, so the status chips and the search box
             below do NOT narrow the file. Saying so on the button is the difference
             between an export and a surprise. */}
+        {/* GATED ON THE PERMISSION THE ROUTE ACTUALLY REQUIRES. This is the one
+            endpoint where a client's contact list leaves us with FULL phone numbers,
+            so it demands `calls:read_raw` — owner in the client realm, never `staff`
+            (crm/routes.py says so at the decorator). The button used to render for
+            every viewer, which meant a staff user clicked it and got a 403 dressed as
+            a fault. Disabled WITH the reason is the doctrine this app already follows
+            for dispatch and for D-22 impersonation: an answer given before the click
+            beats a refusal after it. The server still refuses either way — this is a
+            preview of its answer, never a substitute for it. */}
         <button
           type="button"
-          disabled={exportLeads.isPending}
+          disabled={exportLeads.isPending || !mayExport}
           onClick={() => exportLeads.mutate({})}
-          title="Downloads every lead in this account, with full phone numbers. Filters on this screen do not apply."
-          className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 disabled:opacity-50 dark:hover:bg-white/5"
+          title={
+            mayExport
+              ? "Downloads every lead in this account, with full phone numbers. Filters on this screen do not apply."
+              : "Exporting full phone numbers is limited to the account owner."
+          }
+          className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5"
         >
           <Download className="h-3.5 w-3.5" />
           {exportLeads.isPending ? "Preparing…" : "Export all as CSV"}
@@ -597,30 +616,6 @@ function CallControl({
 }
 
 /** One chip = one server-side status filter value; "All" clears it. */
-function FilterChip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={
-        active
-          ? "rounded-full bg-brand-strong px-3 py-1.5 text-xs font-semibold capitalize text-white"
-          : "rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium capitalize text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
-      }
-    >
-      {label}
-    </button>
-  );
-}
 
 /** The one status-change control, shared by table rows and board cards, so both
  *  views go through exactly the same mutation (useUpdateLeadStatus). The label names
