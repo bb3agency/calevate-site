@@ -40,7 +40,20 @@ QUALIFIED_STATUSES = ("contacted", "interested", "hot", "won")
 # `started_at` is `timestamptz`; EXTRACT renders one in the SESSION's TimeZone, so
 # shifting by a fixed interval only yields IST on a database that happens to be set to
 # UTC. `AT TIME ZONE` names the zone we mean and is correct on any of them.
-IST_HOUR_SQL = "EXTRACT(HOUR FROM started_at AT TIME ZONE 'Asia/Kolkata')"
+#
+# The zone is NAMED once, here, and every IST-shaped expression in the codebase is
+# built from this constant. A second literal 'Asia/Kolkata' somewhere else is not a
+# duplicate string, it is a second answer to "which zone is IST" waiting to drift.
+IST_ZONE = "Asia/Kolkata"
+# The instant rendered as IST wall clock. Parenthesised because `::` binds tighter than
+# `AT TIME ZONE`, so `x AT TIME ZONE 'z'::date` would cast the ZONE NAME to a date.
+IST_STARTED_AT_SQL = f"(started_at AT TIME ZONE '{IST_ZONE}')"
+IST_HOUR_SQL = f"EXTRACT(HOUR FROM {IST_STARTED_AT_SQL})"
+# The IST CALENDAR DAY a call started on, and today's. An Indian business day runs
+# 00:00-24:00 IST, which is 18:30-18:30 UTC — bucketing by the UTC date files the
+# evening half of every working day under the day before.
+IST_DAY_SQL = f"{IST_STARTED_AT_SQL}::date"
+IST_TODAY_SQL = f"(now() AT TIME ZONE '{IST_ZONE}')::date"
 
 
 async def performance(session: AsyncSession, *, days: int = 30) -> dict[str, Any]:
@@ -124,7 +137,11 @@ async def performance(session: AsyncSession, *, days: int = 30) -> dict[str, Any
 __all__ = [
     "CONNECTED_SQL",
     "DIAL_ONLY_STATUSES",
+    "IST_DAY_SQL",
     "IST_HOUR_SQL",
+    "IST_STARTED_AT_SQL",
+    "IST_TODAY_SQL",
+    "IST_ZONE",
     "QUALIFIED_STATUSES",
     "performance",
 ]

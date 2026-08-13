@@ -1769,6 +1769,47 @@
         "title": "CreditsOut",
         "type": "object"
       },
+      "DashboardDayOut": {
+        "additionalProperties": false,
+        "description": "One IST calendar day of the dashboard's 7-day call chart.\n\n**The four class counts PARTITION `calls.status`** \u2014 every value the CHECK\nconstraint allows (`crm.models.CALL_STATUSES`) belongs to exactly one of them, so\n`completed + no_answer + failed + in_flight == total` on every bucket and an owner\ncan check the arithmetic against the bar they are looking at.\n`tests/dashboard_daily_test.py` pins both halves of that claim: the partition\nagainst the constraint's own tuple, and the sum against real rows.\n\nThe grouping is the one the product already uses. `CALL_STATUS_STYLES` in\napps/web/src/components/ui.tsx already paints these exact sets in these exact\ncolours, so a bar and a status badge on the same screen never disagree about what a\ncall was:\n\n- `completed` (green) \u2014 the one status that means a conversation happened.\n- `no_answer` (amber) \u2014 `no_answer`, `busy`, `voicemail`. Three ways a dial reaches\n  the network and not a person. Deliberately NOT folded into `failed`: nothing\n  malfunctioned, and the owner's next move (\"ring them back\") is a different move\n  from the one a failure calls for.\n- `failed` (red) \u2014 the dial itself broke. Ours to fix, not the callee's.\n- `in_flight` \u2014 `queued`, `ringing`, `in_progress`. Not an outcome YET, and a\n  FOURTH field rather than a silent omission: today's bar always carries some, and\n  a reader seeing three bands add to less than `total` cannot tell a live call from\n  a dropped row. The chart draws three bands and may show this one as the gap.\n\nNo status is dropped. A ninth one added to `CALL_STATUSES` without a class here\nfails the partition test rather than quietly unbalancing every bucket.",
+        "properties": {
+          "completed": {
+            "title": "Completed",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "in_flight": {
+            "title": "In Flight",
+            "type": "integer"
+          },
+          "ist_date": {
+            "format": "date",
+            "title": "Ist Date",
+            "type": "string"
+          },
+          "no_answer": {
+            "title": "No Answer",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ist_date",
+          "total",
+          "completed",
+          "no_answer",
+          "failed",
+          "in_flight"
+        ],
+        "title": "DashboardDayOut",
+        "type": "object"
+      },
       "DashboardOut": {
         "additionalProperties": false,
         "properties": {
@@ -1804,6 +1845,13 @@
           "calls_today": {
             "title": "Calls Today",
             "type": "integer"
+          },
+          "daily_7d": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardDayOut"
+            },
+            "title": "Daily 7D",
+            "type": "array"
           },
           "hot_leads_open": {
             "title": "Hot Leads Open",
@@ -1844,7 +1892,8 @@
           "calls_today",
           "calls_7d",
           "leads_new_7d",
-          "hot_leads_open"
+          "hot_leads_open",
+          "daily_7d"
         ],
         "title": "DashboardOut",
         "type": "object"

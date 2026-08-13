@@ -24,6 +24,7 @@ import {
   formatINR,
   formatIST,
 } from "@/components/ui";
+import type { Dashboard } from "@/lib/api/client";
 import { useCalls, useDashboard, useUsage } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -103,8 +104,8 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
 
       <div className="grid gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8">
-          <Card title="Where the calls went" bodyClassName="p-6">
-            <OutcomeBreakdown outcomes={data?.outcome_split ?? {}} total={data?.calls_7d ?? 0} />
+          <Card title="Calls each day" bodyClassName="p-6">
+            <DailyCalls days={data?.daily_7d ?? []} />
           </Card>
         </div>
 
@@ -206,48 +207,89 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
 }
 
 /**
- * The outcome mix, drawn as bars in the order the API sent.
+ * The seven-day stacked column chart from the design, drawn from `daily_7d`.
  *
- * A bar per outcome rather than the design's seven-day stacked column chart, because
- * a day-by-day series is a different question and `/v1/dashboard` answers this one:
- * `outcome_split` is already a map of outcome to count over the same 7 days as every
- * other figure on this screen. Bars are drawn from the count, and each row prints its
- * own number beside the bar, so the chart is checkable rather than decorative.
+ * The four classes PARTITION `calls.status` — the API guarantees
+ * `completed + no_answer + failed + in_flight === total` on every bucket — so the
+ * stack always fills its column exactly and a reader can add the segments up. The
+ * colours are the ones `StatusBadge` already paints for the same statuses, so a bar
+ * and a badge on the same screen never disagree about what a call was.
+ *
+ * Heights are relative to the busiest day rather than to a fixed "1K" axis, which is
+ * what the mock drew: a client doing 20 calls a week would have seen seven invisible
+ * stubs under a scale nobody told them was arbitrary. The tallest column is full
+ * height and every column is labelled with its own total, so the shape is readable
+ * and the numbers are checkable without a tooltip.
+ *
+ * Zero-height columns still render their baseline: a day with no calls is a FACT
+ * about that day, and the API zero-fills for the same reason.
  */
-function OutcomeBreakdown({ outcomes, total }: { outcomes: Record<string, number>; total: number }) {
-  const rows = Object.entries(outcomes).sort((a, b) => b[1] - a[1]);
-  if (!rows.length) {
-    return (
-      <EmptyState
-        title="No tagged outcomes in the last 7 days"
-        hint="Every completed call is tagged automatically once its transcript is processed."
-      />
-    );
+const DAY_CLASSES = [
+  { key: "completed", label: "Completed", fill: "bg-brand" },
+  { key: "no_answer", label: "No answer", fill: "bg-amber-400" },
+  { key: "failed", label: "Failed", fill: "bg-rose-500" },
+  { key: "in_flight", label: "Still running", fill: "bg-slate-300 dark:bg-slate-600" },
+] as const;
+
+function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
+  if (!days.length) {
+    return <EmptyState title="No call history yet" hint="Each day appears here as it happens." />;
   }
-  const largest = Math.max(...rows.map(([, count]) => count));
+  const busiest = Math.max(...days.map((day) => day.total));
   return (
-    <div className="space-y-3">
-      <p className="text-[13px] text-ink-muted">
-        {formatCount(total)} calls in the last 7 days.
-      </p>
-      {rows.map(([outcome, count]) => (
-        <div key={outcome} className="flex items-center gap-3">
-          <span className="w-40 shrink-0 truncate text-[13px] font-medium capitalize text-ink">
-            {outcome.replace(/_/g, " ")}
+    <div>
+      <div className="mb-6 flex flex-wrap items-center gap-4 text-xs font-medium text-ink-muted">
+        {DAY_CLASSES.map((cls) => (
+          <span key={cls.key} className="flex items-center gap-1.5">
+            <span className={`h-2 w-2 rounded-full ${cls.fill}`} />
+            {cls.label}
           </span>
-          <span className="h-2.5 flex-1 overflow-hidden rounded-full bg-brand-soft dark:bg-white/5">
-            <span
-              className="block h-full rounded-full bg-brand"
-              style={{ width: `${largest > 0 ? Math.round((count / largest) * 100) : 0}%` }}
-            />
-          </span>
-          <span className="w-12 shrink-0 text-right text-[13px] font-semibold tabular-nums text-ink">
-            {formatCount(count)}
-          </span>
-        </div>
-      ))}
+        ))}
+      </div>
+
+      <div className="flex h-[240px] items-end justify-between gap-2">
+        {days.map((day) => (
+          <div key={day.ist_date} className="flex h-full min-w-0 flex-1 flex-col items-center gap-2">
+            <span className="text-[11px] font-semibold tabular-nums text-ink">{day.total}</span>
+            <div
+              className="flex w-full max-w-[44px] flex-col-reverse overflow-hidden rounded-t-md bg-black/[0.03] dark:bg-white/5"
+              style={{
+                height: `${busiest > 0 ? Math.max(2, Math.round((day.total / busiest) * 100)) : 2}%`,
+              }}
+              title={`${day.ist_date}: ${day.total} calls`}
+            >
+              {DAY_CLASSES.map((cls) => (
+                <span
+                  key={cls.key}
+                  className={`w-full ${cls.fill}`}
+                  style={{ flexGrow: day[cls.key], flexBasis: 0 }}
+                />
+              ))}
+            </div>
+            <span className="w-full truncate text-center text-[11px] font-medium text-ink-muted">
+              {formatDayLabel(day.ist_date)}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
+}
+
+/**
+ * "13 Aug" from the API's `YYYY-MM-DD`, WITHOUT constructing a Date.
+ *
+ * `new Date("2026-08-13")` parses as midnight UTC and then renders in the browser's
+ * zone, so a client in IST sees the previous day's label over the correct day's bar.
+ * The string is already an IST calendar date — the server did that work — so the only
+ * correct thing to do with it is read it.
+ */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatDayLabel(istDate: string): string {
+  const [, month, day] = istDate.split("-");
+  const index = Number(month) - 1;
+  return `${Number(day)} ${MONTHS[index] ?? month}`;
 }
 
 const SENTIMENT_TONES: Record<string, string> = {

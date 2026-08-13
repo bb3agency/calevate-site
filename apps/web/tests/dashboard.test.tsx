@@ -51,7 +51,19 @@ const EMPTY_DASHBOARD: Dashboard = {
   after_hours_captured_7d: 0,
   after_hours_basis: "default_window",
   minutes_used_month: null,
+  daily_7d: [],
 } as unknown as Dashboard;
+
+/** Seven IST days, oldest first, as the API zero-fills them. */
+const WEEK: Dashboard["daily_7d"] = [
+  { ist_date: "2026-08-07", total: 4, completed: 3, no_answer: 1, failed: 0, in_flight: 0 },
+  { ist_date: "2026-08-08", total: 0, completed: 0, no_answer: 0, failed: 0, in_flight: 0 },
+  { ist_date: "2026-08-09", total: 6, completed: 4, no_answer: 1, failed: 1, in_flight: 0 },
+  { ist_date: "2026-08-10", total: 0, completed: 0, no_answer: 0, failed: 0, in_flight: 0 },
+  { ist_date: "2026-08-11", total: 2, completed: 2, no_answer: 0, failed: 0, in_flight: 0 },
+  { ist_date: "2026-08-12", total: 9, completed: 7, no_answer: 1, failed: 1, in_flight: 0 },
+  { ist_date: "2026-08-13", total: 3, completed: 1, no_answer: 0, failed: 0, in_flight: 2 },
+];
 
 const USAGE: UsagePanel = {
   month: "2026-08",
@@ -162,6 +174,25 @@ describe("the dashboard renders what the server said, or says it could not", () 
     await screen.findByText("Using your recorded opening hours");
     expect(measured.textContent).toContain("Using your recorded opening hours");
     expect(measured.textContent).not.toContain("add your opening hours");
+  });
+
+  it("draws one column per IST day the API sent, silent days included", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({ "/v1/dashboard": { ...EMPTY_DASHBOARD, daily_7d: WEEK } }),
+    );
+    await screen.findByText("Calls each day");
+
+    // Seven labels, including the two days nothing happened: a silent day is a fact
+    // about that day, and dropping it would slide the week and misdate every bar.
+    for (const label of ["7 Aug", "8 Aug", "9 Aug", "10 Aug", "11 Aug", "12 Aug", "13 Aug"]) {
+      expect(container.textContent, `missing day label ${label}`).toContain(label);
+    }
+
+    // The date label is read out of the API's string, never through `new Date(...)`:
+    // parsing "2026-08-13" gives midnight UTC, which renders as 12 Aug for a reader in
+    // IST — the previous day's label over the correct day's bar.
+    expect(container.textContent).not.toContain("6 Aug");
   });
 
   it("prints rupees from the string the API sent, without going through a float", async () => {
