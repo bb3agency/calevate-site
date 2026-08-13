@@ -9,12 +9,18 @@ import { problem, renderAdminPage, stubApi } from "./harness";
 /**
  * The new-client wizard (FLOWS §1, steps 1 and 8).
  *
+ * Step 3 — the intake — landed between steps 1 and 8 and has its own file
+ * (`adminNewIntake.test.tsx`). What changed HERE is only the wizard's shape, and this
+ * file was updated for it rather than around it: the counter reads "of 3", the account
+ * confirmation now sits above both post-creation steps, and reaching the invite means
+ * walking past the intake. Every assertion below is the one it always was.
+ *
  * Lower blast radius than the ops screen — one account rather than every tenant — but it
  * is the screen that mints a single-use OWNER CREDENTIAL, and every assertion below is
  * about the console claiming something the server did not say:
  *
- * 1. **A creation that failed must not render as a created account.** Everything in step
- *    2 — the slug an operator will quote, the invite form that posts to a tenant id —
+ * 1. **A creation that failed must not render as a created account.** Everything after
+ *    step 1 — the slug an operator will quote, the invite form that posts to a tenant id —
  *    reads off the server's response, so a success panel drawn from local state would
  *    send an operator to a `/c/…` that does not exist and, worse, would stop them
  *    retrying.
@@ -39,6 +45,27 @@ const CREATED: CreateOrgOut = {
 };
 
 const INVITATIONS = `${TENANTS}/${CREATED.id}/invitations`;
+const INTAKE = `${TENANTS}/${CREATED.id}/agents/${CREATED.agent_id}/intake`;
+// Step 3 previews its own permission (`agents:write`), so reaching it asks the admin
+// realm who this session is. Stubbed here as premise rather than assertion — this file's
+// subject is the invite, and `adminNewIntake.test.tsx` owns the gate.
+const ADMIN_ME = "/v1/admin/me";
+const OPERATOR = {
+  realm: "admin",
+  user_id: "0192f0aa-7777-7000-8000-0000000000f2",
+  role: "operator",
+  permissions: ["org:read", "agents:read", "agents:write", "admin:tenants"],
+};
+
+/** A brand-new agent's intake: the API answers 200 with everything empty, not a 404. */
+const NO_INTAKE = {
+  business_hours: {},
+  escalation_contacts: [],
+  languages: [],
+  prose_answers: null,
+  compiled_t0_context: null,
+  submitted_at: null,
+};
 
 function fillName(value = "Sunrise Clinic") {
   fireEvent.change(screen.getByPlaceholderText("Sunrise Clinic"), { target: { value } });
@@ -61,7 +88,7 @@ describe("creating the account", () => {
     // No creation claim anywhere, and the operator is still on step 1 with their input.
     expect(screen.queryByText("Account created")).toBeNull();
     expect(container.textContent).not.toContain("Invite the owner");
-    expect(container.textContent).toContain("Step 1 of 2");
+    expect(container.textContent).toContain("Step 1 of 3");
     // The refusal is answerable, so the control must stay live to answer it.
     expect(
       (screen.getByRole("button", { name: "Create client" }) as HTMLButtonElement).disabled,
@@ -69,7 +96,11 @@ describe("creating the account", () => {
   });
 
   it("names the account from the server's slug, not from what was typed", async () => {
-    const { container } = renderAdminPage(<NewClientPage />, { [TENANTS]: CREATED });
+    const { container } = renderAdminPage(<NewClientPage />, {
+      [TENANTS]: CREATED,
+      [ADMIN_ME]: OPERATOR,
+      [INTAKE]: NO_INTAKE,
+    });
 
     fillName();
     fireEvent.click(screen.getByRole("button", { name: "Create client" }));
@@ -78,7 +109,7 @@ describe("creating the account", () => {
     // The server de-duplicated the slug; the panel quotes what actually exists.
     expect(container.textContent).toContain("/c/sunrise-clinic-2");
     expect(container.textContent).not.toContain("/c/sunrise-clinic ");
-    expect(container.textContent).toContain("Step 2 of 2");
+    expect(container.textContent).toContain("Step 2 of 3");
   });
 
   it("stops offering a control the session is refused, with the server's reason", async () => {
@@ -104,16 +135,25 @@ describe("creating the account", () => {
 });
 
 describe("the owner invite", () => {
-  async function reachStepTwo(routes: Record<string, unknown>) {
-    const render = renderAdminPage(<NewClientPage />, { [TENANTS]: CREATED, ...routes });
+  /** Create the account, then walk past step 3 — the invite is the LAST step now. */
+  async function reachTheInvite(routes: Record<string, unknown>) {
+    const render = renderAdminPage(<NewClientPage />, {
+      [TENANTS]: CREATED,
+      [ADMIN_ME]: OPERATOR,
+      [INTAKE]: NO_INTAKE,
+      ...routes,
+    });
     fillName();
     fireEvent.click(screen.getByRole("button", { name: "Create client" }));
     await screen.findByText("Account created");
+    // `findBy`, not `getBy`: the intake step is a skeleton until its prefill lands, and
+    // the control that leaves it does not exist while it is one.
+    fireEvent.click(await screen.findByRole("button", { name: /Continue to the owner invite/ }));
     return render;
   }
 
   it("shows the token once, with what holding it means", async () => {
-    const { container } = await reachStepTwo({
+    const { container } = await reachTheInvite({
       [INVITATIONS]: { token: "inv_live_3f9a2c", expires_in_hours: 72 },
     });
 
@@ -128,7 +168,7 @@ describe("the owner invite", () => {
   });
 
   it("clears the previous token before a second attempt, so no refusal sits over a live credential", async () => {
-    await reachStepTwo({ [INVITATIONS]: { token: "inv_live_3f9a2c", expires_in_hours: 72 } });
+    await reachTheInvite({ [INVITATIONS]: { token: "inv_live_3f9a2c", expires_in_hours: 72 } });
 
     const emailBox = screen.getByPlaceholderText("owner@business.com");
     fireEvent.change(emailBox, { target: { value: "owner@sunrise.example" } });
@@ -152,11 +192,11 @@ describe("the owner invite", () => {
   });
 
   it("mints nothing for an address nobody typed", async () => {
-    const { calls } = await reachStepTwo({
+    const { calls } = await reachTheInvite({
       [INVITATIONS]: { token: "inv_live_3f9a2c", expires_in_hours: 72 },
     });
 
-    // The billing email was left blank in step 1, so step 2 opens empty — and an empty
+    // The billing email was left blank in step 1, so the invite opens empty — and an empty
     // invite is a token nobody can use plus a membership row nobody asked for.
     const button = screen.getByRole("button", { name: "Create invite" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);

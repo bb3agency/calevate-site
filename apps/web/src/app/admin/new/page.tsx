@@ -30,14 +30,25 @@ import {
   type CreateOrgIn,
   type CreateOrgOut,
 } from "@/lib/api/admin";
+import { draftFromState, useIntake, type IntakeDraft } from "@/lib/api/intake";
+
+import { IntakeStep } from "./IntakeStep";
+import { WIZARD_LANGUAGES } from "./languages";
 
 /**
- * New-client wizard, steps 1 and 8 (FLOWS §1).
+ * New-client wizard, steps 1, 3 and 8 (FLOWS §1).
  *
- * The middle steps are deliberately absent rather than stubbed: intake (3) is a guided
- * form we design with client #1 in the room, number provisioning (6) and the test-call
- * gate (7) both depend on the Bolna pilot. A greyed-out button that does nothing is
- * worse than a documented gap, so the checklist below says what is still manual.
+ * Two of the middle steps are still deliberately absent rather than stubbed: number
+ * provisioning (6) and the test-call gate (7) both depend on the Bolna pilot, and a
+ * greyed-out button that does nothing is worse than a documented gap — so the checklist
+ * in step 8 says what is still manual instead.
+ *
+ * **Step 3 is no longer one of them.** Intake had been deferred on the grounds that it
+ * "needs client #1 in the room", which is a real argument against inventing a field list
+ * and no argument at all against building one FLOWS §1 already names. The API landed in
+ * BUILD-LOG §45 with those eight fields and nothing in either realm called it; `IntakeStep`
+ * is the caller. What genuinely needs client #1 is the CONTENT of a clinic's answers, not
+ * the question list.
  *
  * ## What this pass changed
  *
@@ -61,15 +72,20 @@ import {
  *   generated union, so a language this API does not accept fails the build instead of the
  *   request.
  *
- * There is no permission PREVIEW on this screen, which is now a choice rather than a
- * limitation: `useAdminAccess` (`@/app/admin/access`) can be asked from anywhere since
- * `GET /v1/admin/me` landed, and the shell already gates the "New client" nav entry on
- * the same `admin:tenants` both writes require (admin/routes.py) — so a role that may
- * not create clients meets the refusal one step earlier, in the sidebar, where it is not
- * standing over a filled-in form. What stays here is the complementary mechanism, and it
- * is not a substitute for the preview: a refusal that HAS arrived, for any reason,
- * disables the control that caused it with the server's own words rather than inviting a
- * second identical refusal.
+ * There is no permission PREVIEW on the two writes THIS file makes, which is a choice
+ * rather than a limitation: `useAdminAccess` (`@/app/admin/access`) can be asked from
+ * anywhere since `GET /v1/admin/me` landed, and the shell already gates the "New client"
+ * nav entry on the same `admin:tenants` both of them require (admin/routes.py) — so a
+ * role that may not create clients meets the refusal one step earlier, in the sidebar,
+ * where it is not standing over a filled-in form. What stays here is the complementary
+ * mechanism, and it is not a substitute for the preview: a refusal that HAS arrived, for
+ * any reason, disables the control that caused it with the server's own words rather than
+ * inviting a second identical refusal.
+ *
+ * The intake step DOES preview, and the difference is not inconsistency: its route
+ * carries a DIFFERENT permission (`agents:write`, not `admin:tenants`), so reaching this
+ * screen at all says nothing about whether that submit will be allowed — and the form
+ * behind it is forty controls long, which is the worst possible place to learn.
  *
  * NO `<h1>`: the admin shell derives the page title from the same nav list it renders,
  * so a heading here would print "New client" twice.
@@ -114,12 +130,6 @@ const VERTICALS: { value: CreateOrgIn["vertical_template"]; label: string; hint:
   { value: "custom", label: "Custom", hint: "Minimal schema — build the fields by hand" },
 ];
 
-const LANGUAGES: { value: CreateOrgIn["language"]; label: string; hint: string }[] = [
-  { value: "te-IN", label: "Telugu", hint: "The default, and what the voice stack is tuned for" },
-  { value: "hi-IN", label: "Hindi", hint: "" },
-  { value: "en-IN", label: "English (India)", hint: "" },
-];
-
 /**
  * A refusal we have already received, as a reason to stop offering the control.
  *
@@ -146,6 +156,17 @@ export default function NewClientPage() {
   // from nowhere else — every sentence in step 2 reads off this object, so the screen
   // structurally cannot report a creation the server did not confirm.
   const [created, setCreated] = useState<CreateOrgOut | null>(null);
+  /**
+   * Which of the two POST-CREATION steps is on screen.
+   *
+   * It lives here rather than in `AfterCreate` for one reason: the step counter above is
+   * derived from it, and a counter that read a copy of this state would eventually
+   * disagree with the panel underneath it. Same rule the admin shell applies to its nav
+   * (one list drives both the sidebar and the header title).
+   *
+   * The intake ANSWERS deliberately do not live here — see `AfterCreate`.
+   */
+  const [step, setStep] = useState<"intake" | "invite">("intake");
 
   const createTenant = useCreateTenant();
   const refusal = refusalReason(createTenant.error);
@@ -154,14 +175,18 @@ export default function NewClientPage() {
     slug || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
 
   return (
-    <div className="max-w-2xl space-y-5">
+    <div className="max-w-3xl space-y-5">
       <div>
         <p className="mt-0.5 text-sm text-ink-muted">
           Creates the account, its retention policies, a draft receptionist and an
           extraction schema from the vertical template.
         </p>
         <p className="mt-2 text-xs font-medium uppercase tracking-wide text-ink-faint">
-          {created ? "Step 2 of 2 — invite the owner" : "Step 1 of 2 — account details"}
+          {!created
+            ? "Step 1 of 3 — account details"
+            : step === "intake"
+              ? "Step 2 of 3 — business intake"
+              : "Step 3 of 3 — invite the owner"}
         </p>
       </div>
 
@@ -248,7 +273,7 @@ export default function NewClientPage() {
             <fieldset>
               <legend className={FIELD_LABEL}>Primary language</legend>
               <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                {LANGUAGES.map((option) => (
+                {WIZARD_LANGUAGES.map((option) => (
                   <label
                     key={option.value}
                     className={`${CHOICE_CARD} ${
@@ -290,7 +315,7 @@ export default function NewClientPage() {
               />
               <span className={FIELD_HINT}>
                 Where hot-lead alerts and invoices go. Offered again as the invite address
-                in step 2.
+                in step 3.
               </span>
             </label>
 
@@ -309,39 +334,71 @@ export default function NewClientPage() {
           </form>
         </Card>
       ) : (
-        <CreatedPanel created={created} submittedName={name} defaultEmail={email} />
+        <AfterCreate
+          created={created}
+          submittedName={name}
+          defaultEmail={email}
+          primaryLanguage={language}
+          step={step}
+          onStep={setStep}
+        />
       )}
     </div>
   );
 }
 
 /**
- * Step 2 — everything here reads off the SERVER's response.
+ * Everything after the account exists: the confirmation, then step 3, then step 8.
  *
- * `submittedName` is passed separately and labelled as what was submitted, rather than
- * being interpolated into the creation sentence: `CreateOrgOut` carries no name, so a
- * sentence built from the local input would be this screen asserting what the row holds.
- * The slug and status it does carry are the identity an operator can act on.
+ * ## Why the intake ANSWERS live here and not in `IntakeStep`
+ *
+ * The wizard's two remaining steps swap one panel for the other, so `IntakeStep` unmounts
+ * the moment an operator walks forward to the invite — and a form that lost forty answers
+ * on the way to a button and back would be a worse defect than the missing step it
+ * replaced. The draft is therefore held one level ABOVE the swap, and `IntakeStep` is a
+ * controlled component. The mutation stays inside it on purpose: a submit's outcome
+ * belongs to the visit that made it, and the durable "this has been submitted" comes back
+ * from the server on `submitted_at` rather than from a notice we kept alive.
+ *
+ * ## Seeding the draft from the prefill, during render
+ *
+ * `draft === null` means "the GET has not answered yet", and it is the ONE thing that
+ * keeps a blank form off the screen while the answers are still in flight. It is filled
+ * during render rather than in an effect — React's own documented answer to "adjust state
+ * when something changes" (react.dev/learn/you-might-not-need-an-effect); an effect would
+ * paint an empty form for one frame first, which on a failed-then-retried read is exactly
+ * the empty form BUILD-LOG §52 is about.
+ *
+ * It seeds ONCE. After a submit the query is invalidated and comes back changed, and
+ * re-seeding then would throw away whatever the operator has typed since — the server's
+ * copy is not more current than the form that produced it.
  */
-function CreatedPanel({
+function AfterCreate({
   created,
   submittedName,
   defaultEmail,
+  primaryLanguage,
+  step,
+  onStep,
 }: {
   created: CreateOrgOut;
   submittedName: string;
   defaultEmail: string;
+  primaryLanguage: CreateOrgIn["language"];
+  step: "intake" | "invite";
+  onStep: (step: "intake" | "invite") => void;
 }) {
-  const invite = useInvite();
-  const [email, setEmail] = useState(defaultEmail);
-  // The token is shown ONCE and cannot be recovered, so it is state rather than
-  // `invite.data` — and it is cleared at every submit so a token minted for one address
-  // can never sit under a refusal for another.
-  const [inviteToken, setInviteToken] = useState<string | null>(null);
-  const refusal = refusalReason(invite.error);
+  // `created.agent_id` is the draft receptionist the creation made — the agent whose
+  // prompt and knowledge base the intake writes. It comes from the SERVER's response, so
+  // this cannot address a step at an agent that was never created.
+  const intake = useIntake(created.id, created.agent_id);
+  const [draft, setDraft] = useState<IntakeDraft | null>(null);
+  if (draft === null && intake.data) setDraft(draftFromState(intake.data, primaryLanguage));
 
   return (
     <div className="space-y-4">
+      {/* Above BOTH steps, because it is a standing fact about the account rather than
+          part of either one — and it reads off the server's own `slug` and `status`. */}
       <NoticeBox
         tone="ok"
         icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
@@ -358,13 +415,61 @@ function CreatedPanel({
         )}
       </NoticeBox>
 
+      {step === "intake" ? (
+        <IntakeStep
+          tenantId={created.id}
+          agentId={created.agent_id}
+          primaryLanguage={primaryLanguage}
+          state={intake}
+          draft={draft}
+          onDraftChange={setDraft}
+          onContinue={() => onStep("invite")}
+        />
+      ) : (
+        <CreatedPanel
+          created={created}
+          defaultEmail={defaultEmail}
+          onBack={() => onStep("intake")}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Step 8 — everything here reads off the SERVER's response.
+ *
+ * The creation confirmation itself moved up to `AfterCreate`, which renders it above both
+ * remaining steps: it is a standing fact about the account rather than a part of the
+ * invite. What did NOT move is the rule it was built on — the account is named by the
+ * server's own `slug` and `status`, and the typed name is offered separately as what was
+ * submitted, because `CreateOrgOut` carries no name and a sentence built from the local
+ * input would be this screen asserting what the row holds.
+ */
+function CreatedPanel({
+  created,
+  defaultEmail,
+  onBack,
+}: {
+  created: CreateOrgOut;
+  defaultEmail: string;
+  onBack: () => void;
+}) {
+  const invite = useInvite();
+  const [email, setEmail] = useState(defaultEmail);
+  // The token is shown ONCE and cannot be recovered, so it is state rather than
+  // `invite.data` — and it is cleared at every submit so a token minted for one address
+  // can never sit under a refusal for another.
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const refusal = refusalReason(invite.error);
+
+  return (
+    <div className="space-y-4">
       <Card title="Still manual for this client">
-        {/* Saying so beats a disabled button that implies the feature exists. */}
+        {/* Saying so beats a disabled button that implies the feature exists. The intake
+            line is GONE from this list because the step above now does it — a checklist
+            that still called it manual would be the screen contradicting the screen. */}
         <ul className="space-y-1.5 text-sm text-ink-muted">
-          <li className="flex gap-2">
-            <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
-            Intake interview → prompt + T0 context (FLOWS §1 step 3)
-          </li>
           <li className="flex gap-2">
             <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
             Number provisioning and DLT/PE registration (step 6, pilot-gated)
@@ -444,6 +549,14 @@ function CreatedPanel({
       </Card>
 
       <div className="flex flex-wrap gap-2">
+        {/* Back to step 3 with its answers intact — `AfterCreate` holds the draft above
+            this swap precisely so this button is not a way to lose them. It is also the
+            only way back: the endpoint has no draft save, so an unsubmitted intake exists
+            nowhere but in this tab. */}
+        <button type="button" onClick={onBack} className={SECONDARY_BUTTON}>
+          <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
+          Back to the intake
+        </button>
         <Link href={`/admin/tenants/${created.id}`} className={SECONDARY_BUTTON}>
           <Plus aria-hidden className="h-3.5 w-3.5" />
           Open client
