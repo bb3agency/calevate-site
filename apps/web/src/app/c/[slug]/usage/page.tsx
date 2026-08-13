@@ -1,154 +1,236 @@
 "use client";
 
 import { useState } from "react";
+import { Coins, Gauge, PhoneCall, Timer, Wallet } from "lucide-react";
 
-import { Card, ProblemNotice, RestrictionNote, Skeleton, StatTile } from "@/components/ui";
 import {
-  MAX_TOPUP_INR,
-  MIN_TOPUP_INR,
-  isPrepaid,
-  useTopUpIntent,
-} from "@/lib/api/billing";
+  Card,
+  NOTICE_TONES,
+  ProblemNotice,
+  RestrictionNote,
+  Skeleton,
+  StatTile,
+  formatCount,
+  formatINR,
+} from "@/components/ui";
+import { MAX_TOPUP_INR, MIN_TOPUP_INR, isPrepaid, useTopUpIntent } from "@/lib/api/billing";
 import { useCaps, useSetCaps } from "@/lib/api/caps";
 import { useClientSession } from "@/lib/api/session";
-import { useUsage, useWriteAccess } from "@/lib/api/hooks";
+import { useMe, useUsage, useWriteAccess } from "@/lib/api/hooks";
 import type { Session } from "@/lib/api/client";
 
 /**
  * What this month costs (SURFACES §2b, `billing:read` — owners, not staff).
  *
  * Deliberately absent: our supplier cost. `unit_cost_paid` sits on every usage row so
- * per-client margin is a query (D-12), and it is commercially ours — the margin panel
- * in the admin console is where it belongs.
+ * per-client margin is a query (D-12), and it is commercially ours — the margin panel in
+ * the admin console is where it belongs, and `UsagePanelOut` does not carry it here.
  *
- * Money arrives as strings and stays strings all the way to the screen. Parsing INR
- * into a JS number to format it is how ₹10,159.00 becomes ₹10,158.999999999998.
+ * ## Money
+ *
+ * Every money field on `UsagePanelOut` is an exact decimal STRING and stays one all the
+ * way to the DOM. `formatINR` formats the DIGITS — it never parses them — because
+ * `Number("10159.00")` is how ₹10,159.00 becomes ₹10,158.999999999998 on the screen a
+ * client checks against their own books.
+ *
+ * The RATES are the exception, and the exception is the point: `overage_rate_inr` is
+ * NUMERIC(12,4) and the server publishes it at full precision on purpose
+ * (`billing/service.py::rate_to_display` — "a RATE is not a rupee amount and must not be
+ * rounded like one"). `formatINR` keeps exactly two decimals, so putting ₹7.1250/min
+ * through it would print ₹7.12 and break the only arithmetic a client ever does on an
+ * invoice line: qty × unit = amount. Rates therefore render through `rupeeRate`, which
+ * prefixes the ₹ and touches nothing else.
+ *
+ * ## What changed in the design pass, beyond colour
+ *
+ * - The screen rendered its own `<h1>Usage</h1>` while the shell prints the page title
+ *   from the nav list (layout.tsx).
+ * - `Number(data.overage_minutes) > 0` parsed a server decimal to ask a yes/no question.
+ *   It decided a hint rather than a figure, so nothing was visibly wrong — which is
+ *   exactly how the habit survives to the line where it does matter. `hasNonZeroDigit`
+ *   answers the same question without a float.
+ * - Every panel sat behind `if (!usage.data) return null`, so a failed request rendered
+ *   a blank screen: no numbers, and no notice either.
+ * - The screen was not gated on the permission its own endpoint requires (below).
  */
 export default function UsagePage() {
   const session = useClientSession();
   const usage = useUsage(session);
+  const me = useMe(session);
 
-  if (usage.isLoading) return <Skeleton rows={5} />;
-  if (usage.error) return <ProblemNotice error={usage.error} onRetry={() => usage.refetch()} />;
-  if (!usage.data) return null;
+  /**
+   * `GET /v1/usage` and `GET /v1/billing/caps` both require `billing:read` (crm/routes.py,
+   * billing/cap_routes.py), which `staff` does not hold — spend is an owner's business
+   * (SEC-COMP §5). The nav shows this screen to everyone, so a staff user reached it and
+   * was answered with a red 403 alert that reads like an outage.
+   *
+   * Read off `/v1/me` rather than from a role list this build would have to keep in step
+   * with `core/rbac.py`. Not `useWriteAccess`: that refuses EVERY permission to an
+   * impersonating operator (D-22), which is right for a control that writes and wrong
+   * here — `billing:read` is not a mutating permission, an operator holds it, and
+   * blanking this screen for the person doing the support call would be a refusal the
+   * server never made.
+   *
+   * While `/v1/me` is in flight `me.data` is undefined and nothing is refused, so the
+   * screen never flashes an explanation it is about to withdraw. If `/v1/me` itself
+   * failed we do not know, so the request goes out and the API's answer is what renders.
+   */
+  const refused = me.data !== undefined && !me.data.permissions.includes("billing:read");
+  if (refused) {
+    return (
+      <RestrictionNote reason="Spending and usage are limited to the account owner. Ask them to share this month's figures, or to give you owner access." />
+    );
+  }
 
   const data = usage.data;
-  const overage = Number(data.overage_minutes) > 0;
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Usage</h1>
-        <p className="mt-0.5 text-sm text-slate-500">
-          Billing month {data.month} (Indian Standard Time).
+    <div className="space-y-5 pb-12">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-ink-muted">
+          {data ? `Billing month ${data.month} (Indian Standard Time).` : "This month's usage."}
         </p>
       </div>
 
-      {data.capped && (
-        <div
-          role="alert"
-          className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
-        >
-          {/* The cap is a safety rail the client chose; explaining it beats a silent
-              stop, which reads as an outage. Inbound is unaffected — the gate is
-              outbound-only — and saying so prevents a needless support call. */}
-          Outgoing calls are paused for this month — you have reached your spending cap.
-          People calling you still get through. Raise your own limit below, or talk to
-          your account manager if the limit on your plan is the one you have reached.
-        </div>
-      )}
+      {usage.error && <ProblemNotice error={usage.error} onRetry={() => void usage.refetch()} />}
 
-      {data.minutes_left !== null && (
-        /* Runway framing: "about N minutes left" is what an owner plans around;
-           a rupee balance makes them do the division at the counter. */
-        <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
-          About <strong>{data.minutes_left} minutes</strong> of calling left this month.
-        </div>
-      )}
+      {/* A skeleton is not a number and a failure is not a zero: when the request has
+          not landed, the screen shows neither figures nor a reassuring blank. */}
+      {!data ? (
+        usage.error ? null : <Skeleton rows={6} />
+      ) : (
+        <>
+          {data.capped && (
+            <div role="alert" className={`rounded-card border p-3 text-sm ${NOTICE_TONES.warn}`}>
+              {/* The cap is a safety rail the client chose; explaining it beats a silent
+                  stop, which reads as an outage. Inbound is unaffected — the gate is
+                  outbound-only — and saying so prevents a needless support call. */}
+              Outgoing calls are paused for this month — you have reached your spending
+              cap. People calling you still get through. Raise your own limit below, or
+              talk to your account manager if the limit on your plan is the one you have
+              reached.
+            </div>
+          )}
 
-      <div className="grid gap-3 sm:grid-cols-4">
-        <StatTile
-          label="Minutes used"
-          value={data.minutes_used}
-          hint={
-            data.included_minutes > 0 ? `${data.included_minutes} included` : "pay as you go"
-          }
-        />
-        <StatTile label="Calls" value={data.calls} />
-        <StatTile
-          label="Extra minutes"
-          value={data.overage_minutes}
-          hint={overage ? "beyond your plan" : "none — you are within your plan"}
-        />
-        {/* The rate, not just the total. Until the server published
-            `overage_rate_inr` this tile showed a rupee figure with nothing to check
-            it against — an owner could not tell how it was arrived at, nor what the
-            next minute will cost them. It is a string at full precision on purpose:
-            the invoice's overage line multiplies by exactly this number. */}
-        <StatTile
-          label="Extra charges"
-          value={`₹${data.overage_cost_inr}`}
-          hint={
-            /* Two rungs means two rates, and quoting only one of them would make the
-               invoice's arithmetic impossible to follow. `overage_rate_value_inr` is
-               null when the plan quotes a single rate — which is most plans — and the
-               hint reads exactly as it always did in that case. */
-            data.overage_rate_value_inr === null
-              ? `₹${data.overage_rate_inr} per extra minute`
-              : `₹${data.overage_rate_inr}/min premium voice, ₹${data.overage_rate_value_inr}/min value voice`
-          }
-        />
-      </div>
+          {data.minutes_left !== null && (
+            /* Runway framing: "about N minutes left" is what an owner plans around; a
+               rupee balance makes them do the division at the counter. */
+            <p className="rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink-muted">
+              About{" "}
+              <strong className="font-semibold tabular-nums text-ink">
+                {formatCount(data.minutes_left)} minutes
+              </strong>{" "}
+              of calling left this month.
+            </p>
+          )}
 
-      <Card title="This month">
-        <dl className="space-y-2 text-sm">
-          <Row label="Plan fee" value={data.monthly_fee_inr ? `₹${data.monthly_fee_inr}` : "—"} />
-          {data.overage_rate_value_inr === null ? (
-            <Row
-              label={`Extra usage (${data.overage_minutes} min × ₹${data.overage_rate_inr})`}
-              value={`₹${data.overage_cost_inr}`}
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {/* The server's decimal string, printed as sent — minutes are metered to the
+                same precision the invoice bills. */}
+            <StatTile
+              label="Minutes used"
+              value={data.minutes_used}
+              icon={<Timer className="h-5 w-5" />}
+              hint={
+                data.included_minutes > 0
+                  ? `${formatCount(data.included_minutes)} included`
+                  : "Pay as you go"
+              }
             />
-          ) : (
-            /* The same two rungs the invoice prints, so the screen a client checks and
-               the document they are sent tell one story. The COST is one row, because
-               `overage_cost_inr` is one server-side number: splitting it here would mean
-               the browser dividing a bill, and a paisa of disagreement with the invoice
-               is a support ticket. */
-            <>
-              <Row
-                label={`Extra usage, premium voice (${data.overage_minutes_premium} min × ₹${data.overage_rate_inr})`}
-                value={`${data.overage_minutes_premium} min`}
-              />
-              <Row
-                label={`Extra usage, value voice (${data.overage_minutes_value} min × ₹${data.overage_rate_value_inr})`}
-                value={`${data.overage_minutes_value} min`}
-              />
-              <Row label="Extra usage total" value={`₹${data.overage_cost_inr}`} />
-            </>
-          )}
-          <Row
-            label="Total so far"
-            value={`₹${addRupees(data.monthly_fee_inr, data.overage_cost_inr)}`}
-            emphasis
-          />
-          {data.cap_minutes !== null && (
-            <Row label="Monthly cap" value={`${data.cap_minutes} minutes`} />
-          )}
-        </dl>
-        <p className="mt-3 text-xs text-slate-500">
-          Usage appears a couple of minutes after each call ends, once the recording and
-          summary have been processed.
-        </p>
-      </Card>
+            <StatTile
+              label="Calls"
+              value={formatCount(data.calls)}
+              icon={<PhoneCall className="h-5 w-5" />}
+              hint="Billed calls this month"
+            />
+            <StatTile
+              label="Extra minutes"
+              value={data.overage_minutes}
+              icon={<Gauge className="h-5 w-5" />}
+              hint={
+                hasNonZeroDigit(data.overage_minutes)
+                  ? "Beyond your plan"
+                  : "None — you are within your plan"
+              }
+            />
+            {/* The rate, not just the total. Until the server published
+                `overage_rate_inr` this tile showed a rupee figure with nothing to check
+                it against — an owner could not tell how it was arrived at, nor what the
+                next minute will cost them. */}
+            <StatTile
+              label="Extra charges"
+              value={formatINR(data.overage_cost_inr)}
+              icon={<Coins className="h-5 w-5" />}
+              tone="strong"
+              hint={
+                /* Two rungs means two rates, and quoting only one of them would make the
+                   invoice's arithmetic impossible to follow. `overage_rate_value_inr` is
+                   null when the plan quotes a single rate — which is most plans — and the
+                   hint reads exactly as it always did in that case. */
+                data.overage_rate_value_inr === null
+                  ? `${rupeeRate(data.overage_rate_inr)} per extra minute`
+                  : `${rupeeRate(data.overage_rate_inr)}/min premium voice, ${rupeeRate(
+                      data.overage_rate_value_inr,
+                    )}/min value voice`
+              }
+            />
+          </div>
 
+          <Card title="This month">
+            <dl className="space-y-2 text-sm">
+              <Row label="Plan fee" value={formatINR(data.monthly_fee_inr)} />
+              {data.overage_rate_value_inr === null ? (
+                <Row
+                  label={`Extra usage (${data.overage_minutes} min × ${rupeeRate(data.overage_rate_inr)})`}
+                  value={formatINR(data.overage_cost_inr)}
+                />
+              ) : (
+                /* The same two rungs the invoice prints, so the screen a client checks
+                   and the document they are sent tell one story. The COST is one row,
+                   because `overage_cost_inr` is one server-side number: splitting it here
+                   would mean the browser dividing a bill, and a paisa of disagreement
+                   with the invoice is a support ticket. */
+                <>
+                  <Row
+                    label={`Extra usage, premium voice (${data.overage_minutes_premium} min × ${rupeeRate(data.overage_rate_inr)})`}
+                    value={`${data.overage_minutes_premium} min`}
+                  />
+                  <Row
+                    label={`Extra usage, value voice (${data.overage_minutes_value} min × ${rupeeRate(data.overage_rate_value_inr)})`}
+                    value={`${data.overage_minutes_value} min`}
+                  />
+                  <Row label="Extra usage total" value={formatINR(data.overage_cost_inr)} />
+                </>
+              )}
+              <Row
+                label="Total so far"
+                value={formatINR(addRupees(data.monthly_fee_inr, data.overage_cost_inr))}
+                emphasis
+              />
+              {data.cap_minutes !== null && (
+                <Row label="Monthly cap" value={`${formatCount(data.cap_minutes)} minutes`} />
+              )}
+            </dl>
+            <p className="mt-3 text-xs text-ink-muted">
+              Usage appears a couple of minutes after each call ends, once the recording
+              and summary have been processed.
+            </p>
+          </Card>
+        </>
+      )}
+
+      {/* Its own query and its own permission, so it is not hidden by a failed usage
+          read: the limit is the control an owner reaches for when spend surprises them,
+          and that is precisely the moment the panel above may be the thing that broke. */}
       <SpendLimit session={session} />
 
-      {data.credit_balance_inr !== null && (
+      {data && data.credit_balance_inr !== null && (
         <Card title="Calling credit">
-          <p className="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-50">
-            ₹{data.credit_balance_inr}
+          <p className="flex items-center gap-2 text-2xl font-bold tracking-tight tabular-nums text-ink">
+            <Wallet className="h-5 w-5 text-brand" />
+            {formatINR(data.credit_balance_inr)}
           </p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-ink-muted">
             Outgoing calls stop when this reaches zero. Incoming calls are unaffected.
           </p>
           {/* Offered on the tier the server says has a wallet, not on "the balance is
@@ -163,8 +245,33 @@ export default function UsagePage() {
 }
 
 /**
- * The client's own spending limit (D-34 R-11, SURFACES §2b) — the control that was
- * missing entirely.
+ * Does this decimal STRING carry a value above zero?
+ *
+ * The question `Number(value) > 0` used to answer, without the parse. "0", "0.00" and
+ * "0.0000" are all zero and no string comparison spots that; a single digit other than
+ * zero anywhere in the string is exactly the condition, and it holds for every decimal
+ * form the server can send. Not money-critical here — it picks a hint — but a `Number()`
+ * on a server decimal is the habit hard rule 7 is about, and habits are what reach the
+ * line that matters.
+ */
+function hasNonZeroDigit(value: string): boolean {
+  return /[1-9]/.test(value);
+}
+
+/**
+ * A per-minute RATE, at the precision the server sent it.
+ *
+ * Not `formatINR`: that keeps exactly two decimals, and `overage_rate_inr` is
+ * NUMERIC(12,4) which a plan may legitimately quote as ₹7.1250/min. Printing ₹7.12
+ * beside "× 20 min = ₹142.50" makes the invoice line fail the one check a client
+ * performs on it. The digits are the server's; this only prefixes the symbol.
+ */
+function rupeeRate(value: string): string {
+  return `₹${value}`;
+}
+
+/**
+ * The client's own spending limit (D-34 R-11, SURFACES §2b).
  *
  * Three things the screen has to get right, and each of them is a sentence on it:
  *
@@ -184,12 +291,15 @@ export default function UsagePage() {
 function SpendLimit({ session }: { session: Session }) {
   const caps = useCaps(session);
   const save = useSetCaps(session);
+  // `PUT /v1/billing/caps` requires `org:manage` — a MUTATING permission, so `staff` does
+  // not hold it and an impersonating operator is refused it (D-22). Disabled with the
+  // reason beside it, rather than a 403 after the click.
   const write = useWriteAccess(session, "org:manage", "change your spending limit");
   const [minutes, setMinutes] = useState<string | null>(null);
   const [spend, setSpend] = useState<string | null>(null);
 
   if (caps.isLoading) return <Skeleton rows={3} />;
-  if (caps.error) return <ProblemNotice error={caps.error} onRetry={() => caps.refetch()} />;
+  if (caps.error) return <ProblemNotice error={caps.error} onRetry={() => void caps.refetch()} />;
   if (!caps.data) return null;
 
   const current = caps.data;
@@ -201,9 +311,9 @@ function SpendLimit({ session }: { session: Session }) {
 
   return (
     <Card title="Your spending limit">
-      <p className="text-sm text-slate-600 dark:text-slate-400">
-        Set your own limit for this month. Outgoing calls stop when you reach it.
-        Incoming calls are never affected.
+      <p className="text-sm text-ink-muted">
+        Set your own limit for this month. Outgoing calls stop when you reach it. Incoming
+        calls are never affected.
       </p>
 
       <dl className="mt-3 space-y-2 text-sm">
@@ -216,10 +326,13 @@ function SpendLimit({ session }: { session: Session }) {
           label="Limit on your plan"
           value={describeLimit(current.plan_cap_minutes, current.plan_cap_spend_inr)}
         />
-        <Row label="Used so far" value={`${current.minutes_used} min · ₹${current.spend_used_inr}`} />
+        <Row
+          label="Used so far"
+          value={`${current.minutes_used} min · ${formatINR(current.spend_used_inr)}`}
+        />
       </dl>
 
-      <div className="mt-4 space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
+      <div className="mt-4 space-y-3 border-t border-line pt-4">
         <RestrictionNote reason={write.reason} />
         {save.error && <ProblemNotice error={save.error} />}
 
@@ -254,27 +367,25 @@ function SpendLimit({ session }: { session: Session }) {
           <button
             type="submit"
             disabled={!write.allowed || save.isPending}
-            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+            className="rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50"
           >
             {save.isPending ? "Saving…" : "Save limit"}
           </button>
         </form>
 
-        <p className="text-xs text-slate-500">
-          Leave a box empty to remove your own limit and fall back on your plan&apos;s.
-          A limit below what you have already spent this month takes effect immediately
-          — outgoing calls stop for the rest of the month, and you can raise it again
-          here at any time.
+        <p className="text-xs text-ink-muted">
+          Leave a box empty to remove your own limit and fall back on your plan&apos;s. A
+          limit below what you have already spent this month takes effect immediately —
+          outgoing calls stop for the rest of the month, and you can raise it again here
+          at any time.
         </p>
 
         {save.data && (
           <div
             role="status"
-            className={
-              save.data.capped
-                ? "rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
-                : "rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
-            }
+            className={`rounded-card border p-3 text-sm ${
+              save.data.capped ? NOTICE_TONES.warn : NOTICE_TONES.ok
+            }`}
           >
             {save.data.capped
               ? "Saved. Outgoing calls are stopped for the rest of this month. Incoming calls still get through."
@@ -286,13 +397,13 @@ function SpendLimit({ session }: { session: Session }) {
   );
 }
 
-/** "no limit", "500 minutes", "₹5,000", or both — never an empty cell. */
+/** "no limit", "500 minutes", "₹5,000.00", or both — never an empty cell. */
 function describeLimit(minutes: number | null, spend: string | null): string {
   const parts: string[] = [];
-  if (minutes !== null) parts.push(`${minutes} minutes`);
-  // The rupee figure stays a string: the server sends an exact NUMERIC and formatting
-  // it through a JS number is how ₹10,159.00 becomes ₹10,158.999999999998.
-  if (spend !== null) parts.push(`₹${spend}`);
+  if (minutes !== null) parts.push(`${formatCount(minutes)} minutes`);
+  // The rupee figure never goes through a JS number: `formatINR` groups the digits the
+  // server sent and keeps the paise it sent them with.
+  if (spend !== null) parts.push(formatINR(spend));
   return parts.length > 0 ? parts.join(" or ") : "no limit";
 }
 
@@ -313,7 +424,7 @@ function Field({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-xs text-slate-600 dark:text-slate-400">
+      <label htmlFor={id} className="text-xs font-medium text-ink-muted">
         {label}
       </label>
       <input
@@ -323,7 +434,7 @@ function Field({
         disabled={disabled}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="w-32 rounded-md border border-slate-300 px-2 py-1 text-sm tabular-nums dark:border-slate-700 dark:bg-slate-950"
+        className="w-32 rounded-md border border-line bg-surface px-2 py-1 text-sm tabular-nums text-ink placeholder:text-ink-faint disabled:opacity-50"
       />
     </div>
   );
@@ -333,30 +444,29 @@ function Field({
  * Adding credit — as far as the server can actually take it, and no further.
  *
  * The symptom: a prepaid client whose wallet empties has outbound calling refused, and
- * there was nowhere in the product to add money. The fix is honest rather than
- * complete, because the backend is honest rather than complete: `POST
- * /v1/billing/topups/intent` prices the top-up and mints a receipt, but returns
- * `provider_order_id: null` / `provider_order_pending: true` — creating the provider
- * order needs credentials this deployment does not hold.
+ * there was nowhere in the product to add money. The fix is honest rather than complete,
+ * because the backend is honest rather than complete: `POST /v1/billing/topups/intent`
+ * prices the top-up and mints a receipt, but returns `provider_order_id: null` /
+ * `provider_order_pending: true` — creating the provider order needs credentials this
+ * deployment does not hold.
  *
- * So this renders NO pay button, no checkout, no spinner waiting on a payment window.
- * A "Pay ₹2,000" button that cannot charge anything is worse than no button: the
- * client believes they have paid, keeps not being able to dial, and calls support
- * about a payment that was never taken. What they get instead is a real reference for
- * a real amount, with the true statement that nothing has been charged and how to
- * actually pay. When the server starts returning an order id, the checkout opens from
- * exactly here.
+ * So this renders NO pay button, no checkout, no spinner waiting on a payment window. A
+ * "Pay ₹2,000" button that cannot charge anything is worse than no button: the client
+ * believes they have paid, keeps not being able to dial, and calls support about a
+ * payment that was never taken. What they get instead is a real reference for a real
+ * amount, with the true statement that nothing has been charged and how to actually pay.
+ * When the server starts returning an order id, the checkout opens from exactly here.
  */
 function TopUp({ session }: { session: Session }) {
   const [amount, setAmount] = useState("");
   const intent = useTopUpIntent(session);
-  // `org:manage` is what the endpoint requires — staff should see the balance and not
-  // a form that will 403 them, and an operator in "view as client" cannot spend a
-  // client's money from a client screen (D-22).
+  // `org:manage` is what the endpoint requires — staff should see the balance and not a
+  // form that will 403 them, and an operator in "view as client" cannot spend a client's
+  // money from a client screen (D-22).
   const write = useWriteAccess(session, "org:manage", "add credit");
 
   return (
-    <div className="mt-4 space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
+    <div className="mt-4 space-y-3 border-t border-line pt-4">
       <RestrictionNote reason={write.reason} />
       {intent.error && <ProblemNotice error={intent.error} />}
 
@@ -367,10 +477,10 @@ function TopUp({ session }: { session: Session }) {
           intent.mutate(amount);
         }}
       >
-        <label htmlFor="topup-amount" className="text-sm text-slate-600 dark:text-slate-400">
+        <label htmlFor="topup-amount" className="text-sm text-ink-muted">
           Add credit
         </label>
-        <span className="text-sm text-slate-500">₹</span>
+        <span className="text-sm text-ink-faint">₹</span>
         <input
           id="topup-amount"
           inputMode="decimal"
@@ -378,32 +488,36 @@ function TopUp({ session }: { session: Session }) {
           disabled={!write.allowed}
           onChange={(e) => setAmount(e.target.value)}
           placeholder="2000"
-          className="w-32 rounded-md border border-slate-300 px-2 py-1 text-sm tabular-nums dark:border-slate-700 dark:bg-slate-950"
+          className="w-32 rounded-md border border-line bg-surface px-2 py-1 text-sm tabular-nums text-ink placeholder:text-ink-faint disabled:opacity-50"
         />
         <button
           type="submit"
           disabled={!write.allowed || !amount.trim() || intent.isPending}
-          className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+          className="rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50"
         >
           {intent.isPending ? "Working…" : "Get payment details"}
         </button>
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-ink-faint">
           ₹{MIN_TOPUP_INR.toLocaleString("en-IN")} to ₹{MAX_TOPUP_INR.toLocaleString("en-IN")}
         </span>
       </form>
 
       {intent.data && (
-        <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
-          <p className="font-medium">
-            ₹{intent.data.amount_inr} — nothing has been charged yet.
+        <div className="rounded-card border border-line bg-app p-3 text-sm text-ink-muted">
+          {/* The amount the SERVER priced, as it sent it — this is the figure a bank
+              transfer has to match to the paisa. */}
+          <p className="font-semibold text-ink">
+            {formatINR(intent.data.amount_inr)} — nothing has been charged yet.
           </p>
           {intent.data.provider_order_id === null || intent.data.provider_order_pending ? (
             <p className="mt-1">
               We cannot take card or UPI payment on this account yet. Transfer{" "}
-              <strong>₹{intent.data.amount_inr}</strong> to us by bank transfer quoting the
-              reference below, or send this reference to your account manager, and the
-              credit is added once the payment lands. Your balance above will not change
-              until then.
+              <strong className="font-semibold text-ink">
+                {formatINR(intent.data.amount_inr)}
+              </strong>{" "}
+              to us by bank transfer quoting the reference below, or send this reference to
+              your account manager, and the credit is added once the payment lands. Your
+              balance above will not change until then.
             </p>
           ) : (
             /* The server has started creating provider orders. There is still no
@@ -413,30 +527,22 @@ function TopUp({ session }: { session: Session }) {
               send this reference to your account manager to complete it.
             </p>
           )}
-          <p className="mt-2 font-mono text-xs">ref {intent.data.receipt}</p>
+          <p className="mt-2 font-mono text-xs text-ink-faint">ref {intent.data.receipt}</p>
         </div>
       )}
     </div>
   );
 }
 
-function Row({
-  label,
-  value,
-  emphasis,
-}: {
-  label: string;
-  value: string;
-  emphasis?: boolean;
-}) {
+function Row({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
   return (
-    <div className="flex justify-between">
-      <dt className="text-slate-600 dark:text-slate-400">{label}</dt>
+    <div className="flex justify-between gap-4">
+      <dt className="text-ink-muted">{label}</dt>
       <dd
         className={
           emphasis
-            ? "font-semibold tabular-nums text-slate-900 dark:text-slate-50"
-            : "tabular-nums text-slate-700 dark:text-slate-300"
+            ? "shrink-0 font-semibold tabular-nums text-ink"
+            : "shrink-0 tabular-nums text-ink-muted"
         }
       >
         {value}
@@ -453,6 +559,9 @@ function Row({
  * the most embarrassing possible place for it to happen. Integers are exact in a JS
  * number up to 2^53 — about ₹90 trillion in paise — so the arithmetic below is
  * float-free in the way that matters, without needing BigInt.
+ *
+ * Returns the same digit form the API uses, so its caller formats it with `formatINR`
+ * exactly like a field that came off the wire.
  */
 function addRupees(a: string | null, b: string): string {
   const toPaise = (value: string) => {

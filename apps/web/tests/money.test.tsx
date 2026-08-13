@@ -48,7 +48,12 @@ const AGENT_ID = "0192f0aa-1111-7000-8000-000000000001";
 
 const ME: Me = {
   impersonating: false,
-  permissions: ["org:read"],
+  // `billing:read` because the Usage screen now gates itself on the permission its own
+  // endpoints require (`GET /v1/usage`, `GET /v1/billing/caps`) rather than letting a
+  // staff session collect a 403 that renders like an outage. A principal without it is
+  // one the API would refuse, so asserting money rendering for one asserted nothing the
+  // product can reach; `tests/usage.test.tsx` covers the refusal itself.
+  permissions: ["org:read", "billing:read"],
   realm: "client",
   role: "owner",
   user_id: "user_1",
@@ -199,7 +204,11 @@ describe("the month's total", () => {
   it("carries paise into rupees rather than printing 100 of them", async () => {
     const { container } = await renderUsage(usage({ monthly_fee_inr: "10158.99", overage_cost_inr: "0.01" }));
 
-    expect(rowValue(container, TOTAL)).toBe("₹10159.00");
+    // Grouped the way an Indian reader groups a rupee figure, because the screen now
+    // formats money through `formatINR` — the same primitive the dashboard already used
+    // for this same field, so the two surfaces can no longer print one amount two ways.
+    // The DIGITS are still the server's: `formatINR` groups a string and never parses it.
+    expect(rowValue(container, TOTAL)).toBe("₹10,159.00");
     expect(container.textContent).not.toContain("10158.100");
   });
 
@@ -214,7 +223,8 @@ describe("the month's total", () => {
   it("keeps a credit (a negative total) signed and exact", async () => {
     const { container } = await renderUsage(usage({ monthly_fee_inr: "-5.75", overage_cost_inr: "1.25" }));
 
-    expect(rowValue(container, TOTAL)).toBe("₹-4.50");
+    // The sign leads, as it does on a statement: `formatINR` puts it before the symbol.
+    expect(rowValue(container, TOTAL)).toBe("-₹4.50");
     expect(container.textContent).not.toContain("NaN");
   });
 });
