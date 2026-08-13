@@ -64,8 +64,8 @@
   --color-ink-muted: var(--text-muted);
   --color-ink-faint: var(--text-faint);
 
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-pp-mori);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
   /* The card radius, once. The design uses 14px, which is not a Tailwind step. */
   --radius-card: 14px;
@@ -85,9 +85,19 @@ body {
 body {
   background: var(--app);
   color: var(--text);
-  /* The scaffold hardcoded Arial here, which silently discarded the Geist font the
-     root layout loads and pays for. */
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  /* Use PPMori as the primary font */
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 600;
+  /* PPMori SemiBold */
 }
 
 /*
@@ -100,9 +110,11 @@ body {
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
+
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
+
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background-color: var(--color-ink-faint);
   border-radius: 20px;
