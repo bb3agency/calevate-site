@@ -232,3 +232,93 @@ export function useSetCallCap(
     onSuccess: refresh,
   });
 }
+
+/* ------------------------------------------------- A/B script testing (ROADMAP M3) */
+
+/**
+ * The experiment hooks live HERE rather than in `prompts.ts`, and the reason is the one
+ * that decides most of this module's shape: **concluding an experiment publishes**.
+ * Promoting an arm mints a prompt version and applies it through `apply_to_live`, so it
+ * moves the staged/live pointers, the version history and the agent roster — exactly the
+ * four caches `useAfterPublish` already invalidates. Putting these hooks in `prompts.ts`
+ * would need that helper imported the other way round, and `publishing.ts` already
+ * imports `promptHistoryKey`: a cycle between the two modules for one call site.
+ */
+export type ExperimentState = Schemas["ExperimentStateOut"];
+export type Experiment = Schemas["ExperimentOut"];
+export type ExperimentVariant = Schemas["VariantOut"];
+export type ExperimentRules = Schemas["ExperimentRulesOut"];
+export type StartExperimentIn = Schemas["StartExperimentIn"];
+export type StartExperimentOut = Schemas["StartExperimentOut"];
+export type ConcludeExperimentIn = Schemas["ConcludeExperimentIn"];
+export type ConcludeExperimentOut = Schemas["ConcludeExperimentOut"];
+
+export const experimentKey = (org: string, agentId: string) =>
+  ["agent-experiment", org, agentId] as const;
+
+/**
+ * Counts move with every dial, so this one is genuinely stale within a minute — but it
+ * is still not polled. An A/B test is read to make a DECISION about promoting a script,
+ * which is a thing a human does once a day at most, and a screen that refetched itself
+ * every few seconds would add load to answer a question nobody asked again.
+ */
+const EXPERIMENT_STALE_MS = 30_000;
+
+/** Client-realm read (`agents:read`), reached from the console by impersonation — the
+ *  same D-22 split as `useTenantPending` above. */
+export function useTenantExperiment(
+  slug: string,
+  agentId: string,
+): UseQueryResult<ExperimentState> {
+  const session = viewAsSession(slug);
+  return useQuery({
+    queryKey: experimentKey(slug, agentId),
+    queryFn: () => apiRequest<ExperimentState>(session, `/v1/agents/${agentId}/experiment`),
+    enabled: Boolean(slug) && Boolean(agentId),
+    staleTime: EXPERIMENT_STALE_MS,
+  });
+}
+
+function useAfterExperiment(target: AgentTarget) {
+  const client = useQueryClient();
+  const refresh = useAfterPublish(target);
+  return () =>
+    Promise.all([
+      client.invalidateQueries({ queryKey: experimentKey(target.slug, target.agentId) }),
+      refresh(),
+    ]);
+}
+
+export function useStartExperiment(
+  target: AgentTarget,
+): UseMutationResult<StartExperimentOut, Error, StartExperimentIn> {
+  const refresh = useAfterExperiment(target);
+  return useMutation({
+    mutationFn: (payload: StartExperimentIn) =>
+      apiRequest<StartExperimentOut>(adminSession(), agentPath(target, "experiment"), {
+        method: "POST",
+        body: payload,
+      }),
+    onSuccess: refresh,
+  });
+}
+
+/**
+ * Stop the test. `promote: null` is a real instruction — "keep the control" — not a
+ * cancel, so it is the same mutation with the same audit trail rather than a second
+ * endpoint that would let the two endings diverge.
+ */
+export function useConcludeExperiment(
+  target: AgentTarget,
+): UseMutationResult<ConcludeExperimentOut, Error, ConcludeExperimentIn> {
+  const refresh = useAfterExperiment(target);
+  return useMutation({
+    mutationFn: (payload: ConcludeExperimentIn) =>
+      apiRequest<ConcludeExperimentOut>(
+        adminSession(),
+        agentPath(target, "experiment/conclude"),
+        { method: "POST", body: payload },
+      ),
+    onSuccess: refresh,
+  });
+}
