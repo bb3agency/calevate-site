@@ -148,6 +148,39 @@ recognised TEXT, which a naive mapper would land in a column with no redacted co
 stopwatch that can falsify it, and the storage shape is chosen from the payload we actually
 receive — no latency work without measurement, and no measurement invented to fill the gap.
 
+### 4a. Where the measured numbers replace the targets (gate 4's landing zone)
+
+**Every number in §4 above is a TARGET and we hold zero measurements.** This block is the
+only place a measured number may be written in, and it names the slots so a later reader
+can tell at a glance which figures above have been earned. Nothing here is filled in yet.
+
+| §4 figure | status | replaced by | source |
+|---|---|---|---|
+| voice-to-voice p50 ≤ 1.1s | TARGET — unmeasured | median + its 97.9% order-statistic interval | gate 4 stopwatch/recording, via `scripts/pilot/latency.py` |
+| voice-to-voice p95 ≤ 1.8s | TARGET — unmeasured, and **not confirmable at n=10** (see below) | exceedance count + exact binomial bound | same |
+| first-greeting delay after pickup | TARGET absent (no figure has ever been set) | its own distribution, kept separate from turn latency | same |
+| STT ≤300ms · LLM TTFT ≤350ms · TTS TTFA ≤300ms | TARGETS — unmeasured | `latency_data` transcriber/llm/synthesizer per turn | Get Execution capture, gate 4 |
+| retrieval ≤100ms (§6) | TARGET — unmeasured | out of gate 4's scope | TRD §6 bake-off |
+
+Three findings from building the harness, recorded here because they change how the
+figures above should be read:
+
+1. **Voice-to-voice latency is not measurable from our side.** Both ends of the interval
+   sit on the caller's PSTN leg and our stack is not in the audio path (D-25). It is a
+   human with a stopwatch or an offset read off a recording; only `latency_data` is an
+   automatic capture, and it is a different quantity. The harness is a ledger and a
+   comparator, not a measuring instrument.
+2. **Ten calls cannot confirm the p95 leg of gate 4.** "p95 ≤ 1.8s" is "P(turn > 1.8s)
+   ≤ 5%"; ten clean samples bound that at 25.9% (exact binomial, 95% one-sided), and
+   confirming it needs **n ≥ 59** clean samples. Ten calls CAN refute it (three
+   exceedances put the lower bound at 8.7%) and CAN answer the p50 leg. So gate 4 at ten
+   calls has three honest outcomes — PASS, FAIL, INCONCLUSIVE — and INCONCLUSIVE is the
+   expected one. Raising the gate's sample size is a decision for whoever owns it.
+3. **`latency_data` justifies no column until the agreement finding lands.** The storage
+   shape it would justify — and the reason a JSONB blob on `calls` is not it — is written
+   out in `STORAGE_SHAPE_FINDING` in `scripts/pilot/latency.py`. It stays a finding, not a
+   migration, exactly as the paragraph above requires.
+
 ## 5. VoiceEngine Adapter (the portability contract)
 
 Nothing outside `engine/` may import a vendor SDK or see a vendor payload shape.

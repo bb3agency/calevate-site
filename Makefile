@@ -188,3 +188,18 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# set against the Makefile, the package scripts, the decision log and the code's own
 	# vocabulary. Negative controls in tests/docs_drift_guard_test.py.
 	uv run python -m scripts.check_docs_drift
+
+# --- Bolna pilot (OPERATIONS §2, ROADMAP gate G0) -----------------------------
+# Its own .PHONY line rather than an edit to the one at the top: these targets were
+# added while other slices were editing this file, and an append cannot collide.
+.PHONY: pilot-preflight pilot
+
+pilot-preflight:  ## What the Bolna pilot still needs — credentials, tunnel, number, credit
+	uv run python -m scripts.pilot preflight
+
+## DRY RUN. Placing a real call needs the explicit opt-in flag and --max-calls, which
+## are deliberately NOT in this target: a make target that can dial a telephone is a
+## make target somebody runs by accident. Exit 2 is normal here and means "nothing went
+## red, and nothing was verified either" — a dry run proves nothing about the vendor.
+pilot:  ## Dry run of the API-executable pilot gates (1 webhook trust, 2 provisioning, 6 webhook loss)
+	uv run python -m scripts.pilot run --gates 1,2,6
