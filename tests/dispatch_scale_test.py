@@ -3,8 +3,8 @@
 `dispatch_campaign_tick` runs every 30 seconds and is the only thing that turns a
 running campaign into dials. Its cost was O(ALL ORGANIZATIONS): `admin_session` can
 enumerate tenants but cannot read `campaigns` across them, so the tick opened one
-transaction per organization to ask "anything running here?". Measured on this
-development database before the fix:
+transaction per organization to ask "anything running here?". Measured on a development
+database before the fix:
 
     15,941 tenant sessions · 47,825 queries · 44.9s   — for a job scheduled every 30s
 
@@ -19,14 +19,47 @@ with a published agent — `engine_agent_routes`, the same global bridge the sta
 and the reconciliation poller resolve tenants through), plus one per campaign actually
 dialled for. Not one per organization.
 
-Everything is scoped to tenants this module creates, because the 15,000+ organizations
-that make the test meaningful belong to everybody.
+**THE POPULATION IS BUILT HERE, NOT WAITED FOR.** A ratio needs a denominator, and this
+file used to borrow one: it skipped itself below 500 ambient organizations. That is
+backwards. A freshly migrated and seeded database — which is exactly what CI runs, and
+the only place this assertion could stop the regression reaching production — always
+skipped, while a developer's accumulated junk drawer was the only thing that ever
+executed it. `_population()` now creates the organizations the comparison needs and
+removes every one of them again, so the test proves the same thing on an empty database
+and on a 33,000-organization one.
+
+Two assertion styles, deliberately:
+
+- what the test OWNS is asserted EXACTLY — each provisioned dispatchable tenant is
+  opened exactly once, each provisioned idle organization is never opened at all;
+- what the AMBIENT database holds is asserted as SET DIFFERENCES against two censuses
+  taken either side of the tick, so a concurrent suite publishing an agent mid-tick
+  moves which set its tenant is in rather than how much slack the assertion needs. The
+  only allowance left is `2 * DISPATCHABLE` tenants, and it is sized by what one
+  concurrent run of THIS file transiently creates — not by how big the database is.
+  That is the whole complaint against the old absolute `DRIFT_SLACK = 400`: it was 3.5%
+  of an 11k-tenant database and a hundredfold allowance on a freshly seeded one, so it
+  meant two different things depending on whose laptop ran it.
+
+WHAT NONE OF THAT COVERS, and why the per-tenant term is counted on DISTINCT tenants
+rather than on sessions: a tick's total session count is
+
+    distinct dispatchable tenants  +  2 per campaign it dispatches  +  1 per dial
+
+Measured, exactly, on a 33,298-organization / 12,070-route database: 12,995 sessions =
+12,070 tenants + (2 x 289 campaigns + 347 dials). The second term is the documented
+per-campaign cost in `_dispatch_for_campaign` (claim transaction, one transaction per
+dial, completion transaction) and it scales with RUNNING CAMPAIGNS, not with tenants —
+so folding it into a per-tenant budget is what made the old absolute slack look like a
+leak on a database with a thousand abandoned campaigns in it. Distinct tenants is the
+number the property is actually about, and it is exact.
 """
 
 from __future__ import annotations
 
 import contextlib
 import uuid
+from collections import Counter
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -42,12 +75,27 @@ from apps.workers.campaign_dispatch import dispatch_campaign_tick
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# How many extra sessions a tick may open beyond the tenants it must visit. Other
-# pytest processes publish agents against this same database while this test runs, so
-# the dispatchable set grows under our feet; this covers that drift plus the per-
-# campaign dispatch sessions. It is two orders of magnitude below the organization
-# count, which is the difference the test is about.
-DRIFT_SLACK = 400
+# The organizations this test provisions so the two candidate shapes are distinguishable
+# on ANY database, including a freshly seeded one.
+#
+# 250 is chosen against what it has to buy, not for a round number. The exact assertions
+# below (opened-exactly-once, never-opened, the two census set differences) already fail
+# on a per-organization tick with a population of one; its job is to guarantee a
+# FLOOR of discrimination — after `_population()` runs, at least 225 organizations exist
+# that a correct tick provably ignores — so that the "not O(organizations)" claim is
+# never vacuously true on a small database. On a large one the census differences are far
+# stronger than the floor, and get stronger the more polluted the database is.
+#
+# The cost is ~250 one-row transactions to create and the same to remove: ~1.6s on the
+# development box, measured. Raising it buys a larger floor and nothing else, and this
+# file already pays for five ticks.
+POPULATION = 250
+# ...of which this many are DISPATCHABLE: an agent published to the engine, i.e. an
+# `engine_agent_routes` row. They carry no campaign, which is what makes them a clean
+# probe — a correct tick must open exactly ONE session for each (the scan), and a tick
+# that opened two would be doing per-tenant work twice.
+DISPATCHABLE = 25
+IDLE = POPULATION - DISPATCHABLE
 
 
 @pytest.fixture(autouse=True)
@@ -76,6 +124,15 @@ class Visits:
     def sessions(self) -> int:
         return len(self.tenants)
 
+    @property
+    def distinct(self) -> int:
+        """Tenants the tick touched AT ALL — the per-tenant term of the cost, isolated
+        from the per-campaign one, which reopens tenants the scan already visited."""
+        return len(set(self.tenants))
+
+    def opened(self) -> Counter[uuid.UUID]:
+        return Counter(self.tenants)
+
 
 @contextlib.contextmanager
 def _measure(monkeypatch: pytest.MonkeyPatch) -> Any:
@@ -102,6 +159,101 @@ def _measure(monkeypatch: pytest.MonkeyPatch) -> Any:
         yield visits
     finally:
         event.remove(engine, "before_cursor_execute", _count)
+
+
+class Population:
+    """The organizations one test owns, split by whether a tick may open them."""
+
+    def __init__(self, dispatchable: list[uuid.UUID], idle: list[uuid.UUID]) -> None:
+        self.dispatchable = dispatchable
+        self.idle = idle
+
+
+@contextlib.asynccontextmanager
+async def _population() -> AsyncIterator[Population]:
+    """`POPULATION` organizations, `DISPATCHABLE` of them published — then gone again.
+
+    Rows, not `create_organization` calls. The old tick's cost was one transaction per
+    row in `organizations`, so a bare organization row IS the thing it paid for, and the
+    realistic case — a fully onboarded client whose agent was never published — is
+    covered next door by `test_an_organization_that_cannot_dial_is_never_opened`, which
+    goes through the wizard for exactly two tenants. Building 250 of those instead would
+    be ~30x the runtime and would prove nothing this does not.
+
+    It also makes the population REMOVABLE, which is the other half of the defect. Every
+    FK into `organizations` is `ON DELETE RESTRICT`, and `usage_events` / `audit_log` /
+    `consent_ledger` are append-only by hard rule 4 — so a tenant that has been through
+    onboarding and a call can never be deleted again, and the local databases have
+    33,000 organizations to prove it. These rows have exactly three dependents, all
+    written here, all removed here, in FK order.
+
+    Writes and deletes go through `tenant_session`: `organizations`' policy is
+    `USING (id = app.tenant_id ...)` with `WITH CHECK (id = app.tenant_id)`, so a
+    tenant-scoped session covers both halves with no widening at all. `admin_session`
+    would do the delete in one statement, but it is the ADMIN-REALM widening (hard rule
+    1) and a fixture is not an admin-realm principal.
+    """
+    tag = f"dscale-pop-{uuid.uuid4().hex[:8]}"
+    dispatchable: list[uuid.UUID] = []
+    idle: list[uuid.UUID] = []
+    routes: list[dict[str, Any]] = []
+    try:
+        for n in range(POPULATION):
+            tenant_id = uuid7()
+            publish = n < DISPATCHABLE
+            async with tenant_session(tenant_id) as session:
+                await session.execute(
+                    text(
+                        "INSERT INTO organizations (id, name, slug, status, created_at, "
+                        "updated_at) VALUES (:id, 'Scale Motors', :slug, 'active', now(), now())"
+                    ),
+                    {"id": tenant_id, "slug": f"{tag}-{n:04d}"},
+                )
+                if publish:
+                    agent_id, ref = uuid7(), f"{tag}-{n:04d}"
+                    await session.execute(
+                        text(
+                            "INSERT INTO agents (id, tenant_id, name, direction, "
+                            "disclosure_line, status, engine, engine_agent_ref, created_at, "
+                            "updated_at) VALUES (:id, :tid, 'Receptionist', 'outbound', "
+                            "'Idi AI assistant.', 'live', 'fake', :ref, now(), now())"
+                        ),
+                        {"id": agent_id, "tid": tenant_id, "ref": ref},
+                    )
+                    routes.append({"ref": ref, "tid": tenant_id, "aid": agent_id})
+            (dispatchable if publish else idle).append(tenant_id)
+
+        # `engine_agent_routes` is the global bridge (no RLS, by design — see
+        # `_dispatchable_tenants`), so the whole published set lands in one executemany.
+        async with untenanted_session() as session:
+            await session.execute(
+                text(
+                    "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
+                    "agent_id, active, created_at, updated_at) VALUES ('fake', :ref, :tid, "
+                    ":aid, true, now(), now())"
+                ),
+                routes,
+            )
+        yield Population(dispatchable, idle)
+    finally:
+        # FK order — routes are unreferenced, then the agent, then the organization every
+        # other row points at. No swallowing: a population this test cannot remove is the
+        # very defect this file is about, so it fails loudly rather than leaking rows.
+        async with untenanted_session() as session:
+            await session.execute(
+                text("DELETE FROM engine_agent_routes WHERE engine_agent_ref LIKE :p"),
+                {"p": f"{tag}-%"},
+            )
+        published = set(dispatchable)
+        for tenant_id in dispatchable + idle:
+            async with tenant_session(tenant_id) as session:
+                if tenant_id in published:
+                    await session.execute(
+                        text("DELETE FROM agents WHERE tenant_id = :id"), {"id": tenant_id}
+                    )
+                await session.execute(
+                    text("DELETE FROM organizations WHERE id = :id"), {"id": tenant_id}
+                )
 
 
 async def _tenant(*, published: bool = True) -> tuple[uuid.UUID, uuid.UUID]:
@@ -212,8 +364,14 @@ async def _running_campaign(
     return campaign_id
 
 
-async def _census() -> tuple[int, int]:
-    """(organizations, dispatchable tenants) — the two candidate shapes for a tick."""
+async def _census() -> tuple[int, set[uuid.UUID]]:
+    """(organizations, the dispatchable tenant SET) — the two candidate shapes for a tick.
+
+    The tenants come back as a set rather than a count so the assertions can be
+    differences instead of inequalities: a set difference survives a concurrent suite
+    publishing an agent mid-tick, and it names the offending tenant when it does fail.
+    Twelve thousand uuids is ~30ms and one round trip.
+    """
     async with admin_session() as directory:
         orgs = (
             await directory.execute(
@@ -222,9 +380,11 @@ async def _census() -> tuple[int, int]:
         ).scalar()
     async with untenanted_session() as session:
         routed = (
-            await session.execute(text("SELECT count(DISTINCT tenant_id) FROM engine_agent_routes"))
-        ).scalar()
-    return int(orgs or 0), int(routed or 0)
+            (await session.execute(text("SELECT DISTINCT tenant_id FROM engine_agent_routes")))
+            .scalars()
+            .all()
+        )
+    return int(orgs or 0), {uuid.UUID(str(row)) for row in routed}
 
 
 async def test_a_tick_costs_one_session_per_dispatchable_tenant_not_one_per_organization(
@@ -232,32 +392,86 @@ async def test_a_tick_costs_one_session_per_dispatchable_tenant_not_one_per_orga
 ) -> None:
     """The regression this file exists for.
 
-    Before: one transaction per organization, two queries inside each. This database
-    holds 15,000+ organizations and ~2,200 tenants with a published agent, so the tick
-    was doing roughly seven times the work it could ever use — and taking 45s over it,
-    which is longer than the interval it is scheduled on.
+    Before: one transaction per organization, two queries inside each — 15,941 sessions
+    and 44.9s on a job scheduled every 30 seconds.
+
+    The comparison needs a database where "one per organization" and "one per
+    dispatchable tenant" are different numbers, so this test MAKES one: `POPULATION`
+    organizations, `DISPATCHABLE` of them published. Whatever else the database holds,
+    it now holds at least `IDLE` organizations that a correct tick provably never opens.
+    Every claim below names the rows it is about rather than comparing two totals, which
+    is what lets it mean the same thing on an empty database and on a 33,000-org one.
     """
     tenant_id, agent_id = await _tenant()
     await _running_campaign(tenant_id, agent_id)
 
-    orgs, routed = await _census()
-    with _measure(monkeypatch) as visits:
-        await dispatch_campaign_tick({})
+    async with _population() as population:
+        _, routed_before = await _census()
+        with _measure(monkeypatch) as visits:
+            await dispatch_campaign_tick({})
+        orgs_after, routed_after = await _census()
 
-    assert tenant_id in visits.tenants, "the tick must still visit a tenant that is dialling"
-    assert visits.sessions <= routed + DRIFT_SLACK, (
-        f"one session per dispatchable tenant: {visits.sessions} sessions "
-        f"for {routed} tenants with a published agent"
-    )
-    # One `set_config` + one combined statement per tenant, plus the claim/gate/dial
-    # statements for campaigns actually dispatched.
-    assert visits.queries <= 2 * visits.sessions + 10 * DRIFT_SLACK
+        opened = visits.opened()
+        assert tenant_id in opened, "the tick must still visit a tenant that is dialling"
 
-    if orgs < 500:
-        pytest.skip(f"database holds only {orgs} organizations — the shapes are indistinguishable")
-    assert visits.sessions < orgs // 2, (
-        f"the tick is still O(organizations): {visits.sessions} sessions for {orgs} orgs"
-    )
+        # THE PROPERTY, stated on rows this test owns, with no tolerance at all.
+        # These 25 tenants have a published agent and no campaign: the scan must open
+        # each exactly once, and nothing else may reopen them.
+        wrong = {t: opened[t] for t in population.dispatchable if opened[t] != 1}
+        assert not wrong, (
+            f"{len(wrong)} of {DISPATCHABLE} dispatchable tenants were not opened exactly "
+            f"once (counts: {sorted(wrong.values())[:5]})"
+        )
+        # ...and the other shape, from the other side: an organization with no engine
+        # route is not worth a transaction. This is the 13,000-organization bill.
+        trespass = [t for t in population.idle if t in opened]
+        assert not trespass, (
+            f"the tick opened {len(trespass)} of {IDLE} organizations that can never dial — "
+            "it is still O(organizations)"
+        )
+
+        # The AMBIENT population — every other suite's tenants — bounded as two set
+        # differences rather than a count comparison. A tenant published or unpublished
+        # by a concurrent suite mid-tick moves which set it belongs to, not how much
+        # slack the assertion needs.
+        #
+        # Never SKIP a tenant that could dial: a tenant with a route on both sides of the
+        # tick had one during it, and an outbound line it holds must be counted or rules
+        # 1+2 hand its lines to somebody else. Exact, no allowance.
+        missed = (routed_before & routed_after) - set(visits.tenants)
+        assert not missed, (
+            f"the tick skipped {len(missed)} tenants with a published agent, e.g. "
+            f"{sorted(str(t) for t in missed)[:3]}"
+        )
+        # ...and never open a tenant that has no route at all, which is the cost claim
+        # against the ambient database (`orgs_after` organizations, `len(routed_after)`
+        # of them dispatchable). The allowance is not a database-sized fudge factor: the
+        # ONLY code anywhere that deletes an `engine_agent_routes` row is `_population`
+        # above, so the one thing neither census can see is a sibling run of THIS file
+        # whose whole create-tick-delete cycle fell inside this tick. `DISPATCHABLE` is
+        # what one such run creates; two of them is already generous, and it means the
+        # same thing at 4 dispatchable tenants as at 12,070 — which the old absolute
+        # `DRIFT_SLACK = 400` did not.
+        stray = set(visits.tenants) - (routed_before | routed_after)
+        assert len(stray) <= 2 * DISPATCHABLE, (
+            f"the tick opened {len(stray)} tenants with no engine route, out of "
+            f"{orgs_after} organizations and {len(routed_after)} dispatchable tenants"
+        )
+
+        # One `set_config` + one combined statement per tenant scanned, plus the
+        # reap/gate/claim/dial statements of the campaigns actually dispatched. The `2`
+        # is the load-bearing coefficient — splitting the combined per-tenant SELECT back
+        # into two queries is the regression this catches. `sessions - distinct` is the
+        # repeat visits, which for a correct tick are exactly the per-campaign
+        # transactions; `wrong` above pins that to one visit per tenant for the 25 this
+        # test owns. Measured: 2.00 queries per scanned tenant, 5.03 per dispatch
+        # session; 12 leaves the dispatch term room to grow a gate without pretending to
+        # police it — the per-TENANT term is what this line is for.
+        dispatch_sessions = visits.sessions - visits.distinct
+        assert visits.queries <= 2 * visits.distinct + 12 * dispatch_sessions + 8, (
+            f"{visits.queries} queries for {visits.distinct} tenants scanned and "
+            f"{dispatch_sessions} dispatch sessions"
+        )
 
 
 async def test_an_organization_that_cannot_dial_is_never_opened(
@@ -268,6 +482,10 @@ async def test_an_organization_that_cannot_dial_is_never_opened(
     A tenant with no published agent cannot hold an outbound call row and cannot launch
     a campaign (`agent_not_live` blocks it), so a session opened for it can only ever
     return zeros. That is the 13,000 organizations the old tick spent its interval on.
+
+    Two FULLY onboarded tenants, through the wizard, which is what the test above trades
+    away for scale: this one proves the rule holds for a real client record and not only
+    for the bare organization rows `_population()` builds.
     """
     idle_tenant, _ = await _tenant(published=False)
     live_tenant, live_agent = await _tenant()
