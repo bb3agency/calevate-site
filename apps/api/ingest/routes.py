@@ -905,11 +905,11 @@ async def disable_lead_source(
     """Deactivate, and close any rotation window with it.
 
     Idempotent: disabling an already-disabled source is 204, not 404. The outbound
-    twin (`DELETE /v1/integrations/endpoints/{id}`) answers 404 to the second click
-    because its CAS predicate and its existence check are the same statement; that is a
-    defect there rather than a convention worth copying, and it is not this slice's to
-    fix. The audit row is written only for a real transition, so the ledger records
-    changes and not button presses.
+    twin (`DELETE /v1/integrations/endpoints/{id}`) once answered 404 to the second
+    click, because its CAS predicate and its existence check were the same statement;
+    it now shares this shape (`integrations.service.deactivate_endpoint`), so the two
+    directions of D-23 answer the same question the same way. The audit row is written
+    only for a real transition, so the ledger records changes and not button presses.
     """
     assert principal.tenant_id is not None
     if await service.set_active(session, webhook_id=webhook_id, active=False):

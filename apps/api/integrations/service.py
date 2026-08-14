@@ -46,6 +46,7 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger, redact_mapping
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.spreadsheet_safety import disarm_for_sheets
@@ -244,6 +245,48 @@ async def load_endpoint(session: AsyncSession, endpoint_id: UUID) -> dict[str, A
     # for a sheet (DATA-MODEL §6) — the column holds whichever the kind implies, and
     # neither is ever logged.
     return {"id": row[0], "url": row[1], "secret": row[2], "mapping": row[3] or {}, "kind": row[5]}
+
+
+async def deactivate_endpoint(session: AsyncSession, *, endpoint_id: UUID) -> bool:
+    """CAS on the flag (BACKEND-PATTERNS §5); True when THIS call is what changed it.
+
+    Same shape as the inbound twin, `ingest.service.set_active`, deliberately: the two
+    directions of D-23 are one surface to a client and answering "disabled" one way and
+    "not found" the other for the identical second click is a difference nobody asked
+    for. This used to be the route's single UPDATE, whose CAS predicate (`active = true`)
+    and existence check were the same statement — so `rowcount == 0` meant either "no
+    such endpoint" or "already off", and the second click of Disable was told the
+    endpoint did not exist. DELETE is required to be idempotent (RFC 9110 §9.2.2: the
+    side effects of N > 1 identical requests are the same as for one), and it was also
+    simply a false statement about a row we can see.
+
+    The CAS still runs FIRST and unconditionally, so two concurrent disables both reach
+    the database and exactly one of them reports the transition; the SELECT below only
+    ever runs after the write lost, and only to name which of the two zero-row facts it
+    was. It cannot reintroduce a read-then-write race because it writes nothing.
+
+    MUST run inside a `tenant_session`: both statements are scoped by RLS alone, so a
+    neighbour's endpoint id disables nothing and then reads no row — it 404s exactly
+    like an id that never existed, which is the answer `ProblemError.not_found`
+    documents as deliberate (hard rule 1).
+    """
+    result = await session.execute(
+        text(
+            "UPDATE outbound_webhooks SET active = false, updated_at = now() "
+            "WHERE id = :id AND active = true"
+        ),
+        {"id": endpoint_id},
+    )
+    if rowcount_of(result) == 1:
+        return True
+    exists = (
+        await session.execute(
+            text("SELECT 1 FROM outbound_webhooks WHERE id = :id"), {"id": endpoint_id}
+        )
+    ).first()
+    if exists is None:
+        raise ProblemError.not_found("Endpoint")
+    return False
 
 
 async def delivery_status(session: AsyncSession, delivery_id: UUID) -> str | None:
@@ -563,6 +606,7 @@ __all__ = [
     "DeliveryResult",
     "apply_mapping",
     "build_envelope",
+    "deactivate_endpoint",
     "deliver",
     "delivery_status",
     "enqueue_event",

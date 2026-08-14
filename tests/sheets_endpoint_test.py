@@ -70,6 +70,7 @@ from calevate_shared.config import Settings
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
+from starlette.requests import Request
 
 # A real-shaped Google spreadsheet id (44 url-safe chars). Names a document nobody owns.
 SHEET_ID = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
@@ -97,6 +98,22 @@ async def _tenant() -> UUID:
         created_by=None,
     )
     return UUID(str(created["id"]))
+
+
+def _request() -> Request:
+    """The audit row's `ip` comes off the request, so the route now takes one. Built
+    rather than faked: `write_audit` reads `request.client`, and a stub that happened to
+    have the attribute would stop matching the day it reads another."""
+    return Request(
+        {
+            "type": "http",
+            "method": "DELETE",
+            "path": "/v1/integrations/endpoints",
+            "headers": [],
+            "query_string": b"",
+            "client": ("127.0.0.1", 1234),
+        }
+    )
 
 
 def _principal(tenant_id: UUID) -> Principal:
@@ -543,7 +560,7 @@ async def test_the_client_can_turn_off_what_they_configured(
             _principal(tenant_id),
         )
     async with tenant_session(tenant_id) as session:
-        await deactivate_endpoint(created.id, session, _principal(tenant_id))
+        await deactivate_endpoint(created.id, session, _request(), _principal(tenant_id))
 
     async with tenant_session(tenant_id) as session:
         listed = await list_endpoints(session, _=None)  # type: ignore[arg-type]

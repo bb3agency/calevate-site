@@ -24,18 +24,18 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.base import uuid7
-from apps.api.db.result import rowcount_of
 from apps.api.integrations import service
 from apps.api.integrations.service import EVENT_TYPES
 
@@ -372,21 +372,48 @@ async def create_sheets_endpoint(
     status_code=204,
     openapi_extra=permission_meta("org:manage"),
     summary="Deactivate — kept, not deleted, so the delivery history stays readable",
+    # Stated rather than inherited from the docstring, for the reason
+    # `create_sheets_endpoint` gives: `/docs` is public, and the reasoning below names
+    # internal call sites. What a client needs is the CONTRACT, and the contract here
+    # has a part they can only learn from us — that a repeat is a success.
+    description=(
+        "Deactivate an endpoint. The endpoint and its delivery history are kept, so "
+        "past attempts stay readable. Idempotent: deactivating an endpoint that is "
+        "already inactive returns 204, so retrying after a lost response is safe. 404 "
+        "means only that no endpoint of yours has that id."
+    ),
 )
 async def deactivate_endpoint(
     endpoint_id: UUID,
     session: Session,
-    _: Principal = Depends(requires("org:manage")),
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
 ) -> None:
-    result = await session.execute(
-        text(
-            "UPDATE outbound_webhooks SET active = false, updated_at = now() "
-            "WHERE id = :id AND active = true"
-        ),
-        {"id": endpoint_id},
-    )
-    if rowcount_of(result) == 0:
-        raise ProblemError.not_found("Endpoint")
+    """Deactivate the endpoint; the row and its delivery history stay.
+
+    Idempotent: disabling an already-disabled endpoint is 204, not 404 — the second
+    click, and the retry of a request whose response was lost, are the same request as
+    the first (RFC 9110 §9.2.2). A genuinely absent id — including another tenant's,
+    which RLS makes indistinguishable on purpose — is still 404. `service.
+    deactivate_endpoint` carries the argument and the CAS; this route only decides what
+    to write down.
+
+    The audit row follows the inbound twin: written ONLY for a real transition, so the
+    ledger records changes rather than button presses. An audit trail that logs actions
+    nobody took is worse than one that logs fewer (`tenancy.members.set_role` makes the
+    same call for the same reason).
+    """
+    assert principal.tenant_id is not None
+    if await service.deactivate_endpoint(session, endpoint_id=endpoint_id):
+        await write_audit(
+            session,
+            action="integration_endpoint.disabled",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="outbound_webhook",
+            object_id=str(endpoint_id),
+            ip=request.client.host if request.client else None,
+        )
 
 
 @router.get(
