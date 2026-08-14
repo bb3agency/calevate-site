@@ -14,6 +14,7 @@ from apps.api.db.base import Base
 from apps.api.flags import models as flags_models
 from apps.api.integrations import models as integrations_models
 from apps.api.kb import models as kb_models
+from apps.api.ops import models as ops_models
 from apps.api.quality import models as quality_models
 from apps.api.reliability import models as reliability_models
 from apps.api.tenancy import models as tenancy_models
@@ -30,6 +31,7 @@ __all__ = [
     "flags_models",
     "integrations_models",
     "kb_models",
+    "ops_models",
     "quality_models",
     "reliability_models",
     "tenancy_models",
@@ -110,8 +112,16 @@ TENANT_TABLES = [
     "qa_call_samples",
 ]
 
-# Tables carrying tenant_id that are deliberately NOT tenant-RLS'd, with reasons —
-# the RLS coverage guardrail requires every exception to be listed here.
+# Tables deliberately OUTSIDE tenant isolation, with reasons — the RLS coverage
+# guardrail requires every exception to be listed here.
+#
+# Two shapes live in one dict, and the name is now narrower than the contents:
+# `audit_log` and `engine_agent_routes` CARRY a tenant_id and are not policied on it,
+# while the `platform_*` tables carry no tenant_id at all because they are platform
+# state. They share the only property that matters to a reviewer — "this table is
+# deliberately not tenant-isolated, and here is why" — so they share one list rather
+# than growing a second one nobody would think to read. `check_rls_coverage` judges
+# both: an entry must still name a table this repo actually has, whichever shape it is.
 #
 # This dict is the cheapest way to smuggle a tenant table past hard rule 1, so it is
 # fenced on three sides: `check_rls_coverage` rejects an entry whose table no longer
@@ -131,6 +141,23 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "and no session, so resolving it to a tenant is inherently cross-tenant. Keeping "
         "this two-id lookup in its own global table is what lets `agents` stay FORCE-RLS'd "
         "(hard rule 1) instead of needing an exemption. Carries no PII and no call data."
+    ),
+    "platform_settings": (
+        "platform-scoped, admin realm only (PLATFORM-CONFIG §5). One engine selection, "
+        "one calling window, for every client at the same instant — there is no tenant "
+        "whose row this could be, so it carries no tenant_id rather than a decorative "
+        "one that would make it LOOK tenant-scoped to every column-driven sweep. "
+        "Reachable only behind `platform:config` in the admin realm; every write is "
+        "step-up confirmed and lands an audit_log row in the same transaction. Holds no "
+        "PII and no credential — a key whose NAME marks it as a credential is refused "
+        "at the boundary and lives encrypted in platform_secrets instead."
+    ),
+    "platform_config_version": (
+        "platform-scoped, admin realm only (PLATFORM-CONFIG §6). One integer that every "
+        "process polls to learn whether the config changed; it is bumped by a trigger on "
+        "platform_settings rather than by any application write. No tenant_id, because "
+        "the fact it carries is 'the platform's configuration moved' — there is no "
+        "per-tenant version of that. Holds no PII, no credential and no tenant data."
     ),
 }
 

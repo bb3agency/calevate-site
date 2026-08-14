@@ -201,8 +201,20 @@ class TestRlsCoverage:
 
     def test_exemption_list_is_pinned(self) -> None:
         """Adding an RLS exemption must cost a visible diff in a TEST, not one line in
-        a dict. If this fails, review the new exemption on its merits and update it."""
-        assert set(RLS_EXEMPT_TENANT_COLUMNS) == {"audit_log", "engine_agent_routes"}
+        a dict. If this fails, review the new exemption on its merits and update it.
+
+        The two `platform_*` entries are the second SHAPE this list now carries: tables
+        with no `tenant_id` at all, exempt because they are platform state rather than
+        because a tenant policy was skipped (PLATFORM-CONFIG §5). They are in the same
+        dict on purpose — one list answering "what is not tenant-isolated, and why" is
+        reviewable; two lists is one list nobody reads.
+        """
+        assert set(RLS_EXEMPT_TENANT_COLUMNS) == {
+            "audit_log",
+            "engine_agent_routes",
+            "platform_settings",
+            "platform_config_version",
+        }
 
 
 # ============================================================================
