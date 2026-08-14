@@ -313,8 +313,8 @@ async def test_a_blank_disclosure_override_is_refused_with_a_usable_message() ->
 
 async def test_the_tally_counts_completed_calls_of_the_arm_recorded() -> None:
     """Denominator = completed calls; numerator = the metric; both grouped by the
-    RECORDED arm. `dialled` is reported separately so a connection problem is visible
-    rather than read as a script difference."""
+    RECORDED arm. `outbound_dialled` is reported separately so a connection problem is
+    visible rather than read as a script difference."""
     tenant_id, agent_id, _, _ = await _running()
     for n in range(20):
         await _dial(tenant_id, agent_id, f"+91900002{n:04d}")
@@ -338,8 +338,10 @@ async def test_the_tally_counts_completed_calls_of_the_arm_recorded() -> None:
     results = await experiments.results_for(tenant_id=tenant_id, agent_id=agent_id)
     assert results is not None
     by_label = {v.label: v for v in results.variants}
-    assert sum(v.dialled for v in results.variants) == 20
+    assert sum(v.outbound_dialled for v in results.variants) == 20
     assert sum(v.attributed for v in results.variants) == 10
+    # Every call here was placed by us, so none of the denominator is unrandomised.
+    assert [v.inbound_attributed for v in results.variants] == [0, 0]
     assert by_label["B"].conversions == 0
     assert by_label["A"].conversions == by_label["A"].attributed
     assert by_label["A"].rate == 1.0
@@ -607,8 +609,15 @@ async def test_an_inbound_call_answered_by_an_arms_own_line_carries_that_arm() -
     assert results.unattributed_inbound == 0
     assert experiments.INBOUND_ON_AN_ARM_NOTE in results.coverage_note
     by_label = {v.label: v for v in results.variants}
-    assert (by_label["B"].dialled, by_label["B"].attributed) == (1, 1)
-    assert by_label["A"].dialled == 0
+    # WHERE the call lands, stated three ways, because the defect this replaced was a
+    # single count that answered all three with the same number. It is NOT a call we
+    # placed; it IS in the denominator the rate is computed over; and the share of that
+    # denominator which was never split into the arm is exactly this one call.
+    assert by_label["B"].outbound_dialled == 0, "nobody dialled this call"
+    assert by_label["B"].attributed == 1
+    assert by_label["B"].inbound_attributed == 1
+    assert (by_label["A"].outbound_dialled, by_label["A"].attributed) == (0, 0)
+    assert by_label["A"].inbound_attributed == 0
 
 
 async def test_a_webhook_that_beats_the_dispatch_write_does_not_lose_the_arm() -> None:
@@ -637,7 +646,10 @@ async def test_a_webhook_that_beats_the_dispatch_write_does_not_lose_the_arm() -
     results = await experiments.results_for(tenant_id=tenant_id, agent_id=agent_id)
     assert results is not None
     assert results.attributed_directions == ("outbound",)
-    assert {v.label: v.dialled for v in results.variants} == {"A": 1, "B": 0}
+    assert {v.label: v.outbound_dialled for v in results.variants} == {"A": 1, "B": 0}
+    # It was placed by us, so it counts as dialled and NOT as unrandomised traffic —
+    # the direction split has to tell this call apart from the inbound one above.
+    assert {v.label: v.inbound_attributed for v in results.variants} == {"A": 0, "B": 0}
 
 
 async def test_a_second_event_for_the_same_call_cannot_move_it_between_arms() -> None:

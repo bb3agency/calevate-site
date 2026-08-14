@@ -136,9 +136,36 @@ INBOUND_ON_AN_ARM_NOTE = (
 class VariantResult:
     """One arm's counts and its Wilson interval.
 
-    `dialled` and `attributed` are both here because they answer different questions: a
-    large gap between them means the arm's calls are not connecting, which is a
-    telephony problem masquerading as a script problem.
+    THREE COUNTS, AND WHY THE OLD SINGLE `dialled` COULD NOT SURVIVE D-60
+    ---------------------------------------------------------------------
+    `dialled` was `count(*)` over the arm's assignment rows, from a time when the only
+    way to get one was `dispatch_call` deciding to place a call. D-60 gave assignment a
+    second writer: an inbound call the engine says an arm's OWN agent answered carries
+    that arm as a fact. The count then held calls nobody dialled, under a column a client
+    reads as "calls we placed for you". Renaming it to something direction-neutral would
+    have made the label true and left both numbers it feeds wrong:
+
+    * **The connect-rate diagnostic is an outbound question.** The gap between calls
+      placed and calls completed is how a telephony problem is told apart from a script
+      problem. An inbound call arrives already connected, so folding inbound into both
+      sides of that ratio moves it towards 1 — it makes a bad connect rate look better,
+      which is the exact direction a diagnostic must never fail in. So `outbound_dialled`
+      is SCOPED, not renamed: it counts the calls we chose to place into this arm.
+    * **`attributed` — the denominator of `rate` and of Newcombe's interval — is the
+      count that can actually be a MIXTURE.** Outbound calls are randomised into arms by
+      `assignment.bucket_of`; inbound ones are not drawn at all, they land wherever the
+      client's telephony happens to point (D-60). Two arms whose completed calls mix the
+      two populations in different proportions are not two randomised binomials, and the
+      interval over them describes the mix as much as the script. `inbound_attributed`
+      is how much of `attributed` came that way, published as a NUMBER so the screen can
+      qualify the rate it renders instead of relying on a reader having read the prose.
+      Outbound completed calls are `attributed - inbound_attributed`.
+
+    What is deliberately NOT done here: the comparison is still made over the whole
+    `attributed`, exactly as D-60 left it. Restricting the analysis set to randomised
+    traffic is the statistically cleaner move and it is a decision about what the product
+    measures, not a naming repair — it belongs with the data this field now makes
+    visible, not ahead of it.
     """
 
     variant_id: UUID
@@ -146,8 +173,13 @@ class VariantResult:
     prompt_version: int
     weight_bp: int
     published: bool
-    dialled: int
+    # Calls we PLACED into this arm, any status. Outbound only — see the class note.
+    outbound_dialled: int
+    # Completed calls in this arm, either direction. The denominator of `rate`.
     attributed: int
+    # How many of `attributed` arrived inbound, i.e. were never split into this arm.
+    # Zero in today's provisioning, where inbound answers as the agent and carries no arm.
+    inbound_attributed: int
     conversions: int
     # None until there is a single completed call — a rate over zero calls is not 0%.
     rate: float | None
@@ -427,8 +459,13 @@ def _counts_sql(conversion_predicate: str) -> str:
 
     DENOMINATOR = COMPLETED calls, not dialled ones. A script cannot influence whether a
     phone is answered; putting no-answers in the denominator would measure the contact
-    list and call it a script difference. `dialled` is reported alongside so a lopsided
-    connection rate is visible rather than buried.
+    list and call it a script difference. `outbound_dialled` is reported alongside so a
+    lopsided connection rate is visible rather than buried.
+
+    Every count is resolved BY DIRECTION here rather than by the reader, because since
+    D-60 an assignment row can be an inbound call the engine attributed to an arm, and
+    the two directions answer different questions (see `VariantResult`). `calls` is the
+    only place the direction lives, and the join is already made for `status`.
 
     The predicate is interpolated, and it is safe BECAUSE it is never a caller's string:
     the only values that reach it are `CONVERSION_METRICS`' own SQL fragments, selected
@@ -436,8 +473,10 @@ def _counts_sql(conversion_predicate: str) -> str:
     """
     return (
         "SELECT v.id, v.label, pv.version, v.weight_bp, v.engine_agent_ref, "
-        "count(a.call_id) AS dialled, "
+        "count(a.call_id) FILTER (WHERE c.direction = 'outbound') AS outbound_dialled, "
         "count(a.call_id) FILTER (WHERE c.status = 'completed') AS attributed, "
+        "count(a.call_id) FILTER (WHERE c.status = 'completed' AND c.direction = 'inbound') "
+        "AS inbound_attributed, "
         f"count(a.call_id) FILTER (WHERE c.status = 'completed' AND {conversion_predicate}) "
         "AS conversions "
         "FROM prompt_experiment_variants v "
@@ -504,7 +543,7 @@ METRIC_LABELS = {
 
 def _variant_result(row: tuple[Any, ...]) -> VariantResult:
     attributed = int(row[6])
-    conversions = int(row[7])
+    conversions = int(row[8])
     interval = wilson_interval(conversions, attributed) if attributed else None
     return VariantResult(
         variant_id=UUID(str(row[0])),
@@ -512,8 +551,9 @@ def _variant_result(row: tuple[Any, ...]) -> VariantResult:
         prompt_version=int(row[2]),
         weight_bp=int(row[3]),
         published=bool(row[4]),
-        dialled=int(row[5]),
+        outbound_dialled=int(row[5]),
         attributed=attributed,
+        inbound_attributed=int(row[7]),
         conversions=conversions,
         rate=interval.point if interval else None,
         rate_low=interval.low if interval else None,

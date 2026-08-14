@@ -742,7 +742,11 @@ function ExperimentResults({ experiment }: { experiment: Experiment }) {
             <tr>
               <th className="py-1 pr-3 font-medium">Arm</th>
               <th className="py-1 pr-3 font-medium">Share</th>
-              <th className="py-1 pr-3 font-medium">Dialled</th>
+              {/* "Dialled (outbound)" rather than "Dialled": an arm can also be credited
+                  with an inbound call its own line answered (D-60), and that call was
+                  never placed by us. Completed can therefore exceed it, which the rate
+                  cell explains on the same row. */}
+              <th className="py-1 pr-3 font-medium">Dialled (outbound)</th>
               <th className="py-1 pr-3 font-medium">Completed</th>
               <th className="py-1 pr-3 font-medium">Converted</th>
               <th className="py-1 font-medium">Rate (95% range)</th>
@@ -762,7 +766,7 @@ function ExperimentResults({ experiment }: { experiment: Experiment }) {
                   )}
                 </td>
                 <td className="py-1.5 pr-3 tabular-nums">{variant.weight_bp / 100}%</td>
-                <td className="py-1.5 pr-3 tabular-nums">{variant.dialled}</td>
+                <td className="py-1.5 pr-3 tabular-nums">{variant.outbound_dialled}</td>
                 <td className="py-1.5 pr-3 tabular-nums">{variant.attributed}</td>
                 <td className="py-1.5 pr-3 tabular-nums">{variant.conversions}</td>
                 <td className="py-1.5 tabular-nums">{rateReading(variant)}</td>
@@ -943,13 +947,27 @@ function VersionSelect({
 }
 
 /** A rate with its plausible range, or the reason there is no rate. Never "0%" for an
- *  arm with no completed calls — that is a claim, and the server sent null. */
+ *  arm with no completed calls — that is a claim, and the server sent null.
+ *
+ *  The mixed-population qualifier is built INTO this string rather than rendered beside
+ *  it, and that is the point: the rate's denominator is `attributed`, which can hold
+ *  inbound calls the engine credited to this arm (D-60) and which nothing ever SPLIT
+ *  between the arms. A caller who renders the number therefore cannot omit the fact that
+ *  part of it was not randomised — the alternative, a separate element somebody may
+ *  forget or a layout may drop, is how the "dialled" defect this replaced got shipped.
+ */
 function rateReading(variant: ExperimentVariant): string {
   if (variant.rate === null || variant.rate_low === null || variant.rate_high === null) {
     return "no completed calls yet";
   }
   const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
-  return `${pct(variant.rate)} (${pct(variant.rate_low)}–${pct(variant.rate_high)})`;
+  const reading = `${pct(variant.rate)} (${pct(variant.rate_low)}–${pct(variant.rate_high)})`;
+  if (variant.inbound_attributed === 0) return reading;
+  return (
+    `${reading} · includes ${variant.inbound_attributed} inbound call` +
+    `${variant.inbound_attributed === 1 ? "" : "s"} this arm's line answered, which were ` +
+    `not split between the arms`
+  );
 }
 
 /** Percentage POINTS, signed, because the gap can legitimately run either way. */

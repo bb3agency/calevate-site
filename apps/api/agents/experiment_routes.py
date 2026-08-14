@@ -104,13 +104,21 @@ class ExperimentRulesOut(Strict):
 
 
 class VariantOut(Strict):
+    """One arm's counts. THREE, resolved by direction, because since D-60 an arm can be
+    credited with a call nobody dialled — `experiments.VariantResult` carries the full
+    argument. Briefly: `outbound_dialled` is the connect-rate diagnostic and is an
+    outbound question; `attributed` is what `rate` is over; `inbound_attributed` says how
+    much of it was never split into this arm, so a client cannot read the rate as a clean
+    randomised comparison when it is not one."""
+
     variant_id: UUID
     label: str
     prompt_version: int
     weight_bp: int
     published: bool
-    dialled: int
+    outbound_dialled: int
     attributed: int
+    inbound_attributed: int
     conversions: int
     # Proportions in [0,1], not money. Null — never 0.0 — when the arm has no completed
     # call: a rate over zero calls is not zero percent.
@@ -250,8 +258,9 @@ def _render(state: experiments.ExperimentResults) -> ExperimentOut:
                 prompt_version=v.prompt_version,
                 weight_bp=v.weight_bp,
                 published=v.published,
-                dialled=v.dialled,
+                outbound_dialled=v.outbound_dialled,
                 attributed=v.attributed,
+                inbound_attributed=v.inbound_attributed,
                 conversions=v.conversions,
                 rate=v.rate,
                 rate_low=v.rate_low,
