@@ -22,8 +22,12 @@ registration can lapse. `dispatch_blockers` asks that subset again, under the SA
 names, once per campaign per dispatch tick — see its docstring for why `check_dispatch`
 structurally cannot.
 
-State transitions are CAS (BACKEND-PATTERNS §5): `rowcount == 0` means someone else
-moved the row first, reported as INVALID_STATUS_TRANSITION, never silently retried.
+State transitions are CAS (BACKEND-PATTERNS §5) and go through
+`db.transition.transition_status`, which turns `rowcount == 0` into the three answers it
+actually stands for: the campaign already holds the requested status (success — the
+second click is the same request), it moved to a DIFFERENT status (409
+INVALID_STATUS_TRANSITION, naming what was found), or no visible campaign has that id
+(404). Never silently retried, and never a read-then-write.
 """
 
 from __future__ import annotations
@@ -54,6 +58,7 @@ from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
+from apps.api.db.transition import transition_status
 from apps.api.ingest.service import normalize_phone
 from apps.api.ops.service import TM_REGISTRATION_MISSING_REASON, read_tm_registration
 
@@ -823,18 +828,31 @@ async def launch_campaign(
 
 async def set_campaign_status(
     session: AsyncSession, *, campaign_id: UUID, to_status: str, from_statuses: tuple[str, ...]
-) -> None:
-    """pause/resume/cancel — all the same CAS shape."""
-    placeholders = ", ".join(f"'{s}'" for s in from_statuses)
-    result = await session.execute(
-        text(
-            f"UPDATE campaigns SET status = :to, updated_at = now() "
-            f"WHERE id = :cid AND status IN ({placeholders})"
-        ),
-        {"to": to_status, "cid": campaign_id},
+) -> bool:
+    """pause/resume/cancel — all the same CAS shape. True when THIS call moved the row.
+
+    The three answers are `db.transition.transition_status`'s, not this function's:
+    already-in-`to_status` is a success (False), a different state is a 409 naming the
+    state actually found, and an id no visible campaign has is a 404. This used to
+    raise `INVALID_STATUS_TRANSITION` for all three at once, so pausing a campaign that
+    was already paused — the second click, or the retry of a request whose response was
+    lost — was reported as a conflict, and a campaign id from another tenant was
+    reported as one too.
+
+    **No compliance gate here, on the resume path or any other, and that is deliberate**
+    (see `dispatch_blockers`): a campaign can sit paused for a week, so a gate at THIS
+    moment would prove nothing about the moment it dials. The dial-time check is the
+    enforcement — `tests/campaign_dispatch_audit_test.py` pins it. This change moves
+    only which of the three answers each caller gets; it adds and removes no gate.
+    """
+    return await transition_status(
+        session,
+        table="campaigns",
+        entity="Campaign",
+        row_id=campaign_id,
+        to_status=to_status,
+        from_statuses=from_statuses,
     )
-    if rowcount_of(result) == 0:
-        raise InvalidStatusTransitionError("campaign", f"not in {from_statuses}", to_status)
 
 
 async def register_dlt_template(

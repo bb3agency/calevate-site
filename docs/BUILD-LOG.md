@@ -2495,6 +2495,98 @@ window filter made an assertion vacuous, and slice B's "a lapsed rotation window
 window" was simply untested. That is the ratio worth watching: a wave with no failed
 sabotages is a wave whose sabotages were too easy.
 
+## §57 — five slices, and the labels that were telling operators the wrong thing
+
+Five independent slices, none of them blocked on a vendor. Two frontend (a11y), three
+backend (state contracts, operator labels, billing schedule). Every slice sabotage-verified
+by its author; three of them additionally sabotaged by the orchestrator on a line the
+author did not choose, because a sabotage you pick yourself tests what you were already
+thinking about.
+
+**The a11y sweep closed, and found the defect the gate cannot see.** The three screens
+deferred behind "a concurrent slice is live" — `campaigns`, `lead-sources`, `integrations` —
+are in `SCREENS` with real fixtures read off `schema.d.ts`, and `UNSWEPT_SCREENS` is down to
+the root `layout.tsx` (which still closes only with a browser-mode run). The screen flagged
+as "the one genuine hole" scanned CLEAN, and that was reported as such rather than dressed
+up. What it did have was a barrier **axe structurally cannot detect**: the endpoint-URL
+input's only accessible name was its `placeholder`, which satisfies the `label` rule and
+then vanishes on the first keystroke (WCAG 3.3.2). Proof it is a blind spot rather than a
+missed rule: deleting the fix leaves the suite green. Every other field in the console
+carries a persistent label; this one was the exception.
+
+Adding those screens also turned a latent fixture hole into a deterministic failure on an
+EXISTING screen: `/v1/compliance/kyc` was absent from `TENANT_ROUTES`, so the KYC screen has
+been scanned rendering `ProblemNotice` instead of its identity record for as long as the
+sweep has existed — passing at HEAD only because the request lost a race. Green for the
+wrong reason, which is the §52 shape one level down.
+
+**The off-screen drawer kept 18 elements in the tab order, in both realms.** Hidden by CSS
+transform alone, no `inert`, no `aria-hidden` — a keyboard or screen-reader user tabbed
+through an invisible menu. Both shells turned out to be the same duplicated markup, so they
+now share one `components/navDrawer.tsx` rather than carrying one fix each. Two things the
+research settled and the code records: this repo pins **React 19**, where `inert={false}`
+renders NO attribute — under React 18 the same expression rendered `inert="false"`, a
+PRESENT and therefore inert attribute (facebook/react#24730), which is exactly why the test
+counts tabbables instead of asserting an attribute. And `inert` cannot be gated on `!isOpen`,
+because above `lg` the same element IS the permanent desktop sidebar with `isOpen === false`;
+`inert` is not a CSS property, so the breakpoint is read in JS. `aria-hidden` is not added
+beside it — `inert` already removes the subtree from the accessibility tree, and `aria-hidden`
+over a focusable subtree is itself an axe failure. The repo had no focus-trap idiom, so this
+is now the first one; a future modal reuses or replaces it rather than adding a second.
+Stated limit: the page BEHIND an open drawer is not made inert.
+
+**A state transition answers three questions, not one (D-65).** Campaign pause/resume and KB
+approve/reject collapsed "already in that state", "moved somewhere else" and "no such row"
+into a single 409. That lied in two directions — it told a reviewer that an already-approved
+source "is not awaiting approval" when their intended outcome had happened, and it answered
+409 for **another tenant's id**, i.e. confirmed a row exists that RLS makes invisible. Both
+now go through one `db/transition.py`, generalised from the boolean-flag version that already
+existed in `ingest` and `integrations` rather than invented beside it. A repeat approval
+writes nothing, so the approver and timestamp stay the FIRST reviewer's. Incidentally found:
+`set_campaign_status` was interpolating its from-statuses into SQL as string literals — bound
+parameters now; internal constants, so one refactor away from mattering rather than
+exploitable. The agent's first concurrency test PASSED under its own sabotage because the two
+coroutines never interleaved; it added an `asyncio.Barrier` and re-verified RED 3/3. That
+self-catch is the point of the discipline.
+
+**Two labels that named something other than what happened (D-62 follow-on).** `next_link_loop`
+was emitted for three distinct facts, so an operator reading it went looking for a pagination
+bug that often did not exist. It now splits: `next_link_loop` (the continuation URL genuinely
+repeats), `empty_page_with_next` (no executions, still offered a continuation — `pages_fetched
+== 1` distinguishes the empty FIRST page), and `next_link_no_progress` (a fresh link that
+re-served rows we already had). Fetch behaviour is deliberately unchanged; walking to the cap
+instead would report `page_cap_reached`, an even more misleading label. And `VariantResult.attributed`
+was `count(...) FILTER (WHERE c.status = 'completed')` — every assignment row IS attributed to an
+arm, so the number counted COMPLETED calls and `outbound_dialled - attributed` read as "could not
+attribute" when it meant "did not complete". Renamed to `completed`/`inbound_completed` (a
+breaking API rename; the frontend column header already said "Completed", which corroborated it).
+`attributed_directions` and `unattributed_inbound` were deliberately NOT renamed — those genuinely
+count attribution.
+
+**The setup fee stopped waiting for a human (D-64).** D-63 named this gap in its own docstring:
+the fee was recorded when a statement was RENDERED, and nothing renders statements on a schedule,
+so a tenant whose invoice nobody opened was never charged — through a GET with a side effect. Now
+a daily arq cron issues every owed fee and the GET is a pure read. `POST .../issue` was rejected:
+a button is still a human. Two traps found in the building: `arq.cron()` defaults `max_tries` to
+**1** and `WorkerSettings.max_tries` does not apply to a function carrying its own, so the mandated
+retry ladder would have been silently absent (passed explicitly, verified against a real `Worker`
+schedule); and the schedule must not pick the billing month — it is derived from the tenant's IST
+`created_at`, because arq evaluates cron against the worker's LOCAL clock and a billing decision
+cannot depend on a container's TZ.
+
+Its one real judgement call is recorded rather than buried: the cross-tenant scan runs under
+`admin_session()`, because the `engine_agent_routes` bridge other workers use is a SUBSET of this
+population (a tenant can owe an onboarding fee having never published an agent) and the alternative
+was making every client's commercial terms globally readable. The fencing is a SECURITY INVOKER
+plpgsql loop setting `app.tenant_id` per tenant — and it is load-bearing, not asserted: dropping
+that one line turns 6 of 22 tests red.
+
+**A measurement trap this session cost hours to, recorded so the next one does not pay it again:**
+`campaign_dispatch._tick_lease` is a platform-wide single-flight lease, so **parallel pytest sessions
+against the one Postgres produce false REDs on every dispatch test** — one session's tick takes the
+lease and the others' ticks correctly skip. Three agents saw the same seven failures and all three
+were contention. Any wave gate has to be a SERIAL run to mean anything.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and

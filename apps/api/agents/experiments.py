@@ -151,18 +151,18 @@ class VariantResult:
       sides of that ratio moves it towards 1 — it makes a bad connect rate look better,
       which is the exact direction a diagnostic must never fail in. So `outbound_dialled`
       is SCOPED, not renamed: it counts the calls we chose to place into this arm.
-    * **`attributed` — the denominator of `rate` and of Newcombe's interval — is the
+    * **`completed` — the denominator of `rate` and of Newcombe's interval — is the
       count that can actually be a MIXTURE.** Outbound calls are randomised into arms by
       `assignment.bucket_of`; inbound ones are not drawn at all, they land wherever the
       client's telephony happens to point (D-60). Two arms whose completed calls mix the
       two populations in different proportions are not two randomised binomials, and the
-      interval over them describes the mix as much as the script. `inbound_attributed`
-      is how much of `attributed` came that way, published as a NUMBER so the screen can
+      interval over them describes the mix as much as the script. `inbound_completed`
+      is how much of `completed` came that way, published as a NUMBER so the screen can
       qualify the rate it renders instead of relying on a reader having read the prose.
-      Outbound completed calls are `attributed - inbound_attributed`.
+      Outbound completed calls are `completed - inbound_completed`.
 
     What is deliberately NOT done here: the comparison is still made over the whole
-    `attributed`, exactly as D-60 left it. Restricting the analysis set to randomised
+    `completed`, exactly as D-60 left it. Restricting the analysis set to randomised
     traffic is the statistically cleaner move and it is a decision about what the product
     measures, not a naming repair — it belongs with the data this field now makes
     visible, not ahead of it.
@@ -176,10 +176,17 @@ class VariantResult:
     # Calls we PLACED into this arm, any status. Outbound only — see the class note.
     outbound_dialled: int
     # Completed calls in this arm, either direction. The denominator of `rate`.
-    attributed: int
-    # How many of `attributed` arrived inbound, i.e. were never split into this arm.
+    # NAMED FOR THE FILTER THAT PRODUCES IT. It was `attributed`, which named the join
+    # rather than the count: EVERY assignment row is attributed to an arm, ringing and
+    # failed ones included, so `outbound_dialled - attributed` read as "calls we could
+    # not attribute" when it is in fact "calls that did not complete" — the difference
+    # between a bookkeeping bug and an unanswered phone. Attribution is still a real
+    # concept here; it is what `attributed_directions` and `unattributed_inbound` on
+    # `ExperimentResults` count, and those keep the word.
+    completed: int
+    # How many of `completed` arrived inbound, i.e. were never split into this arm.
     # Zero in today's provisioning, where inbound answers as the agent and carries no arm.
-    inbound_attributed: int
+    inbound_completed: int
     conversions: int
     # None until there is a single completed call — a rate over zero calls is not 0%.
     rate: float | None
@@ -474,9 +481,9 @@ def _counts_sql(conversion_predicate: str) -> str:
     return (
         "SELECT v.id, v.label, pv.version, v.weight_bp, v.engine_agent_ref, "
         "count(a.call_id) FILTER (WHERE c.direction = 'outbound') AS outbound_dialled, "
-        "count(a.call_id) FILTER (WHERE c.status = 'completed') AS attributed, "
+        "count(a.call_id) FILTER (WHERE c.status = 'completed') AS completed, "
         "count(a.call_id) FILTER (WHERE c.status = 'completed' AND c.direction = 'inbound') "
-        "AS inbound_attributed, "
+        "AS inbound_completed, "
         f"count(a.call_id) FILTER (WHERE c.status = 'completed' AND {conversion_predicate}) "
         "AS conversions "
         "FROM prompt_experiment_variants v "
@@ -542,9 +549,9 @@ METRIC_LABELS = {
 
 
 def _variant_result(row: tuple[Any, ...]) -> VariantResult:
-    attributed = int(row[6])
+    completed = int(row[6])
     conversions = int(row[8])
-    interval = wilson_interval(conversions, attributed) if attributed else None
+    interval = wilson_interval(conversions, completed) if completed else None
     return VariantResult(
         variant_id=UUID(str(row[0])),
         label=str(row[1]),
@@ -552,8 +559,8 @@ def _variant_result(row: tuple[Any, ...]) -> VariantResult:
         weight_bp=int(row[3]),
         published=bool(row[4]),
         outbound_dialled=int(row[5]),
-        attributed=attributed,
-        inbound_attributed=int(row[7]),
+        completed=completed,
+        inbound_completed=int(row[7]),
         conversions=conversions,
         rate=interval.point if interval else None,
         rate_low=interval.low if interval else None,
@@ -597,7 +604,7 @@ def judge(variants: list[VariantResult]) -> tuple[Basis, Verdict, str | None, st
     if a.rate is not None and b.rate is not None and a.rate == b.rate:
         leader = None
 
-    smallest = min(a.attributed, b.attributed)
+    smallest = min(a.completed, b.completed)
     if smallest < MIN_CALLS_PER_VARIANT:
         return (
             "insufficient_data",
@@ -611,7 +618,7 @@ def judge(variants: list[VariantResult]) -> tuple[Basis, Verdict, str | None, st
             ),
         )
 
-    difference = newcombe_difference(a.conversions, a.attributed, b.conversions, b.attributed)
+    difference = newcombe_difference(a.conversions, a.completed, b.conversions, b.completed)
     if not difference.excludes_zero:
         return (
             "measured",
@@ -686,9 +693,9 @@ async def results_for(*, tenant_id: UUID, agent_id: UUID) -> ExperimentResults |
     difference = (
         newcombe_difference(
             variants[0].conversions,
-            variants[0].attributed,
+            variants[0].completed,
             variants[1].conversions,
-            variants[1].attributed,
+            variants[1].completed,
         )
         if basis == "measured"
         else None

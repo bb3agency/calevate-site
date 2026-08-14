@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 
 import { Providers } from "@/app/providers";
+import { NavDrawer } from "@/components/navDrawer";
 import { Avatar, ProblemNotice, Skeleton } from "@/components/ui";
 import { useAttention } from "@/lib/api/attention";
 import { useMe } from "@/lib/api/hooks";
@@ -155,106 +156,97 @@ function Sidebar({
   };
 
   return (
-    <>
-      {isMobileOpen && (
-        <button
-          type="button"
-          aria-label="Close navigation"
-          className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm lg:hidden"
-          onClick={onClose}
-        />
-      )}
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 flex shrink-0 flex-col border-r border-line bg-surface transition-transform duration-300 lg:static lg:translate-x-0 ${
-          isCollapsed ? "lg:w-[72px]" : "w-[255px]"
-        } ${isMobileOpen ? "translate-x-0" : "-translate-x-full"}`}
-      >
-        <div className={`flex items-center p-5 ${isCollapsed ? "lg:justify-center lg:px-3" : "justify-between gap-3"}`}>
-          <div className="flex items-center gap-3 overflow-hidden">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white">
-              <Mic className="h-5 w-5" />
-            </span>
-            {!isCollapsed && (
-              <span className="whitespace-nowrap">
-                <span className="block text-[17px] font-bold leading-none tracking-tight text-ink">
-                  Calevate
-                </span>
-                <span className="block text-[11px] font-medium text-ink-muted">AI voice agents</span>
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close navigation"
-            className="flex items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 lg:hidden dark:hover:bg-white/5"
-          >
-            <X className="h-5 w-5" />
-          </button>
+    <NavDrawer
+      isOpen={isMobileOpen}
+      onClose={onClose}
+      label="Navigation"
+      className={isCollapsed ? "lg:w-[72px]" : "w-[255px]"}
+    >
+      <div className={`flex items-center p-5 ${isCollapsed ? "lg:justify-center lg:px-3" : "justify-between gap-3"}`}>
+        <div className="flex items-center gap-3 overflow-hidden">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white">
+            <Mic className="h-5 w-5" />
+          </span>
           {!isCollapsed && (
-            <button
-              type="button"
-              onClick={() => setIsCollapsed(true)}
-              aria-label="Collapse sidebar"
-              className="hidden shrink-0 items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 lg:flex dark:hover:bg-white/5"
-            >
-              <PanelLeftClose className="h-4 w-4" />
-            </button>
+            <span className="whitespace-nowrap">
+              <span className="block text-[17px] font-bold leading-none tracking-tight text-ink">
+                Calevate
+              </span>
+              <span className="block text-[11px] font-medium text-ink-muted">AI voice agents</span>
+            </span>
           )}
         </div>
-
-        {isCollapsed && (
-          <div className="hidden justify-center pb-2 lg:flex">
-            <button
-              type="button"
-              onClick={() => setIsCollapsed(false)}
-              aria-label="Expand sidebar"
-              className="flex items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 dark:hover:bg-white/5"
-            >
-              <PanelLeftOpen className="h-4 w-4" />
-            </button>
-          </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close navigation"
+          className="flex items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 lg:hidden dark:hover:bg-white/5"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        {!isCollapsed && (
+          <button
+            type="button"
+            onClick={() => setIsCollapsed(true)}
+            aria-label="Collapse sidebar"
+            className="hidden shrink-0 items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 lg:flex dark:hover:bg-white/5"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </button>
         )}
+      </div>
 
-        <nav className="custom-scrollbar relative flex-1 overflow-y-auto px-3 py-4">
-          {groups.map((group) => (
-            <div key={group.heading ?? "main"} className="mb-6">
-              {group.heading &&
-                (isCollapsed ? (
-                  <div className="mx-2 mb-3 h-px bg-line" />
-                ) : (
-                  <h3 className="mb-3 px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
-                    {group.heading}
-                  </h3>
-                ))}
-              {group.items.map(renderItem)}
-            </div>
-          ))}
-        </nav>
-
-        {/* Who you are signed in AS. The design put a person's name and photo here;
-            `/v1/me` returns the organization and the role and no name at all, so this
-            shows what the server actually knows. An invented "John Carter" on a
-            console an operator can also be impersonating into is worse than useless —
-            it is the one place the screen must not be vague about whose account this
-            is. */}
-        <div className="border-t border-line p-4">
-          <div className={`flex items-center rounded-lg p-2 ${isCollapsed ? "justify-center" : "gap-3"}`}>
-            <Avatar name={me.data?.organization?.name ?? null} />
-            {!isCollapsed && (
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-ink">
-                  {me.data?.organization?.name ?? "—"}
-                </p>
-                <p className="truncate text-xs capitalize text-ink-muted">
-                  {me.data?.role ?? "—"}
-                </p>
-              </div>
-            )}
-          </div>
+      {isCollapsed && (
+        <div className="hidden justify-center pb-2 lg:flex">
+          <button
+            type="button"
+            onClick={() => setIsCollapsed(false)}
+            aria-label="Expand sidebar"
+            className="flex items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 dark:hover:bg-white/5"
+          >
+            <PanelLeftOpen className="h-4 w-4" />
+          </button>
         </div>
-      </aside>
-    </>
+      )}
+
+      <nav className="custom-scrollbar relative flex-1 overflow-y-auto px-3 py-4">
+        {groups.map((group) => (
+          <div key={group.heading ?? "main"} className="mb-6">
+            {group.heading &&
+              (isCollapsed ? (
+                <div className="mx-2 mb-3 h-px bg-line" />
+              ) : (
+                <h3 className="mb-3 px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
+                  {group.heading}
+                </h3>
+              ))}
+            {group.items.map(renderItem)}
+          </div>
+        ))}
+      </nav>
+
+      {/* Who you are signed in AS. The design put a person's name and photo here;
+          `/v1/me` returns the organization and the role and no name at all, so this
+          shows what the server actually knows. An invented "John Carter" on a
+          console an operator can also be impersonating into is worse than useless —
+          it is the one place the screen must not be vague about whose account this
+          is. */}
+      <div className="border-t border-line p-4">
+        <div className={`flex items-center rounded-lg p-2 ${isCollapsed ? "justify-center" : "gap-3"}`}>
+          <Avatar name={me.data?.organization?.name ?? null} />
+          {!isCollapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-ink">
+                {me.data?.organization?.name ?? "—"}
+              </p>
+              <p className="truncate text-xs capitalize text-ink-muted">
+                {me.data?.role ?? "—"}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </NavDrawer>
   );
 }
 

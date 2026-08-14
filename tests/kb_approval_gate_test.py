@@ -103,11 +103,15 @@ async def test_a_rejected_source_can_never_be_published() -> None:
     assert await _attached_count(tenant_id, agent_id) == 0
 
     # And it cannot be smuggled through by approving it afterwards: approval is a CAS on
-    # `pending_approval`, so a rejected row is not a candidate.
+    # `pending_approval`, so a rejected row is not a candidate. The refusal now NAMES the
+    # state it found — "rejected" is what the reviewer needs to know, and it is the
+    # branch that must stay distinct from "already approved", which is a success.
     async with tenant_session(tenant_id) as session:
         with pytest.raises(ProblemError) as approve_failed:
             await service.approve_source(session, source_id=source_id, approved_by=None)
-    assert approve_failed.value.code == "kb_not_pending"
+    assert approve_failed.value.code == "invalid_status_transition"
+    assert approve_failed.value.status == 409
+    assert "rejected" in approve_failed.value.detail
 
 
 async def test_the_archived_status_alone_does_not_make_a_source_publishable() -> None:

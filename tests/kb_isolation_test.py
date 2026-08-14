@@ -133,6 +133,11 @@ async def test_tenant_b_cannot_approve_or_publish_tenant_as_source() -> None:
     the row is not merely un-updatable, it is not there. The observable result is the
     conflict/not-found ladder rather than a silent no-op, which is the difference
     between an operator seeing a refusal and an operator seeing "approved".
+
+    The answer is 404, not 409: a conflict asserts that a row exists in some other
+    state, and asserting that about a neighbour's id is an existence oracle as well as
+    a false statement. `ProblemError.not_found` documents "absent" and "another
+    tenant's" as deliberately the same answer.
     """
     tenant_a, agent_a = await _tenant_with_published_agent()
     tenant_b, _ = await _tenant_with_published_agent()
@@ -142,7 +147,8 @@ async def test_tenant_b_cannot_approve_or_publish_tenant_as_source() -> None:
     async with tenant_session(tenant_b) as session:
         with pytest.raises(ProblemError) as approve_failed:
             await service.approve_source(session, source_id=source_id, approved_by=None)
-    assert approve_failed.value.code == "kb_not_pending"
+    assert approve_failed.value.code == "not_found"
+    assert approve_failed.value.status == 404
 
     # And it really was not approved — A's own session still sees it pending.
     async with tenant_session(tenant_a) as session:

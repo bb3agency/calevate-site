@@ -152,14 +152,25 @@ export default function IntegrationsPage() {
             );
           }}
         >
-          <input
-            required
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://your-crm.example.com/calevate"
-            className="w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
+          {/* A PERSISTENT label, not the placeholder alone. axe's `label` rule accepts a
+              placeholder as an accessible name (tests/a11y.ts says so, and it is why this
+              defect survived the sweep going green), but the text disappears the moment
+              somebody types — which is WCAG 3.3.2's entire complaint, and worst for the
+              reader who most needs to re-check what a field wanted. The rest of the
+              console labels its fields this way; this input was the exception. */}
+          <label className="block">
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+              Where should we send them?
+            </span>
+            <input
+              required
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://your-crm.example.com/calevate"
+              className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+            />
+          </label>
           <fieldset className="space-y-1.5">
             <legend className="text-xs font-medium text-slate-600 dark:text-slate-300">
               Send when…

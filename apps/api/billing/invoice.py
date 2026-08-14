@@ -32,7 +32,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.errors import ProblemError
 
 from .charges import one_time_charge_lines
-from .plans import month_pricing_instant
 from .service import to_paise, usage_summary
 
 # 18% GST on SaaS/telecom services. Whether that lands as IGST or a CGST+SGST split is
@@ -78,12 +77,12 @@ async def build_invoice(
     invoice invites a dispute about nothing, so zero-amount overage (under the included
     minutes, or a zero/absent rate) and a zero or absent setup fee simply do not appear.
 
-    **This function APPENDS the setup charge to `one_time_charges` the first time the
-    onboarding month's statement is built, and that is deliberate** — there is no
-    `invoices` table for a signup-time side effect to hang off, so the statement is
-    where the fee is billed. The write is idempotent under a unique index and can only
-    ever ADD the row that says what was already owed; every later build, including a
-    concurrent one, reads it back rather than writing a second.
+    **This function WRITES NOTHING.** It used to append the setup charge to
+    `one_time_charges` the first time the onboarding month's statement was built, which
+    put a side effect behind a GET and left a tenant whose invoice nobody opened
+    uncharged. `apps/workers/billing.py::issue_one_time_charges` issues those charges on
+    a schedule now and `billing/charges.issue_setup_fee` is the only writer; building a
+    statement is a read of the ledgers, start to finish.
 
     GST: ``GST_RATE_PCT`` (18%) on the subtotal, quantized to paise. The IGST vs
     CGST+SGST split is the accountant's concern, not this function's (see the module
@@ -96,10 +95,12 @@ async def build_invoice(
 
     org = (
         await session.execute(
-            # `created_at` is read for the same reason the name is: it is on the
-            # statement's face. It decides the tenant's ONBOARDING month, which is the
-            # one month the setup fee may land on (`billing/charges.py`).
-            text("SELECT id, name, billing_email, created_at FROM organizations WHERE id = :tid"),
+            # What is on the statement's face, and nothing more. `created_at` used to be
+            # read here too — it decides the tenant's ONBOARDING month, and this function
+            # used to be what billed the setup fee into it. Issuing that charge is
+            # `apps/workers/billing.py`'s job now, so the invoice no longer needs to know
+            # when the client was onboarded; it reads what was billed.
+            text("SELECT id, name, billing_email FROM organizations WHERE id = :tid"),
             {"tid": tenant_id},
         )
     ).first()
@@ -126,18 +127,7 @@ async def build_invoice(
     # ledger is what makes "billed once" survive regeneration, a plan change and two
     # concurrent generations (see `billing/charges.py` for the whole argument). A tenant
     # with no such charge gets NO line, which is the same rule the overage follows.
-    line_items.extend(
-        await one_time_charge_lines(
-            session,
-            tenant_id=tenant_id,
-            month=period,
-            onboarded_at=org.created_at,
-            # The same instant `usage_summary` priced this month at, recomputed from the
-            # same pure function rather than passed through a dict — one definition of
-            # "which plan prices this month", used twice.
-            priced_at=month_pricing_instant(period),
-        )
-    )
+    line_items.extend(await one_time_charge_lines(session, tenant_id=tenant_id, month=period))
 
     overage_minutes: Decimal = usage["overage_minutes"]
     overage_cost: Decimal = usage["overage_cost_inr"]

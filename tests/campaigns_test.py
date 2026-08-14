@@ -14,6 +14,7 @@ are written the way a regulator would read them:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -470,20 +471,96 @@ async def test_pause_and_resume_are_compare_and_swap() -> None:
     tenant_id, _, campaign_id = await _ready_campaign()
     async with tenant_session(tenant_id) as session:
         await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
-        await service.set_campaign_status(
+        assert await service.set_campaign_status(
             session, campaign_id=campaign_id, to_status="paused", from_statuses=("running",)
         )
-        with pytest.raises(InvalidStatusTransitionError):
-            # Already paused: a second pause is a lost race, not a no-op to swallow.
+        # Already paused: the caller's intent holds, so this is a success that made no
+        # change — NOT a 409. It used to raise, which meant the second click of Pause
+        # (and the retry of a request whose response was lost) told an operator watching
+        # calls go out that pausing had failed.
+        assert (
             await service.set_campaign_status(
                 session, campaign_id=campaign_id, to_status="paused", from_statuses=("running",)
             )
-        await service.set_campaign_status(
+            is False
+        )
+        assert await service.set_campaign_status(
             session, campaign_id=campaign_id, to_status="running", from_statuses=("paused",)
         )
         progress = await service.campaign_progress(session, campaign_id)
     assert progress["status"] == "running"
     assert progress["total"] == 3
+
+
+async def test_pausing_a_campaign_in_another_state_names_that_state() -> None:
+    """The 409 branch. A draft is not a paused campaign and not an absent one, and the
+    message has to say which — "cannot move from draft to paused" is a sentence an
+    operator can act on; "conflict" is not."""
+    tenant_id, _, campaign_id = await _ready_campaign()
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(InvalidStatusTransitionError) as raised:
+            await service.set_campaign_status(
+                session, campaign_id=campaign_id, to_status="paused", from_statuses=("running",)
+            )
+    assert raised.value.status == 409
+    assert raised.value.code == "invalid_status_transition"
+    assert "draft" in raised.value.detail
+
+
+async def test_pausing_a_campaign_that_does_not_exist_is_a_404() -> None:
+    """The third branch, and the one the old code got most wrong: an unknown id was
+    reported as a conflict, which asserts a row exists. Under RLS this is also the
+    cross-tenant answer — a neighbour's campaign id must be indistinguishable from an
+    invented one."""
+    tenant_a, _, campaign_id = await _ready_campaign()
+    tenant_b, _, _ = await _ready_campaign()
+    async with tenant_session(tenant_a) as session:
+        await service.launch_campaign(session, tenant_id=tenant_a, campaign_id=campaign_id)
+
+    for name, target in (("invented", uuid.uuid4()), ("neighbour's", campaign_id)):
+        async with tenant_session(tenant_b) as session:
+            with pytest.raises(ProblemError) as raised:
+                await service.set_campaign_status(
+                    session, campaign_id=target, to_status="paused", from_statuses=("running",)
+                )
+        assert raised.value.status == 404, f"{name} id was not a 404"
+        assert raised.value.code == "not_found"
+
+    # And tenant B's attempt moved nothing: A's campaign is still running.
+    async with tenant_session(tenant_a) as session:
+        assert (await service.campaign_progress(session, campaign_id))["status"] == "running"
+
+
+async def test_two_concurrent_pauses_produce_exactly_one_transition() -> None:
+    """The race the CAS exists for, run for real on two connections.
+
+    Both callers reach the database; the state predicate in the WHERE clause is what
+    makes exactly one of them the writer. A read-then-write would let both read
+    `running`, both write `paused`, and both report themselves as the pause — which is
+    a lie in the audit trail the moment pause starts writing one.
+    """
+    tenant_id, _, campaign_id = await _ready_campaign()
+    async with tenant_session(tenant_id) as session:
+        await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
+
+    # The barrier is what makes this test deterministic rather than lucky: both sessions
+    # are open and both callers are inside the service before either statement runs, so
+    # a read-then-write really does interleave its read with the other's. Without it the
+    # first caller can finish before the second starts, and a broken CAS passes.
+    both_ready = asyncio.Barrier(2)
+
+    async def pause() -> bool:
+        async with tenant_session(tenant_id) as session:
+            await both_ready.wait()
+            return await service.set_campaign_status(
+                session, campaign_id=campaign_id, to_status="paused", from_statuses=("running",)
+            )
+
+    outcomes = await asyncio.gather(pause(), pause())
+
+    assert sorted(outcomes) == [False, True], f"two writers both won: {outcomes}"
+    async with tenant_session(tenant_id) as session:
+        assert (await service.campaign_progress(session, campaign_id))["status"] == "paused"
 
 
 # ------------------------------------------------------------------------ dispatcher

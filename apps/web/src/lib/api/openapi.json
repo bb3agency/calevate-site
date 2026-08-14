@@ -7722,18 +7722,18 @@
       },
       "VariantOut": {
         "additionalProperties": false,
-        "description": "One arm's counts. THREE, resolved by direction, because since D-60 an arm can be\ncredited with a call nobody dialled \u2014 `experiments.VariantResult` carries the full\nargument. Briefly: `outbound_dialled` is the connect-rate diagnostic and is an\noutbound question; `attributed` is what `rate` is over; `inbound_attributed` says how\nmuch of it was never split into this arm, so a client cannot read the rate as a clean\nrandomised comparison when it is not one.",
+        "description": "One arm's counts. THREE, resolved by direction, because since D-60 an arm can be\ncredited with a call nobody dialled \u2014 `experiments.VariantResult` carries the full\nargument. Briefly: `outbound_dialled` is the connect-rate diagnostic and is an\noutbound question; `completed` is what `rate` is over; `inbound_completed` says how\nmuch of it was never split into this arm, so a client cannot read the rate as a clean\nrandomised comparison when it is not one.",
         "properties": {
-          "attributed": {
-            "title": "Attributed",
+          "completed": {
+            "title": "Completed",
             "type": "integer"
           },
           "conversions": {
             "title": "Conversions",
             "type": "integer"
           },
-          "inbound_attributed": {
-            "title": "Inbound Attributed",
+          "inbound_completed": {
+            "title": "Inbound Completed",
             "type": "integer"
           },
           "label": {
@@ -7802,8 +7802,8 @@
           "weight_bp",
           "published",
           "outbound_dialled",
-          "attributed",
-          "inbound_attributed",
+          "completed",
+          "inbound_completed",
           "conversions",
           "rate",
           "rate_low",
@@ -9960,6 +9960,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/kb/{source_id}/approve": {
       "post": {
+        "description": "Approve a submitted knowledge source. Idempotent: approving a source that is already approved returns 200 and changes nothing \u2014 the first reviewer stays the recorded approver. 409 means the source is in another state (rejected, archived) and the response names it. 404 means this tenant has no source with that id.",
         "operationId": "approve_kb_v1_admin_tenants__tenant_id__kb__source_id__approve_post",
         "parameters": [
           {
@@ -10065,6 +10066,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/kb/{source_id}/reject": {
       "post": {
+        "description": "Reject a submitted knowledge source. Idempotent: rejecting an already-rejected source returns 200 and keeps the reason the first reviewer gave. 409 means the source is in another state (approved, archived) and the response names it. 404 means this tenant has no source with that id.",
         "operationId": "reject_kb_v1_admin_tenants__tenant_id__kb__source_id__reject_post",
         "parameters": [
           {
@@ -10120,7 +10122,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Reject Kb",
+        "summary": "Refuse a submitted source, with a reason the client can act on",
         "tags": [
           "admin"
         ],
@@ -11451,6 +11453,7 @@
     },
     "/v1/campaigns/{campaign_id}/pause": {
       "post": {
+        "description": "Pause a running campaign. Idempotent: pausing a campaign that is already paused returns 200, so a second click and the retry of a request whose response was lost are both safe. 409 means the campaign is in some other state (cancelled, or still a draft) and the response names it. 404 means no campaign of yours has that id.",
         "operationId": "pause_v1_campaigns__campaign_id__pause_post",
         "parameters": [
           {
@@ -11486,7 +11489,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Pause",
+        "summary": "Stop dialling now \u2014 idempotent, so a panicked double-click is not an error",
         "tags": [
           "campaigns"
         ],
@@ -11495,6 +11498,7 @@
     },
     "/v1/campaigns/{campaign_id}/resume": {
       "post": {
+        "description": "Resume a paused campaign. Idempotent: resuming a campaign that is already running returns 200. 409 means the campaign is in some other state and the response names it. 404 means no campaign of yours has that id. Resuming does not re-run the launch gate \u2014 the per-dial compliance check does, on every contact, which is what catches paperwork that lapsed while it was paused.",
         "operationId": "resume_v1_campaigns__campaign_id__resume_post",
         "parameters": [
           {
@@ -11530,7 +11534,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Resume",
+        "summary": "Dial again from where it stopped \u2014 the compliance re-check is at dial time",
         "tags": [
           "campaigns"
         ],

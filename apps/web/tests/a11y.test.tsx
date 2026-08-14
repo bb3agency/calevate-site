@@ -20,7 +20,10 @@ import AttentionPage from "@/app/c/[slug]/attention/page";
 import CallDetailPage from "@/app/c/[slug]/calls/[callId]/page";
 import CallsPage from "@/app/c/[slug]/calls/page";
 import CampaignReviewPage from "@/app/c/[slug]/campaign-review/page";
+import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
+import IntegrationsPage from "@/app/c/[slug]/integrations/page";
+import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
 import KnowledgePage from "@/app/c/[slug]/knowledge/page";
 import LeadDetailPage from "@/app/c/[slug]/leads/[leadId]/page";
 import LeadsPage from "@/app/c/[slug]/leads/page";
@@ -90,6 +93,13 @@ const ME = {
     "members:write",
     "dnc:read",
     "dnc:write",
+    // The integrations and lead-source screens gate their writes on `org:manage` and
+    // their reads on `org:read`; an owner holds both, and without them those two screens
+    // would be swept in their read-only costume — fewer controls, fewer chances to find a
+    // defect, which is the opposite of what this sweep is for.
+    "org:read",
+    "org:manage",
+    "agents:read",
   ],
   impersonating: false,
   organization: ORG,
@@ -168,6 +178,18 @@ const LEAD = {
   updated_at: "2026-08-13T04:30:00Z",
   assigned_to: null,
   assigned_to_name: null,
+};
+
+const CAMPAIGN = {
+  id: "0192f0aa-2222-7000-8000-000000000001",
+  name: "Diwali offer",
+  status: "draft",
+  classification: "promotional",
+  contacts: 120,
+  connected: 0,
+  created_at: "2026-08-12T09:00:00Z",
+  launched_at: null,
+  consent_provenance_blocker: null,
 };
 
 const MEMBERS = [
@@ -253,9 +275,36 @@ const PLATFORM = {
   },
 };
 
+/**
+ * The identity record, shared by the client screen that submits it and the admin screen
+ * that decides it — they read the SAME endpoint (`/v1/compliance/kyc`), the admin one
+ * through a view-as session, which is why one fixture serves both.
+ */
+const KYC_RECORD = {
+  recorded: true,
+  status: "submitted",
+  is_verified: false,
+  number_purchase_available: false,
+  rejection_reason: null,
+  document_kind: "gstin",
+  document_ref: "29ABCDE1234F1Z5",
+  entity_type: "private_limited",
+  evidence_ref: "dpdp/kyc/2026/0007",
+  signatory_name: "A Reddy",
+  submitted_at: "2026-02-01T06:00:00Z",
+  verified_at: null,
+};
+
 /** The admin tenant screens all hang off one tenant read plus the panels around it. */
 const TENANT_ROUTES: Routes = {
   "/v1/admin/me": ADMIN_ME,
+  // The KYC screen reads this through `viewAsSession(tenant.slug)`, so the request only
+  // goes out AFTER the tenant read lands. Absent from this table the screen rendered its
+  // generic failure notice instead of the record — and did so late enough that the scan
+  // sometimes finished first, which is the vacuous pass `assertScreenRendered` exists to
+  // refuse. It surfaced as an order-dependent failure the moment this file grew screens
+  // ahead of it; the hole was always there.
+  "/v1/compliance/kyc": KYC_RECORD,
   "/v1/admin/tenants/t1": TENANT_SUMMARY,
   "/v1/admin/tenants/t1/margin": {
     month: "2026-08",
@@ -454,6 +503,110 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
+    // Swept with a campaign in the list AND the create form open, because the form is
+    // where this screen's labelling risk lives: five consent radios, a date, a file
+    // input and a classification picker, none of which exist on an empty list.
+    file: "c/[slug]/campaigns/page.tsx",
+    realm: "client",
+    element: () => <CampaignsPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/agents": [AGENT],
+      "/v1/campaigns": [CAMPAIGN],
+      "/v1/campaigns/numbers": [
+        { id: "num-1", e164: "+918041234567", series: "140", dlt_status: "approved" },
+      ],
+      "/v1/campaigns/templates": [
+        {
+          id: "tmpl-1",
+          classification: "promotional",
+          status: "approved",
+          body: "Namaskaram, Sri Clinic has an offer for you.",
+        },
+      ],
+    },
+  },
+  {
+    file: "c/[slug]/lead-sources/page.tsx",
+    realm: "client",
+    element: () => <LeadSourcesPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/agents": [AGENT],
+      "/v1/lead-sources": {
+        items: [
+          {
+            id: "018f3c00-0000-7000-8000-000000000001",
+            source: "meta_lead_ads",
+            agent_id: null,
+            active: true,
+            mapping: { phone: "phone_number" },
+            secret_fingerprint: "a1b2c3d4",
+            previous_secret_expires_at: null,
+            created_at: "2026-08-01T09:00:00Z",
+            updated_at: "2026-08-01T09:00:00Z",
+          },
+        ],
+        secret_header: "X-Ingest-Secret",
+      },
+      "/v1/lead-sources/activity": {
+        items: [
+          {
+            source: "website_form",
+            event: "lead.created",
+            outcome: "accepted",
+            deduplicated: 1,
+            error: null,
+            first_at: "2026-08-12T09:00:00Z",
+            last_at: "2026-08-13T04:00:00Z",
+          },
+        ],
+      },
+    },
+  },
+  {
+    // The owner's view on purpose: `calls:read_raw` is what renders the delivery log's
+    // fifth column and its "View" control, so a sweep without it would miss the half of
+    // the table that has any controls in it at all.
+    file: "c/[slug]/integrations/page.tsx",
+    realm: "client",
+    element: () => <IntegrationsPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/integrations/endpoints": [
+        {
+          id: "e1",
+          kind: "webhook",
+          url: "https://crm.example.com/calevate",
+          events: ["lead.created", "call.completed"],
+          active: true,
+          secret_fingerprint: "abc12345",
+          created_at: "2026-08-01T10:00:00Z",
+        },
+      ],
+      "/v1/integrations/deliveries": [
+        {
+          id: "d1",
+          event_type: "lead.created",
+          status: "delivered",
+          attempts: 1,
+          first_at: "2026-08-13T10:00:00Z",
+          last_at: "2026-08-13T10:00:00Z",
+          payload_stored: true,
+        },
+        {
+          id: "d2",
+          event_type: "call.completed",
+          status: "failed",
+          attempts: 3,
+          first_at: "2026-08-13T09:00:00Z",
+          last_at: "2026-08-13T09:20:00Z",
+          payload_stored: false,
+        },
+      ],
+    },
+  },
+  {
     file: "c/[slug]/do-not-call/page.tsx",
     realm: "client",
     element: () => <DoNotCallPage />,
@@ -549,20 +702,7 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/me": ME,
       "/v1/usage": USAGE,
-      "/v1/compliance/kyc": {
-        recorded: true,
-        status: "submitted",
-        is_verified: false,
-        number_purchase_available: false,
-        rejection_reason: null,
-        document_kind: "gstin",
-        document_ref: "29ABCDE1234F1Z5",
-        entity_type: "private_limited",
-        evidence_ref: "dpdp/kyc/2026/0007",
-        signatory_name: "A Reddy",
-        submitted_at: "2026-02-01T06:00:00Z",
-        verified_at: null,
-      },
+      "/v1/compliance/kyc": KYC_RECORD,
     },
   },
   {

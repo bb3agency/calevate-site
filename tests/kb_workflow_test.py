@@ -7,6 +7,7 @@ registration. These tests pin down the gate, the versioning, and the publish ord
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
@@ -98,16 +99,121 @@ async def test_submitted_knowledge_is_not_live_until_approved_and_published() ->
     assert row is not None and row[0] is True and row[1] is not None
 
 
-async def test_approving_twice_is_a_lost_race_not_an_update() -> None:
+async def test_approving_twice_succeeds_once_and_keeps_the_first_approver() -> None:
+    """The second approval is the same intent, already satisfied — a success, not a 409.
+
+    Replaces an older test that asserted the opposite. What makes the repeat safe is the
+    CAS, not the return value: the second call updates no row, so `approved_by` and
+    `approved_at` still name the reviewer who actually signed off.
+    """
     tenant_id, agent_id = await _tenant_with_published_agent()
+    reviewer = uuid.uuid4()
     async with tenant_session(tenant_id) as session:
         result = await service.submit_source(
             session, tenant_id=tenant_id, agent_id=agent_id, name="FAQ", body="Parking is free."
         )
-        await service.approve_source(session, source_id=result["id"], approved_by=None)
-        with pytest.raises(ProblemError) as exc:
+        assert await service.approve_source(session, source_id=result["id"], approved_by=reviewer)
+        first_approved_at = (
+            await session.execute(
+                text("SELECT approved_at FROM kb_sources WHERE id = :s"), {"s": result["id"]}
+            )
+        ).scalar()
+
+        changed = await service.approve_source(
+            session, source_id=result["id"], approved_by=uuid.uuid4()
+        )
+        row = (
+            await session.execute(
+                text("SELECT approved_by, approved_at, status FROM kb_sources WHERE id = :s"),
+                {"s": result["id"]},
+            )
+        ).first()
+    assert changed is False, "the repeat reported itself as the approval"
+    assert row is not None
+    assert row[0] == reviewer, "a second click rewrote who signed off"
+    assert row[1] == first_approved_at
+    assert row[2] == "approved"
+
+
+async def test_approving_a_source_nobody_can_see_is_a_404_not_a_conflict() -> None:
+    """The third branch. An id no visible source has is absent, and a 409 would assert
+    the opposite — that a row exists in some other state. Under RLS this is also the
+    cross-tenant answer, which `kb_isolation_test` pins from the neighbour's side."""
+    tenant_id, _ = await _tenant_with_published_agent()
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as raised:
+            await service.approve_source(session, source_id=uuid.uuid4(), approved_by=None)
+    assert raised.value.status == 404
+    assert raised.value.code == "not_found"
+
+
+async def test_rejecting_twice_keeps_the_first_reason_and_approving_after_is_a_409() -> None:
+    """Reject's own three branches, in one story a reviewer would recognise.
+
+    The repeat is a success that rewrites nothing — a retry must not replace the reason
+    the reviewer who first said no wrote — and approving afterwards is refused with the
+    state NAMED, because "rejected" is the fact the operator needs and "conflict" is not.
+    """
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    async with tenant_session(tenant_id) as session:
+        result = await service.submit_source(
+            session, tenant_id=tenant_id, agent_id=agent_id, name="Fees", body="Fees are 500."
+        )
+        assert await service.reject_source(
+            session, source_id=result["id"], reason="Out of date since April."
+        )
+        assert (
+            await service.reject_source(session, source_id=result["id"], reason="second thoughts")
+            is False
+        )
+        reason = (
+            await session.execute(
+                text("SELECT rejection_reason FROM kb_sources WHERE id = :s"), {"s": result["id"]}
+            )
+        ).scalar()
+        with pytest.raises(ProblemError) as raised:
             await service.approve_source(session, source_id=result["id"], approved_by=None)
-    assert exc.value.code == "kb_not_pending"
+    assert reason == "Out of date since April.", "the retry overwrote the reviewer's reason"
+    assert raised.value.status == 409
+    assert "rejected" in raised.value.detail
+
+
+async def test_two_concurrent_approvals_produce_exactly_one_approval() -> None:
+    """Two reviewers clicking Approve at once, on two connections.
+
+    Exactly one is the approver — that is what the state predicate in the WHERE clause
+    buys. A read-then-write would let both read `pending_approval`, both write, and the
+    audit log would then carry two `kb.approved` rows for one approval with the second
+    reviewer's name on the row.
+    """
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    async with tenant_session(tenant_id) as session:
+        result = await service.submit_source(
+            session, tenant_id=tenant_id, agent_id=agent_id, name="Hours", body="Open 9 to 8."
+        )
+    source_id = result["id"]
+
+    # Both sessions open and both callers inside the service before either statement
+    # runs — see the campaign twin for why the barrier is not optional.
+    both_ready = asyncio.Barrier(2)
+
+    async def approve(reviewer: uuid.UUID) -> bool:
+        async with tenant_session(tenant_id) as session:
+            await both_ready.wait()
+            return await service.approve_source(session, source_id=source_id, approved_by=reviewer)
+
+    reviewers = (uuid.uuid4(), uuid.uuid4())
+    outcomes = await asyncio.gather(*(approve(r) for r in reviewers))
+
+    assert sorted(outcomes) == [False, True], f"two writers both won: {outcomes}"
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text("SELECT status, approved_by FROM kb_sources WHERE id = :s"), {"s": source_id}
+            )
+        ).first()
+    assert row is not None and row[0] == "approved"
+    assert row[1] in reviewers
 
 
 async def test_publishing_a_new_version_archives_the_previous_one() -> None:

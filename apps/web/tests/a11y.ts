@@ -270,24 +270,6 @@ export const UNSWEPT_SCREENS: Record<string, string> = {
     "`document-title`, `bypass` and `region` against a real document. Until then the " +
     "`lang` attribute is held by src/app/layout.tsx and reviewed by eye."
   ),
-  // The three below render and scan CLEAN as of this change — verified out-of-band, not
-  // assumed. They are kept out of the suite only because another slice is editing them
-  // concurrently, so pinning fixtures to their in-flight prop shapes would make this
-  // gate fail on someone else's unfinished work rather than on an accessibility defect.
-  "c/[slug]/campaigns/page.tsx": (
-    "a concurrent slice is live in this file. Scanned once out-of-band with a populated " +
-    "campaign list: NO violations. CLOSED BY: adding it to SCREENS once that slice lands."
-  ),
-  "c/[slug]/lead-sources/page.tsx": (
-    "a concurrent slice is live in this file. Scanned once out-of-band with a populated " +
-    "source list: NO violations. CLOSED BY: adding it to SCREENS once that slice lands."
-  ),
-  "c/[slug]/integrations/page.tsx": (
-    "a concurrent slice is live in this file, and its endpoint/delivery shapes are " +
-    "mid-change — the out-of-band scan could not render it without guessing at a field " +
-    "the new code reads. NOT verified clean; this is the one genuine hole. " +
-    "CLOSED BY: adding it to SCREENS once that slice lands and its wire shape is stable."
-  ),
 };
 
 /**

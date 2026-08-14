@@ -26,6 +26,7 @@ from apps.api.core.observability import (
 )
 from apps.api.core.queue import WORKER_MAX_TRIES, redis_settings
 from apps.api.core.settings import runtime_config_missing_keys, validate_bootstrap_env
+from apps.workers.billing import issue_one_time_charges
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.dispatcher import dispatch_outbox, report_stalled_pipeline, sweep_expired
 from apps.workers.notifications import notify_hot_lead
@@ -103,6 +104,27 @@ CRON_JOBS = [
     # Retention is a legal obligation, not a cleanup task: without this the
     # policies we promise in the DPA are only a table (SEC-COMP §4).
     cron(traced_job(apply_retention), hour={3}, minute={40}),
+    # THE SETUP FEE STOPS WAITING FOR A HUMAN. Before this cron the onboarding charge
+    # was written by whoever rendered the tenant's invoice, so a client nobody looked
+    # at was never billed (`apps/workers/billing.py` and `billing/charges.py` carry the
+    # argument, including why daily and not monthly, and why the schedule cannot decide
+    # which month the fee lands on).
+    #
+    # `max_tries` is passed EXPLICITLY because `cron()` defaults it to 1 — the
+    # `WorkerSettings.max_tries` below is only a default for functions that do not set
+    # their own, and a billing job that quietly gave up its first time out would be the
+    # kind of half-wired feature that still looks green. It costs nothing when the tick
+    # succeeds: the job only asks for a retry when a tenant actually failed.
+    #
+    # 02:05 local, ahead of the 03:xx retention/sweep block so a slow sweep cannot
+    # delay billing behind it. Which tenant-month a charge belongs to does not depend on
+    # this hour, which is what lets it be chosen for scheduling reasons alone.
+    cron(
+        traced_job(issue_one_time_charges),
+        hour={2},
+        minute={5},
+        max_tries=WORKER_MAX_TRIES,
+    ),
 ]
 
 

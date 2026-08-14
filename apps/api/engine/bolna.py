@@ -718,12 +718,23 @@ class BolnaEngine:
         See `_LISTING_PAGE_SIZES` for why completeness is inferred rather than known,
         and `_next_link` for the one continuation form this will follow.
 
-        Three ways this can end, in order of how much we know:
+        Three ways the LISTING can end, in order of how much we know:
 
         * a continuation link ran out -> `complete=True`, `pages_fetched` says how many;
         * the payload said there is more and named no link we can GET -> `explicit_more`;
         * no metadata at all and the row count looks like a page size ->
           `full_page_suspected`.
+
+        And four ways the WALK itself can stop, kept apart because each sends an
+        operator somewhere different (they were once one label, `next_link_loop`, which
+        described only the first of them):
+
+        * the continuation repeats a URL we already fetched -> `next_link_loop`;
+        * a new continuation returns only executions we already had ->
+          `next_link_no_progress`;
+        * the page carried no executions at all and still offered a continuation ->
+          `empty_page_with_next` (`pages_fetched == 1` = the first page was empty);
+        * our own page bound stopped a walk that was still producing -> `page_cap_reached`.
 
         Rows are de-duplicated by execution id across pages: a vendor whose window
         shifts under us (executions keep arriving while we page) can legitimately repeat
@@ -759,10 +770,31 @@ class BolnaEngine:
                 elif len(rows) in _LISTING_PAGE_SIZES:
                     reason = "full_page_suspected"
                 break
-            if link in seen_links or new_rows == 0:
-                # A continuation that repeats a page, or yields nothing new, is a loop —
-                # the one failure mode where "follow the link" becomes an outage.
+            if link in seen_links:
+                # The continuation points back at a page we already fetched: walking on
+                # re-reads it forever, the one failure mode where "follow the link"
+                # becomes an outage against the vendor.
                 reason = "next_link_loop"
+                break
+            if not rows:
+                # No rows AND a continuation. This used to be reported as a loop, which
+                # sent an operator hunting a pagination bug that is not there: nothing
+                # repeated, the page was simply empty — most often the FIRST page of an
+                # empty window, which `pages_fetched == 1` says outright.
+                # We still stop. Following a continuation that produced nothing is a
+                # guess that burns the page cap on empty responses; stopping with a
+                # reason the operator can act on is the honest end (rejected
+                # alternative: keep walking until the cap, which turns one quiet tick
+                # into twenty requests and reports `page_cap_reached` — a WORSE label,
+                # since it implies we found rows all the way to our bound).
+                reason = "empty_page_with_next"
+                break
+            if new_rows == 0:
+                # Rows came back, but every one was an execution we already had, under a
+                # link we had not seen. Distinct from a loop (the URLs differ) and from
+                # an empty page (rows exist): the vendor is re-serving content, so the
+                # walk has stopped covering new window.
+                reason = "next_link_no_progress"
                 break
             if pages >= _LISTING_MAX_PAGES:
                 reason = "page_cap_reached"

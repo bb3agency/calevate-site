@@ -186,9 +186,20 @@ ListingIncompleteReason = Literal[
     "full_page_suspected",
     # We followed continuations until our own bound stopped us. There is more.
     "page_cap_reached",
-    # A continuation pointed back at a page we had already fetched, or returned no new
-    # executions. We stopped rather than loop; the window is not fully covered.
+    # A continuation pointed back at a page we had ALREADY fetched. The URLs repeat, so
+    # walking on would re-read the same page forever; we stopped and the window is not
+    # fully covered. Kept narrow on purpose: an operator reading this goes looking for
+    # two identical continuation URLs and must find them.
     "next_link_loop",
+    # A continuation we had never seen before came back carrying only executions we had
+    # already collected. Not a loop — the URLs differ — but the walk stopped making
+    # progress, so it is a vendor repeating content rather than a broken link.
+    "next_link_no_progress",
+    # The response held NO executions at all and still offered a continuation. Nothing was
+    # re-served and nothing looped: either the window is genuinely empty and the vendor
+    # hands out a `next` regardless, or it pages in a shape we do not understand.
+    # `pages_fetched` says which page it was — 1 means the FIRST page came back empty.
+    "empty_page_with_next",
 ]
 
 

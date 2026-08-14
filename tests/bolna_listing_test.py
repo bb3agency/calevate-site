@@ -194,6 +194,76 @@ async def test_a_next_link_that_repeats_a_page_stops_instead_of_looping() -> Non
     assert listing.pages_fetched <= 3, "a self-referential link must not be walked repeatedly"
 
 
+async def test_an_empty_first_page_with_a_next_link_is_not_reported_as_a_loop() -> None:
+    """An empty result set is not a pagination bug, and must not be labelled as one.
+
+    The walk used to stop on "no NEW rows" and call every such stop `next_link_loop`.
+    A first page of zero executions with a `next` hits that branch: nothing repeated,
+    no URL was seen twice, the vendor simply handed back an empty page. An operator
+    reading `next_link_loop` goes looking for two identical continuation URLs and finds
+    none — the reason has to name what actually happened.
+    """
+    engine = _engine({"/executions": {"data": [], "next": "/executions?page_token=p2"}})
+
+    listing = await _list(engine)
+
+    assert listing.snapshots == []
+    assert not listing.complete, "a continuation we did not follow is never completeness"
+    assert listing.incomplete_reason == "empty_page_with_next"
+    assert listing.incomplete_reason != "next_link_loop", "an empty page is not a loop"
+    assert listing.pages_fetched == 1, "pages_fetched == 1 is how the FIRST page is told"
+
+
+async def test_a_fresh_link_that_re_serves_known_rows_is_no_progress_not_a_loop() -> None:
+    """The third stop, and the reason it is not folded into either neighbour.
+
+    The continuation URL is one we have never fetched, so it is not a loop; the page does
+    carry rows, so it is not empty. What it carries is executions we already have — the
+    vendor is re-serving content, and the walk has stopped covering new window. Three
+    different investigations, so three different labels.
+    """
+    engine = _engine(
+        {
+            "/executions?page_token=p2": {"data": [_row(0)], "next": "/executions?page_token=p3"},
+            "/executions": {"data": [_row(0)], "next": "/executions?page_token=p2"},
+        }
+    )
+
+    listing = await _list(engine)
+
+    assert [s.engine_call_id for s in listing.snapshots] == ["exec_0"]
+    assert listing.incomplete_reason == "next_link_no_progress"
+    assert listing.pages_fetched == 2
+
+
+async def test_an_empty_page_reached_mid_walk_says_so_with_its_page_count() -> None:
+    """The same empty-page stop after a page that DID produce. The label is shared with
+    the first-page case on purpose — the fact is identical — and `pages_fetched` is what
+    separates "the window was empty" from "the vendor ran dry mid-walk"."""
+    engine = _engine(
+        {
+            "/executions?page_token=p2": {"data": [], "next": "/executions?page_token=p3"},
+            "/executions": {"data": [_row(0)], "next": "/executions?page_token=p2"},
+        }
+    )
+
+    listing = await _list(engine)
+
+    assert [s.engine_call_id for s in listing.snapshots] == ["exec_0"]
+    assert listing.incomplete_reason == "empty_page_with_next"
+    assert listing.pages_fetched == 2
+
+
+async def test_an_empty_last_page_with_no_continuation_is_still_complete() -> None:
+    """The neighbouring healthy case: zero rows and NO `next` claims nothing, so the
+    adapter's positive completeness claim stands and no reason is emitted at all."""
+    listing = await _list(_engine({"/executions": {"data": []}}))
+
+    assert listing.snapshots == []
+    assert listing.complete
+    assert listing.incomplete_reason is None
+
+
 async def test_an_off_origin_next_link_is_refused_and_reported_rather_than_fetched() -> None:
     """`next` is vendor-controlled input that would become an outbound request carrying
     our `Authorization` header — the textbook SSRF/credential-leak shape. The

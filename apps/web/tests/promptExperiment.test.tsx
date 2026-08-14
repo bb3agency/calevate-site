@@ -69,8 +69,8 @@ function variant(over: Record<string, unknown> = {}) {
     weight_bp: 5000,
     published: true,
     outbound_dialled: 60,
-    attributed: 50,
-    inbound_attributed: 0,
+    completed: 50,
+    inbound_completed: 0,
     conversions: 10,
     rate: 0.2,
     rate_low: 0.112,
@@ -158,11 +158,11 @@ describe("the A/B script test panel", () => {
       [EXPERIMENT_PATH]: state({
         experiment: experiment({
           variants: [
-            variant({ attributed: 11, conversions: 5, rate: 0.4545, rate_low: 0.211, rate_high: 0.72 }),
+            variant({ completed: 11, conversions: 5, rate: 0.4545, rate_low: 0.211, rate_high: 0.72 }),
             variant({
               label: "B",
               prompt_version: 2,
-              attributed: 11,
+              completed: 11,
               conversions: 1,
               rate: 0.0909,
               rate_low: 0.016,
@@ -203,8 +203,8 @@ describe("the A/B script test panel", () => {
       [EXPERIMENT_PATH]: state({
         experiment: experiment({
           variants: [
-            variant({ attributed: 11, conversions: 5, rate: 0.4545 }),
-            variant({ label: "B", prompt_version: 2, attributed: 11, conversions: 1, rate: 0.09 }),
+            variant({ completed: 11, conversions: 5, rate: 0.4545 }),
+            variant({ label: "B", prompt_version: 2, completed: 11, conversions: 1, rate: 0.09 }),
           ],
           basis: "insufficient_data",
           verdict: "not_enough_data",
@@ -226,8 +226,8 @@ describe("the A/B script test panel", () => {
       [EXPERIMENT_PATH]: state({
         experiment: experiment({
           variants: [
-            variant({ attributed: 40, conversions: 8, rate: 0.2 }),
-            variant({ label: "B", prompt_version: 2, attributed: 40, conversions: 7, rate: 0.175 }),
+            variant({ completed: 40, conversions: 8, rate: 0.2 }),
+            variant({ label: "B", prompt_version: 2, completed: 40, conversions: 7, rate: 0.175 }),
           ],
           leader_label: "A",
           headline:
@@ -248,8 +248,8 @@ describe("the A/B script test panel", () => {
       [EXPERIMENT_PATH]: state({
         experiment: experiment({
           variants: [
-            variant({ attributed: 200, conversions: 20, rate: 0.1 }),
-            variant({ label: "B", prompt_version: 2, attributed: 200, conversions: 70, rate: 0.35 }),
+            variant({ completed: 200, conversions: 20, rate: 0.1 }),
+            variant({ label: "B", prompt_version: 2, completed: 200, conversions: 70, rate: 0.35 }),
           ],
           verdict: "winner",
           leader_label: "B",
@@ -316,13 +316,13 @@ describe("the A/B script test panel", () => {
       [EXPERIMENT_PATH]: state({
         experiment: experiment({
           variants: [
-            variant({ outbound_dialled: 45, attributed: 40, inbound_attributed: 0, conversions: 8 }),
+            variant({ outbound_dialled: 45, completed: 40, inbound_completed: 0, conversions: 8 }),
             variant({
               label: "B",
               prompt_version: 2,
               outbound_dialled: 30,
-              attributed: 40,
-              inbound_attributed: 12,
+              completed: 40,
+              inbound_completed: 12,
               conversions: 7,
               rate: 0.175,
             }),

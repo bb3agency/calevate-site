@@ -339,11 +339,11 @@ async def test_the_tally_counts_completed_calls_of_the_arm_recorded() -> None:
     assert results is not None
     by_label = {v.label: v for v in results.variants}
     assert sum(v.outbound_dialled for v in results.variants) == 20
-    assert sum(v.attributed for v in results.variants) == 10
+    assert sum(v.completed for v in results.variants) == 10
     # Every call here was placed by us, so none of the denominator is unrandomised.
-    assert [v.inbound_attributed for v in results.variants] == [0, 0]
+    assert [v.inbound_completed for v in results.variants] == [0, 0]
     assert by_label["B"].conversions == 0
-    assert by_label["A"].conversions == by_label["A"].attributed
+    assert by_label["A"].conversions == by_label["A"].completed
     assert by_label["A"].rate == 1.0
     # Nowhere near 40 per arm, so no comparison is published.
     assert results.basis == "insufficient_data"
@@ -614,10 +614,10 @@ async def test_an_inbound_call_answered_by_an_arms_own_line_carries_that_arm() -
     # placed; it IS in the denominator the rate is computed over; and the share of that
     # denominator which was never split into the arm is exactly this one call.
     assert by_label["B"].outbound_dialled == 0, "nobody dialled this call"
-    assert by_label["B"].attributed == 1
-    assert by_label["B"].inbound_attributed == 1
-    assert (by_label["A"].outbound_dialled, by_label["A"].attributed) == (0, 0)
-    assert by_label["A"].inbound_attributed == 0
+    assert by_label["B"].completed == 1
+    assert by_label["B"].inbound_completed == 1
+    assert (by_label["A"].outbound_dialled, by_label["A"].completed) == (0, 0)
+    assert by_label["A"].inbound_completed == 0
 
 
 async def test_a_webhook_that_beats_the_dispatch_write_does_not_lose_the_arm() -> None:
@@ -649,7 +649,7 @@ async def test_a_webhook_that_beats_the_dispatch_write_does_not_lose_the_arm() -
     assert {v.label: v.outbound_dialled for v in results.variants} == {"A": 1, "B": 0}
     # It was placed by us, so it counts as dialled and NOT as unrandomised traffic —
     # the direction split has to tell this call apart from the inbound one above.
-    assert {v.label: v.inbound_attributed for v in results.variants} == {"A": 0, "B": 0}
+    assert {v.label: v.inbound_completed for v in results.variants} == {"A": 0, "B": 0}
 
 
 async def test_a_second_event_for_the_same_call_cannot_move_it_between_arms() -> None:

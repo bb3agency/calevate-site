@@ -650,7 +650,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Approval gate (D-28: stays ours whichever RAG provider wins) */
+        /**
+         * Approval gate (D-28: stays ours whichever RAG provider wins)
+         * @description Approve a submitted knowledge source. Idempotent: approving a source that is already approved returns 200 and changes nothing — the first reviewer stays the recorded approver. 409 means the source is in another state (rejected, archived) and the response names it. 404 means this tenant has no source with that id.
+         */
         post: operations["approve_kb_v1_admin_tenants__tenant_id__kb__source_id__approve_post"];
         delete?: never;
         options?: never;
@@ -687,7 +690,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Reject Kb */
+        /**
+         * Refuse a submitted source, with a reason the client can act on
+         * @description Reject a submitted knowledge source. Idempotent: rejecting an already-rejected source returns 200 and keeps the reason the first reviewer gave. 409 means the source is in another state (approved, archived) and the response names it. 404 means this tenant has no source with that id.
+         */
         post: operations["reject_kb_v1_admin_tenants__tenant_id__kb__source_id__reject_post"];
         delete?: never;
         options?: never;
@@ -1261,7 +1267,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Pause */
+        /**
+         * Stop dialling now — idempotent, so a panicked double-click is not an error
+         * @description Pause a running campaign. Idempotent: pausing a campaign that is already paused returns 200, so a second click and the retry of a request whose response was lost are both safe. 409 means the campaign is in some other state (cancelled, or still a draft) and the response names it. 404 means no campaign of yours has that id.
+         */
         post: operations["pause_v1_campaigns__campaign_id__pause_post"];
         delete?: never;
         options?: never;
@@ -1278,7 +1287,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Resume */
+        /**
+         * Dial again from where it stopped — the compliance re-check is at dial time
+         * @description Resume a paused campaign. Idempotent: resuming a campaign that is already running returns 200. 409 means the campaign is in some other state and the response names it. 404 means no campaign of yours has that id. Resuming does not re-run the launch gate — the per-dial compliance check does, on every contact, which is what catches paperwork that lapsed while it was paused.
+         */
         post: operations["resume_v1_campaigns__campaign_id__resume_post"];
         delete?: never;
         options?: never;
@@ -5515,17 +5527,17 @@ export interface components {
          * @description One arm's counts. THREE, resolved by direction, because since D-60 an arm can be
          *     credited with a call nobody dialled — `experiments.VariantResult` carries the full
          *     argument. Briefly: `outbound_dialled` is the connect-rate diagnostic and is an
-         *     outbound question; `attributed` is what `rate` is over; `inbound_attributed` says how
+         *     outbound question; `completed` is what `rate` is over; `inbound_completed` says how
          *     much of it was never split into this arm, so a client cannot read the rate as a clean
          *     randomised comparison when it is not one.
          */
         VariantOut: {
-            /** Attributed */
-            attributed: number;
+            /** Completed */
+            completed: number;
             /** Conversions */
             conversions: number;
-            /** Inbound Attributed */
-            inbound_attributed: number;
+            /** Inbound Completed */
+            inbound_completed: number;
             /** Label */
             label: string;
             /** Outbound Dialled */

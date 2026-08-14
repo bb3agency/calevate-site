@@ -491,12 +491,24 @@ async def unschedule(
 @router.post(
     "/{campaign_id}/pause",
     openapi_extra=permission_meta("leads:dispatch"),
+    summary="Stop dialling now — idempotent, so a panicked double-click is not an error",
+    description=(
+        "Pause a running campaign. Idempotent: pausing a campaign that is already "
+        "paused returns 200, so a second click and the retry of a request whose "
+        "response was lost are both safe. 409 means the campaign is in some other "
+        "state (cancelled, or still a draft) and the response names it. 404 means no "
+        "campaign of yours has that id."
+    ),
 )
 async def pause(
     campaign_id: UUID,
     session: Session,
     _: Principal = Depends(requires("leads:dispatch")),
 ) -> dict[str, str]:
+    """Stated on the decorator as well as here because `/docs` is public and this is a
+    contract a client cannot guess: pause is the button someone presses when calls are
+    going out that should not be, and answering the second press with an error is how
+    an operator comes to believe the first one did not work."""
     await service.set_campaign_status(
         session, campaign_id=campaign_id, to_status="paused", from_statuses=("running",)
     )
@@ -506,12 +518,23 @@ async def pause(
 @router.post(
     "/{campaign_id}/resume",
     openapi_extra=permission_meta("leads:dispatch"),
+    summary="Dial again from where it stopped — the compliance re-check is at dial time",
+    description=(
+        "Resume a paused campaign. Idempotent: resuming a campaign that is already "
+        "running returns 200. 409 means the campaign is in some other state and the "
+        "response names it. 404 means no campaign of yours has that id. Resuming does "
+        "not re-run the launch gate — the per-dial compliance check does, on every "
+        "contact, which is what catches paperwork that lapsed while it was paused."
+    ),
 )
 async def resume(
     campaign_id: UUID,
     session: Session,
     _: Principal = Depends(requires("leads:dispatch")),
 ) -> dict[str, str]:
+    """NO GATE HERE, and that is the design (`service.dispatch_blockers` argues it in
+    full): a campaign can sit paused for a week, so a gate at the moment of resuming
+    proves nothing about the moment it dials. The dial-time check is the enforcement."""
     await service.set_campaign_status(
         session, campaign_id=campaign_id, to_status="running", from_statuses=("paused",)
     )

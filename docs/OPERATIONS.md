@@ -112,8 +112,11 @@ What the harness found before any credentials existed, and what it therefore can
   and declared as an assumption for the rest. `list_executions` returns an
   `ExecutionListing`, not a bare list: `complete=False` plus a reason
   (`explicit_more` where the payload claims more, `full_page_suspected` where the row
-  count lands exactly on a conventional page size, `page_cap_reached`/`next_link_loop`
-  where our own bound stopped the walk) is what the adapter says when it cannot vouch
+  count lands exactly on a conventional page size, `page_cap_reached` where our own bound
+  stopped a walk that was still producing, `next_link_loop` where a continuation URL
+  repeated, `next_link_no_progress` where a new continuation re-served rows we already
+  had, `empty_page_with_next` where a page carried no executions and still offered a
+  continuation) is what the adapter says when it cannot vouch
   for the window, and `reconcile_executions` turns that into an alert, a metric
   (`reconciliation_listing_incomplete`) and a job result that does not read as a quiet
   tick. **What the pilot still has to settle is the vendor's behaviour itself** — whether

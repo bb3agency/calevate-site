@@ -669,6 +669,13 @@ class PublishOut(BaseModel):
     "/tenants/{tenant_id}/kb/{source_id}/approve",
     openapi_extra=permission_meta("agents:write"),
     summary="Approval gate (D-28: stays ours whichever RAG provider wins)",
+    description=(
+        "Approve a submitted knowledge source. Idempotent: approving a source that is "
+        "already approved returns 200 and changes nothing — the first reviewer stays "
+        "the recorded approver. 409 means the source is in another state (rejected, "
+        "archived) and the response names it. 404 means this tenant has no source with "
+        "that id."
+    ),
 )
 async def approve_kb(
     tenant_id: UUID,
@@ -677,23 +684,40 @@ async def approve_kb(
     request: Request,
     principal: Principal = Depends(requires("agents:write", realm="admin")),
 ) -> dict[str, str]:
+    """Approve, and audit ONLY a real approval.
+
+    A repeat is a success but not a second `kb.approved` row: the audit log answers
+    "who let this text reach the agent, and when", and a row per button press makes
+    that question harder to answer, not easier. `integrations/routes.py::
+    deactivate_endpoint` and `tenancy.members` make the same call for the same reason.
+    """
     async with tenant_session(tenant_id) as scoped:
-        await kb_service.approve_source(scoped, source_id=source_id, approved_by=principal.user_id)
-    await write_audit(
-        session,
-        action="kb.approved",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="kb_source",
-        object_id=str(source_id),
-        ip=request.client.host if request.client else None,
-    )
+        approved = await kb_service.approve_source(
+            scoped, source_id=source_id, approved_by=principal.user_id
+        )
+    if approved:
+        await write_audit(
+            session,
+            action="kb.approved",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="kb_source",
+            object_id=str(source_id),
+            ip=request.client.host if request.client else None,
+        )
     return {"status": "approved"}
 
 
 @router.post(
     "/tenants/{tenant_id}/kb/{source_id}/reject",
     openapi_extra=permission_meta("agents:write"),
+    summary="Refuse a submitted source, with a reason the client can act on",
+    description=(
+        "Reject a submitted knowledge source. Idempotent: rejecting an already-rejected "
+        "source returns 200 and keeps the reason the first reviewer gave. 409 means the "
+        "source is in another state (approved, archived) and the response names it. 404 "
+        "means this tenant has no source with that id."
+    ),
 )
 async def reject_kb(
     tenant_id: UUID,
@@ -703,18 +727,22 @@ async def reject_kb(
     request: Request,
     principal: Principal = Depends(requires("agents:write", realm="admin")),
 ) -> dict[str, str]:
+    """Reject, and audit ONLY a real rejection — see `approve_kb` for why."""
     async with tenant_session(tenant_id) as scoped:
-        await kb_service.reject_source(scoped, source_id=source_id, reason=payload.reason)
-    await write_audit(
-        session,
-        action="kb.rejected",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="kb_source",
-        object_id=str(source_id),
-        ip=request.client.host if request.client else None,
-        summary={"reason": payload.reason},
-    )
+        rejected = await kb_service.reject_source(
+            scoped, source_id=source_id, reason=payload.reason
+        )
+    if rejected:
+        await write_audit(
+            session,
+            action="kb.rejected",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="kb_source",
+            object_id=str(source_id),
+            ip=request.client.host if request.client else None,
+            summary={"reason": payload.reason},
+        )
     return {"status": "rejected"}
 
 

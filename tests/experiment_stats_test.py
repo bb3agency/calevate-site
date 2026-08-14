@@ -30,19 +30,19 @@ from apps.api.agents.proportions import (
 )
 
 
-def _arm(label: str, attributed: int, conversions: int) -> VariantResult:
-    interval = wilson_interval(conversions, attributed) if attributed else None
+def _arm(label: str, completed: int, conversions: int) -> VariantResult:
+    interval = wilson_interval(conversions, completed) if completed else None
     return VariantResult(
         variant_id=UUID(int=ord(label)),
         label=label,
         prompt_version=1 if label == "A" else 2,
         weight_bp=5000,
         published=True,
-        # `judge` reads `attributed` and `conversions` only; the direction split exists
+        # `judge` reads `completed` and `conversions` only; the direction split exists
         # for the reader, not the arithmetic, so these arms are all-outbound.
-        outbound_dialled=attributed,
-        attributed=attributed,
-        inbound_attributed=0,
+        outbound_dialled=completed,
+        completed=completed,
+        inbound_completed=0,
         conversions=conversions,
         rate=interval.point if interval else None,
         rate_low=interval.low if interval else None,
@@ -216,8 +216,8 @@ def test_the_three_counts_reach_the_response_under_their_own_names() -> None:
         weight_bp=5000,
         published=True,
         outbound_dialled=71,
-        attributed=53,
-        inbound_attributed=17,
+        completed=53,
+        inbound_completed=17,
         conversions=11,
         rate=11 / 53,
         rate_low=0.11,
@@ -252,6 +252,6 @@ def test_the_three_counts_reach_the_response_under_their_own_names() -> None:
     )
     published = rendered.variants[0]
     assert published.outbound_dialled == 71, "calls we PLACED into the arm"
-    assert published.attributed == 53, "completed calls — the denominator of the rate"
-    assert published.inbound_attributed == 17, "of those, the ones nobody split into it"
+    assert published.completed == 53, "completed calls — the denominator of the rate"
+    assert published.inbound_completed == 17, "of those, the ones nobody split into it"
     assert published.conversions == 11

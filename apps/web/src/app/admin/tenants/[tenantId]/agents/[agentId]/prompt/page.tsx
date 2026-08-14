@@ -767,7 +767,7 @@ function ExperimentResults({ experiment }: { experiment: Experiment }) {
                 </td>
                 <td className="py-1.5 pr-3 tabular-nums">{variant.weight_bp / 100}%</td>
                 <td className="py-1.5 pr-3 tabular-nums">{variant.outbound_dialled}</td>
-                <td className="py-1.5 pr-3 tabular-nums">{variant.attributed}</td>
+                <td className="py-1.5 pr-3 tabular-nums">{variant.completed}</td>
                 <td className="py-1.5 pr-3 tabular-nums">{variant.conversions}</td>
                 <td className="py-1.5 tabular-nums">{rateReading(variant)}</td>
               </tr>
@@ -950,7 +950,7 @@ function VersionSelect({
  *  arm with no completed calls — that is a claim, and the server sent null.
  *
  *  The mixed-population qualifier is built INTO this string rather than rendered beside
- *  it, and that is the point: the rate's denominator is `attributed`, which can hold
+ *  it, and that is the point: the rate's denominator is `completed`, which can hold
  *  inbound calls the engine credited to this arm (D-60) and which nothing ever SPLIT
  *  between the arms. A caller who renders the number therefore cannot omit the fact that
  *  part of it was not randomised — the alternative, a separate element somebody may
@@ -962,10 +962,10 @@ function rateReading(variant: ExperimentVariant): string {
   }
   const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
   const reading = `${pct(variant.rate)} (${pct(variant.rate_low)}–${pct(variant.rate_high)})`;
-  if (variant.inbound_attributed === 0) return reading;
+  if (variant.inbound_completed === 0) return reading;
   return (
-    `${reading} · includes ${variant.inbound_attributed} inbound call` +
-    `${variant.inbound_attributed === 1 ? "" : "s"} this arm's line answered, which were ` +
+    `${reading} · includes ${variant.inbound_completed} inbound call` +
+    `${variant.inbound_completed === 1 ? "" : "s"} this arm's line answered, which were ` +
     `not split between the arms`
   );
 }
