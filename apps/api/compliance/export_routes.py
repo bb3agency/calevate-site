@@ -4,10 +4,14 @@ The flow this serves: a data principal asks the CLIENT "what do you hold about m
 the client — who is the Data Fiduciary, we are their Processor — asks us. So this is a
 client-realm route, and the answer it returns is the client's to hand on.
 
-Not mounted in `main.py` yet: the erasure half already ships behind a worker, and the
-access half needs the client-facing wording and the delivery channel agreed before an
-endpoint exists that emails a person's data around. Mounting it is a one-line change
-plus a boot assertion that already passes (`permission_meta` is declared below).
+MOUNTED, and reachable from a screen. This paragraph used to say the opposite — "not
+mounted in `main.py` yet … mounting it is a one-line change" — and it was already false:
+`main.py` imports and includes this router, and `/c/[slug]/data-rights` now calls it.
+`deletion_routes.py` corrected the same sentence in its own docstring and states why it
+is worth the edit: a compliance module claiming to be unreachable is exactly the sentence
+a reviewer must not have to check for themselves. The delivery channel that paragraph was
+waiting on was settled by NOT having one — the document is handed to the caller as a file
+and never rendered into the console, so nothing here emails a person's data around.
 
 **Permission: `calls:read_raw`.** Confirmed in `apps/api/core/rbac.py` — it is held by
 `owner` in the client realm and `superadmin` in the admin realm, and by nobody else;

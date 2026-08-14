@@ -44,7 +44,15 @@ crm, analytics, billing, kb, integrations, compliance, audit.
 - **Queue:** Redis + ARQ. Promote only campaign orchestration to Temporal if/when retry
   semantics outgrow ARQ. Not before.
 - **Auth:** Clerk (Organizations) — admin realm and client realm are separate applications
-  with separate session cookies. MFA mandatory on admin realm.
+  with separate session cookies. **MFA mandatory on admin realm, enforced by the API**:
+  `core/auth.py::verify_token` refuses any admin-realm token whose Clerk session did not
+  complete a second factor, read from the `fva` (factor-verification-age) session claim —
+  `fva[1] == -1` is "no second factor", an absent claim fails closed. The gate is in the
+  verifier, not on the routes, so there is no admin identity that skipped it; the client
+  realm is unaffected. Two halves are NOT code and are pre-launch operator steps in
+  OPERATIONS §8: turning on "Require MFA" in the admin Clerk application, and leaving
+  that application on the default session-token claims (a custom JWT template that drops
+  `fva` locks the console out with `mfa_claim_missing`).
 - **Storage:** R2/Spaces, SSE encryption, presigned URLs (5-min TTL), never public.
 - **Observability:** OpenTelemetry traces; Sentry (errors); operator alerts by email.
   LLM tracing (prompt versions, per-call token cost, latency breakdown) is a NAMED GAP,

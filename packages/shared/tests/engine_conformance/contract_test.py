@@ -37,14 +37,19 @@ ALLOWLISTED_SOURCE_IP = "13.203.39.153"
 UNKNOWN_SOURCE_IP = "203.0.113.9"
 
 
-def _agent_config() -> AgentConfig:
+def _agent_config(
+    *,
+    name: str = "Sunrise Clinic receptionist",
+    agent_id: str = "0199a0b0-0000-7000-8000-000000000002",
+    system_prompt: str = "You are the receptionist for Sunrise Clinic.",
+) -> AgentConfig:
     return AgentConfig(
         tenant_id="0199a0b0-0000-7000-8000-000000000001",
-        agent_id="0199a0b0-0000-7000-8000-000000000002",
-        name="Sunrise Clinic receptionist",
+        agent_id=agent_id,
+        name=name,
         direction="inbound",
         language_primary="te-IN",
-        system_prompt="You are the receptionist for Sunrise Clinic.",
+        system_prompt=system_prompt,
         disclosure_line="Idi AI assistant. Ee call record avutundi.",
         models=ModelConfig(
             stt_provider="sarvam",
@@ -93,6 +98,138 @@ async def test_create_and_update_agent_returns_a_stable_ref(engine: VoiceEngine)
     assert isinstance(ref, str) and ref
     assert await engine.create_agent(cfg) == ref
     await engine.update_agent(ref, cfg)
+
+
+async def test_agent_read_back_reports_the_agent_it_was_asked_about(
+    engine: VoiceEngine,
+) -> None:
+    """THE CLAUSE THAT MAKES `update_agent` MEAN SOMETHING (OPERATIONS §2, gate 2).
+
+    A 2xx on the update says the vendor accepted the bytes. It does not say the agent is
+    running that prompt, and the difference is not academic: the prompt carries the
+    compliance disclosure a client is legally answerable for. Until `get_agent` existed,
+    "update the prompt" could only ever be scored ACCEPTED.
+
+    TWO AGENTS, ON PURPOSE. The read-back that would be worthless is the one that echoes
+    whatever was last SENT — it agrees with every caller by construction and can never
+    contradict anything, so a vendor that silently dropped the write would still score
+    APPLIED. One agent cannot tell the two apart, because the last thing sent and the
+    thing stored are the same object. So this writes a distinct marker into each of two
+    agents, updates one of them, and requires each read-back to carry its OWN marker and
+    not the other's. An echoing adapter fails on the second agent; an adapter that reads
+    a shared "last write" fails on both.
+
+    Containment, not equality: adapters render our config into the vendor's object (ours
+    PREPENDS the disclosure line, hard rule 5), so `==` would fail on a correctly applied
+    update. `AgentSnapshot.carries_prompt_marker` is the contract's answer to that.
+    """
+    first = _agent_config(
+        name="Sunrise Clinic receptionist",
+        agent_id="0199a0b0-0000-7000-8000-00000000000a",
+        system_prompt="Receptionist. marker-alpha",
+    )
+    second = _agent_config(
+        name="Sunrise Clinic outbound",
+        agent_id="0199a0b0-0000-7000-8000-00000000000b",
+        system_prompt="Outbound caller. marker-beta",
+    )
+    first_ref = await engine.create_agent(first)
+    second_ref = await engine.create_agent(second)
+    assert first_ref != second_ref, "two agents sharing one ref cannot be told apart at all"
+
+    await engine.update_agent(
+        first_ref, first.model_copy(update={"system_prompt": "Receptionist. marker-gamma"})
+    )
+
+    read_first = await engine.get_agent(first_ref)
+    read_second = await engine.get_agent(second_ref)
+
+    assert read_first.engine_agent_ref == first_ref, "the read-back describes another agent"
+    assert read_second.engine_agent_ref == second_ref
+    assert read_first.system_prompt_readable, (
+        "the adapter could not read a prompt back, so 'did the update apply?' is "
+        "unanswerable and gate 2 can never score better than ACCEPTED"
+    )
+    assert read_first.carries_prompt_marker("marker-gamma") is True, (
+        "the updated prompt is not what the engine holds — the write was accepted and "
+        "not applied, which is exactly the failure this method exists to detect"
+    )
+    assert read_first.carries_prompt_marker("marker-alpha") is False, (
+        "the superseded prompt is still live"
+    )
+    # The anti-echo assertion. If these fail, the adapter is reporting the last write
+    # rather than the agent's own state.
+    assert read_first.carries_prompt_marker("marker-beta") is False, (
+        "one agent's read-back carries another agent's prompt"
+    )
+    assert read_second.carries_prompt_marker("marker-beta") is True, (
+        "reading agent B back returned whatever was written LAST, not agent B"
+    )
+
+
+async def test_reading_an_agent_the_engine_never_created_is_reported(
+    engine: VoiceEngine,
+) -> None:
+    """An unknown ref must raise, never answer.
+
+    A snapshot for an agent that does not exist is worse than an error in both places
+    that use this method: gate 2 would record "prompt not applied" for a phantom, and
+    gate 8 would record "no dangling `rag_id`" about an agent object nobody ever read.
+    Both are conclusions drawn from nothing, and both look like measurements.
+    """
+    reported: Exception | None = None
+    try:
+        await engine.get_agent("agent_this_engine_never_created")
+    except Exception as exc:  # adapters raise our ProblemError; the type is theirs
+        reported = exc
+    assert reported is not None, (
+        "reading back an agent the engine never created returned a snapshot — a caller "
+        "cannot distinguish it from a real agent's configuration"
+    )
+
+
+async def test_agent_read_back_answers_or_declines_the_kb_reference_question(
+    engine: VoiceEngine,
+) -> None:
+    """D-41's dangling handle, and the right to say "I cannot tell" (gate 8).
+
+    `detach_kb` deletes the knowledge base. Whether the AGENT stops referencing it is a
+    fact about a different object, and `list_kb` — the account's KB list — cannot answer
+    it. If the reference survives, `detach_kb` is a delete PLUS an agent update, and every
+    publish that did only the delete left the agent pointing at knowledge that is gone.
+
+    Two answers are conformant and one is not. An adapter that can locate the agent's
+    reference field must report it accurately (`knowledge_base_refs_readable=True`, and
+    the attached handle really appears). An adapter that cannot must say
+    `knowledge_base_refs_readable=False` — the Bolna adapter's position today, because
+    nothing published says the agent object carries a KB reference or what it is called.
+    What is forbidden is the third answer: an empty list presented as knowledge, which
+    would close D-41 with "nothing dangles" on no evidence at all.
+    """
+    ref = await engine.create_agent(_agent_config())
+    handle = await engine.attach_kb(
+        ref, KBSourceRef(kb_id="kb_readback", title="Fees", text="A consultation costs 500.")
+    )
+    snapshot = await engine.get_agent(ref)
+
+    if not snapshot.knowledge_base_refs_readable:
+        # The declared "cannot tell". It must be declared consistently: a snapshot that
+        # says unreadable and still hands over refs is claiming both.
+        assert snapshot.references_kb(handle) is None
+        assert not snapshot.knowledge_base_refs
+        return
+
+    assert snapshot.references_kb(handle) is True, (
+        "the adapter claims it can read the agent's knowledge references, and the source "
+        "just attached to this agent is not among them — so a dangling handle would be "
+        "just as invisible"
+    )
+    await engine.detach_kb(ref, handle)
+    after = await engine.get_agent(ref)
+    assert after.references_kb(handle) is False, (
+        "the agent still references the detached knowledge base (D-41): `detach_kb` is a "
+        "delete PLUS an agent update on this engine, and publish must do both"
+    )
 
 
 async def test_outbound_call_returns_a_handle(engine: VoiceEngine) -> None:

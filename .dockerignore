@@ -1,0 +1,52 @@
+# Build context hygiene. The context is the repo root (the uv workspace lock spans every
+# member), so without this file `docker build` uploads .git, both virtualenvs and
+# node_modules — on the 4GB VPS in DEPLOYMENT §2 that is the difference between a build
+# and an OOM.
+#
+# ALLOW-LIST DISCIPLINE FOR SECRETS. `.env*` is excluded here as well as in .gitignore
+# because the two files answer different questions: .gitignore keeps a secret out of the
+# repo, .dockerignore keeps one that is sitting in the working directory on the VPS out
+# of an image layer. The deploy runs in `/var/www/calevate`, where the real `.env` lives
+# (DEPLOYMENT §6 tier 1) — so this line is not theoretical.
+.env
+.env.*
+!.env.example
+
+.git
+.github
+.venv
+.uv-python
+node_modules
+**/node_modules
+apps/web/.next
+apps/web/out
+
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.import_linter_cache
+.grimp_cache
+*.egg-info
+
+# Test and tooling trees. The runtime image runs no tests; shipping them would put
+# fixtures (including transcript fixtures) into a production layer.
+tests
+**/*_test.py
+htmlcov
+.coverage
+.coverage-run.json
+coverage_baseline.json
+
+docs
+runbooks
+infra
+*.md
+!README.md
+
+dump.rdb
+*.log
+*.err
+*.pdf

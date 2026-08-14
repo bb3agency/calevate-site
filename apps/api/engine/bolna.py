@@ -47,6 +47,7 @@ from calevate_shared.config import bolna_source_ips
 from calevate_shared.engine import (
     E164,
     AgentConfig,
+    AgentSnapshot,
     CallContext,
     CallHandle,
     CostBreakdown,
@@ -282,6 +283,111 @@ def _claims_more(payload: dict[str, Any], row_count: int) -> bool:
     return False
 
 
+# --- reading an agent back (see `BolnaEngine.get_agent` for the evidence) ------
+#
+# Every name below is a hand-maintained claim, so each helper is written to be INERT
+# when the shape is not what we guessed: it returns "could not read" rather than a
+# confident empty answer. That asymmetry is the whole design — an unreadable prompt must
+# not look like an applied one, and an unlocatable KB reference must not look like a
+# cleared one (D-41).
+
+#: Envelopes their OSS server is documented to use around the agent object
+#: (`GET /all` rows are `{"agent_id": ..., "data": {...}}`). Tried in order; a payload
+#: that is already the agent object falls through unwrapped.
+_AGENT_ENVELOPE_KEYS = ("data", "agent", "agent_data")
+
+#: Field names that MIGHT hold the agent's knowledge-base reference. Pure guesswork —
+#: nothing in their published documentation says the agent object carries one at all
+#: (see `get_agent`). Present-but-empty is an answer ("this agent references nothing");
+#: absent everywhere is NOT an answer, and `_agent_kb_refs` reports the difference.
+_AGENT_KB_REF_KEYS = frozenset(
+    {"rag_id", "rag_ids", "knowledgebase_id", "knowledge_base_id", "vector_store_id"}
+)
+
+#: How deep the KB-reference search walks. Their agent object nests
+#: agent_config → tasks[] → tools_config → <component>, i.e. four or five levels; the
+#: bound stops a pathological or hostile payload from turning a read-back into a hang.
+_AGENT_WALK_MAX_DEPTH = 8
+
+
+def _agent_object(payload: dict[str, Any]) -> dict[str, Any]:
+    """The agent object itself, whatever envelope it arrived in."""
+    for key in _AGENT_ENVELOPE_KEYS:
+        inner = payload.get(key)
+        if isinstance(inner, dict):
+            # Keep the envelope's own id reachable: their list rows carry `agent_id`
+            # OUTSIDE `data`, and losing it would make every read-back anonymous.
+            merged = dict(inner)
+            for id_key in ("agent_id", "id"):
+                if id_key not in merged and isinstance(payload.get(id_key), str):
+                    merged[id_key] = payload[id_key]
+            return merged
+    return payload
+
+
+def _agent_name(agent: dict[str, Any]) -> str | None:
+    config = agent.get("agent_config")
+    source = config if isinstance(config, dict) else agent
+    name = source.get("agent_name") or source.get("name")
+    return name if isinstance(name, str) and name else None
+
+
+def _agent_system_prompt(agent: dict[str, Any]) -> str | None:
+    """The live system prompt, or None when the response does not contain one.
+
+    `agent_prompts` is keyed by task (`task_1` is the conversation task we create). The
+    first task is preferred rather than "any prompt we can find": an agent with several
+    tasks has several prompts, and returning an arbitrary one would let gate 2 score a
+    marker against a prompt nobody updated. Falling back to the sole remaining entry is
+    safe for the same reason — there is nothing to confuse it with.
+    """
+    prompts = agent.get("agent_prompts")
+    if not isinstance(prompts, dict):
+        return None
+    candidates = [prompts.get("task_1")] if "task_1" in prompts else list(prompts.values())
+    if len(candidates) != 1:
+        return None
+    task = candidates[0]
+    if not isinstance(task, dict):
+        return None
+    prompt = task.get("system_prompt")
+    return prompt if isinstance(prompt, str) and prompt else None
+
+
+def _agent_kb_refs(agent: dict[str, Any]) -> tuple[list[EngineKBRef], bool]:
+    """`(handles, readable)` — the agent's own knowledge references, and whether we
+    actually found the field that would hold them.
+
+    `readable=False` is the honest answer when no candidate key appears anywhere in the
+    object, and it is NOT the same as an empty list: D-41 asks whether a deleted
+    knowledge base leaves the agent pointing at a dead `rag_id`, and "we could not find
+    the field" would otherwise be recorded as "the reference was cleared" — closing the
+    question in the direction that adds no work to our code, on no evidence.
+    """
+    handles: list[EngineKBRef] = []
+    found_key = False
+
+    def walk(node: Any, depth: int) -> None:
+        nonlocal found_key
+        if depth > _AGENT_WALK_MAX_DEPTH:
+            return
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in _AGENT_KB_REF_KEYS:
+                    found_key = True
+                    for candidate in value if isinstance(value, list) else [value]:
+                        if isinstance(candidate, str) and candidate and candidate not in handles:
+                            handles.append(candidate)
+                    continue
+                walk(value, depth + 1)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item, depth + 1)
+
+    walk(agent, 0)
+    return handles, found_key
+
+
 def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn], int]:
     """Prefix-tagged text -> typed turns, AND how many lines were lost. `(turns, lost)`.
 
@@ -485,6 +591,57 @@ class BolnaEngine:
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
         await self._request("PUT", f"/v2/agent/{ref}", json=self._agent_body(cfg))
+
+    async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
+        """`GET /v2/agent/{agent_id}` → our `AgentSnapshot`.
+
+        **UNVERIFIED AGAINST A LIVE ACCOUNT — the same standing as `create_agent` and
+        `update_agent` above, and marked here so nobody reads it as a measurement.**
+        Evidence actually gathered (2026-08-14), and its exact weight:
+
+        * READ AT THE SOURCE. `bolna-ai/bolna` (their OSS server) documents
+          `GET /agent/{agent_id}` in `API.md` and implements it in
+          `local_setup/quickstart_server.py` — it returns the STORED AGENT OBJECT as JSON
+          (the same `{agent_config, agent_prompts}` pair that was POSTed) and 404s an
+          unknown id. `GET /all` returns rows shaped `{"agent_id": ..., "data": {...}}`,
+          which is why the unwrapping below tolerates a `data`/`agent` envelope. This is
+          the self-hosted server, NOT api.bolna.ai — it is strong evidence about the
+          SHAPE and no evidence at all about the hosted path.
+        * NOT READ, ONLY REPORTED. A web search of their hosted API reference (the v2
+          agent overview) lists `GET /v2/agent/{agent_id}` beside the `POST /v2/agent`,
+          `PUT /v2/agent/:agent_id` and `GET /v2/agent/all` this adapter already calls.
+          The page ITSELF could not be fetched: `docs.bolna.ai` and `www.bolna.ai` are
+          both blocked by this environment's egress proxy, so the path below is a claim
+          from a search summary, not something a human here has read. Bolna publishes no
+          OpenAPI spec (module docstring), so there is no schema to fall back on.
+        * NOT FOUND AT ALL — the loudest gap. **Nothing found anywhere says where a
+          knowledge base reference lives inside the agent object**, or whether the agent
+          object carries one. `_AGENT_KB_REF_KEYS` is therefore a guessed set of field
+          names, and `knowledge_base_refs_readable` is False whenever none of them is
+          present — which is why a "no dangling `rag_id`" verdict can never be inferred
+          from silence here. That is precisely D-41's open question and it stays a PILOT
+          GATE (OPERATIONS §2 gate 8), not a premise.
+
+        If the path is wrong, `_request` raises `engine_rejected` on the 404 and the gate
+        reports a failed read-back — loud, and the correct outcome for an unverified
+        endpoint. It never degrades to a green tick.
+        """
+        payload = await self._request("GET", f"/v2/agent/{ref}")
+        agent = _agent_object(payload)
+        prompt = _agent_system_prompt(agent)
+        kb_refs, kb_readable = _agent_kb_refs(agent)
+        returned_id = agent.get("agent_id") or agent.get("id") or payload.get("agent_id")
+        return AgentSnapshot(
+            # Their id when they state one, so a vendor answering about a DIFFERENT agent
+            # is visible to the caller rather than papered over with the ref we asked for.
+            engine_agent_ref=returned_id if isinstance(returned_id, str) and returned_id else ref,
+            name=_agent_name(agent),
+            system_prompt=prompt,
+            system_prompt_readable=prompt is not None,
+            knowledge_base_refs=kb_refs,
+            knowledge_base_refs_readable=kb_readable,
+            engine="bolna",
+        )
 
     async def start_outbound_call(
         self, ref: EngineAgentRef, to: E164, ctx: CallContext

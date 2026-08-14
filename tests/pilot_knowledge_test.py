@@ -19,10 +19,11 @@ from __future__ import annotations
 import pytest
 from apps.api.core.errors import ProblemError
 from apps.api.engine.fake import FakeEngine
-from calevate_shared.engine import EngineAgentRef, EngineKBRef, KBSourceRef
+from calevate_shared.engine import AgentConfig, EngineAgentRef, EngineKBRef, KBSourceRef
 from scripts.pilot.knowledge import (
     CHECK_NAMES,
     ContactOutcome,
+    Gate8Inputs,
     HistoryObservation,
     KbModeLedger,
     KbProbeAgent,
@@ -30,6 +31,8 @@ from scripts.pilot.knowledge import (
     ProbeMisuseError,
     RetrievalOutcome,
     SlowEndpointObservation,
+    agent_ref_reader_from_engine,
+    build_probe_inputs,
     percentile,
     probe_batch_campaign,
     probe_h1_history_handling,
@@ -171,12 +174,89 @@ async def test_linkage_probe_always_reports_the_raw_capture_gap() -> None:
 
 
 async def test_delete_reference_is_inconclusive_without_an_instrument() -> None:
-    """Our Protocol has no agent read-back, and the probe must say so rather than guess."""
+    """No instrument wired ⇒ the probe says so rather than guessing.
+
+    `FakeEngine` is passed directly here, WITHOUT the reader the runner would derive from
+    it, because the state being tested is "nothing was wired" — which is now a wiring
+    fact rather than a missing Protocol method.
+    """
     out = await probe_kb_delete_clears_agent_reference(FakeEngine(), _agent("a", "kb1"))
     check = _check(out.checks, "kb_delete_clears_agent_reference")
     assert check.status == "not_run"
     assert check.detail.startswith("INCONCLUSIVE")
-    assert any("NO agent read-back" in f for f in out.findings)
+    assert any("No agent read-back was wired" in f for f in out.findings)
+
+
+async def test_a_reader_that_cannot_find_the_field_is_inconclusive_not_a_pass() -> None:
+    """The failure this whole tri-state exists to prevent.
+
+    An adapter that cannot locate the agent's KB reference field returns None, and the
+    temptation is to treat "no references came back" as "the reference was cleared" —
+    which answers D-41 in the direction that adds no work to our code, on no evidence.
+    The probe must report INCONCLUSIVE and say the field was not found.
+    """
+
+    async def blind_reader(ref: EngineAgentRef) -> list[str] | None:
+        return None
+
+    out = await probe_kb_delete_clears_agent_reference(
+        FakeEngine(), _agent("agent_a", "kb1"), agent_ref_reader=blind_reader
+    )
+    check = _check(out.checks, "kb_delete_clears_agent_reference")
+    assert check.status == "not_run"
+    assert "NOT evidence that the reference was cleared" in check.detail
+    assert any("STOPPED AT THE FIELD NAME" in f for f in out.findings)
+
+
+async def test_the_reader_is_derived_from_an_adapter_that_can_read_agents_back() -> None:
+    """The wiring itself: `get_agent` on the adapter becomes the D-41 (b) instrument.
+
+    `FakeEngine` really does clear the agent's reference when a source is detached, so
+    the derived reader must produce a PASS — and the same wiring against an adapter with
+    no read-back must produce no reader at all rather than a reader that invents one.
+    """
+    engine = FakeEngine()
+    ref = await engine.create_agent(
+        AgentConfig(
+            tenant_id="t1",
+            agent_id="a1",
+            name="pilot",
+            direction="outbound",
+            system_prompt="pilot agent",
+            disclosure_line="Idi AI assistant.",
+        )
+    )
+    reader = agent_ref_reader_from_engine(engine)
+    assert reader is not None
+    out = await probe_kb_delete_clears_agent_reference(
+        engine, _agent(ref, "kb1"), agent_ref_reader=reader
+    )
+    assert _check(out.checks, "kb_delete_clears_agent_reference").status == "pass"
+    assert agent_ref_reader_from_engine(_RecordingEngine()) is None
+
+
+async def test_a_read_back_that_raises_never_takes_the_gate_down() -> None:
+    """The reader addresses an agent that does not exist — a typo in the inputs file, or
+    a read-back endpoint whose path is wrong. That is not a D-41 verdict and it must not
+    propagate out of the gate either."""
+    engine = FakeEngine()
+    reader = agent_ref_reader_from_engine(engine)
+    assert reader is not None
+    out = await probe_kb_delete_clears_agent_reference(
+        engine, _agent("fakeagent_never_created", "kb1"), agent_ref_reader=reader
+    )
+    check = _check(out.checks, "kb_delete_clears_agent_reference")
+    assert check.status == "not_run"
+    assert "read-back raised" in check.detail
+
+
+async def test_build_probe_inputs_wires_the_reader_from_the_engine() -> None:
+    """A seam nobody connects is not a seam. `KnowledgeProbeInputs.agent_ref_reader` was
+    never populated by the runner's projection, so gate 8 could not have used a read-back
+    even once one existed."""
+    wired = build_probe_inputs(Gate8Inputs(), FakeEngine())
+    assert wired.agent_ref_reader is not None
+    assert build_probe_inputs(Gate8Inputs(), None).agent_ref_reader is None
 
 
 async def test_dangling_rag_id_fails_and_says_detach_grows_a_second_call() -> None:
@@ -189,7 +269,7 @@ async def test_dangling_rag_id_fails_and_says_detach_grows_a_second_call() -> No
     """
     engine = _RecordingEngine()
 
-    async def dangling_reader(ref: EngineAgentRef) -> list[str]:
+    async def dangling_reader(ref: EngineAgentRef) -> list[str] | None:
         return ["rag_1"]
 
     out = await probe_kb_delete_clears_agent_reference(
@@ -201,7 +281,7 @@ async def test_dangling_rag_id_fails_and_says_detach_grows_a_second_call() -> No
 
 
 async def test_cleared_reference_passes() -> None:
-    async def reader(ref: EngineAgentRef) -> list[str]:
+    async def reader(ref: EngineAgentRef) -> list[str] | None:
         return []
 
     out = await probe_kb_delete_clears_agent_reference(

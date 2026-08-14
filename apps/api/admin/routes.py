@@ -14,18 +14,21 @@ makes a later "why did you look at this account" question answerable.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from fastapi import APIRouter, Depends, Header, Request
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import intake, service
 from apps.api.agents import service as agents_service
 from apps.api.billing import service as billing
+from apps.api.billing import terms as billing_terms
+from apps.api.billing.cap_routes import MAX_CLIENT_CAP_MIN, MAX_CLIENT_CAP_SPEND_INR
+from apps.api.billing.plans import IST, ist_billing_month, parse_billing_month
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.kyc import record_kyc
@@ -33,8 +36,10 @@ from apps.api.core.auth import requires
 from apps.api.core.context import IMPERSONATE_HEADER, Principal
 from apps.api.core.deps import admin_db, db, global_db
 from apps.api.core.errors import ProblemError
-from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta
+from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta, role_has
+from apps.api.core.stepup import require_step_up
 from apps.api.db.session import tenant_session
+from apps.api.db.transition import transition_status
 from apps.api.kb import service as kb_service
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
@@ -1267,6 +1272,529 @@ async def record_kyc_verification(
         document_kind=payload.document_kind,
         document_ref=payload.document_ref,
     )
+
+
+# ------------------------------------------------------------ commercial terms
+#
+# SURFACES §1 "Commercials" and "Controlled mutations with audit: plan changes … cap
+# raises". `plans` has held the whole commercial relationship since the first migration
+# and NOTHING in this product wrote one: every invoice, margin figure, dispatch ceiling
+# and setup-fee charge resolved a row an operator had to INSERT by hand against
+# production. `billing/terms.py` is the writer; this is the surface over it.
+
+
+# The floor and ceiling on every amount. Rupee ceilings are shared verbatim with the
+# CLIENT's own cap route rather than re-picked here — a client may never set a cap
+# looser than the admin's, so two different maxima would mean an admin ceiling a client
+# could not match. Raise them together or not at all.
+MAX_RATE_INR = Decimal("1000.0000")
+MAX_FEE_INR = MAX_CLIENT_CAP_SPEND_INR
+MAX_INCLUDED_MIN = 1_000_000
+# Concurrency is engine capacity, not money. 10 is the column's own default and the
+# number `campaign_dispatch` falls back to; the ceiling here is a typo guard.
+MAX_CONCURRENCY = 500
+
+
+def spend_ceiling_confirmation(tenant_id: UUID) -> str:
+    """The step-up string for LOOSENING one tenant's spend ceiling.
+
+    A named function rather than an inline f-string, for the reason
+    `ops/routes.py::spend_cap_confirmation` gives: the value is part of an operator
+    procedure, so changing its shape has to be a deliberate edit that fails a test
+    rather than a reformat that leaves a console sending a header the API refuses.
+
+    Bound to the TENANT, so a confirmation captured while raising one client's ceiling
+    cannot be replayed against another's.
+    """
+    return f"raise_spend_ceiling:{tenant_id}"
+
+
+def _current_month_start() -> datetime:
+    """The first instant of the CURRENT IST billing month, in UTC.
+
+    The floor under both window bounds below. A closed month is priced at its own last
+    instant (`billing/plans.month_pricing_instant`), so a row dated INTO a closed month
+    wins the resolver's total order there and silently re-prices an invoice the client
+    has already been sent — the same defect as editing the row, arrived at from the
+    other side. The floor is what makes "a plan change is a new dated row" honest
+    rather than merely insert-shaped.
+    """
+    year, mon = parse_billing_month(ist_billing_month(datetime.now(UTC)))
+    return datetime(year, mon, 1, tzinfo=IST).astimezone(UTC)
+
+
+class CommercialTermsIn(BaseModel):
+    """The terms an operator agreed, as they cross the wire.
+
+    **Every amount is a STRING** (`"9999.00"`), never a JSON number: `2500.10` has
+    already been through a binary float by the time Pydantic sees it, and these are
+    exact NUMERIC rupee amounts (hard rule 7). The two rate fields carry FOUR decimal
+    places and the fees two, matching their columns and the invoice's own arithmetic —
+    `qty x unit = amount` only holds if the rate is published unrounded.
+
+    **`null` means UNSET on every field, and unset is not zero.** An `overage_rate` of
+    0 is free minutes; an absent one is a plan that quotes no overage at all. Nothing
+    here is defaulted to a number: this endpoint refuses to invent a price.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    setup_fee_inr: Decimal | None = Field(
+        default=None, ge=0, le=MAX_FEE_INR, max_digits=12, decimal_places=2
+    )
+    monthly_fee_inr: Decimal | None = Field(
+        default=None, ge=0, le=MAX_FEE_INR, max_digits=12, decimal_places=2
+    )
+    included_minutes: int | None = Field(default=None, ge=0, le=MAX_INCLUDED_MIN)
+    overage_rate_inr: Decimal | None = Field(
+        default=None, ge=0, le=MAX_RATE_INR, max_digits=12, decimal_places=4
+    )
+    # THE OPEN FOUNDER DECISION, and the surface is not blocked on it: the field is
+    # settable and stays NULL until somebody decides the number. No default is offered
+    # here or anywhere else — TRD §10.1's cost bands are unmeasured pilot gates, so a
+    # retail value-tier rate derived from them would be invention wearing a citation
+    # (`billing/models.py::Plan.overage_rate_value` carries the full argument).
+    overage_rate_value_inr: Decimal | None = Field(
+        default=None, ge=0, le=MAX_RATE_INR, max_digits=12, decimal_places=4
+    )
+    hard_cap_minutes: int | None = Field(default=None, ge=0, le=MAX_CLIENT_CAP_MIN)
+    hard_cap_spend_inr: Decimal | None = Field(
+        default=None, ge=0, le=MAX_CLIENT_CAP_SPEND_INR, max_digits=12, decimal_places=2
+    )
+    concurrency_ceiling: int = Field(default=10, ge=1, le=MAX_CONCURRENCY)
+    # The row's VALID TIME, half-open `[from, to)` (DATA-MODEL §8, `billing/plans.py`).
+    # `null` from = "since forever", `null` to = "until further notice" — which is what
+    # an open-ended retainer is, and what every plan row in the database already looks
+    # like.
+    effective_from: datetime | None = None
+    effective_to: datetime | None = None
+
+    @field_validator(
+        "setup_fee_inr",
+        "monthly_fee_inr",
+        "overage_rate_inr",
+        "overage_rate_value_inr",
+        "hard_cap_spend_inr",
+        mode="before",
+    )
+    @classmethod
+    def _never_a_float(cls, value: Any) -> Any:
+        """Hard rule 7 at the boundary, identical to the cap and top-up routes."""
+        if isinstance(value, float):
+            raise ValueError(
+                'money crosses the wire as a string ("9999.00"), never as a JSON float'
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _window_is_a_window(self) -> CommercialTermsIn:
+        """A window that ends before it starts is in effect never; a window that starts
+        in a CLOSED billing month re-prices a statement the client already has.
+
+        Both are refused here AND by `ck_plans_window_ordered` in the database for the
+        first of them — this exists so an operator gets a problem+json naming the field
+        instead of a 500 out of an IntegrityError, the same device `record_kyc` uses.
+        """
+        floor = _current_month_start()
+        for name, moment in (
+            ("effective_from", self.effective_from),
+            ("effective_to", self.effective_to),
+        ):
+            if moment is not None and moment < floor:
+                raise ValueError(
+                    f"{name} cannot fall in a closed billing month — a statement that "
+                    "has already been rendered must not be re-priced"
+                )
+        if (
+            self.effective_from is not None
+            and self.effective_to is not None
+            and self.effective_to <= self.effective_from
+        ):
+            raise ValueError("effective_to must be after effective_from")
+        return self
+
+
+class PlanRowOut(BaseModel):
+    """One dated agreement, as an operator reads it. Money as exact strings throughout."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    setup_fee_inr: str | None
+    monthly_fee_inr: str | None
+    included_minutes: int | None
+    overage_rate_inr: str | None
+    overage_rate_value_inr: str | None
+    hard_cap_minutes: int | None
+    hard_cap_spend_inr: str | None
+    # The CLIENT's own ceilings on this row, read-only here. Shown because the cap in
+    # force is the stricter of the pair (`billing/caps.py`) and a panel without this
+    # half cannot explain why a client is capped below their plan.
+    client_cap_minutes: int | None
+    client_cap_spend_inr: str | None
+    concurrency_ceiling: int
+    effective_from: datetime | None
+    effective_to: datetime | None
+    created_at: datetime
+    # Does this row actually say what the client pays? False for the cap-only row the
+    # client's own stop button mints — in effect for every reader, agreeing no price.
+    states_pricing: bool
+
+
+class CommercialTermsOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
+    # `none` | `unpriced` | `lapsed` | `set` — the server's own name for what an
+    # operator is looking at, never re-derived on the screen (`billing/terms.py`).
+    state: str
+    in_effect: PlanRowOut | None
+    # Every row, newest agreement first by VALID time — the resolver's own order, so the
+    # row at the top of the screen is the row the invoice would pick.
+    history: list[PlanRowOut]
+    # The step-up header a LOOSENING write must carry. Served rather than hardcoded in
+    # the console, so the string an operator is asked for cannot drift from the one the
+    # API compares against.
+    loosening_confirmation: str
+
+
+class RecordTermsOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan_id: UUID
+    # False when the submitted terms were already the terms in effect and nothing was
+    # written. The console reports it rather than claiming a change it did not make.
+    changed: bool
+    superseded_plan_id: UUID | None
+    state: str
+
+
+def _plan_out(record: billing_terms.PlanRecord) -> PlanRowOut:
+    terms = record.terms
+    return PlanRowOut(
+        id=record.id,
+        setup_fee_inr=_amount(terms.setup_fee),
+        monthly_fee_inr=_amount(terms.monthly_fee),
+        included_minutes=terms.included_min,
+        overage_rate_inr=_amount(terms.overage_rate),
+        overage_rate_value_inr=_amount(terms.overage_rate_value),
+        hard_cap_minutes=terms.hard_cap_min,
+        hard_cap_spend_inr=_amount(terms.hard_cap_spend),
+        client_cap_minutes=record.client_cap_min,
+        client_cap_spend_inr=_amount(record.client_cap_spend),
+        concurrency_ceiling=terms.concurrency_ceiling,
+        effective_from=terms.effective_from,
+        effective_to=terms.effective_to,
+        created_at=record.created_at,
+        states_pricing=record.states_pricing,
+    )
+
+
+def _amount(value: Decimal | None) -> str | None:
+    """A rupee amount as its exact digits, or absent. Never a float, never a zero
+    standing in for "unset" (hard rule 7, and `MarginOut` makes the same call)."""
+    return None if value is None else str(value)
+
+
+@router.get(
+    "/tenants/{tenant_id}/commercial-terms",
+    response_model=CommercialTermsOut,
+    openapi_extra=permission_meta("billing:read"),
+    summary="What this client pays, and every dated agreement behind it (SURFACES §1)",
+    description=(
+        "The `plans` rows for one client, newest agreement first by valid time, with the "
+        "one in effect now resolved by the same expression the invoice uses. `state` "
+        "names what an operator is looking at: `none` (no terms have ever been set — the "
+        "state every new tenant is in), `unpriced` (a row is in effect but states no "
+        "price), `lapsed` (rows exist and none is in effect, which is a "
+        "misconfiguration), or `set`."
+    ),
+)
+async def read_commercial_terms(
+    tenant_id: UUID,
+    _: Principal = Depends(requires("billing:read", realm="admin")),
+) -> CommercialTermsOut:
+    """`billing:read`, matching the margin route — commercial terms are the same class
+    of fact and an operator who may see one may see the other. It is not
+    `admin:tenants`: D-22 forbids gating a GET on a permission read-only impersonation
+    refuses, and this is a read.
+
+    **WHY ONBOARDING DOES NOT SEED A PLAN ROW, AND THIS STATE EXISTS INSTEAD.**
+    `admin.service.create_organization` writes `organizations.plan_tier` and stops, so a
+    new tenant has NO `plans` row and `state` is `none`. The rejected alternative was to
+    seed one during the wizard, and it was rejected on two grounds:
+
+    - **a seeded row would have to carry numbers nobody agreed.** Every amount would be
+      NULL (we must not invent prices) or invented. An all-NULL row is, for every reader
+      in this codebase, EXACTLY equivalent to no row at all — `caps.read_caps` returns
+      the same all-NULL view, `usage_summary` prices the same nothing, the setup-fee
+      cron charges the same nothing — so it would buy no correctness at all, only the
+      APPEARANCE of a configured account;
+    - **and it would destroy a distinction the platform already relies on.**
+      `plans.warn_no_plan_in_effect` logs only when a tenant HAS plan rows and none is
+      in effect, precisely because "never priced" and "priced, and the window closed" are
+      different failures with different remedies. Seeding makes every new tenant look
+      like the second one forever.
+
+    So the absence is SURFACED instead: an explicit state with an operator's name on it,
+    which the console renders as a refusal to be resolved rather than as an empty panel
+    or a zero. The cost, stated: a tenant can go live unpriced. That is already true
+    today and is now visible on the screen that can fix it, rather than discoverable
+    from a ₹0.00 invoice at the end of the month.
+    """
+    async with tenant_session(tenant_id) as scoped:
+        view = await billing_terms.read_terms(scoped, tenant_id=tenant_id)
+    return CommercialTermsOut(
+        tenant_id=tenant_id,
+        state=view.state,
+        in_effect=_plan_out(view.in_effect) if view.in_effect else None,
+        history=[_plan_out(record) for record in view.history],
+        loosening_confirmation=spend_ceiling_confirmation(tenant_id),
+    )
+
+
+@router.post(
+    "/tenants/{tenant_id}/commercial-terms",
+    response_model=RecordTermsOut,
+    status_code=201,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Agree new commercial terms — a NEW dated row, never an edit to an old one",
+    description=(
+        "Records what this client pays from a given instant. Always an INSERT: the row "
+        "that priced a month the client has already been billed for is never touched, "
+        "because an invoice here is derived and re-rendering it reads `plans` again. "
+        "Leave `effective_from` null for terms that apply now and until further notice; "
+        "set it to a future instant to prepare a change, which takes effect on that "
+        "instant and not before. Idempotent — submitting the terms already in effect "
+        "writes nothing, returns `changed: false` and records no audit row. Raising or "
+        "REMOVING a spend ceiling additionally needs a superadmin and the "
+        "`X-Confirm-Action` header the read publishes."
+    ),
+)
+async def record_commercial_terms(
+    tenant_id: UUID,
+    payload: CommercialTermsIn,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+    x_confirm_action: str | None = Header(default=None),
+) -> RecordTermsOut:
+    """The write SURFACES §1 promises, and the reasons for each of its three refusals.
+
+    **`admin:tenants`, tenant in the PATH, work inside `tenant_session`** — the house
+    pattern every other mutation in this module follows, and not a style choice: an
+    admin-realm mutation that inferred its tenant from the session would be un-callable
+    by construction under D-22, which `tests/route_shape_test.py` pins.
+
+    **A LOOSENING needs a superadmin AND a step-up.** `core/rbac.py`'s role table
+    reserves "cap raises" for `superadmin` and says each such switch "additionally needs
+    step-up confirmation", and `plans.hard_cap_*` is the ceiling the dispatch gate
+    enforces — there is no way to write terms without writing it. The rule is applied to
+    the CHANGE rather than to the route, because gating the whole endpoint on
+    `ops:manage` would stop an operator completing an onboarding, which is their job:
+    tightening a ceiling, or setting the first ceiling a tenant has ever had, is
+    ordinary work; raising one, or removing it, is the dangerous direction and the only
+    one that needs the second key (`terms.loosened_ceilings` defines it, and states why
+    a tenant with no ceiling today cannot be "loosened").
+
+    **Audited on a REAL change only.** `record_terms` returns `changed=False` when the
+    submitted terms already are the terms in effect, and no audit row is written for it —
+    the convention `approve_kb` and `integrations.deactivate_endpoint` established. The
+    audit log answers "who changed what this client pays"; a row per button press makes
+    that question harder to answer, not easier.
+
+    The summary carries the plan ids and the SHAPE of the change, never the amounts. A
+    client's commercial terms are not PII under hard rule 6, but `audit_log` is read
+    cross-tenant and the row the amounts are on is the durable record of them — the id
+    is what an auditor needs to reach it.
+    """
+    terms = billing_terms.CommercialTerms(
+        setup_fee=payload.setup_fee_inr,
+        monthly_fee=payload.monthly_fee_inr,
+        included_min=payload.included_minutes,
+        overage_rate=payload.overage_rate_inr,
+        overage_rate_value=payload.overage_rate_value_inr,
+        hard_cap_min=payload.hard_cap_minutes,
+        hard_cap_spend=payload.hard_cap_spend_inr,
+        concurrency_ceiling=payload.concurrency_ceiling,
+        effective_from=payload.effective_from,
+        effective_to=payload.effective_to,
+    )
+
+    async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            # A mistyped uuid must not mint a plan row for a tenant that is not there —
+            # `plans.tenant_id` has an FK, so it would fail as a 500 rather than a 404.
+            raise ProblemError.not_found("Client")
+
+        current = await billing_terms.plan_in_effect(
+            scoped, tenant_id=tenant_id, at=terms.effective_from
+        )
+        loosened = billing_terms.loosened_ceilings(current, terms)
+        if loosened:
+            # Both keys, and the ROLE check first: a step-up header is a confirmation,
+            # not an authorisation, so an operator who may not do this at all should be
+            # told that rather than being asked to confirm.
+            if principal.role is None or not role_has(principal.role, "ops:manage"):
+                raise ProblemError.forbidden(
+                    "Raising or removing a client's spend ceiling needs a superadmin. "
+                    "Tightening one, or setting a first ceiling, does not."
+                )
+            require_step_up(x_confirm_action, spend_ceiling_confirmation(tenant_id))
+
+        result = await billing_terms.record_terms(scoped, tenant_id=tenant_id, terms=terms)
+        view = await billing_terms.read_terms(scoped, tenant_id=tenant_id)
+
+    if result.changed:
+        await write_audit(
+            session,
+            action="plan.terms_recorded",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="plan",
+            object_id=str(result.plan_id),
+            ip=request.client.host if request.client else None,
+            summary={
+                "supersedes": str(result.superseded.id) if result.superseded else None,
+                "effective_from": (
+                    payload.effective_from.isoformat() if payload.effective_from else None
+                ),
+                "effective_to": (
+                    payload.effective_to.isoformat() if payload.effective_to else None
+                ),
+                # Which ceilings this write loosened, by name. The one fact a later
+                # review of a cap raise is actually looking for.
+                "loosened": list(loosened),
+            },
+        )
+    return RecordTermsOut(
+        plan_id=result.plan_id,
+        changed=result.changed,
+        superseded_plan_id=result.superseded.id if result.superseded else None,
+        state=view.state,
+    )
+
+
+# ------------------------------------------------------------- account lifecycle
+#
+# `organizations.status` carried a five-value CHECK from the first migration, was READ
+# by the health board's ended-account filter, and was WRITTEN by nothing anywhere. This
+# is SURFACES §1's "suspend/reactivate, offboarding trigger", and the reason it is not
+# merely a colour on a screen is `compliance.service.account_stopped_blocker`: the dial
+# gate now refuses a suspended account, so suspending stops the campaigns.
+
+
+# The transitions an OPERATOR may make, and what each may come from.
+#
+# `prospect` and `onboarding` are absent as TARGETS on purpose: they are wizard states
+# the tenant is born into and moves out of, not switches. `churned` is absent as a
+# SOURCE from every entry — it is terminal here, and deliberately so: `core/auth.py`
+# already excludes a churned org from every membership resolution, so its users are
+# locked out and its data is on the retention clock. Re-opening that account is a new
+# agreement, which means a new tenant with its own commercial terms rather than a button
+# that silently un-ends an offboarding. A request to leave `churned` therefore gets the
+# 409 `transition_status` raises, naming the state it found.
+_LIFECYCLE_FROM: dict[str, tuple[str, ...]] = {
+    "active": ("prospect", "onboarding", "suspended"),
+    "suspended": ("prospect", "onboarding", "active"),
+    "churned": ("prospect", "onboarding", "active", "suspended"),
+}
+
+# The states an operator must explain. Stopping a client's outbound calling is a support
+# fact somebody will have to answer for later, and "why is this account suspended" with
+# no answer is the ticket nobody can close (`record_kyc` refuses a reasonless rejection
+# for the same reason).
+_NEEDS_REASON = ("suspended", "churned")
+
+
+class LifecycleIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["active", "suspended", "churned"]
+    # Goes into the audit row verbatim. Required for the two stopping states.
+    reason: str | None = Field(default=None, min_length=3, max_length=500)
+
+    @model_validator(mode="after")
+    def _stopping_states_explain_themselves(self) -> LifecycleIn:
+        if self.status in _NEEDS_REASON and not (self.reason or "").strip():
+            raise ValueError(f"a reason is required when setting an account {self.status}")
+        return self
+
+
+class LifecycleOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
+    status: str
+    # False when the account was ALREADY in this state — a success (RFC 9110 §9.2.2),
+    # and the flag that keeps the audit log a record of transitions rather than clicks.
+    changed: bool
+
+
+@router.post(
+    "/tenants/{tenant_id}/status",
+    response_model=LifecycleOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Suspend, reactivate or close a client account — the switch that stops dialling",
+    description=(
+        "Moves `organizations.status`. Suspending or closing an account stops its "
+        "OUTBOUND calling at the next dial: `compliance.check_dispatch` refuses "
+        "`account_suspended` / `account_closed`, so the campaign tick, the 'call this "
+        "lead' button and the lead-callback webhook all stop, and the campaign launch "
+        "gate names the same rule. Inbound answering is deliberately unaffected — the "
+        "caller initiated it, and dropping it punishes them rather than the account. "
+        "Idempotent: setting the state an account is already in returns 200 and writes "
+        "no audit row. 409 names the state found when the move is not allowed from it "
+        "— `churned` is terminal. 404 means no such client."
+    ),
+)
+async def set_tenant_status(
+    tenant_id: UUID,
+    payload: LifecycleIn,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> LifecycleOut:
+    """The repo's shared state-transition primitive, not a second discriminator.
+
+    `db/transition.py::transition_status` answers the three questions a transition has:
+    already-in-state is a SUCCESS, a different state is a 409 naming what was found, and
+    an absent (or, under RLS, another tenant's) row is a 404. Writing a fourth copy of
+    that CAS-then-name-the-zero-row shape is the drift that module exists to stop.
+
+    **This route deliberately does not touch `plans`.** Closing an account does NOT end
+    its commercial terms, and that is a money decision rather than an omission: the final
+    invoice for the month a client churned in is still derived, and a window closed at
+    the moment of churn would leave that month with no plan in effect and render their
+    last statement at ₹0.00 (`billing/plans.py` — an ended window prices nothing, on
+    purpose). Terms are ended where terms are agreed: a dated row on the commercials
+    surface, whose `effective_to` an operator sets knowing what it costs.
+    """
+    async with tenant_session(tenant_id) as scoped:
+        changed = await transition_status(
+            scoped,
+            table="organizations",
+            entity="Client",
+            row_id=tenant_id,
+            to_status=payload.status,
+            from_statuses=_LIFECYCLE_FROM[payload.status],
+        )
+    if changed:
+        await write_audit(
+            session,
+            action=f"tenant.{payload.status}",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="organization",
+            object_id=str(tenant_id),
+            ip=request.client.host if request.client else None,
+            # The reason verbatim — it is why somebody stopped a business's calls, and
+            # the whole value of the row. No prior status: `from_statuses` is a SET and
+            # the CAS does not report which member it matched, so any "from" here would
+            # be a second read's guess rather than the transition's own fact.
+            summary={"status": payload.status, "reason": payload.reason},
+        )
+    return LifecycleOut(tenant_id=tenant_id, status=payload.status, changed=changed)
 
 
 __all__ = ["router"]

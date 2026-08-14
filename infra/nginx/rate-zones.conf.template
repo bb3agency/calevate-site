@@ -1,0 +1,69 @@
+# Calevate edge rate-limit zones — the config half of DEPLOYMENT §5.4.
+#
+# THIS FILE AND THAT TABLE ARE COMPARED BY A GUARDRAIL. `scripts/check_docs_drift.py`
+# parses `limit_req_zone` directives out of any file named `rate-zones.conf.template`
+# and diffs them against §5.4's list, in both directions and on the rate as well as the
+# name. A zone added here without the doc, or renumbered in the doc without the config,
+# fails CI. Change the two together.
+#
+# WHERE IT IS INSTALLED, AND WHY NOT WHERE THE DOC USED TO SAY. `limit_req_zone` is an
+# `http`-context directive, so this file must be included inside `http {}`. Debian's
+# nginx.conf auto-includes `/etc/nginx/conf.d/*.conf` there; `/etc/nginx/snippets/` (the
+# path DEPLOYMENT §5 inherited from the raghava playbook) is auto-included by nothing and
+# would need an explicit `include` nobody would remember to add. `vps-deploy.sh` installs
+# it as `/etc/nginx/conf.d/calevate-rate-zones.conf`.
+#
+# `.template` for consistency with the site config beside it: both are rendered by the
+# same `envsubst` step in the deploy script. This one currently substitutes nothing —
+# the rates are decisions, not deployment parameters, and a per-host override would mean
+# staging and production enforcing different limits with the same doc claiming both.
+#
+# THE KEY IS `$binary_remote_addr`, WHICH IS ONLY CORRECT BECAUSE OF real-ip.conf.
+# Behind Cloudflare, `$remote_addr` is a Cloudflare edge address — a handful of them, so
+# every tenant in the world would share one bucket and the limits would fire on honest
+# traffic while doing nothing to an attacker. `real_ip_header CF-Connecting-IP` (see
+# `snippets/calevate-origin.conf`) rewrites it to the true client before this module sees it.
+# `$binary_remote_addr` rather than `$remote_addr`: 4 bytes instead of a string, which is
+# what makes 10m hold ~160k distinct addresses.
+#
+# nginx.org/en/docs/http/ngx_http_limit_req_module.html — `zone=name:size rate=Nr/s|Nr/m`,
+# leaky bucket, `burst=` queues and `nodelay` serves the burst immediately while still
+# counting it. Rates below 1r/s must be expressed in r/m: nginx has no fractional r/s.
+#
+# THESE ARE EDGE DEFENCE, NOT THE AUTHORITY. Per-tenant concurrency and spend caps are
+# enforced in the app and fail closed (DEPLOYMENT §7a). nginx protects the box from
+# volume; only the app can protect client #1 from tenant #47.
+
+# Login and token exchange. 20/min per IP is ~10x a human's worst day and still slow
+# enough that credential stuffing is not worth attempting through this door.
+limit_req_zone $binary_remote_addr zone=auth:10m rate=20r/m;
+
+# Admin console. One operator, a dashboard that fans out to several endpoints per view.
+limit_req_zone $binary_remote_addr zone=admin_api:10m rate=180r/m;
+
+# Client dashboards. Lower than admin because there are many of them and each one is a
+# browser session, not an operator sweeping every tenant.
+limit_req_zone $binary_remote_addr zone=client_api:10m rate=120r/m;
+
+# Engine webhooks. Sized for the SHAPE of the traffic, not its average: a campaign
+# finishing hangs up 250 calls at once (D-32's production concurrency) and every one of
+# them delivers. Set too low, this drops deliveries the reconciliation poller then has to
+# recover ten minutes later — the exact failure hard rule 3 exists to avoid. It is keyed
+# per source IP and the engine has one, so this is a ceiling on ONE sender.
+limit_req_zone $binary_remote_addr zone=webhooks:10m rate=600r/m;
+
+# Health endpoints. Generous enough for an uptime monitor at any sane interval, bounded
+# so /healthz cannot be used as a free database-load generator.
+limit_req_zone $binary_remote_addr zone=health:5m rate=60r/m;
+
+# Everything not matched by a more specific location, including the public lead-intake
+# endpoint's IP dimension. Note DEPLOYMENT §7a: intake's real limit is PER AGENT TOKEN
+# and lives at the Cloudflare edge, because the caller is a customer's server and one IP
+# is legitimately every request.
+limit_req_zone $binary_remote_addr zone=default:10m rate=90r/m;
+
+# Refuse with 429, not nginx's default 503. 503 says "the server is broken"; 429 says
+# "you are going too fast", which is the true statement and the one a client's HTTP
+# library will back off on rather than retry immediately.
+limit_req_status 429;
+limit_req_log_level warn;

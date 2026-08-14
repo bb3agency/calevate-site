@@ -12,6 +12,7 @@ adapter cannot pass unchanged, the contract is wrong or the adapter is leaking.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from decimal import Decimal
@@ -69,6 +70,14 @@ FULL_LISTING_PAGE = 10
 def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.Response]:
     """A stub of their API, built fresh per engine so each test gets clean vendor state.
 
+    What the agent store deliberately does NOT contain: any knowledge-base reference
+    inside the agent object. Nothing in Bolna's published documentation says the agent
+    carries one or what it would be called (`BolnaEngine.get_agent`), so inventing a
+    `rag_id` field here would make the suite assert our own guess back at us. The Bolna
+    adapter therefore reports `knowledge_base_refs_readable=False` through this stub, and
+    the contract clause treats that as the honest "cannot tell" it is — D-41's question
+    is settled at pilot gate 8, not in a fixture.
+
     The knowledge-base routes are STATEFUL on purpose. A stub that answered every
     `POST /knowledgebase` with the same `rag_id` and every `DELETE` with 200 would let
     an adapter that never detaches anything sail through the suite — the exact defect
@@ -77,13 +86,40 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
     what their `rag_id`-addressed CRUD API (TRD §5) does.
     """
     knowledge_bases: dict[str, dict[str, Any]] = {}
+    # The AGENT store, and it is stateful for the same reason the KB routes are: a stub
+    # that answered every `GET /v2/agent/{id}` with the body of the last write would let
+    # an adapter that echoes what it was handed pass the read-back clause, which is the
+    # one defect that clause exists to catch. So writes are filed under an id derived
+    # from the agent's NAME — stable across a re-create (the ref-stability clause needs
+    # that) and distinct per agent (the read-back clause needs that) — and the GET
+    # returns the stored object in the `{"agent_id": ..., "data": {...}}` envelope their
+    # OSS server's `GET /all` is documented to use.
+    agents: dict[str, dict[str, Any]] = {}
+
+    def agent_id_for(body: dict[str, Any]) -> str:
+        config = body.get("agent_config") or {}
+        name = str(config.get("agent_name") or "")
+        return "agent_" + hashlib.sha256(name.encode()).hexdigest()[:8]
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path == "/v2/agent" and request.method == "POST":
-            return httpx.Response(200, json={"agent_id": "agent_xyz"})
+            body = json.loads(request.content or b"{}")
+            agent_id = agent_id_for(body)
+            agents[agent_id] = body
+            return httpx.Response(200, json={"agent_id": agent_id})
         if path.startswith("/v2/agent/") and request.method == "PUT":
+            agent_id = path.rsplit("/", 1)[-1]
+            if agent_id not in agents:
+                return httpx.Response(404, json={"error": "unknown agent"})
+            agents[agent_id] = json.loads(request.content or b"{}")
             return httpx.Response(200, json={"status": "ok"})
+        if path.startswith("/v2/agent/") and request.method == "GET":
+            agent_id = path.rsplit("/", 1)[-1]
+            stored = agents.get(agent_id)
+            if stored is None:
+                return httpx.Response(404, json={"error": "unknown agent"})
+            return httpx.Response(200, json={"agent_id": agent_id, "data": stored})
         if path == "/call" and request.method == "POST":
             body = json.loads(request.content or b"{}")
             assert body["recipient_phone_number"].startswith("+"), "E.164 only"

@@ -20,8 +20,9 @@ import {
 import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { Providers } from "@/app/providers";
 import { NavDrawer } from "@/components/navDrawer";
-import { NOTICE_TONES } from "@/components/ui";
+import { NOTICE_TONES, NoticeBox } from "@/components/ui";
 import { useHeldTenants } from "@/lib/api/admin";
+import { ApiProblem } from "@/lib/api/client";
 import { AdminRealmClerkProvider } from "@/lib/auth/adminRealm";
 
 /**
@@ -490,21 +491,79 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
  * the shell itself — and a QueryClient mounted above the auth gate would start those
  * queries for someone on their way to the sign-in page.
  */
+/**
+ * What an operator sees when the API refuses their session for want of a second factor.
+ *
+ * ## This is an EXPLANATION, never the gate
+ *
+ * The gate is `apps/api/core/auth.py::verify_token`, which refuses every admin-realm
+ * token whose Clerk session did not complete a second factor (`fva[1] == -1`). Nothing
+ * in this file makes anything safe: a browser that skipped this component would get 403
+ * `mfa_required` on every single request instead of a sentence, which is precisely the
+ * failure this removes. `tests/admin_mfa_test.py` is where the property lives.
+ *
+ * ## Why it hangs off the identity read rather than off a Clerk hook
+ *
+ * `useAdminMe()` is the first authenticated call this shell makes, on every route, and
+ * it goes through the same verifier as everything else — so the answer it gets IS the
+ * deployment's real MFA policy, including the `mfa_claim_missing` case where the admin
+ * Clerk application is misconfigured and the browser has no way to know. Reading
+ * `user.twoFactorEnabled` from clerk-js instead would render this panel from the
+ * BROWSER's opinion of the session, which can be true while the API still refuses (a
+ * session signed in before enrolment, a token minted from a template without `fva`) and
+ * false while it does not. The refusal that matters is the server's, so that is the one
+ * that speaks.
+ *
+ * It REPLACES the console rather than sitting above it: every panel underneath would
+ * otherwise render its own 403, and a screen that half-works against an API refusing
+ * every call is worse than one honest page (`clerkRuntime.tsx` makes the same choice for
+ * an unconfigured realm).
+ */
+export const MFA_PROBLEM_CODES = ["mfa_required", "mfa_claim_missing"] as const;
+
+function AdminMfaGate({ children }: { children: React.ReactNode }) {
+  const me = useAdminMe();
+  const problem = me.error instanceof ApiProblem ? me.error : null;
+  const refused =
+    problem !== null && (MFA_PROBLEM_CODES as readonly string[]).includes(problem.code);
+
+  if (!refused || problem === null) return <>{children}</>;
+
+  return (
+    <div className="mx-auto max-w-xl p-6">
+      <NoticeBox
+        tone="stop"
+        icon={<Lock aria-hidden className="h-4 w-4" />}
+        title="Two-step verification required"
+      >
+        <p className="mt-1">{problem.message}</p>
+        {problem.remediation && <p className="mt-2">{problem.remediation}</p>}
+        <p className="mt-2 text-xs">
+          The operator console holds cross-client data and the platform controls, so this
+          is required of every admin account — it is not something this screen can waive.
+        </p>
+      </NoticeBox>
+    </div>
+  );
+}
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   return (
     <AdminRealmClerkProvider protect>
       <Providers>
-        <div className="fixed inset-0 flex overflow-hidden bg-app font-sans">
-          <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <TopHeader onMenuToggle={() => setIsMobileOpen(true)} />
-            <main className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
-              <div className="mx-auto max-w-[1280px]">{children}</div>
-            </main>
+        <AdminMfaGate>
+          <div className="fixed inset-0 flex overflow-hidden bg-app font-sans">
+            <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <TopHeader onMenuToggle={() => setIsMobileOpen(true)} />
+              <main className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
+                <div className="mx-auto max-w-[1280px]">{children}</div>
+              </main>
+            </div>
           </div>
-        </div>
+        </AdminMfaGate>
       </Providers>
     </AdminRealmClerkProvider>
   );

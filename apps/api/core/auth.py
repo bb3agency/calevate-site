@@ -9,9 +9,16 @@ Realms never share session logic (TRD §11): admin tokens are verified against t
 admin application's JWKS and can only produce an admin principal; client tokens the
 same. A token minted for one realm is not a token for the other.
 
+**MFA is mandatory on the admin realm** (TRD §2, SEC-COMP §5) and is enforced in
+`verify_token`, from Clerk's `fva` session claim — see the block above `VerifiedToken`
+for the claim's semantics and for why the gate lives in the verifier rather than in
+`current_admin` or on each route. The client realm is untouched by it.
+
 Local development: when `APP_ENV=local` AND the realm has no Clerk secret configured,
-a `Bearer dev:<realm>:<clerk_user_id>` token is accepted. A deployment that declares
-itself `staging` or `prod` can never reach this path, whatever else is misconfigured
+a `Bearer dev:<realm>:<clerk_user_id>` token is accepted (with an optional `:nomfa`
+segment that stands in for a session which never completed a second factor). A
+deployment that declares itself `staging` or `prod` can never reach this path,
+whatever else is misconfigured
 (asserted in `tests/authz_audit_test.py`).
 
 `app_env` carries that whole weight, so it has NO DEFAULT: `Settings.app_env` is a
@@ -70,11 +77,115 @@ _HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 
 
+# --- Admin-realm MFA (TRD §2 "MFA mandatory on admin realm", SEC-COMP §5) ----------
+#
+# WHAT CLERK ACTUALLY GIVES US, AND WHERE THAT WAS ESTABLISHED.
+# A Clerk session token carries `fva` — "factor verification age" — a two-element array
+# of MINUTES since each factor was last verified: `[firstFactorAge, secondFactorAge]`.
+# `-1` in a slot means that factor was NEVER verified for this session; `[0, -1]` is the
+# ordinary shape for a user with no second factor enrolled, and `[9, 3]` is a session
+# that completed both. The claim is on the DEFAULT session token — no JWT template is
+# needed to obtain it — and it is the same value Clerk's own SDKs read: the Go SDK
+# declares `FactorVerificationAge [2]int64 \`json:"fva"\`` on `Claims` and builds
+# `SessionClaims.NeedsReverification(policy)` on top of it
+# (pkg.go.dev/github.com/clerk/clerk-sdk-go/v2, read 2026-08-14), and Clerk's own
+# Supabase integration guide shows the identical predicate expressed as an RLS policy
+# ("check that the second factor verification age element in the fva claim is not -1").
+# Clerk's docs for it are clerk.com/docs/guides/sessions/session-tokens and
+# clerk.com/docs/guides/secure/force-mfa; both are unreachable from this build host, so
+# the citations above are the ones that could be read directly.
+#
+# WHY THE PREDICATE IS `fva[1] >= 0` AND NOT AN AGE BOUND.
+# The requirement in TRD §2 is about AUTHENTICATION — did this session ever prove a
+# second factor — not about freshness. Clerk models freshness separately, as
+# "reverification" (`strict_mfa` etc.), and using it here would mean an operator whose
+# second factor is two hours old could not lift a halt at 3am without signing out and
+# back in, because this repo has no reverification flow in the browser to raise the
+# prompt. Gating an incident lever on a flow that does not exist would be a control that
+# gets switched off. Freshness is therefore a NAMED follow-up (OPERATIONS §2), not a
+# silent omission — and per-action consent is separately covered by `X-Confirm-Action`
+# (see `ops/routes.py`, which records why both survive).
+#
+# WHY AN ABSENT CLAIM IS A REFUSAL.
+# A missing `fva` means we cannot tell whether a second factor happened, and this is the
+# realm that holds the big red switch. Reading "unknown" as "verified" would mean a
+# custom JWT template that drops the claim silently disables MFA for the whole console
+# with nothing failing. So it fails CLOSED, and the refusal names the fix rather than
+# saying "forbidden".
+SECOND_FACTOR_CLAIM = "fva"
+
+#: The realms where a second factor is MANDATORY. The client realm is deliberately not
+#: here: SEC-COMP §5 requires MFA on admin only, and client owners on Indian SMB
+#: hardware are not who this control protects against.
+MFA_REQUIRED_REALMS: frozenset[str] = frozenset({"admin"})
+
+#: `dev:<realm>:<clerk_user_id>:nomfa` — the local-only way to obtain a token that has
+#: NOT completed a second factor, so the refusal can be exercised in both directions.
+#: A plain three-segment dev token counts as MFA-complete, because it already bypasses
+#: authentication entirely (local + no Clerk secret, asserted in `authz_audit_test`) and
+#: making it MFA-incomplete by default would only mean every local screen and every
+#: admin test asserts the refusal path and nothing asserts the allowed one.
+DEV_TOKEN_NO_MFA_SUFFIX = "nomfa"
+
+
+def _second_factor_age_minutes(claims: dict[str, Any]) -> int | None:
+    """Minutes since this session verified a SECOND factor.
+
+    `-1` (Clerk's "never verified") is returned as-is; `None` means the token carried no
+    usable `fva` claim at all, which the caller treats as a refusal, not as a pass.
+    """
+    fva = claims.get(SECOND_FACTOR_CLAIM)
+    if not isinstance(fva, list) or len(fva) < 2:
+        return None
+    second = fva[1]
+    # `bool` is an `int` in Python and `fva: [true, true]` must not read as "verified".
+    if isinstance(second, bool) or not isinstance(second, int):
+        return None
+    return second
+
+
+def _require_second_factor(realm: Realm, second_factor_age_min: int | None) -> None:
+    if realm not in MFA_REQUIRED_REALMS:
+        return
+    if second_factor_age_min is None:
+        raise ProblemError(
+            kind="permission",
+            code="mfa_claim_missing",
+            title="Two-step verification could not be checked",
+            detail="This session does not say whether a second factor was verified.",
+            remediation=(
+                "The admin Clerk application must issue the default session token "
+                "claims: a custom JWT template that omits `fva` cannot be used on this "
+                "realm (OPERATIONS §2)."
+            ),
+        )
+    if second_factor_age_min < 0:
+        log.warning("admin_mfa_missing")
+        raise ProblemError(
+            kind="permission",
+            code="mfa_required",
+            title="Two-step verification required",
+            detail=(
+                "The operator console requires two-step verification, and this sign-in "
+                "did not complete a second factor."
+            ),
+            remediation=(
+                "Set up two-step verification on your Calevate operator account, then "
+                "sign out and sign in again."
+            ),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class VerifiedToken:
     clerk_user_id: str
     email: str | None
     realm: Realm
+    #: Minutes since this session's second factor was verified; `-1` = never verified,
+    #: `None` = the token said nothing. Carried on the token rather than recomputed,
+    #: because it is a property of the CREDENTIAL and nothing downstream may re-decide
+    #: it. See `_require_second_factor` for the policy applied to it.
+    second_factor_age_min: int | None = None
 
 
 def _host_from_publishable_key(key: str | None) -> str | None:
@@ -137,7 +248,14 @@ def _jwk_client(realm: Realm) -> PyJWKClient:
 
 
 def _verify_dev_token(token: str, realm: Realm) -> VerifiedToken | None:
-    """`dev:<realm>:<clerk_user_id>` — local only, and only when Clerk is absent."""
+    """`dev:<realm>:<clerk_user_id>[:nomfa]` — local only, and only when Clerk is absent.
+
+    The optional fourth segment is the local stand-in for Clerk's `fva[1] == -1`: an
+    operator who signed in but never completed a second factor. It exists so the
+    admin-realm MFA refusal is exercised on the SAME code path that serves the allowed
+    case, rather than only in a unit test of the predicate — the gate is in
+    `verify_token`, so a dev token that claims no second factor must meet it there.
+    """
     settings = get_settings()
     if settings.app_env != "local":
         return None
@@ -147,15 +265,44 @@ def _verify_dev_token(token: str, realm: Realm) -> VerifiedToken | None:
     if configured:
         return None
     parts = token.split(":")
-    if len(parts) != 3 or parts[0] != "dev" or parts[1] != realm:
+    if len(parts) not in (3, 4) or parts[0] != "dev" or parts[1] != realm:
+        return None
+    if len(parts) == 4 and parts[3] != DEV_TOKEN_NO_MFA_SUFFIX:
+        # An unrecognised suffix is not a token with a typo we should be lenient about:
+        # `dev:admin:me:mfa` would otherwise be read as "no suffix I know, so allow",
+        # which is the wrong direction for the one realm this gate protects.
         return None
     log.warning("dev_token_accepted", extra={"realm": realm})
-    return VerifiedToken(clerk_user_id=parts[2], email=None, realm=realm)
+    return VerifiedToken(
+        clerk_user_id=parts[2],
+        email=None,
+        realm=realm,
+        second_factor_age_min=-1 if len(parts) == 4 else 0,
+    )
 
 
 async def verify_token(token: str, realm: Realm) -> VerifiedToken:
+    """A verified credential for THIS realm — and on the admin realm, only ever one that
+    completed a second factor.
+
+    WHY THE MFA GATE IS HERE AND NOT IN `current_admin` OR IN A ROUTE DEPENDENCY.
+    This function is the only way to turn a string into an admin-realm identity. Putting
+    the check here makes "an admin token" and "an admin token that passed MFA" the SAME
+    object: there is no `VerifiedToken(realm="admin")` in existence that skipped it, so a
+    dependency written next year is covered by calling the verifier at all, and cannot
+    opt out without opting out of authentication. Rejected:
+      - `current_admin`: correct today (it is the sole admin caller) and one direct
+        `verify_token(..., "admin")` away from being wrong — the same shape of defect as
+        a permission named after an act that did not gate the act.
+      - A ROUTE DEPENDENCY / `requires(..., realm="admin")`: ~60 declarations, and the
+        one that forgets it is the one that matters.
+      - MIDDLEWARE: runs before the realm is known — it would have to re-parse the
+        Authorization header and re-decide which realm this request is, which is a
+        second definition of the thing this module exists to define once.
+    """
     dev = _verify_dev_token(token, realm)
     if dev is not None:
+        _require_second_factor(realm, dev.second_factor_age_min)
         return dev
     if token.startswith("dev:"):
         # A dev token for the WRONG realm (or in an environment where dev tokens are
@@ -205,8 +352,16 @@ async def verify_token(token: str, realm: Realm) -> VerifiedToken:
         # The subject becomes a SQL parameter two calls from here. See `_bearer`.
         raise ProblemError.unauthorized()
     email = claims.get("email")
+    second_factor_age_min = _second_factor_age_minutes(claims)
+    # AFTER the signature, the expiry and the subject: an unsigned or expired token must
+    # answer "sign in again", never "set up two-step verification" — the second sentence
+    # would tell an anonymous caller that a valid-looking token got further than it did.
+    _require_second_factor(realm, second_factor_age_min)
     return VerifiedToken(
-        clerk_user_id=subject, email=email if isinstance(email, str) else None, realm=realm
+        clerk_user_id=subject,
+        email=email if isinstance(email, str) else None,
+        realm=realm,
+        second_factor_age_min=second_factor_age_min,
     )
 
 
@@ -601,10 +756,13 @@ async def tenant_of(principal: Principal = Depends(current_any)) -> UUID:
 
 
 __all__ = [
+    "DEV_TOKEN_NO_MFA_SUFFIX",
     "IMPERSONATE_HEADER",
     "IMPERSONATION_AUDIT_WINDOW_S",
     "IMPERSONATION_READ_ACTION",
+    "MFA_REQUIRED_REALMS",
     "ORG_HEADER",
+    "SECOND_FACTOR_CLAIM",
     "PermissionDependency",
     "VerifiedToken",
     "current_admin",

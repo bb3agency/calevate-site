@@ -2587,6 +2587,80 @@ against the one Postgres produce false REDs on every dispatch test** — one ses
 lease and the others' ticks correctly skip. Three agents saw the same seven failures and all three
 were contention. Any wave gate has to be a SERIAL run to mean anything.
 
+## §58 — the wave that asked what the docs were promising and nobody had built
+
+This wave was planned from a VERIFIED SURVEY rather than from the previous session's
+memory, and that changed what got built. The survey grep-checked every claim it made,
+and its first finding was that **the build log itself was partly stale**: the ROADMAP
+still said `save_intake_draft` had no route (it shipped in `60944da`), this file still
+said SEVEN `UNWIRED_BASELINE` entries when §57 left six, SURFACES still asked for a
+cost-runaway guard that exists, and TRD called admin MFA mandatory when no MFA code
+existed anywhere. Two of those four understated what was built; one was a security
+control that was simply absent. **Read the code before believing a doc, including this
+one** — that is now a demonstrated rule and not a maxim.
+
+**Nothing in this product wrote a plan row (D-66), and a suspended tenant kept dialling
+(D-67).** The second is the serious one. `organizations.status` had a five-value CHECK,
+was read by the health board, and was written by NOTHING — so no operator could suspend
+an account. Worse, `check_dispatch` — the one gate every outbound path calls — never read
+the column, so even once a status could be set, a suspended account would have kept
+placing calls. Both halves landed together because both live in the admin surface: terms
+are recorded INSERT-only through the existing `plan_in_effect_sql`, and the absence of
+terms is surfaced as a state an operator must clear rather than papered over with a seeded
+all-NULL row that every reader already treats as no row at all.
+
+**Admin-realm MFA now exists, and the sabotage is what proves it is not theatre (D-68).**
+With the backend check removed and the UI gate left fully intact, the frontend suite stayed
+GREEN while four backend tests went red — including the big red switch actually going
+through. The gate lives in `verify_token` so that "an admin token" and "an admin token that
+passed MFA" are the same object across ~60 route declarations. `X-Confirm-Action` was kept
+rather than superseded: MFA proves WHO holds the session once per 12h, the header proves
+WHICH ACT on WHICH TARGET per request, and a fully MFA'd session is exactly what a tab left
+open on an unlocked laptop is.
+
+**The repo could not be deployed at all (D-69).** `DEPLOYMENT.md` named
+`scripts/vps-deploy.sh` as the deploy mechanism and the file did not exist; no nginx config,
+no Dockerfile, no deploy job. Building it also resolved a self-contradiction in the doc
+(§2 "Python is NOT needed on the host" against §4.7 running alembic on the host) in favour
+of containerised migrations, and closing the drift guard's `DEFERRED_MIRRORS` entry ARMED a
+comparator that had been written and idle: it can now refuse a rate-zone disagreement
+between the doc and the template.
+
+**The engine could not read an agent back (T), which was quietly blocking two pilot gates.**
+`VoiceEngine` had `create_agent` and `update_agent` and nothing that reads. Gate 2 could
+therefore only ever score ACCEPTED, never APPLIED, and D-41's dangling-`rag_id` question was
+unanswerable through the adapter. Both are now instrumented — and instrumented HONESTLY:
+Bolna's hosted docs are blocked by this environment's egress proxy, so three separate
+assumptions are marked in the adapter, and the design is TRI-STATE. An unrecognised response
+shape yields `knowledge_base_refs_readable=False`, which scores INCONCLUSIVE — never "the
+reference was cleared". D-41 stays a pilot gate rather than becoming a guess wearing a
+finding's clothes.
+
+**The DPDP subject-rights endpoints were fully built and no screen called them (U).** Export,
+file-erasure and status were mounted, audited, worker-backed and producing proof certificates,
+with zero frontend callers — so a client exercising a data principal's rights did it by curl.
+The screen hands the export document to the caller as a FILE and never paints it into a
+console that gets screen-shared.
+
+**Three things the wave found and did not fix**, recorded so they are not rediscovered:
+`POST /v1/compliance/subject-export` has no `response_model`, so it is typed as a free dict
+AND is structurally invisible to the redaction guardrail — on the one endpoint whose payload
+is a named human being. There is no list endpoint for deletion requests, so a client who
+closes the tab loses the handle on an in-flight legal obligation. And
+`voice-runtime/engine_intake.py::client_ip` takes the LEFTMOST `X-Forwarded-For` entry, which
+is caller-controlled; Cloudflare appends rather than replaces. That is the whole authenticity
+control for an unsigned engine (hard rule 3), currently safe only because the origin lock
+guarantees `CF-Connecting-IP` is present.
+
+**A coordination lesson, and a near miss.** An agent ran `git stash push --keep-index` while
+four other agents had uncommitted work in the same tree. It popped immediately and nothing
+was lost — verified, not assumed — but it was one `git checkout` from destroying a wave.
+Subagents get read-only git and nothing else. Separately, CI's coverage ratchet caught six
+untested defensive branches in §57's new `db/transition.py` that the local gate had skipped,
+because the ratchet needs both stores empty and agents were using them. The budget was NOT
+raised; the branches were covered. A shortcut around a gate is a decision to let a later gate
+find it.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and
@@ -2646,7 +2720,8 @@ is honest at the surface rather than silent in a worker:
   code, so this is a business switch rather than a blocked one.
 - **`plans.overage_rate_value`**, present and NULL on every plan until a retail number is
   decided.
-- The remaining seven entries of `UNWIRED_BASELINE`, each keyed per column and each naming
+- The remaining SIX entries of `UNWIRED_BASELINE` (this line said seven until §58; §57
+  closed three of nine and the prose was not updated with them), each keyed per column and each naming
   what closes it. The list may only shrink; the guard fails if an entry no longer holds.
 
 **Deliberately NOT built, with what would change it.** No vector infrastructure of ours

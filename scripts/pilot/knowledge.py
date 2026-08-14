@@ -67,7 +67,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-from calevate_shared.engine import EngineAgentRef, EngineKBRef, KBSourceRef
+from calevate_shared.engine import AgentSnapshot, EngineAgentRef, EngineKBRef, KBSourceRef
 from pydantic import BaseModel, ValidationError
 from pydantic import Field as PydanticField
 
@@ -134,10 +134,15 @@ class KbEngine(Protocol):
 #: Reads back the KB handles the AGENT's own configuration references — NOT the account
 #: KB list. The distinction is the whole of D-41 question (b): `DELETE /knowledgebase/
 #: {rag_id}` removes the knowledge base, and whether the agent object still points at it
-#: is a different object's state. Our `VoiceEngine` Protocol has no agent read-back at
-#: all (create/update only), so this seam cannot be satisfied by the adapter today —
-#: see FINDINGS below.
-AgentKbRefReader = Callable[[EngineAgentRef], Awaitable[Sequence[str]]]
+#: is a different object's state.
+#:
+#: `VoiceEngine.get_agent` now supplies this seam (`agent_ref_reader_from_engine`), which
+#: is what makes the question askable through the adapter at all. It returns **None** for
+#: "the agent's references could not be read" — an empty list would say "the agent
+#: references nothing", and those are opposite answers: one closes D-41 with "detach is a
+#: single call", the other is the adapter admitting it could not find the field. Only one
+#: of them is evidence.
+AgentKbRefReader = Callable[[EngineAgentRef], Awaitable[Sequence[str] | None]]
 
 #: Places a live call and reports whether the agent still answered from a source we
 #: withdrew. The behavioural substitute for the read-back above; needs PSTN and credit.
@@ -369,6 +374,34 @@ async def probe_kb_agent_linkage(
     return ProbeOutput(checks=(check,), findings=tuple(findings))
 
 
+def agent_ref_reader_from_engine(engine: object) -> AgentKbRefReader | None:
+    """Derive the D-41 (b) instrument from an adapter, or None if it has no read-back.
+
+    WHY DUCK-TYPED RATHER THAN `isinstance(engine, VoiceEngine)`. The engine the runner
+    hands over may be a narrowed double (this module's probes deliberately accept
+    `KbEngine`, three methods), and demanding the whole Protocol would refuse a perfectly
+    good reader. `getattr` asks the only question that matters: can this object be asked
+    what an agent references?
+
+    The reader passes the adapter's tri-state through untouched. `AgentSnapshot
+    .knowledge_base_refs_readable` is False when the adapter could not FIND the reference
+    field, and flattening that to `[]` here would turn "we could not tell" into "the
+    agent references nothing" — the single most expensive mistranslation available in
+    this file, because it answers D-41 in the direction that adds no work to our code.
+    """
+    read = getattr(engine, "get_agent", None)
+    if read is None:
+        return None
+
+    async def reader(ref: EngineAgentRef) -> Sequence[str] | None:
+        snapshot: AgentSnapshot = await read(ref)
+        if not snapshot.knowledge_base_refs_readable:
+            return None
+        return snapshot.knowledge_base_refs
+
+    return reader
+
+
 async def _delete_is_accepted(engine: KbEngine, ref: EngineAgentRef, kb: EngineKBRef) -> bool:
     """Does the engine accept a DELETE for this handle? A `True` is proof the knowledge
     base existed — the contract requires detaching an unknown handle to RAISE (D-41)."""
@@ -413,13 +446,15 @@ async def probe_kb_delete_clears_agent_reference(
     measured rather than assumed either way.
 
     Three instruments, in descending order of authority:
-      1. `agent_ref_reader` — read the agent object back and look for the handle. Direct.
+      1. `agent_ref_reader` — read the agent object back and look for the handle. Direct,
+         and now derivable from any adapter implementing `VoiceEngine.get_agent`
+         (`agent_ref_reader_from_engine`). It may DECLINE by returning None, which is a
+         third outcome rather than a negative one: see the branch below.
       2. `still_answered` — place a call and ask something only the withdrawn source
          could answer. Behavioural, slower, needs PSTN and credit, and answers the
          question the client actually cares about.
-      3. Neither ⇒ INCONCLUSIVE, and a finding: our Protocol has `create_agent` and
-         `update_agent` but no read-back at all, so the adapter as it stands cannot
-         answer this question. Discovering that is a legitimate result of this slice.
+      3. Neither ⇒ INCONCLUSIVE with a finding. Never a pass: "nothing told us the
+         reference survived" and "the reference was cleared" are different sentences.
 
     Either way it first re-proves the D-41 invariant it can prove: after the delete, the
     handle must be gone from `list_kb`. A delete the KB list still shows is a detach
@@ -459,8 +494,21 @@ async def probe_kb_delete_clears_agent_reference(
         )
         return ProbeOutput(checks=tuple(checks), findings=tuple(findings))
 
+    agent_refs: Sequence[str] | None = None
+    reader_error: str | None = None
     if agent_ref_reader is not None:
-        agent_refs = await agent_ref_reader(agent.ref)
+        try:
+            agent_refs = await agent_ref_reader(agent.ref)
+        except Exception as exc:
+            # The read-back can fail for reasons that say nothing about D-41: an unknown
+            # agent ref in the inputs file, an endpoint path that is itself an unverified
+            # vendor claim (`BolnaEngine.get_agent`), a throttle. None of those is a
+            # verdict, and none of them may take the rest of gate 8 down with them — this
+            # probe runs mid-scorecard on the one day the vendor is being exercised.
+            # Type name only: an httpx error's `str()` carries the request URL.
+            reader_error = type(exc).__name__
+
+    if agent_refs is not None:
         dangling = handle in agent_refs
         if dangling:
             checks.append(
@@ -508,22 +556,60 @@ async def probe_kb_delete_clears_agent_reference(
                     behavioural_probe=1,
                 )
             )
+    elif reader_error is not None:
+        checks.append(
+            inconclusive(
+                "kb_delete_clears_agent_reference",
+                f"The agent read-back raised ({reader_error}), so nothing can be said "
+                "about what the agent references. Check that the agent ref in the inputs "
+                "file exists on the account and that the read-back endpoint answered at "
+                "all — its path is an unverified vendor claim (`BolnaEngine.get_agent`), "
+                "and a 404 there is our defect, not the vendor's answer.",
+            )
+        )
+    elif agent_ref_reader is not None:
+        # The reader ran and DECLINED. That is a different fact from "no instrument", and
+        # it is itself a finding about the vendor's agent object: the adapter walked what
+        # the engine returned and found none of the field names a KB reference might use.
+        # It is emphatically NOT "the reference was cleared" — recording it as a pass is
+        # the one way this probe could answer D-41 in the direction that adds no work to
+        # our code while measuring nothing.
+        checks.append(
+            inconclusive(
+                "kb_delete_clears_agent_reference",
+                "The agent read-back ran and could not locate any knowledge-base "
+                "reference field in the agent object, so it cannot say whether the "
+                "handle dangles. This is NOT evidence that the reference was cleared. "
+                "Capture one raw agent payload and either name the real field in "
+                "`bolna._AGENT_KB_REF_KEYS` or record that the agent object carries no "
+                "KB reference at all — at which point the question is answered by the "
+                "shape rather than by this probe.",
+            )
+        )
+        findings.append(
+            "D-41 (b) REACHED THE ADAPTER AND STOPPED AT THE FIELD NAME. "
+            "`VoiceEngine.get_agent` exists now, so the agent object IS read back; what "
+            "is still unknown is where — or whether — Bolna's agent object references a "
+            "`rag_id`. Nothing in their published documentation says, so "
+            "`bolna._AGENT_KB_REF_KEYS` is a guessed set of names and the adapter reports "
+            "`knowledge_base_refs_readable=False` rather than an empty list. One captured "
+            "agent payload settles it."
+        )
     else:
         checks.append(
             inconclusive(
                 "kb_delete_clears_agent_reference",
                 "No instrument was supplied. `list_kb` reads the KB LIST, not the "
-                "agent's own reference, so the question is unanswerable through the "
-                "adapter as it stands — supply `agent_ref_reader` (an agent read-back) "
-                "or `still_answered` (a live call).",
+                "agent's own reference, so this run cannot answer the question — supply "
+                "an engine whose adapter implements `get_agent` (the reader is derived "
+                "from it automatically) or `still_answered` (a live call).",
             )
         )
         findings.append(
-            "`VoiceEngine` has `create_agent`/`update_agent` and NO agent read-back, so "
-            "nothing above the adapter can ask what a published agent currently "
-            "references. D-41 question (b) cannot be answered without either a new "
-            "Protocol method (`get_agent`) or a live call. Reported, not fixed: this "
-            "slice does not own the adapter."
+            "No agent read-back was wired for this run. `VoiceEngine.get_agent` is on the "
+            "contract and `agent_ref_reader_from_engine` derives the reader from any "
+            "adapter that implements it, so an unsupplied reader now means the engine "
+            "handed to the harness has none — not that the contract lacks the method."
         )
     return ProbeOutput(checks=tuple(checks), findings=tuple(findings))
 
@@ -1259,8 +1345,12 @@ UNSUPPLIABLE_INSTRUMENTS_FINDING = (
     "D-41's dangling-`rag_id` question cannot be answered from an inputs file: both "
     "instruments (an agent read-back, or a live call asking about the withdrawn source) "
     "must address the handle the probe creates during the run, so a pre-recorded answer "
-    "would describe a different handle. It needs `get_agent` on the contract or a live "
-    "call wired into the harness — reported, not worked around."
+    "would describe a different handle. The read-back is therefore DERIVED FROM THE "
+    "ADAPTER — `VoiceEngine.get_agent` via `agent_ref_reader_from_engine` — and runs live "
+    "against the handle this run mints. It can still decline: the Bolna adapter reports "
+    "`knowledge_base_refs_readable=False` while nobody knows where (or whether) the agent "
+    "object holds a `rag_id`, and that declination is reported as INCONCLUSIVE, never as "
+    "a cleared reference. The live-call instrument (`still_answered`) remains unwired."
 )
 
 
@@ -1413,6 +1503,11 @@ def build_probe_inputs(inputs: Gate8Inputs, engine: KbEngine | None) -> Knowledg
         engine=engine,
         primary_agent=primary,
         control_agent=control,
+        # Derived from the adapter, not typed into the file: the reader must answer about
+        # the handle the probe mints DURING this run, which no pre-recorded answer can
+        # (see `UNSUPPLIABLE_INSTRUMENTS_FINDING`). None when the adapter has no
+        # `get_agent`, which the probe reports as an absent instrument rather than a pass.
+        agent_ref_reader=agent_ref_reader_from_engine(engine) if engine is not None else None,
         kb_handle=inputs.kb_handle,
         kb_mode=inputs.kb_mode,
         question_ids=inputs.resolved_question_ids(),
@@ -1566,6 +1661,7 @@ __all__ = [
     "SlowEndpointInput",
     "SlowEndpointObservation",
     "WithdrawnSourceStillAnswered",
+    "agent_ref_reader_from_engine",
     "build_probe_inputs",
     "inconclusive",
     "load_gate8_inputs",

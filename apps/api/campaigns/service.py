@@ -49,6 +49,7 @@ from apps.api.compliance.service import (
     DEFAULT_WINDOW,
     NO_CREDITS_REASON,
     SPEND_CAP_REASON,
+    account_stopped_blocker,
     credits_exhausted,
     first_campaign_hold_blocker,
     kyc_blocker,
@@ -709,7 +710,13 @@ async def launch_blockers(
     blockers.extend(await _entity_blockers(session, tenant_id=tenant_id, facts=facts))
 
     # Tenant-level refusals, asked with the same functions the dial-time gate uses.
-    # KYC first, for the reason `check_dispatch` orders it first: telling an unverified
+    # The ACCOUNT's own lifecycle state first, because it outranks every other tenant
+    # refusal: telling a suspended client to top up or to file a document is advice they
+    # cannot act on. `check_dispatch` orders it first for the same reason.
+    stopped = await account_stopped_blocker(session, tenant_id=tenant_id)
+    if stopped is not None:
+        blockers.append(LaunchBlocker(*stopped))
+    # KYC next, for the reason `check_dispatch` orders it before the money: telling an unverified
     # account to top up when topping up will not let them dial is a worse answer than
     # no answer. Not in `_entity_blockers` despite being an entity question, because
     # that helper is shared with `dispatch_blockers` and `check_dispatch` already asks

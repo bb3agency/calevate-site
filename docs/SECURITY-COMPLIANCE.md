@@ -276,6 +276,19 @@ audit_log. Redaction runs BEFORE any transcript leaves our system (exports, noti
 Identity & access
 - Two auth realms (admin vs client), separate Clerk apps, separate cookies/domains; MFA
   mandatory on admin; session lifetimes: admin 12h, client 7d refresh.
+  - **MFA is enforced server-side**, in `apps/api/core/auth.py::verify_token`, from
+    Clerk's `fva` session claim: an admin-realm token whose second-factor age is `-1`
+    (never verified) is refused `403 mfa_required`, and a token carrying no `fva` at all
+    is refused `403 mfa_claim_missing` — unknown fails closed. It gates READS as well as
+    writes, because it is authentication, not authorization. Enforced in the verifier so
+    no route can forget it; `tests/admin_mfa_test.py` pins both directions plus the
+    client realm's exemption. The admin console explains the refusal rather than
+    enforcing it (`app/admin/layout.tsx`).
+  - **Step-up (`X-Confirm-Action`) is a SEPARATE control and is retained**, not replaced:
+    MFA is per SESSION (once, at sign-in, for 12h), step-up is per ACTION and per TARGET.
+    The session that mis-clicks the big red switch is a session that has already passed
+    MFA. Requiring a *fresh* second factor for high-risk actions (Clerk reverification)
+    is the named next step and needs a browser reverification flow — OPERATIONS §8.
 - RBAC: admin{superadmin,operator}; client{owner,staff}. Staff cannot access billing,
   org settings, raw transcripts, or exports containing unredacted data.
 - Admin impersonation (D-22): READ-ONLY "view as client" — a scoped read-only session

@@ -65,6 +65,80 @@ class AgentConfig(BaseModel):
     max_call_duration_s: int = 600
 
 
+class AgentSnapshot(BaseModel):
+    """What an agent currently IS **on the engine**, in our terms — the read half of
+    `create_agent`/`update_agent`.
+
+    WHY IT EXISTS. Writing was the whole contract: an adapter could create an agent and
+    update one, and nothing could ask what the engine actually held afterwards. So
+    "update the prompt" could only ever be scored ACCEPTED (the vendor took the write),
+    never APPLIED (the vendor is using it), and D-41's second question — after
+    `DELETE /knowledgebase/{rag_id}`, does the AGENT still point at the dead handle? —
+    had no instrument at all (OPERATIONS §2, gates 2 and 8). Both are questions about the
+    engine's state, and a system that can only write cannot ask them.
+
+    TWO `_readable` FLAGS, FOR THE `CostBreakdown.currency_stated` REASON. A missing
+    field and an empty value are different facts, and the difference is the whole answer
+    here: an adapter that could not FIND the prompt in the response must not report the
+    same thing as an agent whose prompt is genuinely empty, and an adapter that could not
+    find any KB reference field must not report "the agent references nothing" — which is
+    exactly the answer that would make a dangling `rag_id` invisible and close D-41 with a
+    green tick nobody measured. Absent-and-unreadable therefore reads as `None` through
+    the two accessors below, never as `False`.
+
+    NO VENDOR SHAPE CROSSES THIS (hard rule 2): the vendor's agent object, its wrapper,
+    its task list and its own field names stay inside the adapter. What comes out is the
+    prompt as TEXT, the handles we already hand around as `EngineKBRef`, and two verdicts
+    about what could be read.
+
+    Not a log target. The prompt is business content, not transcript text, so hard rule 6
+    does not forbid carrying it — but nothing should log it either; log the verdicts.
+    """
+
+    engine_agent_ref: EngineAgentRef
+    name: str | None = None
+    #: The system prompt AS THE ENGINE HOLDS IT — including whatever rendering the
+    #: adapter applied on the way in (the disclosure line is PREPENDED, hard rule 5), so
+    #: this is deliberately not expected to equal `AgentConfig.system_prompt`. Compare
+    #: with `carries_prompt_marker`, never with `==`.
+    system_prompt: str | None = None
+    #: True only when the adapter positively read a prompt out of the engine's answer.
+    system_prompt_readable: bool = False
+    #: The knowledge handles the AGENT ITSELF references. Not the account's KB list —
+    #: that is `list_kb`, a different object, and conflating the two is what makes D-41
+    #: question (b) unanswerable.
+    knowledge_base_refs: list[EngineKBRef] = Field(default_factory=list)
+    #: True only when the adapter positively located the agent's KB reference field.
+    #: False means "we do not know what this agent references", not "it references none".
+    knowledge_base_refs_readable: bool = False
+    engine: str = "fake"
+
+    def carries_prompt_marker(self, marker: str) -> bool | None:
+        """Is `marker` in the live prompt? `None` = the prompt could not be read.
+
+        CONTAINMENT, NOT EQUALITY, and that is a design choice rather than laziness.
+        Every engine renders our `AgentConfig` into its own object — ours prepends the
+        disclosure line — so an equality check against what we sent would fail on a
+        correctly applied update and turn the one question worth asking ("did the write
+        take effect?") into a test of our own string formatting. A marker the caller put
+        in the prompt itself survives any rendering that kept the text.
+        """
+        if not self.system_prompt_readable or self.system_prompt is None:
+            return None
+        return marker in self.system_prompt
+
+    def references_kb(self, kb: EngineKBRef) -> bool | None:
+        """Does the agent still point at this handle? `None` = we could not tell.
+
+        The tri-state is the point (D-41): "the agent does not reference it" and "we
+        could not find the field that would say" lead to opposite conclusions about
+        whether `detach_kb` needs a second call, and only one of them is evidence.
+        """
+        if not self.knowledge_base_refs_readable:
+            return None
+        return kb in self.knowledge_base_refs
+
+
 class CallContext(BaseModel):
     """Per-call variables rendered into the prompt (Bolna: `user_data`). This is OUR
     mechanism for lead callbacks and the D-21 "call this lead" note."""
@@ -250,6 +324,34 @@ class VoiceEngine(Protocol):
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None: ...
 
+    async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
+        """Read ONE agent's current configuration back out of the engine.
+
+        The counterpart without which `update_agent` is a write into the dark. Two
+        promises rest on it and neither is decorative:
+
+        * **APPLIED, not merely ACCEPTED.** A 2xx on the update says the vendor took the
+          bytes. Whether the agent is now RUNNING that prompt is a different claim, and
+          it is the one a client's compliance disclosure depends on. Pilot gate 2 could
+          only ever score the first (OPERATIONS §2).
+        * **D-41's dangling handle.** `detach_kb` deletes the knowledge base; whether the
+          AGENT stops referencing it is a fact about the agent object. `list_kb` cannot
+          answer it — it reads the account's KB list, a different object — so without
+          this method the question "does detach need a second call?" has no instrument
+          (gate 8).
+
+        It must answer about THIS `ref` and no other. An adapter that echoes back the
+        config it was last handed satisfies every naive test and measures nothing: it
+        agrees with the caller by construction, which is the same defect
+        `CostBreakdown.currency_stated` was introduced to kill. The conformance suite
+        therefore reads TWO agents back and requires each to carry its own prompt.
+
+        An unknown ref must RAISE, not return an empty snapshot. A caller reading back an
+        agent that does not exist is a caller about to record "prompt not applied" for an
+        agent it never created — or worse, "no dangling reference" about a phantom.
+        """
+        ...
+
     async def start_outbound_call(
         self, ref: EngineAgentRef, to: E164, ctx: CallContext
     ) -> CallHandle: ...
@@ -331,6 +433,7 @@ class VoiceEngine(Protocol):
 __all__ = [
     "E164",
     "AgentConfig",
+    "AgentSnapshot",
     "CallContext",
     "CallHandle",
     "CostBreakdown",

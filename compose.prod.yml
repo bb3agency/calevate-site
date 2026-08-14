@@ -1,0 +1,159 @@
+# Calevate production stack (DEPLOYMENT §1). Compose project name: `calevate`.
+#
+#   api            :8000  ← api.calevate.tech
+#   voice-runtime  :8100  ← hooks.calevate.tech      LATENCY-CRITICAL, hard rule 3
+#   workers               ← ARQ, no listener
+#   redis                 ← NO published host port (raghava rule, DEPLOYMENT §10)
+#
+# NOT here, on purpose:
+#   - postgres. It runs on the HOST (D-26). Containers reach it through
+#     `host.docker.internal`, which is why every service carries `extra_hosts`.
+#   - web. Next.js runs under pm2 on the host (DEPLOYMENT §1: `next build` peaks >2GB
+#     and a container adds a second memory ceiling to a build that already needs swap).
+#   - minio. Production object storage is Cloudflare R2; the local stand-in lives in
+#     docker-compose.yml and has no business in this file.
+#
+# HOW THIS FILE IS USED: only ever through `scripts/vps-deploy.sh`. Running
+# `docker compose -f compose.prod.yml up -d` by hand skips the preflight, the migration
+# ordering and the health gate, and is how a half-deployed stack happens quietly.
+#
+# SECRETS: every one comes from `/var/www/calevate/.env` (DEPLOYMENT §6 tier 1), which is
+# placed by a human from the secrets manager, is never written by any script, and is
+# never in git. This file names variables; it never carries values.
+
+name: calevate
+
+# YAML anchors, not copy-paste. Three services share one image and one set of host
+# plumbing; a fourth service added by copy-paste is how one of them ends up without
+# `extra_hosts` and fails to reach Postgres in a way that looks like a network problem.
+x-python-service: &python-service
+  image: calevate/app:${CALEVATE_IMAGE_TAG:-local}
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file: [.env]
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
+  init: true
+  # Bounded logs. The daily disk-hygiene cron DEPLOYMENT §7 asks for does not exist yet,
+  # so the json-file driver's unbounded default is a real way to fill the VPS disk and
+  # take Postgres down with it. 10x10MB per service is a ceiling, not a policy.
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "10"}
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # DELIBERATELY NO `ports:`. Redis holds the ARQ queue and the webhook dedupe keys;
+    # published on the host it is reachable from the internet the moment ufw is
+    # misconfigured, with no authentication in front of it.
+    command: ["redis-server", "--appendonly", "yes", "--save", "900", "1"]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  api:
+    <<: *python-service
+    command:
+      - uvicorn
+      - apps.api.main:app
+      - --host=0.0.0.0
+      - --port=8000
+      - --workers=${API_WORKERS:-2}
+    environment:
+      # Per-process pool. DEPLOYMENT §2a's connection budget is arithmetic over the
+      # CLUSTER (DB_POOL_SIZE x processes must fit under the host's max_connections), so
+      # it has to be set per service and not once in .env.
+      DB_POOL_SIZE: ${API_DB_POOL_SIZE:-16}
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      redis: {condition: service_healthy}
+    healthcheck:
+      # /healthz/live, NOT /healthz. Liveness touches no dependency on purpose
+      # (apps/api/core/health.py): a Postgres blip must not make Docker kill and restart
+      # every app container at the exact moment the database is struggling. The
+      # dependency-checking /healthz is polled by the deploy script instead, where a red
+      # answer aborts a deploy rather than starting a restart loop.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 60s
+
+  voice-runtime:
+    <<: *python-service
+    # LATENCY-CRITICAL. Its deploy is decoupled from api's — `vps-deploy.sh` swaps this
+    # service alone with `up -d --no-deps voice-runtime`, and nothing in this file makes
+    # an api change touch it. `depends_on: redis` is a START ordering, not a deploy
+    # coupling: `--no-deps` is what stops it pulling redis (or anything else) along.
+    command:
+      - uvicorn
+      - main:app
+      - --app-dir=apps/voice-runtime
+      - --host=0.0.0.0
+      - --port=8100
+      # DEPLOYMENT §2a (D-55): processes = peak in-flight ÷ (0.25 x acks-per-second).
+      # 4 at 250 concurrent in production, 2 at 100 for staging/pilot. NEVER more than
+      # the host has vCPU — each worker saturates one core.
+      - --workers=${VOICE_RUNTIME_WORKERS:-4}
+    environment:
+      DB_POOL_SIZE: ${VOICE_RUNTIME_DB_POOL_SIZE:-12}
+    ports: ["127.0.0.1:8100:8100"]
+    depends_on:
+      redis: {condition: service_healthy}
+    # Longer than `_DURABLE_DEADLINE_S` (2s) plus the ack budget, so a SIGTERM during a
+    # deploy lets in-flight deliveries finish being acked instead of becoming 503s the
+    # reconciliation poller has to clean up ten minutes later.
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8100/healthz/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+
+  workers:
+    <<: *python-service
+    command: ["arq", "apps.workers.settings.WorkerSettings"]
+    environment:
+      DB_POOL_SIZE: ${WORKERS_DB_POOL_SIZE:-16}
+    depends_on:
+      redis: {condition: service_healthy}
+    # ARQ jobs are idempotent with 3 retries and a DLQ, but a job killed mid-flight still
+    # costs a retry cycle; give the current job a chance to finish.
+    stop_grace_period: 60s
+    # NO healthcheck: ARQ exposes no listener, and a `pgrep`-shaped check would report a
+    # wedged worker as healthy. The real signal is external and already exists —
+    # `/healthz/ready` on api reports queue depth and oldest-waiting age, i.e. stale-worker
+    # detection measured from the QUEUE rather than from the process (OPERATIONS §4).
+
+  # One-shot, never started by `up`. `--profile migrate` is what runs it, and only
+  # `vps-deploy.sh` does that, between the build and the container swap.
+  #
+  # WHY MIGRATIONS RUN FROM THIS IMAGE AND NOT FROM THE HOST. DEPLOYMENT §4 used to say
+  # `uv run alembic upgrade head` on the host, which contradicts §2 ("Python is NOT needed
+  # on the host"). The container settles it in the right direction: the revision set that
+  # runs is the one baked into the artifact being deployed, so a host checkout at a
+  # different SHA — the classic cause of "the migration that ran was not the migration we
+  # reviewed" — cannot happen.
+  migrate:
+    <<: *python-service
+    profiles: [migrate]
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    # Migrations use the OWNER role, not the app role. The app role is
+    # NOSUPERUSER NOBYPASSRLS and cannot create policies (hard rule 1).
+    environment:
+      DB_POOL_SIZE: "5"
+
+volumes:
+  redis-data:

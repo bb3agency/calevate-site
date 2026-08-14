@@ -23,6 +23,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.engine.fake import FakeEngine
 from calevate_shared.config import Settings
 from calevate_shared.engine import (
+    AgentSnapshot,
     EngineAgentRef,
     ExecutionListing,
     ExecutionSnapshot,
@@ -129,6 +130,42 @@ class CallerEchoEngine(EchoingEngine):
         return snapshot.model_copy(update={"transcript": turns})
 
 
+class SilentlyDroppedUpdateEngine(EchoingEngine):
+    """Takes the PUT with a 2xx and goes on serving the ORIGINAL prompt.
+
+    The vendor behaviour gate 2 was blind to until `get_agent` existed: every screen we
+    own says the prompt changed, and the caller hears the old one — including the old
+    disclosure line, which is the part a client is legally answerable for.
+    """
+
+    async def update_agent(self, ref: EngineAgentRef, cfg: Any) -> None:
+        return None
+
+
+class UnreadablePromptEngine(EchoingEngine):
+    """A read-back that succeeds and carries no prompt — the honest "cannot tell".
+
+    Stands in for `bolna._agent_system_prompt` failing to find the field, which is a
+    live possibility: their agent shape is hand-maintained, not specified.
+    """
+
+    async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
+        snapshot = await super().get_agent(ref)
+        return snapshot.model_copy(update={"system_prompt": None, "system_prompt_readable": False})
+
+
+class NoReadBackEngine(EchoingEngine):
+    """The read-back endpoint answers 404 — our path is wrong, not the vendor's memory."""
+
+    async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
+        raise ProblemError(
+            kind="dependency",
+            code="engine_rejected",
+            title="Voice engine rejected the request",
+            detail="The voice platform could not complete this operation.",
+        )
+
+
 class NoNumberEngine(EchoingEngine):
     """Mirrors `BolnaEngine.provision_number`, which refuses (M1 defers it)."""
 
@@ -215,6 +252,55 @@ async def test_gate_2_cannot_pass_because_scheduled_at_is_not_in_our_contract() 
     assert _check(result, "scheduled_at").status == "not_run"
     assert result.status == "not_run"
     assert any("scheduled_at" in f for f in result.findings)
+
+
+async def test_gate_2_reports_the_prompt_as_applied_not_merely_accepted() -> None:
+    """The gap this slice closed. `update_agent` returning cleanly says the vendor took
+    the write; the read-back says the agent is holding it, and the prompt is where the
+    compliance disclosure lives."""
+    result = await run_gate_2(_ctx(EchoingEngine(), calls_remaining=1, to_e164="+919000000001"))
+    applied = _check(result, "update_prompt_applied")
+    assert applied.status == "pass"
+    assert "APPLIED" in applied.detail
+
+
+async def test_gate_2_catches_a_write_the_engine_accepted_and_did_not_apply() -> None:
+    """The whole reason the read-back exists: a 2xx on the PUT that changed nothing.
+
+    Without `get_agent` this run scored a green `update_prompt` and stopped there, so a
+    vendor that silently dropped every prompt change — including the disclosure line —
+    was indistinguishable from one that applied them.
+    """
+    result = await run_gate_2(
+        _ctx(SilentlyDroppedUpdateEngine(), calls_remaining=1, to_e164="+919000000001")
+    )
+    assert _check(result, "update_prompt").status == "pass"
+    applied = _check(result, "update_prompt_applied")
+    assert applied.status == "fail"
+    assert "ACCEPTED BUT NOT APPLIED" in applied.detail
+    assert result.status == "fail"
+
+
+async def test_gate_2_scores_an_unreadable_prompt_as_not_run_rather_than_applied() -> None:
+    """An adapter that cannot find the prompt in the vendor's answer must leave the row
+    unrun. Reading `None` as "no marker" would report the honest adapter as a vendor
+    failure; reading it as a pass would report a measurement nobody made."""
+    result = await run_gate_2(
+        _ctx(UnreadablePromptEngine(), calls_remaining=1, to_e164="+919000000001")
+    )
+    applied = _check(result, "update_prompt_applied")
+    assert applied.status == "not_run"
+    assert "ACCEPTED only" in applied.detail
+
+
+async def test_gate_2_reports_a_failed_read_back_without_blaming_the_vendor() -> None:
+    """`GET /v2/agent/{id}` is an unverified vendor claim. If it 404s, the finding is
+    that our path is wrong — not that the prompt was dropped."""
+    result = await run_gate_2(_ctx(NoReadBackEngine(), calls_remaining=1, to_e164="+919000000001"))
+    applied = _check(result, "update_prompt_applied")
+    assert applied.status == "fail"
+    assert "read-back endpoint" in applied.detail
+    assert any("UNVERIFIED VENDOR CLAIM" in f for f in result.findings)
 
 
 async def test_gate_2_reports_number_attachment_as_a_dashboard_step() -> None:

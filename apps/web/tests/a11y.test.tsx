@@ -6,6 +6,8 @@ import AdminLayout from "@/app/admin/layout";
 import ClientSignInPage from "@/app/(auth)/sign-in/[[...sign-in]]/page";
 import ClientSignUpPage from "@/app/(auth)/sign-up/[[...sign-up]]/page";
 import ClientHealthPage from "@/app/admin/health/page";
+import CommercialsPage from "@/app/admin/tenants/[tenantId]/commercials/page";
+import LifecyclePage from "@/app/admin/tenants/[tenantId]/lifecycle/page";
 import HeldAccountsPage from "@/app/admin/holds/page";
 import NewClientPage from "@/app/admin/new/page";
 import OpsPage from "@/app/admin/ops/page";
@@ -21,6 +23,7 @@ import CallDetailPage from "@/app/c/[slug]/calls/[callId]/page";
 import CallsPage from "@/app/c/[slug]/calls/page";
 import CampaignReviewPage from "@/app/c/[slug]/campaign-review/page";
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
+import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
@@ -296,6 +299,25 @@ const KYC_RECORD = {
 };
 
 /** The admin tenant screens all hang off one tenant read plus the panels around it. */
+/** One dated agreement, populated so the commercials screen renders every panel. */
+const PLAN_ROW = {
+  id: "plan-1",
+  setup_fee_inr: "5000.0000",
+  monthly_fee_inr: "9999.0000",
+  included_minutes: 500,
+  overage_rate_inr: "7.1250",
+  overage_rate_value_inr: null,
+  hard_cap_minutes: 2000,
+  hard_cap_spend_inr: "20000.0000",
+  client_cap_minutes: null,
+  client_cap_spend_inr: null,
+  concurrency_ceiling: 10,
+  effective_from: null,
+  effective_to: null,
+  created_at: "2026-08-01T04:00:00Z",
+  states_pricing: true,
+};
+
 const TENANT_ROUTES: Routes = {
   "/v1/admin/me": ADMIN_ME,
   // The KYC screen reads this through `viewAsSession(tenant.slug)`, so the request only
@@ -607,6 +629,18 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
+    /**
+     * Both forms are present at first paint for an owner, which is what this sweep needs:
+     * three labelled inputs, three buttons and the two verdict boxes. The certificate
+     * markup only exists after a request has been tracked, so it is scanned by its own
+     * axe call in `tests/dataRights.test.tsx` rather than left uncovered.
+     */
+    file: "c/[slug]/data-rights/page.tsx",
+    realm: "client",
+    element: () => <DataRightsPage />,
+    routes: { "/v1/me": ME },
+  },
+  {
     file: "c/[slug]/do-not-call/page.tsx",
     realm: "client",
     element: () => <DoNotCallPage />,
@@ -800,6 +834,30 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/tenants/[tenantId]/page.tsx",
     realm: "admin",
     element: () => <TenantDetailPage params={tenant} />,
+    routes: TENANT_ROUTES,
+  },
+  {
+    // Populated with a priced agreement AND a history row: the form, the "in effect"
+    // definition list and the history table are three different pieces of markup, and
+    // an unpriced fixture would scan none of them.
+    file: "admin/tenants/[tenantId]/commercials/page.tsx",
+    realm: "admin",
+    element: () => <CommercialsPage params={tenant} />,
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/admin/tenants/t1/commercial-terms": {
+        tenant_id: "t1",
+        state: "set",
+        in_effect: PLAN_ROW,
+        history: [PLAN_ROW],
+        loosening_confirmation: "raise_spend_ceiling:t1",
+      },
+    },
+  },
+  {
+    file: "admin/tenants/[tenantId]/lifecycle/page.tsx",
+    realm: "admin",
+    element: () => <LifecyclePage params={tenant} />,
     routes: TENANT_ROUTES,
   },
   {

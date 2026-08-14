@@ -1,0 +1,200 @@
+"""`VoiceEngine.get_agent` — the read-back, adapter by adapter.
+
+The conformance suite (`packages/shared/tests/engine_conformance`) holds BOTH adapters
+to the contract's behaviour. This file covers the two things a contract clause cannot:
+
+* the `fake` adapter's read-back really tracking its own state (a read-back that agrees
+  with the caller by construction measures nothing — OPERATIONS §2 gate 2);
+* the `bolna` adapter's PARSER against the agent shapes its docstring says are guesses.
+  Nothing here is evidence about Bolna: these payloads are hypotheses, and what is being
+  tested is that the parser declines honestly when the shape is not the one we guessed,
+  rather than reporting a confident empty answer (D-41).
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Any
+
+import httpx
+import pytest
+from apps.api.core.errors import ProblemError
+from apps.api.engine.bolna import BolnaEngine, _agent_kb_refs, _agent_object, _agent_system_prompt
+from apps.api.engine.fake import FakeEngine
+from calevate_shared.engine import AgentConfig, KBSourceRef
+
+
+def _cfg(prompt: str = "You are the receptionist for Sunrise Clinic.") -> AgentConfig:
+    return AgentConfig(
+        tenant_id="0199a0b0-0000-7000-8000-000000000001",
+        agent_id="0199a0b0-0000-7000-8000-000000000002",
+        name="Sunrise Clinic receptionist",
+        direction="inbound",
+        system_prompt=prompt,
+        disclosure_line="Idi AI assistant. Ee call record avutundi.",
+    )
+
+
+# --- fake ---------------------------------------------------------------------
+
+
+async def test_fake_read_back_reflects_the_preceding_update() -> None:
+    """The read-back tracks the STORE, not the last argument.
+
+    Two writes to the same agent, and the second must be what comes back. A read-back
+    that returned what it was handed most recently would also pass this — which is why
+    the conformance suite additionally reads a second, untouched agent — but a read-back
+    frozen at creation fails right here, and that is the other way to get this wrong.
+    """
+    engine = FakeEngine()
+    ref = await engine.create_agent(_cfg("Receptionist, revision one."))
+    assert (await engine.get_agent(ref)).carries_prompt_marker("revision one") is True
+
+    await engine.update_agent(ref, _cfg("Receptionist, revision two."))
+    snapshot = await engine.get_agent(ref)
+
+    assert snapshot.carries_prompt_marker("revision two") is True
+    assert snapshot.carries_prompt_marker("revision one") is False
+
+
+async def test_fake_read_back_carries_the_disclosure_line_the_way_an_engine_holds_it() -> None:
+    """Hard rule 5 is a property of the object the ENGINE holds, not of our config row.
+    The fake renders it the way `BolnaEngine._agent_body` sends it — prepended — so a
+    caller cannot write an equality check that only ever passes against the fake."""
+    engine = FakeEngine()
+    cfg = _cfg()
+    ref = await engine.create_agent(cfg)
+    prompt = (await engine.get_agent(ref)).system_prompt
+    assert prompt is not None
+    assert prompt.startswith(cfg.disclosure_line)
+
+
+async def test_fake_read_back_tracks_attach_and_detach() -> None:
+    """D-41's instrument, exercised where an engine really does clear the reference."""
+    engine = FakeEngine()
+    ref = await engine.create_agent(_cfg())
+    handle = await engine.attach_kb(ref, KBSourceRef(kb_id="kb_1", title="Fees", text="500"))
+    assert (await engine.get_agent(ref)).references_kb(handle) is True
+
+    await engine.detach_kb(ref, handle)
+    assert (await engine.get_agent(ref)).references_kb(handle) is False
+
+
+async def test_fake_refuses_to_describe_an_agent_it_never_created() -> None:
+    engine = FakeEngine()
+    with pytest.raises(ProblemError):
+        await engine.get_agent("fakeagent_never_created")
+
+
+# --- bolna: the parser, against SHAPES WE GUESSED ------------------------------
+
+
+def test_agent_object_unwraps_their_documented_envelope() -> None:
+    """`{"agent_id": ..., "data": {...}}` is the row shape their OSS `GET /all` is
+    documented to use, and the id lives OUTSIDE `data` — losing it would make every
+    read-back anonymous."""
+    unwrapped = _agent_object({"agent_id": "agent_1", "data": {"agent_config": {"x": 1}}})
+    assert unwrapped["agent_id"] == "agent_1"
+    assert unwrapped["agent_config"] == {"x": 1}
+    # An already-unwrapped object passes through untouched.
+    assert _agent_object({"agent_config": {"x": 1}})["agent_config"] == {"x": 1}
+
+
+def test_system_prompt_is_read_from_the_conversation_task() -> None:
+    agent = {"agent_prompts": {"task_1": {"system_prompt": "hello"}, "task_2": {}}}
+    assert _agent_system_prompt(agent) == "hello"
+
+
+@pytest.mark.parametrize(
+    "agent",
+    [
+        {},
+        {"agent_prompts": {}},
+        {"agent_prompts": {"task_2": {"system_prompt": "a"}, "task_3": {"system_prompt": "b"}}},
+        {"agent_prompts": {"task_1": {"system_prompt": ""}}},
+    ],
+)
+def test_an_unrecognised_prompt_shape_is_unreadable_not_empty(agent: dict[str, Any]) -> None:
+    """None, never "". An empty string would flow into `system_prompt_readable=True` and
+    let gate 2 report "the marker is absent" — i.e. blame the vendor for dropping a
+    prompt — when the truth is that our field names are wrong. The ambiguous
+    several-tasks case declines for the same reason: scoring a marker against an
+    arbitrary task's prompt is a measurement of the wrong object."""
+    assert _agent_system_prompt(agent) is None
+
+
+def test_kb_refs_found_by_name_are_reported_as_readable() -> None:
+    """The HYPOTHETICAL shape. If Bolna's agent object turns out to carry a `rag_id`
+    anywhere in its nesting, this is what the adapter does with it — and the pilot is
+    what decides whether that `if` is true (gate 8)."""
+    agent = {
+        "agent_config": {"tasks": [{"tools_config": {"rag": {"rag_id": "kb_42"}}}]},
+    }
+    handles, readable = _agent_kb_refs(agent)
+    assert readable is True
+    assert handles == ["kb_42"]
+
+
+def test_a_present_but_empty_kb_field_is_an_answer() -> None:
+    """ "The agent references nothing" is a real answer when the FIELD is there."""
+    handles, readable = _agent_kb_refs({"agent_config": {"rag_ids": []}})
+    assert readable is True
+    assert handles == []
+
+
+def test_no_kb_field_anywhere_is_declined_not_answered() -> None:
+    """The distinction D-41 turns on. Reporting `readable=True, []` here would record
+    'the deleted knowledge base left no dangling reference' on the strength of not
+    having found the field that would say."""
+    handles, readable = _agent_kb_refs({"agent_config": {"agent_name": "x", "tasks": []}})
+    assert readable is False
+    assert handles == []
+
+
+# --- bolna: the round trip over a transport stub -------------------------------
+
+
+def _engine(handler: Any) -> BolnaEngine:
+    return BolnaEngine(
+        api_key="test-key",
+        fx_rate=Decimal("88.00"),
+        client=httpx.AsyncClient(
+            base_url="https://api.bolna.ai", transport=httpx.MockTransport(handler)
+        ),
+    )
+
+
+async def test_bolna_read_back_maps_their_agent_object_into_ours() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v2/agent/agent_1", "the read-back must GET one agent"
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "agent_1",
+                "data": {
+                    "agent_config": {"agent_name": "Sunrise Clinic receptionist"},
+                    "agent_prompts": {"task_1": {"system_prompt": "disclosure\n\nmarker-alpha"}},
+                },
+            },
+        )
+
+    snapshot = await _engine(handler).get_agent("agent_1")
+    assert snapshot.engine == "bolna"
+    assert snapshot.engine_agent_ref == "agent_1"
+    assert snapshot.name == "Sunrise Clinic receptionist"
+    assert snapshot.carries_prompt_marker("marker-alpha") is True
+    # Their published documentation says nothing about the agent object holding a KB
+    # reference, so a payload without one must DECLINE rather than report none.
+    assert snapshot.knowledge_base_refs_readable is False
+    assert snapshot.references_kb("kb_42") is None
+
+
+async def test_bolna_read_back_of_an_unknown_agent_raises() -> None:
+    """A 404 is the honest outcome of an endpoint path that is itself an unverified
+    vendor claim — and it must reach the caller rather than become an empty snapshot."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": "not found"})
+
+    with pytest.raises(ProblemError):
+        await _engine(handler).get_agent("agent_nope")

@@ -21,6 +21,7 @@ import {
   PanelLeftOpen,
   PhoneCall,
   PhoneOff,
+  ScrollText,
   ShieldCheck,
   UserCog,
   Target,
@@ -86,6 +87,7 @@ function navigation(slug: string): NavGroup[] {
         { href: `/c/${slug}/do-not-call`, label: "Do not call", icon: PhoneOff },
         { href: `/c/${slug}/messaging-consent`, label: "Messaging consent", icon: MessageSquare },
         { href: `/c/${slug}/lead-sources`, label: "Lead sources", icon: GitMerge },
+        { href: `/c/${slug}/data-rights`, label: "Data rights", icon: ScrollText },
       ],
     },
     {

@@ -1,0 +1,169 @@
+# Calevate site config — the four server names of DEPLOYMENT §5.1.
+#
+#   admin.${ROOT_DOMAIN}  ┐
+#   app.${ROOT_DOMAIN}    ┴─▶ 127.0.0.1:3000   web (Next.js under pm2, on the host)
+#   api.${ROOT_DOMAIN}    ──▶ 127.0.0.1:8000   api container
+#   hooks.${ROOT_DOMAIN}  ──▶ 127.0.0.1:8100   voice-runtime container  ← never gated
+#
+# Rendered by `scripts/vps-deploy.sh` with `envsubst` over an EXPLICIT variable list, so
+# an unrelated `$` in this file (every nginx variable is one) survives the render. The
+# substituted names are exactly:
+#
+#   ROOT_DOMAIN  ACME_WEBROOT  TLS_LIVE_DIR
+#
+# NO SECRET IS SUBSTITUTED HERE and none ever should be: nginx config is world-readable
+# on most hosts, and TLS private keys are referenced by path, never inlined.
+#
+# WHAT IS DELIBERATELY NOT IN THIS FILE (see infra/nginx/README.md §3): the maintenance
+# gate and its `error_page 401 =503` machinery, and `auth_request`. Both are real parts
+# of DEPLOYMENT §5's inheritance and both are load-bearing enough that a half-remembered
+# version is worse than none — they are named as not-built rather than approximated.
+
+upstream calevate_web   { server 127.0.0.1:3000; keepalive 16; }
+upstream calevate_api   { server 127.0.0.1:8000; keepalive 16; }
+upstream calevate_hooks { server 127.0.0.1:8100; keepalive 32; }
+
+# --- shared proxy behaviour -----------------------------------------------------
+# Not a `snippets/` include: this file is rendered as one unit and an include that is
+# installed separately is one more thing that can be a version behind the config that
+# depends on it.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+# --- port 80: ACME, then away ---------------------------------------------------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name admin.${ROOT_DOMAIN} app.${ROOT_DOMAIN} api.${ROOT_DOMAIN} hooks.${ROOT_DOMAIN};
+
+    # certbot renews over HTTP-01 through this path. It must be served BEFORE the
+    # redirect, and it must not be behind the Cloudflare origin lock — Let's Encrypt
+    # validates from its own addresses, and with the zone proxied the request arrives
+    # through Cloudflare anyway. Keeping it above the 301 is the whole trick; a config
+    # that redirects the challenge is a renewal that fails 60 days later, quietly.
+    location ^~ /.well-known/acme-challenge/ {
+        root ${ACME_WEBROOT};
+        default_type "text/plain";
+    }
+
+    # Cloudflare must be set to Full (STRICT). With Flexible, Cloudflare speaks HTTP to
+    # this server, gets this 301 back, and loops (DEPLOYMENT §5).
+    location / { return 301 https://$host$request_uri; }
+}
+
+# --- admin + app: the two browser realms ----------------------------------------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name admin.${ROOT_DOMAIN} app.${ROOT_DOMAIN};
+
+    ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
+    ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
+    include /etc/nginx/snippets/calevate-tls.conf;
+    include /etc/nginx/snippets/calevate-origin.conf;
+    include /etc/nginx/snippets/calevate-headers.conf;
+
+    # Next.js serves its own static assets; 25m covers a KB document upload from the
+    # dashboard without letting the edge become an upload sink.
+    client_max_body_size 25m;
+
+    location / {
+        limit_req zone=default burst=30 nodelay;
+        proxy_pass http://calevate_web;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+}
+
+# --- api: both realms' backend --------------------------------------------------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name api.${ROOT_DOMAIN};
+
+    ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
+    ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
+    include /etc/nginx/snippets/calevate-tls.conf;
+    include /etc/nginx/snippets/calevate-origin.conf;
+    include /etc/nginx/snippets/calevate-headers.conf;
+
+    client_max_body_size 25m;
+
+    # Ordered most-specific first. nginx picks the longest matching prefix, so the order
+    # here is for the reader; the `=` and `^~` markers are what actually pin them.
+    location = /healthz          { limit_req zone=health burst=5 nodelay; proxy_pass http://calevate_api; include /etc/nginx/snippets/calevate-proxy.conf; }
+    location ^~ /healthz/        { limit_req zone=health burst=5 nodelay; proxy_pass http://calevate_api; include /etc/nginx/snippets/calevate-proxy.conf; }
+
+    # Sessions and token exchange. The tightest zone in the set.
+    location ^~ /v1/auth/ {
+        limit_req zone=auth burst=5 nodelay;
+        proxy_pass http://calevate_api;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+
+    location ^~ /v1/admin/ {
+        limit_req zone=admin_api burst=40 nodelay;
+        proxy_pass http://calevate_api;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+
+    location / {
+        limit_req zone=client_api burst=30 nodelay;
+        proxy_pass http://calevate_api;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+}
+
+# --- hooks: voice-runtime's public face -----------------------------------------
+# POLICY, restated here because it is the one server block whose rules are inverted
+# (DEPLOYMENT §5.2): NEVER maintenance-gated, NEVER behind auth_request, NEVER challenged
+# at the edge. An engine callback that meets a maintenance page or a bot challenge is a
+# lost call, and Bolna sends no retry (D-31) — the reconciliation poller is the only
+# recovery and it runs on a 10-minute tick.
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name hooks.${ROOT_DOMAIN};
+
+    ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
+    ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
+    include /etc/nginx/snippets/calevate-tls.conf;
+    include /etc/nginx/snippets/calevate-origin.conf;
+    include /etc/nginx/snippets/calevate-headers.conf;
+
+    # Sized for a post-call payload carrying a full transcript. Larger than the browser
+    # realms because the sender is a machine we cannot ask to paginate.
+    client_max_body_size 10m;
+
+    # Do not let a slow upstream turn into a queue of held connections on the box that
+    # also has to ack in 500ms. The app abandons at its own 2s durable deadline and
+    # answers 503; these bounds are the layer above that, not a replacement for it.
+    proxy_connect_timeout 2s;
+    proxy_send_timeout    15s;
+    proxy_read_timeout    15s;
+
+    location = /healthz          { limit_req zone=health burst=5 nodelay; proxy_pass http://calevate_hooks; include /etc/nginx/snippets/calevate-proxy.conf; }
+    location ^~ /healthz/        { limit_req zone=health burst=5 nodelay; proxy_pass http://calevate_hooks; include /etc/nginx/snippets/calevate-proxy.conf; }
+
+    location / {
+        # `burst=200 nodelay` on top of 600r/m: the average is a campaign's worth of
+        # traffic, the burst is 250 calls hanging up in the same second (D-32). Without
+        # the burst allowance the steady-state rate alone would reject the exact shape of
+        # traffic this endpoint exists for.
+        limit_req zone=webhooks burst=200 nodelay;
+        proxy_pass http://calevate_hooks;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+
+        # `auth_request` buffers the request body, which breaks large POSTs
+        # (DEPLOYMENT §10). There is no auth_request here, and streaming the body to the
+        # app rather than buffering it at the edge is also how the ack budget is measured
+        # from the first byte the app sees.
+        proxy_request_buffering off;
+    }
+}

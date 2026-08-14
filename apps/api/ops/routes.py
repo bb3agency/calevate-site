@@ -20,12 +20,33 @@ Two properties hold for every route in this file:
    one route here without one, because it writes nothing — demanding a confirmation to
    run a read only teaches operators to type past confirmations.
 
-Step-up is currently a required `X-Confirm-Action` header that must echo the action
-being taken. That is not a strong second factor and is not pretending to be one — it
-stops the accidental and the drive-by, and the Clerk re-auth binding replaces it when
-the admin realm's MFA lands (TRD §2). It is here now because adding it later would
-mean changing the callers, and because a switch this size should never have been
-reachable by a single unconfirmed POST.
+Step-up is a required `X-Confirm-Action` header that must echo the action being taken.
+
+**IT IS NOT THE SECOND FACTOR, AND IT IS NO LONGER STANDING IN FOR ONE.** Admin-realm
+MFA is now enforced by the API itself: `core/auth.py::verify_token` refuses any
+admin-realm token whose Clerk session never completed a second factor (`fva[1] == -1`),
+so every route in this file is already behind MFA before its dependency runs. This
+header was written as an explicit stopgap for that; the stopgap's occasion has passed
+and the header STAYS anyway, because it answers a different question:
+
+* MFA answers **who is holding this session** — proved once, at sign-in, for the next
+  twelve hours (SEC-COMP §5).
+* the confirmation answers **which act they meant, on which target** — proved per
+  request, and unforgeable by anything that merely replays a live session: a tab left
+  open on an unlocked laptop, a CSRF-shaped cross-origin POST, an operator one row off
+  in a tenant list, or a curl copied from the wrong runbook section. A fully MFA'd
+  session is exactly the session all four of those have.
+
+REJECTED: deleting the header and letting MFA cover both. CLAUDE.md forbids two ways of
+doing ONE thing, and these are two things — an authentication assertion about a session
+and a consent assertion about an action. Removing it would leave the big red switch
+reachable by a single POST from any live operator session, which is the property the
+header was introduced to remove and which MFA does not restore. The strictly better
+version — Clerk *reverification*, i.e. requiring the second factor to have been proved
+within the last N minutes and binding that proof to the action — is a NAMED follow-up
+in OPERATIONS §2, not something silently skipped: it needs a reverification flow in
+`apps/web` to raise the prompt, and until that exists gating an incident lever on a
+prompt nobody can answer would be a control that gets switched off at 3am.
 
 **Every confirmation on this router is bound to the action AND its target**, which is
 what §7 asks for and what the spend-cap recompute has always done (its string carries
@@ -79,6 +100,7 @@ from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platform_status
 from apps.api.core.rbac import permission_meta
+from apps.api.core.stepup import require_step_up
 from apps.api.db.session import tenant_session
 from apps.api.ops.service import (
     TmRegistration,
@@ -330,17 +352,6 @@ class SpendCapRecomputeOut(BaseModel):
     effective_cap_spend_inr: str | None
 
 
-def _require_step_up(confirm: str | None, action: str) -> None:
-    if confirm != action:
-        raise ProblemError(
-            kind="permission",
-            code="step_up_required",
-            title="Confirmation required",
-            detail="This action needs an explicit confirmation.",
-            remediation=f"Repeat the request with the header X-Confirm-Action: {action}",
-        )
-
-
 def platform_confirmation(*, outbound_halted: bool | None, load_shed_mode: str | None) -> str:
     """The step-up string for ONE state transition of the global row.
 
@@ -484,7 +495,7 @@ async def set_platform(
     confirmation = platform_confirmation(
         outbound_halted=payload.outbound_halted, load_shed_mode=payload.load_shed_mode
     )
-    _require_step_up(x_confirm_action, confirmation)
+    require_step_up(x_confirm_action, confirmation)
 
     status = await set_platform_status(
         mode=payload.load_shed_mode,
@@ -547,7 +558,7 @@ async def set_tm_registration_route(
     one cannot perform the other by replaying a header.
     """
     action = "record_tm_registration" if payload.status == "active" else "withdraw_tm_registration"
-    _require_step_up(x_confirm_action, action)
+    require_step_up(x_confirm_action, action)
 
     registration = await set_tm_registration(
         session,
@@ -630,7 +641,7 @@ async def recompute_spend_cap(
     # Bound to the tenant, not just to the verb: a confirmation captured for one client
     # cannot be replayed against another. See the module docstring on why the big red
     # switch's generic string is not the standard to copy.
-    _require_step_up(x_confirm_action, spend_cap_confirmation(tenant_id))
+    require_step_up(x_confirm_action, spend_cap_confirmation(tenant_id))
 
     async with tenant_session(tenant_id) as session:
         if not await tenant_exists(session, tenant_id):
@@ -791,7 +802,7 @@ async def replay_outbox(
     """
     # Bound to the action AND to the scope it will use, checked BEFORE any row moves.
     # See `outbox_replay_confirmation` for why the string grew a suffix.
-    _require_step_up(x_confirm_action, outbox_replay_confirmation(job))
+    require_step_up(x_confirm_action, outbox_replay_confirmation(job))
 
     count = await replay_dead_letters(session, job=job)
     # BACKEND-PATTERNS §4 requires the replay to carry an audit note — a message that

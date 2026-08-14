@@ -100,12 +100,36 @@ What the harness found before any credentials existed, and what it therefore can
   `BolnaEngine.provision_number` raises `engine_capability_unverified` (M1 defers
   numbers to the telephony provider), so that step is a dashboard action, which is what
   "via API only, no dashboard" forbids.
-- there is **no agent read-back** on the contract (`create_agent` and `update_agent`
-  exist; nothing reads an agent's current config), so "update prompt" is confirmed only
-  as ACCEPTED — the vendor took the PUT — never as APPLIED. The only end-to-end proof
-  available is indirect: the prompt's effect on a live call, which is what the
-  `user_data` round-trip check measures. The same missing method is why gate 8's
-  dangling-`rag_id` question (D-41) cannot be answered through the adapter.
+- gate 2's **"update prompt"** can now be scored **APPLIED**, not only ACCEPTED. The
+  contract grew a read-back (`VoiceEngine.get_agent` → `AgentSnapshot`), and gate 2 emits
+  a second row, `update_prompt_applied`: `update_prompt` records that the vendor took the
+  PUT, `update_prompt_applied` records that the agent the engine HOLDS carries the prompt
+  we wrote (a marker in the prompt text, so the engine's own rendering — the prepended
+  disclosure line — does not break the comparison). A 2xx write that changed nothing is
+  now a red row instead of a green one, which matters most for the part of the prompt a
+  client is legally answerable for. What it still does NOT prove is that a RUNNING call
+  uses that prompt; the `user_data` round-trip row remains the live-call evidence, and
+  the two are deliberately separate rows.
+  **The read-back endpoint is itself an unverified vendor claim.** `GET /v2/agent/
+  {agent_id}` was written from Bolna's OSS server (`bolna-ai/bolna` documents and
+  implements `GET /agent/{agent_id}` returning the stored agent object) plus a search
+  summary of their hosted v2 reference — their docs site could not be read directly, and
+  they publish no OpenAPI spec. So record two things from the run: whether the GET
+  answered 2xx at all, and whether the prompt came back where
+  `bolna._agent_system_prompt` looks for it (`agent_prompts.task_1.system_prompt`). A 404
+  there means OUR path is wrong, not that the vendor dropped the prompt — the row fails
+  either way, which is the intended direction for an unverified endpoint.
+- gate 8's **dangling-`rag_id`** question (D-41) is now askable through the adapter and
+  is answered by the run rather than by a note. The read-back supplies gate 8's
+  `agent_ref_reader` automatically (`knowledge.agent_ref_reader_from_engine`), so after
+  the probe deletes the knowledge base it reads the AGENT object back and reports whether
+  the handle survives. **What is still unknown is the field name**: nothing published
+  says Bolna's agent object references a `rag_id` at all, so `bolna._AGENT_KB_REF_KEYS`
+  is a guessed set of names and the adapter reports
+  `AgentSnapshot.knowledge_base_refs_readable = False` when none of them appears. That
+  declination is scored INCONCLUSIVE, never as a cleared reference — "we could not find
+  the field" and "the reference was cleared" are opposite answers, and only one of them
+  adds a second call to `detach_kb`. One captured agent payload settles it.
 - gate 1's edge half (nginx rejecting a non-allowlisted source) needs an HTTP POST from
   another host against the deployed receiver; the harness exercises the in-app half only.
 - gate 6's **pagination** criterion is now MEASURED as far as our side can measure it,
@@ -379,6 +403,14 @@ one differs from a summary below, the runbook is the authority.
   validating the recording-expiry policy, and what it does NOT prove.
 - **Events not reaching a client's CRM** — `runbooks/webhook-delivery-failures.md`. Outbox
   → ARQ → delivery forensics, plus the client-side checks to hand them.
+- **A deploy failed** — `runbooks/deploy-failed.md`. Ordered by WHICH step of
+  `scripts/vps-deploy.sh` failed, because the recovery for a failed build and a failed
+  container swap are different procedures. The section worth reading before you need it is
+  §3: a failed migration leaves the database at the last revision that fully applied, the
+  old containers can serve on it (hard rule 8 is what guarantees that), and **there is no
+  automatic downgrade** — downgrading can drop a column something has already written to,
+  so it is a judgement rather than a step. **Never executed**; nothing in this repo has
+  been deployed to anything (DEPLOYMENT §4d).
 
 **Summaries only** (no written runbook yet):
 
@@ -402,10 +434,46 @@ Entity decided → DLT PE registered (or inbound-only mode explicitly accepted) 
 engine verification scorecard passed · agent passed test-call gate + regression five ·
 disclosure + consent verified on a real recording · caps set · backups verified ·
 alerts firing to Sri's phone · client owner trained on Leads table (15-min session) ·
-DPA + privacy notice signed · invoice template ready.
+DPA + privacy notice signed · invoice template ready · **admin-realm MFA switched on in
+the admin Clerk application**.
 
-**Two of those items have a pass condition that deployed code does not satisfy on its
-own**, stated here because both have previously been read as done:
+**Three of those items have a pass condition that deployed code does not satisfy on its
+own**, stated here because they have previously been read as done:
+
+- **Admin-realm MFA switched on** = a DASHBOARD change in the ADMIN Clerk application
+  (the one whose publishable key is `NEXT_PUBLIC_CLERK_ADMIN_PUBLISHABLE_KEY`), not a
+  deploy. The API already refuses any admin-realm session that did not complete a second
+  factor (`core/auth.py::verify_token`, SEC-COMP §5), and that refusal is the enforcement
+  — but it can only refuse; it cannot make Clerk OFFER a second factor. Two settings, and
+  both must be checked by a human against a live tenant, because neither is observable
+  from this repo:
+
+  1. **Enable a second-factor strategy and require it** — turn on TOTP (authenticator
+     app) and backup codes in the admin application's user-and-authentication settings,
+     and turn on its "Require MFA" organization/instance setting so operators are walked
+     through enrolment at sign-in. Without this, every operator meets `403 mfa_required`
+     with no way to satisfy it: the console explains the refusal, and that is all it can
+     do. Enrol the first superadmin BEFORE the setting goes live, or the first person to
+     sign in is locked out of the console that would let them fix it.
+  2. **Leave the admin application on the DEFAULT session-token claims.** The check reads
+     the `fva` claim, which is present on the default token and absent from a custom JWT
+     template that does not list it. A template that drops it fails closed —
+     `403 mfa_claim_missing` on every admin route — which is the safe direction and an
+     outage all the same. If a template is ever needed on this realm, `fva` goes in it.
+
+  **Verification is a two-person, five-minute check against staging**, and it is the only
+  proof that counts: sign in as an operator WITHOUT a second factor enrolled and confirm
+  `GET /v1/ops/platform` answers 403 `mfa_required`; enrol, sign out, sign in again, and
+  confirm the same call answers 200. Record the result in `docs/evidence/` the way the
+  backup drill is recorded — an untested auth control is a claim, not a control.
+
+  **NOT DONE, and deliberately**: requiring a FRESH second factor (Clerk reverification)
+  for the high-risk actions BACKEND-PATTERNS §7 lists — the big red switch, cap raises,
+  raw-transcript access. Those carry per-action `X-Confirm-Action` step-up today, which is
+  a different control and is retained (SEC-COMP §5); raising a real reverification prompt
+  needs a flow in `apps/web` that does not exist, and gating an incident lever on a prompt
+  nobody can answer at 3am is how a control gets switched off. It needs a decision-log
+  entry before it is built.
 
 - **Backups verified** = `runbooks/backup-restore-drill.md` has PASSED once, with the
   record committed to `docs/evidence/`. The existence of `infra/backup/` does not tick it:

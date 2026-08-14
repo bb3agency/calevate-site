@@ -1,0 +1,146 @@
+# Calevate CD — DEPLOYMENT §3.
+#
+# ============================ HOW THIS CANNOT FIRE BY ACCIDENT ======================
+# Four independent gates, any one of which stops it:
+#
+#   1. Repo VARIABLE `VPS_DEPLOY_ENABLED` must equal the string `true`. Until somebody
+#      sets it, every job here is skipped. Merging this file changes nothing.
+#   2. The trigger is `workflow_run` on a SUCCESSFUL CI run, and the job additionally
+#      re-checks `conclusion == 'success'` — `workflow_run` fires on FAILED runs too,
+#      which is the single most common way a deploy workflow ships a red build.
+#   3. `head_branch` must be `main`. A `workflow_run` triggered by CI on a pull request
+#      would otherwise deploy the PR's code.
+#   4. `environment: production`, so a required-reviewer rule can be attached in repo
+#      settings without touching this file.
+#
+# NO CREDENTIALS ARE WIRED HERE, and none should be. The runner is INSTALLED ON THE VPS
+# (label `calevate-vps`) and polls GitHub over outbound HTTPS — there is no inbound SSH,
+# no deploy key, no `VPS_SSH_PRIVATE_KEY`. Application secrets live in `/var/www/calevate/.env`,
+# placed by a human from the secrets manager (DEPLOYMENT §6). GitHub holds one path and
+# some flags: paths in Secrets, booleans in Variables.
+#
+# ========================== SUPPLY CHAIN: ZERO ACTIONS USED =========================
+# This workflow calls no third-party action — not even `actions/checkout`. It does not
+# need one: the deploy target IS the runner's host and the checkout it deploys already
+# lives at `VPS_CLIENT_PATH`. That is a deliberate choice, not an omission. Every action
+# in a deploy workflow runs with the deploy job's permissions on the production host, and
+# a compromised action there is a compromised production host (hard rule 9). The cost of
+# avoiding it is two lines of `bash`; the cost of pinning-and-trusting is permanent.
+#
+# ========================== WHY ONE JOB AND NOT THREE ===============================
+# DEPLOYMENT §3 sketched three independent jobs so a docs-only change would not rebuild
+# Docker. That property is kept — but it is enforced in `scripts/vps-deploy.sh`, which
+# diffs the last deployed SHA against HEAD through an explicit path→component map and
+# exits before building when nothing maps. Splitting it into three jobs would require
+# three `paths:` filters here, i.e. a SECOND copy of that map, living in a different
+# language, drifting the first time a directory moves. One map, one place.
+#
+# The hard-rule-3 property that matters — `api` changes never restart voice-runtime —
+# comes from that same map plus `compose up -d --no-deps`, not from job separation.
+# A single component can still be deployed alone: `workflow_dispatch` with
+# `components: voice-runtime`, or the same argument to the script on the box.
+
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      components:
+        description: "Components to deploy (space separated: api voice-runtime workers web nginx). Empty = whatever changed."
+        required: false
+        default: ""
+      dry_run:
+        description: "Resolve and print the plan without changing anything"
+        type: boolean
+        required: false
+        default: false
+
+# One deploy at a time, and NEVER cancel one in flight: a deploy interrupted between the
+# migration and the container swap is the exact half-migrated state the script is written
+# to avoid, and `cancel-in-progress` would create it on purpose.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: >-
+      vars.VPS_DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main'))
+    runs-on: [self-hosted, calevate-vps]
+    environment: production
+    timeout-minutes: 45
+
+    env:
+      # A PATH, not a secret in the cryptographic sense — held as a Secret because it
+      # names our directory layout on a live host, which is the raghava convention
+      # (paths in Secrets, flags in Variables) and not worth breaking for one value.
+      VPS_CLIENT_PATH: ${{ secrets.VPS_CLIENT_PATH }}
+      # Opt-in, off by default: a CD run that silently rewrites the edge config of a live
+      # site is not reviewable after the fact. With this unset the script renders the
+      # config and prints the install commands instead of running them.
+      NGINX_AUTO_RELOAD: ${{ vars.NGINX_AUTO_RELOAD }}
+      ROOT_DOMAIN: ${{ vars.ROOT_DOMAIN }}
+      TLS_LIVE_DIR: ${{ vars.TLS_LIVE_DIR }}
+      ORIGIN_CERT_PATH: ${{ vars.ORIGIN_CERT_PATH }}
+      ORIGIN_KEY_PATH: ${{ vars.ORIGIN_KEY_PATH }}
+
+    steps:
+      - name: Verify required configuration
+        # Fail with instructions, not with a `cd` error 40 lines into the deploy. Every
+        # name below is a path or a flag; if a future step needs an application secret,
+        # that is the signal that it belongs in `.env` on the host instead.
+        run: |
+          set -euo pipefail
+          missing=0
+          if [[ -z "${VPS_CLIENT_PATH:-}" ]]; then
+            echo "::error::Secret VPS_CLIENT_PATH is not set (expected: /var/www/calevate)"
+            missing=1
+          elif [[ ! -x "$VPS_CLIENT_PATH/scripts/vps-deploy.sh" ]]; then
+            echo "::error::$VPS_CLIENT_PATH/scripts/vps-deploy.sh is missing or not executable."
+            echo "::error::Do the first deploy by hand (DEPLOYMENT §9 step 4) before enabling CD."
+            missing=1
+          fi
+          if [[ ! -f "${VPS_CLIENT_PATH:-/nonexistent}/.env" ]]; then
+            echo "::error::$VPS_CLIENT_PATH/.env is missing. Place it from the secrets manager;"
+            echo "::error::no workflow writes it and none ever should (DEPLOYMENT §6)."
+            missing=1
+          fi
+          exit "$missing"
+
+      - name: Deploy
+        # `--expected-sha` is the anti-race gate: CI validated ONE commit, and between
+        # that run finishing and this job starting, main can have moved. The script
+        # aborts rather than shipping a commit nothing tested.
+        #
+        # `${{ github.event.workflow_run.head_sha }}` is empty on workflow_dispatch, where
+        # `github.sha` is the dispatched ref — hence the fallback.
+        env:
+          CI_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          COMPONENTS: ${{ inputs.components }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=(--expected-sha "$CI_SHA")
+          if [[ "${DRY_RUN:-false}" == "true" ]]; then args+=(--dry-run); fi
+          # Unquoted on purpose: this input is a space-separated component list and the
+          # script rejects any word that is not a known component name.
+          # shellcheck disable=SC2206
+          if [[ -n "${COMPONENTS:-}" ]]; then args+=(${COMPONENTS}); fi
+          "$VPS_CLIENT_PATH/scripts/vps-deploy.sh" "${args[@]}"
+
+      - name: Deploy failed — what is running now
+        if: failure()
+        run: |
+          echo "::error::Deploy failed. The script aborts at the failing step and does not"
+          echo "::error::continue, so the previous release is still serving unless the"
+          echo "::error::failure was in the swap step itself."
+          echo "::error::Procedure: runbooks/deploy-failed.md (ordered by which step failed)."

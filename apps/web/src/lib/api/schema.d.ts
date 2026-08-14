@@ -495,6 +495,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/commercial-terms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What this client pays, and every dated agreement behind it (SURFACES §1)
+         * @description The `plans` rows for one client, newest agreement first by valid time, with the one in effect now resolved by the same expression the invoice uses. `state` names what an operator is looking at: `none` (no terms have ever been set — the state every new tenant is in), `unpriced` (a row is in effect but states no price), `lapsed` (rows exist and none is in effect, which is a misconfiguration), or `set`.
+         */
+        get: operations["read_commercial_terms_v1_admin_tenants__tenant_id__commercial_terms_get"];
+        put?: never;
+        /**
+         * Agree new commercial terms — a NEW dated row, never an edit to an old one
+         * @description Records what this client pays from a given instant. Always an INSERT: the row that priced a month the client has already been billed for is never touched, because an invoice here is derived and re-rendering it reads `plans` again. Leave `effective_from` null for terms that apply now and until further notice; set it to a future instant to prepare a change, which takes effect on that instant and not before. Idempotent — submitting the terms already in effect writes nothing, returns `changed: false` and records no audit row. Raising or REMOVING a spend ceiling additionally needs a superadmin and the `X-Confirm-Action` header the read publishes.
+         */
+        post: operations["record_commercial_terms_v1_admin_tenants__tenant_id__commercial_terms_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/credits": {
         parameters: {
             query?: never;
@@ -775,6 +799,26 @@ export interface paths {
         put?: never;
         /** Record what the DLT registrar decided about this number */
         post: operations["set_number_dlt_status_v1_admin_tenants__tenant_id__numbers__number_id__dlt_status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Suspend, reactivate or close a client account — the switch that stops dialling
+         * @description Moves `organizations.status`. Suspending or closing an account stops its OUTBOUND calling at the next dial: `compliance.check_dispatch` refuses `account_suspended` / `account_closed`, so the campaign tick, the 'call this lead' button and the lead-callback webhook all stop, and the campaign launch gate names the same rule. Inbound answering is deliberately unaffected — the caller initiated it, and dropping it punishes them rather than the account. Idempotent: setting the state an account is already in returns 200 and writes no audit row. 409 names the state found when the move is not allowed from it — `churned` is terminal. 404 means no such client.
+         */
+        post: operations["set_tenant_status_v1_admin_tenants__tenant_id__status_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2957,6 +3001,60 @@ export interface components {
             tenant_id: string;
         };
         /**
+         * CommercialTermsIn
+         * @description The terms an operator agreed, as they cross the wire.
+         *
+         *     **Every amount is a STRING** (`"9999.00"`), never a JSON number: `2500.10` has
+         *     already been through a binary float by the time Pydantic sees it, and these are
+         *     exact NUMERIC rupee amounts (hard rule 7). The two rate fields carry FOUR decimal
+         *     places and the fees two, matching their columns and the invoice's own arithmetic —
+         *     `qty x unit = amount` only holds if the rate is published unrounded.
+         *
+         *     **`null` means UNSET on every field, and unset is not zero.** An `overage_rate` of
+         *     0 is free minutes; an absent one is a plan that quotes no overage at all. Nothing
+         *     here is defaulted to a number: this endpoint refuses to invent a price.
+         */
+        CommercialTermsIn: {
+            /**
+             * Concurrency Ceiling
+             * @default 10
+             */
+            concurrency_ceiling: number;
+            /** Effective From */
+            effective_from?: string | null;
+            /** Effective To */
+            effective_to?: string | null;
+            /** Hard Cap Minutes */
+            hard_cap_minutes?: number | null;
+            /** Hard Cap Spend Inr */
+            hard_cap_spend_inr?: number | string | null;
+            /** Included Minutes */
+            included_minutes?: number | null;
+            /** Monthly Fee Inr */
+            monthly_fee_inr?: number | string | null;
+            /** Overage Rate Inr */
+            overage_rate_inr?: number | string | null;
+            /** Overage Rate Value Inr */
+            overage_rate_value_inr?: number | string | null;
+            /** Setup Fee Inr */
+            setup_fee_inr?: number | string | null;
+        };
+        /** CommercialTermsOut */
+        CommercialTermsOut: {
+            /** History */
+            history: components["schemas"]["PlanRowOut"][];
+            in_effect: components["schemas"]["PlanRowOut"] | null;
+            /** Loosening Confirmation */
+            loosening_confirmation: string;
+            /** State */
+            state: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
          * ConcludeExperimentIn
          * @description `promote` is null for "stop it and keep the control" — the commonest honest
          *     ending of an A/B test, and a first-class option rather than a cancel button.
@@ -4445,6 +4543,28 @@ export interface components {
             /** Ref */
             ref: string | null;
         };
+        /** LifecycleIn */
+        LifecycleIn: {
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "suspended" | "churned";
+        };
+        /** LifecycleOut */
+        LifecycleOut: {
+            /** Changed */
+            changed: boolean;
+            /** Status */
+            status: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
         /** LookupConsentIn */
         LookupConsentIn: {
             /** Phone */
@@ -4760,6 +4880,48 @@ export interface components {
             /** Qualify Rate Pct */
             qualify_rate_pct: number | null;
         };
+        /**
+         * PlanRowOut
+         * @description One dated agreement, as an operator reads it. Money as exact strings throughout.
+         */
+        PlanRowOut: {
+            /** Client Cap Minutes */
+            client_cap_minutes: number | null;
+            /** Client Cap Spend Inr */
+            client_cap_spend_inr: string | null;
+            /** Concurrency Ceiling */
+            concurrency_ceiling: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Effective From */
+            effective_from: string | null;
+            /** Effective To */
+            effective_to: string | null;
+            /** Hard Cap Minutes */
+            hard_cap_minutes: number | null;
+            /** Hard Cap Spend Inr */
+            hard_cap_spend_inr: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Included Minutes */
+            included_minutes: number | null;
+            /** Monthly Fee Inr */
+            monthly_fee_inr: string | null;
+            /** Overage Rate Inr */
+            overage_rate_inr: string | null;
+            /** Overage Rate Value Inr */
+            overage_rate_value_inr: string | null;
+            /** Setup Fee Inr */
+            setup_fee_inr: string | null;
+            /** States Pricing */
+            states_pricing: boolean;
+        };
         /** PlatformStateIn */
         PlatformStateIn: {
             /** Load Shed Mode */
@@ -4859,6 +5021,20 @@ export interface components {
              * @enum {string}
              */
             status: "granted" | "declined" | "withdrawn";
+        };
+        /** RecordTermsOut */
+        RecordTermsOut: {
+            /** Changed */
+            changed: boolean;
+            /**
+             * Plan Id
+             * Format: uuid
+             */
+            plan_id: string;
+            /** State */
+            state: string;
+            /** Superseded Plan Id */
+            superseded_plan_id: string | null;
         };
         /** RecordingLinkOut */
         RecordingLinkOut: {
@@ -6589,6 +6765,74 @@ export interface operations {
             };
         };
     };
+    read_commercial_terms_v1_admin_tenants__tenant_id__commercial_terms_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommercialTermsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_commercial_terms_v1_admin_tenants__tenant_id__commercial_terms_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommercialTermsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordTermsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_credits_v1_admin_tenants__tenant_id__credits_get: {
         parameters: {
             query?: {
@@ -7135,6 +7379,41 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_tenant_status_v1_admin_tenants__tenant_id__status_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LifecycleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

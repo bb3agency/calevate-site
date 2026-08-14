@@ -108,8 +108,13 @@ import { hasKey, lookup } from "@/lib/lookup";
  * 3. **Every control that CHANGES something says what it will do before it is clicked**,
  *    and takes a typed confirmation — echoed to the API as a step-up header, on every one
  *    of them (`platformConfirmation`, `spendCapConfirmation`,
- *    `OUTBOX_REPLAY_CONFIRMATION`). Not a second factor and not pretending to be one — it
- *    stops the accidental click, and Clerk re-auth replaces it when admin MFA lands.
+ *    `OUTBOX_REPLAY_CONFIRMATION`). It is not the second factor: admin-realm MFA is
+ *    enforced by the API on every admin token (`core/auth.py::verify_token`, Clerk's
+ *    `fva` claim), so this whole screen is already behind it. The confirmation is the
+ *    other half — MFA says WHO holds the session, for the next twelve hours; the typed
+ *    word says WHICH act they meant, on this click. A fully verified operator is exactly
+ *    who mis-clicks the big red switch, so neither replaces the other (ops/routes.py
+ *    records the rejected alternative of dropping it).
  *
  *    ONE asymmetry remains and it is argued at its panel: the audit-chain verification
  *    takes neither a typed word nor a header, because it writes nothing and a

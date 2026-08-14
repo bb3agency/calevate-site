@@ -1472,6 +1472,200 @@
         "title": "ClientHealthOut",
         "type": "object"
       },
+      "CommercialTermsIn": {
+        "additionalProperties": false,
+        "description": "The terms an operator agreed, as they cross the wire.\n\n**Every amount is a STRING** (`\"9999.00\"`), never a JSON number: `2500.10` has\nalready been through a binary float by the time Pydantic sees it, and these are\nexact NUMERIC rupee amounts (hard rule 7). The two rate fields carry FOUR decimal\nplaces and the fees two, matching their columns and the invoice's own arithmetic \u2014\n`qty x unit = amount` only holds if the rate is published unrounded.\n\n**`null` means UNSET on every field, and unset is not zero.** An `overage_rate` of\n0 is free minutes; an absent one is a plan that quotes no overage at all. Nothing\nhere is defaulted to a number: this endpoint refuses to invent a price.",
+        "properties": {
+          "concurrency_ceiling": {
+            "default": 10,
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Concurrency Ceiling",
+            "type": "integer"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "effective_to": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective To"
+          },
+          "hard_cap_minutes": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hard Cap Minutes"
+          },
+          "hard_cap_spend_inr": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hard Cap Spend Inr"
+          },
+          "included_minutes": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Included Minutes"
+          },
+          "monthly_fee_inr": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Fee Inr"
+          },
+          "overage_rate_inr": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Rate Inr"
+          },
+          "overage_rate_value_inr": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Rate Value Inr"
+          },
+          "setup_fee_inr": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Fee Inr"
+          }
+        },
+        "title": "CommercialTermsIn",
+        "type": "object"
+      },
+      "CommercialTermsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/PlanRowOut"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "in_effect": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanRowOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "loosening_confirmation": {
+            "title": "Loosening Confirmation",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "state",
+          "in_effect",
+          "history",
+          "loosening_confirmation"
+        ],
+        "title": "CommercialTermsOut",
+        "type": "object"
+      },
       "ConcludeExperimentIn": {
         "additionalProperties": false,
         "description": "`promote` is null for \"stop it and keep the control\" \u2014 the commonest honest\nending of an A/B test, and a first-class option rather than a cancel button.",
@@ -4963,6 +5157,63 @@
         "title": "LedgerEntryOut",
         "type": "object"
       },
+      "LifecycleIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "suspended",
+              "churned"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "LifecycleIn",
+        "type": "object"
+      },
+      "LifecycleOut": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "status",
+          "changed"
+        ],
+        "title": "LifecycleOut",
+        "type": "object"
+      },
       "LookupConsentIn": {
         "additionalProperties": false,
         "properties": {
@@ -5746,6 +5997,172 @@
         "title": "PerformanceOut",
         "type": "object"
       },
+      "PlanRowOut": {
+        "additionalProperties": false,
+        "description": "One dated agreement, as an operator reads it. Money as exact strings throughout.",
+        "properties": {
+          "client_cap_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Cap Minutes"
+          },
+          "client_cap_spend_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Cap Spend Inr"
+          },
+          "concurrency_ceiling": {
+            "title": "Concurrency Ceiling",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "effective_to": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective To"
+          },
+          "hard_cap_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hard Cap Minutes"
+          },
+          "hard_cap_spend_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hard Cap Spend Inr"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "included_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Included Minutes"
+          },
+          "monthly_fee_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Fee Inr"
+          },
+          "overage_rate_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Rate Inr"
+          },
+          "overage_rate_value_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Rate Value Inr"
+          },
+          "setup_fee_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Fee Inr"
+          },
+          "states_pricing": {
+            "title": "States Pricing",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "setup_fee_inr",
+          "monthly_fee_inr",
+          "included_minutes",
+          "overage_rate_inr",
+          "overage_rate_value_inr",
+          "hard_cap_minutes",
+          "hard_cap_spend_inr",
+          "client_cap_minutes",
+          "client_cap_spend_inr",
+          "concurrency_ceiling",
+          "effective_from",
+          "effective_to",
+          "created_at",
+          "states_pricing"
+        ],
+        "title": "PlanRowOut",
+        "type": "object"
+      },
       "PlatformStateIn": {
         "additionalProperties": false,
         "properties": {
@@ -6076,6 +6493,44 @@
           "source"
         ],
         "title": "RecordConsentIn",
+        "type": "object"
+      },
+      "RecordTermsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "plan_id": {
+            "format": "uuid",
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "superseded_plan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded Plan Id"
+          }
+        },
+        "required": [
+          "plan_id",
+          "changed",
+          "superseded_plan_id",
+          "state"
+        ],
+        "title": "RecordTermsOut",
         "type": "object"
       },
       "RecordingLinkOut": {
@@ -9487,6 +9942,112 @@
         "x-calevate-permission": "agents:write"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/commercial-terms": {
+      "get": {
+        "description": "The `plans` rows for one client, newest agreement first by valid time, with the one in effect now resolved by the same expression the invoice uses. `state` names what an operator is looking at: `none` (no terms have ever been set \u2014 the state every new tenant is in), `unpriced` (a row is in effect but states no price), `lapsed` (rows exist and none is in effect, which is a misconfiguration), or `set`.",
+        "operationId": "read_commercial_terms_v1_admin_tenants__tenant_id__commercial_terms_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommercialTermsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What this client pays, and every dated agreement behind it (SURFACES \u00a71)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
+      },
+      "post": {
+        "description": "Records what this client pays from a given instant. Always an INSERT: the row that priced a month the client has already been billed for is never touched, because an invoice here is derived and re-rendering it reads `plans` again. Leave `effective_from` null for terms that apply now and until further notice; set it to a future instant to prepare a change, which takes effect on that instant and not before. Idempotent \u2014 submitting the terms already in effect writes nothing, returns `changed: false` and records no audit row. Raising or REMOVING a spend ceiling additionally needs a superadmin and the `X-Confirm-Action` header the read publishes.",
+        "operationId": "record_commercial_terms_v1_admin_tenants__tenant_id__commercial_terms_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommercialTermsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordTermsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Agree new commercial terms \u2014 a NEW dated row, never an edit to an old one",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/credits": {
       "get": {
         "operationId": "read_credits_v1_admin_tenants__tenant_id__credits_get",
@@ -10345,6 +10906,57 @@
           }
         },
         "summary": "Record what the DLT registrar decided about this number",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/status": {
+      "post": {
+        "description": "Moves `organizations.status`. Suspending or closing an account stops its OUTBOUND calling at the next dial: `compliance.check_dispatch` refuses `account_suspended` / `account_closed`, so the campaign tick, the 'call this lead' button and the lead-callback webhook all stop, and the campaign launch gate names the same rule. Inbound answering is deliberately unaffected \u2014 the caller initiated it, and dropping it punishes them rather than the account. Idempotent: setting the state an account is already in returns 200 and writes no audit row. 409 names the state found when the move is not allowed from it \u2014 `churned` is terminal. 404 means no such client.",
+        "operationId": "set_tenant_status_v1_admin_tenants__tenant_id__status_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecycleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Suspend, reactivate or close a client account \u2014 the switch that stops dialling",
         "tags": [
           "admin"
         ],

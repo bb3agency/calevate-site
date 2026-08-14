@@ -24,6 +24,7 @@ from typing import Any
 from calevate_shared.engine import (
     E164,
     AgentConfig,
+    AgentSnapshot,
     CallContext,
     CallHandle,
     CostBreakdown,
@@ -108,6 +109,48 @@ class FakeEngine:
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
         self._agents[ref] = cfg
+
+    async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
+        """Read back what this engine actually HOLDS for `ref` — never what it was last
+        handed.
+
+        Two details make this a real second implementation rather than a mirror:
+
+        * it reads `self._agents[ref]`, so it answers about the agent asked for. An
+          adapter that echoed the most recent `create_agent`/`update_agent` argument
+          would agree with every caller and detect nothing, which is why the conformance
+          suite reads two agents back;
+        * it renders the prompt the way a real engine holds it — disclosure line
+          PREPENDED, exactly as `BolnaEngine._agent_body` sends it (hard rule 5). Storing
+          `cfg.system_prompt` verbatim would make the fake the only engine where a
+          read-back equals what was sent, and a caller could then write an equality check
+          that passes here and fails against every real vendor.
+
+        An unknown ref raises, mirroring the vendor's 404: the caller that reads back an
+        agent nobody created must not be handed a snapshot that quietly disagrees.
+        """
+        cfg = self._agents.get(ref)
+        if cfg is None:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_rejected",
+                title="Voice engine rejected the request",
+                detail="The voice platform does not hold that agent.",
+            )
+        return AgentSnapshot(
+            engine_agent_ref=ref,
+            name=cfg.name,
+            system_prompt=f"{cfg.disclosure_line}\n\n{cfg.system_prompt}",
+            system_prompt_readable=True,
+            # The fake engine's agent really does reference its attached sources, so this
+            # is readable — and it is the ONLY place D-41's dangling-handle logic gets
+            # exercised until the pilot settles where Bolna keeps the reference.
+            knowledge_base_refs=[
+                self._kb_handle(ref, source.kb_id) for source in self._kb.get(ref, [])
+            ],
+            knowledge_base_refs_readable=True,
+            engine="fake",
+        )
 
     async def start_outbound_call(
         self, ref: EngineAgentRef, to: E164, ctx: CallContext
