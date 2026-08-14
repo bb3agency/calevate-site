@@ -53,6 +53,8 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.integrations.routes import router as integrations_router
     from apps.api.kb.routes import router as kb_router
     from apps.api.ops.routes import router as ops_router
+    from apps.api.quality.routes import router as quality_router
+    from apps.api.quality.sampling_routes import router as qa_sampling_router
     from apps.api.tenancy.clerk_webhooks import router as clerk_router
     from apps.api.tenancy.routes import router as tenancy_router
     from apps.api.tenancy.signup_routes import router as signup_router
@@ -115,6 +117,11 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(caps_router)
     application.include_router(topups_router)
     application.include_router(razorpay_router)
+    # The client's monthly QA report (SURFACES §2 trust surfaces) and OUR weekly 5%
+    # spot-check queue (SURFACES §1). Two realms, one control: the report is the claim
+    # we make to the client, the queue is the evidence we collect for it.
+    application.include_router(quality_router)
+    application.include_router(qa_sampling_router)
     application.include_router(ops_router)
 
 

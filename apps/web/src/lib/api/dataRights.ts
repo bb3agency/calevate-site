@@ -21,18 +21,22 @@
  * - **A duplicate erasure is a 200 with `already_open: true`, not a 409.** The caller's
  *   intent is already satisfied, so the screen has to be able to say "one is already
  *   running" without reading the status line — hence the flag on the body.
- * - **The export response has NO response model on the server**, so the generated schema
- *   types it as `{ [key: string]: unknown }`. That type is taken from the generated
- *   `paths` table rather than hand-written here: an invented interface would be a wire
- *   shape nothing checks, on the one endpoint whose payload is a named human being's
- *   entire file. The consequence for the screen is stated where it bites — we can hand
- *   the document over, and we cannot state what is in it.
+ * - **The list is the register, the detail read is the certificate.** `GET
+ *   /v1/compliance/deletion-requests` returns hashes, statuses and timestamps for every
+ *   request the account has filed — never a phone number, and never the proof. The proof
+ *   is fetched per request by the panel that renders it, so opening the screen does not
+ *   pull every certificate on the account across the wire.
  */
 
-import { useMutation, useQuery, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
-import type { components, paths } from "./schema";
+import type { components } from "./schema";
 
 type Schemas = components["schemas"];
 
@@ -42,20 +46,36 @@ export type ErasureProof = Schemas["ErasureProofOut"];
 export type ErasureLimitation = Schemas["ErasureLimitationOut"];
 
 /**
- * The subject access document, exactly as the generated client describes it.
+ * The subject access document, and one row of the erasure register.
  *
- * `subject_export` returns `dict[str, Any]` from FastAPI, so openapi-typescript can only
- * say "a JSON object". Aliased from `paths` rather than declared, so the day the endpoint
- * grows a response model this alias tightens by itself instead of quietly disagreeing
- * with the wire.
+ * Both are the GENERATED types now (`Schemas[...]`), not hand-mirrored shapes: the
+ * endpoints carry real response models, so `schema.d.ts` is the one description of the
+ * wire and there is nothing here for it to drift against. That mattered most for the
+ * export — it is the one payload in this product that is an entire named human being,
+ * and until it had a model it was invisible to `check_redaction_exposure`, which
+ * inspects response MODELS. A hand-written mirror would have re-created exactly that
+ * blind spot in the client.
+ *
+ * What `DeletionRequestSummary` does NOT carry is the point of the endpoint: no phone
+ * number, and no certificate.
  */
-export type SubjectExportDocument =
-  paths["/v1/compliance/subject-export"]["post"]["responses"][200]["content"]["application/json"];
+export type SubjectExportDocument = Schemas["SubjectExportOut"];
+
+export type DeletionRequestSummary = Schemas["DeletionRequestSummaryOut"];
 
 export const dataRightsKeys = {
+  deletionRequests: (org: string) => ["deletion-requests", org] as const,
   deletionRequest: (org: string, requestId: string) =>
     ["deletion-request", org, requestId] as const,
 };
+
+/**
+ * Mirrors `deletion.MAX_LIST`'s role at the caller: a CEILING, not a page size. The
+ * endpoint clamps and offers no offset, so a response this long may be a truncation
+ * rather than the whole register — and the screen has to be able to say which, on a
+ * surface where "these are all the erasures you owe" is a statement with legal weight.
+ */
+export const DELETION_REQUEST_LIST_LIMIT = 100;
 
 /** A queued erasure is executed by a worker; this is how often we ask whether it has. */
 const ERASURE_POLL_MS = 15_000;
@@ -86,6 +106,7 @@ export function useSubjectExport(session: Session) {
  * this is belt and braces on an action nobody can take back.
  */
 export function useFileErasure(session: Session) {
+  const client = useQueryClient();
   return useMutation({
     mutationFn: (phone: string) =>
       apiRequest<DeletionRequestAccepted>(session, "/v1/compliance/deletion-requests", {
@@ -93,6 +114,40 @@ export function useFileErasure(session: Session) {
         body: { phone },
         idempotencyKey: crypto.randomUUID(),
       }),
+    // The register is the screen's memory now, so a filed request has to appear in it —
+    // including the deduplicated case, where the answer is a request that was already
+    // there and may already have moved on.
+    onSuccess: () =>
+      void client.invalidateQueries({ queryKey: dataRightsKeys.deletionRequests(session.orgSlug) }),
+  });
+}
+
+/**
+ * Every erasure request this account has filed.
+ *
+ * The register that makes a filed request survive closing the tab: before it existed the
+ * screen kept ids in component state and said so on screen, which is a scratchpad, not a
+ * record of an obligation with a statutory clock on it.
+ *
+ * Polled on the same interval as a pending request, and only while one IS pending: the
+ * list is how the screen learns that a worker finished, and a settled register does not
+ * change until somebody files something (which invalidates this key anyway).
+ */
+export function useDeletionRequests(
+  session: Session,
+): UseQueryResult<DeletionRequestSummary[]> {
+  return useQuery({
+    queryKey: dataRightsKeys.deletionRequests(session.orgSlug),
+    queryFn: () =>
+      apiRequest<DeletionRequestSummary[]>(
+        session,
+        `/v1/compliance/deletion-requests?limit=${DELETION_REQUEST_LIST_LIMIT}`,
+      ),
+    refetchInterval: (query) =>
+      query.state.data?.some((request) => request.status === "pending")
+        ? ERASURE_POLL_MS
+        : false,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -117,19 +172,12 @@ export function useDeletionRequest(
   });
 }
 
-/**
- * A request id, as the client may type it back in.
- *
- * There is no list endpoint — a filed request is reachable only by its id — so the screen
- * lets someone paste one in to pick a request back up after closing the tab. Validated
- * here rather than at the API so a typo answers instantly instead of as a 422, and
- * because a malformed id in the URL is a request worth not making at all.
+/*
+ * `isRequestId` used to live here, validating a request id pasted back in by hand. It was
+ * a workaround for the missing list endpoint — the only way to pick a request back up
+ * after closing the tab — and it is deleted rather than kept beside the register, because
+ * two ways to reach one request is where the drift starts.
  */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export function isRequestId(value: string): boolean {
-  return UUID_RE.test(value.trim());
-}
 
 /**
  * Hand a JSON document to the browser as a file.

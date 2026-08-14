@@ -25,6 +25,7 @@ from apps.api.agents.business_hours import count_after_hours_calls
 from apps.api.billing.caps import read_spend_counters
 from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
+from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
     CallDetailOut,
@@ -60,6 +61,23 @@ LEAD_STATUSES: tuple[str, ...] = get_args(LeadStatus)
 # click into a hung worker, so the read is bounded and says so when it hits the bound —
 # a silently truncated contact export is a worse failure than a refused one.
 MAX_EXPORT_ROWS = 20_000
+
+#: One faceted filter: an extraction-schema key → the values selected under it. Values
+#: are OR'd, keys are AND'd (`_lead_scope`), which is the standard faceted-search
+#: semantic and the one users already expect from every storefront they have used.
+FieldFilters = dict[str, list[str]]
+
+#: How many facets a panel may offer at once. The researched range is 5-7 facets per
+#: results page before a filter rail stops being scannable; 8 leaves room for a client
+#: whose capture list is genuinely enum-heavy without turning the rail into the screen.
+#: A tenant with more enum fields gets the first eight IN SCHEMA ORDER and is told how
+#: many were left out, rather than silently seeing a subset.
+MAX_FACET_FIELDS = 8
+
+#: How many distinct values one facet may offer. Declared enum values are always shown;
+#: this bounds the UNDECLARED ones a client's data can also contain (a schema edited
+#: after rows were captured), which is otherwise unbounded.
+MAX_FACET_VALUES = 50
 
 
 def mask_phone(value: str | None) -> str | None:
@@ -311,6 +329,8 @@ def _lead_scope(
     search: str | None,
     agent_id: UUID | None,
     assigned_to: UUID | None = None,
+    field_filters: FieldFilters | None = None,
+    skip_field: str | None = None,
 ) -> list[str]:
     """The filters that define WHICH leads a request is about, minus `status`.
 
@@ -337,6 +357,19 @@ def _lead_scope(
     mails a supplier the whole contact list. It is a real predicate on a real column —
     never a slice of the page — and migration d2b6f04a17c9 measured the partial index
     that keeps it off a sequential scan.
+
+    `field_filters` are the FACETS, and they are the same kind of predicate for the same
+    reason: they narrow the table, so they must narrow the file. Each entry is one
+    extraction-schema key and the values selected under it, and the shape follows the
+    researched standard — OR within a facet (`= ANY`), AND across facets (one clause
+    each). Keys reach here already checked against the agent's extraction schema by the
+    route; they are still bound parameters rather than interpolated, because "validated
+    upstream" is a fact about today's caller.
+
+    `skip_field` omits ONE facet's own clause, which is what makes a facet count
+    answerable: "how many rows would this value give me" is a question about the table
+    with every OTHER filter applied. It is the same decision `status_counts` already
+    makes about `status`, spelled the same way.
     """
     clauses = ["l.deleted_at IS NULL"]
     if search:
@@ -351,6 +384,17 @@ def _lead_scope(
     if assigned_to:
         clauses.append("l.assigned_to = :assigned_to")
         params["assigned_to"] = assigned_to
+    for i, (key, values) in enumerate(sorted((field_filters or {}).items())):
+        if key == skip_field or not values:
+            continue
+        # `->>` yields text, so every comparison is a text comparison and a number field
+        # matches on its rendered form. Facets are enum fields (crm.columns.facetable),
+        # where the stored value IS the declared string, so this is exact rather than
+        # lucky — a numeric facet would need a cast and there is deliberately no such
+        # thing yet.
+        clauses.append(f"l.data ->> :ff_k{i} = ANY(:ff_v{i})")
+        params[f"ff_k{i}"] = key
+        params[f"ff_v{i}"] = list(values)
     return clauses
 
 
@@ -375,6 +419,7 @@ async def list_leads_page(
     search: str | None = None,
     agent_id: UUID | None = None,
     assigned_to: UUID | None = None,
+    field_filters: FieldFilters | None = None,
 ) -> LeadPage:
     """A page of leads and a truthful per-status breakdown of the set it came from.
 
@@ -394,7 +439,13 @@ async def list_leads_page(
     come here to find out which it is.
     """
     params: dict[str, Any] = {"limit": min(limit, MAX_PAGE), "offset": offset}
-    scope = _lead_scope(params, search=search, agent_id=agent_id, assigned_to=assigned_to)
+    scope = _lead_scope(
+        params,
+        search=search,
+        agent_id=agent_id,
+        assigned_to=assigned_to,
+        field_filters=field_filters,
+    )
     scope_where = f"WHERE {' AND '.join(scope)}"
 
     grouped = (
@@ -436,6 +487,117 @@ async def list_leads_page(
         )
     ).all()
     return LeadPage(items=[_lead_out(r) for r in rows], total=total, status_counts=counts)
+
+
+@dataclass(frozen=True, slots=True)
+class FacetValue:
+    """One selectable value of one facet, and how many rows it would give you."""
+
+    value: str
+    count: int
+    #: Is this value in the extraction schema's `enum_values`? A `False` here is a value
+    #: the client's DATA contains and their capture list no longer declares — a schema
+    #: edited after rows were captured. It is offered anyway, because a value that
+    #: demonstrably exists and cannot be filtered on is a table that lies about itself,
+    #: and it is flagged so the UI can say which of the two it is.
+    declared: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Facet:
+    """One extraction-schema enum field, rendered as a filter group."""
+
+    key: str
+    label: str
+    values: tuple[FacetValue, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FacetSet:
+    facets: tuple[Facet, ...]
+    #: Enum fields beyond `MAX_FACET_FIELDS`. Reported rather than hidden — a client
+    #: whose ninth facet is missing should be told, not left to wonder.
+    omitted_field_count: int
+
+
+async def lead_facets(
+    session: AsyncSession,
+    *,
+    fields: list[ExtractionField],
+    agent_id: UUID | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    assigned_to: UUID | None = None,
+    field_filters: FieldFilters | None = None,
+) -> FacetSet:
+    """The filter rail, counted over the set the client is actually looking at.
+
+    **Counts follow every OTHER filter and ignore this facet's own** (`skip_field`).
+    That is the researched standard — OR within a group, AND across groups, with counts
+    that answer "what would selecting this give me" — and it is the same rule
+    `status_counts_matching_search` already applies one screen element over, so the two
+    numbers on this page mean the same kind of thing.
+
+    **One query per facet, deliberately.** The single-round-trip alternative is a UNION
+    ALL over the same scope, and it was written and rejected: every branch omits a
+    DIFFERENT filter, so every branch needs its own uniquely-named binds and its own
+    clause list, which is the whole scope builder duplicated per branch for the sake of
+    seven fewer round trips on a query that reads a tenant's own lead table over a local
+    socket. `MAX_FACET_FIELDS` bounds the count at eight; the researched budget for a
+    facet rail is 200ms and this is nowhere near it. Revisit if a tenant's lead table
+    passes six figures, which is the same threshold `list_leads` names for pagination.
+
+    Values are DECLARED-FIRST, in schema order, zero-filled — a value with no rows
+    answers 0 rather than going missing, for the reason the status badges do: "none of
+    these" and "the server did not say" are different sentences. Undeclared values found
+    in the data follow, by descending count.
+    """
+    facetable = lead_column_registry.facetable(lead_column_registry.available(fields))
+    chosen = facetable[:MAX_FACET_FIELDS]
+
+    facets: list[Facet] = []
+    for column in chosen:
+        params: dict[str, Any] = {"facet_key": column.key}
+        clauses = _lead_scope(
+            params,
+            search=search,
+            agent_id=agent_id,
+            assigned_to=assigned_to,
+            field_filters=field_filters,
+            skip_field=column.key,
+        )
+        if status:
+            clauses.append("l.status = :status")
+            params["status"] = status
+        # `jsonb_typeof(...) = 'string'` rather than a bare NOT NULL: a field whose type
+        # changed leaves objects and arrays behind in `data`, and `->>` renders those as
+        # their JSON source — a facet value nobody can read and nobody stored.
+        clauses.append("jsonb_typeof(l.data -> :facet_key) = 'string'")
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT l.data ->> :facet_key AS value, count(*) AS n "
+                    f"FROM leads l WHERE {' AND '.join(clauses)} "
+                    "GROUP BY 1 ORDER BY n DESC, 1 ASC"
+                ),
+                params,
+            )
+        ).all()
+        observed = {str(value): int(n) for value, n in rows}
+
+        values = [
+            FacetValue(value=v, count=observed.pop(v, 0), declared=True) for v in column.enum_values
+        ]
+        room = max(MAX_FACET_VALUES - len(values), 0)
+        values.extend(
+            FacetValue(value=v, count=n, declared=False)
+            for v, n in sorted(observed.items(), key=lambda kv: (-kv[1], kv[0]))[:room]
+        )
+        facets.append(Facet(key=column.key, label=column.label, values=tuple(values)))
+
+    return FacetSet(
+        facets=tuple(facets), omitted_field_count=max(len(facetable) - MAX_FACET_FIELDS, 0)
+    )
 
 
 async def list_leads(
@@ -671,11 +833,6 @@ async def update_lead(
     return await get_lead(session, lead_id)
 
 
-#: The fixed columns of the lead export, in the order the row query selects them. Named
-#: so the header and the row cannot drift apart by an edit to one of them.
-_EXPORT_HEADER: tuple[str, ...] = ("phone", "name", "status", "source", "calls", "created_at")
-
-
 async def export_leads_csv(
     session: AsyncSession,
     *,
@@ -683,8 +840,23 @@ async def export_leads_csv(
     status: str | None = None,
     search: str | None = None,
     assigned_to: UUID | None = None,
+    field_filters: FieldFilters | None = None,
+    columns: list[str] | None = None,
 ) -> str:
     """CSV export with schema-driven columns (TRD §7 (e)).
+
+    **The header IS the column chooser.** `columns` goes through
+    `crm.columns.resolve` — the same function, with the same registry, that decides
+    what the Leads screen renders — so "export what I am looking at" is a property of
+    one resolver rather than a coincidence between two lists. There is no fixed header
+    constant here any more; the one that used to live above this function was the second
+    of the two lists, and it is what let the file hold `source` and `created_at` while
+    the screen showed `owner` and `updated_at`.
+
+    The row query therefore selects the SAME projection as the list (`_LEAD_COLUMNS`,
+    owner join included) rather than a shorter one of its own: a column the registry can
+    offer and the export cannot fetch would be a chooser entry that silently exports
+    blanks.
 
     The phone is exported IN FULL: this is the client's own customer data, the export
     is role-gated and audit-logged by the route, and a CSV of masked numbers is useless
@@ -703,21 +875,29 @@ async def export_leads_csv(
     one builds the entire file in memory inside the request. The bound now applies to
     the FILTERED rows, which is what makes the refusal's advice ("narrow it") reachable.
     """
-    columns = await lead_columns(session, agent_id)
+    fields = await lead_columns(session, agent_id)
+    chosen = lead_column_registry.resolve(lead_column_registry.available(fields), columns).columns
     params: dict[str, Any] = {"limit": MAX_EXPORT_ROWS + 1}
-    clauses = _lead_scope(params, search=search, agent_id=agent_id, assigned_to=assigned_to)
+    clauses = _lead_scope(
+        params,
+        search=search,
+        agent_id=agent_id,
+        assigned_to=assigned_to,
+        field_filters=field_filters,
+    )
     if status:
         clauses.append("l.status = :status")
         params["status"] = status
     rows = (
         await session.execute(
             text(
-                "SELECT l.phone_e164, l.name, l.status, l.source, l.call_count, "
-                "l.created_at, l.data "
-                f"FROM leads l WHERE {' AND '.join(clauses)} "
+                f"SELECT {_LEAD_COLUMNS} "
+                f"FROM leads l {_LEAD_OWNER_JOIN} WHERE {' AND '.join(clauses)} "
                 # Tiebreaker for the same reason as the list — here the stakes are which
                 # rows survive the LIMIT, so an unstable sort means two exports of one
                 # unchanged account hand back two different sets of people.
+                # Qualified `l.`, because the owner join brings a second `id` and a
+                # second `created_at` into scope.
                 "ORDER BY l.created_at DESC, l.id DESC LIMIT :limit"
             ),
             # One row over the cap, so hitting it is detectable without a second count.
@@ -753,28 +933,57 @@ async def export_leads_csv(
     # their own export. Picking the "interesting" columns is what created the gap;
     # rendering every column the one way is what closes it and keeps it closed.
     #
-    # The HEADER: `columns` are labels from the tenant's extraction schema, which is
-    # authored text, and the export is downloaded by a client's staff — not the author.
-    # The threat is thinner than the `name` column's, but a header cell is a cell and
-    # the argument for exempting it is only that it is inconvenient to include.
+    # The HEADER: extraction labels are authored text from the tenant's own schema, and
+    # the export is downloaded by a client's staff — not the author. The threat is
+    # thinner than the `name` column's, but a header cell is a cell and the argument for
+    # exempting it is only that it is inconvenient to include.
     #
     # The other row columns, audited rather than assumed: `status` and `source` are
     # CHECK-constrained enums (`ck_leads_status_enum`, `ck_leads_source_enum`), so no
-    # caller writes them today; `created_at` is an ISO-8601 instant and `call_count` an
-    # integer counter, both of which begin with a digit. None of them can lead a formula
-    # NOW — but that is a fact about four constraints, not a property of the row, and
-    # the cost of covering them is one function call each.
+    # caller writes them today; `created_at`/`updated_at` are ISO-8601 instants and
+    # `call_count` an integer counter, all of which begin with a digit; `owner` is a
+    # `users.name`, which is self-registered text and therefore exactly as hostile as
+    # `name`. None of the first group can lead a formula NOW — but that is a fact about
+    # four constraints, not a property of the row.
+    #
+    # **AND THAT IS WHY THE CHOOSER CANNOT CREATE A HOLE HERE.** The guard is applied by
+    # the RENDERER to every cell it is handed, not by a list of interesting columns, so
+    # a column added to `crm.columns` is disarmed the moment it is selectable. Picking
+    # columns to disarm is what left `name` raw for a release;
+    # `tests/lead_columns_test.py::test_every_selectable_column_is_disarmed` walks the
+    # registry and exports each column alone, so a future column that bypassed this
+    # would fail rather than ship.
     #
     # The PHONE column changes shape: E.164 begins with `+`, a formula leader, so it is
     # tab-prefixed on every row. That is not collateral damage — `+919812345678` is a
     # formula to Excel, which evaluates it to `919812345678` and eats the country-code
     # marker. The guard makes the number arrive as the string we stored.
-    writer.writerow([_csv_value(h) for h in _EXPORT_HEADER + tuple(c.label for c in columns)])
+    writer.writerow([_csv_value(c.label) for c in chosen])
     for r in rows:
-        data = r[6] or {}
-        cells = (*r[:6], *(data.get(c.key) for c in columns))
-        writer.writerow([_csv_value(cell) for cell in cells])
+        mapping = r._mapping
+        data = mapping["data"] or {}
+        writer.writerow(
+            [
+                _csv_value(mapping[c.row_key] if c.row_key is not None else _json_cell(data, c.key))
+                for c in chosen
+            ]
+        )
     return buffer.getvalue()
+
+
+def _json_cell(data: object, key: str) -> Any:
+    """One extraction value out of `leads.data`, without trusting the prototype chain.
+
+    `data` is JSONB decoded into a `dict`, and the KEY is a client's own extraction
+    field name — nothing constrains it away from `items` or `keys`, and `getattr`-shaped
+    lookups on a mapping are how a method ends up rendered into a cell. A plain
+    `.get()` on a verified `dict` is the whole guard; the type check is there because
+    a `data` column holding a JSON array or scalar is not a bug this function should
+    turn into an AttributeError inside a 20,000-row loop.
+    """
+    if not isinstance(data, dict):
+        return None
+    return data.get(key)
 
 
 # --- the lead timeline --------------------------------------------------------
@@ -1431,16 +1640,23 @@ __all__ = [
     "LEAD_STATUSES",
     "MAX_CALLBACK_DEPTH",
     "MAX_EXPORT_ROWS",
+    "MAX_FACET_FIELDS",
+    "MAX_FACET_VALUES",
     "MAX_PAGE",
     "MAX_TIMELINE_PAGE",
     "AssigneeChange",
     "CallbackPlan",
+    "Facet",
+    "FacetSet",
+    "FacetValue",
+    "FieldFilters",
     "LeadPage",
     "dashboard",
     "export_leads_csv",
     "get_call",
     "get_lead",
     "lead_columns",
+    "lead_facets",
     "lead_phone",
     "lead_timeline",
     "link_callback",

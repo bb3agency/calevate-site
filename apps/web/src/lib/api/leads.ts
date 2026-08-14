@@ -3,23 +3,27 @@
 /**
  * The leads data layer — ownership, history, and the list filter that needs both.
  *
- * **Why `useLeads` lives here and not beside `useMe` in `hooks.ts`.** The list gained a
- * server-side `assigned_to` filter, and a filter that a hook's type does not name is a
- * filter that cannot be sent: `hooks.ts::useLeads` declares
- * `{status, search, limit, offset}` and nothing more. This module replaces it, and the
- * ONE caller — `app/c/[slug]/leads` — moves with it in the same change, so there are
- * never two live ways to read the leads list.
- *
- * `hooks.ts::useLeads` was deleted in the same change, so the move is a replacement
- * rather than a fork — two live ways to read one list is the defect even when both
- * work. The query KEY is deliberately identical (`["leads", orgSlug, filters]`), so
- * `hooks.ts::useUpdateLeadStatus`'s `invalidateQueries({queryKey: ["leads", orgSlug]})`
- * keeps working across the move — a cache invalidation that silently stopped matching
- * would look exactly like a screen that does not refresh.
+ * **Why the leads hooks live here and not beside `useMe` in `hooks.ts`.** The list keeps
+ * gaining filters, and a filter that a hook's type does not name is a filter that cannot
+ * be sent — `hooks.ts::useLeads` declared `{status, search, limit, offset}` and nothing
+ * more while the API had grown three more. Each time the answer has been to REPLACE the
+ * hook and move its one caller (`app/c/[slug]/leads`) in the same change, never to add a
+ * second one beside it.
  *
  * Everything is aliased from the GENERATED schema, never hand-written: the drift this
  * repo has already paid for once (a local `UsagePanel` interface that quietly lost
- * `overage_rate_inr`) is the reason.
+ * `overage_rate_inr`) is the reason. The ONE exception is the block at the foot of this
+ * file, which is marked, dated and carries its own removal instructions.
+ *
+ * **`useLeads(filters)` is gone and `useLeadsUnderLens(lens)` replaced it**, in the same
+ * change and with the same one caller moved — a saved view names a filter set AND a
+ * column selection, and the export has to be able to send the identical thing, so the
+ * thing has to be one object with one serializer (`lensQuery`). Keeping the old hook
+ * beside the new one would have been two ways to ask one question, which is where the
+ * screen and the file start to disagree. `useExportLeads` moved here from `hooks.ts` for
+ * the same reason: it takes the same lens or it is not an export of what you are looking
+ * at. The query KEY still starts `["leads", orgSlug, ...]`, so the invalidations in
+ * `hooks.ts` keep matching across the move.
  */
 
 import {
@@ -46,15 +50,6 @@ export type LeadTimelineEvent = Schemas["LeadTimelineEventOut"];
 /** The leads list polls slowly — a lead lands with the post-call pipeline, not live. */
 const SLOW_INTERVAL_MS = 60_000;
 
-export interface LeadFilters {
-  status?: string;
-  search?: string;
-  /** A member's id. "Assigned to me" is this, with the caller's own id from `/v1/me`. */
-  assigned_to?: string;
-  limit?: number;
-  offset?: number;
-}
-
 function query(params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -62,20 +57,6 @@ function query(params: Record<string, string | number | undefined>): string {
   }
   const qs = search.toString();
   return qs ? `?${qs}` : "";
-}
-
-export function useLeads(session: Session, filters: LeadFilters = {}): UseQueryResult<LeadList> {
-  return useQuery({
-    // Same key shape as the hook this replaces, so existing invalidations still match.
-    queryKey: ["leads", session.orgSlug, filters],
-    queryFn: () => apiRequest<LeadList>(session, `/v1/leads${query({ ...filters })}`),
-    refetchInterval: SLOW_INTERVAL_MS,
-    refetchOnWindowFocus: true,
-    // Changing a filter chip or the search box is a re-filter, not a navigation:
-    // keeping the previous rows on screen beats blanking the table to a skeleton
-    // (and, worse, flashing "No leads yet") on every change of the query key.
-    placeholderData: keepPreviousData,
-  });
 }
 
 export function useLead(session: Session, leadId: string): UseQueryResult<Lead> {
@@ -149,6 +130,181 @@ export function useAssignLead(session: Session) {
       void client.invalidateQueries({
         queryKey: ["lead-timeline", session.orgSlug, leadId],
       });
+    },
+  });
+}
+
+/**
+ * The lead-table lens types, aliased from the generated client like everything else in
+ * this file. They were hand-written while the slice was in flight and the snapshot had
+ * not been regenerated; that block is gone, and with it the one place in this app that
+ * was a claim about the server TypeScript could not check.
+ *
+ * `LeadListWithColumns` in particular is now just `LeadListOut`: the intersection it used
+ * to describe — the generated list type PLUS three hand-declared fields — exists in the
+ * generator's own output now, so keeping the intersection would re-introduce exactly the
+ * drift it was carefully written to contain.
+ */
+export type LeadColumn = Schemas["LeadColumnOut"];
+export type LeadFacets = Schemas["LeadFacetsOut"];
+export type SavedView = Schemas["SavedViewOut"];
+export type LeadListWithColumns = Schemas["LeadListOut"];
+
+/**
+ * Everything that decides WHICH ROWS and WHICH COLUMNS — one object, because the screen,
+ * the facet counts and the CSV export all have to be looking at the same thing.
+ *
+ * `fields` is the faceted half: key → selected values. It serializes to repeated `f=`
+ * parameters, which is the shape the API takes (`crm.routes._parse_field_filters`).
+ */
+export interface LeadLens {
+  status?: string;
+  search?: string;
+  assigned_to?: string;
+  agent_id?: string;
+  /** Extraction-schema key → selected values. OR within a key, AND across keys. */
+  fields?: Record<string, string[]>;
+  /** Column keys in display order. `undefined` = the client has chosen nothing. */
+  columns?: string[];
+}
+
+/**
+ * `LeadLens` → query string, in ONE function used by the list, the facets and the export.
+ *
+ * That is the whole "mirrored in CSV export" requirement on this side: the file cannot
+ * disagree with the screen about the filters if there is only one place that spells them.
+ * `paging` is separate because the export has none and the facets ignore it.
+ */
+export function lensQuery(lens: LeadLens, paging: { limit?: number; offset?: number } = {}): string {
+  const search = new URLSearchParams();
+  const scalars: Record<string, string | number | undefined> = {
+    status: lens.status,
+    search: lens.search,
+    assigned_to: lens.assigned_to,
+    agent_id: lens.agent_id,
+    ...paging,
+  };
+  for (const [key, value] of Object.entries(scalars)) {
+    if (value !== undefined && value !== "") search.set(key, String(value));
+  }
+  if (lens.columns?.length) search.set("columns", lens.columns.join(","));
+  for (const [key, values] of Object.entries(lens.fields ?? {})) {
+    for (const value of values) search.append("f", `${key}:${value}`);
+  }
+  const qs = search.toString();
+  return qs ? `?${qs}` : "";
+}
+
+/** The leads list, under a lens. Replaces `useLeads`'s filter object one caller at a time. */
+export function useLeadsUnderLens(
+  session: Session,
+  lens: LeadLens,
+  paging: { limit?: number; offset?: number } = {},
+): UseQueryResult<LeadListWithColumns> {
+  const qs = lensQuery(lens, paging);
+  return useQuery({
+    queryKey: ["leads", session.orgSlug, qs],
+    queryFn: () => apiRequest<LeadListWithColumns>(session, `/v1/leads${qs}`),
+    refetchInterval: SLOW_INTERVAL_MS,
+    refetchOnWindowFocus: true,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * The facet rail and its counts.
+ *
+ * A SEPARATE query from the list, matching the server's split: the counts change when
+ * the filters change and not when the page does, so folding them into the list would
+ * recompute up to eight aggregates on every scroll. No `placeholderData`: a stale count
+ * beside a fresh table is a number nobody sent.
+ */
+export function useLeadFacets(session: Session, lens: LeadLens): UseQueryResult<LeadFacets> {
+  // Columns do not change the counts, so they are stripped from the key — otherwise
+  // opening the column chooser would refetch the whole rail.
+  const qs = lensQuery({ ...lens, columns: undefined });
+  return useQuery({
+    queryKey: ["lead-facets", session.orgSlug, qs],
+    queryFn: () => apiRequest<LeadFacets>(session, `/v1/leads/facets${qs}`),
+  });
+}
+
+export function useSavedViews(session: Session): UseQueryResult<SavedView[]> {
+  return useQuery({
+    queryKey: ["lead-views", session.orgSlug],
+    queryFn: async () =>
+      (await apiRequest<{ items: SavedView[] }>(session, "/v1/leads/views")).items,
+  });
+}
+
+export interface SavedViewBody {
+  name: string;
+  filters: {
+    status?: string | null;
+    agent_id?: string | null;
+    assigned_to_me?: boolean;
+    fields?: Record<string, string[]>;
+  };
+  columns?: string[] | null;
+}
+
+export function useSaveView(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ viewId, body }: { viewId?: string; body: SavedViewBody }) =>
+      apiRequest<SavedView>(
+        session,
+        viewId ? `/v1/leads/views/${viewId}` : "/v1/leads/views",
+        { method: viewId ? "PATCH" : "POST", body },
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["lead-views", session.orgSlug] });
+    },
+  });
+}
+
+export function useDeleteView(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (viewId: string) =>
+      apiRequest<void>(session, `/v1/leads/views/${viewId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["lead-views", session.orgSlug] });
+    },
+  });
+}
+
+/**
+ * CSV export — `calls:read_raw` (owners only; the file carries FULL phone numbers),
+ * fetched WITH the session headers, and narrowed by THE SAME LENS as the screen.
+ *
+ * It cannot be a plain `<a href>`: the API authenticates every request from the
+ * Authorization and X-Org-Slug headers, which a browser navigation does not carry, so a
+ * link answers with a 401 problem+json instead of a file. Fetching it here and handing
+ * the browser a blob keeps the download while letting a refusal render through
+ * ProblemNotice like every other error.
+ *
+ * **It takes a `LeadLens`, and that is the whole point of this slice.** The version this
+ * replaces accepted `agent_id` alone while the endpoint had grown four more filters, so
+ * a client who narrowed the table to "hot" and pressed Export downloaded every contact
+ * in the account with full numbers, and the screen had to carry a warning saying so.
+ * Same object, same `lensQuery`, so the file is the table.
+ */
+export function useExportLeads(session: Session) {
+  return useMutation({
+    mutationFn: (lens: LeadLens) =>
+      apiRequest<string>(session, `/v1/leads/export.csv${lensQuery(lens)}`),
+    onSuccess: (csv) => {
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+      // In the document and revoked a tick later: a detached anchor is a no-op in
+      // some browsers, and revoking synchronously can cancel the save.
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     },
   });
 }

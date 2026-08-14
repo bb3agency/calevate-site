@@ -14,6 +14,7 @@ from collections.abc import Sequence
 
 from apps.api.admin import service as admin_service
 from apps.api.compliance.export import REDACTION_PENDING, build_subject_export, subject_ref
+from apps.api.compliance.export_routes import SubjectExportOut
 from apps.api.compliance.export_routes import router as export_router
 from apps.api.core.errors import install_error_handlers
 from apps.api.db.session import tenant_session, untenanted_session
@@ -135,9 +136,12 @@ def _client(app: FastAPI) -> AsyncClient:
 
 
 def _app() -> FastAPI:
-    """The router is deliberately NOT mounted in `main.py` yet, so the HTTP-level test
-    mounts it here. That also keeps the boot-assertion contract honest: if the route
-    ever loses its `permission_meta`, mounting it anywhere starts failing."""
+    """`main.py` mounts this router; the HTTP-level tests here mount it alone so a
+    failure names this surface rather than the whole app. That also keeps the
+    boot-assertion contract honest: if the route ever loses its `permission_meta`,
+    mounting it anywhere starts failing. (This docstring used to say the router was not
+    mounted in `main.py` — it was already false, and `export_routes.py` corrected the
+    same sentence in its own.)"""
     application = FastAPI()
     install_error_handlers(application)
     application.include_router(export_router)
@@ -290,6 +294,76 @@ async def test_one_tenants_export_never_reaches_another_tenants_calls() -> None:
     # A's lead row is A's alone, even though the phone number matches.
     assert document["lead"] is None
     assert document["counts"]["calls"] == 1
+
+
+async def test_the_response_model_declares_the_whole_document() -> None:
+    """The model and the builder are pinned to each other, in both directions.
+
+    `SubjectExportOut` is `extra="forbid"`, so a field added to `build_subject_export`
+    and not declared fails HERE rather than being silently dropped from a disclosure
+    that is supposed to be complete — and a field declared but no longer built fails as
+    a missing key. That two-way pinning is the whole reason the document is modelled
+    instead of returned as `dict[str, Any]`: the redaction guardrail inspects response
+    MODELS, and a free dict is a field it cannot see at all.
+    """
+    phone = "+919876511009"
+    tenant_id, agent_id, _slug, _token = await _tenant()
+    await _seed_lead(tenant_id, agent_id, phone=phone)
+    await _seed_call(
+        tenant_id,
+        agent_id,
+        phone=phone,
+        turns=[(0, "caller", RAW_AADHAAR, REDACTED_AADHAAR), (1, "agent", "Sare", None)],
+    )
+    async with tenant_session(tenant_id) as session:
+        document = await build_subject_export(session, tenant_id=tenant_id, phone_e164=phone)
+        empty = await build_subject_export(session, tenant_id=tenant_id, phone_e164="+919876511010")
+
+    model = SubjectExportOut.model_validate(document)
+    assert model.model_dump(mode="json") == document, "the model must not reshape the document"
+    # The empty document is a DIFFERENT shape at every optional point (`lead is None`,
+    # empty lists), and it is the one a client is most likely to file as an answer.
+    assert SubjectExportOut.model_validate(empty).lead is None
+
+    # The two fields the guardrail is exempted on, asserted rather than assumed: the
+    # exemption entries in `check_redaction_exposure` name this test.
+    assert model.transcripts[0].turns[0].text == REDACTED_AADHAAR
+    assert model.transcripts[0].turns[1].text == REDACTION_PENDING
+    assert RAW_AADHAAR not in json.dumps(document)
+
+
+async def test_an_undeclared_field_in_the_document_is_refused_not_dropped() -> None:
+    """The mutation that proves the pinning above is load-bearing.
+
+    An `extra="ignore"` model would drop this key and answer 200 with an incomplete
+    disclosure. Fail loudly instead: on this endpoint a quietly missing field is a
+    subject access response that omits part of the person's record.
+    """
+    import pydantic
+
+    try:
+        SubjectExportOut.model_validate(
+            {
+                "phone_e164": "+919876511011",
+                "generated_at": "2026-08-14T06:00:00+00:00",
+                "lead": None,
+                "calls": [],
+                "transcripts": [],
+                "consent": [],
+                "counts": {
+                    "leads": 0,
+                    "calls": 0,
+                    "transcript_turns": 0,
+                    "consent_records": 0,
+                    "recordings_available": 0,
+                },
+                "whatsapp_threads": [{"text": "raw message body"}],
+            }
+        )
+    except pydantic.ValidationError as error:
+        assert "whatsapp_threads" in str(error)
+    else:  # pragma: no cover - the assertion is the failure
+        raise AssertionError("an undeclared field must not pass silently")
 
 
 async def test_the_export_is_audited_and_the_audit_names_no_phone_number(caplog) -> None:  # type: ignore[no-untyped-def]

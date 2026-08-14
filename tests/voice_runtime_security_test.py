@@ -210,7 +210,7 @@ async def test_a_forged_forwarded_header_from_an_untrusted_peer_does_not_get_thr
         assert (inbox, deliveries) == (0, 0), f"a spoofed {header} left a row behind"
 
     # The chained form too: an attacker prepending the engine's IP to a list is the
-    # same attack wearing a hat, and `client_ip` takes the FIRST element.
+    # same attack wearing a hat.
     execution_id, status, body = _event()
     async with _client(ATTACKER_IP) as http:
         chained = await http.post(
@@ -218,6 +218,143 @@ async def test_a_forged_forwarded_header_from_an_untrusted_peer_does_not_get_thr
         )
     assert chained.status_code == 401
     assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
+
+
+# --- 2b. the leftmost X-Forwarded-For entry is not an address, it is a wish ----
+
+
+async def test_a_leftmost_forwarded_for_entry_is_never_believed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The spoofing test. `X-Forwarded-For` is APPENDED to by every hop, so entry 0 is
+    whatever the original caller typed — MDN's rule is that a security control may only
+    use addresses "added by a trusted proxy", and this receiver's control is the whole
+    authenticity story for an unsigned engine (D-31).
+
+    The dangerous shape is not the untrusted-peer one above (test 2), which the old code
+    also refused. It is this one: the request DOES arrive through a trusted hop — exactly
+    as every genuine request does — carrying a header the hop did not write. `client_ip`
+    used to prefer `CF-Connecting-IP` and fall back to XFF's leftmost entry, so anything
+    that could reach nginx without Cloudflare setting the header (an on-box process, a
+    relaxed origin lock, a future edge) could name its own source IP and be believed.
+
+    Both environments are asserted, because "the fallback is unreachable in prod" is the
+    argument that made the old code look safe.
+    """
+    settings = get_settings()
+    for env in ("prod", "local"):
+        monkeypatch.setattr(settings, "app_env", env)
+        execution_id, status, body = _event()
+        async with _client(EDGE_PROXY_IP) as http:
+            forged = await http.post(
+                HOOK,
+                json=body,
+                headers={"X-Forwarded-For": f"{ENGINE_EGRESS_IP}, {ATTACKER_IP}"},
+            )
+        assert forged.status_code == 401, (
+            f"[{env}] an X-Forwarded-For entry no trusted hop wrote must never clear the allowlist"
+        )
+        assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
+
+        # And the single-entry form, which is what a naive leftmost parse reads as "the
+        # client" without there being a list to look suspicious.
+        execution_id, status, body = _event()
+        async with _client(EDGE_PROXY_IP) as http:
+            single = await http.post(HOOK, json=body, headers={"X-Forwarded-For": ENGINE_EGRESS_IP})
+        assert single.status_code == 401, f"[{env}] XFF is not read at all"
+        assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
+
+
+# --- 2c. outside local, an unestablished client IP is a refusal ---------------
+
+
+async def test_outside_local_a_missing_or_unusable_edge_header_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail closed. In staging/prod every request arrives Cloudflare -> nginx -> here and
+    nginx writes `CF-Connecting-IP` from the real-ip-restored peer (DEPLOYMENT §5,
+    `infra/nginx/snippets/calevate-proxy.conf`). If that header is absent, blank or not a
+    single literal IP, the deployment's one promise about who is calling has been broken —
+    by a stripped header, a missing `real_ip` block, or a path into the container that does
+    not pass through nginx at all.
+
+    The only acceptable answer is 401. Attributing the request to the peer, to a default,
+    or to anything the caller supplied would turn an unsigned engine's sole authenticity
+    control into "we could not tell, so we accepted it". The cost of refusing is bounded
+    and known: the 10-minute reconciliation poller is the guarantee of record (D-31).
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "app_env", "staging")
+
+    for label, headers in (
+        ("absent", {}),
+        ("blank", {"CF-Connecting-IP": "   "}),
+        ("not an ip", {"CF-Connecting-IP": "not-an-ip"}),
+        # CF sends exactly one address; a list here means something else wrote it.
+        ("a list", {"CF-Connecting-IP": f"{ENGINE_EGRESS_IP}, {ATTACKER_IP}"}),
+        ("host:port", {"CF-Connecting-IP": f"{ENGINE_EGRESS_IP}:443"}),
+    ):
+        execution_id, status, body = _event()
+        async with _client(EDGE_PROXY_IP) as http:
+            response = await http.post(HOOK, json=body, headers=headers)
+        assert response.status_code == 401, f"{label}: an unestablished client IP must refuse"
+        assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
+
+    # A peer that is not a trusted proxy cannot be the caller either: outside local,
+    # nothing reaches this container except through nginx on the bridge network.
+    execution_id, status, body = _event()
+    async with _client(ENGINE_EGRESS_IP) as http:
+        direct = await http.post(HOOK, json=body)
+    assert direct.status_code == 401, (
+        "a direct connection is a broken perimeter, not a credential — even from the "
+        "engine's own address"
+    )
+    assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
+
+    # The genuine Cloudflare shape still gets in, which is the half that keeps this from
+    # being a very secure outage.
+    execution_id, status, body = _event()
+    async with _client(EDGE_PROXY_IP) as http:
+        genuine = await http.post(
+            HOOK,
+            json=body,
+            # As nginx sends it: the edge header set, XFF appended and irrelevant.
+            headers={
+                "CF-Connecting-IP": ENGINE_EGRESS_IP,
+                "X-Forwarded-For": f"{ATTACKER_IP}, {ENGINE_EGRESS_IP}",
+            },
+        )
+    assert genuine.status_code == 202, genuine.text
+    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
+
+
+async def test_the_local_path_still_works_without_an_edge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`local` is the one environment with no edge in front, so the socket peer IS the
+    caller and a header from a loopback peer is a developer's own curl, not a stranger's
+    claim (D-49 made `APP_ENV` explicit precisely so this branch cannot be reached by a
+    production deploy that merely forgot to set the variable).
+
+    Asserted so nobody hardens this into a state where the offline pipeline cannot be
+    exercised — the pressure to add a "just for testing" bypass in production comes from
+    exactly that.
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "app_env", "local")
+
+    execution_id, status, body = _event()
+    async with _client(EDGE_PROXY_IP) as http:
+        accepted = await http.post(HOOK, json=body, headers={"CF-Connecting-IP": ENGINE_EGRESS_IP})
+    assert accepted.status_code == 202, accepted.text
+    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
+
+    # A peer that IS the allowlisted address needs no header at all locally.
+    execution_id, status, body = _event()
+    async with _client(ENGINE_EGRESS_IP) as http:
+        by_peer = await http.post(HOOK, json=body)
+    assert by_peer.status_code == 202, by_peer.text
+    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
 
 
 # --- 3. the other half: a real edge proxy must still work ---------------------

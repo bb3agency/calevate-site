@@ -67,6 +67,18 @@ const PRIYA: Member = { id: "u1", name: "Priya Nair", role: "owner" };
 const KIRAN: Member = { id: "u2", name: "Kiran Babu", role: "staff" };
 const MEMBERS: Member[] = [PRIYA, KIRAN];
 
+/**
+ * The four fixed columns this suite's assertions read: the name link, the masked phone,
+ * the status select and the owner picker. `crm.columns` is the server's registry; these
+ * are its keys and labels.
+ */
+const DEFAULT_COLUMNS = [
+  { key: "name", label: "Name", kind: "fixed", type: "text" },
+  { key: "phone", label: "Phone", kind: "fixed", type: "text" },
+  { key: "status", label: "Status", kind: "fixed", type: "enum" },
+  { key: "owner", label: "Owner", kind: "fixed", type: "text" },
+] as const;
+
 function lead(over: Partial<Lead> = {}): Lead {
   return {
     id: "lead-a",
@@ -97,7 +109,13 @@ function lead(over: Partial<Lead> = {}): Lead {
 function leadList(items: Lead[], over: Partial<LeadList> = {}): LeadList {
   return {
     items,
-    columns: [],
+    // The server's RESOLVED column list, which is also the CSV's header for the same
+    // query string (`crm.columns`). Kept minimal here — the columns a given test needs —
+    // because this suite is about the numbers and the refusals, and `leadColumns.test.tsx`
+    // is where the chooser and the mirroring are exercised.
+    columns: DEFAULT_COLUMNS,
+    available_columns: DEFAULT_COLUMNS,
+    dropped_column_keys: [],
     total: items.length,
     limit: 100,
     offset: 0,
@@ -112,6 +130,11 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/agents": [DIALER],
     "/v1/members": MEMBERS,
     "/v1/leads?limit=100": leadList([]),
+    // The facet rail and the saved-view picker are part of this screen now. An unrouted
+    // request THROWS in this harness rather than 404ing, which is the point: a screen
+    // that quietly grew a call nobody expected should say so.
+    "/v1/leads/facets": { facets: [], omitted_field_count: 0 },
+    "/v1/leads/views": { items: [] },
     ...over,
   };
 }
@@ -143,7 +166,7 @@ describe("the CSV export offers itself only to a session that may use it", () =>
     await renderClientPage(<LeadsPage />, routes({ "/v1/me": staff }));
 
     const button = (await screen.findByRole("button", {
-      name: /Export all as CSV/,
+      name: /Export this view as CSV/,
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(button.title).toContain("account owner");
@@ -152,7 +175,7 @@ describe("the CSV export offers itself only to a session that may use it", () =>
   it("enables it for a session the server would accept", async () => {
     await renderClientPage(<LeadsPage />, routes());
     const button = (await screen.findByRole("button", {
-      name: /Export all as CSV/,
+      name: /Export this view as CSV/,
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(false);
   });
@@ -169,7 +192,7 @@ describe("the CSV export offers itself only to a session that may use it", () =>
     );
 
     const button = (await screen.findByRole("button", {
-      name: /Export all as CSV/,
+      name: /Export this view as CSV/,
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(button.title).toContain("could not check");
@@ -347,6 +370,9 @@ describe("the counts come from the server or are not shown", () => {
       routes({
         "/v1/leads?limit=100": leadList([]),
         "/v1/leads?status=hot&limit=100": HOT_PAGE,
+        // The facet rail follows the same status chip, because it describes the same
+        // table — one query string, three surfaces (`lib/api/leads.ts::lensQuery`).
+        "/v1/leads/facets?status=hot": { facets: [], omitted_field_count: 0 },
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "hot" }));
@@ -371,22 +397,41 @@ describe("the counts come from the server or are not shown", () => {
     expect(tally?.textContent).toContain("Showing 2 of 2 hot leads");
   });
 
-  it("does not print a filtered total under the words 'every lead in the account'", async () => {
+  it("names the number of leads the CSV will actually hold", async () => {
     const { container } = await filterToHot();
 
     await screen.findByText(/by stage/);
-    // 12+3+4+2+1+0 = 22 leads in the account; `total` is 2 because a chip is on. The
-    // export ignores the chip, so 22 is the figure the sentence is about — the old copy
-    // printed `total` here and told a client their whole-account export held 2 rows.
-    expect(container.textContent).toContain("every lead in the account (22)");
-    expect(container.textContent).not.toContain("account (2),");
+    // **This assertion is the inverse of the one it replaces.** The export used to
+    // ignore the status chip, so the sentence had to name the WHOLE account (22) and
+    // warn that the file was wider than the table. `/v1/leads/export.csv` now takes the
+    // same lens as the list, so the file holds the 2 hot leads on screen and the copy
+    // says so. A sentence claiming otherwise would teach a client to distrust a control
+    // that works — the more dangerous of the two wrong sentences.
+    expect(container.textContent).toContain("The CSV export contains these 2 leads");
+    expect(container.textContent).not.toContain("the export ignores this filter");
+    expect(container.textContent).not.toContain("every lead in the account");
+  });
+
+  it("sends the SAME filters to the export that it sent to the list", async () => {
+    // The mirroring, at the seam where it can break: two query strings, compared. A
+    // screen that narrowed the table and downloaded the account is the defect this
+    // whole slice exists to close, and it is invisible in any assertion about copy.
+    const { calls } = await filterToHot();
+    await screen.findByText(/by stage/);
+
+    fireEvent.click(screen.getByRole("button", { name: /Export this view as CSV/ }));
+    const exportCall = await vi.waitFor(() => {
+      const found = calls.find((c) => c.path.startsWith("/v1/leads/export.csv"));
+      if (!found) throw new Error("the export was never requested");
+      return found;
+    });
+    expect(exportCall.path).toBe("/v1/leads/export.csv?status=hot");
   });
 
   it("names no account total while a search is on, because the response holds none", async () => {
     // The other half of the same fix. `status_counts_matching_search` follows the SEARCH
     // (crm/service.py), so once the box has text nothing in the response adds up to the
-    // account — and the export still ignores the search. A number here would be the
-    // searched population wearing the account's label.
+    // account — and the sentence beside Export is about the FILTERED set anyway now.
     const { container, calls } = await renderClientPage(
       <LeadsPage />,
       routes({
@@ -401,6 +446,7 @@ describe("the counts come from the server or are not shown", () => {
             lost: 0,
           },
         }),
+        "/v1/leads/facets?search=ram": { facets: [], omitted_field_count: 0 },
       }),
     );
 
@@ -410,8 +456,10 @@ describe("the counts come from the server or are not shown", () => {
     await screen.findByText(/matching your search/);
     expect(calls.some((c) => c.path === "/v1/leads?search=ram&limit=100")).toBe(true);
 
-    expect(container.textContent).toContain("the export ignores this filter");
-    expect(container.textContent).not.toContain("account (");
+    // Awaited rather than read off `container` synchronously: the searched page is a
+    // second request, and the sentence is about ITS total.
+    await screen.findByText(/The CSV export contains this 1 lead/);
+    expect(container.textContent).not.toContain("every lead in the account");
     // The searched population is still stated — as the search's own count, where it is
     // true — so dropping the account figure does not leave the client with nothing.
     expect(container.textContent).toContain("Matching your search, by stage:");

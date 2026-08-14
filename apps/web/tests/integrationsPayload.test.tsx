@@ -90,6 +90,10 @@ function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": OWNER,
     "/v1/integrations/endpoints": ENDPOINTS,
+    // The create forms are built from the server's catalogue, so the screen asks for it.
+    "/v1/integrations/events": {
+      events: ["lead.created", "lead.updated", "call.completed", "campaign.completed"],
+    },
     "/v1/integrations/deliveries": [delivery()],
     ...over,
   };

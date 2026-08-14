@@ -192,6 +192,49 @@ class Lead(PKMixin, TimestampMixin, Base):
     deleted_at: Mapped[datetime | None]
 
 
+class LeadSavedView(PKMixin, TimestampMixin, Base):
+    """A named filter+column combination, PRIVATE to the user who saved it (SURFACES §2).
+
+    **Why a table and not a column on `memberships`.** A person keeps several of these
+    ("Hot this week", "Unassigned walk-ins"), each with a name and its own lifetime, so
+    the cardinality is per-user-per-tenant-per-VIEW and a JSONB blob on the membership
+    would be a list nobody can constrain, index or delete a single element of.
+
+    **Private only, and the table says so by having no visibility column.** Shared views
+    are a separate slice with a separate question — who may edit a view three colleagues
+    depend on, and what happens to their screens when someone does. The industry default
+    is private-unless-explicitly-shared (Tableau custom views, SeaTable private views),
+    and private-first is the only version that cannot leak: there is no shared row here
+    to get a permission wrong on. Adding `visibility` later is an additive migration.
+
+    **`user_id` is a plain FK to a GLOBAL table** (`users`, no RLS — DATA-MODEL §2), so
+    it is `tenant_id` that isolates this row and `UNIQUE(tenant_id, user_id, name)` that
+    scopes a name to one person on one account. Every read also filters `user_id`
+    explicitly: RLS answers "which tenant", never "which person", and treating the
+    policy as if it did is how one colleague's views would show up in another's picker.
+
+    `filters` and `columns` are JSONB validated at the API boundary (`SavedViewFilters`,
+    DATA-MODEL §10's stated pattern), because the whole content of a view is "whatever
+    the extraction schema currently offers" and that is not a column list.
+    """
+
+    __tablename__ = "lead_saved_views"
+    __table_args__ = (UniqueConstraint("tenant_id", "user_id", "name"),)
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    filters: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    #: NULL = "no column choice was made", which renders every column this agent has.
+    #: An empty array would mean the same thing and is refused by the CHECK, so there is
+    #: one spelling of the absence rather than two.
+    columns: Mapped[list[str] | None] = mapped_column(JSONB)
+
+
 class LeadEvent(PKMixin, TimestampMixin, Base):
     __tablename__ = "lead_events"
     __table_args__ = (CheckConstraint(f"type IN {LEAD_EVENT_TYPES!r}", name="type_enum"),)

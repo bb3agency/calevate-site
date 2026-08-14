@@ -72,6 +72,7 @@ function navigation(slug: string): NavGroup[] {
         { href: `/c/${slug}/leads`, label: "Leads", icon: Users },
         { href: `/c/${slug}/knowledge`, label: "Knowledge base", icon: BookOpen },
         { href: `/c/${slug}/performance`, label: "Performance", icon: BarChart3 },
+        { href: `/c/${slug}/quality`, label: "Quality", icon: ShieldCheck },
       ],
     },
     {

@@ -36,6 +36,7 @@ import {
   type ExperimentVariant,
   type PendingState,
 } from "@/lib/api/publishing";
+import { useSetAgentVoice, useTenantVoiceCatalogue, type Voice } from "@/lib/api/voices";
 
 import { useAdminAccess } from "@/app/admin/access";
 
@@ -124,6 +125,14 @@ export default function AgentPromptPage({
         agentId={agentId}
         slug={slug}
         pending={pending.data}
+        write={write}
+      />
+
+      <VoicePanel
+        tenantId={tenantId}
+        agentId={agentId}
+        slug={slug}
+        tenantLoading={tenant.isLoading}
         write={write}
       />
 
@@ -566,6 +575,171 @@ function CallCapPanel({
       </div>
     </Card>
   );
+}
+
+/**
+ * Which voice this agent speaks in — D-36's premium/value ladder, selectable at last.
+ *
+ * **Why this screen.** Voice is agent CONFIGURATION and the write is admin-realm
+ * `agents:write` (`agents/voice_routes.py`, D-21: which voice speaks Telugu well is an ear
+ * test, so it routes through us). This is the only per-agent operator screen in the
+ * console and it already holds every other `agents:write` control — script, apply/undo,
+ * call cap, A/B — behind one `useAdminAccess` gate. A second per-agent screen for one
+ * dropdown would be a second place to look for the same class of setting.
+ *
+ * **What it can and cannot show.** It can SET a voice and report exactly what the server
+ * said about the write. It CANNOT show which voice is currently in force: no endpoint
+ * exposes `agents.tts_voice` — `AgentOut` does not carry it — so the select opens on
+ * "choose a voice" rather than on a guess, and the card says so in one sentence. Marking
+ * an arbitrary entry as "current" would be §52's defect in its purest form: a state we
+ * never read, rendered as a fact. Closing that gap is a backend change (report, not a
+ * client-side inference).
+ *
+ * **It does not go live by itself, and the screen refuses to imply otherwise.** The write
+ * touches our row only; `publish_agent` re-reads the column, so a live agent keeps its old
+ * voice until the next publish. The server answers that in `republish_required` and
+ * `next_step`, and both are printed verbatim rather than paraphrased — the same doctrine
+ * the Apply panel above follows with `engine_synced`.
+ *
+ * `verified: false` is rendered, not hidden: the catalogue entries carry it until the
+ * Bolna pilot confirms each string is selectable on the engine (OPERATIONS §2 gate 3), and
+ * an operator picking an unverified voice should know that is what they are doing.
+ */
+function VoicePanel({
+  tenantId,
+  agentId,
+  slug,
+  tenantLoading,
+  write,
+}: {
+  tenantId: string;
+  agentId: string;
+  slug: string;
+  tenantLoading: boolean;
+  write: ReturnType<typeof useAdminAccess>;
+}) {
+  const catalogue = useTenantVoiceCatalogue(slug);
+  const save = useSetAgentVoice({ tenantId, agentId, slug });
+  const [choice, setChoice] = useState("");
+
+  return (
+    <Card title="Voice">
+      <p className="-mt-2 text-xs text-ink-muted">
+        Setting a voice writes it to the agent and stops there — a live agent keeps
+        speaking in its old voice until the next publish, which is deliberate: re-voicing a
+        running client&apos;s phone line is not something to do silently.
+      </p>
+      <div className="mt-3 space-y-3">
+        <RestrictionNote reason={write.reason} />
+        {save.error && <ProblemNotice error={save.error} />}
+
+        {/* §52: the catalogue is a read like any other. A skeleton while it is in flight,
+            a refusal when it failed — never an empty `<select>`, which reads as "this
+            agent has no voices available" and is a claim about the product. The tenant
+            read gates it because the request goes through that tenant's impersonation
+            session, so there is nothing to ask until the slug exists. */}
+        {tenantLoading || catalogue.isLoading ? (
+          <Skeleton rows={2} />
+        ) : catalogue.error || !catalogue.data ? (
+          <ProblemNotice
+            error={
+              catalogue.error ??
+              new Error("The voice catalogue did not load, so there is nothing to choose from.")
+            }
+            onRetry={() => void catalogue.refetch()}
+          />
+        ) : (
+          <>
+            <form
+              className="flex flex-wrap items-end gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                save.mutate(choice);
+              }}
+            >
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-ink-muted">Voice</span>
+                <select
+                  value={choice}
+                  disabled={!write.allowed}
+                  onChange={(event) => setChoice(event.target.value)}
+                  className={FIELD}
+                >
+                  <option value="">Choose a voice</option>
+                  {catalogue.data.map((voice) => (
+                    <option key={voice.id} value={voice.id}>
+                      {voiceReading(voice)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="submit"
+                disabled={save.isPending || choice === "" || !write.allowed}
+                className={PRIMARY_BUTTON_SM}
+              >
+                {save.isPending ? "Saving…" : "Set voice"}
+              </button>
+            </form>
+
+            <VoiceDetail voice={catalogue.data.find((entry) => entry.id === choice)} />
+          </>
+        )}
+
+        {save.data && (
+          <p className="text-xs text-ink-muted">
+            Saved — {save.data.voice.label} ({save.data.voice.tier} tier,{" "}
+            {save.data.voice.tts_model}). {save.data.next_step}
+          </p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * What the operator is about to choose, before they choose it.
+ *
+ * The `<option>` text carries the tier and the model because that is what an operator
+ * compares on; the rest — languages, the catalogue's own note, and whether the string has
+ * been confirmed on the engine — needs more room than an option can hold. Nothing is
+ * rendered until something is selected: an empty panel is honest, and this card already
+ * says it cannot report the voice in force.
+ */
+function VoiceDetail({ voice }: { voice: Voice | undefined }) {
+  if (!voice) {
+    return (
+      <p className="text-xs text-ink-muted">
+        The voice currently in force is not readable over the API, so nothing here is
+        pre-selected. Choosing one below sets it; it does not tell you what it was.
+      </p>
+    );
+  }
+  return (
+    <div className="rounded-card border border-line p-3 text-xs text-ink-muted">
+      <p>
+        <span className="font-semibold text-ink">{voice.label}</span> · {voice.provider}{" "}
+        {voice.tts_model} · {voice.tier} tier
+        {voice.gender ? ` · ${voice.gender}` : ""} · {voice.languages.join(", ")}
+      </p>
+      <p className="mt-1">{voice.note}</p>
+      {!voice.verified && (
+        // Stated, not hidden: the catalogue marks an entry verified only once the pilot
+        // has confirmed the engine accepts the string (OPERATIONS §2 gate 3). Setting an
+        // unverified one is allowed and is a decision the operator should make knowingly.
+        <p className="mt-1 text-amber-700 dark:text-amber-400">
+          Not yet confirmed against the voice platform — we have not heard this one on a
+          live call. Expect to verify it before a client hears it.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** One catalogue entry, in the words an operator picks on. */
+function voiceReading(voice: Voice): string {
+  const badge = voice.verified ? "" : " · unverified";
+  return `${voice.label} — ${voice.tier} (${voice.tts_model})${badge}`;
 }
 
 /**

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState, type ComponentType } from "react";
 import {
   Building2,
+  ClipboardCheck,
   HeartPulse,
   Hourglass,
   Lock,
@@ -118,6 +119,13 @@ const NAV: NavGroup[] = [
         icon: Hourglass,
         permission: "org:read",
         action: "open the hold queue",
+      },
+      {
+        href: "/admin/qa-sampling",
+        label: "QA sampling",
+        icon: ClipboardCheck,
+        permission: "org:read",
+        action: "open the QA sampling queue",
       },
     ],
   },

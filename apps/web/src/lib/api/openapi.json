@@ -2598,6 +2598,60 @@
         "title": "DeletionRequestOut",
         "type": "object"
       },
+      "DeletionRequestSummaryOut": {
+        "additionalProperties": false,
+        "description": "One row of the index \u2014 what the client needs to FIND a request again, and nothing\nelse. The docstring on the route below says what is excluded and why.\n\n`has_certificate` rather than the certificate itself: the list exists to hand back a\nhandle, and shipping every proof on the account to render an index would make the\ncheapest read on this surface the largest. It is a separate field rather than inferred\nfrom `status` because \"completed with no proof recorded\" is a real state the screen\nmust be able to warn about (`deletion_routes` has always modelled `proof` as\nnullable), and a list that inferred it would hide exactly that case.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "has_certificate": {
+            "title": "Has Certificate",
+            "type": "boolean"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_ref": {
+            "title": "Subject Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "subject_ref",
+          "status",
+          "requested_at",
+          "completed_at",
+          "has_certificate"
+        ],
+        "title": "DeletionRequestSummaryOut",
+        "type": "object"
+      },
       "DeliveryOut": {
         "additionalProperties": false,
         "properties": {
@@ -3469,6 +3523,26 @@
           "answer"
         ],
         "title": "Faq",
+        "type": "object"
+      },
+      "FieldLimit": {
+        "additionalProperties": false,
+        "description": "One column of the client's leads list that the configured model does not fill.\n\nNamed by the client's own LABEL, never our key: `budget_lakhs` is our column and\n\"Budget (lakhs)\" is theirs.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "scenarios": {
+            "title": "Scenarios",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "scenarios"
+        ],
+        "title": "FieldLimit",
         "type": "object"
       },
       "FirstCampaignDecisionIn": {
@@ -4636,15 +4710,144 @@
         "title": "LaunchOut",
         "type": "object"
       },
+      "LeadColumnOut": {
+        "additionalProperties": false,
+        "description": "One selectable column of the Leads table \u2014 `crm.columns.LeadColumn` on the wire.\n\n`kind` is what lets the screen render a column without knowing its name: `fixed`\ncolumns come off `LeadOut`'s own attributes (and `phone` is `phone_masked` there,\nwhich is hard rule 6 and not a rendering choice), `extraction` columns come out of\n`LeadOut.data` under `key`.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "fixed",
+              "extraction"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "text",
+              "number",
+              "bool",
+              "enum",
+              "date"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "kind",
+          "type"
+        ],
+        "title": "LeadColumnOut",
+        "type": "object"
+      },
+      "LeadFacetOut": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/LeadFacetValueOut"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "values"
+        ],
+        "title": "LeadFacetOut",
+        "type": "object"
+      },
+      "LeadFacetValueOut": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "declared": {
+            "title": "Declared",
+            "type": "boolean"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "count",
+          "declared"
+        ],
+        "title": "LeadFacetValueOut",
+        "type": "object"
+      },
+      "LeadFacetsOut": {
+        "additionalProperties": false,
+        "description": "The filter rail, built from the per-agent EXTRACTION SCHEMA (SURFACES \u00a72).\n\nEnum fields only, and never a hard-coded list: different tenants and different\nverticals have different columns, so a fixed facet set would be wrong the day a\nsecond vertical lands. `crm.columns.facetable` is the definition, including why\n`status` and `source` are deliberately not here.",
+        "properties": {
+          "facets": {
+            "items": {
+              "$ref": "#/components/schemas/LeadFacetOut"
+            },
+            "title": "Facets",
+            "type": "array"
+          },
+          "omitted_field_count": {
+            "title": "Omitted Field Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "facets",
+          "omitted_field_count"
+        ],
+        "title": "LeadFacetsOut",
+        "type": "object"
+      },
       "LeadListOut": {
         "additionalProperties": false,
         "description": "The Leads table is schema-driven (TRD \u00a77): the columns travel WITH the rows so\nthe frontend never hard-codes a client's fields.",
         "properties": {
+          "available_columns": {
+            "items": {
+              "$ref": "#/components/schemas/LeadColumnOut"
+            },
+            "title": "Available Columns",
+            "type": "array"
+          },
           "columns": {
             "items": {
-              "$ref": "#/components/schemas/ExtractionField"
+              "$ref": "#/components/schemas/LeadColumnOut"
             },
             "title": "Columns",
+            "type": "array"
+          },
+          "dropped_column_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dropped Column Keys",
             "type": "array"
           },
           "items": {
@@ -4677,6 +4880,8 @@
         "required": [
           "items",
           "columns",
+          "available_columns",
+          "dropped_column_keys",
           "total",
           "limit",
           "offset",
@@ -5342,6 +5547,36 @@
           "impersonating"
         ],
         "title": "MeOut",
+        "type": "object"
+      },
+      "Measurement": {
+        "additionalProperties": false,
+        "description": "A number with the reason it is trustworthy attached, or the reason it is not.",
+        "properties": {
+          "basis": {
+            "enum": [
+              "measured",
+              "too_few",
+              "no_baseline"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "passed",
+          "total",
+          "basis"
+        ],
+        "title": "Measurement",
         "type": "object"
       },
       "MemberOut": {
@@ -6430,6 +6665,299 @@
         "title": "ProvisionNumberIn",
         "type": "object"
       },
+      "QaReport": {
+        "additionalProperties": false,
+        "description": "The whole report, computed once.\n\n`scenarios_total` = `everything_captured.total` = `field_left_blank.total` by\nconstruction, and the two measurements' `passed` counts add up to it: the split\nexists because one number would answer two questions and answer both badly (see\n`scripts/qa_report.render`).",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "client": {
+            "title": "Client",
+            "type": "string"
+          },
+          "defects": {
+            "title": "Defects",
+            "type": "integer"
+          },
+          "everything_captured": {
+            "$ref": "#/components/schemas/Measurement"
+          },
+          "field_left_blank": {
+            "$ref": "#/components/schemas/Measurement"
+          },
+          "known_limits": {
+            "items": {
+              "$ref": "#/components/schemas/FieldLimit"
+            },
+            "title": "Known Limits",
+            "type": "array"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "red_team": {
+            "title": "Red Team",
+            "type": "integer"
+          },
+          "scenario_classes": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioClassCount"
+            },
+            "title": "Scenario Classes",
+            "type": "array"
+          },
+          "scenarios_total": {
+            "title": "Scenarios Total",
+            "type": "integer"
+          },
+          "trend": {
+            "default": "no_baseline",
+            "enum": [
+              "measured",
+              "too_few",
+              "no_baseline"
+            ],
+            "title": "Trend",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "vertical": {
+            "title": "Vertical",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client",
+          "vertical",
+          "as_of",
+          "model",
+          "scenarios_total",
+          "defects",
+          "red_team",
+          "everything_captured",
+          "field_left_blank"
+        ],
+        "title": "QaReport",
+        "type": "object"
+      },
+      "QaReviewIn": {
+        "additionalProperties": false,
+        "description": "A reviewer's conclusion. An enum and nothing else.\n\nNo note field, deliberately (hard rule 6): a free-text box on a cross-tenant queue is\nan invitation to type what the caller said into it, and `admin/holds.py` already\nrefuses operator prose on a list for exactly that reason. What a reviewer found that\nthe enum cannot express belongs in the incident it justifies, not in this row.",
+        "properties": {
+          "verdict": {
+            "enum": [
+              "clean",
+              "concern",
+              "defect"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict"
+        ],
+        "title": "QaReviewIn",
+        "type": "object"
+      },
+      "QaSampleDetailOut": {
+        "additionalProperties": false,
+        "description": "A sampled call opened for review \u2014 the queue row plus the REDACTED call.\n\n`call` is `CallDetailOut` exactly as the client's own screen receives it: transcript\nturns hold `text_redacted` and each carries `redacted: true`. This model adds no\nfield of its own to the call, which is the point \u2014 there is one shape for \"a call as\na human reads it\", and this surface uses it rather than defining a reviewer's\nvariant that could quietly diverge on what it masks.",
+        "properties": {
+          "call": {
+            "$ref": "#/components/schemas/CallDetailOut"
+          },
+          "sample": {
+            "$ref": "#/components/schemas/QaSampleOut"
+          }
+        },
+        "required": [
+          "sample",
+          "call"
+        ],
+        "title": "QaSampleDetailOut",
+        "type": "object"
+      },
+      "QaSampleOut": {
+        "additionalProperties": false,
+        "description": "One sampled call. Ids, timings and tags \u2014 no transcript text, no phone number.",
+        "properties": {
+          "agent_name": {
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "call_id": {
+            "format": "uuid",
+            "title": "Call Id",
+            "type": "string"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "disclosure_played": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclosure Played"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration S"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Tag"
+          },
+          "population": {
+            "title": "Population",
+            "type": "integer"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "selected_at": {
+            "format": "date-time",
+            "title": "Selected At",
+            "type": "string"
+          },
+          "selection_rank": {
+            "title": "Selection Rank",
+            "type": "integer"
+          },
+          "selection_seed": {
+            "title": "Selection Seed",
+            "type": "string"
+          },
+          "sentiment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentiment"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "target": {
+            "title": "Target",
+            "type": "integer"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tenant_name": {
+            "title": "Tenant Name",
+            "type": "string"
+          },
+          "tenant_slug": {
+            "title": "Tenant Slug",
+            "type": "string"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "enum": [
+                  "clean",
+                  "concern",
+                  "defect"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "week_start": {
+            "format": "date",
+            "title": "Week Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "tenant_name",
+          "tenant_slug",
+          "call_id",
+          "agent_name",
+          "week_start",
+          "population",
+          "target",
+          "selection_rank",
+          "selection_seed",
+          "selected_at",
+          "started_at",
+          "duration_s",
+          "direction",
+          "outcome_tag",
+          "sentiment",
+          "disclosure_played",
+          "verdict",
+          "reviewed_at"
+        ],
+        "title": "QaSampleOut",
+        "type": "object"
+      },
       "RecordConsentIn": {
         "additionalProperties": false,
         "properties": {
@@ -6736,6 +7264,255 @@
           "previous_secret_expires_at"
         ],
         "title": "RotateSecretOut",
+        "type": "object"
+      },
+      "SavedViewFilters": {
+        "additionalProperties": false,
+        "description": "What a saved view narrows the table to.\n\n**`search` is deliberately not a field.** A saved view is a named LENS \u2014 a stage, a\nset of facet values, an agent \u2014 and the search box is a transient lookup, not a lens.\nStoring one would also put a phone SUFFIX (what the box accepts) into a durable row\nfor no product gain, which is a hard-rule-6 surface bought for nothing.\n\n**`assigned_to_me` is a boolean, not a user id.** Views are private to one user\n(see `SavedViewOut`), so the only owner a view can usefully pin is its own reader \u2014\nand a stored uuid would be a dangling pointer the day that colleague leaves, where a\nboolean is resolved fresh against the caller on every read.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "assigned_to_me": {
+            "default": false,
+            "title": "Assigned To Me",
+            "type": "boolean"
+          },
+          "fields": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "new",
+                  "contacted",
+                  "interested",
+                  "hot",
+                  "won",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "SavedViewFilters",
+        "type": "object"
+      },
+      "SavedViewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 40,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/SavedViewFilters"
+          },
+          "name": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SavedViewIn",
+        "type": "object"
+      },
+      "SavedViewListOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SavedViewOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SavedViewListOut",
+        "type": "object"
+      },
+      "SavedViewOut": {
+        "additionalProperties": false,
+        "description": "One saved view, RESOLVED against the agent's current extraction schema.\n\n**Private to its author.** Shared views are a separate slice with a separate\nquestion (who may edit a view three colleagues rely on), and the industry default\nfor a saved view is private-unless-published \u2014 Tableau and SeaTable both create\nprivate and require an explicit act to share. Private-first is also the only choice\nthat cannot leak: this table holds no shared row to get the permission wrong on.\n\n**`stale_*` is the graceful degradation.** A view pinned to a field an admin later\nremoved from the capture list is not an error \u2014 the reader gets the view with the\ndead references REMOVED and named here, so the screen can say \"this view also\nfiltered on Budget, which your capture list no longer has\" instead of 500ing or\nsilently returning a different set of rows. Jira's answer to the same event is a\nbroken filter and an integrity checker; this is cheaper and kinder.",
+        "properties": {
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/SavedViewFilters"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "stale_column_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stale Column Keys",
+            "type": "array"
+          },
+          "stale_filter_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stale Filter Keys",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "filters",
+          "columns",
+          "stale_filter_keys",
+          "stale_column_keys",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SavedViewOut",
+        "type": "object"
+      },
+      "SavedViewUpdateIn": {
+        "additionalProperties": false,
+        "description": "Rename, or re-pin. Every field optional; an omitted one is left alone.\n\n`columns` cannot be cleared back to `null` through this route \u2014 sending `null` means\n\"leave the columns alone\", the same silence every other field here means. Clearing\nis `columns: []`, which `crm.saved_views` stores as \"no choice made\". Two spellings\nof \"unset\" on one field is how the assignee sentinel next door earned its comment,\nand this field does not need the ambiguity: an empty selection has no other meaning.",
+        "properties": {
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 40,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "filters": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedViewFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "SavedViewUpdateIn",
+        "type": "object"
+      },
+      "ScenarioClassCount": {
+        "additionalProperties": false,
+        "description": "One of the six scenario classes, counted, in the CLIENT's vocabulary.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "meaning": {
+            "title": "Meaning",
+            "type": "string"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scenario",
+          "label",
+          "meaning",
+          "count"
+        ],
+        "title": "ScenarioClassCount",
         "type": "object"
       },
       "ScheduleIn": {
@@ -7342,6 +8119,184 @@
         "title": "StartExperimentOut",
         "type": "object"
       },
+      "SubjectExportCallOut": {
+        "additionalProperties": false,
+        "description": "One call, with the audio reported as a fact rather than as a link.\n\n`recording_available` is a boolean and never a URL (`export.py` decision 2): a\npresigned URL inside a document that gets emailed and forwarded is a bearer\ncredential travelling with it.",
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration S"
+          },
+          "outcome_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Tag"
+          },
+          "recording_available": {
+            "title": "Recording Available",
+            "type": "boolean"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "call_id",
+          "direction",
+          "started_at",
+          "duration_s",
+          "outcome_tag",
+          "summary",
+          "recording_available"
+        ],
+        "title": "SubjectExportCallOut",
+        "type": "object"
+      },
+      "SubjectExportConsentOut": {
+        "additionalProperties": false,
+        "description": "One consent-ledger entry. `evidence_recorded` is a boolean for the same reason\nthe recording is: the evidence is a transcript SPAN, raw by construction, and it\nstays behind the audited raw-transcript path.",
+        "properties": {
+          "call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
+          "captured_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured At"
+          },
+          "evidence_recorded": {
+            "title": "Evidence Recorded",
+            "type": "boolean"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "call_id",
+          "purpose",
+          "status",
+          "captured_at",
+          "evidence_recorded"
+        ],
+        "title": "SubjectExportConsentOut",
+        "type": "object"
+      },
+      "SubjectExportCountsOut": {
+        "additionalProperties": false,
+        "description": "What the document contains, stated in the document.\n\n`leads` is the TRUE number of lead rows this number matched while `lead` carries only\nthe most recently updated one, so a second row (a tenant running two agents) is\nvisible in the answer rather than silently dropped from it.",
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "consent_records": {
+            "title": "Consent Records",
+            "type": "integer"
+          },
+          "leads": {
+            "title": "Leads",
+            "type": "integer"
+          },
+          "recordings_available": {
+            "title": "Recordings Available",
+            "type": "integer"
+          },
+          "transcript_turns": {
+            "title": "Transcript Turns",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "leads",
+          "calls",
+          "transcript_turns",
+          "consent_records",
+          "recordings_available"
+        ],
+        "title": "SubjectExportCountsOut",
+        "type": "object"
+      },
       "SubjectExportIn": {
         "additionalProperties": false,
         "description": "`extra=\"forbid\"` so a caller cannot smuggle a second selector (a lead id, a\ntenant slug) into a request whose whole security argument is \"one phone number\".",
@@ -7358,6 +8313,234 @@
           "phone"
         ],
         "title": "SubjectExportIn",
+        "type": "object"
+      },
+      "SubjectExportLeadOut": {
+        "additionalProperties": false,
+        "description": "The CRM record, as the client holds it.\n\n`phone_e164` is the subject's OWN number and appears unmasked \u2014 `export.py` decision\n3: masking the identifier the subject asked about produces a document they cannot\ncheck is about them. It is declared here rather than hidden in a dict so\n`check_redaction_exposure` judges it against a named, reasoned allowance instead of\nnever seeing it.",
+        "properties": {
+          "call_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Count"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_repeat_caller": {
+            "title": "Is Repeat Caller",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "phone_e164": {
+            "title": "Phone E164",
+            "type": "string"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Version"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "phone_e164",
+          "name",
+          "status",
+          "source",
+          "data",
+          "schema_version",
+          "call_count",
+          "is_repeat_caller",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SubjectExportLeadOut",
+        "type": "object"
+      },
+      "SubjectExportOut": {
+        "additionalProperties": false,
+        "description": "The whole disclosure, and therefore the whole output whitelist\n(BACKEND-PATTERNS \u00a71).",
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportCallOut"
+            },
+            "title": "Calls",
+            "type": "array"
+          },
+          "consent": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportConsentOut"
+            },
+            "title": "Consent",
+            "type": "array"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/SubjectExportCountsOut"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "lead": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubjectExportLeadOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phone_e164": {
+            "title": "Phone E164",
+            "type": "string"
+          },
+          "transcripts": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportTranscriptOut"
+            },
+            "title": "Transcripts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "phone_e164",
+          "generated_at",
+          "lead",
+          "calls",
+          "transcripts",
+          "consent",
+          "counts"
+        ],
+        "title": "SubjectExportOut",
+        "type": "object"
+      },
+      "SubjectExportTranscriptOut": {
+        "additionalProperties": false,
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportTurnOut"
+            },
+            "title": "Turns",
+            "type": "array"
+          }
+        },
+        "required": [
+          "call_id",
+          "turns"
+        ],
+        "title": "SubjectExportTranscriptOut",
+        "type": "object"
+      },
+      "SubjectExportTurnOut": {
+        "additionalProperties": false,
+        "description": "One transcript turn. `text` carries `text_redacted`, never the raw column \u2014 hard\nrule 5, reinforced rather than relaxed here because this is the one response that\nleaves the client's own screen (`export.py` decision 1). A turn that has not been\nthrough the redaction pass yet says so (`export.REDACTION_PENDING`) rather than\nfalling back to raw.",
+        "properties": {
+          "idx": {
+            "title": "Idx",
+            "type": "integer"
+          },
+          "speaker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idx",
+          "speaker",
+          "text"
+        ],
+        "title": "SubjectExportTurnOut",
         "type": "object"
       },
       "SubmitIn": {
@@ -9136,6 +10319,157 @@
           "admin"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/qa-samples": {
+      "get": {
+        "description": "Calls drawn for review, newest week first and in the draw's own order. Each row carries the frame it came from \u2014 the week, the number of calls in it, the number drawn \u2014 and the seed the order was computed from, so the sample can be recomputed and checked by anyone. `pending` (default) shows only calls nobody has reviewed yet. No transcript text and no phone number appear on this list.",
+        "operationId": "list_qa_samples_v1_admin_qa_samples_get",
+        "parameters": [
+          {
+            "description": "only calls nobody has reviewed yet",
+            "in": "query",
+            "name": "pending",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "only calls nobody has reviewed yet",
+              "title": "Pending",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/QaSampleOut"
+                  },
+                  "title": "Response List Qa Samples V1 Admin Qa Samples Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The weekly QA spot-check queue \u2014 5% of calls per client",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/qa-samples/{sample_id}": {
+      "get": {
+        "description": "The sampled call as a reviewer reads it: the draw's own record, and the call with its transcript in the redacted form every ordinary reader gets. Raw transcript text is NOT available here \u2014 it has one route in this API, which is role-checked and audit-logged. This read is itself written to the audit log.",
+        "operationId": "get_qa_sample_v1_admin_qa_samples__sample_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sample_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Sample Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QaSampleDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "A sampled call for review \u2014 transcript REDACTED (hard rule 5), read audited",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/admin/qa-samples/{sample_id}/review": {
+      "post": {
+        "description": "Records what the reviewer concluded: `clean`, `concern` or `defect`. A call can only be reviewed once \u2014 a second verdict is refused rather than overwriting the first, so a disagreement is visible instead of silent. Audit-logged.",
+        "operationId": "review_qa_sample_v1_admin_qa_samples__sample_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sample_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Sample Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QaReviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QaSampleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record a reviewer's verdict on a sampled call \u2014 first writer wins",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/admin/tenants": {
@@ -12247,6 +13581,51 @@
       }
     },
     "/v1/compliance/deletion-requests": {
+      "get": {
+        "description": "The account's own register of erasure obligations, newest first.\n\nWithout it a filed request was reachable only by its opaque id, so closing the tab\nlost the handle on an in-flight legal obligation with a statutory clock on it.\n\n**What this returns and what it deliberately does not.** Data minimisation is the\nwhole subject of the feature, so the list is the narrowest thing that answers \"which\nerasures do I owe an answer on, and which are done?\":\n\n- `request_id`, `requested_at`, `completed_at`, `status` \u2014 the handle and the clock.\n- `has_certificate` \u2014 whether the proof exists yet, so the screen can distinguish\n  \"done, here is the document\" from \"marked done with no proof recorded\", which is\n  the one state on this surface a client must not report to a data principal as\n  finished.\n- `subject_ref` \u2014 the hash, because a client with several erasures in flight needs to\n  tell one row from another and match it to their own case file. It is pseudonymous\n  rather than anonymous (`deletion.list_requests` says why), which is precisely why it\n  is here and the number is not.\n- **NOT `phone_e164`.** An open row still holds the number so the worker can find the\n  subject; returning it in a LIST would hand back every number this account has been\n  asked to erase in one read \u2014 an index of the people who exercised the right, which\n  is the inverse of what the right is for (hard rule 6). The column is not selected\n  at all.\n- **NOT the proof certificate.** It is available per request from the read below; an\n  index that carried every certificate would make the cheapest read the largest.\n\n`org:read`, matching the single-request read: this discloses no personal data, and an\nadmin who may not *cause* an erasure (D-22 refuses `org:manage` while impersonating)\nshould still be able to confirm one. Read-as, never act-as.",
+        "operationId": "list_requests_v1_compliance_deletion_requests_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeletionRequestSummaryOut"
+                  },
+                  "title": "Response List Requests V1 Compliance Deletion Requests Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every erasure request this account has filed \u2014 hashes and timestamps only",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      },
       "post": {
         "description": "Write the request, queue the erasure, record that it was asked for.\n\nA number we hold nothing about is accepted just the same, and produces an\nempty-but-valid certificate. The client cannot know in advance whether they hold\nanything, and \"we found nothing\" is a complete answer to an erasure request that\nthey are entitled to be able to give in writing.",
         "operationId": "request_erasure_v1_compliance_deletion_requests_post",
@@ -12509,9 +13888,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Subject Export V1 Compliance Subject Export Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SubjectExportOut"
                 }
               }
             },
@@ -13678,6 +15055,38 @@
               ],
               "title": "Assigned To"
             }
+          },
+          {
+            "description": "Comma-separated column keys, in display order. Omit for every column.",
+            "in": "query",
+            "name": "columns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated column keys, in display order. Omit for every column.",
+              "title": "Columns"
+            }
+          },
+          {
+            "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+              "items": {
+                "type": "string"
+              },
+              "title": "F",
+              "type": "array"
+            }
           }
         ],
         "responses": {
@@ -13775,6 +15184,38 @@
               ],
               "title": "Assigned To"
             }
+          },
+          {
+            "description": "Comma-separated column keys, in display order. Omit for every column.",
+            "in": "query",
+            "name": "columns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated column keys, in display order. Omit for every column.",
+              "title": "Columns"
+            }
+          },
+          {
+            "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+              "items": {
+                "type": "string"
+              },
+              "title": "F",
+              "type": "array"
+            }
           }
         ],
         "responses": {
@@ -13793,6 +15234,263 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read_raw"
+      }
+    },
+    "/v1/leads/facets": {
+      "get": {
+        "description": "The filter rail and its counts, over the SAME scope `GET /v1/leads` is answering.\n\nA separate route rather than another field on the list response, for one reason: the\ncounts change when the FILTERS change and not when the PAGE changes, so folding them\ninto the list would recompute up to eight aggregates every time somebody scrolls.\nSame query parameters, minus the paging ones, so \"the rail describes this table\" is\ncheckable by comparing two query strings.",
+        "operationId": "get_lead_facets_v1_leads_facets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 60,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "assigned_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Assigned To"
+            }
+          },
+          {
+            "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+              "items": {
+                "type": "string"
+              },
+              "title": "F",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadFacetsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Faceted filters, built from this agent's extraction schema",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/leads/views": {
+      "get": {
+        "operationId": "get_saved_views_v1_leads_views_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedViewListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "My saved views on this account",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
+      "post": {
+        "operationId": "create_saved_view_v1_leads_views_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedViewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedViewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save the current filters and columns under a name",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
+      }
+    },
+    "/v1/leads/views/{view_id}": {
+      "delete": {
+        "operationId": "delete_saved_view_v1_leads_views__view_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "view_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "View Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Delete one of my saved views",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
+      },
+      "patch": {
+        "operationId": "patch_saved_view_v1_leads_views__view_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "view_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "View Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedViewUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedViewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rename a saved view, or re-pin its filters and columns",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
       }
     },
     "/v1/leads/{lead_id}": {
@@ -14519,6 +16217,53 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/quality/reports": {
+      "get": {
+        "description": "Every stored quality report for this account, newest month first. Each one is the regression run we do before any change to the agent: how many scenarios were replayed, how many defects were found (zero is the only acceptable number), and which of your columns the model does not yet fill. An EMPTY list means no run has been stored for this account yet \u2014 it does not mean a clean run. Contains nothing from any real call.",
+        "operationId": "list_quality_reports_v1_quality_reports_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "maximum": 60,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/QaReport"
+                  },
+                  "title": "Response List Quality Reports V1 Quality Reports Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Monthly QA reports, newest month first (D-15)",
+        "tags": [
+          "quality"
+        ],
+        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/usage": {

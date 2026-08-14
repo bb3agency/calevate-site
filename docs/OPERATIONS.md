@@ -414,6 +414,22 @@ one differs from a summary below, the runbook is the authority.
 
 **Summaries only** (no written runbook yet):
 
+- **Every engine webhook is 401ing** (`webhook_source_rejected`): read the alert's
+  `detail`, because the two reasons have different cures and the same symptom.
+  `source ip not allowlisted` = the vendor renumbered; rotate `BOLNA_WEBHOOK_SOURCE_IPS`
+  and restart voice-runtime (calls are not lost, the 10-minute poller carries them —
+  D-31). `client ip not established` = **the EDGE is broken, not the vendor**: outside
+  `APP_ENV=local` the receiver takes the client address from `CF-Connecting-IP` and from
+  nothing else, refusing when it is absent or is not a single literal IP
+  (`apps/voice-runtime/engine_intake.py::client_ip`). Two nginx facts must hold for that
+  header to mean anything, and both live in `infra/nginx/snippets/`:
+  `real_ip_header CF-Connecting-IP` + `real_ip_recursive on` + the `set_real_ip_from` CF
+  ranges (`calevate-origin.conf`), and `proxy_set_header CF-Connecting-IP $remote_addr`
+  (`calevate-proxy.conf`) so our own nginx — the single trusted hop — is what writes the
+  header the app reads. Check those before touching the allowlist. A deployment that
+  terminates TLS anywhere other than this nginx, or puts a second proxy in front of the
+  container, breaks the hop count the control is built on and must update `client_ip`
+  in the same change.
 - **Engine outage**: numbers fail over to client phones (provisioned fallback); status
   banner in dashboards; reconcile calls post-recovery; if >4h, activate Bolna adapter for
   new calls (numbers re-point), inform clients.

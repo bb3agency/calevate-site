@@ -417,6 +417,34 @@ class DeletionRequestRecord:
     already_open: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class DeletionRequestSummary:
+    """One erasure request as it appears in a LIST, which is a different disclosure from
+    one request read by someone who already holds its id.
+
+    Deliberately NOT `DeletionRequestRecord` with `proof=None`: on that record `None`
+    means "no certificate was written", and a list that says so about every row would be
+    telling a client their completed erasures produced no proof. `has_certificate` is the
+    honest form of the same fact and costs a `proof IS NOT NULL` rather than shipping
+    every certificate on the account to render an index.
+    """
+
+    id: UUID
+    subject_ref: str
+    status: str
+    requested_at: datetime
+    completed_at: datetime | None
+    has_certificate: bool
+
+
+# A list nobody paginates is a list that silently truncates, so the ceiling is stated
+# and the caller can tell "this is all of them" from "this is the first page": the API
+# returns at most this many and the screen compares the count it got against the limit it
+# asked for. An offset is deliberately not offered yet — an account with more than 500
+# open erasure obligations has a problem no pagination control solves.
+MAX_LIST: Final = 500
+
+
 def _record(row: Any, *, already_open: bool) -> DeletionRequestRecord:
     """Build the record from `id, requested_at, completed_at, proof, subject_ref`."""
     completed_at = row[2]
@@ -545,6 +573,59 @@ async def get_request(session: AsyncSession, *, request_id: UUID) -> DeletionReq
     return _record(row, already_open=False)
 
 
+async def list_requests(session: AsyncSession, *, limit: int = 100) -> list[DeletionRequestSummary]:
+    """Every erasure request this tenant has filed, newest first.
+
+    The gap this closes: a filed request was reachable only by its opaque id, so a client
+    who closed the tab lost the handle on an in-flight legal obligation that has a
+    statutory clock running on it. "Which erasures do I owe an answer on?" is a question
+    the fiduciary has to be able to ask of their own account.
+
+    **`phone_e164` is not selected.** An OPEN row still carries the number (the worker has
+    to be able to find the subject), so a list is precisely where it would leak in bulk:
+    one read would return every number this account has been asked to erase — a ready-made
+    index of the people who exercised the right. `subject_ref` is what a list may carry,
+    and the column is not even named in the query so a later edit cannot widen it by
+    accident (the same construction `export.py` uses to keep raw `text` out of reach).
+
+    `subject_ref` is pseudonymous, NOT anonymous, and the difference is worth stating
+    where someone might rely on it: the Indian mobile space is small enough to enumerate,
+    so a hash confirms a number to a reader who already has one in mind rather than
+    hiding it from a determined one. That is exactly what it is for here — the client
+    matching their own case file to a row — and it is why this stays behind `org:read`
+    and out of every log line, instead of being treated as safe to publish.
+
+    RLS scopes the query (hard rule 1): there is no `tenant_id` predicate because the
+    session's transaction carries `app.tenant_id`, the same contract the rest of this
+    module and `crm/service.py` document. `tests/deletion_request_test.py` proves the
+    zero-rows case across tenants rather than trusting it.
+
+    Not audited, for the same reason the single-request read is not: it discloses no
+    personal data, it is the question support is asked most often, and an audit chain that
+    grows a row per page view stops being readable.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, requested_at, completed_at, (proof IS NOT NULL), subject_ref "
+                "FROM deletion_requests ORDER BY requested_at DESC, id DESC LIMIT :n"
+            ),
+            {"n": min(limit, MAX_LIST)},
+        )
+    ).all()
+    return [
+        DeletionRequestSummary(
+            id=row[0],
+            subject_ref=str(row[4]),
+            status=STATUS_PENDING if row[2] is None else STATUS_COMPLETED,
+            requested_at=row[1],
+            completed_at=row[2],
+            has_certificate=bool(row[3]),
+        )
+        for row in rows
+    ]
+
+
 __all__ = [
     "DELETION_JOB",
     "DELETION_QUEUE",
@@ -554,11 +635,14 @@ __all__ = [
     "FLOOR_COUNT_KEY",
     "FLOOR_OUTCOME",
     "KB_OUTCOME",
+    "MAX_LIST",
     "RECORDING_FLOOR_DAYS",
     "STATUS_COMPLETED",
     "STATUS_PENDING",
     "DeletionRequestRecord",
+    "DeletionRequestSummary",
     "ErasureLimitation",
     "get_request",
+    "list_requests",
     "request_erasure",
 ]

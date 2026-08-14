@@ -27,12 +27,14 @@ import {
   formatIST,
 } from "@/components/ui";
 import {
+  DELETION_REQUEST_LIST_LIMIT,
   downloadJson,
-  isRequestId,
   useDeletionRequest,
+  useDeletionRequests,
   useFileErasure,
   useSubjectExport,
   type DeletionRequest,
+  type DeletionRequestSummary,
   type ErasureProof,
 } from "@/lib/api/dataRights";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
@@ -57,11 +59,11 @@ import { useClientSession } from "@/lib/api/session";
  *   desk adds a copy nobody asked for, and the document already travels by a channel the
  *   client chooses. So the screen produces the file and says so, and the file is the only
  *   place the contents exist.
- * - **It states no counts about the export either**, and that is a limitation rather than
- *   a choice: `POST /v1/compliance/subject-export` has no response model on the server,
- *   so the generated client types it as an opaque JSON object. Reading `counts.calls` off
- *   it would mean hand-writing a wire shape nothing checks, on the one endpoint whose
- *   payload is a named human being. Reported rather than invented.
+ * - **It states the document's COUNTS and nothing else about it.** That much is now
+ *   possible — the endpoint has a response model (`SubjectExportOut`), where it used to
+ *   answer an opaque JSON object the screen could say nothing about. Counts are the part
+ *   a client needs before handing the file over ("does this look like the right person?")
+ *   and the part that is not itself personal data.
  * - **It never echoes the number back.** It appears in the input the user typed it into
  *   and in the POST body, and nowhere else — not in a URL, not in a heading, not in a
  *   filename (hard rule 6). Every response on this surface speaks `subject_ref`, a
@@ -76,10 +78,13 @@ import { useClientSession } from "@/lib/api/session";
  * moment the worker writes one — because "did the erasure actually happen?" is the
  * question the client will be asked and must be able to answer in writing.
  *
- * There is no list endpoint: a request is reachable only by its opaque id. So the ids
- * filed in this session are tracked in component state, and there is a lookup for
- * picking one back up afterwards. A `GET /v1/compliance/deletion-requests` is the change
- * that would make this durable; it does not exist and is not invented here.
+ * Filed requests are then read back from the account's own register
+ * (`GET /v1/compliance/deletion-requests`), not from component state. The card below used
+ * to list only what this browser session had filed, with a paste-the-id box for anything
+ * else and the gap stated on screen; a legal obligation with a statutory clock on it does
+ * not belong in a scratchpad that a closed tab empties. The register carries hashes,
+ * statuses and timestamps — never a number — and each certificate is fetched only when
+ * someone opens that request.
  */
 
 /** Typed to arm the erasure. Uppercase and unambiguous — nobody types this by accident. */
@@ -227,6 +232,24 @@ function SubjectExportCard({ session }: { session: Session }) {
               better. If we hold nothing about that number the file says exactly that,
               which is a complete answer to their request.
             </p>
+            {/* Counts, and deliberately only counts: they let a client check the file
+                is about the person they meant before handing it over, and they are the
+                one part of the document that is not itself that person's data. */}
+            <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+              <Fact label="Calls" value={formatCount(exportDocument.data.counts.calls)} />
+              <Fact
+                label="Transcript turns"
+                value={formatCount(exportDocument.data.counts.transcript_turns)}
+              />
+              <Fact
+                label="CRM records"
+                value={formatCount(exportDocument.data.counts.leads)}
+              />
+              <Fact
+                label="Consent records"
+                value={formatCount(exportDocument.data.counts.consent_records)}
+              />
+            </dl>
             <button
               type="button"
               onClick={() =>
@@ -262,14 +285,8 @@ function ErasureCard({ session }: { session: Session }) {
 
   const [phone, setPhone] = useState("");
   const [confirmation, setConfirmation] = useState("");
-  const [tracked, setTracked] = useState<string[]>([]);
-  const [lookup, setLookup] = useState("");
 
   const armed = phone.trim().length >= 8 && confirmation === ERASE_CONFIRMATION;
-
-  /** Newest first, and never twice — a duplicate filing returns the id already tracked. */
-  const track = (requestId: string) =>
-    setTracked((current) => [requestId, ...current.filter((id) => id !== requestId)]);
 
   return (
     <>
@@ -302,8 +319,9 @@ function ErasureCard({ session }: { session: Session }) {
           onSubmit={(e) => {
             e.preventDefault();
             file.mutate(phone.trim(), {
-              onSuccess: (accepted) => {
-                track(accepted.request_id);
+              onSuccess: () => {
+                // The filed request arrives from the register, which the mutation
+                // invalidates — nothing is remembered here.
                 setPhone("");
                 setConfirmation("");
               },
@@ -374,60 +392,160 @@ function ErasureCard({ session }: { session: Session }) {
         )}
       </Card>
 
-      <Card title="Erasure requests">
-        <p className="text-sm text-ink-muted">
-          Requests filed from this browser session. There is no way to list them
-          afterwards, so keep the request id if you need to come back to one — it is the
-          only handle on it.
-        </p>
+      <RegisterCard session={session} />
+    </>
+  );
+}
 
-        <form
-          className="mt-3 flex flex-wrap items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            track(lookup.trim());
-            setLookup("");
-          }}
-        >
-          <Field
-            id="erasure-lookup"
-            label="Look up a request id"
-            className="min-w-0 flex-1 sm:max-w-md"
-          >
-            <input
-              id="erasure-lookup"
-              value={lookup}
-              onChange={(e) => setLookup(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              className={`${FIELD} font-mono`}
-            />
-          </Field>
-          <button
-            type="submit"
-            disabled={!isRequestId(lookup)}
-            className={`${SECONDARY_BUTTON_SM} mb-0.5`}
-          >
-            Track it
-          </button>
-        </form>
+/**
+ * The account's register of erasure requests.
+ *
+ * §52 in full, and it matters more here than anywhere else on the screen: an empty list
+ * means "this account has been asked to erase nobody", and a failed read means "we do not
+ * know what you have been asked to erase". The first is an answer a client could repeat
+ * to a regulator; the second is not. So the failure branch renders the refusal and
+ * NOTHING that could be read as a register — no rows, no count, and not the empty-state
+ * sentence either.
+ */
+function RegisterCard({ session }: { session: Session }) {
+  const requests = useDeletionRequests(session);
+  // Certificates are fetched per request, so the panels mount only when opened rather
+  // than pulling every proof on the account across the wire to render an index.
+  const [opened, setOpened] = useState<string[]>([]);
 
-        {tracked.length === 0 ? (
+  const toggle = (requestId: string) =>
+    setOpened((current) =>
+      current.includes(requestId)
+        ? current.filter((id) => id !== requestId)
+        : [...current, requestId],
+    );
+
+  return (
+    <Card title="Erasure requests">
+      <p className="text-sm text-ink-muted">
+        Every erasure this account has been asked for, newest first. Numbers are never
+        listed here — each request is identified by a one-way hash of the number it
+        covers.
+      </p>
+
+      {requests.isPending && (
+        <div className="mt-4">
+          <Skeleton rows={3} />
+        </div>
+      )}
+
+      {requests.isError && (
+        <div className="mt-4">
+          <ProblemNotice error={requests.error} onRetry={() => void requests.refetch()} />
+        </div>
+      )}
+
+      {requests.isSuccess &&
+        (requests.data.length === 0 ? (
           <p className="mt-4 text-sm text-ink-muted">
-            Nothing filed from this session yet. Paste a request id above to check one you
-            filed earlier.
+            No erasure requests have been filed for this account.
           </p>
         ) : (
-          <ul className="mt-4 space-y-3">
-            {tracked.map((requestId) => (
-              <li key={requestId}>
-                <RequestPanel session={session} requestId={requestId} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-    </>
+          <>
+            <ul className="mt-4 space-y-3">
+              {requests.data.map((request) => (
+                <li key={request.request_id}>
+                  <RegisterRow
+                    session={session}
+                    request={request}
+                    open={opened.includes(request.request_id)}
+                    onToggle={() => toggle(request.request_id)}
+                  />
+                </li>
+              ))}
+            </ul>
+            {requests.data.length === DELETION_REQUEST_LIST_LIMIT && (
+              // A count that is a statement about our query, presented as a statement
+              // about the client's obligations, is the defect the leads table already
+              // fixed once. Say which this is.
+              <p className="mt-3 text-xs text-ink-faint">
+                Showing the {formatCount(DELETION_REQUEST_LIST_LIMIT)} most recent
+                requests. There may be older ones.
+              </p>
+            )}
+          </>
+        ))}
+    </Card>
+  );
+}
+
+/**
+ * One row of the register, and the certificate underneath it once someone asks for it.
+ *
+ * The heading distinguishes three states, not two: pending, complete with a certificate,
+ * and complete WITHOUT one. The third is the state a client must never report to a data
+ * principal as finished, and `has_certificate` is on the list precisely so the register
+ * can say it without every proof being fetched.
+ */
+function RegisterRow({
+  session,
+  request,
+  open,
+  onToggle,
+}: {
+  session: Session;
+  request: DeletionRequestSummary;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const done = request.status === "completed";
+  const missingProof = done && !request.has_certificate;
+  const panelId = `erasure-${request.request_id}`;
+
+  return (
+    <div className="rounded-card border border-line bg-surface p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+            {missingProof ? (
+              <ShieldAlert aria-hidden className="h-4 w-4 text-amber-600" />
+            ) : done ? (
+              <CheckCircle2 aria-hidden className="h-4 w-4 text-emerald-600" />
+            ) : (
+              <Clock aria-hidden className="h-4 w-4 text-amber-600" />
+            )}
+            {missingProof
+              ? "Complete — no certificate recorded"
+              : done
+                ? "Erasure complete"
+                : "Submitted — waiting to run"}
+          </p>
+          <p className="mt-1 text-xs text-ink-muted">
+            Filed {formatIST(request.requested_at)}
+            {done ? ` · completed ${formatIST(request.completed_at)}` : ""}
+          </p>
+          {/* The two handles a client needs when they come back to this: the request id
+              they can quote to us, and the subject hash that tells one row from another
+              without naming anybody. */}
+          <p className="mt-1 break-all font-mono text-xs text-ink-faint">
+            {request.request_id}
+          </p>
+          <p className="break-all font-mono text-xs text-ink-faint">
+            {request.subject_ref}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          aria-controls={open ? panelId : undefined}
+          className={SECONDARY_BUTTON_SM}
+        >
+          {open ? "Hide details" : done ? "Show the certificate" : "Show details"}
+        </button>
+      </div>
+
+      {open && (
+        <div id={panelId} className="mt-3">
+          <RequestPanel session={session} requestId={request.request_id} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -443,33 +561,23 @@ function ErasureCard({ session }: { session: Session }) {
 function RequestPanel({ session, requestId }: { session: Session; requestId: string }) {
   const request = useDeletionRequest(session, requestId);
 
-  if (request.isPending) {
-    return (
-      <div className="rounded-card border border-line bg-surface p-4">
-        <p className="font-mono text-xs text-ink-faint">{requestId}</p>
-        <div className="mt-3">
-          <Skeleton rows={2} />
-        </div>
-      </div>
-    );
-  }
+  if (request.isPending) return <Skeleton rows={2} />;
 
   if (request.isError) {
-    return (
-      <div className="rounded-card border border-line bg-surface p-4">
-        <p className="font-mono text-xs text-ink-faint">{requestId}</p>
-        <div className="mt-3">
-          <ProblemNotice error={request.error} onRetry={() => void request.refetch()} />
-        </div>
-      </div>
-    );
+    return <ProblemNotice error={request.error} onRetry={() => void request.refetch()} />;
   }
 
   return <RequestDetail request={request.data} />;
 }
 
 /**
- * The request, once the server has actually answered.
+ * The request, once the server has actually answered — the part the register cannot say.
+ *
+ * Status, timestamps and both identifiers are on the register row above this, so they are
+ * deliberately NOT repeated here: one screen stating "Erasure complete" twice about one
+ * request is how a client reads a partial answer as a whole one. What is left is what only
+ * the detail read carries — the certificate, and the notice that names what an erasure
+ * cannot do.
  *
  * The API models exactly two states — `pending` and `completed` — and this renders those
  * two rather than inventing a third. "In progress" would be a guess: nothing reports that
@@ -480,35 +588,10 @@ function RequestDetail({ request }: { request: DeletionRequest }) {
   const done = request.status === "completed";
 
   return (
-    <div className="rounded-card border border-line bg-surface p-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="flex items-center gap-2 text-sm font-semibold text-ink">
-            {done ? (
-              <CheckCircle2 aria-hidden className="h-4 w-4 text-emerald-600" />
-            ) : (
-              <Clock aria-hidden className="h-4 w-4 text-amber-600" />
-            )}
-            {/* Not the bare word "Erased": the certificate below carries an `Erased`
-                heading over the list of what went, and one screen saying it twice about
-                two different things is how a client reads a partial answer as a whole one. */}
-            {done ? "Erasure complete" : "Submitted — waiting to run"}
-          </p>
-          <p className="mt-1 text-xs text-ink-muted">
-            Filed {formatIST(request.requested_at)}
-            {done ? ` · completed ${formatIST(request.completed_at)}` : ""}
-          </p>
-        </div>
-        <p className="font-mono text-xs text-ink-faint">{request.request_id}</p>
-      </div>
-
-      <dl className="mt-3 text-xs text-ink-muted">
-        <dt className="font-medium text-ink">Subject reference</dt>
-        <dd className="mt-0.5 break-all font-mono">{request.subject_ref}</dd>
-      </dl>
-      <p className="mt-1 text-xs text-ink-faint">
-        A one-way hash of the number. It confirms the erasure to someone who already has
-        the number and tells anyone else nothing.
+    <div>
+      <p className="text-xs text-ink-faint">
+        The subject reference above is a one-way hash of the number. It confirms the
+        erasure to someone who already has the number and tells anyone else nothing.
       </p>
 
       {!done && (

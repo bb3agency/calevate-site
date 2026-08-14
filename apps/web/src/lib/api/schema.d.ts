@@ -252,6 +252,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/qa-samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The weekly QA spot-check queue — 5% of calls per client
+         * @description Calls drawn for review, newest week first and in the draw's own order. Each row carries the frame it came from — the week, the number of calls in it, the number drawn — and the seed the order was computed from, so the sample can be recomputed and checked by anyone. `pending` (default) shows only calls nobody has reviewed yet. No transcript text and no phone number appear on this list.
+         */
+        get: operations["list_qa_samples_v1_admin_qa_samples_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/qa-samples/{sample_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A sampled call for review — transcript REDACTED (hard rule 5), read audited
+         * @description The sampled call as a reviewer reads it: the draw's own record, and the call with its transcript in the redacted form every ordinary reader gets. Raw transcript text is NOT available here — it has one route in this API, which is role-checked and audit-logged. This read is itself written to the audit log.
+         */
+        get: operations["get_qa_sample_v1_admin_qa_samples__sample_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/qa-samples/{sample_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a reviewer's verdict on a sampled call — first writer wins
+         * @description Records what the reviewer concluded: `clean`, `concern` or `defect`. A call can only be reviewed once — a second verdict is refused rather than overwriting the first, so a disagreement is visible instead of silent. Audit-logged.
+         */
+        post: operations["review_qa_sample_v1_admin_qa_samples__sample_id__review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants": {
         parameters: {
             query?: never;
@@ -1385,7 +1445,39 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Every erasure request this account has filed — hashes and timestamps only
+         * @description The account's own register of erasure obligations, newest first.
+         *
+         *     Without it a filed request was reachable only by its opaque id, so closing the tab
+         *     lost the handle on an in-flight legal obligation with a statutory clock on it.
+         *
+         *     **What this returns and what it deliberately does not.** Data minimisation is the
+         *     whole subject of the feature, so the list is the narrowest thing that answers "which
+         *     erasures do I owe an answer on, and which are done?":
+         *
+         *     - `request_id`, `requested_at`, `completed_at`, `status` — the handle and the clock.
+         *     - `has_certificate` — whether the proof exists yet, so the screen can distinguish
+         *       "done, here is the document" from "marked done with no proof recorded", which is
+         *       the one state on this surface a client must not report to a data principal as
+         *       finished.
+         *     - `subject_ref` — the hash, because a client with several erasures in flight needs to
+         *       tell one row from another and match it to their own case file. It is pseudonymous
+         *       rather than anonymous (`deletion.list_requests` says why), which is precisely why it
+         *       is here and the number is not.
+         *     - **NOT `phone_e164`.** An open row still holds the number so the worker can find the
+         *       subject; returning it in a LIST would hand back every number this account has been
+         *       asked to erase in one read — an index of the people who exercised the right, which
+         *       is the inverse of what the right is for (hard rule 6). The column is not selected
+         *       at all.
+         *     - **NOT the proof certificate.** It is available per request from the read below; an
+         *       index that carried every certificate would make the cheapest read the largest.
+         *
+         *     `org:read`, matching the single-request read: this discloses no personal data, and an
+         *     admin who may not *cause* an erasure (D-22 refuses `org:manage` while impersonating)
+         *     should still be able to confirm one. Read-as, never act-as.
+         */
+        get: operations["list_requests_v1_compliance_deletion_requests_get"];
         put?: never;
         /**
          * File a DPDP erasure request for one phone number — queued, audited, proved
@@ -2064,6 +2156,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/leads/facets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Faceted filters, built from this agent's extraction schema
+         * @description The filter rail and its counts, over the SAME scope `GET /v1/leads` is answering.
+         *
+         *     A separate route rather than another field on the list response, for one reason: the
+         *     counts change when the FILTERS change and not when the PAGE changes, so folding them
+         *     into the list would recompute up to eight aggregates every time somebody scrolls.
+         *     Same query parameters, minus the paging ones, so "the rail describes this table" is
+         *     checkable by comparing two query strings.
+         */
+        get: operations["get_lead_facets_v1_leads_facets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/leads/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My saved views on this account */
+        get: operations["get_saved_views_v1_leads_views_get"];
+        put?: never;
+        /** Save the current filters and columns under a name */
+        post: operations["create_saved_view_v1_leads_views_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/leads/views/{view_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete one of my saved views */
+        delete: operations["delete_saved_view_v1_leads_views__view_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename a saved view, or re-pin its filters and columns */
+        patch: operations["patch_saved_view_v1_leads_views__view_id__patch"];
+        trace?: never;
+    };
     "/v1/leads/{lead_id}": {
         parameters: {
             query?: never;
@@ -2377,6 +2531,26 @@ export interface paths {
         };
         /** Connect rate, funnel, outcomes, busiest hours IST (teardown §5 floor) */
         get: operations["performance_panel_v1_performance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/quality/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Monthly QA reports, newest month first (D-15)
+         * @description Every stored quality report for this account, newest month first. Each one is the regression run we do before any change to the agent: how many scenarios were replayed, how many defects were found (zero is the only acceptable number), and which of your columns the model does not yet fill. An EMPTY list means no run has been stored for this account yet — it does not mean a clean run. Contains nothing from any real call.
+         */
+        get: operations["list_quality_reports_v1_quality_reports_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3470,6 +3644,41 @@ export interface components {
             /** Subject Ref */
             subject_ref: string;
         };
+        /**
+         * DeletionRequestSummaryOut
+         * @description One row of the index — what the client needs to FIND a request again, and nothing
+         *     else. The docstring on the route below says what is excluded and why.
+         *
+         *     `has_certificate` rather than the certificate itself: the list exists to hand back a
+         *     handle, and shipping every proof on the account to render an index would make the
+         *     cheapest read on this surface the largest. It is a separate field rather than inferred
+         *     from `status` because "completed with no proof recorded" is a real state the screen
+         *     must be able to warn about (`deletion_routes` has always modelled `proof` as
+         *     nullable), and a list that inferred it would hide exactly that case.
+         */
+        DeletionRequestSummaryOut: {
+            /** Completed At */
+            completed_at: string | null;
+            /** Has Certificate */
+            has_certificate: boolean;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "completed";
+            /** Subject Ref */
+            subject_ref: string;
+        };
         /** DeliveryOut */
         DeliveryOut: {
             /** Attempts */
@@ -3831,6 +4040,19 @@ export interface components {
             answer: string;
             /** Question */
             question: string;
+        };
+        /**
+         * FieldLimit
+         * @description One column of the client's leads list that the configured model does not fill.
+         *
+         *     Named by the client's own LABEL, never our key: `budget_lakhs` is our column and
+         *     "Budget (lakhs)" is theirs.
+         */
+        FieldLimit: {
+            /** Label */
+            label: string;
+            /** Scenarios */
+            scenarios: number;
         };
         /** FirstCampaignDecisionIn */
         FirstCampaignDecisionIn: {
@@ -4323,13 +4545,75 @@ export interface components {
             status: string;
         };
         /**
+         * LeadColumnOut
+         * @description One selectable column of the Leads table — `crm.columns.LeadColumn` on the wire.
+         *
+         *     `kind` is what lets the screen render a column without knowing its name: `fixed`
+         *     columns come off `LeadOut`'s own attributes (and `phone` is `phone_masked` there,
+         *     which is hard rule 6 and not a rendering choice), `extraction` columns come out of
+         *     `LeadOut.data` under `key`.
+         */
+        LeadColumnOut: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "fixed" | "extraction";
+            /** Label */
+            label: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "text" | "number" | "bool" | "enum" | "date";
+        };
+        /** LeadFacetOut */
+        LeadFacetOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Values */
+            values: components["schemas"]["LeadFacetValueOut"][];
+        };
+        /** LeadFacetValueOut */
+        LeadFacetValueOut: {
+            /** Count */
+            count: number;
+            /** Declared */
+            declared: boolean;
+            /** Value */
+            value: string;
+        };
+        /**
+         * LeadFacetsOut
+         * @description The filter rail, built from the per-agent EXTRACTION SCHEMA (SURFACES §2).
+         *
+         *     Enum fields only, and never a hard-coded list: different tenants and different
+         *     verticals have different columns, so a fixed facet set would be wrong the day a
+         *     second vertical lands. `crm.columns.facetable` is the definition, including why
+         *     `status` and `source` are deliberately not here.
+         */
+        LeadFacetsOut: {
+            /** Facets */
+            facets: components["schemas"]["LeadFacetOut"][];
+            /** Omitted Field Count */
+            omitted_field_count: number;
+        };
+        /**
          * LeadListOut
          * @description The Leads table is schema-driven (TRD §7): the columns travel WITH the rows so
          *     the frontend never hard-codes a client's fields.
          */
         LeadListOut: {
+            /** Available Columns */
+            available_columns: components["schemas"]["LeadColumnOut"][];
             /** Columns */
-            columns: components["schemas"]["ExtractionField"][];
+            columns: components["schemas"]["LeadColumnOut"][];
+            /** Dropped Column Keys */
+            dropped_column_keys: string[];
             /** Items */
             items: components["schemas"]["LeadOut"][];
             /** Limit */
@@ -4607,6 +4891,21 @@ export interface components {
             role: string | null;
             /** User Id */
             user_id: string | null;
+        };
+        /**
+         * Measurement
+         * @description A number with the reason it is trustworthy attached, or the reason it is not.
+         */
+        Measurement: {
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "measured" | "too_few" | "no_baseline";
+            /** Passed */
+            passed: number;
+            /** Total */
+            total: number;
         };
         /**
          * MemberOut
@@ -5001,6 +5300,143 @@ export interface components {
              */
             series: "140" | "160" | "standard";
         };
+        /**
+         * QaReport
+         * @description The whole report, computed once.
+         *
+         *     `scenarios_total` = `everything_captured.total` = `field_left_blank.total` by
+         *     construction, and the two measurements' `passed` counts add up to it: the split
+         *     exists because one number would answer two questions and answer both badly (see
+         *     `scripts/qa_report.render`).
+         */
+        QaReport: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /** Client */
+            client: string;
+            /** Defects */
+            defects: number;
+            everything_captured: components["schemas"]["Measurement"];
+            field_left_blank: components["schemas"]["Measurement"];
+            /** Known Limits */
+            known_limits?: components["schemas"]["FieldLimit"][];
+            /** Model */
+            model: string;
+            /** Red Team */
+            red_team: number;
+            /** Scenario Classes */
+            scenario_classes?: components["schemas"]["ScenarioClassCount"][];
+            /** Scenarios Total */
+            scenarios_total: number;
+            /**
+             * Trend
+             * @default no_baseline
+             * @enum {string}
+             */
+            trend: "measured" | "too_few" | "no_baseline";
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /** Vertical */
+            vertical: string;
+        };
+        /**
+         * QaReviewIn
+         * @description A reviewer's conclusion. An enum and nothing else.
+         *
+         *     No note field, deliberately (hard rule 6): a free-text box on a cross-tenant queue is
+         *     an invitation to type what the caller said into it, and `admin/holds.py` already
+         *     refuses operator prose on a list for exactly that reason. What a reviewer found that
+         *     the enum cannot express belongs in the incident it justifies, not in this row.
+         */
+        QaReviewIn: {
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "clean" | "concern" | "defect";
+        };
+        /**
+         * QaSampleDetailOut
+         * @description A sampled call opened for review — the queue row plus the REDACTED call.
+         *
+         *     `call` is `CallDetailOut` exactly as the client's own screen receives it: transcript
+         *     turns hold `text_redacted` and each carries `redacted: true`. This model adds no
+         *     field of its own to the call, which is the point — there is one shape for "a call as
+         *     a human reads it", and this surface uses it rather than defining a reviewer's
+         *     variant that could quietly diverge on what it masks.
+         */
+        QaSampleDetailOut: {
+            call: components["schemas"]["CallDetailOut"];
+            sample: components["schemas"]["QaSampleOut"];
+        };
+        /**
+         * QaSampleOut
+         * @description One sampled call. Ids, timings and tags — no transcript text, no phone number.
+         */
+        QaSampleOut: {
+            /** Agent Name */
+            agent_name: string;
+            /**
+             * Call Id
+             * Format: uuid
+             */
+            call_id: string;
+            /** Direction */
+            direction: string;
+            /** Disclosure Played */
+            disclosure_played: boolean | null;
+            /** Duration S */
+            duration_s: number | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Outcome Tag */
+            outcome_tag: string | null;
+            /** Population */
+            population: number;
+            /** Reviewed At */
+            reviewed_at: string | null;
+            /**
+             * Selected At
+             * Format: date-time
+             */
+            selected_at: string;
+            /** Selection Rank */
+            selection_rank: number;
+            /** Selection Seed */
+            selection_seed: string;
+            /** Sentiment */
+            sentiment: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Target */
+            target: number;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Tenant Name */
+            tenant_name: string;
+            /** Tenant Slug */
+            tenant_slug: string;
+            /** Verdict */
+            verdict: ("clean" | "concern" | "defect") | null;
+            /**
+             * Week Start
+             * Format: date
+             */
+            week_start: string;
+        };
         /** RecordConsentIn */
         RecordConsentIn: {
             /** Call Id */
@@ -5102,6 +5538,122 @@ export interface components {
             secret: string | null;
             /** Secret Header */
             secret_header: string;
+        };
+        /**
+         * SavedViewFilters
+         * @description What a saved view narrows the table to.
+         *
+         *     **`search` is deliberately not a field.** A saved view is a named LENS — a stage, a
+         *     set of facet values, an agent — and the search box is a transient lookup, not a lens.
+         *     Storing one would also put a phone SUFFIX (what the box accepts) into a durable row
+         *     for no product gain, which is a hard-rule-6 surface bought for nothing.
+         *
+         *     **`assigned_to_me` is a boolean, not a user id.** Views are private to one user
+         *     (see `SavedViewOut`), so the only owner a view can usefully pin is its own reader —
+         *     and a stored uuid would be a dangling pointer the day that colleague leaves, where a
+         *     boolean is resolved fresh against the caller on every read.
+         */
+        SavedViewFilters: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * Assigned To Me
+             * @default false
+             */
+            assigned_to_me: boolean;
+            /** Fields */
+            fields?: {
+                [key: string]: string[];
+            };
+            /** Status */
+            status?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost") | null;
+        };
+        /** SavedViewIn */
+        SavedViewIn: {
+            /** Columns */
+            columns?: string[] | null;
+            filters?: components["schemas"]["SavedViewFilters"];
+            /** Name */
+            name: string;
+        };
+        /** SavedViewListOut */
+        SavedViewListOut: {
+            /** Items */
+            items: components["schemas"]["SavedViewOut"][];
+        };
+        /**
+         * SavedViewOut
+         * @description One saved view, RESOLVED against the agent's current extraction schema.
+         *
+         *     **Private to its author.** Shared views are a separate slice with a separate
+         *     question (who may edit a view three colleagues rely on), and the industry default
+         *     for a saved view is private-unless-published — Tableau and SeaTable both create
+         *     private and require an explicit act to share. Private-first is also the only choice
+         *     that cannot leak: this table holds no shared row to get the permission wrong on.
+         *
+         *     **`stale_*` is the graceful degradation.** A view pinned to a field an admin later
+         *     removed from the capture list is not an error — the reader gets the view with the
+         *     dead references REMOVED and named here, so the screen can say "this view also
+         *     filtered on Budget, which your capture list no longer has" instead of 500ing or
+         *     silently returning a different set of rows. Jira's answer to the same event is a
+         *     broken filter and an integrity checker; this is cheaper and kinder.
+         */
+        SavedViewOut: {
+            /** Columns */
+            columns: string[] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            filters: components["schemas"]["SavedViewFilters"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Stale Column Keys */
+            stale_column_keys: string[];
+            /** Stale Filter Keys */
+            stale_filter_keys: string[];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * SavedViewUpdateIn
+         * @description Rename, or re-pin. Every field optional; an omitted one is left alone.
+         *
+         *     `columns` cannot be cleared back to `null` through this route — sending `null` means
+         *     "leave the columns alone", the same silence every other field here means. Clearing
+         *     is `columns: []`, which `crm.saved_views` stores as "no choice made". Two spellings
+         *     of "unset" on one field is how the assignee sentinel next door earned its comment,
+         *     and this field does not need the ambiguity: an empty selection has no other meaning.
+         */
+        SavedViewUpdateIn: {
+            /** Columns */
+            columns?: string[] | null;
+            filters?: components["schemas"]["SavedViewFilters"] | null;
+            /** Name */
+            name?: string | null;
+        };
+        /**
+         * ScenarioClassCount
+         * @description One of the six scenario classes, counted, in the CLIENT's vocabulary.
+         */
+        ScenarioClassCount: {
+            /** Count */
+            count: number;
+            /** Label */
+            label: string;
+            /** Meaning */
+            meaning: string;
+            /** Scenario */
+            scenario: number;
         };
         /**
          * ScheduleIn
@@ -5381,6 +5933,68 @@ export interface components {
             variant_ids: string[];
         };
         /**
+         * SubjectExportCallOut
+         * @description One call, with the audio reported as a fact rather than as a link.
+         *
+         *     `recording_available` is a boolean and never a URL (`export.py` decision 2): a
+         *     presigned URL inside a document that gets emailed and forwarded is a bearer
+         *     credential travelling with it.
+         */
+        SubjectExportCallOut: {
+            /** Call Id */
+            call_id: string;
+            /** Direction */
+            direction: string | null;
+            /** Duration S */
+            duration_s: number | null;
+            /** Outcome Tag */
+            outcome_tag: string | null;
+            /** Recording Available */
+            recording_available: boolean;
+            /** Started At */
+            started_at: string | null;
+            /** Summary */
+            summary: string | null;
+        };
+        /**
+         * SubjectExportConsentOut
+         * @description One consent-ledger entry. `evidence_recorded` is a boolean for the same reason
+         *     the recording is: the evidence is a transcript SPAN, raw by construction, and it
+         *     stays behind the audited raw-transcript path.
+         */
+        SubjectExportConsentOut: {
+            /** Call Id */
+            call_id: string | null;
+            /** Captured At */
+            captured_at: string | null;
+            /** Evidence Recorded */
+            evidence_recorded: boolean;
+            /** Purpose */
+            purpose: string | null;
+            /** Status */
+            status: string | null;
+        };
+        /**
+         * SubjectExportCountsOut
+         * @description What the document contains, stated in the document.
+         *
+         *     `leads` is the TRUE number of lead rows this number matched while `lead` carries only
+         *     the most recently updated one, so a second row (a tenant running two agents) is
+         *     visible in the answer rather than silently dropped from it.
+         */
+        SubjectExportCountsOut: {
+            /** Calls */
+            calls: number;
+            /** Consent Records */
+            consent_records: number;
+            /** Leads */
+            leads: number;
+            /** Recordings Available */
+            recordings_available: number;
+            /** Transcript Turns */
+            transcript_turns: number;
+        };
+        /**
          * SubjectExportIn
          * @description `extra="forbid"` so a caller cannot smuggle a second selector (a lead id, a
          *     tenant slug) into a request whose whole security argument is "one phone number".
@@ -5388,6 +6002,84 @@ export interface components {
         SubjectExportIn: {
             /** Phone */
             phone: string;
+        };
+        /**
+         * SubjectExportLeadOut
+         * @description The CRM record, as the client holds it.
+         *
+         *     `phone_e164` is the subject's OWN number and appears unmasked — `export.py` decision
+         *     3: masking the identifier the subject asked about produces a document they cannot
+         *     check is about them. It is declared here rather than hidden in a dict so
+         *     `check_redaction_exposure` judges it against a named, reasoned allowance instead of
+         *     never seeing it.
+         */
+        SubjectExportLeadOut: {
+            /** Call Count */
+            call_count: number | null;
+            /** Created At */
+            created_at: string | null;
+            /** Data */
+            data: {
+                [key: string]: unknown;
+            };
+            /** Id */
+            id: string;
+            /** Is Repeat Caller */
+            is_repeat_caller: boolean;
+            /** Name */
+            name: string | null;
+            /** Phone E164 */
+            phone_e164: string;
+            /** Schema Version */
+            schema_version: number | null;
+            /** Source */
+            source: string | null;
+            /** Status */
+            status: string | null;
+            /** Updated At */
+            updated_at: string | null;
+        };
+        /**
+         * SubjectExportOut
+         * @description The whole disclosure, and therefore the whole output whitelist
+         *     (BACKEND-PATTERNS §1).
+         */
+        SubjectExportOut: {
+            /** Calls */
+            calls: components["schemas"]["SubjectExportCallOut"][];
+            /** Consent */
+            consent: components["schemas"]["SubjectExportConsentOut"][];
+            counts: components["schemas"]["SubjectExportCountsOut"];
+            /** Generated At */
+            generated_at: string;
+            lead: components["schemas"]["SubjectExportLeadOut"] | null;
+            /** Phone E164 */
+            phone_e164: string;
+            /** Transcripts */
+            transcripts: components["schemas"]["SubjectExportTranscriptOut"][];
+        };
+        /** SubjectExportTranscriptOut */
+        SubjectExportTranscriptOut: {
+            /** Call Id */
+            call_id: string;
+            /** Turns */
+            turns: components["schemas"]["SubjectExportTurnOut"][];
+        };
+        /**
+         * SubjectExportTurnOut
+         * @description One transcript turn. `text` carries `text_redacted`, never the raw column — hard
+         *     rule 5, reinforced rather than relaxed here because this is the one response that
+         *     leaves the client's own screen (`export.py` decision 1). A turn that has not been
+         *     through the redaction pass yet says so (`export.REDACTION_PENDING`) rather than
+         *     falling back to raw.
+         */
+        SubjectExportTurnOut: {
+            /** Idx */
+            idx: number;
+            /** Speaker */
+            speaker: string | null;
+            /** Text */
+            text: string;
         };
         /** SubmitIn */
         SubmitIn: {
@@ -6243,6 +6935,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnfinishedOnboardingOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_qa_samples_v1_admin_qa_samples_get: {
+        parameters: {
+            query?: {
+                /** @description only calls nobody has reviewed yet */
+                pending?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaSampleOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_qa_sample_v1_admin_qa_samples__sample_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sample_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaSampleDetailOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    review_qa_sample_v1_admin_qa_samples__sample_id__review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sample_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QaReviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaSampleOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -8409,6 +9200,37 @@ export interface operations {
             };
         };
     };
+    list_requests_v1_compliance_deletion_requests_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletionRequestSummaryOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     request_erasure_v1_compliance_deletion_requests_post: {
         parameters: {
             query?: never;
@@ -8645,9 +9467,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["SubjectExportOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -9521,6 +10341,10 @@ export interface operations {
                 search?: string | null;
                 agent_id?: string | null;
                 assigned_to?: string | null;
+                /** @description Comma-separated column keys, in display order. Omit for every column. */
+                columns?: string | null;
+                /** @description Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together. */
+                f?: string[];
             };
             header?: never;
             path?: never;
@@ -9555,6 +10379,10 @@ export interface operations {
                 status?: string | null;
                 search?: string | null;
                 assigned_to?: string | null;
+                /** @description Comma-separated column keys, in display order. Omit for every column. */
+                columns?: string | null;
+                /** @description Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together. */
+                f?: string[];
             };
             header?: never;
             path?: never;
@@ -9568,6 +10396,168 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_lead_facets_v1_leads_facets_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                search?: string | null;
+                agent_id?: string | null;
+                assigned_to?: string | null;
+                /** @description Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together. */
+                f?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadFacetsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_saved_views_v1_leads_views_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedViewListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_saved_view_v1_leads_views_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedViewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedViewOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_saved_view_v1_leads_views__view_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    patch_saved_view_v1_leads_views__view_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedViewUpdateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedViewOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -10086,6 +11076,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PerformanceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_quality_reports_v1_quality_reports_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaReport"][];
                 };
             };
             /** @description RFC-9457 problem+json */

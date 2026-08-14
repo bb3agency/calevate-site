@@ -2661,6 +2661,71 @@ because the ratchet needs both stores empty and agents were using them. The budg
 raised; the branches were covered. A shortcut around a gate is a decision to let a later gate
 find it.
 
+## §59 — the wave where the guardrails got better, not just the code
+
+Five slices, all from the previous wave's verified findings rather than from a fresh guess.
+Three of them improved an EXISTING guard rather than only adding features, which is the
+pattern worth noticing: a guard that cannot see a thing is worse than no guard, because it
+reads as coverage.
+
+**The source-IP allowlist could be fed a caller-controlled address (D-70).** `client_ip`
+took the LEFTMOST `X-Forwarded-For` entry, which is caller input by construction, and
+Cloudflare appends rather than replaces. This is the ENTIRE authenticity control for an
+unsigned engine. It was safe only because the origin lock made `CF-Connecting-IP` always
+present — a property of the edge, not of the code, and exactly the kind of margin that
+disappears when somebody adds a proxy. Now: one header, from one trusted hop, refuse
+otherwise. The slice also closed a hole nobody had named — the origin lock allows
+`127.0.0.1` for deploy health polls, so an on-box process could POST a forged
+`CF-Connecting-IP`; nginx now WRITES that header rather than passing it through.
+
+**A guardrail exception was all-or-nothing, and the one endpoint that most needed
+examining was exempt by accident (D-71).** `subject-export` returned `dict[str, Any]`, so
+`check_redaction_exposure` — which inspects response MODELS — could not see it at all, on
+the one payload in this product that is an entire named human being. Rather than just
+adding a model, the slice made `ALLOWED_ROUTES` entries field-scoped: a route can now be
+excused for `phone_e164` and still have every other field walked. The three pre-existing
+entries keep byte-identical behaviour. Proven, not asserted: adding `to_e164` to a call
+model is reported, and narrowing the field set makes both phone fields reappear.
+
+**Two hand-maintained column lists disagreed (D-72).** The leads screen and the CSV export
+each had their own; the file carried `source`/`created_at` and the screen carried
+`owner`/`updated_at`. One registry now serves both, so the mirroring is structural rather
+than promised — and the formula-injection guard from §54 is tested against EVERY selectable
+column rather than against a list of interesting ones. The safety call worth remembering is
+the asymmetry: an unknown COLUMN key degrades (it narrows) but an unknown FILTER key is a
+422, because dropping a filter WIDENS the set on the one route that emits unmasked numbers.
+
+**The QA report existed only as a CLI, and the sampling queue not at all (D-73).** Both
+shipped, with the anti-fork rule enforced by a test that parses the numbers back out of the
+CLI's rendered Markdown and compares them with the live route — the two documents a client
+can actually hold. The sample is a keyed hash with its seed, rank and FRAME stored, because
+a sample nobody can re-derive is not evidence and "we sample 5%" is unfalsifiable without
+the population it was drawn from.
+
+**Three endpoints existed and no screen called them.** DLT registration (a client whose
+campaigns are being refused could not see why), Sheets endpoint creation plus the event
+catalogue, and the voice catalogue. Wiring them surfaced a latent rendering bug — the
+endpoint list would have printed `key ···null` for every Sheets endpoint a client created —
+and a real gap: an agent's current voice CANNOT BE READ at all, so the picker sets without
+displaying and nothing is pre-selected rather than showing a guess.
+
+**What the OpenAPI regen caught, which is the argument for doing it centrally.** Four
+slices left clearly-marked temporary types; swapping them for the generated ones was not
+cosmetic. `CommercialTermsIn`'s ceilings are OPTIONAL on the wire while the hand mirror
+declared them required-and-nullable — and reading an absent ceiling as "not a loosening"
+would have let a cap raise reach the server without its step-up confirmation. `QaReport`'s
+two lists are optional for the same reason. A hand-written mirror is a claim about the
+server that nothing checks, and it fails in whichever direction the author assumed.
+
+**An operational note that cost time.** `make db-reset` cannot complete on a machine whose
+Postgres cluster holds other Calevate databases: `alembic downgrade base` drops the
+`calevate_app` ROLE, roles are cluster-wide, and the drop fails on dependent objects — but
+only AFTER partially downgrading, which leaves the dev database mid-chain and produces
+failures that look like code defects (`column "has_due_schedule" does not exist`). Use a
+fresh scratch database instead: `createdb`, `alembic upgrade head`, seed, and point
+`DATABASE_URL` at it. The coverage ratchet needs exactly that state anyway, and it will
+REFUSE to score rather than report a number it cannot vouch for.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and

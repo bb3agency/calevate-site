@@ -34,6 +34,9 @@ import MessagingConsentPage from "@/app/c/[slug]/messaging-consent/page";
 import ClientRealmLayout from "@/app/c/[slug]/layout";
 import DashboardPage from "@/app/c/[slug]/page";
 import PerformancePage from "@/app/c/[slug]/performance/page";
+import QualityPage from "@/app/c/[slug]/quality/page";
+import QaSamplingPage from "@/app/admin/qa-sampling/page";
+import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import TeamPage from "@/app/c/[slug]/settings/team/page";
 import UsagePage from "@/app/c/[slug]/usage/page";
 import VerificationPage from "@/app/c/[slug]/verification/page";
@@ -200,6 +203,13 @@ const MEMBERS = [
   { id: "u2", name: "Kiran Babu", role: "staff" },
 ];
 
+/** The Leads table's resolved columns (`apps/api/crm/columns.py`) — one fixed, one from
+ *  the tenant's extraction schema, which is the shape the chooser and the CSV share. */
+const LEAD_COLUMNS = [
+  { key: "name", label: "Name", kind: "fixed", type: "text" },
+  { key: "budget_band", label: "Budget band", kind: "extraction", type: "enum" },
+];
+
 const USAGE = {
   month: "2026-08",
   minutes_used: "120.5",
@@ -356,6 +366,54 @@ const TENANT_ROUTES: Routes = {
   },
 };
 
+/** A stored QA report, exactly as `GET /v1/quality/reports` serves one (D-15). */
+const QA_REPORT = {
+  version: 1,
+  client: "acme",
+  vertical: "clinic",
+  as_of: "2026-07-31",
+  model: "offline-heuristic",
+  scenarios_total: 58,
+  defects: 0,
+  red_team: 11,
+  everything_captured: { passed: 44, total: 58, basis: "measured" },
+  field_left_blank: { passed: 14, total: 58, basis: "measured" },
+  trend: "no_baseline",
+  scenario_classes: [
+    {
+      scenario: 1,
+      label: "A normal call, start to finish",
+      meaning: "the caller's details reach your leads list correctly",
+      count: 13,
+    },
+  ],
+  known_limits: [{ label: "Budget (lakhs)", scenarios: 4 }],
+};
+
+/** One row of the weekly QA spot-check queue (SURFACES §1). */
+const QA_SAMPLE = {
+  id: "s1",
+  tenant_id: "t1",
+  tenant_name: "Sri Traders",
+  tenant_slug: "sri-traders",
+  call_id: "c1",
+  agent_name: "Reception",
+  week_start: "2026-08-03",
+  population: 40,
+  target: 2,
+  selection_rank: 1,
+  selection_seed: "t1:2026-08-03",
+  selected_at: "2026-08-10T04:00:00Z",
+  started_at: "2026-08-05T06:30:00Z",
+  duration_s: 154,
+  direction: "inbound",
+  outcome_tag: "resolved",
+  sentiment: "positive",
+  disclosure_played: true,
+  verdict: null,
+  reviewed_at: null,
+};
+
 const CLIENT_SCREENS: Screen[] = [
   {
     // The client shell: sidebar, nav and the mobile drawer that every screen renders
@@ -381,6 +439,17 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/dashboard": DASHBOARD,
       "/v1/usage": USAGE,
       "/v1/calls?limit=6": [CALL],
+    },
+  },
+  {
+    // Two reports so the month picker renders — a single-report fixture would leave the
+    // chip group unscanned, which is the control on this screen most likely to be wrong.
+    file: "c/[slug]/quality/page.tsx",
+    realm: "client",
+    element: () => <QualityPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/quality/reports": [QA_REPORT, { ...QA_REPORT, as_of: "2026-06-30", defects: 1 }],
     },
   },
   {
@@ -417,11 +486,44 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/members": MEMBERS,
       "/v1/leads?limit=100": {
         items: [LEAD],
-        columns: [{ key: "name", label: "Name" }],
+        // The server's resolved column list (`crm.columns`), one fixed column and one
+        // extraction column, so the sweep sees the table the chooser actually renders.
+        columns: LEAD_COLUMNS,
+        available_columns: LEAD_COLUMNS,
+        dropped_column_keys: [],
         total: 1,
         limit: 100,
         offset: 0,
         status_counts_matching_search: { new: 1, contacted: 0, interested: 0, hot: 0, won: 0, lost: 0 },
+      },
+      // The facet rail is part of this screen now, and it is swept WITH values in it —
+      // an empty rail renders nothing and would prove nothing about its labelling.
+      "/v1/leads/facets": {
+        facets: [
+          {
+            key: "budget_band",
+            label: "Budget band",
+            values: [
+              { value: "over_50l", count: 3, declared: true },
+              { value: "under_20l", count: 1, declared: true },
+            ],
+          },
+        ],
+        omitted_field_count: 0,
+      },
+      "/v1/leads/views": {
+        items: [
+          {
+            id: "view-1",
+            name: "Hot this week",
+            filters: { status: "hot", agent_id: null, assigned_to_me: false, fields: {} },
+            columns: null,
+            stale_filter_keys: [],
+            stale_column_keys: [],
+            created_at: "2026-08-10T06:00:00Z",
+            updated_at: "2026-08-10T06:00:00Z",
+          },
+        ],
       },
     },
   },
@@ -432,7 +534,7 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/me": ME,
       "/v1/members": MEMBERS,
-      "/v1/leads/lead-a": { ...LEAD, columns: [{ key: "name", label: "Name" }] },
+      "/v1/leads/lead-a": { ...LEAD, columns: LEAD_COLUMNS },
       "/v1/leads/lead-a/timeline?limit=50": {
         items: [
           {
@@ -606,6 +708,11 @@ const CLIENT_SCREENS: Screen[] = [
           created_at: "2026-08-01T10:00:00Z",
         },
       ],
+      // The catalogue both create forms are built from. Without it neither form renders,
+      // and the sweep would scan a screen with no inputs on it at all.
+      "/v1/integrations/events": {
+        events: ["lead.created", "lead.updated", "call.completed", "campaign.completed"],
+      },
       "/v1/integrations/deliveries": [
         {
           id: "d1",
@@ -631,14 +738,27 @@ const CLIENT_SCREENS: Screen[] = [
   {
     /**
      * Both forms are present at first paint for an owner, which is what this sweep needs:
-     * three labelled inputs, three buttons and the two verdict boxes. The certificate
-     * markup only exists after a request has been tracked, so it is scanned by its own
-     * axe call in `tests/dataRights.test.tsx` rather than left uncovered.
+     * the labelled inputs, the buttons, the two verdict boxes and the erasure register
+     * with its expand controls. The certificate markup only exists after a request has
+     * been opened, so it is scanned by its own axe call in `tests/dataRights.test.tsx`
+     * rather than left uncovered.
      */
     file: "c/[slug]/data-rights/page.tsx",
     realm: "client",
     element: () => <DataRightsPage />,
-    routes: { "/v1/me": ME },
+    routes: {
+      "/v1/me": ME,
+      "/v1/compliance/deletion-requests?limit=100": [
+        {
+          request_id: "0192f0aa-4444-7000-8000-0000000000ab",
+          subject_ref: "b1946ac92492d2347c6235b4d2611184",
+          status: "pending",
+          requested_at: "2026-08-14T06:00:00Z",
+          completed_at: null,
+          has_certificate: false,
+        },
+      ],
+    },
   },
   {
     file: "c/[slug]/do-not-call/page.tsx",
@@ -737,6 +857,18 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/usage": USAGE,
       "/v1/compliance/kyc": KYC_RECORD,
+      // The DLT half of the screen. Populated and NOT active, so both status rows and the
+      // "what is on file" list render — the state with the most markup in it.
+      "/v1/compliance/dlt-registration": {
+        recorded: true,
+        status: "submitted",
+        tm_link_status: "pending",
+        pe_id: "1101234567890123456",
+        entity_name: "Sri Clinic Pvt Ltd",
+        registered_at: "2026-07-01T04:00:00Z",
+        verified_at: "2026-08-01T04:00:00Z",
+        is_active: false,
+      },
     },
   },
   {
@@ -817,6 +949,34 @@ const ADMIN_SCREENS: Screen[] = [
     realm: "admin",
     element: () => <HeldAccountsPage />,
     routes: { "/v1/admin/compliance/holds": [HELD_TENANT] },
+  },
+  {
+    file: "admin/qa-sampling/page.tsx",
+    realm: "admin",
+    element: () => <QaSamplingPage />,
+    routes: { "/v1/admin/qa-samples?pending=true": [QA_SAMPLE] },
+  },
+  {
+    file: "admin/qa-sampling/[sampleId]/page.tsx",
+    realm: "admin",
+    element: () => <QaSampleReviewPage params={Promise.resolve({ sampleId: "s1" })} />,
+    routes: {
+      "/v1/admin/qa-samples/s1": {
+        sample: QA_SAMPLE,
+        call: {
+          ...CALL,
+          summary: "Caller booked a Tuesday slot.",
+          transcript: [
+            { idx: 0, speaker: "agent", text: "Namaskaram, Sri Clinic.", lang: "te-IN", start_ms: 0, redacted: true },
+            { idx: 1, speaker: "caller", text: "Call me on [phone ••10].", lang: "te-IN", start_ms: 2400, redacted: true },
+          ],
+          extraction: {},
+          extraction_valid: true,
+          has_recording: false,
+          disclosure_played: true,
+        },
+      },
+    },
   },
   {
     file: "admin/new/page.tsx",
@@ -916,6 +1076,22 @@ const ADMIN_SCREENS: Screen[] = [
       "/v1/admin/tenants/t1/agents/agent-1/prompt": [
         { id: "v2", version: 2, notes: "challenger", created_at: "2026-08-01T04:00:00Z", active: true },
         { id: "v1", version: 1, notes: "control", created_at: "2026-07-01T04:00:00Z", active: false },
+      ],
+      // The voice catalogue, read through the tenant's impersonation session like the
+      // other two client-realm GETs on this screen.
+      "/v1/agents/voices": [
+        {
+          id: "anushka",
+          label: "Anushka",
+          provider: "sarvam",
+          tts_model: "bulbul:v3",
+          tier: "premium",
+          gender: "female",
+          languages: ["te-IN", "hi-IN", "en-IN"],
+          note: "Warm, unhurried; the default for Telugu receptionists.",
+          is_default: true,
+          verified: false,
+        },
       ],
       "/v1/agents/agent-1/pending": {
         agent_id: "agent-1",

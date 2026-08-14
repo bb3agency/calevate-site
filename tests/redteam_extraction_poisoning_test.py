@@ -170,7 +170,12 @@ async def _exported_rows(payload: str) -> list[list[str]]:
                 "d": json.dumps({"intent": payload}),
             },
         )
-        body = await export_leads_csv(session)
+        # An EXPLICIT column selection, so the three hostile cells sit at known positions
+        # whatever the registry's default order is (`crm.columns.resolve` preserves the
+        # order it is given). It also means this suite exercises the column chooser on
+        # the path where a chooser could do the most damage: picking columns to render
+        # is exactly the mistake that left `name` unguarded before.
+        body = await export_leads_csv(session, columns=["phone", "name", "intent"])
     return [row for row in csv.reader(io.StringIO(body)) if row]
 
 
@@ -205,7 +210,7 @@ async def test_the_csv_export_neutralises_a_dictated_formula(payload: str) -> No
             assert not cell.startswith(EXECUTABLE_LEADERS), cell
 
     header, lead = rows[0], rows[1]
-    assert header[:2] == ["phone", "name"]
+    assert header[:2] == ["Phone", "Name"]
     # The header carries the hostile extraction LABEL, disarmed like any other cell.
     assert header[-1] == f"\t{payload}", "the header cell was written raw"
     # And the guard actually FIRED on each column carrying the hostile value, rather
@@ -237,13 +242,20 @@ async def test_a_benign_export_is_not_mangled_by_the_guard() -> None:
         body = await export_leads_csv(session)
 
     rows = [row for row in csv.reader(io.StringIO(body)) if row]
-    assert rows[0][:6] == ["phone", "name", "status", "source", "calls", "created_at"]
-    assert rows[1][:4] == ["919812345678", "Sri Clinic", "new", "webhook"]
-    assert rows[1][-1] == "book"
+    # Columns are chooseable now, so cells are located by HEADER rather than by position
+    # — the header labels are the registry's (`crm.columns`) and the order is its
+    # default. A positional read here would break on a reorder that broke nothing.
+    at = {label: i for i, label in enumerate(rows[0])}
+    assert rows[1][at["Phone"]] == "919812345678"
+    assert rows[1][at["Name"]] == "Sri Clinic"
+    assert rows[1][at["Status"]] == "new"
+    assert rows[1][at["Source"]] == "webhook"
+    assert rows[1][at["Intent"]] == "book"
     # `created_at` keeps its ISO-8601 `T`: the renderer spells `datetime` out rather
     # than letting `str()` write a space, which would be a format change smuggled in
     # under a security fix.
-    assert "T" in rows[1][5] and rows[1][5].startswith("20")
+    created = rows[1][at["Created"]]
+    assert "T" in created and created.startswith("20")
 
 
 # --- What `coerce_value` does and does not check --------------------------------

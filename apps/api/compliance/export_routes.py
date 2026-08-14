@@ -31,14 +31,33 @@ worse:
 the most sensitive artefact we hold about a caller, and your having seen it is
 recorded". The name is a slight stretch — we return the REDACTED transcript here, on
 purpose (`export.py`, decision 1) — but the authority it represents is exactly right,
-and inventing a permission for one unmounted route is how a role table stops being
-readable.
+and inventing a permission for a single route is how a role table stops being readable.
+("for one unmounted route", this used to say — a leftover from the paragraph above it,
+and wrong twice over now: the route is mounted, and the argument never depended on it.)
 
 Every call writes `audit_log`, in the same transaction as the read. An export of one
 person's personal data is precisely the event `audit_log` exists to make answerable
 later, and the audit row carries a `subject_ref` hash rather than the number (hard
 rule 6) — so the record of the disclosure never becomes another copy of what was
 disclosed.
+
+**The response is MODELLED, not a free dict**, for the reason `deletion_routes.py` gives
+about its own `proof`: `scripts/check_redaction_exposure.py` inspects response MODELS, so
+a `dict[str, Any]` is not a field the guardrail judges safe — it is a field the guardrail
+cannot see at all. This was the one endpoint in the product whose payload is an entire
+named human being, and it was the one endpoint structurally invisible to the check that
+exists to keep raw personal data out of responses. Modelling it also gives the generated
+TypeScript client something to say about the document (`counts`), which an opaque
+`{ [key: string]: unknown }` could not.
+
+The models are `extra="forbid"`, which `deletion_routes.py` warns against for its stored
+`proof` — and the distinction is the point. That proof is a DURABLE ROW written by a
+worker, so a forbidding model turns "the worker recorded one more fact" into a 500 on a
+read. This document is built in one function in this repository
+(`compliance/export.build_subject_export`), in the same release as these models, so drift
+between the two is a code change rather than old data arriving — and a loud failure in
+tests beats `extra="ignore"` silently DROPPING a newly added field from a disclosure that
+is supposed to be complete. `tests/subject_export_test.py` pins the two together.
 """
 
 from __future__ import annotations
@@ -65,11 +84,13 @@ Session = Annotated[AsyncSession, Depends(db)]
 SubjectExportReader = Annotated[Principal, Depends(requires("calls:read_raw"))]
 
 
-class SubjectExportIn(BaseModel):
+class Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class SubjectExportIn(Strict):
     """`extra="forbid"` so a caller cannot smuggle a second selector (a lead id, a
     tenant slug) into a request whose whole security argument is "one phone number"."""
-
-    model_config = ConfigDict(extra="forbid")
 
     # E.164 (conventions), same pattern as the admin DNC endpoint. A POST rather than a
     # GET for one reason: the identifier IS the personal data, and a GET would write it
@@ -77,8 +98,121 @@ class SubjectExportIn(BaseModel):
     phone: str = Field(min_length=8, max_length=20, pattern=r"^\+[1-9]\d{7,18}$")
 
 
+# --- the document ------------------------------------------------------------------
+#
+# Timestamps are ISO-8601 STRINGS rather than `datetime`, and ids are strings rather than
+# `UUID`, because `export.py` builds them that way on purpose: the document is serialized
+# to a file and handed to a person outside this system, and "portable" means readable
+# without our code. Retyping them here would silently reformat what leaves the building.
+
+
+class SubjectExportLeadOut(Strict):
+    """The CRM record, as the client holds it.
+
+    `phone_e164` is the subject's OWN number and appears unmasked — `export.py` decision
+    3: masking the identifier the subject asked about produces a document they cannot
+    check is about them. It is declared here rather than hidden in a dict so
+    `check_redaction_exposure` judges it against a named, reasoned allowance instead of
+    never seeing it.
+    """
+
+    id: str
+    phone_e164: str
+    name: str | None
+    status: str | None
+    source: str | None
+    # The schema-driven extraction fields (TRD §7) — a per-tenant shape by definition, so
+    # this is the one place the document cannot declare its own properties. Acknowledged
+    # in `check_redaction_exposure.ACKNOWLEDGED_PASSTHROUGH` with the reason.
+    data: dict[str, Any]
+    schema_version: int | None
+    call_count: int | None
+    is_repeat_caller: bool
+    created_at: str | None
+    updated_at: str | None
+
+
+class SubjectExportCallOut(Strict):
+    """One call, with the audio reported as a fact rather than as a link.
+
+    `recording_available` is a boolean and never a URL (`export.py` decision 2): a
+    presigned URL inside a document that gets emailed and forwarded is a bearer
+    credential travelling with it.
+    """
+
+    call_id: str
+    direction: str | None
+    started_at: str | None
+    duration_s: int | None
+    outcome_tag: str | None
+    # Model-written prose about the conversation, with every phone-shaped run that is NOT
+    # the subject's own masked by `export.mask_foreign_numbers` before it ships.
+    summary: str | None
+    recording_available: bool
+
+
+class SubjectExportTurnOut(Strict):
+    """One transcript turn. `text` carries `text_redacted`, never the raw column — hard
+    rule 5, reinforced rather than relaxed here because this is the one response that
+    leaves the client's own screen (`export.py` decision 1). A turn that has not been
+    through the redaction pass yet says so (`export.REDACTION_PENDING`) rather than
+    falling back to raw."""
+
+    idx: int
+    speaker: str | None
+    text: str
+
+
+class SubjectExportTranscriptOut(Strict):
+    call_id: str
+    turns: list[SubjectExportTurnOut]
+
+
+class SubjectExportConsentOut(Strict):
+    """One consent-ledger entry. `evidence_recorded` is a boolean for the same reason
+    the recording is: the evidence is a transcript SPAN, raw by construction, and it
+    stays behind the audited raw-transcript path."""
+
+    call_id: str | None
+    purpose: str | None
+    status: str | None
+    captured_at: str | None
+    evidence_recorded: bool
+
+
+class SubjectExportCountsOut(Strict):
+    """What the document contains, stated in the document.
+
+    `leads` is the TRUE number of lead rows this number matched while `lead` carries only
+    the most recently updated one, so a second row (a tenant running two agents) is
+    visible in the answer rather than silently dropped from it.
+    """
+
+    leads: int
+    calls: int
+    transcript_turns: int
+    consent_records: int
+    recordings_available: int
+
+
+class SubjectExportOut(Strict):
+    """The whole disclosure, and therefore the whole output whitelist
+    (BACKEND-PATTERNS §1)."""
+
+    # The number the request asked about, echoed back unmasked so the recipient can check
+    # the document is about them (`export.py` decision 3).
+    phone_e164: str
+    generated_at: str
+    lead: SubjectExportLeadOut | None
+    calls: list[SubjectExportCallOut]
+    transcripts: list[SubjectExportTranscriptOut]
+    consent: list[SubjectExportConsentOut]
+    counts: SubjectExportCountsOut
+
+
 @router.post(
     "",
+    response_model=SubjectExportOut,
     openapi_extra=permission_meta("calls:read_raw"),
     summary="DPDP subject access/portability export for one phone number — audited",
 )
@@ -87,7 +221,7 @@ async def subject_export(
     session: Session,
     request: Request,
     principal: SubjectExportReader,
-) -> dict[str, Any]:
+) -> SubjectExportOut:
     """Build the document, record that it was built, return it.
 
     A number we hold nothing about returns an empty-but-valid document, not a 404 —
@@ -100,6 +234,16 @@ async def subject_export(
     document = await build_subject_export(
         session, tenant_id=principal.tenant_id, phone_e164=payload.phone
     )
+    # Validated BEFORE the audit write, not after: a document that fails validation is
+    # never disclosed, so recording that it was would put a disclosure in the audit trail
+    # that never happened — and `audit_log` is append-only (hard rule 4), so that row
+    # could only ever be corrected by a compensating entry.
+    #
+    # `model_validate` rather than a hand-built constructor call: the document is one dict
+    # built in one place, and validating it whole means a field added to
+    # `build_subject_export` and not declared here FAILS here instead of being quietly
+    # dropped from a disclosure that is supposed to be complete.
+    modelled = SubjectExportOut.model_validate(document)
     counts = document["counts"]
     lead = document["lead"]
 
@@ -124,7 +268,17 @@ async def subject_export(
             "consent_records": counts["consent_records"],
         },
     )
-    return document
+    return modelled
 
 
-__all__ = ["SubjectExportIn", "router"]
+__all__ = [
+    "SubjectExportCallOut",
+    "SubjectExportConsentOut",
+    "SubjectExportCountsOut",
+    "SubjectExportIn",
+    "SubjectExportLeadOut",
+    "SubjectExportOut",
+    "SubjectExportTranscriptOut",
+    "SubjectExportTurnOut",
+    "router",
+]

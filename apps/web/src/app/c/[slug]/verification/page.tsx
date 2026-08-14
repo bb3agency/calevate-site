@@ -14,6 +14,13 @@ import {
   type KycRecord,
   type KycStatusCopy,
 } from "@/lib/api/kyc";
+import {
+  peStatusCopy,
+  tmLinkCopy,
+  usePeRegistration,
+  type PeRegistration,
+} from "@/lib/api/dltRegistration";
+import type { Session } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
 
 /**
@@ -86,6 +93,28 @@ const LIST = "space-y-3 text-sm text-ink-muted";
 
 export default function VerificationPage() {
   const session = useClientSession();
+
+  return (
+    <div className="space-y-5 pb-12">
+      <p className="text-sm text-ink-muted">
+        Indian telecom rules require two separate things of a business before it may place
+        calls: that the business behind the connection is identified, and that it is
+        registered with the DLT registrar to run campaigns. Both are below. Either one
+        outstanding stops outbound calling; neither one affects the calls coming in.
+      </p>
+
+      {/* Two independent reads, two independent sections. Composed rather than nested so
+          a failure of one is never allowed to blank the other: a client whose KYC read
+          503s is very often the same client trying to find out why their campaigns are
+          refused, and the answer to that question lives in the second section. */}
+      <SubscriberVerification session={session} />
+      <DltRegistration session={session} />
+    </div>
+  );
+}
+
+/** The KYC half: who this business is, as we verified it. */
+function SubscriberVerification({ session }: { session: Session }) {
   const record = useKycRecord(session);
 
   if (record.isLoading) return <Skeleton rows={6} />;
@@ -112,13 +141,7 @@ export default function VerificationPage() {
   const kyc = record.data;
 
   return (
-    <div className="space-y-5 pb-12">
-      <p className="text-sm text-ink-muted">
-        Indian telecom rules require the business behind a phone connection to be
-        identified before it can place calls. This is where yours stands, and what we
-        need if it is outstanding.
-      </p>
-
+    <div className="space-y-5">
       <Verdict record={kyc} />
 
       {!kyc.is_verified && (
@@ -153,14 +176,197 @@ export default function VerificationPage() {
             verified would be worth nothing to anyone.
           </li>
           <li>
+            {/* This bullet used to end "your campaign screen names the DLT ones
+                separately" — true while the DLT state had no page. It is on this one
+                now, so the sentence points down the page instead of away from it. */}
             <span className={LEAD_IN}>This is separate from your DLT registration.</span> The
             two overlap in the documents they rest on, but they are held by different
-            people for different purposes, and neither one clears the other. Your campaign
-            screen names the DLT ones separately when they are what is blocking a launch.
+            people for different purposes, and neither one clears the other. Your DLT
+            registration is the next section.
           </li>
         </ul>
       </Card>
     </div>
+  );
+}
+
+/**
+ * The DLT half: whether the registrar has this business as a Principal Entity, and
+ * whether that entity authorises Calevate to dial for it.
+ *
+ * This is the fact behind `pe_registration_missing` / `pe_registration_not_active` /
+ * `tm_link_not_active` — three of the launch gate's refusals — and it had no screen. A
+ * client whose campaign button was disabled could read the blocker and could not read the
+ * registration it was about.
+ *
+ * §52 in three branches, and the middle one is the point: a read that FAILED must not
+ * render as "nothing filed yet". `recorded: false` and "we could not ask" are opposite
+ * facts that would produce the same card, and the first sends a client to their account
+ * manager over a registration that may be perfectly active.
+ *
+ * Read-only with no control anywhere, and that is not an omission — see the module
+ * docstring on `lib/api/dltRegistration.ts`. The write is operator-only because a client
+ * who could set these two statuses would be clearing their own compliance gate. So there
+ * is nothing here for `useWriteAccess` to gate, and no `RestrictionNote`: `org:read` is
+ * held by every client role and survives a D-22 read-only session.
+ */
+function DltRegistration({ session }: { session: Session }) {
+  const registration = usePeRegistration(session);
+
+  if (registration.isLoading) {
+    return (
+      <Card title="Campaign registration (DLT)">
+        <Skeleton rows={4} />
+      </Card>
+    );
+  }
+
+  if (registration.error || !registration.data) {
+    return (
+      <Card title="Campaign registration (DLT)">
+        <ProblemNotice
+          error={
+            registration.error ??
+            new Error("Your DLT registration did not load, so we cannot say where it stands.")
+          }
+          onRetry={() => void registration.refetch()}
+        />
+      </Card>
+    );
+  }
+
+  const pe = registration.data;
+  return (
+    <Card title="Campaign registration (DLT)">
+      <DltVerdict registration={pe} />
+      <DltStatuses registration={pe} />
+      {pe.recorded && <DltOnFile registration={pe} />}
+      <p className="mt-3 text-xs text-ink-faint">
+        We record this against the registrar on your behalf and cannot change what it says
+        — there is no control here that sets your own status, for the same reason there is
+        none above.
+      </p>
+    </Card>
+  );
+}
+
+/**
+ * Cleared or not, in one box — off `is_active`, never off `status`.
+ *
+ * The same doctrine as `Verdict` above: the server computes the predicate the launch gate
+ * asks (`PeRegistration.is_active` = both statuses active), so a screen that recombined
+ * the two statuses itself would eventually disagree with the gate that actually refuses
+ * the campaign. The icon is keyed on the same boolean as the sentence.
+ */
+function DltVerdict({ registration }: { registration: PeRegistration }) {
+  const Icon = registration.is_active ? ShieldCheck : ShieldAlert;
+  return (
+    <NoticeBox
+      tone={registration.is_active ? "ok" : registration.recorded ? "warn" : "neutral"}
+      icon={<Icon className="h-5 w-5" />}
+      title={
+        registration.is_active
+          ? "Your business is registered to run campaigns."
+          : registration.recorded
+            ? "Your DLT registration is not active yet."
+            : "We have not filed a DLT registration for your business."
+      }
+    >
+      <div className="min-w-0">
+        <p className="mt-1">
+          {registration.is_active
+            ? "Nothing on the DLT side is holding up a campaign launch."
+            : "Outbound campaigns cannot launch until both lines below are active."}
+        </p>
+        {!registration.is_active && (
+          <p className="mt-2 font-semibold">
+            Calls coming IN are unaffected — your agent keeps answering the phone.
+          </p>
+        )}
+      </div>
+    </NoticeBox>
+  );
+}
+
+/**
+ * The two statuses, side by side, because they fail separately and to different desks.
+ *
+ * The registrar approves the entity; YOU authorise Calevate as your telemarketer on the
+ * registrar's portal. Collapsing them into one verdict would send half the clients who
+ * read this to the wrong place — which is exactly why the API emits
+ * `pe_registration_not_active` and `tm_link_not_active` as different blockers.
+ *
+ * A status this build cannot name prints the raw word from the wire with a sentence that
+ * claims nothing about it. Vaguer than the table, and it cannot be wrong.
+ */
+function DltStatuses({ registration }: { registration: PeRegistration }) {
+  const entity = peStatusCopy(registration.status);
+  const link = tmLinkCopy(registration.tm_link_status);
+  return (
+    <dl className="mt-4 space-y-3 text-sm">
+      <div>
+        <dt className="font-semibold text-ink">
+          Your business as a Principal Entity:{" "}
+          {entity?.label ?? registration.status ?? "not filed"}
+        </dt>
+        <dd className="text-ink-muted">
+          {entity?.next ??
+            (registration.recorded
+              ? "Ask your account manager what this state means for your campaigns."
+              : "Nothing has been filed with the registrar for your business yet. Ask your account manager to start it.")}
+        </dd>
+      </div>
+      <div>
+        <dt className="font-semibold text-ink">
+          Calevate authorised to dial for you:{" "}
+          {link?.label ?? registration.tm_link_status ?? "not filed"}
+        </dt>
+        <dd className="text-ink-muted">
+          {link?.next ??
+            (registration.recorded
+              ? "Ask your account manager where this authorisation stands."
+              : "This authorisation follows the registration above; there is nothing to authorise until that exists.")}
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+/**
+ * What is on file, shown to the business it is about.
+ *
+ * `verified_at` is when WE last checked this against the registrar, not when we last
+ * hoped — the route's docstring is explicit — so it is labelled that way. A row with no
+ * value is dropped rather than dashed, the same rule `OnFile` follows above.
+ */
+function DltOnFile({ registration }: { registration: PeRegistration }) {
+  const rows: { label: string; value: string | null }[] = [
+    { label: "Registered entity name", value: registration.entity_name },
+    { label: "Principal Entity ID", value: registration.pe_id },
+    {
+      label: "Registered with the registrar",
+      value: registration.registered_at ? formatIST(registration.registered_at) : null,
+    },
+    {
+      label: "We last checked",
+      value: registration.verified_at ? formatIST(registration.verified_at) : null,
+    },
+  ];
+  const present = rows.filter((row) => row.value !== null && row.value !== "");
+  if (present.length === 0) return null;
+
+  return (
+    <dl className="mt-4 divide-y divide-line">
+      {present.map((row) => (
+        <div
+          key={row.label}
+          className="flex flex-wrap justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
+        >
+          <dt className="text-ink-muted">{row.label}</dt>
+          <dd className="font-semibold text-ink">{row.value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 

@@ -33,6 +33,7 @@ from apps.workers.notifications import notify_hot_lead
 from apps.workers.optout import record_in_call_optout
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from apps.workers.pipeline import ingest_engine_event, reconcile_executions, run_post_call_pipeline
+from apps.workers.qa_sampling import draw_qa_samples
 from apps.workers.retention import apply_retention, execute_deletion_request
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
@@ -101,6 +102,30 @@ CRON_JOBS = [
     # `campaign_dispatch._tick_lease` is where single-flight actually comes from.
     cron(traced_job(dispatch_campaign_tick), second=set(TICK_SECONDS)),
     cron(traced_job(sweep_expired), hour={3}, minute={17}),
+    # THE WEEKLY QA SPOT-CHECK (SURFACES §1): 5% of every client's calls, drawn so the
+    # draw can be re-run and checked (`apps/api/quality/sampling.py`). Monday, early.
+    #
+    # **The schedule does not decide which week is sampled** — `qa_sampling.closed_weeks`
+    # does, from the firing instant converted to IST, and it only ever asks for weeks
+    # that have CLOSED. That matters because arq evaluates cron fields in the WORKER
+    # HOST's timezone (`Worker.timezone` defaults to the system zone), which this repo
+    # pins nowhere; a schedule whose correctness depended on the host clock would sample
+    # a partial week the day somebody deployed to a differently-configured box. Monday
+    # 02:20 is after the IST week boundary on both a UTC host (07:50 IST) and an IST one,
+    # so the tick is early either way and the draw is right regardless.
+    #
+    # `max_tries` EXPLICIT for the reason `issue_one_time_charges` states below:
+    # `cron()` defaults it to 1 and `WorkerSettings.max_tries` does not reach a function
+    # carrying its own. A sampling tick that gave up on its first failure would leave a
+    # week undrawn with every screen still green. Verified against a real
+    # `arq.worker.Worker` in `tests/qa_sampling_test.py`, not asserted by this comment.
+    cron(
+        traced_job(draw_qa_samples),
+        weekday={0},
+        hour={2},
+        minute={20},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # Retention is a legal obligation, not a cleanup task: without this the
     # policies we promise in the DPA are only a table (SEC-COMP §4).
     cron(traced_job(apply_retention), hour={3}, minute={40}),

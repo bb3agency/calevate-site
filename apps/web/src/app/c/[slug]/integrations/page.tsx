@@ -5,23 +5,30 @@ import { useState } from "react";
 import {
   Card,
   EmptyState,
+  NoticeBox,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
   formatIST,
 } from "@/components/ui";
-import { useMe, useWriteAccess } from "@/lib/api/hooks";
+import { ApiProblem, type Session } from "@/lib/api/client";
+import { useMe, useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import {
   EVENT_LABELS,
+  SHEETS_UNAVAILABLE_CODE,
+  SHEET_KIND,
+  eventLabel,
   useCreateEndpoint,
+  useCreateSheetsEndpoint,
   useDeactivateEndpoint,
   useDeliveries,
   useDeliveryPayload,
   useEndpoints,
+  useEventCatalogue,
   type OutboundEvent,
 } from "@/lib/api/integrations";
-import { lookup } from "@/lib/lookup";
+import { hasKey, lookup } from "@/lib/lookup";
 
 /**
  * Outbound sync (D-23) and its delivery log (SURFACES §2b).
@@ -42,13 +49,6 @@ import { lookup } from "@/lib/lookup";
  *    delivery record and no offer, rather than a button that 403s.
  */
 
-const ALL_EVENTS: OutboundEvent[] = [
-  "lead.created",
-  "lead.updated",
-  "call.completed",
-  "campaign.completed",
-];
-
 const STATUS_TONE: Record<string, string> = {
   delivered: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
   failed: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
@@ -60,8 +60,13 @@ export default function IntegrationsPage() {
 
   const endpoints = useEndpoints(session);
   const deliveries = useDeliveries(session);
-  const create = useCreateEndpoint(session);
   const deactivate = useDeactivateEndpoint(session);
+  /**
+   * The catalogue both forms are built from — the SERVER's list of subscribable events,
+   * where this screen used to carry its own copy of it. One read, shared, so the two
+   * forms can never offer different events.
+   */
+  const catalogue = useEventCatalogue(session);
 
   /**
    * D-22 read-only. Registering and turning off an endpoint are both `org:manage`
@@ -76,8 +81,6 @@ export default function IntegrationsPage() {
    */
   const write = useWriteAccess(session, "org:manage", "change where events are sent");
 
-  const [url, setUrl] = useState("");
-  const [events, setEvents] = useState<OutboundEvent[]>(["lead.created"]);
   const [revealed, setRevealed] = useState<string | null>(null);
 
   /**
@@ -110,7 +113,6 @@ export default function IntegrationsPage() {
       {endpoints.error && (
         <ProblemNotice error={endpoints.error} onRetry={() => endpoints.refetch()} />
       )}
-      {create.error && <ProblemNotice error={create.error} />}
       {deactivate.error && <ProblemNotice error={deactivate.error} />}
 
       {revealed && (
@@ -136,72 +138,35 @@ export default function IntegrationsPage() {
         </Card>
       )}
 
-      <Card title="Where to send events">
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            create.mutate(
-              { url, events },
-              {
-                onSuccess: (data) => {
-                  setRevealed(data.secret);
-                  setUrl("");
-                },
-              },
-            );
-          }}
-        >
-          {/* A PERSISTENT label, not the placeholder alone. axe's `label` rule accepts a
-              placeholder as an accessible name (tests/a11y.ts says so, and it is why this
-              defect survived the sweep going green), but the text disappears the moment
-              somebody types — which is WCAG 3.3.2's entire complaint, and worst for the
-              reader who most needs to re-check what a field wanted. The rest of the
-              console labels its fields this way; this input was the exception. */}
-          <label className="block">
-            <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-              Where should we send them?
-            </span>
-            <input
-              required
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://your-crm.example.com/calevate"
-              className="mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-            />
-          </label>
-          <fieldset className="space-y-1.5">
-            <legend className="text-xs font-medium text-slate-600 dark:text-slate-300">
-              Send when…
-            </legend>
-            {ALL_EVENTS.map((event) => (
-              <label key={event} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={events.includes(event)}
-                  onChange={(e) =>
-                    setEvents((current) =>
-                      e.target.checked
-                        ? [...current, event]
-                        : current.filter((x) => x !== event),
-                    )
-                  }
-                />
-                <span className="text-slate-700 dark:text-slate-300">{EVENT_LABELS[event]}</span>
-                <code className="text-xs text-slate-400">{event}</code>
-              </label>
-            ))}
-          </fieldset>
-          <button
-            type="submit"
-            disabled={!write.allowed || create.isPending || !url || events.length === 0}
-            className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
-          >
-            {create.isPending ? "Adding…" : "Add endpoint"}
-          </button>
-        </form>
-      </Card>
+      {/* Both forms are built from ONE catalogue read, so neither can be rendered from a
+          list we do not have. §52: a skeleton while it is in flight, the refusal when it
+          failed — and NOT a fallback list, which would offer a subscription the server may
+          no longer accept and would hide the failure behind four plausible checkboxes. */}
+      {catalogue.isLoading ? (
+        <Card title="Where to send events">
+          <Skeleton rows={4} />
+        </Card>
+      ) : catalogue.error || !catalogue.data ? (
+        <Card title="Where to send events">
+          <ProblemNotice
+            error={
+              catalogue.error ??
+              new Error("We could not load the list of events you can subscribe to.")
+            }
+            onRetry={() => void catalogue.refetch()}
+          />
+        </Card>
+      ) : (
+        <>
+          <WebhookForm
+            session={session}
+            catalogue={catalogue.data}
+            write={write}
+            onSecret={setRevealed}
+          />
+          <SheetsForm session={session} catalogue={catalogue.data} write={write} />
+        </>
+      )}
 
       <Card title="Your endpoints">
         {endpoints.isLoading ? (
@@ -218,9 +183,26 @@ export default function IntegrationsPage() {
                     off
                   </span>
                 )}
+                {endpoint.kind === SHEET_KIND && (
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    Google Sheet
+                  </span>
+                )}
                 <span className="text-xs text-slate-500">{endpoint.events.join(", ")}</span>
+                {/* The fingerprint answers a different question per kind, so it says a
+                    different thing per kind. For a webhook it identifies WHICH signing
+                    secret this is; for a sheet `secret_ref` holds a secrets-manager
+                    reference, so its presence means only "a Google credential is attached
+                    yet or not" — and the row this screen can now CREATE always starts
+                    without one. Printing `key ···null` there, which is what a single line
+                    for both kinds produced, is the defect that would have shipped with the
+                    sheets form. */}
                 <span className="ml-auto text-xs text-slate-400">
-                  key ···{endpoint.secret_fingerprint}
+                  {endpoint.kind === SHEET_KIND
+                    ? endpoint.secret_fingerprint
+                      ? "Google credential attached"
+                      : "no Google credential yet — deliveries will fail until we attach one"
+                    : `key ···${endpoint.secret_fingerprint ?? "—"}`}
                 </span>
                 {endpoint.active && (
                   <button
@@ -378,5 +360,306 @@ export default function IntegrationsPage() {
         )}
       </Card>
     </div>
+  );
+}
+
+/** The form language of this screen, in one place rather than per control. */
+const INPUT =
+  "mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950";
+const FIELD_LABEL = "text-xs font-medium text-slate-600 dark:text-slate-300";
+const SUBMIT =
+  "rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900";
+
+/**
+ * The event checkboxes, from the catalogue the SERVER published.
+ *
+ * One component for both forms, because two copies of a list is where the two transports
+ * start offering different subscriptions.
+ *
+ * An entry the catalogue names and this build has no copy for is rendered rather than
+ * hidden — but NOT as a checkbox: `CreateEndpointIn.events` is a generated literal union,
+ * so a name outside it cannot be put in a typed request body, and a checkbox that could
+ * only produce a 422 is the dead control this whole slice exists to remove. It means our
+ * OpenAPI snapshot is behind the deployment, which is a fact worth saying on screen once
+ * rather than a checkbox worth faking.
+ */
+function EventChoices({
+  catalogue,
+  selected,
+  onToggle,
+  disabled,
+}: {
+  catalogue: string[];
+  selected: OutboundEvent[];
+  onToggle: (event: OutboundEvent, on: boolean) => void;
+  disabled: boolean;
+}) {
+  const unknown = catalogue.filter((name) => !hasKey(EVENT_LABELS, name));
+  return (
+    <fieldset className="space-y-1.5">
+      <legend className={FIELD_LABEL}>Send when…</legend>
+      {catalogue.filter((name) => hasKey(EVENT_LABELS, name)).map((name) => (
+        <label key={name} className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={hasKey(EVENT_LABELS, name) && selected.includes(name)}
+            disabled={disabled}
+            onChange={(e) => {
+              if (hasKey(EVENT_LABELS, name)) onToggle(name, e.target.checked);
+            }}
+          />
+          <span className="text-slate-700 dark:text-slate-300">{eventLabel(name)}</span>
+          <code className="text-xs text-slate-400">{name}</code>
+        </label>
+      ))}
+      {unknown.length > 0 && (
+        <p className="text-xs text-slate-500">
+          This account can also receive {unknown.join(", ")}, which this version of the
+          console cannot subscribe to yet. Tell us and we will set it up.
+        </p>
+      )}
+    </fieldset>
+  );
+}
+
+/**
+ * Register a webhook. Unchanged in behaviour; it now draws its events from the catalogue
+ * and lives in its own component so the Sheets form beside it can hold its own state.
+ */
+function WebhookForm({
+  session,
+  catalogue,
+  write,
+  onSecret,
+}: {
+  session: Session;
+  catalogue: string[];
+  write: WriteAccess;
+  onSecret: (secret: string) => void;
+}) {
+  const create = useCreateEndpoint(session);
+  const [url, setUrl] = useState("");
+  const [events, setEvents] = useState<OutboundEvent[]>(["lead.created"]);
+
+  return (
+    <Card title="Send events to your own system">
+      {create.error && (
+        <div className="mb-3">
+          <ProblemNotice error={create.error} />
+        </div>
+      )}
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          create.mutate(
+            { url, events },
+            {
+              onSuccess: (data) => {
+                onSecret(data.secret);
+                setUrl("");
+              },
+            },
+          );
+        }}
+      >
+        {/* A PERSISTENT label, not the placeholder alone. axe's `label` rule accepts a
+            placeholder as an accessible name (tests/a11y.ts says so, and it is why this
+            defect survived the sweep going green), but the text disappears the moment
+            somebody types — which is WCAG 3.3.2's entire complaint, and worst for the
+            reader who most needs to re-check what a field wanted. The rest of the
+            console labels its fields this way; this input was the exception. */}
+        <label className="block">
+          <span className={FIELD_LABEL}>Where should we send them?</span>
+          <input
+            required
+            type="url"
+            value={url}
+            disabled={!write.allowed}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://your-crm.example.com/calevate"
+            className={INPUT}
+          />
+        </label>
+        <EventChoices
+          catalogue={catalogue}
+          selected={events}
+          disabled={!write.allowed}
+          onToggle={(event, on) =>
+            setEvents((current) =>
+              on ? [...current, event] : current.filter((x) => x !== event),
+            )
+          }
+        />
+        <button
+          type="submit"
+          disabled={!write.allowed || create.isPending || !url || events.length === 0}
+          className={SUBMIT}
+        >
+          {create.isPending ? "Adding…" : "Add endpoint"}
+        </button>
+      </form>
+    </Card>
+  );
+}
+
+/**
+ * Deliver events to a Google Sheet — D-23's second transport, reachable from a screen at
+ * last.
+ *
+ * THE REFUSAL IS THE INTERESTING PART. `create_sheets_endpoint` checks
+ * `sheets_delivery_available()` before it writes anything, and on a deployment with no
+ * Google service account it refuses with `sheets_delivery_unavailable`. That is a
+ * FOUNDER/OPS decision — the route's own argument is that a checkbox for a transport that
+ * cannot deliver recreates the "silently never delivers" defect the sheets work removed —
+ * and it is the state EVERY deployment is in today.
+ *
+ * Three ways to render it were on the table:
+ *
+ * 1. Hide the form until some capability flag says otherwise. There is no such flag to
+ *    read: no endpoint publishes `sheets_delivery_available`, so hiding would mean
+ *    guessing, and a client with Sheets enabled would never be offered it. (The
+ *    `number_purchase_available` field on the KYC read is what this would need; that it
+ *    has no counterpart here is reported, not invented.)
+ * 2. Disable the button with a locally-written reason. That is a second copy of a server
+ *    rule, and the copy is what drifts.
+ * 3. Offer it, and when the server refuses, REPLACE the form with the server's own words.
+ *
+ * (3) is what this does. The refusal is not an error state — no rose panel, no "try
+ * again", because trying again is not the remediation — it is an informative state
+ * carrying the API's `title`, `detail` and `remediation` verbatim ("Register a webhook
+ * endpoint instead, or contact support to have Google Sheets enabled for your account").
+ * Nothing is written server-side when it fires, so nothing has to be undone. Every OTHER
+ * refusal this route can produce — an unparseable sheet reference, an event with no column
+ * layout — keeps the form on screen and renders through `ProblemNotice`, because those the
+ * client can fix in the field they are looking at.
+ */
+function SheetsForm({
+  session,
+  catalogue,
+  write,
+}: {
+  session: Session;
+  catalogue: string[];
+  write: WriteAccess;
+}) {
+  const create = useCreateSheetsEndpoint(session);
+  const [spreadsheet, setSpreadsheet] = useState("");
+  const [worksheet, setWorksheet] = useState("");
+  const [events, setEvents] = useState<OutboundEvent[]>(["lead.created"]);
+
+  // The one refusal that is a statement about the DEPLOYMENT rather than about this
+  // request, read off the problem's stable machine code rather than off its prose.
+  const unavailable =
+    create.error instanceof ApiProblem && create.error.code === SHEETS_UNAVAILABLE_CODE
+      ? create.error
+      : null;
+
+  if (unavailable) {
+    return (
+      <Card title="Send events to a Google Sheet">
+        <NoticeBox tone="neutral" title={unavailable.message}>
+          <p className="mt-1">
+            {unavailable.remediation ??
+              "Register a webhook endpoint above instead, or ask us to enable Google Sheets for your account."}
+          </p>
+          <p className="mt-2 text-xs opacity-80">
+            Nothing was created, so there is nothing to undo. Reload this page once we have
+            told you Sheets is switched on for your account.
+          </p>
+        </NoticeBox>
+      </Card>
+    );
+  }
+
+  return (
+    <Card title="Send events to a Google Sheet">
+      <p className="-mt-2 text-xs text-slate-500">
+        We append a row per event. Share the sheet with the Google account we give you —
+        until that credential is attached on our side, deliveries appear as failures below
+        rather than quietly doing nothing.
+      </p>
+      {create.error && (
+        <div className="mt-3">
+          <ProblemNotice error={create.error} />
+        </div>
+      )}
+      {create.data && (
+        <div className="mt-3">
+          <NoticeBox tone={create.data.credential_attached ? "ok" : "warn"} title="Sheet added">
+            <p className="mt-1">
+              Writing to sheet <code>{create.data.spreadsheet_id}</code>, tab{" "}
+              <strong>{create.data.worksheet}</strong>.{" "}
+              {create.data.credential_attached
+                ? "The Google credential is attached, so the next event lands in it."
+                : "No Google credential is attached yet, so deliveries will be recorded as failures until we attach one — that is us, not you."}
+            </p>
+          </NoticeBox>
+        </div>
+      )}
+      <form
+        className="mt-3 space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          create.mutate(
+            {
+              spreadsheet,
+              events,
+              // An empty tab name is not a tab name. The server strips it to the same
+              // effect; sending null says what we mean.
+              worksheet: worksheet.trim() === "" ? null : worksheet.trim(),
+            },
+            { onSuccess: () => setSpreadsheet("") },
+          );
+        }}
+      >
+        {/* The hint sits OUTSIDE the label on purpose. A `<label>` wrapping both the
+            field and a sentence of guidance makes the whole paragraph the field's
+            accessible name, which is what a screen reader then announces on focus. The
+            visible label stays one short phrase; the guidance is a sibling. */}
+        <label className="block">
+          <span className={FIELD_LABEL}>Which sheet?</span>
+          <input
+            required
+            value={spreadsheet}
+            disabled={!write.allowed}
+            onChange={(e) => setSpreadsheet(e.target.value)}
+            placeholder="https://docs.google.com/spreadsheets/d/…"
+            className={INPUT}
+          />
+        </label>
+        <p className="-mt-2 text-xs text-slate-500">
+          Paste the address bar while the sheet is open, or just the document id.
+        </p>
+        <label className="block">
+          <span className={FIELD_LABEL}>Which tab? (optional)</span>
+          <input
+            value={worksheet}
+            disabled={!write.allowed}
+            onChange={(e) => setWorksheet(e.target.value)}
+            maxLength={100}
+            placeholder="Leads"
+            className={INPUT}
+          />
+        </label>
+        <EventChoices
+          catalogue={catalogue}
+          selected={events}
+          disabled={!write.allowed}
+          onToggle={(event, on) =>
+            setEvents((current) =>
+              on ? [...current, event] : current.filter((x) => x !== event),
+            )
+          }
+        />
+        <button
+          type="submit"
+          disabled={!write.allowed || create.isPending || !spreadsheet || events.length === 0}
+          className={SUBMIT}
+        >
+          {create.isPending ? "Adding…" : "Add sheet"}
+        </button>
+      </form>
+    </Card>
   );
 }

@@ -90,6 +90,19 @@ A sales asset that renders differently on two runs is not evidence, so the docum
 pure function of (fixtures, baseline, client, vertical, as-of date). `--as-of` is an
 explicit argument rather than `now()`: a timestamp to the microsecond would make every
 regeneration a diff, and the month is the only time granularity G3 cares about.
+
+ONE COMPUTATION, TWO RENDERINGS (SURFACES §2, "rendered in-app, not just PDF")
+------------------------------------------------------------------------------
+The in-app report is NOT a second implementation of this one. The counting happens once,
+in `summarize()`, and produces `calevate_shared.qa_report.QaReport`; `render()` turns
+that into the Markdown this file has always emitted, and `--store` writes the very same
+object into `qa_reports` for the client's screen to read back. The API recomputes
+nothing — it revalidates the stored row and serves it (`apps/api/quality/service.py`).
+
+That is the whole anti-fork design, and it is asserted rather than trusted:
+`tests/qa_report_in_app_test.py::test_the_in_app_report_and_the_cli_report_agree` parses
+the numbers back out of this Markdown and compares them field by field with what the
+route returns. A number computed a second way inside the API turns that test red.
 """
 
 from __future__ import annotations
@@ -99,23 +112,26 @@ import asyncio
 import json
 import sys
 from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Literal
 
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec
 
+#: The report's own vocabulary, in `shared` because three processes read it: this CLI
+#: computes it, `apps/api` serves it and the browser renders it (the reasoning is in
+#: `calevate_shared/qa_report.py`). `MIN_FOR_PERCENT` and `Basis` are IMPORTED rather
+#: than defined here — a second floor would be a second answer to "when is a percentage
+#: earned", and the client reads both documents.
+from calevate_shared.qa_report import (
+    MIN_FOR_PERCENT,
+    Basis,
+    FieldLimit,
+    Measurement,
+    QaReport,
+    ScenarioClassCount,
+)
+
 import scripts.eval as ev
-
-#: Below this many scenarios a percentage is noise dressed as a measurement. Twelve is
-#: the point where one scenario moves the figure by less than ten points; under it the
-#: count is the honest rendering. Chosen for the same reason `TREND_BASELINE_MIN` exists
-#: in `admin/health.py` — not because 12 is magic, but because SOME floor has to be
-#: written down or every denominator gets a percentage.
-MIN_FOR_PERCENT = 12
-
-Basis = Literal["measured", "too_few", "no_baseline"]
 
 #: What each basis means IN THE DOCUMENT. The client reads this sentence, so it says what
 #: was and was not established rather than naming our internal state.
@@ -153,42 +169,9 @@ SCENARIO_MEANING: dict[int, str] = {
 }
 
 
-@dataclass(frozen=True, slots=True)
-class Measurement:
-    """A number with the reason it is trustworthy attached, or the reason it is not.
-
-    The `basis` field is `CallVolume.basis` applied to a document instead of a tile: the
-    caveat travels WITH the number, so nothing downstream can render a figure without the
-    thing that qualifies it.
-    """
-
-    passed: int
-    total: int
-    basis: Basis
-
-    @property
-    def rendered(self) -> str:
-        if self.basis != "measured":
-            return f"{self.passed} of {self.total}"
-        return f"{self.passed} of {self.total} ({round(100 * self.passed / self.total)}%)"
-
-
 def measure(passed: int, total: int) -> Measurement:
     basis: Basis = "measured" if total >= MIN_FOR_PERCENT else "too_few"
     return Measurement(passed=passed, total=total, basis=basis)
-
-
-@dataclass(frozen=True, slots=True)
-class FieldLimit:
-    """One column of the client's leads list that the configured model does not fill.
-
-    Named by the client's own LABEL, never our key: `budget_lakhs` is our column and
-    "Budget (lakhs)" is theirs, and a report that speaks our names is asking them to
-    learn our schema to read their own results.
-    """
-
-    label: str
-    scenarios: int
 
 
 def _defect_count(results: Sequence[ev.CaseResult]) -> int:
@@ -226,6 +209,51 @@ def _red_team_axes(results: Sequence[ev.CaseResult]) -> int:
     return sum(1 for r in results if r.red_team)
 
 
+def summarize(
+    results: Sequence[ev.CaseResult],
+    spec: ExtractionSchemaSpec,
+    *,
+    client: str,
+    vertical: str,
+    model: str,
+    as_of: date,
+) -> QaReport:
+    """THE computation. Every number in every rendering of this report comes from here.
+
+    Split out of `render` so the in-app view can exist without a second counting pass
+    (SURFACES §2). The Markdown, the stored row and the API response are all this object;
+    a number that disagreed between them could only come from somebody re-deriving one,
+    which is what `tests/qa_report_in_app_test.py` exists to catch.
+    """
+    total = len(results)
+    passed = sum(1 for r in results if r.passed)
+    return QaReport(
+        client=client,
+        vertical=vertical,
+        as_of=as_of,
+        model=model,
+        scenarios_total=total,
+        defects=_defect_count(results),
+        red_team=_red_team_axes(results),
+        everything_captured=measure(passed, total),
+        # The complement, computed as one subtraction from the same denominator so the
+        # two rows are guaranteed to account for every scenario — the property
+        # `test_the_two_result_rows_account_for_every_scenario` pins.
+        field_left_blank=measure(total - passed, total),
+        scenario_classes=[
+            ScenarioClassCount(
+                scenario=scenario,
+                label=label,
+                meaning=SCENARIO_MEANING[scenario],
+                count=sum(1 for r in results if r.scenario == scenario),
+            )
+            for scenario, label in CLIENT_SCENARIO_LABELS.items()
+            if any(r.scenario == scenario for r in results)
+        ],
+        known_limits=_known_limits(results, spec),
+    )
+
+
 def render(
     results: Sequence[ev.CaseResult],
     spec: ExtractionSchemaSpec,
@@ -235,11 +263,21 @@ def render(
     model: str,
     as_of: date,
 ) -> str:
-    total = len(results)
-    passed = sum(1 for r in results if r.passed)
-    defects = _defect_count(results)
-    overall = measure(passed, total)
-    blank = measure(total - passed, total)
+    """The client's Markdown, unchanged — now a pure rendering of `summarize`."""
+    return render_report(
+        summarize(results, spec, client=client, vertical=vertical, model=model, as_of=as_of)
+    )
+
+
+def render_report(report: QaReport) -> str:
+    """Markdown from the computed report. Reads numbers; derives none."""
+    client = report.client
+    as_of = report.as_of
+    model = report.model
+    total = report.scenarios_total
+    defects = report.defects
+    overall = report.everything_captured
+    blank = report.field_left_blank
     lines: list[str] = [
         f"# Quality report — {client}",
         "",
@@ -288,13 +326,10 @@ def render(
         "| What it tests | Scenarios | What a pass means |",
         "|---|---:|---|",
     ]
-    for scenario, label in CLIENT_SCENARIO_LABELS.items():
-        count = sum(1 for r in results if r.scenario == scenario)
-        if not count:
-            continue
-        lines.append(f"| {label} | {count} | {SCENARIO_MEANING[scenario]} |")
+    for row in report.scenario_classes:
+        lines.append(f"| {row.label} | {row.count} | {row.meaning} |")
 
-    red_team = _red_team_axes(results)
+    red_team = report.red_team
     lines += [
         "",
         "### Deliberate attacks",
@@ -331,13 +366,13 @@ def render(
         "pick up, listed by column below. The two rows add up to every scenario, and the "
         "first table row is the one that matters: nothing was recorded wrongly.",
         "",
-        f"*Change since last month:* {BASIS_NOTE['no_baseline']}.",
+        f"*Change since last month:* {BASIS_NOTE[report.trend]}.",
         "",
     ]
     if overall.basis != "measured":
         lines += [f"*Note:* {BASIS_NOTE[overall.basis]}.", ""]
 
-    limits = _known_limits(results, spec)
+    limits = report.known_limits
     lines += ["## Known limits", ""]
     if not limits:
         lines += [
@@ -384,7 +419,9 @@ def _write_report(out: Path, report: str) -> None:
     out.write_text(report)
 
 
-async def main_async(client: str, vertical: str, out: Path | None, as_of: date) -> int:
+async def main_async(
+    client: str, vertical: str, out: Path | None, as_of: date, store: bool = False
+) -> int:
     results, meta = await ev.run_suite(client, vertical)
     if not results:
         # A report over zero scenarios is the failure mode this whole document is
@@ -394,7 +431,7 @@ async def main_async(client: str, vertical: str, out: Path | None, as_of: date) 
         return 2
     payload = json.loads(ev.FIXTURES.read_text())
     spec = ExtractionSchemaSpec(version=1, fields=payload["schema"])
-    report = render(
+    computed = summarize(
         results,
         spec,
         client=client,
@@ -402,6 +439,19 @@ async def main_async(client: str, vertical: str, out: Path | None, as_of: date) 
         model=str(meta["model"]),
         as_of=as_of,
     )
+    report = render_report(computed)
+    if store:
+        # The handoff to the client's screen — OPERATIONS §3's "report stored per run".
+        # The API never runs the harness (CLAUDE.md: no model providers from a request
+        # handler, and this suite takes minutes); it reads what this line wrote.
+        #
+        # Imported HERE rather than at module scope so the ordinary `make qa-report`,
+        # which needs no database, does not pay for a DB engine or fail on an unset
+        # DATABASE_URL to print a document.
+        from apps.api.quality.service import store_report
+
+        stored = await store_report(computed, slug=client)
+        print(f"stored as quality report {stored} for {client} ({as_of.isoformat()})")
     if out:
         # Written through a SYNC helper, the same shape `eval._write_report` uses and for
         # the same reason: this is a CLI whose work is finished by the time it writes one
@@ -432,8 +482,17 @@ def main() -> int:
         help="the month-end this report covers (YYYY-MM-DD); explicit so a regeneration "
         "is byte-identical rather than differing by a timestamp",
     )
+    parser.add_argument(
+        "--store",
+        action="store_true",
+        help="also store the report for the client's in-app Quality screen (SURFACES §2). "
+        "`--client` must be the tenant's SLUG for this — the run is filed against that "
+        "tenant, and an unknown slug is refused rather than filed against nobody.",
+    )
     args = parser.parse_args()
-    return asyncio.run(main_async(args.client, args.vertical, args.out, args.as_of))
+    return asyncio.run(
+        main_async(args.client, args.vertical, args.out, args.as_of, store=args.store)
+    )
 
 
 if __name__ == "__main__":

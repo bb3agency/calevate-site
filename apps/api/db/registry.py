@@ -13,6 +13,7 @@ from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
 from apps.api.integrations import models as integrations_models
 from apps.api.kb import models as kb_models
+from apps.api.quality import models as quality_models
 from apps.api.reliability import models as reliability_models
 from apps.api.tenancy import models as tenancy_models
 
@@ -27,6 +28,7 @@ __all__ = [
     "crm_models",
     "integrations_models",
     "kb_models",
+    "quality_models",
     "reliability_models",
     "tenancy_models",
 ]
@@ -53,6 +55,11 @@ TENANT_TABLES = [
     "call_extractions",
     "leads",
     "lead_events",
+    # Per-user-per-tenant Leads-table state (SURFACES §2 saved views, migration
+    # a7e2c40d9b53). Tenant-isolated like every other row here; the per-USER half is an
+    # explicit `user_id` predicate in `crm.saved_views`, because RLS answers "which
+    # tenant" and never "which person".
+    "lead_saved_views",
     "usage_events",
     "plans",
     "credit_ledger",
@@ -83,6 +90,11 @@ TENANT_TABLES = [
     "kb_sources",
     "kb_documents",
     "kb_retrieval_logs",
+    # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue
+    # (SURFACES §1), migration d5b8a2c60e17. Both are tenant data: the report is the
+    # client's own document and the sample names the client's own calls.
+    "qa_reports",
+    "qa_call_samples",
 ]
 
 # Tables carrying tenant_id that are deliberately NOT tenant-RLS'd, with reasons —

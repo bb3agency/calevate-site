@@ -101,13 +101,61 @@ function completedRequest(): DeletionRequest {
 
 const EXPORT_PATH = "POST /v1/compliance/subject-export";
 const FILE_PATH = "POST /v1/compliance/deletion-requests";
+const LIST_PATH = "/v1/compliance/deletion-requests?limit=100";
 const STATUS_PATH = `/v1/compliance/deletion-requests/${REQUEST_ID}`;
 
-/** The document the export endpoint answers with — opaque to us, and deliberately so. */
-const EXPORT_DOCUMENT = { phone_e164: PHONE, calls: [], counts: { calls: 0 } };
+/**
+ * The export document as the endpoint now models it. Only `counts` is read by the screen
+ * — the rest of the document is never rendered, on purpose — and the counts are planted
+ * with distinguishable values so an assertion cannot pass on the wrong field.
+ */
+const EXPORT_DOCUMENT = {
+  phone_e164: PHONE,
+  generated_at: "2026-08-14T06:00:00+00:00",
+  lead: null,
+  calls: [],
+  transcripts: [],
+  consent: [],
+  counts: {
+    leads: 1,
+    calls: 3,
+    transcript_turns: 47,
+    consent_records: 2,
+    recordings_available: 1,
+  },
+};
 
+/** One row of the account's erasure register. */
+function summary(overrides: Record<string, unknown> = {}) {
+  return {
+    request_id: REQUEST_ID,
+    subject_ref: "b1946ac92492d2347c6235b4d2611184",
+    status: "pending",
+    requested_at: "2026-08-14T06:00:00Z",
+    completed_at: null,
+    has_certificate: false,
+    ...overrides,
+  };
+}
+
+const COMPLETED_SUMMARY = summary({
+  status: "completed",
+  completed_at: "2026-08-14T06:04:00Z",
+  has_certificate: true,
+});
+
+/** The register answers empty unless a test says otherwise: it loads on every paint. */
 function render(routes: Record<string, unknown>, me: Me = OWNER) {
-  return renderClientPage(<DataRightsPage />, { "/v1/me": me, ...routes });
+  return renderClientPage(<DataRightsPage />, {
+    "/v1/me": me,
+    [LIST_PATH]: [],
+    ...routes,
+  });
+}
+
+/** Open one register row so its certificate panel mounts. */
+async function open(name: RegExp = /Show the certificate|Show details/) {
+  fireEvent.click(await screen.findByRole("button", { name }));
 }
 
 /** Fill a labelled field the way a person does — by its visible label. */
@@ -124,6 +172,12 @@ describe("data rights — subject access export", () => {
 
     expect(await screen.findByText("The export is ready")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Save the file/ })).toBeTruthy();
+
+    // The endpoint has a response model now, so the screen can state what it built. It
+    // could not before: the document typed as an opaque JSON object, and saying anything
+    // about it would have meant hand-writing a wire shape nothing checks.
+    expect(screen.getByText("Transcript turns")).toBeTruthy();
+    expect(screen.getByText("47")).toBeTruthy();
 
     const request = view.calls.find((call) => call.path === "/v1/compliance/subject-export");
     expect(request?.method).toBe("POST");
@@ -155,6 +209,7 @@ describe("data rights — filing an erasure", () => {
   it("stays disarmed until the confirmation is typed, then files and tracks the request", async () => {
     const view = await render({
       [FILE_PATH]: { ...pendingRequest(), already_open: false },
+      [LIST_PATH]: [summary()],
       [STATUS_PATH]: pendingRequest(),
     });
 
@@ -179,13 +234,12 @@ describe("data rights — filing an erasure", () => {
   });
 
   it("shows the certificate with what survived the erasure, not only what it cleared", async () => {
-    await render({ [STATUS_PATH]: completedRequest() });
-
-    type(/Look up a request id/, REQUEST_ID);
-    fireEvent.click(screen.getByRole("button", { name: "Track it" }));
+    await render({ [LIST_PATH]: [COMPLETED_SUMMARY], [STATUS_PATH]: completedRequest() });
 
     expect(await screen.findByText("Erasure complete")).toBeTruthy();
-    expect(screen.getByText("Proof certificate")).toBeTruthy();
+    await open();
+
+    expect(await screen.findByText("Proof certificate")).toBeTruthy();
     expect(screen.getByText("Not erased")).toBeTruthy();
     expect(
       screen.getByText(/The audio recordings of the calls this erasure covered\./),
@@ -199,10 +253,12 @@ describe("data rights — filing an erasure", () => {
     // Scanning it here rather than leaving it uncovered: the exemption tables in
     // `tests/a11y.ts` are deliberately empty, and a state nobody scans is not an
     // exemption, it is a hole with no entry.
-    const view = await render({ [STATUS_PATH]: completedRequest() });
+    const view = await render({
+      [LIST_PATH]: [COMPLETED_SUMMARY],
+      [STATUS_PATH]: completedRequest(),
+    });
 
-    type(/Look up a request id/, REQUEST_ID);
-    fireEvent.click(screen.getByRole("button", { name: "Track it" }));
+    await open();
     await screen.findByText("Proof certificate");
 
     await expectNoA11yViolations(view.container, "c/[slug]/data-rights (certificate)");
@@ -211,6 +267,7 @@ describe("data rights — filing an erasure", () => {
   it("says an erasure was already running instead of reporting a fault", async () => {
     await render({
       [FILE_PATH]: { ...pendingRequest(), already_open: true },
+      [LIST_PATH]: [summary()],
       [STATUS_PATH]: pendingRequest(),
     });
 
@@ -226,6 +283,7 @@ describe("data rights — filing an erasure", () => {
 describe("data rights — §52: a failed status read is a refusal, never an answer", () => {
   it("renders a refusal and no erasure verdict when the status read fails", async () => {
     await render({
+      [LIST_PATH]: [COMPLETED_SUMMARY],
       [STATUS_PATH]: problem(503, {
         title: "We could not read this erasure request",
         detail: "The database was unreachable.",
@@ -233,20 +291,15 @@ describe("data rights — §52: a failed status read is a refusal, never an answ
       }),
     });
 
-    type(/Look up a request id/, REQUEST_ID);
-    fireEvent.click(screen.getByRole("button", { name: "Track it" }));
+    await open();
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 
     // None of the three things a client could act on may appear over a read that never
     // landed: not the completed verdict, not the pending one, and not the certificate.
-    expect(screen.queryByText("Erasure complete")).toBeNull();
-    expect(screen.queryByText(/Submitted — waiting to run/)).toBeNull();
     expect(screen.queryByText("Proof certificate")).toBeNull();
-    // And not the "nothing tracked" copy either — an empty state under a failed read is
-    // the §52 defect wearing a different word.
-    expect(screen.queryByText(/Nothing filed from this session yet/)).toBeNull();
+    expect(screen.queryByText(/what an erasure cannot do/i)).toBeNull();
   });
 
   it("says it could not check, rather than refusing, when /v1/me fails", async () => {
@@ -258,6 +311,82 @@ describe("data rights — §52: a failed status read is a refusal, never an answ
     expect(
       (screen.getByRole("button", { name: /Build the export/ }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+});
+
+describe("data rights — the erasure register", () => {
+  it("lists what the account has been asked to erase, by hash and never by number", async () => {
+    const view = await render({
+      [LIST_PATH]: [
+        COMPLETED_SUMMARY,
+        summary({
+          request_id: "0192f0aa-4444-7000-8000-0000000000cd",
+          subject_ref: "c0ffee1122334455667788990011aabb",
+          status: "completed",
+          completed_at: "2026-08-13T09:00:00Z",
+          has_certificate: false,
+        }),
+        summary({ request_id: "0192f0aa-4444-7000-8000-0000000000ef" }),
+      ],
+    });
+
+    expect(await screen.findByText("Erasure complete")).toBeTruthy();
+    // The third state the list can state on its own: complete, with no proof recorded.
+    // A client must never report that one to a data principal as finished, which is the
+    // whole reason `has_certificate` rides the index instead of the certificate.
+    expect(screen.getByText("Complete — no certificate recorded")).toBeTruthy();
+    expect(screen.getByText(/Submitted — waiting to run/)).toBeTruthy();
+
+    // The register is the one read that returns many subjects at once, so this is where
+    // a number would leak in bulk. Neither the request nor the rendered rows carry one.
+    for (const call of view.calls) expect(call.url).not.toContain("9876543210");
+    expect(view.container.textContent ?? "").not.toContain("9876543210");
+
+    // Certificates are fetched per request, so opening the screen must not pull every
+    // proof on the account across the wire.
+    expect(view.calls.filter((call) => call.path.startsWith(STATUS_PATH))).toHaveLength(0);
+  });
+
+  it("refuses rather than claiming the account has no erasure requests", async () => {
+    // §52 at its sharpest: "you have been asked to erase nobody" and "we could not read
+    // what you have been asked to erase" are one branch apart, and only the first is a
+    // sentence a client could repeat to a regulator.
+    await render({
+      [LIST_PATH]: problem(503, {
+        title: "We could not read your erasure requests",
+        detail: "The database was unreachable.",
+        retryable: true,
+      }),
+    });
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(screen.queryByText(/No erasure requests have been filed/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Show the certificate/ })).toBeNull();
+  });
+
+  it("says the register is empty only when the server said so", async () => {
+    await render({ [LIST_PATH]: [] });
+
+    expect(await screen.findByText(/No erasure requests have been filed/)).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("re-reads the register after a request is filed, instead of remembering it here", async () => {
+    const view = await render({
+      [FILE_PATH]: { ...pendingRequest(), already_open: false },
+      [LIST_PATH]: [summary()],
+    });
+
+    type(/Number to erase permanently/, PHONE);
+    type(/Type ERASE to confirm/, "ERASE");
+    fireEvent.click(screen.getByRole("button", { name: /Erase this person's data/ }));
+
+    // The filed request has to come back from the server's register, not from component
+    // state: a closed tab must not lose the handle on a live legal obligation.
+    await waitFor(() =>
+      expect(view.calls.filter((call) => call.path === LIST_PATH).length).toBeGreaterThan(1),
+    );
   });
 });
 

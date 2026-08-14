@@ -26,7 +26,8 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
-from apps.api.crm import service
+from apps.api.crm import columns as lead_column_registry
+from apps.api.crm import saved_views, service
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.performance import performance
 from apps.api.crm.schemas import (
@@ -38,12 +39,20 @@ from apps.api.crm.schemas import (
     CallLeadOut,
     CallSummaryOut,
     DashboardOut,
+    LeadColumnOut,
+    LeadFacetOut,
+    LeadFacetsOut,
+    LeadFacetValueOut,
     LeadListOut,
     LeadOut,
     LeadTimelineOut,
     LeadUpdateIn,
     PerformanceOut,
     RecordingLinkOut,
+    SavedViewIn,
+    SavedViewListOut,
+    SavedViewOut,
+    SavedViewUpdateIn,
     UsagePanelOut,
 )
 from apps.api.reliability.service import (
@@ -163,6 +172,93 @@ async def get_recording(
     return RecordingLinkOut(url=url, expires_in_s=PRESIGN_TTL_S)
 
 
+# --- the Leads table's lens: which rows, and which columns --------------------
+#
+# `columns` and `f` are the two halves of one question, and they are declared here once
+# and taken by BOTH `GET /v1/leads` and `GET /v1/leads/export.csv` with identical
+# meanings. That is the whole "column chooser mirrored in CSV export" requirement
+# (SURFACES §2): the file the client downloads is the table they were looking at.
+#
+# **The asymmetry between an unknown COLUMN and an unknown FILTER is deliberate, and it
+# is a safety property rather than a taste.** Both can go stale — an admin edits the
+# agent's extraction schema (D-21: admin-only, so the client never sees it coming) and a
+# bookmark or a saved view outlives it.
+#
+#   * An unknown COLUMN key is DROPPED, and reported in `dropped_column_keys`. It
+#     narrows the table, it is applied identically to the screen and the file (one
+#     resolver, `crm.columns.resolve`), and a client's stale bookmark should keep
+#     working. Nothing they can act on is hidden by it.
+#   * An unknown FILTER key is REFUSED, 422. Dropping it would WIDEN the set: somebody
+#     narrows the table to eleven hot leads, presses Export, and mails a supplier the
+#     whole contact list with full phone numbers. A filter that silently did nothing is
+#     the one failure this route must never have, so the request fails instead — and the
+#     saved-view read is where a stale reference is pruned VISIBLY (`crm.saved_views`).
+_COLUMNS_Q = Query(
+    None,
+    description="Comma-separated column keys, in display order. Omit for every column.",
+)
+_FIELD_FILTER_Q = Query(
+    default_factory=list,
+    alias="f",
+    description=(
+        "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs "
+        "its values; different keys AND together."
+    ),
+)
+
+
+def _parse_columns(raw: str | None) -> list[str] | None:
+    """`None` (no choice) and `""` (a chooser that cleared itself) are the same answer.
+
+    They have to be: a browser that drops an empty query parameter and one that sends it
+    are both saying "the client picked nothing", and a file with no columns in it is not
+    a smaller file, it is not a file.
+    """
+    if raw is None:
+        return None
+    keys = [k.strip() for k in raw.split(",") if k.strip()]
+    return keys or None
+
+
+def _parse_field_filters(raw: list[str], allowed: frozenset[str]) -> service.FieldFilters:
+    """`f=key:value` → `{key: [value, ...]}`, refusing anything this agent cannot filter on.
+
+    Split on the FIRST colon, which is unambiguous because an extraction key is
+    `^[a-z][a-z0-9_]{0,39}$` and therefore contains none — a value that contains one
+    survives intact.
+    """
+    parsed: service.FieldFilters = {}
+    for entry in raw:
+        key, sep, value = entry.partition(":")
+        if not sep or not key or not value:
+            raise ProblemError(
+                kind="validation",
+                code="lead_filter_malformed",
+                title="Unreadable filter",
+                detail=f"{entry!r} is not a filter. Filters are written `f=field:value`.",
+                remediation="Re-apply the filter from the Leads screen.",
+            )
+        if key not in allowed:
+            # Named, because the client can act on it: this is the field an admin removed
+            # from their capture list, and the fix is to drop the chip.
+            raise ProblemError(
+                kind="validation",
+                code="lead_filter_unknown_field",
+                title="Unknown filter",
+                detail=f"“{key}” is not a filterable field on this agent's capture list.",
+                remediation=(
+                    "Clear that filter and pick one from the panel. If it was a saved "
+                    "view, open it again — the view will tell you which filters it lost."
+                ),
+            )
+        parsed.setdefault(key, []).append(value)
+    return parsed
+
+
+def _column_out(column: lead_column_registry.LeadColumn) -> LeadColumnOut:
+    return LeadColumnOut(key=column.key, label=column.label, kind=column.kind, type=column.type)
+
+
 @router.get("/leads", response_model=LeadListOut, openapi_extra=permission_meta("leads:read"))
 async def get_leads(
     session: Session,
@@ -178,12 +274,20 @@ async def get_leads(
     # `principal.user_id` is an `admin_users` row that can own no lead. The screen sends
     # its own id from `/v1/me` and says so where the control is.
     assigned_to: UUID | None = None,
+    columns: str | None = _COLUMNS_Q,
+    f: list[str] = _FIELD_FILTER_Q,
     _: Principal = Depends(requires("leads:read")),
 ) -> LeadListOut:
     # `agent_id` filters the ROWS as well as choosing the columns. It used to do only
     # the latter, which meant this route and the export disagreed about what the same
     # query parameter meant, and a two-agent tenant read one agent's leads under the
     # other's capture list. See `service._lead_scope` for the reasoning.
+    fields = await service.lead_columns(session, agent_id)
+    available = lead_column_registry.available(fields)
+    resolved = lead_column_registry.resolve(available, _parse_columns(columns))
+    field_filters = _parse_field_filters(
+        f, frozenset(c.key for c in lead_column_registry.facetable(available))
+    )
     page = await service.list_leads_page(
         session,
         limit=limit,
@@ -192,17 +296,158 @@ async def get_leads(
         search=search,
         agent_id=agent_id,
         assigned_to=assigned_to,
+        field_filters=field_filters,
     )
     return LeadListOut(
         items=page.items,
         # Columns travel with the rows so the frontend never hard-codes a client's
-        # fields (TRD §7 (c)).
-        columns=await service.lead_columns(session, agent_id),
+        # fields (TRD §7 (c)) — and they are the RESOLVED list, identical to the header
+        # the export writes for the same query string.
+        columns=[_column_out(c) for c in resolved.columns],
+        available_columns=[_column_out(c) for c in available],
+        dropped_column_keys=list(resolved.dropped),
         total=page.total,
         limit=limit,
         offset=offset,
         status_counts_matching_search=page.status_counts,
     )
+
+
+@router.get(
+    "/leads/facets",
+    response_model=LeadFacetsOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="Faceted filters, built from this agent's extraction schema",
+)
+async def get_lead_facets(
+    session: Session,
+    status: str | None = None,
+    search: str | None = Query(None, max_length=60),
+    agent_id: UUID | None = None,
+    assigned_to: UUID | None = None,
+    f: list[str] = _FIELD_FILTER_Q,
+    _: Principal = Depends(requires("leads:read")),
+) -> LeadFacetsOut:
+    """The filter rail and its counts, over the SAME scope `GET /v1/leads` is answering.
+
+    A separate route rather than another field on the list response, for one reason: the
+    counts change when the FILTERS change and not when the PAGE changes, so folding them
+    into the list would recompute up to eight aggregates every time somebody scrolls.
+    Same query parameters, minus the paging ones, so "the rail describes this table" is
+    checkable by comparing two query strings.
+    """
+    fields = await service.lead_columns(session, agent_id)
+    available = lead_column_registry.available(fields)
+    field_filters = _parse_field_filters(
+        f, frozenset(c.key for c in lead_column_registry.facetable(available))
+    )
+    result = await service.lead_facets(
+        session,
+        fields=fields,
+        agent_id=agent_id,
+        status=status,
+        search=search,
+        assigned_to=assigned_to,
+        field_filters=field_filters,
+    )
+    return LeadFacetsOut(
+        facets=[
+            LeadFacetOut(
+                key=facet.key,
+                label=facet.label,
+                values=[
+                    LeadFacetValueOut(value=v.value, count=v.count, declared=v.declared)
+                    for v in facet.values
+                ],
+            )
+            for facet in result.facets
+        ],
+        omitted_field_count=result.omitted_field_count,
+    )
+
+
+# --- saved views ---------------------------------------------------------------
+#
+# Declared BEFORE `/leads/{lead_id}`: FastAPI matches in declaration order, and a
+# literal segment behind a path parameter is a route that never runs.
+#
+# The mutations require `leads:write` rather than a permission of their own. A saved view
+# is one person's private UI state and needs no new RBAC entry — but it must not be
+# writable by an operator inside a D-22 impersonation, and `leads:write` is in
+# `MUTATING_PERMISSIONS`, so `requires()` refuses that case for free. Inventing
+# `views:write` would have been a third permission on the Leads screen that every role
+# holds exactly when it holds `leads:write`.
+
+
+def _view_owner(principal: Principal) -> UUID:
+    """WHOSE views these are. A view is private, so a session with no user is not a
+    session that can have any — and an impersonating operator's `user_id` is an
+    `admin_users` row, which owns none of a client's views and correctly reads empty."""
+    if principal.user_id is None:
+        raise ProblemError.forbidden("Saved views belong to a signed-in user of this account.")
+    return principal.user_id
+
+
+@router.get(
+    "/leads/views",
+    response_model=SavedViewListOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="My saved views on this account",
+)
+async def get_saved_views(
+    session: Session, principal: Principal = Depends(requires("leads:read"))
+) -> SavedViewListOut:
+    return SavedViewListOut(
+        items=await saved_views.list_views(session, user_id=_view_owner(principal))
+    )
+
+
+@router.post(
+    "/leads/views",
+    response_model=SavedViewOut,
+    status_code=201,
+    openapi_extra=permission_meta("leads:write"),
+    summary="Save the current filters and columns under a name",
+)
+async def create_saved_view(
+    payload: SavedViewIn,
+    session: Session,
+    principal: Principal = Depends(requires("leads:write")),
+) -> SavedViewOut:
+    return await saved_views.create_view(session, user_id=_view_owner(principal), payload=payload)
+
+
+@router.patch(
+    "/leads/views/{view_id}",
+    response_model=SavedViewOut,
+    openapi_extra=permission_meta("leads:write"),
+    summary="Rename a saved view, or re-pin its filters and columns",
+)
+async def patch_saved_view(
+    view_id: UUID,
+    payload: SavedViewUpdateIn,
+    session: Session,
+    principal: Principal = Depends(requires("leads:write")),
+) -> SavedViewOut:
+    return await saved_views.update_view(
+        session, view_id, user_id=_view_owner(principal), payload=payload
+    )
+
+
+@router.delete(
+    "/leads/views/{view_id}",
+    status_code=204,
+    response_class=Response,
+    openapi_extra=permission_meta("leads:write"),
+    summary="Delete one of my saved views",
+)
+async def delete_saved_view(
+    view_id: UUID,
+    session: Session,
+    principal: Principal = Depends(requires("leads:write")),
+) -> Response:
+    await saved_views.delete_view(session, view_id, user_id=_view_owner(principal))
+    return Response(status_code=204)
 
 
 @router.get(
@@ -234,10 +479,29 @@ async def export_leads(
     # release later — that gap is exactly how the status/search divergence above
     # happened, and it is the one route where the gap ships full phone numbers.
     assigned_to: UUID | None = None,
+    # The COLUMN CHOOSER and the FACETS, taken here with exactly the meanings
+    # `GET /v1/leads` gives them — see `_COLUMNS_Q` above for why an unknown column is
+    # dropped and an unknown facet is refused. This is the mirroring SURFACES §2 asks
+    # for, and on this route it is a correctness requirement rather than a nicety: the
+    # screen and the file must not disagree about which rows and which columns, because
+    # the file is the one carrying unmasked numbers out of the building.
+    columns: str | None = _COLUMNS_Q,
+    f: list[str] = _FIELD_FILTER_Q,
     principal: Principal = Depends(requires("calls:read_raw")),
 ) -> Response:
+    available = lead_column_registry.available(await service.lead_columns(session, agent_id))
+    chosen = _parse_columns(columns)
+    field_filters = _parse_field_filters(
+        f, frozenset(c.key for c in lead_column_registry.facetable(available))
+    )
     csv_body = await service.export_leads_csv(
-        session, agent_id=agent_id, status=status, search=search, assigned_to=assigned_to
+        session,
+        agent_id=agent_id,
+        status=status,
+        search=search,
+        assigned_to=assigned_to,
+        field_filters=field_filters,
+        columns=chosen,
     )
     # An export leaves our redaction behind (SEC-COMP §4 says redaction runs BEFORE any
     # transcript leaves the system — a lead export is contact data, not transcript, and
@@ -263,6 +527,16 @@ async def export_leads(
             # account" must not be the same audit row.
             "assigned_to": str(assigned_to) if assigned_to else None,
             "rows": max(csv_body.count("\n") - 1, 0),
+            # WHICH COLUMNS left the building, now that it varies. "Exported the phone
+            # column for four hot leads" and "exported everything we hold about them"
+            # are different events and the record should tell them apart — and this is
+            # the audit row an incident reads to answer "did the numbers go out?".
+            # Keys, never values (hard rule 6): a column KEY is schema vocabulary the
+            # admin authored, not a caller's data.
+            "columns": sorted(chosen) if chosen else "all",
+            # FACET keys only, and never their values — a facet value is a client's own
+            # captured data ("budget: 40L") and belongs in no log line.
+            "field_filters": sorted(field_filters) or None,
         },
     )
     return Response(
