@@ -538,41 +538,41 @@ async def test_tenant_b_cannot_see_tenant_as_kyc_record() -> None:
     assert blind.recorded is False, "no GUC ⇒ zero rows (fail closed)"
 
 
-async def test_the_boolean_the_provisioning_seam_asks_tracks_the_filed_status() -> None:
-    """`kyc_verified` must answer False for every state that is not a live verification
-    — including a rejection, which is a FILED record and therefore the state most likely
-    to be mistaken for one.
+async def test_is_verified_is_false_for_a_rejection_which_is_a_filed_record() -> None:
+    """`read_kyc(...).is_verified` — the value `provisioning.py` gates on — must be
+    False for every state that is not a live verification, INCLUDING a rejection.
 
-    It is the one-line selector a caller reaches for instead of reading the record and
-    re-deriving `is_verified`, so it is exactly where "recorded" could quietly come to
-    mean "cleared". A True here buys a phone number for a business nobody checked, which
-    is the DLT registration TRAI holds Calevate liable for as the Telemarketer.
+    A rejection is the dangerous one: it is a FILED record, so any check shaped like
+    "do we have something on file?" reads it as satisfied. Getting that wrong buys a
+    phone number for a business nobody cleared, and the DLT registration behind that
+    number is one TRAI holds Calevate liable for.
+
+    Written through the real recording route rather than a raw INSERT, because the
+    table's CHECKs are the guarantee here — a `verified` row must name what, against
+    what, by whom and when — and a test that bypassed them would pin the boolean while
+    saying nothing about the evidence behind it.
     """
-    from apps.api.compliance.kyc import kyc_verified
+    from apps.api.compliance.kyc import read_kyc
 
     org = await _tenant()
     tenant_id = uuid.UUID(str(org["id"]))
 
     async with tenant_session(tenant_id) as session:
-        assert await kyc_verified(session, tenant_id=tenant_id) is False, (
+        assert (await read_kyc(session, tenant_id=tenant_id)).is_verified is False, (
             "nothing on file is not verified"
         )
 
     rejected = await _record(
         org,
         status="rejected",
-        entity_type="private_limited",
-        document_kind="cin",
-        document_ref=CIN,
-        signatory_name="A Signatory",
-        rejection_reason="The signatory named does not appear on the filing.",
+        rejection_reason="the signatory named is not a director of the entity",
     )
     assert rejected.status_code == 200, rejected.text
     async with tenant_session(tenant_id) as session:
-        assert await kyc_verified(session, tenant_id=tenant_id) is False, (
-            "a rejected record is filed, and filed is not cleared"
-        )
+        record = await read_kyc(session, tenant_id=tenant_id)
+    assert record.recorded is True, "a rejection IS on file — that is what makes it risky"
+    assert record.is_verified is False, "a rejected record is filed, and filed is not cleared"
 
     await _verify(org)
     async with tenant_session(tenant_id) as session:
-        assert await kyc_verified(session, tenant_id=tenant_id) is True
+        assert (await read_kyc(session, tenant_id=tenant_id)).is_verified is True

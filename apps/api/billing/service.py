@@ -1029,8 +1029,15 @@ async def record_tier_correction(
     synthesized (today: from the model vendor's own usage export).
 
     Returns the delta written, or None when there was nothing to correct — the tiers
-    agreed, or this `ref` has already been applied. Idempotent under a per-tenant
-    advisory lock, because a replayed ops script must not credit twice.
+    agreed, or this `ref` has already been applied to THIS call. Idempotent under a
+    per-tenant advisory lock, because a replayed ops script must not credit twice.
+
+    BOTH LEDGERS ARE KEYED ON (tenant, call, ref). One ops reference may legitimately
+    cover a batch of calls, so keying the wallet entry on the reference alone made the
+    second and every later call in a batch a correction that was recorded and never
+    refunded — the client's cost ledger said "put right" while their balance did not
+    move. A correction that only half-happens is worse than one that fails, because
+    nothing reads as wrong afterwards.
     """
     delta = tier_correction_inr(chars=chars, billed_tier=billed_tier, actual_tier=actual_tier)
     if delta == 0:
@@ -1095,30 +1102,38 @@ async def record_tier_correction(
     # Managed clients are invoiced against a retainer and their wallet is not part of
     # the charge, so nothing is written for them.
     if await plan_tier_of(session, tenant_id) in ("self_serve", "trial"):
-        wallet_ref = f"tier-correction:{ref}"
-        seen = (
-            await session.execute(
-                text(
-                    "SELECT 1 FROM credit_ledger WHERE tenant_id = :tid AND ref = :ref "
-                    "AND reason = 'adjustment' LIMIT 1"
-                ),
-                {"tid": tenant_id, "ref": wallet_ref},
-            )
-        ).first()
-        if not seen:
-            await record_entry(
-                session,
-                tenant_id=tenant_id,
-                # The ledger's sign convention is the wallet's, not the cost ledger's:
-                # a NEGATIVE cost correction (we overbilled) is a POSITIVE credit back.
-                delta=-delta,
-                reason="adjustment",
-                ref=wallet_ref,
-                meta={"call_id": str(call_id), "billed_tier": billed_tier, "actual": actual_tier},
-                # The call already happened; a correction that refuses to record is a
-                # correction that leaves the client overcharged.
-                allow_negative=True,
-            )
+        # KEYED ON THE CALL AS WELL AS THE REF, and this is a fix rather than a detail.
+        # The cost-ledger dedupe above is `(tenant, call_id, correction_ref)` while this
+        # one used the ref alone, so a single ops reference covering a BATCH of calls
+        # produced one cost correction per call and exactly ONE wallet refund — every
+        # call after the first was corrected on paper and never refunded. The two keys
+        # now agree, which is the property that makes "corrected" and "refunded" the
+        # same set. (`ux_credit_ledger_tenant_reason_ref` is the second line of defence:
+        # a duplicate is a UniqueViolation rather than a double credit — a 500 instead
+        # of a wrong balance, which is the safe direction but not an answer.)
+        wallet_ref = f"tier-correction:{call_id}:{ref}"
+        # NO SECOND REPLAY CHECK HERE, and its removal is part of the same fix. This
+        # block used to re-ask "has this wallet ref been used?" because its key differed
+        # from the cost ledger's; now that both are (tenant, call, ref), the `already`
+        # guard at the top of this function returns before control can reach here on a
+        # replay, so the check could never fire. A reader's `if` that cannot fire is not
+        # defence in depth, it is a second way to answer one question — and the real
+        # enforcement was never the SELECT anyway: `ux_credit_ledger_tenant_reason_ref`
+        # makes a duplicate a UniqueViolation rather than a double credit (D-63: the
+        # index is the guarantee, not the reader).
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            # The ledger's sign convention is the wallet's, not the cost ledger's:
+            # a NEGATIVE cost correction (we overbilled) is a POSITIVE credit back.
+            delta=-delta,
+            reason="adjustment",
+            ref=wallet_ref,
+            meta={"call_id": str(call_id), "billed_tier": billed_tier, "actual": actual_tier},
+            # The call already happened; a correction that refuses to record is a
+            # correction that leaves the client overcharged.
+            allow_negative=True,
+        )
 
     log.info(
         "tts_tier_correction",
