@@ -35,6 +35,7 @@ enumerate them. One code, one attribute.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Final
 
 from calevate_shared.engine import (
@@ -135,6 +136,81 @@ def engine_lacks(capability: EngineCapabilityName, *, engine: str) -> EngineCapa
     return EngineCapabilityAbsentError(capability, engine=engine)
 
 
+#: This deployment selected an engine whose adapter holds no credentials. Suffixed with
+#: the engine name so an alert says WHICH — the name is OUR config, not vendor text.
+NO_CREDENTIALS_REASON: Final = "no_engine_credentials"
+
+
+@dataclass(frozen=True, slots=True)
+class EngineAvailability:
+    """Can this deployment reach its selected engine at all, as ONE answer.
+
+    Distinct from `EngineCapabilities`, and the two must not be collapsed. Capabilities
+    are what the engine COULD do for anybody; this is whether we can talk to it. An engine
+    with a built-in knowledge base and no API key still has a built-in knowledge base, and
+    a surface that read `capabilities.knowledge_base` as permission to publish would offer
+    a button that fails at the vendor boundary every time.
+
+    `capabilities` rides on the same object rather than being fetched separately — the
+    argument `PaymentCapability.creates_orders` and `RetrievalCapability.retriever` both
+    make: two facts, one lookup, one object. `reason` is non-None exactly when `available`
+    is False, and it is an authored code naming OUR state.
+    """
+
+    available: bool
+    engine: str
+    capabilities: EngineCapabilities
+    reason: str | None = None
+
+
+def engine_availability(engine: VoiceEngine | None = None) -> EngineAvailability:
+    """THE deployment-level selector: is the selected engine usable, and what can it do?
+
+    The credential answer is DERIVED from the adapter (`holds_credentials`), never from a
+    second read of settings — `lead_retrieval_capability` makes the argument in full. That
+    matters most for an adapter like `cartesia`, which is wired and configurable and has
+    no account behind it: every surface gets the same `no_engine_credentials` answer from
+    one place, rather than each request discovering it separately at the vendor boundary.
+    """
+    resolved = engine if engine is not None else _selected_engine()
+    caps = resolved.capabilities
+    if not resolved.holds_credentials():
+        return EngineAvailability(
+            available=False,
+            engine=resolved.name,
+            capabilities=caps,
+            reason=f"{NO_CREDENTIALS_REASON}:{resolved.name}",
+        )
+    return EngineAvailability(available=True, engine=resolved.name, capabilities=caps)
+
+
+def engine_not_configured(reason: str | None) -> ProblemError:
+    """The ONE deployment-side refusal, so every surface says it the same way.
+
+    RFC-9457: the machine code is the LAST SEGMENT of `type` and there is no `code` key.
+    The authored `reason` is logged for an operator and never returned — a client cannot
+    act on `no_engine_credentials:cartesia`, and naming our vendor to them leaks an
+    internal detail they have no use for.
+    """
+    log.warning("engine_not_configured", extra={"reason": reason or "unknown"})
+    return ProblemError(
+        kind="dependency",
+        code="engine_not_configured",
+        title="The voice platform is unavailable",
+        detail="This deployment cannot reach its voice platform right now.",
+        remediation="Contact us — this is a configuration problem on our side, not yours.",
+    )
+
+
+def _selected_engine() -> VoiceEngine:
+    # Imported inside the function, exactly as `lead_retrieval_capability` imports its
+    # adapters: `apps.api.engine.__init__` imports this module for the refusal type, so a
+    # module-scope import back into it would be a cycle. The seam depends on nothing.
+    from apps.api.engine import get_engine
+
+    return get_engine()
+
+
 def engine_capabilities(engine: VoiceEngine | None = None) -> EngineCapabilities:
     """THE selector. Every surface asks this; nothing reads an adapter's attribute
     directly and nothing decides for itself what the engine can do.
@@ -148,12 +224,7 @@ def engine_capabilities(engine: VoiceEngine | None = None) -> EngineCapabilities
     """
     if engine is not None:
         return engine.capabilities
-    # Imported inside the function, exactly as `lead_retrieval_capability` imports its
-    # adapters: `apps.api.engine.__init__` imports this module for the refusal type, so a
-    # module-scope import back into it would be a cycle. The seam depends on nothing.
-    from apps.api.engine import get_engine
-
-    return get_engine().capabilities
+    return _selected_engine().capabilities
 
 
 def require_capability(capability: EngineCapabilityName, *, engine: VoiceEngine) -> None:
@@ -193,9 +264,13 @@ def provisionable_series(engine: VoiceEngine) -> frozenset[NumberSeries]:
 
 __all__ = [
     "ENGINE_CAPABILITY_ABSENT",
+    "NO_CREDENTIALS_REASON",
+    "EngineAvailability",
     "EngineCapabilityAbsentError",
+    "engine_availability",
     "engine_capabilities",
     "engine_lacks",
+    "engine_not_configured",
     "provisionable_series",
     "require_capability",
     "require_speech_leg",

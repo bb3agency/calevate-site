@@ -15,7 +15,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "staging", "prod"]
 # ThinnestAI was retired by D-31 before any adapter existed — do not re-add it.
-EngineName = Literal["fake", "bolna"]
+# `cartesia` is a REAL adapter with a real conformance run (D-93), not a placeholder —
+# but D-94 gates ADOPTING it on three triggers, one of which (BYOC SIP from an Indian
+# DLT-registered carrier) is unanswered. Selectable, not recommended.
+EngineName = Literal["fake", "bolna", "cartesia"]
 
 # Stdlib logger, not `apps.api.core.logging.get_logger`: `calevate_shared` is imported by
 # every deployable and must not depend on `apps`. `get_logger` is `logging.getLogger`
@@ -127,6 +130,14 @@ class Settings(BaseSettings):
     # Authenticity = source-IP allowlist + execution-id dedupe, and the
     # List-Executions poller is the guarantee of record (TRD §5).
     bolna_api_key: str | None = None
+    #: Cartesia Line control-plane key, sent as `X-API-Key` (D-93). Absent ⇒ the adapter
+    #: reports itself unavailable through the one capability selector rather than failing
+    #: at the first call, which is the same shape `payment_capability()` uses.
+    cartesia_api_key: str | None = None
+    #: Cartesia's id for the outbound caller ID. Absent ⇒ outbound calls REFUSE rather
+    #: than dial from whatever number the vendor picks: a promotional campaign leaving on
+    #: a service-series number is a TCCCPR breach we would discover from a complaint.
+    cartesia_from_number_id: str | None = None
     # The engine's egress addresses — comma-separated, literal IPs only. This is the
     # ENTIRE authenticity control for an unsigned engine, and it is a value the VENDOR
     # owns: they can renumber without telling us, and while it is stale every webhook
@@ -481,6 +492,28 @@ class Settings(BaseSettings):
     # crore aggregate turnover, 6 above it (Notification 78/2020-CT). WHICH code an AI
     # voice-agent subscription falls under is the accountant's call, not this repo's.
     gst_supply_sac: str | None = None
+
+    # THE KEY THAT OPENS THE CREDENTIAL STORE (PLATFORM-CONFIG §3). Base64 of exactly 32
+    # random bytes; `apps/api/core/envelope.py` owns the encoding, the length rule and
+    # the refusal, and is the only module that reads these two.
+    #
+    # A §4 BOOTSTRAP KEY: it can never move into `platform_settings`, because that is
+    # the store it unlocks — a database holding both the lock and the key is encryption
+    # as theatre. `core/settings.ENV_ONLY_KEYS` enforces that in code; the CI guardrail
+    # that enforces it against future edits is §13 phase 6.
+    #
+    # Unset is a public, deterministic constant under APP_ENV=local ONLY, exactly like
+    # the three HMAC secrets above; anywhere else an absent OR SHORT value is one
+    # condition — "there is no usable key here" — and every read refuses.
+    platform_kek: str | None = None
+
+    # The PREVIOUS `PLATFORM_KEK`, kept only so DEKs wrapped under it still unwrap.
+    # NEVER used to wrap, exactly as `audit_chain_secret_retired` is never used to sign
+    # (D-86) — one rotation story, reused rather than reinvented. Unset is the normal
+    # state. A value here that cannot be decoded is DROPPED with a log line rather than
+    # refused: it only ever helps, so a typo in a decommissioned key must not be an
+    # outage.
+    platform_kek_retired: str | None = None
 
 
 def bolna_source_ips(settings: Settings) -> frozenset[str]:

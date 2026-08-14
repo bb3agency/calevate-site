@@ -667,23 +667,43 @@ async def test_a_byok_leg_that_can_be_read_back_holds_what_we_sent(
     `test_agent_read_back_reports_the_agent_it_was_asked_about` makes for the prompt,
     applied to the setting that decides what a caller actually hears.
 
-    `models_readable=False` is conformant and is NOT a loophole: an adapter that cannot
-    locate the vendor's synthesizer block must say so rather than guess, exactly as with
-    `knowledge_base_refs_readable`. What the tri-state forbids is the confident wrong
-    answer — claiming to have read the selections and reporting one we never sent.
+    **AN ADAPTER THAT CLAIMS A LEG IS OURS MUST BE ABLE TO READ THAT LEG BACK**, and
+    that is stricter than the `knowledge_base_refs_readable` tri-state on purpose. This
+    clause was written the weaker way first — `models_readable=False` excused everything —
+    and a deliberate sabotage walked straight through it: an adapter declaring BYOK TTS
+    on an engine that dictates its voices, silently dropping our voice, and declining to
+    report what it holds, passed every clause in this suite. That is precisely the
+    "confident wrong answer" the descriptor is supposed to make impossible.
+
+    Why the stricter rule is fair, where the KB one is not: a vendor may genuinely have no
+    field for "which knowledge base does this agent reference" — D-41 exists because
+    nobody can say whether Bolna's agent object carries one. But a vendor that lets us
+    CHOOSE a model or a voice necessarily holds that choice; it is the agent's
+    configuration. So "we set it and cannot see it" is a claim about our adapter's reading,
+    not about the vendor's model, and BYOK asserted on faith is exactly what a caller must
+    not be able to hear the consequences of on a live line.
+
+    An adapter with no BYOK leg at all is exempt: there is nothing of ours to read back.
     """
     cfg = _agent_config(
         engine, name="Speech read-back", agent_id="0199a0b0-0000-7000-8000-0000000000d0"
     )
     ref = await engine.create_agent(cfg)
     snapshot = await engine.get_agent(ref)
+    ours = [leg for leg in ("stt", "llm", "tts") if engine.capabilities.is_ours(leg)]
 
-    if not snapshot.models_readable:
+    if not ours:
         assert snapshot.holds_speech("tts") is None, (
-            "the adapter declares it could not read the selections back and handed some "
-            "over anyway — a caller cannot tell which claim to believe"
+            "this engine dictates every speech leg and the adapter reported a selection "
+            "of ours anyway — it would read exactly like an applied BYOK choice"
         )
         return
+
+    assert snapshot.models_readable, (
+        f"this adapter claims BYOK on {ours} and cannot read any of it back, so 'is the "
+        "engine running the model we chose?' is unanswerable — and an adapter that "
+        "silently dropped the selection would be indistinguishable from this one"
+    )
 
     for leg, sent in (
         ("stt", cfg.models.stt_model),

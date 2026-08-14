@@ -130,8 +130,14 @@ class EngineCapabilities(BaseModel):
     #: 140/160 series are Indian DLT classes; an engine with no Indian telephony path
     #: cannot offer them even if it can sell a number somewhere else.
     number_series: frozenset[NumberSeries]
-    #: Is call transfer the ENGINE's to perform (`transfer`), or ours to arrange out of
-    #: band? False ⇒ `transfer` must refuse by name.
+    #: Will `VoiceEngine.transfer` — a CONTROL-PLANE command issued from outside the call
+    #: — actually work? False ⇒ it must refuse by name.
+    #:
+    #: NOT "does this vendor have a transfer feature". The distinction is not pedantic: it
+    #: is the one this field was first got wrong on. An engine whose transfer is initiated
+    #: by the agent DURING the call has a real transfer feature and no answer to this
+    #: method, and a True on the strength of the feature would put an escalation control
+    #: on the console that refuses every time a caller needs a human.
     transfer: bool
     #: How this engine's webhooks are proved authentic. Must equal what `verify_webhook`
     #: actually reports, and must equal `WEBHOOK_AUTH_BY_ENGINE[name]` — the receiver in
@@ -200,6 +206,13 @@ WEBHOOK_AUTH_BY_ENGINE: dict[str, WebhookAuthMethod] = {
     # executed. It is never selectable as `ENGINE=` (`config.EngineName` does not include
     # it), so it can reach no deployment.
     "fake-restricted": "hmac",
+    # Cartesia Line signs its webhooks (TRD §10.5). The SCHEME is not sourced — their docs
+    # are egress-blocked — so `CartesiaEngine.verify_webhook` fails CLOSED rather than
+    # guessing a header and a digest, and the receiver refuses `hmac` deliveries until a
+    # real verifier exists. Declared here anyway because the declaration is what the
+    # receiver reads, and "signed, and we cannot check it yet" must not be recorded as
+    # "unsigned, so an IP allowlist will do".
+    "cartesia": "hmac",
 }
 
 

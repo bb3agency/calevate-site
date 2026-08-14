@@ -23,9 +23,12 @@ from calevate_shared.engine import EngineCapabilities, VoiceEngine
 
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import (
+    EngineAvailability,
     EngineCapabilityAbsentError,
+    engine_availability,
     engine_capabilities,
     engine_lacks,
+    engine_not_configured,
     require_capability,
     require_speech_leg,
 )
@@ -75,10 +78,13 @@ def reset_engine_cache() -> None:
 
 
 __all__ = [
+    "EngineAvailability",
     "EngineCapabilities",
     "EngineCapabilityAbsentError",
+    "engine_availability",
     "engine_capabilities",
     "engine_lacks",
+    "engine_not_configured",
     "get_engine",
     "require_capability",
     "require_speech_leg",

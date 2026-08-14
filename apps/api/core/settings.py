@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import get_args
 
 from calevate_shared.config import Environment, Settings
@@ -103,9 +105,134 @@ def validate_bootstrap_env(environ: dict[str, str] | None = None) -> None:
         )
 
 
+# PLATFORM-CONFIG §4's BOOTSTRAP SET, as Settings field names. These six may NEVER
+# resolve from `platform_settings`, and the enforcement lives here — in the one function
+# that can put a store value into a `Settings` object — rather than at each call site,
+# because a rule every reader has to remember is a rule the seventh key breaks.
+#
+# Each one, with the reason it cannot move (§4):
+#   app_env               decides whether dev tokens are accepted (D-49). Reading it
+#                         from the database means the DATABASE decides the security
+#                         posture, which is the inversion the guardrail exists to catch.
+#   database_url          it is how you reach the store.
+#   alembic_database_url  migrations run before the store is guaranteed to exist.
+#   platform_kek          it is the key that opens the store.
+#   platform_kek_retired  same.
+#   redis_url             needed by workers before settings resolve.
+#
+# The CI guardrail that enforces this list against future edits is `check_bootstrap_keys`
+# (PLATFORM-CONFIG §13 phase 6); this constant is what it reads.
+ENV_ONLY_KEYS: frozenset[str] = frozenset(
+    {
+        "app_env",
+        "database_url",
+        "alembic_database_url",
+        "platform_kek",
+        "platform_kek_retired",
+        "redis_url",
+    }
+)
+
+# Values resolved from `platform_settings` and layered UNDER the environment.
+#
+# Module state rather than a parameter because `get_settings()` has ~200 call sites and
+# threading a snapshot through all of them would be the change this design exists to
+# avoid: the store is meant to reach every process without a code change, so the ONE
+# accessor grows the layer instead of every caller learning a second one.
+# `core/platform_config.py` owns the IO that fills it; this module owns nothing but the
+# holder, so the dependency runs one way (platform_config -> settings) and there is no
+# import cycle.
+_platform_overrides: dict[str, object] = {}
+
+
+def platform_overrides() -> Mapping[str, object]:
+    """What the store is currently contributing. Read-only view, for reporting."""
+    return MappingProxyType(_platform_overrides)
+
+
+def apply_platform_overrides(values: Mapping[str, object]) -> None:
+    """Install the store's contribution and invalidate the cached `Settings`.
+
+    ENVIRONMENT ALWAYS WINS, and it wins in two places rather than one. The caller
+    (`platform_config._resolve`) never offers a key the environment declares, so the
+    normal path never reaches the filter below; the filter is here anyway because this
+    is the only door into the process's effective configuration, and a door with a lock
+    on the outside only is not locked. What it refuses unconditionally is §4's bootstrap
+    set — the keys whose relocation would be a security-posture inversion.
+
+    Idempotent and cheap: it replaces the mapping and clears one `lru_cache`. The next
+    `get_settings()` rebuilds `Settings()` from the environment and re-applies the layer,
+    so a value that was reverted in the console disappears rather than lingering.
+    """
+    global _platform_overrides
+    refused = sorted(set(values) & ENV_ONLY_KEYS)
+    if refused:
+        # Never silently dropped: reaching here means something upstream tried to move a
+        # bootstrap key into the store, which is exactly the change CI is meant to stop.
+        log.error("platform_override_refused", extra={"keys": ",".join(refused)})
+    _platform_overrides = {k: v for k, v in values.items() if k not in ENV_ONLY_KEYS}
+    get_settings.cache_clear()
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()  # values come from env/.env
+    """This process's EFFECTIVE settings: `os.environ`/.env → `platform_settings` → code
+    default (PLATFORM-CONFIG §4's resolution order, minus the refusal, which belongs to
+    whoever consumes a missing value).
+
+    Still `lru_cache`d and still O(1) with no IO, which is what keeps it legal on
+    voice-runtime's request path (hard rule 3): the store's contribution arrives through
+    `apply_platform_overrides`, off the request path, and this function only ever reads
+    a dict that is already in memory.
+
+    `model_copy(update=...)` rather than re-validating: every value in the layer was
+    validated against THIS model's own field definition before it was stored
+    (`platform_config.validate_value`) and again when the snapshot was built, so a third
+    validation here would be a third place for the rules to differ. `Settings()` itself
+    is re-run on each rebuild, so an environment variable that changed under the process
+    is picked up at the same moment a store value is.
+    """
+    base = Settings()  # values come from env/.env
+    return base.model_copy(update=dict(_platform_overrides)) if _platform_overrides else base
+
+
+def effective_env() -> Mapping[str, str]:
+    """The environment the app ACTUALLY sees — process environment over `.env`.
+
+    Published because "did this key come from the environment?" is not answerable from a
+    `Settings` object: pydantic-settings records the resolved VALUE, not its source, and
+    a value that happens to equal the code default may still have been set explicitly.
+    The console has to render an env-sourced key as read-only WITH the reason, so the
+    question has to have an answer, and it has to have the same answer pydantic would
+    give — hence the same merged view the bootstrap gate uses.
+    """
+    return _effective_env()
+
+
+def env_var_for(field: str) -> str:
+    """The environment variable name for a `Settings` field.
+
+    `Settings` sets no `env_prefix`, so pydantic-settings looks up the field name
+    case-insensitively; upper-case is the spelling `.env.example` and every deploy uses.
+    One function so the console, the refusal messages and the source resolution cannot
+    disagree about what to tell an operator to set.
+    """
+    return field.upper()
+
+
+def env_declares(field: str, environ: Mapping[str, str] | None = None) -> bool:
+    """Does the environment set this field? — case-insensitively, like pydantic.
+
+    An EMPTY value counts as declared, deliberately: `SARVAM_API_KEY=` in `.env` is a
+    statement that this deployment has no Sarvam key, and pydantic will hand `Settings`
+    the empty string rather than falling through to the store. Reporting it as `default`
+    and letting the console offer to edit it would produce a field whose value is
+    ignored — the exact defect §8 names ("a field that silently does nothing is worse
+    than no field").
+    """
+    env = environ if environ is not None else _effective_env()
+    wanted = field.lower()
+    return any(name.lower() == wanted for name in env)
 
 
 #: The floor, in BYTES, for every HMAC key this deployment signs with.
@@ -255,10 +382,16 @@ def fail_fast(message: str) -> None:
 __all__ = [
     "BOOTSTRAP_REQUIRED",
     "ENVIRONMENTS",
+    "ENV_ONLY_KEYS",
     "MIN_HMAC_KEY_BYTES",
     "BootstrapError",
+    "apply_platform_overrides",
+    "effective_env",
+    "env_declares",
+    "env_var_for",
     "fail_fast",
     "get_settings",
+    "platform_overrides",
     "resolve_hmac_key",
     "runtime_config_missing_keys",
     "validate_bootstrap_env",

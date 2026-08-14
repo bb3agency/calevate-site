@@ -85,6 +85,7 @@ from calevate_shared.engine import (
     ExecutionListing,
     ExecutionSnapshot,
     KBSourceRef,
+    ModelConfig,
     NumberSpec,
     ProvisionedNumber,
     WebhookVerdict,
@@ -179,10 +180,20 @@ _TERMINAL_RAW: Final = frozenset(
 # * `number_series=frozenset()` — Line has no Indian DLT path (TRD §10.5), and whether
 #   BYOC SIP from an Indian carrier is even possible is THE open question. Empty is the
 #   only answer that is not a guess, and it makes `provision_number` refuse by name.
-# * `transfer=True` — READ AT SOURCE. `transfer_call` is a shipped built-in tool and
-#   `AgentTransferCall(target_phone_number, interruptible)` is in `line/events.py:58`.
-#   NOTE the shape of that capability: transfer is performed BY THE AGENT MID-CALL, not
-#   by a control-plane call from us — see `transfer` below, which is honest about it.
+# * `transfer=False` — and this one was WRONG in a first draft, caught by the conformance
+#   suite, and is the best evidence in this slice that the descriptor is worth checking.
+#   The draft said True on real evidence: READ AT SOURCE, `transfer_call` is a shipped
+#   built-in tool and the agent yields `AgentTransferCall(target_phone_number,
+#   interruptible)` (`line/events.py:58`). Line can transfer calls.
+#   But `EngineCapabilities.transfer` does not ask "can this vendor transfer a call"; it
+#   asks whether `VoiceEngine.transfer(call_id, to, warm)` — a CONTROL-PLANE COMMAND
+#   issued from outside the call — will work. On Line the transfer is initiated BY THE
+#   DEPLOYED AGENT MID-CALL, and no endpoint to command one from outside is sourced. So
+#   through this port the answer is False, and a True would have had the console offer an
+#   escalation control that refuses every time.
+#   The vendor feature is not lost by saying so: it is reachable the way Line intends,
+#   from inside the agent program, which is a different integration and would arrive as a
+#   different capability if we ever need it named.
 # * `webhook_auth="hmac"` — their webhooks are signed (TRD §10.5). The SCHEME is not
 #   sourced, so `verify_webhook` fails closed rather than guessing one.
 CARTESIA_CAPABILITIES = EngineCapabilities(
@@ -192,7 +203,7 @@ CARTESIA_CAPABILITIES = EngineCapabilities(
     campaigns=False,
     knowledge_base=True,
     number_series=frozenset(),
-    transfer=True,
+    transfer=False,
     webhook_auth="hmac",
 )
 
@@ -426,12 +437,19 @@ class CartesiaEngine:
     async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
         """`GET /agents/{id}` → our `AgentSnapshot`. INFERRED path, as above.
 
-        `models_readable=False`, ALWAYS, and that is a fact rather than a limitation: two
-        of the three legs are Cartesia's to dictate, so there is no selection of ours to
-        read back for them, and the third (the LLM) is not sourced as a readable field on
-        the agent object. Reporting the engine's own `voice_id` here would put a vendor
-        string where every caller expects one of ours, and would read exactly like an
-        applied BYOK selection (`AgentSnapshot.models`).
+        ONLY THE LLM LEG IS REPORTED, because only the LLM leg is ours. STT and TTS are
+        Cartesia's to dictate, so there is no selection of ours to read back for them, and
+        reporting the engine's own `voice_id` would put a vendor string where every caller
+        expects one of ours — reading, to everything above, exactly like an applied BYOK
+        selection (`AgentSnapshot.models`).
+
+        The LLM leg IS read back, and the conformance suite requires it: an adapter that
+        claims a leg is ours and cannot show what the engine holds for it is asserting
+        BYOK on faith. `model` is the field `_agent_body` sends (READ AT SOURCE as the
+        SDK's own `LlmAgent(model=...)` argument); whether the agent object echoes it under
+        that name on a GET is INFERRED, and if it does not, `models_readable` is False and
+        the suite fails us — loudly, which is correct, rather than letting the claim stand
+        unchecked.
 
         The prompt half IS attempted, because that is what pilot gate 2's
         ACCEPTED-versus-APPLIED question needs, and `system_prompt_readable` reports
@@ -454,6 +472,8 @@ class CartesiaEngine:
         raw_docs = agent.get("documents") or agent.get("document_ids")
         docs_readable = raw_docs is not None
         handles = [str(item) for item in raw_docs if item] if isinstance(raw_docs, list) else []
+        held_model = agent.get("model")
+        model_text = held_model if isinstance(held_model, str) and held_model else None
         return AgentSnapshot(
             engine_agent_ref=returned_id or ref,
             name=name if isinstance(name, str) and name else None,
@@ -461,8 +481,10 @@ class CartesiaEngine:
             system_prompt_readable=prompt_text is not None,
             knowledge_base_refs=handles,
             knowledge_base_refs_readable=docs_readable,
-            models=None,
-            models_readable=False,
+            # The LLM leg only. STT/TTS stay None because they are not ours to set — a
+            # dictated leg has no selection of ours to report (`AgentSnapshot.models`).
+            models=ModelConfig(llm_model=model_text),
+            models_readable=model_text is not None,
             engine=self.name,
         )
 
@@ -531,32 +553,26 @@ class CartesiaEngine:
         await self._request("POST", f"/agents/calls/{call_id}/end")
 
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None:
-        """Transfer is Line's, but it is the AGENT's to perform, not ours to command.
+        """Refuses by name: Line's transfer is the AGENT's to perform, not ours to command.
 
         READ AT SOURCE: `transfer_call` is a shipped built-in tool and the agent yields
         `AgentTransferCall(target_phone_number, interruptible)` over the live websocket
-        (`line/events.py:58`). So the capability genuinely exists — `capabilities.transfer`
-        is True on that evidence — but it is exercised BY the deployed agent program
-        mid-call, and no control-plane "transfer this live call" endpoint is sourced.
+        (`line/events.py:58`). The vendor feature exists. What does not exist — nothing
+        sourced describes one — is a control-plane endpoint to transfer a call from
+        OUTSIDE it, which is what this method is.
 
-        Refusing is therefore the honest answer to THIS method, and it is a different
-        refusal from "this engine cannot transfer": `engine_capability_unverified` says
-        the mechanism exists and our control-plane route to it does not. Pretending
-        otherwise would leave a caller in silence while the console reported an escalation.
+        So `CARTESIA_CAPABILITIES.transfer` is False and this refuses through the one
+        capability refusal, rather than raising a private code that disagreed with the
+        descriptor. The whole point is that a caller can ask BEFORE calling and get the
+        same answer; a console that offered the control and a method that refused it is
+        the divergence D-93 exists to remove.
 
         WARM transfer is not distinguished by `AgentTransferCall` at all, which is its own
-        finding: `warm` has nowhere to go on this engine.
+        finding: `warm` has nowhere to go on this engine even from inside the call.
         """
         require_capability("transfer", engine=self)
-        raise ProblemError(
-            kind="dependency",
-            code="engine_capability_unverified",
-            title="Transfer cannot be commanded from here",
-            detail=(
-                "On this voice platform a transfer is performed by the agent during the "
-                "call, and no way to trigger one from outside the call is confirmed."
-            ),
-            remediation="Use the escalation phone number configured on the agent.",
+        raise AssertionError(  # unreachable while `transfer` is False
+            "transfer was declared available but no control-plane endpoint is implemented"
         )
 
     async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:

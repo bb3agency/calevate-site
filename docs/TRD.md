@@ -904,10 +904,19 @@ why the engine port is where the work belongs:
 | BYOK STT | yes (Saaras) | **no** (Ink 2) | D-36 residency argument weakens; new ear test |
 | BYOK TTS | yes (Bulbul) | **no** (Sonic) | agent voice picker becomes a lie unless capability-driven |
 | Engine-side campaigns | yes (unverified, TRD §5) | no | we already dispatch in our layer — no loss |
-| Built-in KB (`rag_id`) | yes (D-33) | no | T0 retrieval would need our own path |
+| Built-in KB | yes, `rag_id` (D-33) | **yes** — CORRECTED, see below | no forced loss; the shapes differ, the capability does not |
 | Webhook auth | unsigned → IP allowlist + execution-id dedupe | signed | receiver must not hard-code one model |
 | Indian DID / DLT 140/160 | yes | **no** | **the blocker** — see below |
 | Concurrency | no tier cap | 1/3/5/10 by tier | a business constraint, not a code one |
+
+> ⚠ **CORRECTION (recorded the day it was found).** This table first said Cartesia Line
+> has **no** built-in knowledge base, and concluded that T0 retrieval would need our own
+> path. **That was wrong.** Reading the Line SDK at source (`github.com/cartesia-ai/line`
+> @ `3062c978`) shows `line/knowledge_base.py` as a first-class client and
+> `knowledge_base` as a shipped built-in tool. The KB capability survives a move; only its
+> shape differs. The wrong version is left visible rather than silently edited, because it
+> was reasoned from an absence of evidence — the failure mode `RESEARCH-DISCIPLINE.md`
+> exists to catch.
 
 **The blocker is telephony, and it is the only one that is not ours to fix in code.** Our
 entire compliance spine — PE/TM registration, DLT headers and templates, the
@@ -936,13 +945,76 @@ an unpublished Enterprise price, which resets the analysis rather than continuin
 **What we build NOW, and what we deliberately do not.** We build the capability
 descriptor on the engine port, we make the conformance suite prove a capability claim
 rather than trust it, and we run the whole system in tests against a capability-restricted
-engine that dictates speech and has no built-in KB — the Cartesia shape — so the places
+engine that dictates speech and answers the KB question differently — the Cartesia shape — so the places
 that cannot survive those answers are found now, cheaply, and not on a migration weekend.
 We do **not** write a Cartesia adapter. This repo's own doctrine says an adapter written
 against an imagined API is worse than none because it looks finished, and Cartesia's docs
 are egress-blocked here, so any adapter written today would be invention with a version
 number on it. The day the trigger fires, the vendor work is one class against a contract
 that has already been proven neutral.
+
+### 10.6 Running two engines at once — the concrete Cartesia implementation plan
+
+§10.5 says build FOR the switch. This is what that means in files, in order, with the one
+architectural change that actually matters.
+
+**The architectural change: engine selection is currently GLOBAL and must become
+per-tenant.** `apps/api/engine/__init__.py::get_engine()` resolves one engine per
+deployment from `ENGINE=fake|bolna`. That is a fine shape for one vendor and the wrong
+shape for a migration, because it makes the switch a single irreversible flip for every
+client at once. Nobody sane migrates a phone system that way.
+
+The good news is that half the work is already done and nobody planned it that way:
+**`engine_agent_routes` already carries an `engine` column per agent.** Inbound resolution
+— "which agent is this webhook about, and on which engine does it live" — therefore
+already works across two engines. What is missing is the WRITE side: `get_engine()` has
+no tenant argument, so agent creation, KB pushes and outbound dials all go to the one
+globally-configured vendor.
+
+| Layer | State today | What the plan changes |
+|---|---|---|
+| Inbound routing | `engine_agent_routes.engine` per agent — **already multi-engine** | nothing |
+| Write path (`get_engine()`) | global `ENGINE` env | resolves per tenant, defaulting to the platform value |
+| Capability differences | implicit, Bolna-shaped | explicit descriptor, conformance-proven (D-93) |
+| Webhook auth | Bolna's unsigned + IP allowlist + execution-id dedupe | per-engine: Cartesia signs, so the receiver picks by engine, not by config |
+| Cost breakdown | Bolna's `cost.breakdown` legs | per-engine mapping into our `usage_events` legs |
+| Voice picker | free choice of TTS vendor | capability-driven — an engine that dictates speech offers its own catalogue |
+
+**Build order, each step independently shippable:**
+
+1. **Capability descriptor + conformance proves the claim** (D-93, in flight). This lands
+   first because everything downstream reads it.
+2. **`apps/api/engine/cartesia.py`** — the adapter, written to the Razorpay precedent:
+   documented shapes, every unsourced field marked UNVERIFIED at the line with the source
+   used, and the API version **pinned**. Passes the conformance suite. Its
+   `provision_number` refuses by name — Cartesia has no DLT-registered 140/160 path, and
+   an adapter that pretends otherwise is worse than one that refuses.
+3. **voice-runtime intake per engine.** Cartesia signs its webhooks; Bolna does not, which
+   is why our receiver uses an IP allowlist plus execution-id dedupe (TRD §5). The
+   receiver must choose its verification by the engine the route resolves to, never by a
+   global setting — a deployment running both engines has two authenticity models live at
+   once, and getting that wrong means either rejecting good calls or accepting forged ones.
+4. **`get_engine(tenant_id)`** — per-tenant resolution, with the platform value as the
+   default. This is the canary lever: one client moves, the rest do not.
+5. **Ops console engine panel** (D-95 phase 3) — which adapter is live per tenant, its
+   capability descriptor rendered from the API rather than hard-coded, and its credential
+   status. Switching a tenant's engine becomes a screen action with a step-up
+   confirmation and an audit row.
+6. **The cutover runbook.** This is the part a config flag cannot do, and pretending
+   otherwise is how a migration weekend goes wrong: agents must be re-created on the new
+   engine, knowledge bases re-uploaded and re-attached, numbers re-pointed at the new
+   webhook URL, and the old engine's agents left in place until the new ones are verified.
+   `engine_agent_routes` makes the two coexist; it does not make the objects appear.
+
+**What stays ours regardless of engine, and therefore never migrates:** the compliance
+gate, DNC, the consent ledger, DLT template and header state, number classification,
+campaign dispatch, the post-call pipeline, extraction, billing. That list is why the
+engine is a rented component rather than the product.
+
+**Still UNVERIFIED and gating step 2's usefulness rather than its existence:** whether
+Line accepts BYOC SIP from an Indian DLT-registered carrier (§10.5). The adapter can be
+built and conformance-proven without that answer. It cannot legally dial an Indian
+consumer without it.
 
 ## 11. Multi-Tenancy & Security (engineering-level; full detail in SECURITY-COMPLIANCE.md)
 

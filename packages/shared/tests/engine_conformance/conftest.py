@@ -20,30 +20,29 @@ from typing import Any
 
 import httpx
 import pytest
+from apps.api.engine import cartesia as cartesia_module
 from apps.api.engine.bolna import BolnaEngine
+from apps.api.engine.cartesia import CartesiaEngine
 from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
 from calevate_shared.engine import VoiceEngine
 
-#: THE THIRD SUBJECT, and the one this suite gained the most from (D-93).
+#: FOUR SUBJECTS, THREE OF THEM REAL ADAPTERS (D-93).
 #:
-#: `fake-restricted` is the same `FakeEngine` class running a DIFFERENT capability
-#: descriptor: an engine that dictates its own STT and TTS, has no built-in knowledge
-#: base, no campaign objects, provisions no number class, and SIGNS its webhooks. That
-#: is a real alternative orchestrator's shape, and not one line of it is an imagined
-#: vendor API — every difference is an ANSWER, not an endpoint, so it needs no vendor
-#: contract to express and cannot rot when a vendor's contract changes.
+#: `cartesia` is the second real vendor and the first that DISAGREES with us: it dictates
+#: its own STT and TTS, signs its webhooks, and provisions no Indian number class. It is
+#: what makes "the contract is vendor-neutral" a measurement rather than a hope — that
+#: claim and "the contract is Bolna-shaped" are indistinguishable while only one vendor
+#: exists. Its stub below is fed the same shapes the adapter documents, at the same
+#: evidence standing, so the suite proves OUR mapping and our contract; it proves nothing
+#: about Cartesia, and `apps/api/engine/cartesia.py` says so at every line.
 #:
-#: Why not a speculative adapter for the actual alternative: this repo's doctrine is that
-#: a seam is only proven by a second implementation AND that an adapter written against
-#: an imagined API is worse than none, because it looks finished. Running the honest
-#: adapter with the alternative's answers satisfies both. What it catches is precisely
-#: what a speculative adapter would have hidden — code that only works because today's
-#: engine says yes to everything.
-#:
-#: It also makes two contract branches executable for the first time: `hmac` webhook
-#: verification (no adapter had ever claimed it) and every refusal path in the
-#: capability descriptor.
-ENGINE_IDS = ["fake", "fake-restricted", "bolna"]
+#: `fake-restricted` is retained as the FAST TEST DOUBLE for the same capability profile:
+#: the `FakeEngine` class running an engine-dictates-speech, no-knowledge-base,
+#: signed-webhook descriptor, with no transport stub to maintain. It drives those paths
+#: in unit tests cheaply, and it keeps the `hmac` branch executable with a verifier that
+#: actually verifies (the Cartesia adapter's fails closed, by design, because its scheme
+#: is unsourced).
+ENGINE_IDS = ["fake", "fake-restricted", "bolna", "cartesia"]
 
 # A completed execution as Bolna documents it: USD-cent costs with a per-leg
 # breakdown, prefix-tagged transcript text, recording on their S3.
@@ -75,6 +74,28 @@ BOLNA_COMPLETED: dict[str, Any] = {
         "user: Sare, naa peru Ravi."
     ),
     "extracted_data": {},
+}
+
+
+# A completed Line call, in the shapes `cartesia.py` documents — role-based transcript
+# entries, ISO timestamps, and NO cost object, because the adapter deliberately reports
+# no cost for this vendor (nothing sourced says what currency Line quotes, and a stamped
+# guess is worse than no number at all).
+CARTESIA_COMPLETED: dict[str, Any] = {
+    "agent_call_id": "cart_call_1",
+    "agent_id": "agent_xyz",
+    "status": "completed",
+    "direction": "inbound",
+    "started_at": "2026-08-10T09:15:00Z",
+    "ended_at": "2026-08-10T09:16:35Z",
+    "duration_seconds": 95,
+    "from_number": "+919876543210",
+    "to_number": "+911140000000",
+    "recording_url": "https://storage.cartesia.ai/recordings/cart_call_1.wav",
+    "transcript": [
+        {"role": "assistant", "content": "Namaskaram, idi Sunrise Clinic AI assistant."},
+        {"role": "user", "content": "Naaku appointment kavali."},
+    ],
 }
 
 
@@ -173,6 +194,103 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
     return handler
 
 
+#: How many calls a saturated Cartesia listing returns. Equal to the adapter's
+#: `_LISTING_PAGE_SUSPECT` on purpose: that constant IS the adapter's truncation
+#: heuristic, so restating the number here would let the two drift and quietly stop
+#: exercising the branch.
+CARTESIA_FULL_PAGE = cartesia_module._LISTING_PAGE_SUSPECT
+
+
+def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.Response]:
+    """A stub of Cartesia Line's control plane, at the adapter's own evidence standing.
+
+    **THIS STUB PROVES NOTHING ABOUT CARTESIA.** It is built from the same sources the
+    adapter cites — the OSS SDK for the host, version and document endpoint; a search
+    summary for the outbound-call shape; RESTful inference for the rest — so it can only
+    ever confirm that our mapping is self-consistent. That is exactly what the Bolna stub
+    does (its `GET /v2/agent` shape is equally hand-maintained), and it is the whole
+    reason `OPERATIONS §2` keeps vendor behaviour as pilot GATES rather than tests.
+    What it DOES prove is worth having: that a vendor with a different capability profile
+    can satisfy this contract without any clause bending to accommodate it.
+
+    STATEFUL agent and document stores, for the reasons the Bolna stub is stateful: a stub
+    that echoed the last write would let an echoing `get_agent` pass the read-back clause,
+    and one that answered every DELETE with 200 would let a `detach_kb` that removes
+    nothing sail through.
+    """
+    agents: dict[str, dict[str, Any]] = {}
+    documents: dict[str, dict[str, dict[str, Any]]] = {}
+
+    def agent_id_for(body: dict[str, Any]) -> str:
+        # Derived from the NAME: stable across a re-create (the ref-stability clause needs
+        # that) and distinct per agent (the read-back clause needs that).
+        return "agent_" + hashlib.sha256(str(body.get("name") or "").encode()).hexdigest()[:8]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        method = request.method
+        body = json.loads(request.content or b"{}") if request.content else {}
+
+        # The version pin is not decoration: assert it is sent on EVERY request, so a
+        # future edit that drops the header fails here rather than on a vendor's next
+        # breaking release.
+        assert request.headers.get("Cartesia-Version") == cartesia_module.API_VERSION
+        assert request.headers.get("X-API-Key")
+
+        # THE CALL ROUTES COME FIRST. `/agents/calls` has the same shape as
+        # `/agents/{id}`, so a generic agent match placed above would swallow it and
+        # answer 404 for every listing — which is exactly what it did.
+        if path == "/agents/calls" and method == "POST":
+            assert body["outbound_calls"][0]["to_number"].startswith("+"), "E.164 only"
+            assert body.get("from_number_id"), "a caller id must be named"
+            return httpx.Response(200, json={"outbound_calls": [{"agent_call_id": "cart_call_1"}]})
+        if path == "/agents/calls" and method == "GET":
+            rows = [{**CARTESIA_COMPLETED, "agent_call_id": f"c_{i}"} for i in range(listing_rows)]
+            return httpx.Response(200, json={"calls": rows})
+        if path.startswith("/agents/calls/") and path.endswith("/end"):
+            return httpx.Response(200, json={"status": "ended"})
+        if path.startswith("/agents/calls/") and method == "GET":
+            return httpx.Response(200, json=CARTESIA_COMPLETED)
+        if path == "/agents" and method == "POST":
+            agent_id = agent_id_for(body)
+            agents[agent_id] = body
+            documents.setdefault(agent_id, {})
+            return httpx.Response(200, json={"id": agent_id})
+        if path.startswith("/agents/") and path.count("/") == 2 and method == "PATCH":
+            agent_id = path.rsplit("/", 1)[-1]
+            if agent_id not in agents:
+                return httpx.Response(404, json={"error": "unknown agent"})
+            agents[agent_id].update(body)
+            return httpx.Response(200, json={"id": agent_id})
+        if path.startswith("/agents/") and path.count("/") == 2 and method == "GET":
+            agent_id = path.rsplit("/", 1)[-1]
+            stored = agents.get(agent_id)
+            if stored is None:
+                return httpx.Response(404, json={"error": "unknown agent"})
+            return httpx.Response(200, json={"agent": {**stored, "id": agent_id}})
+        if path.endswith("/documents") and method == "POST":
+            agent_id = path.split("/")[2]
+            store = documents.setdefault(agent_id, {})
+            doc_id = f"doc_{len(store) + 1}"
+            store[doc_id] = {"id": doc_id, "title": body.get("title")}
+            return httpx.Response(200, json={"id": doc_id})
+        if path.endswith("/documents") and method == "GET":
+            agent_id = path.split("/")[2]
+            return httpx.Response(
+                200, json={"documents": list(documents.get(agent_id, {}).values())}
+            )
+        if "/documents/" in path and method == "DELETE":
+            agent_id, doc_id = path.split("/")[2], path.rsplit("/", 1)[-1]
+            if documents.get(agent_id, {}).pop(doc_id, None) is None:
+                # Their delete must 404 an id we never issued, or `detach_kb` can never be
+                # proven to have removed anything (the clause that makes it mean something).
+                return httpx.Response(404, json={"error": "unknown document"})
+            return httpx.Response(200, json={"status": "deleted"})
+        return httpx.Response(404, json={"error": "not found"})
+
+    return handler
+
+
 def make_engine(engine_id: str, *, listing_rows: int = 1) -> VoiceEngine:
     if engine_id == "fake":
         return FakeEngine(listing_page_size=FULL_LISTING_PAGE)
@@ -184,6 +302,22 @@ def make_engine(engine_id: str, *, listing_rows: int = 1) -> VoiceEngine:
             # this instance authenticates differently, so sharing a name would make that
             # table ambiguous — and the table is what the voice-runtime receiver reads.
             name="fake-restricted",
+        )
+    if engine_id == "cartesia":
+        return CartesiaEngine(
+            api_key="test-key",
+            # A caller id must be NAMED for an outbound call to be placeable at all —
+            # the adapter refuses without one rather than dialling from whatever the
+            # account happens to hold first. The stub asserts it arrives.
+            from_number_id="num_test",
+            client=httpx.AsyncClient(
+                base_url=cartesia_module.BASE_URL,
+                headers={
+                    cartesia_module.API_KEY_HEADER: "test-key",
+                    cartesia_module.VERSION_HEADER: cartesia_module.API_VERSION,
+                },
+                transport=httpx.MockTransport(_cartesia_handler(listing_rows=listing_rows)),
+            ),
         )
     return BolnaEngine(
         api_key="test-key",
@@ -236,6 +370,8 @@ def saturated(engine: VoiceEngine) -> VoiceEngine:
                 to_e164="+911140000000",
             )
         return saturated_fake
+    if isinstance(engine, CartesiaEngine):
+        return make_engine("cartesia", listing_rows=CARTESIA_FULL_PAGE)
     assert isinstance(engine, BolnaEngine), f"no saturation recipe for {type(engine).__name__}"
     return make_engine("bolna", listing_rows=FULL_LISTING_PAGE)
 

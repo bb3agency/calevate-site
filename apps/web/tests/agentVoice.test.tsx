@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
 import type { AgentVoiceState } from "@/lib/api/publishing";
-import { VOICES_PATH, type Voice } from "@/lib/api/voices";
+import { VOICES_PATH, type Voice, type VoiceCatalogue } from "@/lib/api/voices";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, type Routes } from "./harness";
@@ -67,7 +67,7 @@ function voice(over: Partial<Voice> = {}): Voice {
   };
 }
 
-const CATALOGUE: Voice[] = [
+const VOICES: Voice[] = [
   voice(),
   voice({
     id: "vidya",
@@ -80,12 +80,35 @@ const CATALOGUE: Voice[] = [
   }),
 ];
 
+/**
+ * The catalogue AS THE SERVER ANSWERS IT (D-93): the rows AND the verdict about them.
+ *
+ * It stopped being a bare `Voice[]` because a bare list cannot say "no selection here,
+ * and that is normal" — its only way to express it is `[]`, which this very panel renders
+ * as "this agent has no voices available", a claim about the product rather than about the
+ * engine. `selectable` and `control` carry the verdict; `note` is the sentence to print.
+ */
+const CATALOGUE: VoiceCatalogue = {
+  control: "ours",
+  selectable: true,
+  voices: VOICES,
+  note: "Pick the voice this agent speaks in.",
+};
+
+/** The same endpoint on an engine that supplies its own voices — no rows, and a reason. */
+const DICTATED_CATALOGUE: VoiceCatalogue = {
+  control: "engine",
+  selectable: false,
+  voices: [],
+  note: "The voice platform in use supplies its own voices, so a voice cannot be chosen here. Nothing is wrong with this agent.",
+};
+
 /** One stored voice as `GET /v1/agents/{id}/pending` answers it. */
 function stored(id: string): NonNullable<AgentVoiceState["configured"]> {
   return {
     voice_id: id,
     provider: "sarvam",
-    catalog: CATALOGUE.find((entry) => entry.id === id) ?? null,
+    catalog: VOICES.find((entry) => entry.id === id) ?? null,
   };
 }
 
@@ -344,6 +367,29 @@ describe("the voice panel", () => {
     await waitFor(() =>
       expect(calls.filter((c) => c.path === PENDING_PATH).length).toBeGreaterThan(1),
     );
+  });
+
+  it("states the reason, not an error, when the engine supplies its own voices", async () => {
+    // D-93. THREE things must all be true at once, and each of them is a way the screen
+    // used to be able to lie:
+    //
+    //  - no picker. A dropdown listing Bulbul entries against an engine that only speaks
+    //    its own voices is a screen offering a choice the caller will never hear. Not
+    //    rendered-and-disabled either: a disabled list still says "these are your options".
+    //  - no ProblemNotice. Nothing is broken. An error card here sends an operator to a
+    //    runbook for a deployment working exactly as designed.
+    //  - the voice in force is STILL shown. "What do callers hear right now" remains a
+    //    fair question; it is only the answer that is not ours to change.
+    const { container } = await render({ [VOICES_PATH]: DICTATED_CATALOGUE });
+
+    await screen.findByText(/supplies its own voices/);
+    expect(screen.queryByLabelText("Voice")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Set voice" })).toBeNull();
+    // The server's sentence, verbatim — the panel does not compose its own from the flags
+    // and get the tone wrong.
+    expect(container.textContent).toContain("Nothing is wrong with this agent.");
+    // Still answering the question it can answer.
+    expect(container.textContent).toContain("Callers hear now");
   });
 
   it("renders a refusal, not an empty picker, when the catalogue cannot be read", async () => {
