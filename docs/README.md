@@ -21,6 +21,10 @@ and are all closed by two non-code actions: the Engine Verification Session
    taxonomy, testing structure.
 5. **SECURITY-COMPLIANCE.md** — TRAI/DLT/DPDP obligations mapped to features; call-level
    and campaign gates; threat model; compliance calendar.
+   - **PLATFORM-CONFIG.md** (read with it) — the `admin.calevate.tech/ops` console:
+     where core config lives, where SECRETS live (envelope encryption in Postgres, KEK
+     in the environment and nowhere else), the six bootstrap keys that may never move
+     out of `.env`, and the security trade the console makes explicit. D-95.
 6. **FLOWS.md** — onboarding wizard, invitations/auth, inbound call lifecycle, instant
    lead callback, bulk campaigns, post-call pipeline, KB updates, billing, offboarding.
 7. **OPERATIONS.md** — engine verification checklist (do this first), per-client

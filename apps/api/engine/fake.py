@@ -184,6 +184,16 @@ class FakeEngine:
         self._calls: dict[str, dict[str, Any]] = {}
         self._kb: dict[str, list[KBSourceRef]] = {}
 
+    def holds_credentials(self) -> bool:
+        """Always True: this adapter IS its own vendor, so there is nothing to configure.
+
+        Not a stub. The fake engine's whole job is that the pipeline runs offline with no
+        vendor account (DEV-SETUP §3), so "we can reach the vendor" is genuinely and
+        permanently true here — which is what makes it usable as `ENGINE=fake` in local
+        development while a credential-less real adapter refuses everything.
+        """
+        return True
+
     # --- deterministic ids ---------------------------------------------------
 
     @staticmethod

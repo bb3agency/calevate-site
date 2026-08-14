@@ -530,6 +530,24 @@ class VoiceEngine(Protocol):
     #: `apps.api.engine.engine_capabilities()`, never by touching an adapter.
     capabilities: EngineCapabilities
 
+    def holds_credentials(self) -> bool:
+        """Can this adapter actually talk to its vendor?
+
+        DERIVED FROM THE ADAPTER, never from a second read of settings — the argument
+        `lead_retrieval_capability` makes with `holds_credential_for`: a credential is not
+        a statement that a capability exists, and two independent reads of the same
+        settings eventually disagree, at which point a screen offers what a route refuses.
+
+        Separate from `capabilities` because they answer different questions and are wrong
+        in different ways. `capabilities` is what this engine COULD do for anyone;
+        this is whether THIS DEPLOYMENT can reach it at all. An engine with a built-in
+        knowledge base and no API key still has a built-in knowledge base.
+
+        Synchronous and cheap: it inspects what the adapter was constructed with. It must
+        never make a network call — a screen deciding whether to render a control asks it.
+        """
+        ...
+
     async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef: ...
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None: ...

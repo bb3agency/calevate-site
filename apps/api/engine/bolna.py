@@ -552,6 +552,12 @@ class BolnaEngine:
         self._base_url = base_url
         self._client = client
 
+    def holds_credentials(self) -> bool:
+        """An API key, or an injected client (the conformance stub and the pilot harness
+        both supply one). Mirrors `_http`'s own precondition exactly rather than
+        restating it — a second copy of that rule is a second thing to get wrong."""
+        return bool(self._api_key) or self._client is not None
+
     # --- plumbing ------------------------------------------------------------
 
     def _http(self) -> httpx.AsyncClient:
