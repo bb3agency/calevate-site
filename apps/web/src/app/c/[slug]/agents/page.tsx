@@ -12,6 +12,7 @@ import {
   PhoneOutgoing,
   ShieldCheck,
   Timer,
+  Volume2,
   Zap,
 } from "lucide-react";
 
@@ -30,6 +31,7 @@ import {
   usePendingChanges,
   type Lane,
   type PendingChange,
+  type PendingState,
 } from "@/lib/api/publishing";
 import type { Session } from "@/lib/api/client";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
@@ -437,8 +439,9 @@ function PublishingPanel({ agent }: { agent: Agent }) {
       )}
 
       {/* The cost-runaway guard, as the question it actually answers: what is the worst
-          one call can do to my bill. */}
+          one call can do to my bill — plus the voice, which is a cost question too. */}
       <dl className="grid gap-5 rounded-card border border-line bg-app p-4 sm:grid-cols-2">
+        <VoiceFacts state={state.voice} published={agent.published} />
         <Fact
           label="Longest one call may run"
           icon={<Timer className="h-3.5 w-3.5" />}
@@ -471,6 +474,79 @@ function PublishingPanel({ agent }: { agent: Agent }) {
       </dl>
     </div>
   );
+}
+
+/**
+ * The voice the caller hears — and, only when they differ, the one waiting for us.
+ *
+ * **Why a client sees this at all.** They can already read the catalogue
+ * (`GET /v1/agents/voices` is client-realm on the stated grounds that a client "is
+ * legally the Principal Entity and should be able to see what their own agent sounds
+ * like"), and D-36's premium/value ladder is a PRICE ladder — the two rungs bill at
+ * different per-minute rates (§2b's honest degraded-tier billing) and
+ * `usage_events.meta.tts_tier` already records which rung each call ran on. A client
+ * billed by rung gets to read the rung. Changing it is still ours (D-21), which is why
+ * there is no control here, only a fact and who moves it.
+ *
+ * **One box when there is one answer, two when there are two.** A configured voice that
+ * the calling system is already holding is a single fact and is rendered as one. A voice
+ * that has been chosen and not yet published is TWO facts, and collapsing them would say
+ * the caller hears something they do not — the same inversion `PendingRow` below exists
+ * to prevent for the script. The server decides which case this is
+ * (`voice.republish_required`); this component does not compare the two ids itself,
+ * because an unpublished agent has two different values and no problem at all.
+ */
+function VoiceFacts({
+  state,
+  published,
+}: {
+  state: PendingState["voice"] | undefined;
+  published: boolean;
+}) {
+  // The field is absent on an older API build; a missing fact is honest, an invented
+  // one is not. Nothing else on this card depends on it.
+  if (!state) return null;
+  const heard = state.live
+    ? clientVoiceName(state.live)
+    : published
+      ? "We cannot say from here"
+      : "Nothing yet";
+  return (
+    <>
+      {/* "Voice callers hear", not "Its voice": the lane table lower down already uses
+          "Its voice" for the SETTING (FIELD_LABELS), and one label meaning two things on
+          one screen is how a reader learns to trust neither. This one names the moment. */}
+      <Fact
+        label="Voice callers hear"
+        icon={<Volume2 className="h-3.5 w-3.5" />}
+        hint={
+          state.live
+            ? "The voice the calling system is speaking in right now."
+            : published
+              ? "The calling system has a voice for this agent; we have no record of which one. Your account manager can confirm it."
+              : "Nothing is on the calling system yet, so no caller hears a voice at all."
+        }
+      >
+        {heard}
+      </Fact>
+      {state.republish_required && state.configured && (
+        <Fact
+          label="New voice waiting"
+          icon={<Hourglass className="h-3.5 w-3.5" />}
+          hint="Chosen for this agent and not switched on yet. Your account manager publishes the agent to make callers hear it."
+        >
+          {clientVoiceName(state.configured)}
+        </Fact>
+      )}
+    </>
+  );
+}
+
+/** A voice in words a client recognises. Unknown to the catalogue is still named by its
+ *  id — an owner can quote an id to their account manager, and "unknown" reads as a
+ *  fault rather than as a voice we simply no longer list. */
+function clientVoiceName(voice: NonNullable<PendingState["voice"]["configured"]>): string {
+  return voice.catalog?.label ?? voice.voice_id;
 }
 
 /**

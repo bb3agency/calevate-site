@@ -233,6 +233,44 @@
         "title": "AgentOut",
         "type": "object"
       },
+      "AgentVoiceOut": {
+        "additionalProperties": false,
+        "description": "One voice at one moment: the stored id, and the catalogue entry when we know it.\n\n`catalog` is null for an id outside `GET /v1/agents/voices` \u2014 a row set before the\ncatalogue existed, or an entry retired since. `voice_id` is still populated, so a UI\ncan name what it cannot describe rather than rendering an agent with a retired voice\nas one with no voice at all.",
+        "properties": {
+          "catalog": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Voice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "voice_id": {
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_id",
+          "provider",
+          "catalog"
+        ],
+        "title": "AgentVoiceOut",
+        "type": "object"
+      },
       "ApplyIn": {
         "additionalProperties": false,
         "description": "`expected_version` is the CAS token (BACKEND-PATTERNS \u00a75): the staged version\nthe operator actually looked at. Optional, because a caller with no screen has\nnothing to be stale about \u2014 but a UI that omits it is choosing last-write-wins.",
@@ -2939,6 +2977,29 @@
           "removable"
         ],
         "title": "DncEntryOut",
+        "type": "object"
+      },
+      "EndpointOptionsOut": {
+        "additionalProperties": false,
+        "description": "What an endpoint may subscribe to, and what this deployment can deliver on.\n\nA DECLARED model rather than the `dict[str, list[str]]` this route used to return.\nAn undeclared response is one `openapi-typescript` can only describe as an index\nsignature, so `events` was not a NAMED field and the console's single read of it was\nthe one read `tsc` could not check \u2014 the same defect, and the same fix, as\n`SubjectExportOut` replacing a free-form dict, and the reason `MetaSetupOut` one\nmodule over says \"declared rather than a bare dict\". It also puts the response back\ninside `scripts/check_redaction_exposure.py`'s walk, which inspects response MODELS:\na route with no model is a route that guardrail cannot inspect at all.\n\n`events` stays `list[str]` rather than `list[EventName]`, and that is deliberate.\n`EventName` is what THIS BUILD can put in a request body; `EVENT_TYPES` is what the\nRUNNING deployment offers. A console generated from an older snapshot has to be able\nto see a name outside its own union in order to SAY SO, rather than render a checkbox\nwhose only possible outcome is a 422 \u2014 narrowing this to the literal would make that\ngap unrepresentable, and would turn a deployment that adds an event into a 500 out of\nresponse validation.",
+        "properties": {
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "sheets_delivery_available": {
+            "title": "Sheets Delivery Available",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "events",
+          "sheets_delivery_available"
+        ],
+        "title": "EndpointOptionsOut",
         "type": "object"
       },
       "EndpointOut": {
@@ -6100,6 +6161,9 @@
             "title": "Published",
             "type": "boolean"
           },
+          "voice": {
+            "$ref": "#/components/schemas/VoiceStateOut"
+          },
           "worst_case_call_cost_inr": {
             "anyOf": [
               {
@@ -6122,6 +6186,7 @@
           "effective_call_cap_s",
           "call_cap_is_platform_default",
           "worst_case_call_cost_inr",
+          "voice",
           "precedence_rule"
         ],
         "title": "PendingOut",
@@ -7655,6 +7720,17 @@
             "title": "Engine Synced",
             "type": "boolean"
           },
+          "live_voice_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Voice Id"
+          },
           "next_step": {
             "title": "Next Step",
             "type": "string"
@@ -7677,6 +7753,7 @@
           "agent_status",
           "published",
           "engine_synced",
+          "live_voice_id",
           "republish_required",
           "next_step"
         ],
@@ -9536,6 +9613,48 @@
           "note"
         ],
         "title": "Voice",
+        "type": "object"
+      },
+      "VoiceStateOut": {
+        "additionalProperties": false,
+        "description": "The voice CONFIGURED on the agent and the voice the engine was last SENT.\n\nTwo fields because they are two facts. `PATCH /v1/agents/{id}/voice` writes our row\nand stops there, so a live agent keeps its old voice until the next publish \u2014 one\nvalue labelled \"the voice\" would be a claim about a client's phone line that nobody\nchecked.\n\n`live` is null when nothing is recorded as sent, which reads two ways and is\ndisambiguated by `PendingOut.published`: an unpublished agent has nothing live, and\na published one was published before the mirror existed (or with no voice set). Both\nresolve to `republish_required` when a voice is configured, because a sync we cannot\nprove is not a sync.",
+        "properties": {
+          "configured": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentVoiceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "live": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentVoiceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "republish_required": {
+            "title": "Republish Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "configured",
+          "live",
+          "republish_required",
+          "headline"
+        ],
+        "title": "VoiceStateOut",
         "type": "object"
       },
       "WebhookAck": {
@@ -12474,7 +12593,7 @@
     },
     "/v1/agents/{agent_id}/pending": {
       "get": {
-        "description": "Backs the unsaved-changes banner. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).",
+        "description": "Backs the unsaved-changes banner and the voice picker. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).\n\n`voice.configured` is what `PATCH /v1/agents/{agent_id}/voice` wrote; `voice.live` is what the engine was last sent. They differ until a publish, which is what `voice.republish_required` reports. A null `voice.live` on a published agent means we have no record of what it is holding \u2014 read it with `published`, and never as 'in sync'.",
         "operationId": "pending_v1_agents__agent_id__pending_get",
         "parameters": [
           {
@@ -12506,7 +12625,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "What is staged but not live, and what one capped call costs",
+        "summary": "What is staged but not live, what one capped call costs, and which voice is live",
         "tags": [
           "agents"
         ],
@@ -14330,20 +14449,14 @@
     },
     "/v1/integrations/events": {
       "get": {
-        "operationId": "list_event_types_v1_integrations_events_get",
+        "description": "The events an endpoint may subscribe to, and whether this account can deliver to a Google Sheet. `sheets_delivery_available: false` means `POST /v1/integrations/endpoints/sheets` will be refused with `sheets_delivery_unavailable`, so a form for it should not be offered \u2014 but the refusal remains the authority, and this field is only how you learn about it without attempting the create.",
+        "operationId": "endpoint_options_v1_integrations_events_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  },
-                  "title": "Response List Event Types V1 Integrations Events Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EndpointOptionsOut"
                 }
               }
             },
@@ -14356,7 +14469,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The events an endpoint may subscribe to",
+        "summary": "What an endpoint may subscribe to, and which transports this account can use",
         "tags": [
           "integrations"
         ],

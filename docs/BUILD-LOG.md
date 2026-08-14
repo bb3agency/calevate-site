@@ -2726,6 +2726,58 @@ fresh scratch database instead: `createdb`, `alembic upgrade head`, seed, and po
 `DATABASE_URL` at it. The coverage ratchet needs exactly that state anyway, and it will
 REFUSE to score rather than report a number it cannot vouch for.
 
+## §60 — the two findings the last wave reported and did not fix
+
+A small, deliberate wave: the three defects §59's agents surfaced and correctly declined
+to fix out of scope. Both slices came back having found that the stated defect was the
+smaller half of the real one.
+
+**The voice picker could set and not display — because the thing to display was TWO
+things (D-74).** `set_agent_voice` writes our row and never touches the engine, so a
+published agent is CONFIGURED for one voice and SPEAKING another until the next publish.
+Nothing in the schema held the second answer, so `republish_required` was computed as
+`published` — an assumption that is right the first time and wrong every time after,
+including when an operator re-selects the voice the engine is already running. Adding a
+single `tts_voice` to `AgentOut` would have closed the reported gap and shipped a screen
+that states a wrong fact confidently, which is worse than the honest blank it replaced.
+`live_tts_voice` mirrors `live_prompt_id`, `publish_agent` is its single writer and
+records what it actually SENT after the vendor call, and the picker now shows **Callers
+hear now** beside **Configured**.
+
+Its no-backfill decision is the one to remember: `live_tts_voice := tts_voice` would tell
+a client their callers already hear the new voice, which is exactly the false claim the
+column exists to prevent.
+
+**The event catalogue was an untyped dict, and the Sheets capability did not exist
+(D-75).** Both are the same defect as D-71's `dict[str, Any]` one level down: a response
+the generated client cannot describe is a response nothing checks. What is worth keeping
+from this slice is what it REFUSED to do. It did not narrow `events` to the `EventName`
+literal, because the union is what this build can REQUEST and the server's list is what
+the deployment OFFERS — narrowing makes that gap unrepresentable and turns a deployment
+that adds an event into a 500 out of response validation. And it did not delete the
+frontend's hard failure on a malformed body once the types made it "unnecessary": a 200
+missing `sheets_delivery_available` would render "Sheets is not switched on for your
+account", which is our ignorance printed as one of the server's two answers.
+
+**The capability is a hint, never the gate**, and that is pinned by a test that reads the
+capability as true, flips the setting, and asserts the create is still refused with zero
+rows written. A screen is allowed to be optimistic and wrong; it is not allowed to be the
+check.
+
+**Two questions surfaced and deliberately left open**, recorded in ROADMAP §6 above the
+decision table rather than settled by an agent: SURFACES §2b lists the voice on the
+IMMEDIATE lane and `set_agent_voice` does not publish, so no agent obeys the lane table;
+and `publish_variant` sends the CONFIGURED voice to experiment arms, so starting an
+experiment can move traffic while the mirror still says "republish required". The second
+over-reports, which is the safe direction. Neither blocks anything today, and both need a
+decision rather than a patch — what this wave fixed is that the state was previously
+unobservable, so nobody could see which side of the lane a given agent was on.
+
+`docs/DATA-MODEL.md` §3's `agents` block gained the four columns it had been missing —
+`live_prompt_id`, `live_tts_voice`, `live_tts_provider` and `max_call_duration_s`. Only
+the last two are this wave's; documenting just those would have made the older drift look
+intentional. No guard enforces that block, which is why it drifted.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and

@@ -70,6 +70,22 @@ class Agent(PKMixin, TimestampMixin, Base):
     tts_provider: Mapped[str | None] = mapped_column(Text)
     tts_voice: Mapped[str | None] = mapped_column(Text)
     llm_model: Mapped[str | None] = mapped_column(Text)
+    # THE SENT VOICE: what `publish_agent` last handed the engine, as opposed to
+    # `tts_voice`, which is what an operator CONFIGURED (migration c8b3f14e7a29). The
+    # two are allowed to differ — `voice_routes.set_agent_voice` writes the row and
+    # deliberately does not touch the engine — so one column could not hold both
+    # answers, exactly as `system_prompt_id`/`live_prompt_id` above. The divergence IS
+    # `live_tts_voice IS DISTINCT FROM tts_voice`: derived, so it cannot drift the way
+    # a `voice_dirty` flag would. NULL = nothing recorded as sent (never published, or
+    # published before this column existed); `published` disambiguates the two, and
+    # both read as "we cannot prove the engine holds the configured voice".
+    #
+    # The provider is mirrored alongside because the pair is only meaningful together:
+    # the adapter sends `synthesizer.provider` and `synthesizer.provider_config.voice`
+    # as one object (engine/bolna.py), and a mirror of half of it can lie about the
+    # other half.
+    live_tts_voice: Mapped[str | None] = mapped_column(Text)
+    live_tts_provider: Mapped[str | None] = mapped_column(Text)
     # THE DRAFT POINTER: the script the client is editing.
     system_prompt_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("prompt_versions.id", use_alter=True, ondelete="SET NULL")

@@ -22,16 +22,20 @@ import { problem, renderClientPage, type Routes } from "./harness";
  * 2. **A failed catalogue read withholds BOTH forms and says why** (BUILD-LOG §52). The
  *    tempting failure is to fall back to the four names we know — which hides the failure
  *    behind four plausible checkboxes and offers a subscription the server may refuse.
- * 3. **`sheets_delivery_unavailable` renders as an informative state, in the server's own
- *    words.** This is the state EVERY deployment is in today: no Google service account is
- *    configured, so `create_sheets_endpoint` refuses before it writes anything. It is a
- *    founder/ops decision and not a fault, so it must not read as an error, must not be a
- *    dead button, and must not be second-guessed by a client-side capability check —
- *    there is no capability field to read, and inventing one would be a second copy of a
- *    server rule.
- * 4. **Other Sheets refusals keep the form.** An unparseable document reference is
+ * 3. **The Sheets form is offered only where the deployment can deliver.**
+ *    `EndpointOptions.sheets_delivery_available` is the SERVER's own selector — the same
+ *    one `create_sheets_endpoint` asks — so the screen no longer discovers the refusal by
+ *    attempting the create. Where it is false the form is GONE, not disabled: a founder/ops
+ *    decision is not a fault, must not read as an error, and must not cost a client a
+ *    support ticket to learn what one sentence tells them.
+ * 4. **The capability is a hint and the server is still the authority.** It is read once
+ *    and cached for half an hour, so the screen can be optimistic and wrong; a
+ *    `sheets_delivery_unavailable` refusal still replaces the form, in the server's own
+ *    words. A screen that trusted its own guess instead would be a second copy of a server
+ *    rule, and the copy is what drifts.
+ * 5. **Other Sheets refusals keep the form.** An unparseable document reference is
  *    something the client can fix in the field they are looking at.
- * 5. **D-22.** Creating either kind is `org:manage`, which is mutating, so an impersonating
+ * 6. **D-22.** Creating either kind is `org:manage`, which is mutating, so an impersonating
  *    operator gets the reason beside the disabled control rather than a 403 after the
  *    click.
  */
@@ -48,16 +52,28 @@ const OWNER = {
   organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
 };
 
-const CATALOGUE = {
+/**
+ * The one read both forms are built from. `sheets_delivery_available` defaults to TRUE in
+ * this fixture so the Sheets form is on screen for the tests that are about the form; the
+ * false case has its own describe block, because on a real deployment today it is the
+ * state every account is in.
+ */
+const OPTIONS = {
   events: ["lead.created", "lead.updated", "call.completed", "campaign.completed"],
+  sheets_delivery_available: true,
 };
+
+/** The options body with one field overridden — the events list, or the capability. */
+function options(over: Record<string, unknown> = {}) {
+  return { ...OPTIONS, ...over };
+}
 
 function render(over: Partial<Routes> = {}) {
   return renderClientPage(<IntegrationsPage />, {
     "/v1/me": OWNER,
     "/v1/integrations/endpoints": [],
     "/v1/integrations/deliveries": [],
-    [EVENTS_PATH]: CATALOGUE,
+    [EVENTS_PATH]: OPTIONS,
     ...over,
   });
 }
@@ -65,7 +81,7 @@ function render(over: Partial<Routes> = {}) {
 describe("the event catalogue", () => {
   it("builds both forms from the server's list rather than a local copy", async () => {
     const { container, calls } = await render({
-      [EVENTS_PATH]: { events: ["lead.created", "campaign.completed"] },
+      [EVENTS_PATH]: options({ events: ["lead.created", "campaign.completed"] }),
     });
 
     await screen.findByText("Send events to a Google Sheet");
@@ -93,11 +109,21 @@ describe("the event catalogue", () => {
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
     expect(screen.queryByRole("button", { name: "Add endpoint" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add sheet" })).toBeNull();
+    // And NOT the capability card either. A failed read is not a `false` capability, and
+    // "Sheets is not switched on for your account" is a STATE — the exact substitution
+    // §52 exists to stop. It renders only inside the success arm.
+    expect(container.textContent).not.toContain("not switched on for your account");
   });
 
   it("treats a 200 whose body it cannot read as a failed read, not an empty catalogue", async () => {
     // A shape we do not understand is ignorance, not "no events exist". Zero checkboxes
     // with no explanation is the empty state §52 forbids.
+    //
+    // The declared response model (`EndpointOptionsOut`) is what makes both reads
+    // `tsc`-checked, and it removed the `lookup` dance this guard used to need. The guard
+    // itself stayed: the hook now hands the WHOLE body to the screen, so a missing
+    // `events` would reach `EventChoices` as `undefined.filter(…)` — a blank screen,
+    // which is worse than either state §52 is arguing between.
     const { container } = await render({ [EVENTS_PATH]: { not_events: [] } });
 
     const alert = await screen.findByRole("alert");
@@ -105,18 +131,95 @@ describe("the event catalogue", () => {
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
   });
 
+  it("refuses rather than reading a missing capability as 'Sheets is switched off'", async () => {
+    // The half of the guard the capability field added. `sheets_delivery_available`
+    // absent is NOT false: rendering the unavailable card off a missing field would print
+    // our ignorance as one of the server's two answers, on the screen whose whole job is
+    // telling a client which of them is true.
+    const { container } = await render({
+      [EVENTS_PATH]: { events: ["lead.created"] },
+    });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("did not arrive in a shape we understand");
+    expect(container.textContent).not.toContain("not switched on for your account");
+    expect(screen.queryByRole("button", { name: "Add sheet" })).toBeNull();
+  });
+
   it("names an event it cannot subscribe to instead of faking a checkbox for it", async () => {
     // The generated request body takes a literal union, so an event outside it cannot be
     // put in a typed request — a checkbox for it could only ever produce a 422. It means
     // our OpenAPI snapshot is behind the deployment, which is worth saying once.
     const { container } = await render({
-      [EVENTS_PATH]: { events: ["lead.created", "call.transferred"] },
+      [EVENTS_PATH]: options({ events: ["lead.created", "call.transferred"] }),
     });
 
     await screen.findByText("Send events to a Google Sheet");
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
     expect(container.textContent).toContain("call.transferred");
     expect(container.textContent).toContain("cannot subscribe to yet");
+  });
+});
+
+describe("the Sheets capability", () => {
+  it("does not offer the form at all where the deployment cannot deliver", async () => {
+    // The state EVERY deployment is in today: no Google service account, so
+    // `sheets_delivery_available` is false and `POST …/endpoints/sheets` would refuse.
+    // The screen now knows BEFORE anyone fills anything in, so the form is not offered —
+    // and the card is where the form was, so the client is told rather than left to
+    // wonder where Sheets went.
+    const { container, calls } = await render({
+      [EVENTS_PATH]: options({ sheets_delivery_available: false }),
+    });
+
+    await screen.findByText("Send events to a Google Sheet");
+    expect(container.textContent).toContain(
+      "Google Sheets delivery is not switched on for your account.",
+    );
+    // GONE, not disabled. A dead control costs a support ticket to learn what the
+    // sentence above already says.
+    expect(screen.queryByRole("button", { name: "Add sheet" })).toBeNull();
+    expect(screen.queryByLabelText("Which sheet?")).toBeNull();
+    expect(screen.queryByLabelText("Which tab? (optional)")).toBeNull();
+    // Not an error: `role="alert"` is the rose ProblemNotice, and a founder/ops decision
+    // is not a fault. "Try again" is not the remediation for a capability that does not
+    // exist here.
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Never asked. Discovering the refusal by ATTEMPTING the create is the defect this
+    // capability field removed.
+    expect(calls.some((c) => c.path === SHEETS_PATH)).toBe(false);
+  });
+
+  it("names the remediation the API's own refusal names", async () => {
+    // The words are ours here — the server sent a boolean, not a sentence — so they have
+    // to point where the server's refusal points, or a client who meets both hears two
+    // different stories about one fact.
+    const { container } = await render({
+      [EVENTS_PATH]: options({ sheets_delivery_available: false }),
+    });
+
+    await screen.findByText("Send events to a Google Sheet");
+    expect(container.textContent).toContain("Register a webhook endpoint above instead");
+    // The webhook form is the remediation, so it must still be there and still usable.
+    // (Its submit is disabled until a URL is typed — that is the form's own rule, not a
+    // permission — so the INPUT is what "usable" means here.)
+    expect(screen.getByRole("button", { name: "Add endpoint" })).toBeTruthy();
+    expect(screen.getByLabelText("Where should we send them?")).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("offers the form where the deployment can deliver", async () => {
+    // The other direction, and the reason a hardcoded "hide it" would have been wrong:
+    // the day Sheets is enabled the form has to appear on its own.
+    await render({ [EVENTS_PATH]: options({ sheets_delivery_available: true }) });
+
+    expect(await screen.findByLabelText("Which sheet?")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add sheet" })).toBeTruthy();
+    expect(
+      screen.queryByText("Google Sheets delivery is not switched on for your account."),
+    ).toBeNull();
   });
 });
 
@@ -159,11 +262,12 @@ describe("registering a Google Sheet", () => {
     );
   });
 
-  it("renders the deployment's refusal as a state, with the server's own remediation", async () => {
-    // THE case a real deployment hits today: no `GOOGLE_SHEETS_PROVIDER`, so the route
-    // refuses before it writes anything. It is a founder/ops decision, not a fault — so
-    // the words are the server's, the form goes away rather than sitting there to be
-    // re-submitted, and nothing pretends a client-side check could have known.
+  it("renders a refusal the capability did not warn about, in the server's own words", async () => {
+    // The STALE-CAPABILITY case, and the reason the refusal branch survives the
+    // capability field. `sheets_delivery_available` is read once and cached for half an
+    // hour, so an operator switching Sheets off mid-session leaves this screen optimistic
+    // and wrong. The server refuses anyway — that is the authority — and the screen
+    // renders the server's own words rather than its own guess about what happened.
     const { container } = await render({
       [SHEETS_PATH]: problem(422, {
         type: "urn:calevate:business_rule/sheets_delivery_unavailable",

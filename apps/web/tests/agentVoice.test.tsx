@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
+import type { AgentVoiceState } from "@/lib/api/publishing";
 import { VOICES_PATH, type Voice } from "@/lib/api/voices";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
@@ -26,9 +27,13 @@ import { problem, type Routes } from "./harness";
  * 2. **A failed catalogue read is a refusal, never an empty `<select>`** (BUILD-LOG §52).
  *    A picker with no options reads as "this agent has no voices available", which is a
  *    claim about the product made from a dead request.
- * 3. **Nothing is pre-selected, and the screen says why.** No endpoint exposes an agent's
- *    current `tts_voice`, so a highlighted option would be a state we never read rendered
- *    as a fact.
+ * 3. **CONFIGURED IS NOT LIVE, and both are on screen.** This is the whole reason the
+ *    panel is more than a dropdown. `PATCH .../voice` writes our row and does not touch
+ *    the engine, so a published agent keeps its old voice until the next publish. The
+ *    select pre-selects `voice.configured` — the thing being edited — while the panel
+ *    names `voice.live` beside it as what callers actually hear. The panel used to say it
+ *    could not report the voice in force at all; the fix was to make the server answer,
+ *    not to start guessing, and the tests below fail if either half goes missing.
  * 4. **The save does not reach the engine, and the screen prints the server's own sentence
  *    about that.** `publish_agent` re-reads the column, so a live agent keeps its old
  *    voice until the next publish — `republish_required` and `next_step` are the server's
@@ -75,6 +80,41 @@ const CATALOGUE: Voice[] = [
   }),
 ];
 
+/** One stored voice as `GET /v1/agents/{id}/pending` answers it. */
+function stored(id: string): NonNullable<AgentVoiceState["configured"]> {
+  return {
+    voice_id: id,
+    provider: "sarvam",
+    catalog: CATALOGUE.find((entry) => entry.id === id) ?? null,
+  };
+}
+
+/**
+ * The default agent for these tests: published, and the engine is holding the voice the
+ * row says it is. The interesting cases override it.
+ */
+const VOICE_IN_SYNC: AgentVoiceState = {
+  configured: stored("anushka"),
+  live: stored("anushka"),
+  republish_required: false,
+  headline: "Callers hear Anushka — the voice platform is holding the configured voice.",
+};
+
+function pendingRoute(voiceState: AgentVoiceState) {
+  return {
+    agent_id: AGENT,
+    agent_status: "live",
+    published: true,
+    has_pending: false,
+    pending: [],
+    effective_call_cap_s: 600,
+    call_cap_is_platform_default: true,
+    worst_case_call_cost_inr: null,
+    precedence_rule: "Script decides content.",
+    voice: voiceState,
+  };
+}
+
 function render(over: Partial<Routes> = {}) {
   return renderAdminRoute(
     <AgentPromptPage params={routeParams({ tenantId: TENANT, agentId: AGENT })} />,
@@ -87,17 +127,7 @@ function render(over: Partial<Routes> = {}) {
         permissions: ["agents:read", "agents:write"],
       },
       [HISTORY_PATH]: [],
-      [PENDING_PATH]: {
-        agent_id: AGENT,
-        agent_status: "live",
-        published: true,
-        has_pending: false,
-        pending: [],
-        effective_call_cap_s: 600,
-        call_cap_is_platform_default: true,
-        worst_case_call_cost_inr: null,
-        precedence_rule: "Script decides content.",
-      },
+      [PENDING_PATH]: pendingRoute(VOICE_IN_SYNC),
       [LANES_PATH]: {
         precedence_rule: "Script decides content.",
         lanes: [],
@@ -150,15 +180,111 @@ describe("the voice panel", () => {
     expect(container.textContent).toContain("unverified");
   });
 
-  it("pre-selects nothing and says why", async () => {
-    // No endpoint exposes `agents.tts_voice`, so a highlighted option would be a state
-    // this screen never read, rendered as a fact — §52 at its purest.
+  it("pre-selects the voice the agent is configured with", async () => {
+    // The gap this slice closed. `voice.configured` is the thing the operator is
+    // editing, so it is what the select opens on — not `voice.live` (the past), not the
+    // catalogue's `is_default` (D-36's written default, not this agent's state), and not
+    // a blank, which invites an operator to re-pick a value that is already set.
     const { container } = await render();
 
     const select = await screen.findByLabelText("Voice");
-    expect((select as HTMLSelectElement).value).toBe("");
+    expect((select as HTMLSelectElement).value).toBe("anushka");
+    // The detail block follows the selection without anyone touching the control.
     expect(container.textContent).toContain(
-      "The voice currently in force is not readable over the API",
+      "Warm, unhurried; the default for Telugu receptionists.",
+    );
+  });
+
+  it("shows an agent with no voice set as exactly that, with nothing pre-selected", async () => {
+    // A blank select is still correct for an agent nobody has configured — but it is now
+    // a state the SERVER reported, not a state the screen could not read.
+    const { container } = await render({
+      [PENDING_PATH]: pendingRoute({
+        configured: null,
+        live: null,
+        republish_required: false,
+        headline: "No voice has been set on this agent.",
+      }),
+    });
+
+    const select = await screen.findByLabelText("Voice");
+    expect((select as HTMLSelectElement).value).toBe("");
+    expect(container.textContent).toContain("No voice has been set on this agent.");
+    expect(container.textContent).toContain("None set");
+  });
+
+  it("names the LIVE voice and the CONFIGURED one separately when they differ", async () => {
+    // The distinction this panel exists for. A voice change lands in our row and stops:
+    // `publish_agent` re-reads the column, so the caller keeps hearing the old voice.
+    // Showing one value and calling it "the voice" is the defect — so both are rendered
+    // as labelled data, and the server's own sentence sits above them.
+    const { container } = await render({
+      [PENDING_PATH]: pendingRoute({
+        configured: stored("vidya"),
+        live: stored("anushka"),
+        republish_required: true,
+        headline: "Callers still hear Anushka; Vidya reaches them at the next publish.",
+      }),
+    });
+
+    const select = await screen.findByLabelText("Voice");
+    // Pre-selection follows CONFIGURED — the operator edits the configuration.
+    expect((select as HTMLSelectElement).value).toBe("vidya");
+
+    expect(container.textContent).toContain("Callers hear now");
+    expect(container.textContent).toContain("Anushka (bulbul:v3)");
+    expect(container.textContent).toContain("Configured");
+    expect(container.textContent).toContain("Vidya (bulbul:v2)");
+    // The server's sentence, printed rather than paraphrased.
+    expect(container.textContent).toContain(
+      "Callers still hear Anushka; Vidya reaches them at the next publish.",
+    );
+    // And WHO closes the gap. Only a publish does; nothing on this screen is it.
+    expect(container.textContent).toContain(
+      "Publishing this agent is what moves the voice callers hear.",
+    );
+  });
+
+  it("says a published agent's live voice is unrecorded rather than calling it in sync", async () => {
+    // An agent published before the server recorded what it sent. "We cannot prove it"
+    // is not "nothing is live" and is certainly not "in sync" — the server still asks
+    // for a republish, and the screen must not soften that into a green state.
+    const { container } = await render({
+      [PENDING_PATH]: pendingRoute({
+        configured: stored("vidya"),
+        live: null,
+        republish_required: true,
+        headline:
+          "Callers hear whatever voice was last published; we have no record of which. Vidya reaches them at the next publish.",
+      }),
+    });
+
+    await screen.findByLabelText("Voice");
+    expect(container.textContent).toContain("Not recorded — publish to be sure");
+    expect(container.textContent).toContain("we have no record of which");
+  });
+
+  it("says an unpublished agent has no live voice at all", async () => {
+    // A different null from the one above, and a different sentence: nothing is on the
+    // engine, so no caller hears anything and no republish is owed.
+    const { container } = await render({
+      [PENDING_PATH]: {
+        ...pendingRoute({
+          configured: stored("vidya"),
+          live: null,
+          republish_required: false,
+          headline:
+            "This agent is not on the voice platform yet; publishing it will use Vidya.",
+        }),
+        published: false,
+        agent_status: "draft",
+      },
+    });
+
+    await screen.findByLabelText("Voice");
+    expect(container.textContent).toContain("Nothing — not on the voice platform yet");
+    expect(container.textContent).not.toContain(
+      "Publishing this agent is what moves the voice callers hear.",
     );
   });
 
@@ -184,6 +310,7 @@ describe("the voice panel", () => {
         agent_status: "live",
         published: true,
         engine_synced: false,
+        live_voice_id: "anushka",
         republish_required: true,
         next_step:
           "Publish the agent to send this voice to the engine — until then callers hear the previous voice.",
@@ -209,6 +336,14 @@ describe("the voice panel", () => {
       ),
     );
     expect(container.textContent).toContain("Saved — Vidya (value tier, bulbul:v2)");
+
+    // And the read that feeds the "in force" block is refetched, because the write moved
+    // `voice.configured` and deliberately left `voice.live` alone. Without this the panel
+    // would keep showing the previous configuration next to the sentence saying it just
+    // changed.
+    await waitFor(() =>
+      expect(calls.filter((c) => c.path === PENDING_PATH).length).toBeGreaterThan(1),
+    );
   });
 
   it("renders a refusal, not an empty picker, when the catalogue cannot be read", async () => {

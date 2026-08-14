@@ -91,6 +91,15 @@ function pending(over: Partial<PendingState> = {}): PendingState {
     call_cap_is_platform_default: true,
     effective_call_cap_s: 600,
     worst_case_call_cost_inr: "10159.00",
+    // In sync: the configured voice IS the one the engine holds. This file is about
+    // money, so the voice is present and boring on purpose — the configured/live split
+    // is exercised in `agents.test.tsx`.
+    voice: {
+      configured: { voice_id: "bulbul:v3", provider: "sarvam", catalog: null },
+      live: { voice_id: "bulbul:v3", provider: "sarvam", catalog: null },
+      republish_required: false,
+      headline: "Callers hear Bulbul v3.",
+    },
     ...over,
   };
 }

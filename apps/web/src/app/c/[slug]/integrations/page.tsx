@@ -24,8 +24,8 @@ import {
   useDeactivateEndpoint,
   useDeliveries,
   useDeliveryPayload,
+  useEndpointOptions,
   useEndpoints,
-  useEventCatalogue,
   type OutboundEvent,
 } from "@/lib/api/integrations";
 import { hasKey, lookup } from "@/lib/lookup";
@@ -62,11 +62,14 @@ export default function IntegrationsPage() {
   const deliveries = useDeliveries(session);
   const deactivate = useDeactivateEndpoint(session);
   /**
-   * The catalogue both forms are built from — the SERVER's list of subscribable events,
-   * where this screen used to carry its own copy of it. One read, shared, so the two
-   * forms can never offer different events.
+   * The two facts both forms are built from, in one read: the SERVER's list of
+   * subscribable events (this screen used to carry its own copy) and whether this
+   * deployment can deliver to a Google Sheet at all.
+   *
+   * One read, shared, so the two forms can never offer different events — and so the
+   * screen can never hold the events without the capability and render half a decision.
    */
-  const catalogue = useEventCatalogue(session);
+  const options = useEndpointOptions(session);
 
   /**
    * D-22 read-only. Registering and turning off an endpoint are both `org:manage`
@@ -138,33 +141,52 @@ export default function IntegrationsPage() {
         </Card>
       )}
 
-      {/* Both forms are built from ONE catalogue read, so neither can be rendered from a
-          list we do not have. §52: a skeleton while it is in flight, the refusal when it
-          failed — and NOT a fallback list, which would offer a subscription the server may
-          no longer accept and would hide the failure behind four plausible checkboxes. */}
-      {catalogue.isLoading ? (
+      {/* Both forms are built from ONE read, so neither can be rendered from a list we do
+          not have. §52: a skeleton while it is in flight, the refusal when it failed —
+          and NOT a fallback list, which would offer a subscription the server may no
+          longer accept and would hide the failure behind four plausible checkboxes.
+          The Sheets branch below is inside the SUCCESS arm on purpose: "Sheets is not
+          available here" is a fact the server told us, never something we conclude from
+          not having heard. */}
+      {options.isLoading ? (
         <Card title="Where to send events">
           <Skeleton rows={4} />
         </Card>
-      ) : catalogue.error || !catalogue.data ? (
+      ) : options.error || !options.data ? (
         <Card title="Where to send events">
           <ProblemNotice
             error={
-              catalogue.error ??
+              options.error ??
               new Error("We could not load the list of events you can subscribe to.")
             }
-            onRetry={() => void catalogue.refetch()}
+            onRetry={() => void options.refetch()}
           />
         </Card>
       ) : (
         <>
           <WebhookForm
             session={session}
-            catalogue={catalogue.data}
+            catalogue={options.data.events}
             write={write}
             onSecret={setRevealed}
           />
-          <SheetsForm session={session} catalogue={catalogue.data} write={write} />
+          {options.data.sheets_delivery_available ? (
+            <SheetsForm session={session} catalogue={options.data.events} write={write} />
+          ) : (
+            /* The form is GONE, not disabled — the state every deployment is in today.
+               `sheets_delivery_available` is the server's own selector, so this is not a
+               client-side guess about a server rule; it is the server's answer, rendered.
+               The words are ours because the server sent a boolean and not a sentence
+               (the shape `KycRecordOut.number_purchase_available` set, and the shape the
+               verification screen's "Buying a phone number" card renders from), and they
+               name the remediation the API names in its own refusal so a client who meets
+               both hears one story. */
+            <SheetsUnavailable
+              headline="Google Sheets delivery is not switched on for your account."
+              remediation="Register a webhook endpoint above instead, or ask us to switch Google Sheets on for you."
+              footnote="There is nothing to fill in here yet — this form appears on its own once Sheets is enabled for your account."
+            />
+          )}
         </>
       )}
 
@@ -504,10 +526,45 @@ function WebhookForm({
 }
 
 /**
+ * "You cannot send to a Google Sheet from this account" — rendered ONCE, for the two
+ * different moments the screen can learn it.
+ *
+ * One component, because two copies of this card is how the pre-emptive state and the
+ * post-refusal state start telling a client two different stories about one fact. The
+ * words differ, and only the words: when the server has spoken they are the SERVER's
+ * (`title`/`detail` and `remediation` verbatim), and when it has only sent a boolean they
+ * are ours, saying the same thing.
+ *
+ * Deliberately NOT an error: `tone="neutral"`, no `role="alert"`, no retry. This is a
+ * founder/ops decision, and "try again" is not the remediation for a capability the
+ * deployment does not have. Deliberately NOT a disabled button either — a dead control
+ * costs a client a support ticket to learn what one sentence tells them, which is the
+ * argument the verification screen's "Buying a phone number" card already makes.
+ */
+function SheetsUnavailable({
+  headline,
+  remediation,
+  footnote,
+}: {
+  headline: string;
+  remediation: string;
+  footnote: string;
+}) {
+  return (
+    <Card title="Send events to a Google Sheet">
+      <NoticeBox tone="neutral" title={headline}>
+        <p className="mt-1">{remediation}</p>
+        <p className="mt-2 text-xs opacity-80">{footnote}</p>
+      </NoticeBox>
+    </Card>
+  );
+}
+
+/**
  * Deliver events to a Google Sheet — D-23's second transport, reachable from a screen at
  * last.
  *
- * THE REFUSAL IS THE INTERESTING PART. `create_sheets_endpoint` checks
+ * THE REFUSAL IS STILL THE INTERESTING PART. `create_sheets_endpoint` checks
  * `sheets_delivery_available()` before it writes anything, and on a deployment with no
  * Google service account it refuses with `sheets_delivery_unavailable`. That is a
  * FOUNDER/OPS decision — the route's own argument is that a checkbox for a transport that
@@ -516,23 +573,26 @@ function WebhookForm({
  *
  * Three ways to render it were on the table:
  *
- * 1. Hide the form until some capability flag says otherwise. There is no such flag to
- *    read: no endpoint publishes `sheets_delivery_available`, so hiding would mean
- *    guessing, and a client with Sheets enabled would never be offered it. (The
- *    `number_purchase_available` field on the KYC read is what this would need; that it
- *    has no counterpart here is reported, not invented.)
+ * 1. Hide the form until a capability flag says otherwise.
  * 2. Disable the button with a locally-written reason. That is a second copy of a server
  *    rule, and the copy is what drifts.
  * 3. Offer it, and when the server refuses, REPLACE the form with the server's own words.
  *
- * (3) is what this does. The refusal is not an error state — no rose panel, no "try
- * again", because trying again is not the remediation — it is an informative state
- * carrying the API's `title`, `detail` and `remediation` verbatim ("Register a webhook
- * endpoint instead, or contact support to have Google Sheets enabled for your account").
- * Nothing is written server-side when it fires, so nothing has to be undone. Every OTHER
- * refusal this route can produce — an unparseable sheet reference, an event with no column
- * layout — keeps the form on screen and renders through `ProblemNotice`, because those the
- * client can fix in the field they are looking at.
+ * This screen used to do (3) alone, because (1) had nothing to read: no endpoint published
+ * `sheets_delivery_available`, so hiding would have been a guess. It now does (1) AND (3),
+ * and they are not two answers to one question — they are the answers to two:
+ *
+ * - (1) decides whether to OFFER the form, from the server's own selector on
+ *   `EndpointOptions`. Where the capability is false this component is not rendered at
+ *   all; the page puts `SheetsUnavailable` in its place.
+ * - (3) below stays because the capability is a HINT and never the check. It is read once
+ *   and cached for half an hour, so an operator turning Sheets off mid-session leaves this
+ *   screen optimistic and wrong — and the server refuses anyway, which is what the branch
+ *   below renders. Deleting it would make the screen's optimism the check.
+ *
+ * (2) is still refused. Every OTHER refusal this route can produce — an unparseable sheet
+ * reference, an event with no column layout — keeps the form on screen and renders through
+ * `ProblemNotice`, because those the client can fix in the field they are looking at.
  */
 function SheetsForm({
   session,
@@ -550,6 +610,11 @@ function SheetsForm({
 
   // The one refusal that is a statement about the DEPLOYMENT rather than about this
   // request, read off the problem's stable machine code rather than off its prose.
+  //
+  // Reachable only when the published capability said `true` and the server disagreed —
+  // a capability read before an operator switched Sheets off, or a console talking to a
+  // deployment that changed under it. Rare, and kept precisely because it is the seam
+  // where the server, not this screen, is proved to be the authority.
   const unavailable =
     create.error instanceof ApiProblem && create.error.code === SHEETS_UNAVAILABLE_CODE
       ? create.error
@@ -557,18 +622,14 @@ function SheetsForm({
 
   if (unavailable) {
     return (
-      <Card title="Send events to a Google Sheet">
-        <NoticeBox tone="neutral" title={unavailable.message}>
-          <p className="mt-1">
-            {unavailable.remediation ??
-              "Register a webhook endpoint above instead, or ask us to enable Google Sheets for your account."}
-          </p>
-          <p className="mt-2 text-xs opacity-80">
-            Nothing was created, so there is nothing to undo. Reload this page once we have
-            told you Sheets is switched on for your account.
-          </p>
-        </NoticeBox>
-      </Card>
+      <SheetsUnavailable
+        headline={unavailable.message}
+        remediation={
+          unavailable.remediation ??
+          "Register a webhook endpoint above instead, or ask us to enable Google Sheets for your account."
+        }
+        footnote="Nothing was created, so there is nothing to undo. Reload this page once we have told you Sheets is switched on for your account."
+      />
     );
   }
 

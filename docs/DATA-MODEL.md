@@ -49,7 +49,15 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
     -- CHECK (D-31: retired before any adapter or production row existed, so the
     -- two-step deprecation in hard rule 8 does not apply — nothing ever wrote it)
     --, engine_agent_ref TEXT,
-  engine_staging_ref TEXT, deleted_at)
+  engine_staging_ref TEXT, deleted_at,
+  -- TWO-SPEED PUBLISHING: the `live_*` columns hold what the ENGINE was last SENT, which
+  -- is a different fact from what the agent is configured with. A save stages; a publish
+  -- is what moves the live pointer, so the pair can legitimately disagree and every
+  -- screen that renders one of them has to say which one it is showing.
+  live_prompt_id → prompt_versions,          -- a4e7b2c95d18
+  live_tts_voice, live_tts_provider,         -- c8b3f14e7a29; NULL = nothing recorded as
+                                             -- sent, never "in sync" (no backfill: see D-74)
+  max_call_duration_s)                       -- the per-agent cost-runaway ceiling
 prompt_versions(id, tenant_id, agent_id, version INT, body TEXT, compiled_t0_context TEXT,
   notes TEXT, created_by, published_at, UNIQUE(agent_id,version))   -- full history + rollback
   -- notes = operator-facing "why this version exists" ("rollback to v3", "new pricing").

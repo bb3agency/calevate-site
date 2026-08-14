@@ -574,6 +574,14 @@ const CLIENT_SCREENS: Screen[] = [
         call_cap_is_platform_default: true,
         worst_case_call_cost_inr: "12.50",
         precedence_rule: "Script decides content.",
+        // Diverged, so the sweep covers both voice facts rather than the single one an
+        // agreeing agent renders.
+        voice: {
+          configured: { voice_id: "vidya", provider: "sarvam", catalog: null },
+          live: { voice_id: "anushka", provider: "sarvam", catalog: null },
+          republish_required: true,
+          headline: "Callers still hear anushka; vidya reaches them at the next publish.",
+        },
       },
     },
   },
@@ -708,10 +716,14 @@ const CLIENT_SCREENS: Screen[] = [
           created_at: "2026-08-01T10:00:00Z",
         },
       ],
-      // The catalogue both create forms are built from. Without it neither form renders,
+      // The options both create forms are built from. Without it neither form renders,
       // and the sweep would scan a screen with no inputs on it at all.
+      // `sheets_delivery_available: true` deliberately — the Sheets form is only OFFERED
+      // where the deployment can deliver, so a false here would take its three labelled
+      // inputs out of the sweep entirely.
       "/v1/integrations/events": {
         events: ["lead.created", "lead.updated", "call.completed", "campaign.completed"],
+        sheets_delivery_available: true,
       },
       "/v1/integrations/deliveries": [
         {
@@ -1103,6 +1115,19 @@ const ADMIN_SCREENS: Screen[] = [
         call_cap_is_platform_default: true,
         worst_case_call_cost_inr: null,
         precedence_rule: "Script decides content.",
+        // Configured and live DIFFER on purpose, so the sweep covers the state with the
+        // most markup in it — the two-value block plus the amber republish line. The
+        // agreeing state renders a strict subset of it.
+        voice: {
+          configured: {
+            voice_id: "anushka",
+            provider: "sarvam",
+            catalog: null,
+          },
+          live: { voice_id: "vidya", provider: "sarvam", catalog: null },
+          republish_required: true,
+          headline: "Callers still hear vidya; anushka reaches them at the next publish.",
+        },
       },
       "/v1/agents/lanes": {
         precedence_rule: "Script decides content.",

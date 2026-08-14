@@ -36,6 +36,7 @@ import {
   type ExperimentVariant,
   type PendingState,
 } from "@/lib/api/publishing";
+import type { AgentVoice, AgentVoiceState } from "@/lib/api/publishing";
 import { useSetAgentVoice, useTenantVoiceCatalogue, type Voice } from "@/lib/api/voices";
 
 import { useAdminAccess } from "@/app/admin/access";
@@ -132,7 +133,8 @@ export default function AgentPromptPage({
         tenantId={tenantId}
         agentId={agentId}
         slug={slug}
-        tenantLoading={tenant.isLoading}
+        pending={pending.data}
+        tenantLoading={tenant.isLoading || pending.isLoading}
         write={write}
       />
 
@@ -578,7 +580,8 @@ function CallCapPanel({
 }
 
 /**
- * Which voice this agent speaks in — D-36's premium/value ladder, selectable at last.
+ * Which voice this agent speaks in — D-36's premium/value ladder, selectable and, now,
+ * READABLE.
  *
  * **Why this screen.** Voice is agent CONFIGURATION and the write is admin-realm
  * `agents:write` (`agents/voice_routes.py`, D-21: which voice speaks Telugu well is an ear
@@ -587,19 +590,21 @@ function CallCapPanel({
  * call cap, A/B — behind one `useAdminAccess` gate. A second per-agent screen for one
  * dropdown would be a second place to look for the same class of setting.
  *
- * **What it can and cannot show.** It can SET a voice and report exactly what the server
- * said about the write. It CANNOT show which voice is currently in force: no endpoint
- * exposes `agents.tts_voice` — `AgentOut` does not carry it — so the select opens on
- * "choose a voice" rather than on a guess, and the card says so in one sentence. Marking
- * an arbitrary entry as "current" would be §52's defect in its purest form: a state we
- * never read, rendered as a fact. Closing that gap is a backend change (report, not a
- * client-side inference).
+ * **CONFIGURED IS NOT LIVE, and this panel is built around that rather than around the
+ * dropdown.** The write touches our row only; `publish_agent` re-reads the column, so a
+ * live agent keeps its old voice until the next publish. `GET /v1/agents/{id}/pending`
+ * therefore answers with TWO voices — `voice.configured` and `voice.live` — and both are
+ * rendered as labelled data, side by side, exactly as `PendingRow` renders the two script
+ * pointers on the client screen. The reasoning is the same and it has been earned twice:
+ * a sentence can be read the wrong way round, two `dt`/`dd` pairs under "Callers hear
+ * now" and "Configured" cannot. The panel used to say it could not report the voice in
+ * force at all; the fix was not to start guessing but to make the server answer.
  *
- * **It does not go live by itself, and the screen refuses to imply otherwise.** The write
- * touches our row only; `publish_agent` re-reads the column, so a live agent keeps its old
- * voice until the next publish. The server answers that in `republish_required` and
- * `next_step`, and both are printed verbatim rather than paraphrased — the same doctrine
- * the Apply panel above follows with `engine_synced`.
+ * **The select pre-selects `voice.configured`** and nothing else. Not `voice.live` (the
+ * operator edits the configuration, not the past), not the catalogue's `is_default` (that
+ * is D-36's written default, not this agent's state), and not a blank when the server
+ * answered — a picker that reopens on "choose a voice" over a configured agent invites
+ * the operator to re-pick a value that is already set.
  *
  * `verified: false` is rendered, not hidden: the catalogue entries carry it until the
  * Bolna pilot confirms each string is selectable on the engine (OPERATIONS §2 gate 3), and
@@ -609,18 +614,25 @@ function VoicePanel({
   tenantId,
   agentId,
   slug,
+  pending,
   tenantLoading,
   write,
 }: {
   tenantId: string;
   agentId: string;
   slug: string;
+  pending: PendingState | undefined;
   tenantLoading: boolean;
   write: ReturnType<typeof useAdminAccess>;
 }) {
   const catalogue = useTenantVoiceCatalogue(slug);
   const save = useSetAgentVoice({ tenantId, agentId, slug });
-  const [choice, setChoice] = useState("");
+  // `null` means "not edited on this visit" — the select then shows the server's
+  // configured voice. Same shape, and the same reason, as the call-cap field above: an
+  // explicit "" is a real (invalid) choice and must not be confused with "unchanged".
+  const [choice, setChoice] = useState<string | null>(null);
+  const state = pending?.voice;
+  const selected = choice ?? state?.configured?.voice_id ?? "";
 
   return (
     <Card title="Voice">
@@ -636,8 +648,9 @@ function VoicePanel({
         {/* §52: the catalogue is a read like any other. A skeleton while it is in flight,
             a refusal when it failed — never an empty `<select>`, which reads as "this
             agent has no voices available" and is a claim about the product. The tenant
-            read gates it because the request goes through that tenant's impersonation
-            session, so there is nothing to ask until the slug exists. */}
+            and pending reads gate it too: the catalogue request goes through that
+            tenant's impersonation session, and pre-selecting before the pending read
+            lands would flash "choose a voice" over a configured agent. */}
         {tenantLoading || catalogue.isLoading ? (
           <Skeleton rows={2} />
         ) : catalogue.error || !catalogue.data ? (
@@ -650,17 +663,19 @@ function VoicePanel({
           />
         ) : (
           <>
+            <VoiceInForce state={state} published={pending?.published} />
+
             <form
               className="flex flex-wrap items-end gap-3"
               onSubmit={(event) => {
                 event.preventDefault();
-                save.mutate(choice);
+                save.mutate(selected);
               }}
             >
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-ink-muted">Voice</span>
                 <select
-                  value={choice}
+                  value={selected}
                   disabled={!write.allowed}
                   onChange={(event) => setChoice(event.target.value)}
                   className={FIELD}
@@ -675,14 +690,14 @@ function VoicePanel({
               </label>
               <button
                 type="submit"
-                disabled={save.isPending || choice === "" || !write.allowed}
+                disabled={save.isPending || selected === "" || !write.allowed}
                 className={PRIMARY_BUTTON_SM}
               >
                 {save.isPending ? "Saving…" : "Set voice"}
               </button>
             </form>
 
-            <VoiceDetail voice={catalogue.data.find((entry) => entry.id === choice)} />
+            <VoiceDetail voice={catalogue.data.find((entry) => entry.id === selected)} />
           </>
         )}
 
@@ -698,23 +713,90 @@ function VoicePanel({
 }
 
 /**
+ * The two voices, named, with the gap between them stated where there is one.
+ *
+ * Modelled on `PendingRow` on the client agents screen, deliberately: that component
+ * exists because showing the STAGED script as the one callers hear was shipped once and
+ * `agents/publishing.py` opens by recording it. A voice has the same two-pointer shape
+ * for the same reason — our row moves, the engine does not until a publish — so it gets
+ * the same treatment: the server's headline, and both values as labelled data underneath
+ * so no one has to parse a sentence correctly to know which is which.
+ *
+ * `published` decides how a null `live` reads, and it is genuinely two different facts:
+ * an unpublished agent has nothing live, while a published one with nothing recorded is
+ * an agent whose voice we cannot name. The second is not "no voice" and must not be
+ * rendered as one — the server says `republish_required` for it either way.
+ *
+ * Nothing at all is rendered while the pending read is unavailable: the panel below still
+ * SETS a voice, and a missing "in force" block is a smaller lie than an invented one.
+ */
+function VoiceInForce({
+  state,
+  published,
+}: {
+  state: AgentVoiceState | undefined;
+  published: boolean | undefined;
+}) {
+  if (!state) return null;
+  return (
+    <div className="rounded-card border border-line p-3">
+      <p className="text-xs text-ink">{state.headline}</p>
+      <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
+        <div>
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+            Callers hear now
+          </dt>
+          <dd className="text-sm font-medium text-ink">
+            {state.live
+              ? voiceName(state.live)
+              : published
+                ? "Not recorded — publish to be sure"
+                : "Nothing — not on the voice platform yet"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+            Configured
+          </dt>
+          <dd className="text-sm font-medium text-ink">
+            {state.configured ? voiceName(state.configured) : "None set"}
+          </dd>
+        </div>
+      </dl>
+      {state.republish_required && (
+        /* Amber, and only when the server says so. The two values above are already
+           different at this point, but "different" is not the operator's question —
+           "does a caller hear the wrong thing until I act" is, and only the server can
+           answer it (an unpublished agent has two different values and no problem). */
+        <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+          Publishing this agent is what moves the voice callers hear. Nothing else on this
+          screen does it.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** A stored voice in the words an operator recognises, degrading to the raw id.
+ *
+ *  `catalog` is null for a voice the API no longer offers, and the id is then all we
+ *  have. Printing it beats printing "unknown": an operator can search for an id. */
+function voiceName(voice: AgentVoice): string {
+  return voice.catalog ? `${voice.catalog.label} (${voice.catalog.tts_model})` : voice.voice_id;
+}
+
+/**
  * What the operator is about to choose, before they choose it.
  *
  * The `<option>` text carries the tier and the model because that is what an operator
  * compares on; the rest — languages, the catalogue's own note, and whether the string has
  * been confirmed on the engine — needs more room than an option can hold. Nothing is
- * rendered until something is selected: an empty panel is honest, and this card already
- * says it cannot report the voice in force.
+ * rendered when the select sits on "choose a voice", which now only happens on an agent
+ * with no voice configured: the block above has already said so, and repeating it here
+ * would be two answers to one question.
  */
 function VoiceDetail({ voice }: { voice: Voice | undefined }) {
-  if (!voice) {
-    return (
-      <p className="text-xs text-ink-muted">
-        The voice currently in force is not readable over the API, so nothing here is
-        pre-selected. Choosing one below sets it; it does not tell you what it was.
-      </p>
-    );
-  }
+  if (!voice) return null;
   return (
     <div className="rounded-card border border-line p-3 text-xs text-ink-muted">
       <p>

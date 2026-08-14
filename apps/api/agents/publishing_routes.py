@@ -3,10 +3,40 @@
 Three questions and two buttons:
 
     GET   /v1/agents/lanes                                        what applies when
-    GET   /v1/agents/{agent_id}/pending                           what is pending, what it costs
+    GET   /v1/agents/{agent_id}/pending                           what is pending, what it costs,
+                                                                  which voice is configured vs live
     POST  /v1/admin/tenants/{tid}/agents/{aid}/apply              "Apply to live calls"
     POST  /v1/admin/tenants/{tid}/agents/{aid}/undo               "Undo"
     PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-cap           the max call length
+
+WHY THE AGENT'S VOICE IS READ HERE AND NOT ON `AgentOut`
+--------------------------------------------------------
+`PATCH /v1/agents/{id}/voice` shipped without any read, so the admin picker could set a
+voice and never show one. The obvious fix — put `tts_voice` on `AgentOut` — was
+rejected, and the reason is the feature itself rather than tidiness:
+
+- **`AgentOut` has nowhere to put the second answer.** A voice is two facts, configured
+  and live, because `set_agent_voice` writes our row without touching the engine. A
+  single `tts_voice` field on the roster row would render as "the voice" and be wrong on
+  exactly the agents where it matters — the published ones with an unpublished change.
+  Adding BOTH to `AgentOut` would move two-speed publishing onto a read that knows
+  nothing else about it, giving the concept two homes. This endpoint is already the one
+  that answers "what is configured, what is live, what does it take to close the gap"
+  for the script and the call cap; the voice is the third instance of one question, not
+  a new one.
+- **`AgentOut` is the ROSTER, and it is on hot paths.** It backs the client agents
+  screen and the agent pickers on Leads, Campaigns, Knowledge and Lead sources, and
+  `get_agent` is implemented as "list them all and filter", so every field added there
+  is paid per agent by five screens that want a name and an id. This read is per agent
+  and already fetched by the one screen that sets a voice.
+- **A dedicated ADMIN read was rejected too**, for a reason that outranks both: the
+  voice is not admin-only information. `list_voices` is client-realm readable on the
+  stated grounds that a client "is legally the Principal Entity and should be able to
+  see what their own agent sounds like", and D-36's ladder is a PRICE ladder — premium
+  and value bill at different rates (`plans.overage_rate` vs `overage_rate_value`,
+  §2b's "honest degraded-tier billing"), and `usage_events.meta.tts_tier` already
+  records which rung a call ran on. A client billed by rung must be able to read the
+  rung. What stays admin-only is the WRITE, which is D-21 and unchanged.
 
 WHY THE READS ARE CLIENT-REALM AND THE WRITES ARE NOT
 -----------------------------------------------------
@@ -63,6 +93,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import publishing
 from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_MIN_S
+from apps.api.agents.voices import Voice
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
@@ -116,6 +147,41 @@ class PendingChangeOut(Strict):
     why: str
 
 
+class AgentVoiceOut(Strict):
+    """One voice at one moment: the stored id, and the catalogue entry when we know it.
+
+    `catalog` is null for an id outside `GET /v1/agents/voices` — a row set before the
+    catalogue existed, or an entry retired since. `voice_id` is still populated, so a UI
+    can name what it cannot describe rather than rendering an agent with a retired voice
+    as one with no voice at all.
+    """
+
+    voice_id: str
+    provider: str | None
+    catalog: Voice | None
+
+
+class VoiceStateOut(Strict):
+    """The voice CONFIGURED on the agent and the voice the engine was last SENT.
+
+    Two fields because they are two facts. `PATCH /v1/agents/{id}/voice` writes our row
+    and stops there, so a live agent keeps its old voice until the next publish — one
+    value labelled "the voice" would be a claim about a client's phone line that nobody
+    checked.
+
+    `live` is null when nothing is recorded as sent, which reads two ways and is
+    disambiguated by `PendingOut.published`: an unpublished agent has nothing live, and
+    a published one was published before the mirror existed (or with no voice set). Both
+    resolve to `republish_required` when a voice is configured, because a sync we cannot
+    prove is not a sync.
+    """
+
+    configured: AgentVoiceOut | None
+    live: AgentVoiceOut | None
+    republish_required: bool
+    headline: str
+
+
 class PendingOut(Strict):
     agent_id: UUID
     agent_status: str
@@ -126,6 +192,10 @@ class PendingOut(Strict):
     call_cap_is_platform_default: bool
     # NUMERIC INR. Null when the plan quotes no rate — not zero.
     worst_case_call_cost_inr: Decimal | None
+    # Deliberately NOT an entry in `pending`: that list is what Apply and Undo act on,
+    # every member of it names a `prompt_versions` number, and neither button clears a
+    # voice divergence on its own — a publish does. See `publishing.PendingState.voice`.
+    voice: VoiceStateOut
     precedence_rule: str
 
 
@@ -195,17 +265,28 @@ async def list_lanes(_: PublishingReader) -> LanesOut:
     "/v1/agents/{agent_id}/pending",
     response_model=PendingOut,
     openapi_extra=permission_meta("agents:read"),
-    summary="What is staged but not live, and what one capped call costs",
+    summary="What is staged but not live, what one capped call costs, and which voice is live",
     description=(
-        "Backs the unsaved-changes banner. `agents:read`, not `agents:write`: this is "
-        "the view that explains why an edit has not taken effect, so it must be "
-        "readable by someone who may only look (D-22)."
+        "Backs the unsaved-changes banner and the voice picker. `agents:read`, not "
+        "`agents:write`: this is the view that explains why an edit has not taken "
+        "effect, so it must be readable by someone who may only look (D-22).\n\n"
+        "`voice.configured` is what `PATCH /v1/agents/{agent_id}/voice` wrote; "
+        "`voice.live` is what the engine was last sent. They differ until a publish, "
+        "which is what `voice.republish_required` reports. A null `voice.live` on a "
+        "published agent means we have no record of what it is holding — read it with "
+        "`published`, and never as 'in sync'."
     ),
 )
 async def pending(agent_id: UUID, principal: PublishingReader) -> PendingOut:
     assert principal.tenant_id is not None  # `requires()` resolves a tenant for reads
     state = await publishing.pending_state_for(tenant_id=principal.tenant_id, agent_id=agent_id)
     return _render(state)
+
+
+def _render_voice(voice: publishing.AgentVoice | None) -> AgentVoiceOut | None:
+    if voice is None:
+        return None
+    return AgentVoiceOut(voice_id=voice.voice_id, provider=voice.provider, catalog=voice.catalog)
 
 
 def _render(state: publishing.PendingState) -> PendingOut:
@@ -229,6 +310,12 @@ def _render(state: publishing.PendingState) -> PendingOut:
         effective_call_cap_s=state.effective_call_cap_s,
         call_cap_is_platform_default=state.call_cap_is_platform_default,
         worst_case_call_cost_inr=state.worst_case_call_cost_inr,
+        voice=VoiceStateOut(
+            configured=_render_voice(state.voice.configured),
+            live=_render_voice(state.voice.live),
+            republish_required=state.voice.republish_required,
+            headline=state.voice.headline,
+        ),
         precedence_rule=state.precedence_rule,
     )
 
@@ -371,4 +458,12 @@ async def set_call_cap(
     )
 
 
-__all__ = ["ApplyIn", "CallCapOut", "PendingOut", "SetCallCapIn", "router"]
+__all__ = [
+    "AgentVoiceOut",
+    "ApplyIn",
+    "CallCapOut",
+    "PendingOut",
+    "SetCallCapIn",
+    "VoiceStateOut",
+    "router",
+]

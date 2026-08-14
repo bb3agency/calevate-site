@@ -1,6 +1,6 @@
-"""The voice catalog: the allowlist, and the admin-only write that respects it.
+"""The voice catalog: the allowlist, the admin-only write, and the read that shows it.
 
-Two things are under test and they are not the same thing.
+Three things are under test and they are not the same thing.
 
 1. **The catalog is data we can stand behind.** D-36 locks a premium/value ladder
    (Bulbul v3 default, v2 as the value tier), so a catalog missing either rung has
@@ -10,6 +10,16 @@ Two things are under test and they are not the same thing.
 2. **An unknown string never reaches an agent row.** That is the entire point:
    `agents.tts_voice` is free text whose next reader is a vendor API, so "typo stored,
    discovered at call time on a client's line" is the failure mode being closed.
+
+3. **CONFIGURED IS NOT LIVE, and the read says both.** `set_agent_voice` writes our row
+   and does not touch the engine, so between a voice change and the next publish the
+   agent is configured for one voice and speaking another. The write shipped with no
+   read at all, so a picker could set a voice and never show one — and the moment a read
+   existed, answering it with `tts_voice` alone would have shipped the "one number
+   called the voice" defect that `live_prompt_id` was added to fix for the script.
+   `agents.live_tts_voice` (migration c8b3f14e7a29) is the second answer, written by
+   `publish_agent` from the config it actually sent, and
+   `GET /v1/agents/{agent_id}/pending` carries both.
 
 The router is deliberately NOT mounted in `main.py`, so the HTTP tests mount it here —
 and mount it AHEAD of `agents.routes.router`, which is the order the real app must use
@@ -23,7 +33,10 @@ from __future__ import annotations
 import uuid
 
 from apps.api.admin import service as admin_service
+from apps.api.agents import publishing
+from apps.api.agents.publishing_routes import router as publishing_router
 from apps.api.agents.routes import router as agents_router
+from apps.api.agents.service import publish_agent
 from apps.api.agents.voice_routes import router as voice_router
 from apps.api.agents.voices import (
     CATALOG,
@@ -35,6 +48,8 @@ from apps.api.agents.voices import (
 from apps.api.core.errors import install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.engine import get_engine, reset_engine_cache
+from apps.api.engine.fake import FakeEngine
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -43,10 +58,11 @@ from sqlalchemy import text
 def _app() -> FastAPI:
     application = FastAPI()
     install_error_handlers(application)
-    # ORDER IS THE CONTRACT: the literal `/v1/agents/voices` must be declared before
-    # `/v1/agents/{agent_id}`, or FastAPI matches the parameterised route first and
-    # answers 422 about a UUID nobody sent.
+    # ORDER IS THE CONTRACT: the literal `/v1/agents/voices` and `/v1/agents/{id}/pending`
+    # must be declared before `/v1/agents/{agent_id}`, or FastAPI matches the
+    # parameterised route first and answers 422 about a UUID nobody sent.
     application.include_router(voice_router)
+    application.include_router(publishing_router)
     application.include_router(agents_router)
     assert_policy_registry_complete(application)
     return application
@@ -112,6 +128,36 @@ async def _stored_voice(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[str 
         ).first()
     assert row is not None
     return row[0], row[1]
+
+
+async def _set_voice(tenant_id: uuid.UUID, agent_id: uuid.UUID, voice_id: str) -> dict[str, object]:
+    """The admin write, over HTTP — the only supported way a voice reaches a row."""
+    admin_token = await _admin_token()
+    async with _client(_app()) as http:
+        response = await http.patch(
+            f"/v1/agents/{agent_id}/voice",
+            json={"tenant_id": str(tenant_id), "voice_id": voice_id},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+    assert response.status_code == 200, response.text
+    body: dict[str, object] = response.json()
+    return body
+
+
+async def _publish(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> FakeEngine:
+    """Push the agent onto the fake engine, which is what writes the live mirror.
+
+    Returns the engine THIS publish used, and the caller must rebind it: the cache reset
+    mints a fresh `FakeEngine` with an empty agent store, so a variable held across two
+    publishes would be reading the first engine's memory of a config the second one was
+    sent. The ref is a stable hash of the ids, so the same key indexes both.
+    """
+    reset_engine_cache()
+    engine = get_engine()
+    assert isinstance(engine, FakeEngine)
+    async with tenant_session(tenant_id) as session:
+        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+    return engine
 
 
 # --- The catalog itself -------------------------------------------------------
@@ -315,3 +361,243 @@ async def test_setting_the_voice_of_another_tenants_agent_is_a_404() -> None:
 
     assert response.status_code == 404, response.text
     assert await _stored_voice(tenant_a, agent_a) == (None, None), "tenant A is untouched"
+
+
+# --- CONFIGURED vs LIVE (migration c8b3f14e7a29) ------------------------------
+#
+# The gap this closes: the write existed and no read did, so the picker that set a
+# voice could not display one. What makes it more than a getter is that there are TWO
+# answers — the voice on the row and the voice the engine is holding — and they are
+# allowed to differ. Every test below pins one of the states they can be in.
+
+
+async def test_the_read_returns_the_voice_the_write_just_set() -> None:
+    """The plain closing of the gap: set it, read it back, get the same voice.
+
+    On an unpublished agent `live` is null and `republish_required` is False — there is
+    no engine object and therefore no caller to mislead. That is a different null from
+    the published case below, which is why `published` is asserted alongside it.
+    """
+    tenant_id, agent_id, _slug, _token = await _tenant()
+
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+    assert state.voice.configured is None, "the onboarding wizard sets no voice"
+    assert state.voice.headline == "No voice has been set on this agent."
+
+    await _set_voice(tenant_id, agent_id, "bulbul:v2")
+
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+    assert state.voice.configured is not None
+    assert state.voice.configured.voice_id == "bulbul:v2"
+    assert state.voice.configured.provider == "sarvam"
+    assert state.voice.configured.catalog is not None
+    assert state.voice.configured.catalog.tier == "value", "the picker renders the tier"
+    assert state.published is False
+    assert state.voice.live is None
+    assert state.voice.republish_required is False
+
+
+async def test_publishing_records_the_voice_the_engine_was_actually_sent() -> None:
+    """`publish_agent` is the only place a voice reaches the engine, so it is the only
+    place that can say what the engine has. The mirror is asserted against what the
+    FAKE ENGINE received, not against the row it was copied from — a mirror checked
+    against its own source proves nothing."""
+    tenant_id, agent_id, _slug, _token = await _tenant()
+    await _set_voice(tenant_id, agent_id, "bulbul:v3")
+    engine = await _publish(tenant_id, agent_id)
+
+    ref = next(iter(engine._agents))
+    assert engine._agents[ref].models.tts_voice == "bulbul:v3"
+
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+    assert state.published is True
+    assert state.voice.live is not None
+    assert state.voice.live.voice_id == "bulbul:v3"
+    assert state.voice.live.provider == "sarvam"
+    assert state.voice.republish_required is False
+    assert "Callers hear" in state.voice.headline
+
+
+async def test_a_change_after_a_publish_moves_configured_and_leaves_live_alone() -> None:
+    """THE TEST THIS SLICE EXISTS FOR: the read reports what the write set AND what the
+    caller is still hearing, at the same time.
+
+    Answering with one value here — either one — is the defect. `tts_voice` alone would
+    tell an operator the new voice is in force on a live phone line that is still
+    speaking the old one; `live_tts_voice` alone would hide the change they just made.
+    """
+    tenant_id, agent_id, _slug, _token = await _tenant()
+    await _set_voice(tenant_id, agent_id, "bulbul:v3")
+    engine = await _publish(tenant_id, agent_id)
+    ref = next(iter(engine._agents))
+
+    written = await _set_voice(tenant_id, agent_id, "bulbul:v2")
+    assert written["published"] is True
+    assert written["republish_required"] is True
+    assert written["live_voice_id"] == "bulbul:v3", "the write reports what callers hear"
+    assert written["engine_synced"] is False
+    assert "publish" in str(written["next_step"]).lower()
+
+    # The engine still holds the old voice — the whole reason the two columns exist.
+    assert engine._agents[ref].models.tts_voice == "bulbul:v3"
+
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+    assert state.voice.configured is not None and state.voice.configured.voice_id == "bulbul:v2"
+    assert state.voice.live is not None and state.voice.live.voice_id == "bulbul:v3"
+    assert state.voice.republish_required is True
+    assert "Callers still hear" in state.voice.headline
+    # The voice is NOT reported through `pending`/Apply: that list is version numbers
+    # and Undo cannot undo a voice. A publish closes this, and the headline says so.
+    assert [change.field for change in state.pending] == []
+    assert state.has_pending is False
+
+    # And a republish closes it, with no other step.
+    engine = await _publish(tenant_id, agent_id)
+    assert engine._agents[ref].models.tts_voice == "bulbul:v2"
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+    assert state.voice.live is not None and state.voice.live.voice_id == "bulbul:v2"
+    assert state.voice.republish_required is False
+
+
+async def test_re_selecting_the_voice_the_engine_already_holds_asks_for_no_republish() -> None:
+    """`republish_required` used to be `== published`, so an operator who re-picked the
+    running voice was told to publish for nothing. With the mirror the answer is a
+    measurement: same voice, same engine, no work. A screen that cries wolf about a
+    divergence is a screen nobody reads when there is one."""
+    tenant_id, agent_id, _slug, _token = await _tenant()
+    await _set_voice(tenant_id, agent_id, "bulbul:v3")
+    await _publish(tenant_id, agent_id)
+
+    written = await _set_voice(tenant_id, agent_id, "bulbul:v3")
+
+    assert written["published"] is True
+    assert written["live_voice_id"] == "bulbul:v3"
+    assert written["republish_required"] is False
+    assert "nothing to publish" in str(written["next_step"])
+
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+    assert state.voice.republish_required is False
+
+
+async def test_a_published_agent_with_no_recorded_live_voice_still_asks_for_a_republish() -> None:
+    """The legacy row: published before the mirror existed, so `live_tts_voice` is NULL
+    and we cannot PROVE what the engine holds. That resolves towards "publish again",
+    never towards a claim of sync — the only direction of error a statement about a
+    live phone line may have. It self-heals on the next publish."""
+    tenant_id, agent_id, _slug, _token = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET engine_agent_ref = :r, status = 'live' WHERE id = :a"),
+            {"r": f"fakeagent_legacy_{uuid.uuid4().hex[:8]}", "a": agent_id},
+        )
+
+    written = await _set_voice(tenant_id, agent_id, "bulbul:v2")
+    assert written["live_voice_id"] is None
+    assert written["republish_required"] is True
+
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+    assert state.published is True
+    assert state.voice.live is None
+    assert state.voice.republish_required is True
+    # The headline distinguishes "we do not know" from "nothing is live", because the
+    # remedy is the same but the sentence a client reads is not.
+    assert "no record of which" in state.voice.headline
+
+
+async def test_a_voice_outside_the_catalog_reads_back_as_itself() -> None:
+    """The column is free text and the allowlist lives at the API, so a row can hold a
+    voice we no longer offer. It must read back as an id we cannot describe — NOT as
+    "no voice", which would send an operator to set a voice that is already set."""
+    tenant_id, agent_id, _slug, _token = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE agents SET tts_voice = 'bulbul:v1', tts_provider = 'sarvam' WHERE id = :a"
+            ),
+            {"a": agent_id},
+        )
+
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+
+    assert state.voice.configured is not None
+    assert state.voice.configured.voice_id == "bulbul:v1"
+    assert state.voice.configured.catalog is None, "we do not offer it, so we cannot describe it"
+    assert "bulbul:v1" in state.voice.headline, "named by its id rather than silently dropped"
+
+
+async def test_a_client_can_read_which_voice_their_own_agent_speaks_in() -> None:
+    """Client-realm `agents:read`, and that is the deliberate answer to "is this client
+    information?".
+
+    A client is legally the Principal Entity and already reads the catalogue for the
+    reason `list_voices` states — they get to hear what their agent sounds like. D-36's
+    ladder is also a PRICE ladder (premium and value bill at different rates,
+    SURFACES §2b's honest degraded-tier billing), so a client billed by rung must be
+    able to read the rung. What stays admin-only is the WRITE (D-21), which
+    `test_a_client_realm_principal_cannot_set_the_voice` pins.
+    """
+    tenant_id, agent_id, slug, token = await _tenant()
+    await _set_voice(tenant_id, agent_id, "bulbul:v2")
+
+    async with _client(_app()) as http:
+        response = await http.get(
+            f"/v1/agents/{agent_id}/pending",
+            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+        )
+
+    assert response.status_code == 200, response.text
+    voice = response.json()["voice"]
+    assert voice["configured"]["voice_id"] == "bulbul:v2"
+    assert voice["configured"]["catalog"]["tier"] == "value"
+    assert voice["live"] is None
+    assert voice["republish_required"] is False
+    assert voice["headline"]
+
+
+async def test_a_second_tenant_cannot_read_or_write_the_live_voice_columns() -> None:
+    """The cross-tenant zero-rows test that ships with migration c8b3f14e7a29. Both new
+    columns are read AND written from a second tenant's RLS scope; a column is not a
+    separate security object, and this is where that claim gets checked (hard rule 1)."""
+    tenant_a, agent_a, _slug_a, _token_a = await _tenant()
+    await _set_voice(tenant_a, agent_a, "bulbul:v3")
+    await _publish(tenant_a, agent_a)
+    other_id, _other_agent, _slug_b, _token_b = await _tenant()
+
+    async with tenant_session(other_id) as session:
+        rows = (
+            await session.execute(
+                text("SELECT live_tts_voice, live_tts_provider FROM agents WHERE id = :aid"),
+                {"aid": agent_a},
+            )
+        ).all()
+        assert rows == [], "another tenant read the live voice off our agent"
+
+        written = await session.execute(
+            text(
+                "UPDATE agents SET live_tts_voice = 'bulbul:v2', live_tts_provider = 'nobody' "
+                "WHERE id = :aid"
+            ),
+            {"aid": agent_a},
+        )
+        assert written.rowcount == 0, "another tenant wrote the live voice on our agent"
+
+    # And the victim's row is untouched.
+    state = await publishing.pending_state_for(tenant_id=tenant_a, agent_id=agent_a)
+    assert state.voice.live is not None and state.voice.live.voice_id == "bulbul:v3"
+
+
+async def test_the_pending_read_of_a_foreign_agent_carries_no_voice_at_all() -> None:
+    """Reading someone else's agent is `not_found`, not a stripped-down payload — under
+    RLS the row is invisible, so there is nothing to partially disclose."""
+    _tenant_a, agent_a, _slug_a, _token_a = await _tenant()
+    await _set_voice(_tenant_a, agent_a, "bulbul:v3")
+    _tenant_b, _agent_b, slug_b, token_b = await _tenant()
+
+    async with _client(_app()) as http:
+        response = await http.get(
+            f"/v1/agents/{agent_a}/pending",
+            headers={"Authorization": f"Bearer {token_b}", "X-Org-Slug": slug_b},
+        )
+
+    assert response.status_code == 404, response.text
+    assert "bulbul" not in response.text

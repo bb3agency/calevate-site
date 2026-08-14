@@ -23,14 +23,15 @@
  * exactly as `publishing.ts` reads `/v1/agents/lanes`. `agents:read` is not in
  * `MUTATING_PERMISSIONS`, so D-22 leaves the read alone.
  *
- * ## What the catalogue does NOT tell you
+ * ## Where an agent's CURRENT voice is read — not here
  *
- * **There is no read of an agent's CURRENT voice.** `AgentOut` carries name, language,
- * disclosure line, status and extraction fields — not `tts_voice`, and no other endpoint
- * exposes it either. So a picker cannot show which entry is in force; it can only set one
- * and report what the write returned. That gap is stated on the screen rather than papered
- * over with a plausible default, and is reported for the backend to close (adding
- * `tts_voice` to `AgentOut`, or an admin agent read that carries it).
+ * `GET /v1/agents/{agent_id}/pending` carries it, as `voice.configured` and `voice.live`
+ * (see `publishing.ts`). It is not on `AgentOut` and not on a second admin read, and the
+ * argument is in `agents/publishing_routes.py`: a voice is TWO facts, the one configured
+ * and the one the engine is holding, and that is the question the pending read already
+ * answers for the script and the call cap. The picker in this module therefore reads its
+ * pre-selection from `usePendingChanges`/`useTenantPending` rather than from a voice
+ * endpoint of its own — one read, one cache, one answer.
  *
  * ## Setting a voice does not reach the engine
  *
@@ -40,12 +41,17 @@
  * instead of implying the change is live. That is a deliberate divergence from the prompt
  * path, argued at length in `agents/voice_routes.py`: re-voicing a running client's phone
  * line on an ear test we have not done is not a safe default.
+ *
+ * That is also why the write invalidates the PENDING read: a voice change moves
+ * `voice.configured` and deliberately leaves `voice.live` alone, so a screen that did not
+ * refetch would keep showing the previous configuration beside the new one.
  */
 
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { useMutation, useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { adminSession, viewAsSession } from "./admin";
 import { apiRequest, type Session } from "./client";
+import { usePublishingRefresh } from "./publishing";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -93,19 +99,18 @@ export function useTenantVoiceCatalogue(slug: string): UseQueryResult<Voice[]> {
  * its remediation, so no client-side membership check is duplicated here.
  */
 export function useSetAgentVoice(target: { tenantId: string; agentId: string; slug: string }) {
-  const client = useQueryClient();
+  // `usePublishingRefresh` rather than a second hand-written invalidation list: the
+  // pending read is where `voice.configured` lives, it is keyed by org SLUG, and the
+  // same helper already invalidates it for Apply, Undo and the call cap. Two lists of
+  // cache keys for one set of screens is where the drift starts — the second one is
+  // always the one that forgets a key.
+  const refresh = usePublishingRefresh(target);
   return useMutation({
     mutationFn: (voiceId: string) =>
       apiRequest<SetVoiceOut>(adminSession(), `/v1/agents/${target.agentId}/voice`, {
         method: "PATCH",
         body: { tenant_id: target.tenantId, voice_id: voiceId } satisfies SetVoiceIn,
       }),
-    // The agent roster carries `status`/`published`, which this write echoes back and a
-    // future read of the voice would live on. Nothing else on either screen moves.
-    onSuccess: () =>
-      Promise.all([
-        client.invalidateQueries({ queryKey: ["agents", target.slug] }),
-        client.invalidateQueries({ queryKey: ["admin", "agents", target.slug] }),
-      ]),
+    onSuccess: refresh,
   });
 }

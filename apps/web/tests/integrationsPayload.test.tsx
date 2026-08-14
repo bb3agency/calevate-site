@@ -90,9 +90,12 @@ function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": OWNER,
     "/v1/integrations/endpoints": ENDPOINTS,
-    // The create forms are built from the server's catalogue, so the screen asks for it.
+    // The create forms are built from the server's own options read, so the screen asks
+    // for it. `sheets_delivery_available` decides whether the Sheets form is offered at
+    // all; this file is about the delivery log, and true keeps the screen at full size.
     "/v1/integrations/events": {
       events: ["lead.created", "lead.updated", "call.completed", "campaign.completed"],
+      sheets_delivery_available: true,
     },
     "/v1/integrations/deliveries": [delivery()],
     ...over,

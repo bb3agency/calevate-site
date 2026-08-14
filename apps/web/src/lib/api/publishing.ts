@@ -48,7 +48,30 @@ type Schemas = components["schemas"];
 export type Lanes = Schemas["LanesOut"];
 export type Lane = Schemas["LaneOut"];
 
-/** What the unsaved-changes banner renders, in one read. */
+/**
+ * One voice at one moment: the id stored on the agent, and the catalogue entry when the
+ * server recognises it. `catalog` is null for a voice we no longer offer — the id is
+ * still there, so a retired voice reads as itself rather than as "no voice".
+ */
+export type AgentVoice = Schemas["AgentVoiceOut"];
+
+/**
+ * CONFIGURED versus LIVE, which for a voice are two different facts.
+ *
+ * `PATCH /v1/agents/{id}/voice` writes our row and does not touch the engine, so a live
+ * agent keeps its old voice until the next publish. A screen showing one of these and
+ * calling it "the voice" would be making a claim about a client's phone line that
+ * nobody checked — the same defect `live_prompt_id` fixed for the script.
+ *
+ * `live` is null when nothing is recorded as sent, and that reads two ways: an
+ * unpublished agent has nothing live, and a published one was published before the
+ * server recorded what it sent. Read it WITH `PendingState.published`, and never as
+ * "in sync" — `republish_required` is the server's answer and it errs towards
+ * "publish again" in both cases.
+ */
+export type AgentVoiceState = Schemas["VoiceStateOut"];
+
+/** What the unsaved-changes banner and the voice picker render, in one read. */
 export type PendingState = Schemas["PendingOut"];
 export type PendingChange = Schemas["PendingChangeOut"];
 

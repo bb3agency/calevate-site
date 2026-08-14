@@ -47,6 +47,16 @@ CLIENT verifier and rejects an admin token), and with the header it 403s on
 unreachable. Not fixed here — that file is out of scope — but this router does not
 reproduce the pattern.
 
+WHERE THE CURRENT VOICE IS READ
+-------------------------------
+Not here. `GET /v1/agents/{agent_id}/pending` (`agents/publishing_routes.py`) carries
+`voice.configured` and `voice.live` — the voice on the row and the voice the engine was
+last sent — because that endpoint is already the one answering configured-vs-live for
+the script and the call cap, and a voice is the third instance of that question rather
+than a new one. The argument, including why `AgentOut` was the wrong home and why the
+answer is client-readable at all, is in that module's docstring. This file stays the
+WRITE, which is admin-only per D-21.
+
 WHAT THIS ENDPOINT DOES *NOT* DO
 --------------------------------
 It does not touch the engine. Checked, not assumed: `agents/service.py::publish_agent`
@@ -55,6 +65,12 @@ into `ModelConfig` in `_to_config`, and only then calls `engine.update_agent(...
 a live agent keeps speaking in its OLD voice until someone publishes again — at which
 point the new voice is picked up with no extra step. The response says so in a field
 (`republish_required`) rather than in prose nobody reads.
+
+`publish_agent` now also RECORDS what it sent, in `agents.live_tts_voice` (migration
+c8b3f14e7a29). That is what makes `republish_required` a measurement rather than an
+assumption: it used to be `== published`, which reported a needed republish even when
+the operator re-selected the voice the engine was already running, because nothing in
+the schema could tell those apart.
 
 That is a deliberate divergence from `agents/prompts.py`, which republishes a LIVE
 agent inside the same transaction on the grounds that "a prompt change that only lands
@@ -125,7 +141,18 @@ class SetVoiceOut(Strict):
     # Always False: this endpoint writes our row and nothing else. Stated as a field so
     # a UI cannot accidentally imply otherwise.
     engine_synced: bool
-    # == published. The client's callers hear the OLD voice until a republish.
+    # What the engine was last SENT (`agents.live_tts_voice`, written by
+    # `publish_agent`), or null when nothing is recorded — an agent that was never
+    # published, or one published before migration c8b3f14e7a29. Returned so the write
+    # answers the same two questions the read does: a response that named only the voice
+    # it just stored would be the "one number called the voice" this column exists to
+    # stop.
+    live_voice_id: str | None
+    # Published AND the stored voice differs from the one the engine holds. It used to
+    # be `== published`, which assumed every write moved the voice — so re-selecting the
+    # voice already running reported a republish nobody needed, and there was no way to
+    # tell the two apart. A null `live_voice_id` counts as different: a sync we cannot
+    # prove is not a sync.
     republish_required: bool
     next_step: str
 
@@ -209,16 +236,24 @@ async def set_agent_voice(
                 text(
                     "UPDATE agents SET tts_voice = :voice, tts_provider = :provider, "
                     "updated_at = now() WHERE id = :aid AND deleted_at IS NULL "
-                    "RETURNING status, engine_agent_ref"
+                    # `live_tts_voice` is NOT written here — that is the whole point.
+                    # It records what `publish_agent` handed the engine, and this
+                    # endpoint does not reach the engine. Returned so the response can
+                    # say what callers are hearing rather than assume it moved.
+                    "RETURNING status, engine_agent_ref, live_tts_voice"
                 ),
                 {"voice": voice.id, "provider": voice.provider, "aid": agent_id},
             )
         ).first()
         if row is None:
             raise ProblemError.not_found("Agent")
-        status, engine_ref = str(row[0]), row[1]
+        status, engine_ref, live_voice_id = str(row[0]), row[1], row[2]
 
     published = bool(engine_ref)
+    # Exact, not assumed. `live_voice_id` is null for an agent published before the
+    # mirror existed, and null != voice.id, so that case still asks for a republish —
+    # the safe direction.
+    republish_required = published and live_voice_id != voice.id
     await write_audit(
         session,
         action="agent.voice_set",
@@ -232,7 +267,7 @@ async def set_agent_voice(
             "voice_id": voice.id,
             "tier": voice.tier,
             "tts_model": voice.tts_model,
-            "republish_required": published,
+            "republish_required": republish_required,
         },
     )
     return SetVoiceOut(
@@ -241,13 +276,30 @@ async def set_agent_voice(
         agent_status=status,
         published=published,
         engine_synced=False,
-        republish_required=published,
-        next_step=(
-            "Publish the agent to send this voice to the engine — until then callers "
-            "hear the previous voice."
-            if published
-            else "The agent is not on the engine yet; publishing it will use this voice."
-        ),
+        live_voice_id=live_voice_id,
+        republish_required=republish_required,
+        next_step=_next_step(published=published, republish_required=republish_required),
+    )
+
+
+def _next_step(*, published: bool, republish_required: bool) -> str:
+    """What the operator does now, in one sentence a UI prints verbatim.
+
+    Three answers rather than two: an agent already speaking the voice that was just
+    selected needs NOTHING, and telling that operator to publish would send them to
+    re-push a configuration the engine already holds — a pointless engine call, and a
+    screen that cries wolf about a divergence stops being read when there is one.
+    """
+    if not published:
+        return "The agent is not on the engine yet; publishing it will use this voice."
+    if not republish_required:
+        return (
+            "Callers already hear this voice — the engine is holding it, so there is "
+            "nothing to publish."
+        )
+    return (
+        "Publish the agent to send this voice to the engine — until then callers "
+        "hear the previous voice."
     )
 
 

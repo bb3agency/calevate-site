@@ -26,6 +26,25 @@ between the two pointers also materializes `live_prompt_id` in the same UPDATE. 
 ahead" — which is also true of every row that predates the pointer (migration
 a4e7b2c95d18 backfilled them) and of every row `admin/intake.py` writes.
 
+WHICH VOICE THE ENGINE IS HOLDING (migration c8b3f14e7a29)
+----------------------------------------------------------
+`publish_agent` is the ONLY place a voice reaches the engine, so it is the only place
+that can say what the engine has. It records `agents.live_tts_voice` /
+`live_tts_provider` from the `AgentConfig` it just sent, in the same UPDATE as
+`engine_agent_ref`. `agents.tts_voice` stays the CONFIGURED voice, and the two are
+allowed to differ because `voice_routes.set_agent_voice` writes the row without
+publishing — so "does a republish change what callers hear?" is
+`live_tts_voice IS DISTINCT FROM tts_voice`, which `agents/publishing.py` reads and
+`GET /v1/agents/{agent_id}/pending` answers.
+
+One known imprecision, in the safe direction: `publish_variant` sends the agent's
+CONFIGURED voice to an experiment arm, and starting an experiment publishes arms
+without publishing the agent. The arms can therefore be speaking the configured voice
+while the agent's own engine object is not, and this mirror reports the agent — so the
+answer is "republish required" when part of the traffic already moved. Over-reporting a
+divergence costs one harmless publish; under-reporting one is a false claim about a live
+phone line, which is the direction that must never happen.
+
 THE CALL CAP (SURFACES §2b:107)
 -------------------------------
 `_to_config` fills `AgentConfig.max_call_duration_s` from the agent row. The field and
@@ -154,9 +173,23 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     await session.execute(
         text(
             "UPDATE agents SET engine_agent_ref = :ref, engine = :engine, status = 'live', "
+            "live_tts_voice = :live_voice, live_tts_provider = :live_provider, "
             "updated_at = now() WHERE id = :aid"
         ),
-        {"ref": ref, "engine": engine.name, "aid": agent_id},
+        {
+            "ref": ref,
+            "engine": engine.name,
+            "aid": agent_id,
+            # Read off the config we JUST handed the engine, not re-read from the row.
+            # This statement is the only moment the two are provably equal, and a
+            # re-read here would record whatever a concurrent `set_agent_voice`
+            # committed in between — a mirror that claims the engine holds a voice it
+            # was never sent. Written inside the same transaction as `engine_agent_ref`
+            # and after the vendor call, so a vendor failure rolls the mirror back with
+            # it and our row never over-promises (the `kb.publish_source` ordering).
+            "live_voice": config.models.tts_voice,
+            "live_provider": config.models.tts_provider,
+        },
     )
     await session.execute(
         text(

@@ -14,6 +14,9 @@ secret turns every screenshot and every support session into a key disclosure.
 `create_sheets_endpoint` for the argument; the short version is that a checkbox for a
 transport that cannot deliver is the defect the sheets work exists to remove, so the
 route refuses rather than offering it where Google Sheets delivery does not exist.
+The gate is also PUBLISHED, on `EndpointOptionsOut.sheets_delivery_available`, so a
+console does not have to discover the refusal by attempting the create — but publishing
+it changes nothing about who decides: the route still refuses on its own.
 """
 
 from __future__ import annotations
@@ -54,6 +57,47 @@ EventName = Literal["lead.created", "lead.updated", "call.completed", "campaign.
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class EndpointOptionsOut(Strict):
+    """What an endpoint may subscribe to, and what this deployment can deliver on.
+
+    A DECLARED model rather than the `dict[str, list[str]]` this route used to return.
+    An undeclared response is one `openapi-typescript` can only describe as an index
+    signature, so `events` was not a NAMED field and the console's single read of it was
+    the one read `tsc` could not check — the same defect, and the same fix, as
+    `SubjectExportOut` replacing a free-form dict, and the reason `MetaSetupOut` one
+    module over says "declared rather than a bare dict". It also puts the response back
+    inside `scripts/check_redaction_exposure.py`'s walk, which inspects response MODELS:
+    a route with no model is a route that guardrail cannot inspect at all.
+
+    `events` stays `list[str]` rather than `list[EventName]`, and that is deliberate.
+    `EventName` is what THIS BUILD can put in a request body; `EVENT_TYPES` is what the
+    RUNNING deployment offers. A console generated from an older snapshot has to be able
+    to see a name outside its own union in order to SAY SO, rather than render a checkbox
+    whose only possible outcome is a 422 — narrowing this to the literal would make that
+    gap unrepresentable, and would turn a deployment that adds an event into a 500 out of
+    response validation.
+    """
+
+    events: list[str]
+    # Whether THIS DEPLOYMENT can append to a Google Sheet at all — the same selector
+    # `create_sheets_endpoint` asks, so this response cannot offer a transport that route
+    # refuses. It rides here rather than on an endpoint of its own for the reason
+    # `KycRecordOut.number_purchase_available` does: it is half of "which of these forms
+    # can I use", the event list is the other half, and a screen holding one without the
+    # other would render a form built from something it does not have.
+    #
+    # A HINT FOR RENDERING, never the check. The route still refuses on its own, because
+    # nothing obliges a client to have read this first — and because this value is a
+    # deployment constant a console may legitimately have cached for half an hour while
+    # an operator turned Sheets off.
+    #
+    # NOT a statement about any particular endpoint: whether a row has a Google
+    # credential attached is `EndpointOut.secret_fingerprint`, checked per row by
+    # `append_event`. False on every deployment today (no `GOOGLE_SHEETS_PROVIDER`),
+    # which is a FOUNDER/OPS decision rather than a fault.
+    sheets_delivery_available: bool
 
 
 class CreateEndpointIn(Strict):
@@ -163,11 +207,33 @@ class DeliveryPayloadOut(Strict):
 
 @router.get(
     "/events",
+    response_model=EndpointOptionsOut,
     openapi_extra=permission_meta("org:read"),
-    summary="The events an endpoint may subscribe to",
+    summary="What an endpoint may subscribe to, and which transports this account can use",
+    description=(
+        "The events an endpoint may subscribe to, and whether this account can deliver "
+        "to a Google Sheet. `sheets_delivery_available: false` means "
+        "`POST /v1/integrations/endpoints/sheets` will be refused with "
+        "`sheets_delivery_unavailable`, so a form for it should not be offered — but the "
+        "refusal remains the authority, and this field is only how you learn about it "
+        "without attempting the create."
+    ),
 )
-async def list_event_types(_: Principal = Depends(requires("org:read"))) -> dict[str, list[str]]:
-    return {"events": list(EVENT_TYPES)}
+async def endpoint_options(_: Principal = Depends(requires("org:read"))) -> EndpointOptionsOut:
+    """Both facts the two create forms need, in ONE read.
+
+    Two reads would let a screen hold the events without the capability (or the reverse)
+    and render half a decision; one read cannot. The path stays `/events` because
+    renaming it churns every generated client for no contract gain — what moved is the
+    response, not the resource.
+    """
+    return EndpointOptionsOut(
+        events=list(EVENT_TYPES),
+        # Asked per request rather than captured at import: enabling Sheets is a config
+        # change, and an operator who makes one must not need an API restart before the
+        # form appears.
+        sheets_delivery_available=sheets_delivery_available(),
+    )
 
 
 @router.get(
