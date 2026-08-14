@@ -28,11 +28,11 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import engine_intake
 import pytest
 import tool_routes
 from apps.api.campaigns import service as campaigns_service
@@ -428,8 +428,8 @@ HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
 
 
 @pytest.fixture
-def _allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(engine_intake, "BOLNA_SOURCE_IPS", frozenset({ENGINE_EGRESS_IP}))
+def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
+    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _tool_client(peer_ip: str = EDGE_PROXY_IP) -> AsyncClient:

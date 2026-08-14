@@ -460,16 +460,18 @@ async def run_gate_1(ctx: GateContext) -> GateRun:
         else:
             checks.append(passed("rejects_other_sources", "a non-allowlisted source is rejected"))
         findings.append(
-            "TWO IMPLEMENTATIONS OF ONE ALLOWLIST. `BolnaEngine.verify_webhook` matches "
-            "against the module constant `ALLOWED_SOURCE_IPS`, while the receiver that "
-            "actually answers deliveries (`apps/voice-runtime/engine_intake.verify_source`) "
-            "matches against `BOLNA_WEBHOOK_SOURCE_IPS` from settings. They agree today "
-            "only because the default equals the constant. The day the vendor renumbers "
-            "and an operator updates the environment variable — the recovery path that "
-            "file's own docstring promises — the two disagree, and the adapter's verdict "
-            "silently stops matching the receiver's. This harness exercises the ADAPTER's "
-            "half; the deployed edge (nginx) and the receiver's half need an HTTP POST "
-            "from a non-allowlisted host, which is the human step in the preflight list."
+            "ONE ALLOWLIST, TWO READERS — now genuinely one. `BolnaEngine.verify_webhook` "
+            "and the receiver that actually answers deliveries "
+            "(`apps/voice-runtime/engine_intake.verify_source`) both resolve "
+            "`BOLNA_WEBHOOK_SOURCE_IPS` through `calevate_shared.config.bolna_source_ips`, "
+            "so what this harness observes of the adapter is what the door does. (They "
+            "used to be a module constant and a setting, agreeing only until an operator "
+            "took the documented recovery path; `tests/engine_audit_test.py` §2e now fails "
+            "if they part again.) STILL OUT OF SCOPE HERE: the deployed edge. nginx holds "
+            "its own copy of this address in `/etc/nginx/snippets/` on the VPS — outside "
+            "this repo, so nothing mechanical keeps it aligned — and proving it rejects a "
+            "non-allowlisted host needs an HTTP POST from one, which is the human step in "
+            "the preflight list."
         )
 
     # --- the load-bearing check: does the hint match the truth? ---------------

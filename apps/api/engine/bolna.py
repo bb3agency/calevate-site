@@ -43,6 +43,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 import httpx
+from calevate_shared.config import bolna_source_ips
 from calevate_shared.engine import (
     E164,
     AgentConfig,
@@ -61,13 +62,11 @@ from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 
 log = get_logger(__name__)
 
 BASE_URL = "https://api.bolna.ai"
-# Their ONLY control for webhook authenticity: a static egress IP (D-31). Enforced at
-# nginx AND here — belt and braces, because nginx config drifts and this does not.
-ALLOWED_SOURCE_IPS: frozenset[str] = frozenset({"13.203.39.153"})
 REQUEST_TIMEOUT_S = 10.0
 
 # --- Throttle handling (SURFACES §3.3) ---------------------------------------
@@ -657,8 +656,28 @@ class BolnaEngine:
     ) -> WebhookVerdict:
         """No signature exists to check (D-31). The source IP is the only control, and
         it is deliberately reported as `source_ip` rather than dressed up as proof —
-        the caller must keep treating the payload as a hint."""
-        if source_ip in ALLOWED_SOURCE_IPS:
+        the caller must keep treating the payload as a hint.
+
+        THE ALLOWLIST IS CONFIGURATION, NOT A CONSTANT HERE. This used to match a module
+        constant while the receiver that actually answers deliveries
+        (`apps/voice-runtime/engine_intake.verify_source`) matched
+        `BOLNA_WEBHOOK_SOURCE_IPS`; the two agreed only while the setting held its
+        default, so the first operator to follow the documented recovery path — the
+        vendor renumbers, rotate the variable, restart, no deploy — made this verdict
+        disagree with the door it describes, silently and in the trust direction.
+
+        Why settings won rather than this constant. The vendor's egress ADDRESS is not a
+        vendor payload shape: hard rule 2 puts SDKs and wire formats behind this
+        boundary, and an IPv4 literal has no schema to leak — it is a deployment fact
+        about which peers may reach us, of a kind with `webhook_base_url`. And the
+        enforcing half physically cannot live here: the receiver is forbidden from
+        importing `apps.api.engine` at all (hard rule 3, proved by
+        `tests/voice_runtime_import_surface_test.py`), so a constant in this module could
+        never have been the thing the network is judged against. Settings is the only
+        place both halves can read, and the only place an incident can change without a
+        deploy of the latency-critical service.
+        """
+        if source_ip in bolna_source_ips(get_settings()):
             return WebhookVerdict(ok=True, method="source_ip")
         return WebhookVerdict(
             ok=False, method="source_ip", reason="source ip not in the engine allowlist"
@@ -691,7 +710,6 @@ class BolnaEngine:
 
 
 __all__ = [
-    "ALLOWED_SOURCE_IPS",
     "BASE_URL",
     "THROTTLE_MAX_ATTEMPTS",
     "THROTTLE_MAX_SLEEP_S",

@@ -28,10 +28,9 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
-import engine_intake
 import pytest
 import webhook_routes
 from apps.api.core.logging import JsonFormatter
@@ -107,8 +106,8 @@ def logs() -> Iterator[_Capture]:
 
 
 @pytest.fixture(autouse=True)
-def _allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(engine_intake, "BOLNA_SOURCE_IPS", frozenset({ENGINE_EGRESS_IP}))
+def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
+    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _client(peer_ip: str = EDGE_PROXY_IP, *, tolerate_crash: bool = False) -> AsyncClient:

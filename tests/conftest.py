@@ -7,9 +7,11 @@ Linux (CI, VPS) is unaffected.
 
 import asyncio
 import sys
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from apps.api.core.settings import get_settings
 from apps.api.db.session import untenanted_session
 from sqlalchemy import text
 
@@ -62,3 +64,31 @@ async def platform_tm_registration_is_live() -> None:
             ),
             {"reg": datetime.now(UTC) - timedelta(days=365)},
         )
+
+
+@pytest.fixture
+def source_ip_allowlist(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..., None]]:
+    """Point the Bolna webhook source-IP allowlist at documentation addresses.
+
+    Every receiver suite needs this: a test must never encode the vendor's CURRENT
+    egress address, which is a value they change without asking us.
+
+    It sets the ENVIRONMENT VARIABLE rather than patching a module attribute, because
+    `BOLNA_WEBHOOK_SOURCE_IPS` is now the single source of truth that both
+    `engine_intake.verify_source` and `BolnaEngine.verify_webhook` resolve through
+    (`calevate_shared.config.bolna_source_ips`). The old fixtures patched
+    `engine_intake.BOLNA_SOURCE_IPS`, which is precisely why they could never have
+    caught the two halves disagreeing: they moved one of them.
+
+    `get_settings` is `lru_cache`d, so the cache is cleared on the way in and out — and
+    PRIMED on the way in, so no test measuring the ack budget or the per-request import
+    surface pays for the first `Settings()` construction inside its own request.
+    """
+
+    def _set(*ips: str) -> None:
+        monkeypatch.setenv("BOLNA_WEBHOOK_SOURCE_IPS", ",".join(ips))
+        get_settings.cache_clear()
+        get_settings()
+
+    yield _set
+    get_settings.cache_clear()
