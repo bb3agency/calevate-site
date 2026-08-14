@@ -219,9 +219,14 @@ class ConfigField:
     #: `env` | `db` | `default` — where that value came from.
     source: str
     #: The code default, so the console can say what reverting would restore. `None`
-    #: for a required field with no default (none are managed today, but the type
-    #: admits it rather than inventing a value).
+    #: when there is none — read `has_default` to tell that apart from a default that
+    #: genuinely IS null, which most optional fields here have.
     default: Any
+    #: False for a REQUIRED field (`object_store_endpoint`). Such a field cannot be
+    #: reverted — there is nothing to revert to — and in practice is always `env`
+    #: sourced, because a process whose environment lacks it cannot construct `Settings`
+    #: and therefore cannot boot.
+    has_default: bool
     kind: ValueKind
     #: The allowed values, for a `Literal` field. Empty for everything else.
     options: tuple[str, ...]
@@ -612,7 +617,12 @@ def describe(
         adapter = _adapter(key)
         from_env = env_declares(key, environ)
         source = "env" if from_env else "db" if key in current.overrides else "default"
-        default = info.get_default(call_default_factory=True)
+        # A REQUIRED field has no code default to fall back to, and `PydanticUndefined`
+        # is not a value that can be serialized or shown. It reports `None`, and
+        # `has_default` is what the console and the revert route read instead of
+        # guessing from a null — `null` is a legitimate default for every optional
+        # field here, so the two are not the same fact.
+        default = None if info.is_required() else info.get_default(call_default_factory=True)
         kind, options = _kind_of(key)
         stored = provenance.get(key) if source == "db" else None
         restart = APPLIES_ON_RESTART.get(key)
@@ -622,6 +632,7 @@ def describe(
                 env_var=env_var_for(key),
                 value=adapter.dump_python(getattr(settings, key), mode="json"),
                 source=source,
+                has_default=not info.is_required(),
                 default=(None if default is None else adapter.dump_python(default, mode="json")),
                 kind=kind,
                 options=options,
