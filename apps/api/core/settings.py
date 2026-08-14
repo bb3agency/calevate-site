@@ -49,7 +49,19 @@ ENVIRONMENTS: tuple[str, ...] = get_args(Environment)
 # rolled out. Step 1 of the locked bootstrap order exists precisely to convert that
 # into "APP_ENV is not set; set it to local|staging|prod". Errors are part of the
 # interface (CLAUDE.md) — including the interface an operator meets.
-BOOTSTRAP_REQUIRED = ("APP_ENV", "DATABASE_URL", "REDIS_URL")
+# The object-store pair is here for a MECHANICAL reason rather than a §4 one: both are
+# type-required `Settings` fields with no default, so their absence already stops the
+# process — the only question is whether it stops with a sentence or with a raw
+# `pydantic_core.ValidationError` traceback out of `create_app`. Converting the second
+# into the first is the entire job of this gate, and leaving them out meant two of the
+# eight variables in `.env.example` were the two that failed least legibly.
+BOOTSTRAP_REQUIRED = (
+    "APP_ENV",
+    "DATABASE_URL",
+    "REDIS_URL",
+    "OBJECT_STORE_ENDPOINT",
+    "OBJECT_STORE_BUCKET",
+)
 
 # Repo root: apps/api/core/settings.py -> apps/api/core -> apps/api -> apps -> root
 _ENV_FILE = Path(__file__).resolve().parents[3] / ".env"

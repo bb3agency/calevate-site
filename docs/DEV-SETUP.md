@@ -56,55 +56,58 @@ webhook via `cloudflared tunnel` (never ngrok free tier for HMAC testing — URL
 register the tunnel URL as a webhook endpoint via their API. Real PSTN test calls: staging
 number only; they cost money — log them.
 
-## 4. Environment variables (.env.example is canonical; highlights)
+## 4. Environment variables — eight, and everything else is a screen
+
+`.env.example` used to carry 58 keys. It carries **8**, and they are exactly the ones
+without which no process can start (D-95, PLATFORM-CONFIG §4). The other **50** — 33
+core-config values and 17 credentials — are set from the ops console at
+`admin.calevate.tech/ops`, live, with no SSH session and no restart.
 
 ```
+APP_ENV=local|staging|prod
 DATABASE_URL=postgresql+psycopg://calevate_app:calevate_app@localhost:5433/calevate
-                          # the APP role: NOSUPERUSER NOBYPASSRLS. Hard rule 1 is only
-                          # real if the role the app connects as cannot bypass a policy.
 ALEMBIC_DATABASE_URL=postgresql+psycopg://calevate:calevate@localhost:5433/calevate
-                          # the OWNER role — migrations only, never app code paths.
 REDIS_URL=redis://localhost:6380/0
+PLATFORM_KEK=                                 # blank locally, see below
+PLATFORM_KEK_RETIRED=                         # blank until you have rotated
 OBJECT_STORE_ENDPOINT=http://localhost:9000   # MinIO locally; R2/Spaces in cloud
 OBJECT_STORE_BUCKET=calevate-dev
-WEBHOOK_BASE_URL=http://localhost:8100        # baked into each agent's engine config at
-                          # publish time, so it must be reachable BY THE ENGINE
-ENGINE=fake|bolna
-BOLNA_API_KEY=            # no webhook secret — Bolna webhooks are unsigned (TRD §5);
-                          # authenticity = source-IP allowlist + dedupe + poller.
-USD_INR_RATE=88.00        # engine costs arrive in USD cents; stamped into every
-                          # usage_events row so the ledger stays reproducible
-SARVAM_API_KEY=           # STT + LLM + TTS — the whole BYOK stack (D-36)
-GEMINI_API_KEY=           # configurable FALLBACK LLM only, not the default (D-36)
-COHERE_API_KEY=           # only if the D-28 RAG bake-off picks a store without
-                          # bundled embeddings; otherwise leave empty
-CLERK_ADMIN_* / CLERK_CLIENT_*                # two separate apps
-CLERK_FRONTEND_API / CLERK_WEBHOOK_SECRET     # custom domain (D-37) + the Svix secret
-                          # for the user/org mirror hook; unset = refuse every event
-AUDIT_CHAIN_SECRET=       # HMAC material for the audit hash chain. REQUIRED outside
-                          # local (>=32 bytes; a shorter one is refused like an absent
-                          # one) — the API refuses to write or verify an audit entry
-                          # without it and /healthz/ready stays red. Unset locally =
-                          # derived constant, which is also generation 0 of the key ring
-AUDIT_CHAIN_SECRET_RETIRED=  # the PREVIOUS value, verification only, set in the same
-                          # deploy that rotates AUDIT_CHAIN_SECRET so pre-rotation
-                          # entries keep verifying. Empty until you have rotated
-IDEMPOTENCY_SCOPE_SECRET= # HMAC material for idempotency scope fingerprints. Its OWN
-                          # secret (it used to share the one above): the fingerprint must
-                          # stay stable or in-flight Idempotency-Keys miss their record
-                          # and a retry re-executes. Same floor, same refusal
-SMTP_* / NOTIFICATIONS_FROM                   # hot-lead alerts; unset locally = console
-INBOUND_RESERVE_RATIO=0.3 # share of the engine line pool reserved for inbound (FLOWS §5)
-SELF_SERVE_INR_PER_MIN=6.00                   # D-34 list price; runway framing + top-up
-ALERTS_EMAIL                                  # operator alerts (OPERATIONS §4); unset
-                          # locally = alerts log only, and the service says so at boot
-SENTRY_DSN / RELEASE_VERSION                  # optional locally. NO LANGFUSE OR POSTHOG
-                          # KEYS — removed rather than left looking wired (D-49)
-APP_ENV=local|staging|prod
 ```
-Rules: `.env` never committed; prod values live only in the secrets manager, injected at
-deploy; any new variable is added to `.env.example` + `packages/shared/config.py`
-(Pydantic Settings — the app must fail fast on missing config, not at first use).
+
+**The bootstrap ordering problem — the whole reason these eight stayed.** Resolution
+order is `os.environ` → `platform_settings`/`platform_secrets` → code default → refuse.
+Reading a key from the store therefore requires a process that has already reached the
+store. **The console cannot configure the thing the console needs in order to start.**
+Concretely:
+
+| Key | Why it can never move |
+|---|---|
+| `APP_ENV` | decides whether `dev:<realm>:<clerk-id>` tokens are accepted (D-49). Reading it from the store means the store decides the security posture. |
+| `DATABASE_URL` | it *is* how you reach the store. |
+| `ALEMBIC_DATABASE_URL` | migrations run before the store is guaranteed to exist — including the migration that creates it. |
+| `REDIS_URL` | workers need it before settings resolve, and the config sentinel (the cheap poll that tells every process the console changed something) lives in Redis. |
+| `PLATFORM_KEK` | it is the key that decrypts every console-managed secret. A database holding both the lock and the key is theatre. |
+| `PLATFORM_KEK_RETIRED` | same, for the previous key during a rotation. Unwraps only, never wraps. |
+| `OBJECT_STORE_ENDPOINT` | **the floor is 8, not §4's 6, for a mechanical reason.** Both are REQUIRED `Settings` fields with no default, so `Settings()` cannot construct without them — a process whose environment lacks them cannot boot far enough to look them up. The console does manage them; when they are set here they show as source `env`, read-only. |
+| `OBJECT_STORE_BUCKET` | same. |
+
+`tests/env_example_bootstrap_floor_test.py` proves both halves: copying the template
+boots, and dropping any one type-required key refuses.
+
+**Rules.** `.env` is never committed. A NEW variable goes in
+`packages/shared/src/calevate_shared/config.py` and is console-managed from that moment —
+it belongs in `.env.example` only if a process cannot reach the store without it, which
+is a claim the floor test will check. Env still wins over the store everywhere, so
+pasting a key into `.env` is the 3am escape hatch when the console itself is what is
+broken; the console renders any such key read-only, with that as the stated reason.
+
+**Local work needs no console.** Every one of the 50 has a local-safe default or a
+named refusal — `ENGINE=fake`, the console/dev sinks for SMTP, WhatsApp and Sheets, a
+derived constant for each HMAC secret. The API boots and reports `/healthz/ready` on the
+8 alone against a migrated database (verified, D-95 phase 6). When you do
+need a real vendor key locally, either add the line to your own `.env` (env wins) or set
+it in the console against your local database; a real Sarvam or Bolna key is worth
+adding to `.env` rather than typing into a screen every reset.
 
 **The browser's variables are a SECOND file: `apps/web/.env.example`.** Next loads `.env*`
 from the package directory, not from the repo root, so the file above configures the API,

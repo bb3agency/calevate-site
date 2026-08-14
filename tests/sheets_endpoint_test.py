@@ -214,10 +214,16 @@ def test_the_provider_is_a_settings_field_and_env_example_declares_it() -> None:
     """`Settings` is `extra="forbid"`: a key in `.env.example` with no field crashes
     every process that loads a `.env`, and a field with no key is config nobody knows
     to set. `scripts/check_env_parity.py` is the guardrail; this names the key so the
-    failure reads as a decision rather than a mystery."""
+    failure reads as a decision rather than a mystery.
+
+    WHERE THE DECLARATION LIVES CHANGED (PLATFORM-CONFIG §4, D-95): `.env.example` is
+    now the 8-key bootstrap set and this key is one of the 50 an operator sets at
+    `admin.calevate.tech/ops`. The assertion follows the declaration rather than the
+    file — same question, current answer."""
+    from apps.api.core.platform_config import managed_fields
+
     assert "google_sheets_provider" in Settings.model_fields
-    declared = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
-    assert "\nGOOGLE_SHEETS_PROVIDER=" in declared
+    assert "google_sheets_provider" in managed_fields()
 
 
 def test_local_without_a_provider_still_uses_the_dev_sink(
