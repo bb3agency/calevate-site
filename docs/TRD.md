@@ -201,8 +201,12 @@ class VoiceEngine(Protocol):
         # the only adapter-independent way to prove a detach did anything
     async def get_execution(self, call_id: str) -> ExecutionSnapshot   # the authenticated
         # read; THIS, not the webhook, is what we persist
-    async def list_executions(self, *, since: datetime) -> list[ExecutionSnapshot]  # backs the
-        # reconciliation poller (D-31: guarantee of record, not a safety net)
+    async def list_executions(self, *, since: datetime) -> ExecutionListing  # backs the
+        # reconciliation poller (D-31: guarantee of record, not a safety net). Returns the
+        # snapshots AND whether they are all of them: a bare list cannot distinguish "a
+        # quiet window" from "page one of nine", and the executions in that gap are exactly
+        # the ones whose at-most-once webhook was lost. complete=False + a reason is what an
+        # adapter says when it cannot rule out another page; the poller alerts on it
     def verify_webhook(self, headers, body: bytes, source_ip: str) -> WebhookVerdict
         # per-engine: HMAC where the engine signs, source-IP + dedupe where it does not (§5).
         # A verdict, not a bool, so an UNSIGNED accept is recorded as the hint it is

@@ -7605,6 +7605,7 @@
       },
       "VariantOut": {
         "additionalProperties": false,
+        "description": "One arm's counts. THREE, resolved by direction, because since D-60 an arm can be\ncredited with a call nobody dialled \u2014 `experiments.VariantResult` carries the full\nargument. Briefly: `outbound_dialled` is the connect-rate diagnostic and is an\noutbound question; `attributed` is what `rate` is over; `inbound_attributed` says how\nmuch of it was never split into this arm, so a client cannot read the rate as a clean\nrandomised comparison when it is not one.",
         "properties": {
           "attributed": {
             "title": "Attributed",
@@ -7614,13 +7615,17 @@
             "title": "Conversions",
             "type": "integer"
           },
-          "dialled": {
-            "title": "Dialled",
+          "inbound_attributed": {
+            "title": "Inbound Attributed",
             "type": "integer"
           },
           "label": {
             "title": "Label",
             "type": "string"
+          },
+          "outbound_dialled": {
+            "title": "Outbound Dialled",
+            "type": "integer"
           },
           "prompt_version": {
             "title": "Prompt Version",
@@ -7679,8 +7684,9 @@
           "prompt_version",
           "weight_bp",
           "published",
-          "dialled",
+          "outbound_dialled",
           "attributed",
+          "inbound_attributed",
           "conversions",
           "rate",
           "rate_low",
@@ -12046,6 +12052,7 @@
     },
     "/v1/integrations/endpoints/{endpoint_id}": {
       "delete": {
+        "description": "Deactivate an endpoint. The endpoint and its delivery history are kept, so past attempts stay readable. Idempotent: deactivating an endpoint that is already inactive returns 204, so retrying after a lost response is safe. 404 means only that no endpoint of yours has that id.",
         "operationId": "deactivate_endpoint_v1_integrations_endpoints__endpoint_id__delete",
         "parameters": [
           {
@@ -12500,7 +12507,7 @@
     },
     "/v1/lead-sources/{webhook_id}": {
       "delete": {
-        "description": "Deactivate, and close any rotation window with it.\n\nIdempotent: disabling an already-disabled source is 204, not 404. The outbound\ntwin (`DELETE /v1/integrations/endpoints/{id}`) answers 404 to the second click\nbecause its CAS predicate and its existence check are the same statement; that is a\ndefect there rather than a convention worth copying, and it is not this slice's to\nfix. The audit row is written only for a real transition, so the ledger records\nchanges and not button presses.",
+        "description": "Deactivate, and close any rotation window with it.\n\nIdempotent: disabling an already-disabled source is 204, not 404. The outbound\ntwin (`DELETE /v1/integrations/endpoints/{id}`) once answered 404 to the second\nclick, because its CAS predicate and its existence check were the same statement;\nit now shares this shape (`integrations.service.deactivate_endpoint`), so the two\ndirections of D-23 answer the same question the same way. The audit row is written\nonly for a real transition, so the ledger records changes and not button presses.",
         "operationId": "disable_lead_source_v1_lead_sources__webhook_id__delete",
         "parameters": [
           {

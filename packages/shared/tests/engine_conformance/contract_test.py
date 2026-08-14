@@ -162,8 +162,8 @@ async def test_list_executions_backs_the_reconciliation_poller(engine: VoiceEngi
     method is not optional, and it must return the same normalized shape."""
     ref = await engine.create_agent(_agent_config())
     await engine.start_outbound_call(ref, "+919876543210", CallContext())
-    rows = await engine.list_executions(since=datetime.now(UTC) - timedelta(hours=1))
-    assert isinstance(rows, list)
+    listing = await engine.list_executions(since=datetime.now(UTC) - timedelta(hours=1))
+    rows = listing.snapshots
     assert all(isinstance(r, ExecutionSnapshot) for r in rows)
     assert all(r.status in VALID_STATUSES for r in rows)
     assert all(r.engine_call_id for r in rows), "a repaired call needs an id to repair"
@@ -171,6 +171,41 @@ async def test_list_executions_backs_the_reconciliation_poller(engine: VoiceEngi
     # place the agent ref can come from. Without it a reconciled call resolves to no
     # tenant and the repair quietly does nothing.
     assert all(r.engine_agent_ref for r in rows), "a polled snapshot must be mappable"
+    # A handful of executions is not a page. An adapter that reports THIS as possibly
+    # truncated has a heuristic that fires on every healthy tick, which trains the
+    # operator to ignore the one signal that says calls are being lost.
+    assert listing.complete, "a short window must be reported as complete"
+    assert listing.incomplete_reason is None
+    assert listing.pages_fetched >= 1
+
+
+async def test_a_full_listing_page_tells_the_caller_it_may_be_truncated(
+    saturated_engine: VoiceEngine,
+) -> None:
+    """THE CLAUSE THE POLLER'S ENTIRE GUARANTEE RESTS ON (D-31).
+
+    Bolna's webhooks are at-most-once and unsigned, so the List-Executions poller is not
+    a safety net — it is the mechanism by which a lost call is EVER discovered. If the
+    listing paginates and an adapter reads page one, the executions past that page have
+    no webhook, no repair, and nothing anywhere that says they existed: they are simply
+    gone, and the gap grows exactly when traffic does.
+
+    So an adapter may not return a page-shaped answer as if it were the whole window. It
+    does not have to know it was truncated — Bolna publishes no pagination contract and
+    the honest answer is often "cannot rule it out" — it has to SAY so, in
+    `ExecutionListing.complete`, with a reason the poller can put in an alert.
+
+    Note what is NOT asserted: any cursor, page number or link. Those are the adapter's
+    business (hard rule 2); what crosses the boundary is the verdict and the rows.
+    """
+    listing = await saturated_engine.list_executions(since=datetime.now(UTC) - timedelta(hours=1))
+
+    assert listing.snapshots, "a truncated listing still returns the rows it did get"
+    assert not listing.complete, (
+        "a full page was returned as if it were the whole window — every execution past "
+        "it is a call whose webhook was lost and which nothing will ever mention again"
+    )
+    assert listing.incomplete_reason is not None, "the poller alerts on the REASON"
 
 
 async def test_webhook_verification_reports_its_method(engine: VoiceEngine) -> None:

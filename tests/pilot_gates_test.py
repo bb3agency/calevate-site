@@ -24,6 +24,7 @@ from apps.api.engine.fake import FakeEngine
 from calevate_shared.config import Settings
 from calevate_shared.engine import (
     EngineAgentRef,
+    ExecutionListing,
     ExecutionSnapshot,
     NumberSpec,
     ProvisionedNumber,
@@ -167,15 +168,30 @@ class UnmappableEngine(EchoingEngine):
 
 
 class NotYetBillableEngine(FakeEngine):
-    async def list_executions(self, *, since: datetime) -> list[ExecutionSnapshot]:
-        return [
-            s.model_copy(update={"billable_ready": False})
-            for s in await super().list_executions(since=since)
-        ]
+    async def list_executions(self, *, since: datetime) -> ExecutionListing:
+        listing = await super().list_executions(since=since)
+        return listing.model_copy(
+            update={
+                "snapshots": [
+                    s.model_copy(update={"billable_ready": False}) for s in listing.snapshots
+                ]
+            }
+        )
+
+
+class TruncatedListingEngine(FakeEngine):
+    """An adapter that returns rows it cannot vouch for — what any adapter must do when
+    the vendor's response could be page one of several."""
+
+    async def list_executions(self, *, since: datetime) -> ExecutionListing:
+        listing = await super().list_executions(since=since)
+        return listing.model_copy(
+            update={"complete": False, "incomplete_reason": "full_page_suspected"}
+        )
 
 
 class DeadPollerEngine(FakeEngine):
-    async def list_executions(self, *, since: datetime) -> list[ExecutionSnapshot]:
+    async def list_executions(self, *, since: datetime) -> ExecutionListing:
         raise ProblemError(
             kind="dependency",
             code="engine_unreachable",
@@ -399,7 +415,14 @@ async def test_gate_6_proves_the_poller_recovers_every_missed_execution() -> Non
         _ctx(
             engine,
             missed_execution_ids=["exec-a", "exec-b"],
-            attestations={"gate6.call_continued": "yes", "gate6.retries_observed": "0"},
+            attestations={
+                "gate6.call_continued": "yes",
+                "gate6.retries_observed": "0",
+                # The operator's own count from the dashboard. Without it the pagination
+                # row is NOT RUN (see the next test) and the gate cannot report a pass:
+                # our listing cannot testify about what it left out.
+                "gate6.executions_in_window": "2",
+            },
             since=datetime.now(UTC) - timedelta(hours=1),
         )
     )
@@ -407,8 +430,67 @@ async def test_gate_6_proves_the_poller_recovers_every_missed_execution() -> Non
     assert _check(result, "poller_recovers_billable_data").status == "pass"
     assert _check(result, "call_continues_without_receiver").status == "pass"
     assert _check(result, "no_retry_as_documented").status == "pass"
+    assert _check(result, "listing_covers_the_whole_window").status == "pass"
     assert result.status == "pass"
-    assert any("PAGINATION" in f for f in result.findings)
+
+
+async def test_gate_6_will_not_call_pagination_verified_on_our_own_word() -> None:
+    """`ExecutionListing.complete` is OUR adapter's verdict, and on a pilot-sized window
+    it is trivially true — the listing holds two executions and no plausible page size is
+    anywhere near. Scoring that as a pass would be the harness agreeing with itself, the
+    same mistake gate 7's currency row was rewritten to stop making. It is NOT RUN, and
+    the finding says exactly which number settles it."""
+    engine = FakeEngine()
+    _seeded(engine, "exec-a")
+    result = await run_gate_6(
+        _ctx(
+            engine,
+            missed_execution_ids=["exec-a"],
+            since=datetime.now(UTC) - timedelta(hours=1),
+        )
+    )
+
+    assert _check(result, "listing_covers_the_whole_window").status == "not_run"
+    assert any("gate6.executions_in_window" in f for f in result.findings)
+
+
+async def test_gate_6_fails_when_the_dashboard_holds_more_executions_than_we_listed() -> None:
+    """The only independent check that exists. If Bolna's account shows nine executions
+    in the window and List-Executions handed us one, the guarantee of record has been
+    reading a prefix of the truth and nothing inside our process could have noticed."""
+    engine = FakeEngine()
+    _seeded(engine, "exec-a")
+    result = await run_gate_6(
+        _ctx(
+            engine,
+            missed_execution_ids=["exec-a"],
+            attestations={"gate6.executions_in_window": "9"},
+            since=datetime.now(UTC) - timedelta(hours=1),
+        )
+    )
+
+    listing_check = _check(result, "listing_covers_the_whole_window")
+    assert listing_check.status == "fail"
+    assert listing_check.measurements["executions_expected"] == 9
+    assert result.status == "fail"
+
+
+async def test_gate_6_fails_when_the_adapter_cannot_vouch_for_the_listing() -> None:
+    """The adapter's own alarm, scored. A listing it will not vouch for means executions
+    may lie beyond the part we read — and those have no webhook (at-most-once, D-31), no
+    repair and no trace anywhere."""
+    engine = TruncatedListingEngine()
+    _seeded(engine, "exec-a")
+    result = await run_gate_6(
+        _ctx(
+            engine,
+            missed_execution_ids=["exec-a"],
+            since=datetime.now(UTC) - timedelta(hours=1),
+        )
+    )
+
+    assert _check(result, "listing_covers_the_whole_window").status == "fail"
+    assert any("PAGINATION IS REAL OR CANNOT BE RULED OUT" in f for f in result.findings)
 
 
 async def test_gate_6_fails_when_the_poller_cannot_see_a_lost_execution() -> None:

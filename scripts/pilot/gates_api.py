@@ -43,6 +43,7 @@ from calevate_shared.config import Settings
 from calevate_shared.engine import (
     AgentConfig,
     CallContext,
+    ExecutionListing,
     ExecutionSnapshot,
     ModelConfig,
     NumberSpec,
@@ -82,6 +83,9 @@ ATTESTABLE: dict[str, str] = {
     "gate6.call_continued": "yes|no — the call kept running after the receiver was killed",
     "gate6.retries_observed": "integer — deliveries seen for one transition after the "
     "receiver came back up (TRD §5 says this is 0)",
+    "gate6.executions_in_window": "integer — how many executions the account really has "
+    "since the poller window opened, read off the Bolna dashboard. The ONE independent "
+    "check on List-Executions truncation: our own listing cannot reveal what it omitted",
 }
 
 
@@ -631,10 +635,121 @@ def _attested_yes(value: str | None) -> bool | None:
     return None
 
 
+def _executions_in_window(ctx: GateContext) -> int | None:
+    """The operator's independent count, or None. Never inferred from our own listing."""
+    raw = ctx.attestations.get("gate6.executions_in_window")
+    if raw is None:
+        return None
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return None
+
+
+def _listing_completeness_check(ctx: GateContext, listing: ExecutionListing) -> SubCheck:
+    """Did List-Executions cover the whole window — and how would we know?
+
+    WHAT IS NOW MEASURABLE: the adapter reports `ExecutionListing.complete`, so a listing
+    it could not vouch for is a FAIL here instead of a silence. It reaches that verdict
+    from the payload where the payload says anything (`has_more`, a `total` larger than
+    the rows, a `next` it followed) and otherwise from the row count landing exactly on a
+    conventional page size.
+
+    WHAT IS STILL AN ASSUMPTION: whether Bolna paginates at all, at what size, and in
+    what form. Nothing inside our process can settle that — a listing cannot report what
+    it omitted — so the only independent evidence is the operator's own count from the
+    dashboard (`--attest gate6.executions_in_window=<n>`). Without it a `complete=True`
+    on a quiet pilot window is NOT RUN, not a pass: it would be our own adapter agreeing
+    with itself, which is the mistake gate 7's currency row was rewritten to stop making.
+    """
+    rows = len(listing.snapshots)
+    expected = _executions_in_window(ctx)
+    measurements: dict[str, Any] = {
+        "executions_listed": rows,
+        "pages_fetched": listing.pages_fetched,
+    }
+    if expected is not None:
+        measurements["executions_expected"] = expected
+
+    if not listing.complete:
+        return failed(
+            "listing_covers_the_whole_window",
+            f"the adapter could NOT vouch for this listing ({listing.incomplete_reason}). "
+            "Under D-31 the poller is the guarantee of record, so an execution beyond the "
+            "part we read has no webhook, no repair and no trace anywhere. Capture the "
+            "response body and record the page size before the pilot closes.",
+            **measurements,
+        )
+    if expected is not None and expected > rows:
+        return failed(
+            "listing_covers_the_whole_window",
+            f"TRUNCATION CONFIRMED AND UNDETECTED: the dashboard shows {expected} "
+            f"executions in this window and List-Executions returned {rows}. Bolna "
+            "paginates, our page-size heuristic did not fire on it, and the poller has "
+            "been reading a prefix of the truth. Record the exact page size and the "
+            "continuation form — this is a code change, not a note.",
+            **measurements,
+        )
+    if expected is not None:
+        return passed(
+            "listing_covers_the_whole_window",
+            f"the operator's own count ({expected}) is covered by the {rows} executions "
+            "List-Executions returned, and the adapter saw nothing suggesting another page",
+            **measurements,
+        )
+    return not_run(
+        "listing_covers_the_whole_window",
+        "the adapter reports the listing as complete, but nothing independent has "
+        "confirmed it: a listing cannot report what it left out, and a pilot window is "
+        "far too quiet to reach any plausible page size. Count the account's executions "
+        "since the window opened on the Bolna dashboard and record it with "
+        "--attest gate6.executions_in_window=<n>.",
+        **measurements,
+    )
+
+
+def _listing_completeness_findings(ctx: GateContext, listing: ExecutionListing) -> list[str]:
+    """The prose an operator acts on, separated from the verdict for the same reason
+    gate 7 does it: a check says pass/fail, a finding says what to DO next."""
+    rows = len(listing.snapshots)
+    expected = _executions_in_window(ctx)
+    if not listing.complete or (expected is not None and expected > rows):
+        return [
+            "PAGINATION IS REAL OR CANNOT BE RULED OUT, AND THE POLLER IS THE GUARANTEE "
+            "OF RECORD. Capture one raw `GET /executions` body as a fixture (`scripts/"
+            "pilot/record.py --gate 6`), and record three things from it: the number of "
+            "rows a saturated request returns (the page size), whether the body carries "
+            "any of `next`/`next_page_url`/`has_more`/`total`, and — if it carries a "
+            "cursor rather than a link — the exact parameter name that consumes it. "
+            "`BolnaEngine._next_link` already follows a self-describing link; a cursor "
+            "whose parameter name we would have to guess is deliberately NOT followed, "
+            "because a guessed parameter is ignored by the vendor and re-reads page one "
+            "forever."
+        ]
+    if expected is None:
+        return [
+            "LIST-EXECUTIONS PAGINATION REMAINS AN ASSUMPTION, NOW A DECLARED ONE. The "
+            "adapter no longer returns a page as if it were a window: it returns "
+            "`ExecutionListing.complete`, and `reconcile_executions` alerts "
+            "(`reconciliation_listing_incomplete`) and meters every tick it cannot vouch "
+            "for. What is still unverified is the vendor's behaviour itself — Bolna "
+            "publishes no OpenAPI spec and no pagination contract, and a pilot window "
+            "holds too few executions to reach any page size, so `complete=True` here "
+            "means 'nothing in the response suggested otherwise', not 'we saw the whole "
+            "window'. Settling it needs exactly one thing this harness cannot fabricate: "
+            "the account's own execution count for the same window, from the dashboard, "
+            "via --attest gate6.executions_in_window=<n>. Until a saturated listing has "
+            "been captured, the page-size heuristic in `bolna._LISTING_PAGE_SIZES` is "
+            "the only thing standing between us and a silent gap, and it is a guess about "
+            "round numbers, not knowledge."
+        ]
+    return []
+
+
 async def run_gate_6(ctx: GateContext) -> GateRun:
     """Gate 6 H — kill the receiver mid-call; prove the poller recovers.
 
-    The three claims are graded very differently and that is deliberate:
+    The four claims are graded very differently and that is deliberate:
 
     * the call surviving a dead receiver is a HUMAN observation (nothing in-process can
       see it), so it is an attestation and is labelled as one;
@@ -643,7 +758,12 @@ async def run_gate_6(ctx: GateContext) -> GateRun:
       code), so an observed retry contradicts a documented claim and must be loud;
     * poller recovery is MEASURED here, through `list_executions`, because it is the
       guarantee of record for the entire product and an attestation is not good enough
-      for that.
+      for that;
+    * whether the listing COVERED the window is measured as far as our side can measure
+      it (`ExecutionListing.complete`) and is otherwise NOT RUN. Recovery and coverage
+      are different questions: an execution can be recovered perfectly and still sit on
+      page one of a listing whose page two we never read, and the calls on page two are
+      the ones nothing else will ever mention.
     """
     checks: list[SubCheck] = []
     findings: list[str] = []
@@ -745,6 +865,12 @@ async def run_gate_6(ctx: GateContext) -> GateRun:
         checks.append(
             not_run("poller_recovers_billable_data", "no execution ids to recover — see above.")
         )
+        checks.append(
+            not_run(
+                "listing_covers_the_whole_window",
+                "the poller listing was never read on this run — see above.",
+            )
+        )
         return GateRun(
             number=6,
             title="Webhook loss behaviour",
@@ -753,7 +879,7 @@ async def run_gate_6(ctx: GateContext) -> GateRun:
         )
 
     try:
-        snapshots = await ctx.engine.list_executions(since=ctx.since)
+        listing = await ctx.engine.list_executions(since=ctx.since)
     except Exception as exc:
         checks.append(
             failed(
@@ -765,6 +891,12 @@ async def run_gate_6(ctx: GateContext) -> GateRun:
         checks.append(
             not_run("poller_recovers_billable_data", "the execution listing could not be read")
         )
+        checks.append(
+            not_run(
+                "listing_covers_the_whole_window",
+                "the execution listing could not be read, so its coverage is unknowable",
+            )
+        )
         return GateRun(
             number=6,
             title="Webhook loss behaviour",
@@ -772,7 +904,7 @@ async def run_gate_6(ctx: GateContext) -> GateRun:
             findings=tuple(findings),
         )
 
-    listed = {s.engine_call_id: s for s in snapshots}
+    listed = {s.engine_call_id: s for s in listing.snapshots}
     absent = [eid for eid in missed if eid not in listed]
     if absent:
         checks.append(
@@ -796,15 +928,8 @@ async def run_gate_6(ctx: GateContext) -> GateRun:
                 window_hours=round((datetime.now(UTC) - ctx.since).total_seconds() / 3600, 2),
             )
         )
-        findings.append(
-            "PAGINATION IS UNTESTED AND THE POLLER DEPENDS ON IT. "
-            "`BolnaEngine.list_executions` issues one GET /executions?created_after=... "
-            "and reads one page; no `page`/`limit`/cursor is sent and no continuation is "
-            "followed. If Bolna paginates — undocumented, no OpenAPI spec — the guarantee "
-            "of record silently truncates at page one, and it will do so first on the "
-            "busiest window, which is the one where losing calls costs most. Confirm the "
-            "response shape during the pilot and record the page size."
-        )
+    checks.append(_listing_completeness_check(ctx, listing))
+    findings.extend(_listing_completeness_findings(ctx, listing))
 
     incomplete = [eid for eid in missed if eid in listed and not listed[eid].billable_ready]
     if absent:

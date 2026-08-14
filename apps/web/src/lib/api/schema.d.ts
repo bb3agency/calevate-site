@@ -1590,7 +1590,10 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Deactivate — kept, not deleted, so the delivery history stays readable */
+        /**
+         * Deactivate — kept, not deleted, so the delivery history stays readable
+         * @description Deactivate an endpoint. The endpoint and its delivery history are kept, so past attempts stay readable. Idempotent: deactivating an endpoint that is already inactive returns 204, so retrying after a lost response is safe. 404 means only that no endpoint of yours has that id.
+         */
         delete: operations["deactivate_endpoint_v1_integrations_endpoints__endpoint_id__delete"];
         options?: never;
         head?: never;
@@ -1795,11 +1798,11 @@ export interface paths {
          * @description Deactivate, and close any rotation window with it.
          *
          *     Idempotent: disabling an already-disabled source is 204, not 404. The outbound
-         *     twin (`DELETE /v1/integrations/endpoints/{id}`) answers 404 to the second click
-         *     because its CAS predicate and its existence check are the same statement; that is a
-         *     defect there rather than a convention worth copying, and it is not this slice's to
-         *     fix. The audit row is written only for a real transition, so the ledger records
-         *     changes and not button presses.
+         *     twin (`DELETE /v1/integrations/endpoints/{id}`) once answered 404 to the second
+         *     click, because its CAS predicate and its existence check were the same statement;
+         *     it now shares this shape (`integrations.service.deactivate_endpoint`), so the two
+         *     directions of D-23 answer the same question the same way. The audit row is written
+         *     only for a real transition, so the ledger records changes and not button presses.
          */
         delete: operations["disable_lead_source_v1_lead_sources__webhook_id__delete"];
         options?: never;
@@ -5377,16 +5380,26 @@ export interface components {
             /** Spend Used Inr */
             spend_used_inr: string;
         };
-        /** VariantOut */
+        /**
+         * VariantOut
+         * @description One arm's counts. THREE, resolved by direction, because since D-60 an arm can be
+         *     credited with a call nobody dialled — `experiments.VariantResult` carries the full
+         *     argument. Briefly: `outbound_dialled` is the connect-rate diagnostic and is an
+         *     outbound question; `attributed` is what `rate` is over; `inbound_attributed` says how
+         *     much of it was never split into this arm, so a client cannot read the rate as a clean
+         *     randomised comparison when it is not one.
+         */
         VariantOut: {
             /** Attributed */
             attributed: number;
             /** Conversions */
             conversions: number;
-            /** Dialled */
-            dialled: number;
+            /** Inbound Attributed */
+            inbound_attributed: number;
             /** Label */
             label: string;
+            /** Outbound Dialled */
+            outbound_dialled: number;
             /** Prompt Version */
             prompt_version: number;
             /** Published */

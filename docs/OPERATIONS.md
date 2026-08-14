@@ -33,7 +33,7 @@ most of this is real PSTN call spend). 5–7 working days alongside other work.
 | 3 H | Telugu quality (BYOK) | Sarvam Saaras V3 STT + Bulbul V3 TTS on OUR keys. 10-utterance Telugu script on real PSTN: names/numbers ≥90% correct; Telugu-English code-mixed handled. Confirm **Bulbul V3 (not v2) is selectable**. |
 | 4 H | Real-call latency | 10 PSTN calls: voice-to-voice p50 ≤ 1.1s, p95 ≤ 1.8s (stopwatch + recording analysis). **Vendor latency claims are marketing — their site says "<300ms" undefined; plan only against our own measurement.** Record first-greeting delay after pickup separately (cold-start hides there). **Also capture `latency_data` from Get Execution as an adapter fixture and record whether it AGREES with the stopwatch.** Their docs describe `time_to_first_audio` plus per-component transcriber/llm/synthesizer blocks — unverified against a live account, and a different set of numbers from voice-to-voice turn latency, which would be our own arithmetic aligning three components. This capture is what re-opens durable per-call latency storage: `calls.latency` was dropped (`f1a7c39d5be2`) rather than filled with pipeline timings that are not the caller's experience, and the storage shape gets chosen from the payload we actually receive. Note the documented `transcriber.turns` entries carry recognised TEXT — hard rules 5/6 apply to wherever it lands. |
 | 5 H | Telugu turn-taking [NEW, D-32] | Barge-in mid-sentence, and end-of-utterance on slow/hesitant Telugu speech: does the agent cut callers off, or leave dead air? Endpointing is an ORCHESTRATION-layer property — BYOK models do NOT fix it. Measure, never assume. |
-| 6 H | Webhook loss behavior | Kill the receiver mid-call: call continues; observe whether ANY retry arrives (docs + OSS code say none). Then confirm the List-Executions poller recovers every missed execution — it is the guarantee of record, so its recovery must be proven, not assumed. |
+| 6 H | Webhook loss behavior | Kill the receiver mid-call: call continues; observe whether ANY retry arrives (docs + OSS code say none). Then confirm the List-Executions poller recovers every missed execution — it is the guarantee of record, so its recovery must be proven, not assumed. **And settle its PAGINATION, which recovery alone cannot.** Bolna documents none and publishes no OpenAPI spec, so `BolnaEngine.list_executions` follows only a continuation the payload itself hands it (`next`/`next_page_url`, same-origin, bounded to 20 pages) and never a guessed `?page=`/`?cursor=` — a parameter the vendor ignores re-reads page one forever. Where it cannot rule out a further page it returns `ExecutionListing.complete=False` and the poller alerts (`reconciliation_listing_incomplete`). Three things to record, all from ONE raw `GET /executions` body captured as a fixture: **(a)** the account's own execution count for the window from the dashboard, passed as `--attest gate6.executions_in_window=<n>` — more than we listed is proof of truncation and the gate goes red; **(b)** the number of rows a saturated request returns, i.e. the page size (the adapter currently GUESSES this from round numbers — `bolna._LISTING_PAGE_SIZES`); **(c)** whether the body carries `next`/`next_page_url`/`has_more`/`total`, and if it offers an opaque cursor instead of a link, the exact parameter name that consumes it. Until (b) and (c) exist, a complete-looking listing on a quiet pilot window is NOT RUN, never a pass. |
 | 7 S | Post-call data fidelity | `completed` (not `call-disconnected`) carries total_cost + cost_breakdown, recording_url, extracted_data. Verify currency (USD cents), transcript parses into TranscriptTurn, and time-to-`completed` (~2–3 min claimed) against our 2-min lead SLO. |
 | 8 S | KB + campaigns + tools + H1 handling [expanded, D-33] | Upload a Telugu FAQ to the rag_id KB (multilingual mode); measure retrieval quality + latency on-call. **Telugu is NOT named in their multilingual mode (Hindi/Tamil are) and the mode is immutable at KB creation** — if Telugu retrieval is poor, the external custom-function route is the fallback (TRD §6.2), so measure both in the same session. Test a custom function to our endpoint and record the tool-call p95 (**no timeout is documented — the ceiling is unmeasured**). Create a 10-contact batch; verify retry policy + per-contact statuses. **KB lifecycle, the two questions D-41's detach contract cannot answer from docs — Bolna publishes no OpenAPI spec, so the row shapes are hand-maintained claims:** (a) does `GET /knowledgebase/all` carry the AGENT LINKAGE we filter on? Our single account holds every tenant's agents, so `list_kb` attributes strictly — a row that does not name the agent is not counted, which means a missing linkage field silently reports every agent as having no knowledge base. (b) does `DELETE /knowledgebase/{rag_id}` also clear the AGENT's reference to it, or does the agent config keep a dangling `rag_id`? If the latter, detach grows a second call (an agent update) — it does NOT become optional. Capture both responses as adapter fixtures. **In-call working memory (H1, TRD §6.1):** does Bolna truncate or summarise conversation history at a window limit, and does it enable provider context caching on BYOK keys? Both drive the LLM leg on long calls. |
 | 9 H | Compute region + residency [NEW, D-32] | Where does the call actually execute? (Recordings sit on S3 us-east-1 — storage ≠ compute, but both matter.) Get India data-residency terms + price in writing. This is the one axis where LiveKit beats Bolna on verified evidence today. |
@@ -84,7 +84,10 @@ Gate 1 needs the raw deliveries your tunnel received (`--webhook-capture <file>`
 repeatable); gate 6 needs the execution ids whose webhook you dropped
 (`--missed-execution <id>`) plus what you saw with your own eyes
 (`--attest gate6.call_continued=yes`, `--attest gate6.retries_observed=0`) — those two
-are recorded as operator attestations, never as measurements. **Exit 2 means "nothing
+are recorded as operator attestations, never as measurements — and the dashboard's own
+execution count for the same window (`--attest gate6.executions_in_window=<n>`), which is
+the ONE independent check on whether List-Executions truncated: our own listing cannot
+testify about what it left out. **Exit 2 means "nothing
 went red and nothing was verified either"**; only exit 0 is a pass. Every gate result is
 PASS, FAIL or **NOT RUN**, and NOT RUN never renders as green.
 
@@ -105,6 +108,21 @@ What the harness found before any credentials existed, and what it therefore can
   dangling-`rag_id` question (D-41) cannot be answered through the adapter.
 - gate 1's edge half (nginx rejecting a non-allowlisted source) needs an HTTP POST from
   another host against the deployed receiver; the harness exercises the in-app half only.
+- gate 6's **pagination** criterion is now MEASURED as far as our side can measure it,
+  and declared as an assumption for the rest. `list_executions` returns an
+  `ExecutionListing`, not a bare list: `complete=False` plus a reason
+  (`explicit_more` where the payload claims more, `full_page_suspected` where the row
+  count lands exactly on a conventional page size, `page_cap_reached`/`next_link_loop`
+  where our own bound stopped the walk) is what the adapter says when it cannot vouch
+  for the window, and `reconcile_executions` turns that into an alert, a metric
+  (`reconciliation_listing_incomplete`) and a job result that does not read as a quiet
+  tick. **What the pilot still has to settle is the vendor's behaviour itself** — whether
+  Bolna paginates, at what size, and in what form. Nothing in-process can: a listing
+  cannot report what it omitted, and a pilot window holds far too few executions to reach
+  any plausible page size, so `complete=True` here means "nothing in the response
+  suggested otherwise". The dashboard count (`gate6.executions_in_window`) is the only
+  independent evidence, and until a saturated listing has been captured the page-size
+  heuristic is a guess about round numbers rather than knowledge.
 - gate 7's **currency** criterion is now answerable in part from our own snapshot.
   `BolnaEngine._cost` reads the currency the payload states and records
   `CostBreakdown.currency_stated` — True = the vendor said so, False = we fell back to

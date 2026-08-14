@@ -52,8 +52,10 @@ from calevate_shared.engine import (
     CostBreakdown,
     EngineAgentRef,
     EngineKBRef,
+    ExecutionListing,
     ExecutionSnapshot,
     KBSourceRef,
+    ListingIncompleteReason,
     NumberSpec,
     ProvisionedNumber,
     WebhookVerdict,
@@ -208,6 +210,76 @@ def _parse_dt(value: Any) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+# --- List-Executions completeness (D-31: this poller IS the guarantee of record) ------
+#
+# Bolna documents no pagination for GET /executions and publishes no OpenAPI spec, so we
+# do not know whether it paginates, what the page size is, or what a continuation looks
+# like. What we refuse to do is GUESS a parameter name and loop on it: a `?page=` the
+# vendor ignores returns page one forever, which is a silent truncation wearing the
+# costume of a fix (the same class of silent premise D-31/D-32 exist to prevent).
+#
+# So: follow a continuation ONLY if the payload hands us one (`_next_link`), and
+# otherwise report whether the answer might have been cut short.
+#
+# `_LISTING_PAGE_SIZES` is the heuristic that makes "might have been cut short"
+# answerable with no metadata at all. A truncated listing returns EXACTLY the server's
+# limit; an untruncated one returns however many executions the window happened to hold.
+# Landing exactly on a conventional limit is therefore weak evidence of truncation, and
+# it is the only evidence available. The failure modes are asymmetric and that is the
+# whole argument: a false positive (a window that really held exactly 100 calls) costs
+# one alert an operator can dismiss in ten seconds; a false negative is a call nobody
+# ever hears about again. Rejected alternative: comparing counts across ticks — it needs
+# state, it is confounded by traffic, and it still cannot tell page one from a quiet
+# hour. Delete this heuristic once the pilot records the real page size (OPERATIONS §2
+# gate 6); until then it is the only thing standing between us and a silent gap.
+_LISTING_PAGE_SIZES = frozenset({10, 20, 25, 50, 100, 200, 250, 500, 1000})
+# A bound on continuation-following. 20 pages at any plausible page size covers far more
+# than a 30-minute reconciliation window, and a bound is what keeps a malformed `next`
+# from turning the poller into an infinite request loop against the vendor.
+_LISTING_MAX_PAGES = 20
+
+
+def _listing_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """The execution rows in one List-Executions response, whatever they are wrapped in.
+
+    Both key names are claims from their docs; `_request` also wraps a bare top-level
+    JSON array as `{"data": [...]}`, which is the third shape this has to survive.
+    """
+    data = payload.get("data")
+    rows = data if isinstance(data, list) else payload.get("executions")
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _claims_more(payload: dict[str, Any], row_count: int) -> bool:
+    """Does the response ITSELF say the window holds more than it returned?
+
+    Every key here is a hypothesis about a payload nobody has captured yet, so this is
+    written to be inert when absent and correct when present: an unknown shape simply
+    never matches, and the page-size heuristic remains the backstop. A `total` that is
+    not larger than what we got is not a claim of more — that is the normal, complete
+    answer, and treating it as truncation would alert on every healthy tick.
+    """
+    for key in ("has_more", "has_next", "more"):
+        value = payload.get(key)
+        if isinstance(value, bool) and value:
+            return True
+    for key in ("total", "total_count", "count", "total_results"):
+        value = payload.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > row_count:
+            return True
+    # A cursor we cannot turn into a request (`_next_link` rejected it as off-origin, or
+    # it is an opaque token whose parameter name we would have to guess) is still the
+    # vendor telling us there is another page. This runs only after `_next_link` has
+    # declined, so a followable link never lands here.
+    for key in ("next_cursor", "next_page_token", "cursor", "next", "next_page_url", "next_url"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
 
 
 def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn], int]:
@@ -640,14 +712,118 @@ class BolnaEngine:
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:
         return self._snapshot(await self._request("GET", f"/executions/{call_id}"))
 
-    async def list_executions(self, *, since: datetime) -> list[ExecutionSnapshot]:
-        data = await self._request(
+    async def list_executions(self, *, since: datetime) -> ExecutionListing:
+        """The guarantee of record (D-31) — and an honest account of what it covered.
+
+        See `_LISTING_PAGE_SIZES` for why completeness is inferred rather than known,
+        and `_next_link` for the one continuation form this will follow.
+
+        Three ways this can end, in order of how much we know:
+
+        * a continuation link ran out -> `complete=True`, `pages_fetched` says how many;
+        * the payload said there is more and named no link we can GET -> `explicit_more`;
+        * no metadata at all and the row count looks like a page size ->
+          `full_page_suspected`.
+
+        Rows are de-duplicated by execution id across pages: a vendor whose window
+        shifts under us (executions keep arriving while we page) can legitimately repeat
+        one, and re-driving the same execution twice is wasted engine load.
+        """
+        listing = await self._request(
             "GET", "/executions", params={"created_after": since.isoformat()}
         )
-        rows = data.get("data") if isinstance(data.get("data"), list) else data.get("executions")
-        if not isinstance(rows, list):
-            return []
-        return [self._snapshot(row) for row in rows if isinstance(row, dict)]
+        snapshots: list[ExecutionSnapshot] = []
+        seen_ids: set[str] = set()
+        seen_links: set[str] = set()
+        pages = 0
+        reason: ListingIncompleteReason | None = None
+
+        while True:
+            pages += 1
+            rows = _listing_rows(listing)
+            new_rows = 0
+            for row in rows:
+                snapshot = self._snapshot(row)
+                if snapshot.engine_call_id in seen_ids:
+                    continue
+                seen_ids.add(snapshot.engine_call_id)
+                snapshots.append(snapshot)
+                new_rows += 1
+
+            link = self._next_link(listing)
+            if link is None:
+                # No link. Either the payload claims more (and we cannot fetch it), or
+                # the count itself is the only evidence we will ever get.
+                if _claims_more(listing, len(rows)):
+                    reason = "explicit_more"
+                elif len(rows) in _LISTING_PAGE_SIZES:
+                    reason = "full_page_suspected"
+                break
+            if link in seen_links or new_rows == 0:
+                # A continuation that repeats a page, or yields nothing new, is a loop —
+                # the one failure mode where "follow the link" becomes an outage.
+                reason = "next_link_loop"
+                break
+            if pages >= _LISTING_MAX_PAGES:
+                reason = "page_cap_reached"
+                break
+            seen_links.add(link)
+            listing = await self._request("GET", link)
+
+        if reason is not None:
+            # ids and counts only (hard rule 6) — and the reason is our word, not theirs.
+            log.warning(
+                "engine_listing_incomplete",
+                extra={
+                    "engine": "bolna",
+                    "reason": reason,
+                    "pages_fetched": pages,
+                    "executions": len(snapshots),
+                },
+            )
+        return ExecutionListing(
+            snapshots=snapshots,
+            complete=reason is None,
+            incomplete_reason=reason,
+            pages_fetched=pages,
+        )
+
+    def _next_link(self, payload: dict[str, Any]) -> str | None:
+        """The ONE continuation form this adapter follows: a link it can GET as given.
+
+        WHY NOT A CURSOR PARAMETER. Bolna publishes no OpenAPI spec, so `?page=`,
+        `?offset=`, `?cursor=` are all guesses. A guessed parameter is ignored by the
+        vendor, which yields the same page forever (an infinite loop, or with our cap, a
+        listing that claims to have paged and did not) — the original defect wearing a
+        fix. A link the payload itself hands us is self-describing: we invent no name and
+        assume no encoding, and if the key is absent we simply do not page.
+
+        SAME-ORIGIN ONLY. A `next` is vendor-controlled input that this code would turn
+        into an outbound request carrying our `Authorization` header, which is the
+        textbook SSRF/credential-leak shape (OWASP SSRF cheat sheet: validate the
+        destination against an allowlist, never the input against a denylist). So a
+        relative path is used as-is, an absolute URL is accepted only when its scheme is
+        https and its host matches the configured API host, and anything else is dropped
+        — dropping degrades to `explicit_more`, which is loud, rather than to a request
+        at an attacker's host.
+        """
+        for key in ("next", "next_page_url", "next_url", "links"):
+            value = payload.get(key)
+            if isinstance(value, dict):
+                value = value.get("next")
+            if not isinstance(value, str) or not value.strip():
+                continue
+            candidate = value.strip()
+            if candidate.startswith("/"):
+                return candidate
+            parsed = httpx.URL(candidate)
+            if parsed.scheme == "https" and parsed.host == httpx.URL(self._base_url).host:
+                return candidate
+            log.warning(
+                "engine_listing_next_link_rejected",
+                extra={"engine": "bolna", "reason": "off_origin"},
+            )
+        return None
 
     # --- webhooks ------------------------------------------------------------
 

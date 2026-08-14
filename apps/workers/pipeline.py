@@ -45,7 +45,12 @@ from apps.api.billing.caps import CAPS_CTE, over_cap_sql
 from apps.api.billing.rates import billable_tier
 from apps.api.billing.service import charge_for_call, plan_tier_of
 from apps.api.compliance.optout import DETECTED_POST_CALL, detect_opt_out, record_call_optout
-from apps.api.core.alerting import alert, record_pipeline_lag, record_reconciliation_repair
+from apps.api.core.alerting import (
+    alert,
+    record_pipeline_lag,
+    record_reconciliation_listing_incomplete,
+    record_reconciliation_repair,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.observability import set_span_attributes, span, tracing_enabled
@@ -1283,15 +1288,43 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
     minutes, lists executions since the last window, and re-drives anything we have no
     completed call row for. Every repair it makes is a webhook we never received —
     which is why it emits a metric rather than passing quietly.
+
+    And it reports what it could NOT see. The listing is the only window onto lost calls,
+    so an adapter that cannot vouch for having read all of it (`ExecutionListing.complete`)
+    turns this tick into an incident: see the alert below.
     """
     engine = get_engine()
     since = datetime.now(UTC) - timedelta(minutes=30)
     try:
-        snapshots = await engine.list_executions(since=since)
+        listing = await engine.list_executions(since=since)
     except Exception as exc:  # engine down: the next tick retries
         alert("WORKER_DELIVERY", "reconciliation_fetch_failed", detail=type(exc).__name__)
         return "engine_unavailable"
 
+    # A LISTING THAT MIGHT HAVE BEEN CUT SHORT IS AN INCIDENT, NOT A DETAIL. Everything
+    # this job repairs is a call whose webhook was lost, so an execution missing from the
+    # listing is a call that no other mechanism will ever mention: no lead, no usage
+    # event, no recording, and no error anywhere. The adapter cannot always know whether
+    # the vendor truncated (Bolna publishes no pagination contract), so it says
+    # `complete=False` with a reason and the decision to be loud is taken HERE — this is
+    # the only caller, and a signal nobody reads is not a signal. It does NOT abort the
+    # tick: the executions we DID get are still worth repairing.
+    if not listing.complete:
+        reason = listing.incomplete_reason or "unknown"
+        alert(
+            "WORKER_DELIVERY",
+            "reconciliation_listing_incomplete",
+            detail=(
+                f"the engine listing may be truncated ({reason}): "
+                f"{len(listing.snapshots)} executions over {listing.pages_fetched} page(s). "
+                "Executions beyond it are unrecoverable — widen the window or confirm "
+                "the engine's pagination (OPERATIONS §2 gate 6)."
+            ),
+            engine=engine.name,
+        )
+        record_reconciliation_listing_incomplete(reason=reason)
+
+    snapshots = listing.snapshots
     repaired = 0
     for snapshot in snapshots:
         if not snapshot.billable_ready:
@@ -1314,6 +1347,11 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
 
     if repaired:
         log.warning("reconciliation_repaired", extra={"count": repaired})
+    if not listing.complete:
+        # The return value is what an operator reads in the job log; a bare
+        # "repaired=0" on a truncated listing reads as "all quiet", which is the exact
+        # misreading this slice exists to remove.
+        return f"repaired={repaired} listing_incomplete={listing.incomplete_reason or 'unknown'}"
     return f"repaired={repaired}"
 
 

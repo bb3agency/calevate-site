@@ -50,6 +50,7 @@ from calevate_shared.config import (
 from calevate_shared.engine import (
     CallContext,
     CostBreakdown,
+    ExecutionListing,
     ExecutionSnapshot,
     VoiceEngine,
     WebhookVerdict,
@@ -99,12 +100,19 @@ async def _conformance_failures(engine: VoiceEngine) -> list[str]:
     considers this adapter conformant.
     """
     suite = _suite()
+    fixtures = _suite_fixtures()
     failures: list[str] = []
     for name, fn in vars(suite).items():
         if not name.startswith("test_") or not inspect.iscoroutinefunction(fn):
             continue
+        # A clause may ask for the adapter in a particular STATE — `saturated_engine` is
+        # one whose listing has been driven to a full page. The parameter name is how the
+        # suite says so to pytest, so it is how this harness reads it too; a clause whose
+        # setup this loop cannot perform is a clause no saboteur below can ever fail.
+        wants = next(iter(inspect.signature(fn).parameters), "engine")
+        subject = fixtures.saturated(engine) if wants == "saturated_engine" else engine
         try:
-            await fn(engine)
+            await fn(subject)
         except AssertionError:
             failures.append(name)
         except Exception as exc:  # a crash is a caught divergence too
@@ -137,11 +145,16 @@ class _DropsAgentRef(FakeEngine):
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:
         return (await super().get_execution(call_id)).model_copy(update={"engine_agent_ref": None})
 
-    async def list_executions(self, *, since: Any) -> list[ExecutionSnapshot]:
-        return [
-            snapshot.model_copy(update={"engine_agent_ref": None})
-            for snapshot in await super().list_executions(since=since)
-        ]
+    async def list_executions(self, *, since: Any) -> ExecutionListing:
+        listing = await super().list_executions(since=since)
+        return listing.model_copy(
+            update={
+                "snapshots": [
+                    snapshot.model_copy(update={"engine_agent_ref": None})
+                    for snapshot in listing.snapshots
+                ]
+            }
+        )
 
 
 class _UnstampedCost(FakeEngine):

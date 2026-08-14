@@ -173,6 +173,54 @@ class ExecutionSnapshot(BaseModel):
     engine: str = "fake"
 
 
+#: Why an adapter could not promise the listing was the whole window. Values are a
+#: closed set because each one is a stable alert/metric label (BACKEND-PATTERNS §8: the
+#: code IS the deduplication key), and because a free-form string here would be a vendor
+#: message crossing the engine boundary.
+ListingIncompleteReason = Literal[
+    # The payload itself said more exists (a `has_more`/`next`/`total` the adapter could
+    # read) and the adapter could not follow it — no self-describing link to GET.
+    "explicit_more",
+    # No pagination metadata at all, and the row count is exactly a conventional page
+    # size. Nothing PROVES truncation; the adapter refuses to claim completeness.
+    "full_page_suspected",
+    # We followed continuations until our own bound stopped us. There is more.
+    "page_cap_reached",
+    # A continuation pointed back at a page we had already fetched, or returned no new
+    # executions. We stopped rather than loop; the window is not fully covered.
+    "next_link_loop",
+]
+
+
+class ExecutionListing(BaseModel):
+    """What `list_executions` returns: the snapshots AND whether they are all of them.
+
+    THIS TYPE EXISTS BECAUSE THE GUARANTEE OF RECORD MUST BE ABLE TO SAY "I DID NOT SEE
+    EVERYTHING". D-31 makes the List-Executions poller — not the webhook — the mechanism
+    that recovers every execution whose at-most-once delivery was lost. A bare
+    `list[ExecutionSnapshot]` cannot distinguish "the window held 40 calls" from "the
+    vendor handed back the first 40 of 900", and the executions in the difference are
+    precisely the ones no other mechanism will ever mention. So completeness is part of
+    the answer, not something the caller infers from a length.
+
+    `complete=True` is a POSITIVE claim by the adapter: nothing in the response suggested
+    another page. It is never the fallback for "we did not look" — an adapter that cannot
+    tell says so with `complete=False` and a reason, and the poller alerts on it.
+
+    No vendor cursor, page number or continuation URL appears here (hard rule 2): paging
+    is the adapter's business, and what crosses the boundary is our verdict plus counts.
+    """
+
+    snapshots: list[ExecutionSnapshot] = Field(default_factory=list)
+    #: True only when the adapter has positive grounds to believe it read the whole
+    #: window. False means "possibly truncated" — never "definitely".
+    complete: bool = True
+    incomplete_reason: ListingIncompleteReason | None = None
+    #: How many responses were read. 1 for a single-page vendor; >1 proves the
+    #: continuation path actually ran, which is the only way a pilot can see it work.
+    pages_fetched: int = 1
+
+
 class WebhookVerdict(BaseModel):
     """Per-engine authenticity result. Bolna signs nothing (D-31), so `method` is how
     we say what evidence we actually have — an unsigned event is accepted only as a
@@ -245,8 +293,17 @@ class VoiceEngine(Protocol):
         """The authenticated read. This — not the webhook — is what we persist."""
         ...
 
-    async def list_executions(self, *, since: datetime) -> list[ExecutionSnapshot]:
-        """Backs the reconciliation poller (D-31: guarantee of record, not a safety net)."""
+    async def list_executions(self, *, since: datetime) -> ExecutionListing:
+        """Backs the reconciliation poller (D-31: guarantee of record, not a safety net).
+
+        MUST report completeness, not just rows. This returned a bare list, so an
+        adapter that read page one of a paginated listing was indistinguishable from one
+        that read a quiet window — and the calls in the gap are exactly the ones whose
+        webhook was lost, i.e. the ones this method exists to find. An adapter that
+        cannot rule out a further page returns `complete=False` with a reason; the poller
+        alerts on it. Returning `complete=True` because nothing was checked is the defect
+        this signature was changed to make impossible to write by accident.
+        """
         ...
 
     def verify_webhook(
@@ -268,8 +325,10 @@ __all__ = [
     "CostBreakdown",
     "EngineAgentRef",
     "EngineKBRef",
+    "ExecutionListing",
     "ExecutionSnapshot",
     "KBSourceRef",
+    "ListingIncompleteReason",
     "ModelConfig",
     "NumberSeries",
     "NumberSpec",

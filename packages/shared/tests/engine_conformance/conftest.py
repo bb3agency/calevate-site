@@ -58,7 +58,15 @@ BOLNA_COMPLETED: dict[str, Any] = {
 }
 
 
-def _bolna_handler() -> Callable[[httpx.Request], httpx.Response]:
+# How many executions a saturated `GET /executions` hands back in this suite. It is a
+# member of `bolna._LISTING_PAGE_SIZES` on purpose: the Bolna stub returns exactly this
+# many rows and NO pagination metadata, which is the worst case the adapter has to cope
+# with (Bolna publishes no pagination contract), and the fake engine's page size is set
+# to the same number so one contract test can saturate either adapter.
+FULL_LISTING_PAGE = 10
+
+
+def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.Response]:
     """A stub of their API, built fresh per engine so each test gets clean vendor state.
 
     The knowledge-base routes are STATEFUL on purpose. A stub that answered every
@@ -99,7 +107,10 @@ def _bolna_handler() -> Callable[[httpx.Request], httpx.Response]:
         if path.startswith("/executions/") and path.endswith("/stop"):
             return httpx.Response(200, json={"status": "stopped"})
         if path == "/executions":
-            return httpx.Response(200, json={"data": [BOLNA_COMPLETED]})
+            # Distinct ids: a listing whose rows all share one id would let an adapter
+            # that de-duplicates too eagerly look like one that read a short page.
+            rows = [{**BOLNA_COMPLETED, "id": f"exec_list_{i}"} for i in range(listing_rows)]
+            return httpx.Response(200, json={"data": rows})
         if path.startswith("/executions/"):
             return httpx.Response(200, json=BOLNA_COMPLETED)
         return httpx.Response(404, json={"error": "not found"})
@@ -107,15 +118,15 @@ def _bolna_handler() -> Callable[[httpx.Request], httpx.Response]:
     return handler
 
 
-def make_engine(engine_id: str) -> VoiceEngine:
+def make_engine(engine_id: str, *, listing_rows: int = 1) -> VoiceEngine:
     if engine_id == "fake":
-        return FakeEngine()
+        return FakeEngine(listing_page_size=FULL_LISTING_PAGE)
     return BolnaEngine(
         api_key="test-key",
         fx_rate=Decimal("88.00"),
         client=httpx.AsyncClient(
             base_url="https://api.bolna.ai",
-            transport=httpx.MockTransport(_bolna_handler()),
+            transport=httpx.MockTransport(_bolna_handler(listing_rows=listing_rows)),
         ),
     )
 
@@ -123,6 +134,42 @@ def make_engine(engine_id: str) -> VoiceEngine:
 @pytest.fixture(params=ENGINE_IDS)
 def engine(request: pytest.FixtureRequest) -> VoiceEngine:
     return make_engine(request.param)
+
+
+def saturated(engine: VoiceEngine) -> VoiceEngine:
+    """Drive an adapter's `list_executions` to a FULL page — the truncation case.
+
+    Every adapter reaches it differently and none of them may EXPOSE how (hard rule 2):
+    the Bolna stub answers with exactly a page's worth of rows and no metadata at all
+    (the worst case, since Bolna publishes no pagination contract), and the fake engine
+    is given more calls than its page size. What the contract test asserts afterwards is
+    identical for both — the caller is TOLD the answer may be short.
+
+    A function rather than only a fixture because the adapter audit
+    (`tests/engine_audit_test.py`) runs these clauses against saboteur adapters outside
+    pytest's fixture machinery, and a clause it cannot set up is a clause no saboteur can
+    ever fail.
+    """
+    if isinstance(engine, FakeEngine):
+        # A FRESH instance of the same adapter class, never the one passed in: seeding
+        # eleven calls into a shared engine would change what every other clause sees,
+        # and a suite whose clauses interfere is one that fails in definition order.
+        saturated_fake = type(engine)(listing_page_size=FULL_LISTING_PAGE)
+        for i in range(FULL_LISTING_PAGE + 1):
+            saturated_fake.seed_inbound_call(
+                call_id=f"exec_seed_{i}",
+                agent_ref="fakeagent_seed",
+                from_e164="+915000000001",
+                to_e164="+911140000000",
+            )
+        return saturated_fake
+    assert isinstance(engine, BolnaEngine), f"no saturation recipe for {type(engine).__name__}"
+    return make_engine("bolna", listing_rows=FULL_LISTING_PAGE)
+
+
+@pytest.fixture(params=ENGINE_IDS)
+def saturated_engine(request: pytest.FixtureRequest) -> VoiceEngine:
+    return saturated(make_engine(str(request.param)))
 
 
 @pytest.fixture

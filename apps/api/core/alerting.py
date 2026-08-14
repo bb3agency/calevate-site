@@ -450,6 +450,18 @@ def record_reconciliation_repair(*, kind: str) -> None:
     _record("reconciliation_repairs", 1, kind=kind)
 
 
+def record_reconciliation_listing_incomplete(*, reason: str) -> None:
+    """A poll that could not promise it saw the whole window (D-31).
+
+    Separate from `record_reconciliation_repair` on purpose: a repair is a call we FIXED,
+    this is a stretch of the window we may never have looked at — the executions in it
+    have no webhook, no repair and no metric of their own, so this counter is the only
+    trace they leave. `reason` is the adapter's closed enum
+    (`ListingIncompleteReason`), so it stays a stable label.
+    """
+    _record("reconciliation_listing_incomplete", 1, reason=reason)
+
+
 def record_compliance_block(*, rule: str) -> None:
     _record("compliance_blocks", 1, rule=rule)
 
@@ -469,6 +481,7 @@ __all__ = [
     "record_outbox_dlq_depth",
     "record_outbox_lag",
     "record_pipeline_lag",
+    "record_reconciliation_listing_incomplete",
     "record_reconciliation_repair",
     "record_webhook_ack_ms",
     "reset_alerts",

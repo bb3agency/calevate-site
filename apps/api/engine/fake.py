@@ -29,6 +29,7 @@ from calevate_shared.engine import (
     CostBreakdown,
     EngineAgentRef,
     EngineKBRef,
+    ExecutionListing,
     ExecutionSnapshot,
     KBSourceRef,
     NumberSpec,
@@ -78,7 +79,15 @@ class FakeEngine:
 
     name = "fake"
 
-    def __init__(self) -> None:
+    #: How many executions one `list_executions` call will return. Real vendors cap
+    #: their listings; a fake that returns everything forever would let a caller that
+    #: ignores `ExecutionListing.complete` pass the conformance suite. 100 keeps local
+    #: development unaffected (no dev tenant places 100 calls in a poll window) while
+    #: leaving the truncated branch reachable — the suite lowers it.
+    DEFAULT_LISTING_PAGE_SIZE = 100
+
+    def __init__(self, *, listing_page_size: int = DEFAULT_LISTING_PAGE_SIZE) -> None:
+        self.listing_page_size = listing_page_size
         self._agents: dict[str, AgentConfig] = {}
         self._calls: dict[str, dict[str, Any]] = {}
         self._kb: dict[str, list[KBSourceRef]] = {}
@@ -236,12 +245,33 @@ class FakeEngine:
             }
         return self._snapshot_from(call_id, call)
 
-    async def list_executions(self, *, since: datetime) -> list[ExecutionSnapshot]:
-        return [
+    async def list_executions(self, *, since: datetime) -> ExecutionListing:
+        """Paginates for real, because a fake that never truncates cannot keep the
+        contract honest.
+
+        The whole point of the second adapter is that a behaviour the contract requires
+        gets exercised somewhere other than the vendor's imagination. `ExecutionListing.
+        complete` is a claim the poller acts on (it alerts when it is False), so the fake
+        must be able to produce BOTH answers: it returns at most `listing_page_size`
+        snapshots and reports `complete=False` when it had to cut the window short.
+
+        It does NOT invent a continuation for the caller to follow: paging is the
+        adapter's private business and the contract exposes no cursor (hard rule 2), so
+        a truncated window here is exactly what the caller must cope with from any
+        adapter that cannot see past page one.
+        """
+        rows = [
             self._snapshot_from(cid, call)
             for cid, call in self._calls.items()
             if (call.get("started_at") or datetime.now(UTC)) >= since
         ]
+        if len(rows) <= self.listing_page_size:
+            return ExecutionListing(snapshots=rows, complete=True)
+        return ExecutionListing(
+            snapshots=rows[: self.listing_page_size],
+            complete=False,
+            incomplete_reason="full_page_suspected",
+        )
 
     # --- webhooks ------------------------------------------------------------
 
