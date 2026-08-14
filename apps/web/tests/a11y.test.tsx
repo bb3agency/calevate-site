@@ -13,6 +13,7 @@ import NewClientPage from "@/app/admin/new/page";
 import OpsPage from "@/app/admin/ops/page";
 import AdminClientsPage from "@/app/admin/page";
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
+import FeatureFlagsPage from "@/app/admin/tenants/[tenantId]/feature-flags/page";
 import FirstCampaignReviewPage from "@/app/admin/tenants/[tenantId]/first-campaign-review/page";
 import TenantInvoicePage from "@/app/admin/tenants/[tenantId]/invoice/page";
 import TenantKycPage from "@/app/admin/tenants/[tenantId]/kyc/page";
@@ -388,6 +389,44 @@ const QA_REPORT = {
     },
   ],
   known_limits: [{ label: "Budget (lakhs)", scenarios: 4 }],
+};
+
+/**
+ * `GET /v1/admin/tenants/{id}/feature-flags` (SURFACES §1), populated so both shapes of
+ * row render: a declared flag this client is explicitly overridden on, and a stored row
+ * for a flag this build no longer declares.
+ */
+const FEATURE_FLAGS = {
+  tenant_id: "t1",
+  items: [
+    {
+      flag: "call_timing_breakdown",
+      declared: true,
+      description:
+        "Show the per-call timing breakdown on this client's call detail screen. A debug view.",
+      consumed_by: null,
+      platform_default: false,
+      override: true,
+      enabled: true,
+      source: "tenant_override",
+      reason: "Latency complaint on ticket 4471 — timings on for the week.",
+      set_by_admin_id: "admin-1",
+      set_at: "2026-08-13T04:30:00Z",
+    },
+    {
+      flag: "retired_beta_view",
+      declared: false,
+      description: null,
+      consumed_by: null,
+      platform_default: null,
+      override: true,
+      enabled: false,
+      source: "tenant_override",
+      reason: "Left over from an older release.",
+      set_by_admin_id: "admin-1",
+      set_at: "2026-06-01T04:30:00Z",
+    },
+  ],
 };
 
 /** One row of the weekly QA spot-check queue (SURFACES §1). */
@@ -1074,6 +1113,19 @@ const ADMIN_SCREENS: Screen[] = [
         campaign_id: "camp-1",
         campaign_name: "Diwali offer",
       },
+    },
+  },
+  {
+    // TWO flags on purpose: one declared-and-overridden (so the "why / set" rows, the
+    // radio group and the reason field all render) and one stored-but-no-longer-declared
+    // (the leftover notice). A single-flag fixture would leave half this screen's markup
+    // — including a whole notice box — unscanned.
+    file: "admin/tenants/[tenantId]/feature-flags/page.tsx",
+    realm: "admin",
+    element: () => <FeatureFlagsPage params={tenant} />,
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/admin/tenants/t1/feature-flags": FEATURE_FLAGS,
     },
   },
   {

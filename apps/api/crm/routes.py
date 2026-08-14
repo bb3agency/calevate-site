@@ -39,6 +39,9 @@ from apps.api.crm.schemas import (
     CallLeadOut,
     CallSummaryOut,
     DashboardOut,
+    LeadBulkFailureOut,
+    LeadBulkIn,
+    LeadBulkOut,
     LeadColumnOut,
     LeadFacetOut,
     LeadFacetsOut,
@@ -543,6 +546,142 @@ async def export_leads(
         content=csv_body,
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="leads.csv"'},
+    )
+
+
+# --- bulk actions --------------------------------------------------------------
+#
+# Declared BEFORE `/leads/{lead_id}` like the saved views above: FastAPI matches in
+# declaration order, and a literal segment behind a path parameter is a route that never
+# runs. There is no `POST /leads/{lead_id}` today, so the order is defensive rather than
+# load-bearing — which is exactly when it is cheapest to get right.
+
+
+@router.post(
+    "/leads/bulk",
+    response_model=LeadBulkOut,
+    openapi_extra=permission_meta("leads:write"),
+    summary="One action over many leads — page-scoped or filter-scoped, and it says which",
+)
+async def bulk_leads(
+    payload: LeadBulkIn,
+    session: Session,
+    request: Request,
+    # The FILTER scope's rows, in the SAME query parameters and with the same meanings
+    # as `GET /v1/leads` and `GET /v1/leads/export.csv` (`_COLUMNS_Q` above argues the
+    # asymmetry between an unknown column and an unknown filter; only filters apply
+    # here, so an unknown one is refused). `columns` is deliberately absent: a bulk
+    # action changes rows, and which COLUMNS you were looking at cannot narrow it.
+    status: str | None = None,
+    search: str | None = Query(None, max_length=60),
+    agent_id: UUID | None = None,
+    assigned_to: UUID | None = None,
+    f: list[str] = _FIELD_FILTER_Q,
+    principal: Principal = Depends(requires("leads:write")),
+) -> LeadBulkOut:
+    """Move many leads at once, and report what happened to each of them.
+
+    **`leads:write` and no new permission.** Both actions are the ones the row already
+    offers inline, done to more rows at a time; a bulk-only permission would be a fourth
+    RBAC entry every role holds exactly when it holds `leads:write`. `leads:write` is in
+    `MUTATING_PERMISSIONS`, so a D-22 impersonating operator is refused this for free.
+
+    **No `Idempotency-Key`, and that is a property rather than an omission.** The
+    reliability triad asks for one where a repeat has a side effect that cannot be undone
+    — a phone ringing twice (`POST /leads/{id}/call`), a campaign launched twice. Here a
+    repeat is *the same request*: `status` and `assigned_to` are single-value fields, so
+    the second run finds every lead already in the target state and answers
+    `unchanged: N` with no timeline rows written (`db/transition.py`). The idempotency
+    that matters is in the write, not in a key.
+
+    **200, always, when the request itself was well-formed.** A lead the action could not
+    move is a per-item outcome in `failures`, not an HTTP error — the same shape
+    `POST /leads/{id}/call` uses for a compliance refusal, and the reason RFC-9457 stays
+    reserved for "the request failed". The two cases that ARE request failures and are
+    refused up front: a filter matching more than the cap (`lead_bulk_too_many` — never a
+    silent truncation), and a set that moved out from under a confirmation
+    (`lead_bulk_set_moved`).
+    """
+    assert principal.tenant_id is not None  # guaranteed by the tenant-scoped session
+
+    # An unknown facet key is refused here exactly as it is on the list and the export.
+    # The stakes are higher, not lower: a filter that silently did nothing would WIDEN
+    # the set, and this route writes to every row in it.
+    available = lead_column_registry.available(await service.lead_columns(session, agent_id))
+    field_filters = _parse_field_filters(
+        f, frozenset(c.key for c in lead_column_registry.facetable(available))
+    )
+
+    targets = await service.resolve_bulk_targets(
+        session,
+        ids=list(payload.ids) if payload.scope == "ids" else None,
+        status=status,
+        search=search,
+        agent_id=agent_id,
+        assigned_to=assigned_to,
+        field_filters=field_filters,
+    )
+    total = len(targets.ids) + len(targets.missing)
+    if payload.expected_count is not None and payload.expected_count != total:
+        # The set the person confirmed is not the set in front of us. Refusing costs one
+        # extra click; running anyway spends their confirmation on a different set of
+        # rows, which is the failure the researched confirmation rule is about.
+        raise ProblemError.conflict(
+            "lead_bulk_set_moved",
+            f"This now matches {total} leads rather than the {payload.expected_count} "
+            "you confirmed, so nothing was changed.",
+            remediation="Check the table and run the action again.",
+        )
+
+    outcome = await service.apply_bulk_leads(
+        session,
+        targets=targets,
+        action=payload.action,
+        status=payload.status,
+        # `AssigneeChange` rather than a bare id for the reason the single-lead PATCH
+        # gives: `None` inside it is "unassign", and the request model has already told
+        # an absent `assign_to` apart from an explicit null.
+        assignee=(
+            service.AssigneeChange(user_id=payload.assign_to)
+            if payload.action == "assign"
+            else None
+        ),
+        actor=str(principal.user_id),
+    )
+    await write_audit(
+        session,
+        action=f"lead.bulk_{payload.action}",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="lead",
+        ip=request.client.host if request.client else None,
+        # COUNTS and SCOPE, never the id list and never a facet VALUE — the same rule the
+        # export's audit row follows, for the same reason: a facet value is a client's own
+        # captured data and a lead id list of 500 is not a summary. "Moved four leads I
+        # had ticked" and "moved every hot lead in the account" are the two ends of an
+        # incident and this row tells them apart.
+        summary={
+            "scope": payload.scope,
+            "requested": outcome.requested,
+            "changed": outcome.changed,
+            "unchanged": outcome.unchanged,
+            "failed": len(outcome.failures),
+            "status": payload.status,
+            "searched": bool(search),
+            "agent_id": str(agent_id) if agent_id else None,
+            "field_filters": sorted(field_filters) or None,
+        },
+    )
+    return LeadBulkOut(
+        action=payload.action,
+        scope=payload.scope,
+        requested=outcome.requested,
+        changed=outcome.changed,
+        unchanged=outcome.unchanged,
+        failures=[
+            LeadBulkFailureOut(lead_id=fail.lead_id, rule=fail.rule, reason=fail.reason)
+            for fail in outcome.failures
+        ],
     )
 
 

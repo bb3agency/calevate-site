@@ -2778,6 +2778,71 @@ unobservable, so nobody could see which side of the lane a given agent was on.
 the last two are this wave's; documenting just those would have made the older drift look
 intentional. No guard enforces that block, which is why it drifted.
 
+## §61 — four slices, and the two that were most valuable for what they refused
+
+The largest wave so far by surface area, and the two results worth reading first are a
+refutation and a self-caught test.
+
+**A finding was REFUTED, on compliance grounds (AH).** D-65 named DLT template status as
+an unaudited transition. It is not a defect: constraining it to `from_statuses` would make
+`approved → rejected` — a registrar WITHDRAWING a template — unrecordable, and
+`launch_blockers` would go on reading `approved` for a pulled template. That is a gate
+going stale-green, and there is already a test pinning the move. The repeat audit row
+there is also correct rather than the D-65 defect, because that endpoint records an
+EXTERNAL OBSERVATION: a repeat means "I re-checked with the registrar and it still says
+submitted", and `dlt_templates` has no column to hold that, so the audit row is the only
+record of the re-verification. The reasoning is now a docstring so the next sweep does not
+re-audit it.
+
+Experiment conclude WAS a real defect and is fixed: one 409 answered all three questions.
+It now answers 404 for absent or cross-tenant, an idempotent 200 for a repeat (no second
+promotion, no second engine push, no second audit row), and a 409 naming the ending found.
+
+**An agent's own sabotage passed, and it treated that as a finding (AG).** Leaking one
+tenant's flag override to another initially went GREEN, because the cross-tenant probe only
+ran in the direction where neither tenant had rows. It added the observable direction — A's
+own session, which CAN see A's override, then asked about B — and got the RED. That
+assertion is now permanent. A sabotage that passes is information, not an inconvenience.
+
+**The feature-flag slice is mostly an argument about what NOT to build.** This repo already
+had four flag-shaped mechanisms, and the fifth had to say which of them it was not
+replacing. The one that matters: the build-time constants `PROVIDER_CREATES_ORDERS`,
+`LEAD_RETRIEVAL_IMPLEMENTED` and `PROVISIONING_IMPLEMENTED` mean "no adapter exists", and a
+row cannot make unwritten code exist — migrating them would let someone flip on a lie. The
+recommendation is that none of the four move. A flag may also never gate a compliance
+control, which is hard rule 5 restated with better manners and pinned by a test.
+
+**Lead status was never using the discriminator, and that had cost three things (AE).** A
+second click wrote a second `status_change` TIMELINE ROW claiming a change that never
+happened; a no-op edit bumped `updated_at`, this table's sort key, so the client's list
+re-ordered under them for nothing; and a soft-deleted lead's 404 was a coincidence rather
+than a statement. `transition_status` gained `visible_where`, applied to BOTH the CAS and
+the discriminating SELECT — applied to only one, a soft-deleted row would answer 409 naming
+a status the caller may not know it has.
+
+Bulk delete was considered and rejected on DPDP grounds: `deleted_at` only hides a row, so
+the button would teach a client they had answered an erasure request when they had not.
+
+**Recurrence is conservative in the directions that ring phones (AF).** A missed occurrence
+is skipped rather than caught up, bounded at an hour — a worker down for three days comes
+back to one upcoming run, not three at once. A repeat repeats the START and not the
+dialling, because re-dialling reached subscribers is a different act from the one the client
+scheduled. And `launch_campaign` kept its own CAS while borrowing D-65's discriminator,
+because launch is NOT idempotent: it scrubs DNC, stamps `launched_at` and writes an
+append-only row.
+
+**What the central OpenAPI regen caught this time**, continuing the pattern: `LeadBulkOut.failures`
+is OPTIONAL on the wire, so `result.failures.length` would have rendered an ABSENT list as
+"nothing failed". The count now comes from the server's own invariant
+(`changed + unchanged + len(failures) == requested`) rather than from the array, so a batch
+that failed silently still says so. And `FeatureFlagIn.enabled` is optional, where an omitted
+field means the same as an explicit null — clear the override — which the screen's `=== null`
+test would have sent down the override branch.
+
+**Carried, reported and not fixed:** `experiments.conclude` is keyed on the AGENT rather than
+the experiment, so a stale retry arriving after a NEW test started would conclude the new
+test. Fixing it moves the request shape and the console, so it wants its own slice.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and

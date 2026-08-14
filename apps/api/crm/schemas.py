@@ -24,7 +24,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 LeadStatus = Literal["new", "contacted", "interested", "hot", "won", "lost"]
 
@@ -212,6 +212,113 @@ class LeadUpdateIn(Strict):
     # same table row, are the same permission, and would otherwise be two mutations, two
     # cache invalidations and two places for the next field to be added wrongly.
     assigned_to: UUID | None = None
+
+
+# --- bulk actions (SURFACES §2) ------------------------------------------------
+#
+# The wire half of `crm.service`'s bulk block, which carries the research this shape
+# comes from. Two things are worth having in the SCHEMA rather than only in the service:
+# the two selection scopes are named in the request AND echoed in the response, and the
+# outcome has three buckets rather than two.
+
+#: How many leads one bulk action may move. Declared HERE, and imported by the service,
+#: because `service` already imports `schemas` and the reverse would be a cycle — and
+#: because the number is part of the contract: it bounds `ids` at the wire and is the
+#: figure `lead_bulk_too_many` quotes back. Two constants would eventually be two numbers.
+#:
+#: The value is set by the status path being one `transition_status` call per lead —
+#: deliberately, so bulk and single-lead share ONE discriminator rather than a set-based
+#: copy of it — and by 500 rows being the point past which the honest answer to a person
+#: operating a grid is a narrower filter. The refusal says exactly that.
+MAX_BULK_LEADS = 500
+
+
+class LeadBulkIn(Strict):
+    """One bulk action, and the two ways of saying which leads it is about.
+
+    **`scope` is required and has no default**, which is the whole guardrail. A default
+    would decide the ambiguous case — page or query — on the caller's behalf, and that
+    ambiguity is the defect this field exists to remove; a client that forgets to say
+    gets a 422 rather than an action over a set it did not choose.
+
+    The FILTER scope's predicates are not here: they ride as the same query parameters
+    `GET /v1/leads` and `GET /v1/leads/export.csv` take, with the same meanings, so there
+    is one spelling of "which rows" across the screen, the file and this. Putting them in
+    the body would be a second one.
+    """
+
+    scope: Literal["ids", "filter"]
+    #: The ticked rows, for `scope: "ids"`. Bounded by the same cap the filter scope is
+    #: refused at, so neither route into the action can exceed it.
+    ids: list[UUID] = Field(default_factory=list, max_length=MAX_BULK_LEADS)
+    action: Literal["status", "assign"]
+    status: LeadStatus | None = None
+    #: The new owner, `null` to unassign. Named `assign_to` and not `assigned_to` on
+    #: purpose: `assigned_to` is already a QUERY parameter on this route meaning "leads
+    #: owned by this person" (the filter), and one word carrying both "which rows" and
+    #: "what to write" is a mistake waiting for its first reviewer.
+    assign_to: UUID | None = None
+    #: What the screen told the person it was about to change, for `scope: "filter"`.
+    #: A filter-scoped batch is confirmed against a count that can move while the dialog
+    #: is open — a call lands, a colleague edits a row — and the researched rule is that
+    #: the confirmation must describe the set that will actually be acted on. When this
+    #: is sent and no longer matches, the action is refused rather than run over a
+    #: different set than the one that was agreed to. Omitted = no such claim was made.
+    expected_count: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _coherent(self) -> LeadBulkIn:
+        if self.scope == "ids" and not self.ids:
+            raise ValueError("scope 'ids' needs at least one lead id")
+        if self.scope == "filter" and self.ids:
+            raise ValueError("scope 'filter' takes its rows from the filter, not from ids")
+        if self.action == "status" and self.status is None:
+            raise ValueError("action 'status' needs a status")
+        if self.action == "assign" and "assign_to" not in self.model_fields_set:
+            # An ABSENT `assign_to` is not an unassignment — the same distinction
+            # `LeadUpdateIn.assigned_to` makes, and the one a bulk action can least
+            # afford to get wrong: it would clear the owner of every lead in the batch.
+            raise ValueError("action 'assign' needs assign_to (send null to unassign)")
+        return self
+
+
+class LeadBulkFailureOut(Strict):
+    """One lead the action did not move, named and explained.
+
+    `(rule, reason)` is this API's established pair for a refusal — `BlockerOut`,
+    `CallLeadOut.blocked_rule`/`blocked_reason`, `DispatchDecision` — so a client that
+    already renders one of those renders this. `lead_id` and nothing else identifies the
+    row: the response must be safe to log and to put in an audit summary (hard rule 6).
+    """
+
+    lead_id: UUID
+    rule: str
+    reason: str
+
+
+class LeadBulkOut(Strict):
+    """What the action DID — the three buckets, and which set it ran over.
+
+    `scope` and `action` are echoed so the sentence on screen ("Moved 47 of the 1,240
+    leads matching these filters") is built from the server's answer rather than from
+    what the screen believed it had asked for.
+
+    `changed + unchanged + len(failures) == requested`, always. `unchanged` is a success:
+    a lead already in the target state is the caller's intent already satisfied (D-65,
+    `db/transition.py`), and reporting it as a failure would make the most ordinary bulk
+    outcome — re-running an action over a set that partly overlaps the last one — look
+    like an incident.
+    """
+
+    action: Literal["status", "assign"]
+    scope: Literal["ids", "filter"]
+    requested: int
+    changed: int
+    unchanged: int
+    #: Empty on a clean run. NEVER omitted and never summarised into a count alone: the
+    #: client has to be able to see which rows were left behind, which is the difference
+    #: between a partial success and a green tick over one.
+    failures: list[LeadBulkFailureOut] = Field(default_factory=list)
 
 
 # --- saved views (SURFACES §2: "named filter+column combinations per user") ----

@@ -26,6 +26,7 @@
  * `hooks.ts` keep matching across the move.
  */
 
+import { useCallback, useState } from "react";
 import {
   keepPreviousData,
   useMutation,
@@ -103,35 +104,107 @@ export function useMembers(session: Session): UseQueryResult<Member[]> {
 }
 
 /**
- * Set or clear a lead's owner.
+ * One inline edit of one lead — status, name, or owner.
  *
- * `userId: null` is sent as an explicit `null` and MUST stay one: the API tells
+ * **This replaced `useUpdateLeadStatus` (hooks.ts) and `useAssignLead`, and moved both
+ * callers in the same change.** They were two hooks issuing the same `PATCH
+ * /v1/leads/{id}` with two invalidation sets and two error channels, which is the
+ * "two ways of doing one thing" defect and it had a visible cost: a row could only ever
+ * surface ONE of them, so a failed status edit and a failed assignment competed for the
+ * same pixel. One mutation means one place a row's failure can be reported.
+ *
+ * `assigned_to: null` is sent as an explicit `null` and MUST stay one: the API tells
  * "unassign" from "leave the owner alone" by whether the key is present in the body
  * (`crm.routes.patch_lead`), so dropping the key when the value is null — which is what
  * a helper that strips undefined-ish values would do — would silently turn every
- * unassignment into a no-op that answered 200.
+ * unassignment into a no-op that answered 200. That is why the edit is spread into the
+ * body verbatim rather than rebuilt field by field.
  */
-export function useAssignLead(session: Session) {
+export interface LeadEdit {
+  /** Present key = change the owner; an explicit `null` = unassign. */
+  assigned_to?: string | null;
+  status?: LeadStatus;
+  name?: string;
+}
+
+export function useEditLead(session: Session) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ leadId, userId }: { leadId: string; userId: string | null }) =>
-      apiRequest<Lead>(session, `/v1/leads/${leadId}`, {
-        method: "PATCH",
-        body: { assigned_to: userId },
-      }),
+    mutationFn: ({ leadId, edit }: { leadId: string; edit: LeadEdit }) =>
+      apiRequest<Lead>(session, `/v1/leads/${leadId}`, { method: "PATCH", body: edit }),
     onSuccess: (_lead, { leadId }) => {
-      // Invalidate rather than patch: the assignment also writes a timeline row, and
-      // the list's own status counts are computed over the filtered set — so a screen
-      // filtered to "assigned to me" has to re-ask rather than re-render.
+      // Invalidate rather than patch: an edit also writes a timeline row, the server may
+      // have moved the lead itself (a hot-lead rule fires on the pipeline side), and the
+      // list's status counts are computed over the filtered set — so a screen filtered to
+      // "assigned to me" has to re-ask rather than re-render.
       void client.invalidateQueries({ queryKey: ["leads", session.orgSlug] });
-      void client.invalidateQueries({
-        queryKey: ["lead", session.orgSlug, leadId],
-      });
-      void client.invalidateQueries({
-        queryKey: ["lead-timeline", session.orgSlug, leadId],
-      });
+      void client.invalidateQueries({ queryKey: ["dashboard", session.orgSlug] });
+      void client.invalidateQueries({ queryKey: ["lead", session.orgSlug, leadId] });
+      void client.invalidateQueries({ queryKey: ["lead-timeline", session.orgSlug, leadId] });
     },
   });
+}
+
+/** What a row needs to know about its own edit: is mine in flight, and did mine fail. */
+export interface RowEditing {
+  edit: (leadId: string, edit: LeadEdit) => void;
+  /** The failure THIS row's last edit met, or null. */
+  errorFor: (leadId: string) => unknown;
+  pendingFor: (leadId: string) => boolean;
+}
+
+/**
+ * The same mutation, with the failure kept ON THE ROW that caused it.
+ *
+ * The defect this exists to close: an inline edit that fails and reverts is a lie the
+ * user cannot see. The `<select>` snaps back to the old value — because the row is
+ * re-rendered from a cache the server never changed — and unless something says so, the
+ * only evidence is a value that did not stick. A single page-level `ProblemNotice` is
+ * not enough on a hundred-row table: it says an edit failed without saying WHICH, so a
+ * client who changed four rows in a row cannot tell which three took.
+ *
+ * `pendingFor` is per-row for the same reason the dispatch button is: `mutation.isPending`
+ * is one flag for the whole table, so using it directly disables every other row's
+ * controls while one row is saving.
+ *
+ * The error map is keyed by lead id and cleared on that lead's next success, so a fixed
+ * row stops complaining without the client reloading.
+ */
+export function useLeadRowEdit(session: Session): RowEditing {
+  const mutation = useEditLead(session);
+  const [errors, setErrors] = useState<Record<string, unknown>>({});
+
+  const edit = useCallback(
+    (leadId: string, patch: LeadEdit) => {
+      mutation.mutate(
+        { leadId, edit: patch },
+        {
+          onError: (error) => setErrors((prev) => ({ ...prev, [leadId]: error })),
+          onSuccess: () =>
+            setErrors((prev) => {
+              // `Object.hasOwn`, not `in`: `in` walks the prototype chain, which is the
+              // defect `lib/lookup.ts` exists for and the lint rule forbids.
+              if (!Object.hasOwn(prev, leadId)) return prev;
+              const next = { ...prev };
+              delete next[leadId];
+              return next;
+            }),
+        },
+      );
+    },
+    [mutation],
+  );
+
+  return {
+    edit,
+    // `Object.hasOwn`, not `errors[leadId]`: `errors` is a plain object literal and a
+    // lead id is a uuid, so the prototype chain cannot actually be reached here — but
+    // `lib/lookup.ts` exists because this app has already shipped that bug once, and a
+    // guarded read costs nothing.
+    errorFor: (leadId: string) => (Object.hasOwn(errors, leadId) ? errors[leadId] : null),
+    pendingFor: (leadId: string) =>
+      mutation.isPending && mutation.variables?.leadId === leadId,
+  };
 }
 
 /**
@@ -270,6 +343,57 @@ export function useDeleteView(session: Session) {
       apiRequest<void>(session, `/v1/leads/views/${viewId}`, { method: "DELETE" }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["lead-views", session.orgSlug] });
+    },
+  });
+}
+
+/**
+ * The bulk-action wire types, aliased from the generated client.
+ *
+ * `scope` is the field worth reading twice: it is the SERVER's record of which set ran —
+ * the ticked rows or every lead the filters match — and the summary sentence is built
+ * from it rather than from what the screen believed it sent. `unchanged` is a SUCCESS
+ * bucket (already in the target state, D-65) and must never be rendered as failure.
+ */
+export type LeadBulkFailure = Schemas["LeadBulkFailureOut"];
+export type LeadBulkResult = Schemas["LeadBulkOut"];
+export type LeadBulkBody = Schemas["LeadBulkIn"];
+export type LeadBulkAction = LeadBulkBody["action"];
+
+/**
+ * One action over many leads (SURFACES §2).
+ *
+ * The LENS goes in the query string and the ACTION goes in the body, which is not an
+ * arbitrary split: `lensQuery` is the one place this app spells "which rows", shared with
+ * the table, the facet counts and the CSV export, and a filter-scoped bulk action has to
+ * mean the same set as the table it was launched from. A second spelling in the body
+ * would be the drift that whole arrangement exists to prevent.
+ *
+ * `columns` is stripped before serialising: which COLUMNS you were looking at cannot
+ * narrow which ROWS an action touches, and sending them would put a meaningless
+ * parameter on a write.
+ *
+ * No `Idempotency-Key`: the write is already idempotent (status and owner are
+ * single-value fields, and a re-run reports `unchanged`), which is what `POST
+ * /v1/leads/bulk`'s own docstring argues. A key here would be ceremony over a property
+ * the server already has.
+ */
+export function useBulkLeads(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ lens, body }: { lens: LeadLens; body: LeadBulkBody }) =>
+      apiRequest<LeadBulkResult>(
+        session,
+        `/v1/leads/bulk${lensQuery({ ...lens, columns: undefined })}`,
+        { method: "POST", body },
+      ),
+    onSuccess: () => {
+      // Every count on this screen — the total, the stage badges, the facet counts — is
+      // computed server-side over the filtered set, so a batch that moved rows between
+      // stages invalidates all three rather than being patched into the cache.
+      void client.invalidateQueries({ queryKey: ["leads", session.orgSlug] });
+      void client.invalidateQueries({ queryKey: ["lead-facets", session.orgSlug] });
+      void client.invalidateQueries({ queryKey: ["dashboard", session.orgSlug] });
     },
   });
 }

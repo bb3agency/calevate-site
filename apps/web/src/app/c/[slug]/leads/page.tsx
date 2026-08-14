@@ -26,15 +26,18 @@ import {
 import { useAgents, type Agent } from "@/lib/api/agents";
 import { type CallLeadResult } from "@/lib/api/client";
 import { useClientRealm } from "@/lib/api/session";
-import { useCallLead, useMe, useUpdateLeadStatus, useWriteAccess } from "@/lib/api/hooks";
+import { useCallLead, useMe, useWriteAccess } from "@/lib/api/hooks";
 import {
-  useAssignLead,
+  useBulkLeads,
   useExportLeads,
   useLeadFacets,
+  useLeadRowEdit,
   useLeadsUnderLens,
   useMembers,
   useSavedViews,
+  lensQuery,
   type Lead,
+  type LeadBulkResult,
   type LeadColumn,
   type LeadLens,
   type LeadStatus,
@@ -42,8 +45,11 @@ import {
 import { lookup } from "@/lib/lookup";
 
 import { AssigneeSelect } from "./AssigneeSelect";
+import { BulkActionBar, EMPTY_SELECTION, type BulkSelection } from "./BulkActionBar";
 import { ColumnChooser } from "./ColumnChooser";
 import { FacetPanel } from "./FacetPanel";
+import { InlineName } from "./InlineName";
+import { RowFailure } from "./RowFailure";
 import { SavedViewBar } from "./SavedViewBar";
 
 /**
@@ -69,6 +75,19 @@ import { SavedViewBar } from "./SavedViewBar";
  *   that never landed painted an empty, confident pipeline. Failure is the notice above,
  *   never a zero.
  *
+ * **Slice AE added the other half of the table floor**: bulk actions and the inline text
+ * edit. Two properties of it live HERE rather than in the components, because they are
+ * properties of the screen:
+ *
+ * - **The selection is cleared whenever the lens moves.** A tick means "this row", and a
+ *   set of ticks agreed to under one filter must not survive into another — the server
+ *   deliberately does NOT re-apply the filter to an id-scoped action
+ *   (`crm.service.resolve_bulk_targets`), so this is the half of that contract the screen
+ *   owns.
+ * - **Editing and selecting are gated on the same `leads:write` the API asks for**, which
+ *   an impersonating operator is refused (D-22) — so the controls are absent or disabled
+ *   with the reason, rather than clicking into a 403.
+ *
  * The screen renders no `<h1>`: the shell prints the page title from the nav list
  * (layout.tsx), and a second "Leads" beside it is a visible duplicate.
  *
@@ -90,6 +109,15 @@ type ViewMode = "list" | "board";
  *  tables. `p-2` on the card body plus `px-3` here is the design's 20px edge inset. */
 const HEAD_CELL = "px-3 py-2.5 font-semibold";
 const BODY_CELL = "px-3 py-2.5";
+
+/**
+ * Rows per request, named because the bulk bar has to talk about it.
+ *
+ * "All 100 leads on this page are selected" and "select all 1,240 matching these filters"
+ * are two different actions, and the sentence that offers the second one has to say how
+ * big the first is. A literal in two places is how those two numbers come to disagree.
+ */
+const PAGE_SIZE = 100;
 
 /**
  * An agent that can actually place this call. Same test the Agents screen renders as
@@ -159,13 +187,19 @@ export default function LeadsPage() {
   // owner and the facets. The page is capped at 100 rows, so a filter applied here would
   // be a filter over whatever happened to load (BUILD-LOG §52 counts four defects of
   // exactly that shape, including the stage tally on this very screen).
-  const leads = useLeadsUnderLens(session, lens, { limit: 100 });
+  const leads = useLeadsUnderLens(session, lens, { limit: PAGE_SIZE });
   const facets = useLeadFacets(session, lens);
   const savedViews = useSavedViews(session);
-  const updateStatus = useUpdateLeadStatus(session);
   const exportLeads = useExportLeads(session);
   const members = useMembers(session);
-  const assignLead = useAssignLead(session);
+  /**
+   * ONE mutation for every inline edit on a row — status, owner and name — with the
+   * failure kept against the LEAD it happened to. It replaced `useUpdateLeadStatus` and
+   * `useAssignLead`, which were two hooks on one route with two error channels, so a row
+   * could only ever surface one of them.
+   */
+  const rows = useLeadRowEdit(session);
+  const bulk = useBulkLeads(session);
   /**
    * May this session change an owner? The server's own answer to `/v1/me`, run through
    * the same helper every other gated control on this console uses: it folds the
@@ -207,6 +241,28 @@ export default function LeadsPage() {
    * verdict onto the second — and a compliance refusal moving rows is worse than none.
    */
   const [callResults, setCallResults] = useState<Record<string, CallLeadResult>>({});
+
+  /**
+   * THE SELECTION, and the two scopes it can be in — `ids` (rows ticked on this page) or
+   * `wholeQuery` (every lead the filters match). Never a third, implicit one.
+   */
+  const [selection, setSelection] = useState<BulkSelection>(EMPTY_SELECTION);
+  /** The batch's answer, kept until dismissed so a partial failure cannot scroll away. */
+  const [bulkResult, setBulkResult] = useState<LeadBulkResult | null>(null);
+
+  /**
+   * A CHANGED LENS CLEARS THE SELECTION. Half of a contract whose other half is on the
+   * server: `resolve_bulk_targets` acts on the ticked ids WITHOUT re-applying the filter,
+   * because intersecting them would silently drop rows from a set the person had already
+   * confirmed. That is only safe if a selection cannot outlive the filter it was made
+   * under — so it does not. `lensKey` is the same string the query is keyed by, which
+   * means "the lens moved" here and "refetch" there are the same event by construction.
+   */
+  const lensKey = lensQuery(lens, { limit: PAGE_SIZE });
+  useEffect(() => {
+    setSelection(EMPTY_SELECTION);
+    setBulkResult(null);
+  }, [lensKey]);
 
   /**
    * The columns to render — the SERVER's resolved answer, not our own selection.
@@ -304,11 +360,30 @@ export default function LeadsPage() {
           ? "We could not read your team just now, so the owner cannot be changed. Reload the page to try again."
           : mayAssign.reason
       }
-      disabled={!mayAssign.allowed || assignLead.isPending}
-      onChange={(userId) => assignLead.mutate({ leadId: lead.id, userId })}
+      // Per-ROW pending, not the mutation's global flag: one saving row must not freeze
+      // every other row's controls.
+      disabled={!mayAssign.allowed || rows.pendingFor(lead.id)}
+      onChange={(userId) => rows.edit(lead.id, { assigned_to: userId })}
       className={className}
     />
   );
+
+  /**
+   * THE FAILURE, IN THE ROW IT BELONGS TO — once per row, in its FIRST cell.
+   *
+   * An inline edit that fails and reverts is a lie the user cannot see: the control snaps
+   * back to the stored value because the row re-renders from a cache the server never
+   * changed, and without this the only evidence is a value that did not stick. A single
+   * page-level notice cannot do that job on a hundred-row table — it says an edit failed
+   * without saying which row.
+   *
+   * The first cell rather than the edited one, and that is not laziness: the column
+   * chooser can drop the name, the status or the owner, so a message anchored to any one
+   * of them would disappear exactly when that column was hidden — and a row can only have
+   * one failure at a time (one mutation, one error slot), so one place per row is the
+   * honest number of places.
+   */
+  const rowFailure = (lead: Lead) => <RowFailure error={rows.errorFor(lead.id)} />;
 
   /**
    * ONE CELL, chosen by the server's column key.
@@ -323,20 +398,18 @@ export default function LeadsPage() {
   const renderCell = (column: LeadColumn, lead: Lead) => {
     switch (column.kind === "fixed" ? column.key : "") {
       case "name":
+        // The link AND the inline text edit (SURFACES §2: "exit via Enter/click-out; no
+        // modal"). `InlineName` carries the interaction and the row-level failure; the
+        // gate is the same `leads:write` the two selects use.
         return (
-          <>
-            {/* The lead's own screen, where the timeline lives. The href carries the
-                lead ID and never the number — a URL reaches browser history, referrers
-                and access logs, so hard rule 6 is stricter for a link than for text. */}
-            <Link href={href(`/c/${session.orgSlug}/leads/${lead.id}`)} className="hover:underline">
-              {lead.name ?? <span className="font-normal text-ink-faint">No name</span>}
-            </Link>
-            {lead.is_repeat_caller && (
-              <span className="ml-2 rounded-full bg-brand-soft px-2 py-0.5 text-[10px] font-semibold text-brand-strong">
-                repeat
-              </span>
-            )}
-          </>
+          <InlineName
+            lead={lead}
+            href={href(`/c/${session.orgSlug}/leads/${lead.id}`)}
+            canEdit={mayAssign.allowed}
+            editReason={mayAssign.reason}
+            saving={rows.pendingFor(lead.id)}
+            onCommit={(name) => rows.edit(lead.id, { name })}
+          />
         );
       case "phone":
         // MASKED, always. `phone_masked` is the only number `LeadOut` carries and the
@@ -348,8 +421,8 @@ export default function LeadsPage() {
           <StatusSelect
             value={lead.status}
             label={`Status for ${lead.name ?? lead.phone_masked}`}
-            disabled={updateStatus.isPending || readOnly}
-            onChange={(next) => updateStatus.mutate({ leadId: lead.id, status: next })}
+            disabled={rows.pendingFor(lead.id) || readOnly}
+            onChange={(next) => rows.edit(lead.id, { status: next })}
             className="rounded-md border border-transparent bg-transparent px-1 py-0.5 text-xs capitalize text-ink hover:border-line"
           />
         );
@@ -375,6 +448,36 @@ export default function LeadsPage() {
      view. `leads.data` can still be present on a failed REFETCH (keepPreviousData), and
      those rows are real, so the guard is on the data and not on the error. */
   const showRows = Boolean(leads.data);
+
+  /**
+   * Ticking is offered exactly when the API would accept the write — `leads:write`, which
+   * a D-22 impersonating operator is refused. Checkboxes that only lead to a 403 are the
+   * "deliberate restriction wearing the costume of a broken button" §52 names.
+   */
+  const maySelect = mayAssign.allowed;
+  // Not memoised: `items` is `leads.data?.items ?? []`, a fresh array every render, so a
+  // `useMemo` keyed on it would recompute every render anyway while implying it did not.
+  const pageIds = items.map((lead) => lead.id);
+  const ticked = new Set(selection.wholeQuery ? pageIds : selection.ids);
+  const allOfPageTicked = pageIds.length > 0 && pageIds.every((id) => ticked.has(id));
+
+  const toggleRow = (leadId: string) =>
+    setSelection((prev) => {
+      // Ticking a row out of a whole-query selection narrows it back to THIS PAGE, and
+      // says so through the bar's sentence. Silently keeping the query scope while a row
+      // looks unticked would be the scope ambiguity in its most confusing form.
+      const base = prev.wholeQuery ? pageIds : prev.ids;
+      const next = base.includes(leadId)
+        ? base.filter((id) => id !== leadId)
+        : [...base, leadId];
+      return { ids: next, wholeQuery: false };
+    });
+
+  /** A loaded row's display name, so a failure can be named rather than only numbered. */
+  const nameFor = (leadId: string) => {
+    const lead = items.find((row) => row.id === leadId);
+    return lead ? (lead.name ?? lead.phone_masked) : null;
+  };
 
   return (
     <div className="space-y-4 pb-12">
@@ -619,14 +722,52 @@ export default function LeadsPage() {
           sentence never flashes and is never retracted. */}
       <RestrictionNote reason={mayAssign.reason} />
 
+      {/* THE BULK BAR, between the filters and the table it acts on — the set it is
+          about is the set above it, and the rows it will change are below it. It renders
+          nothing until something is selected. */}
+      <BulkActionBar
+        selection={selection}
+        // The server's `total` for this lens, and `undefined` while that is unknown: the
+        // confirmation states how many rows it will change, and a manufactured 0 under
+        // that sentence is the one number nobody would question (§52).
+        filteredTotal={leads.data?.total}
+        pageSize={items.length}
+        members={members.data}
+        canWrite={mayAssign.allowed}
+        writeReason={mayAssign.reason}
+        pending={bulk.isPending}
+        error={bulk.error}
+        result={bulkResult}
+        nameFor={nameFor}
+        onSelectWholeQuery={() => setSelection({ ids: [], wholeQuery: true })}
+        onClear={() => setSelection(EMPTY_SELECTION)}
+        onDismissResult={() => setBulkResult(null)}
+        onRun={(body) =>
+          bulk.mutate(
+            { lens, body },
+            {
+              onSuccess: (result) => {
+                setBulkResult(result);
+                // The selection is spent. Leaving it ticked invites a second run against
+                // rows that have already moved, and the result summary above is now the
+                // thing to read.
+                setSelection(EMPTY_SELECTION);
+              },
+            },
+          )
+        }
+      />
+
       {leads.error && <ProblemNotice error={leads.error} onRetry={() => leads.refetch()} />}
-      {updateStatus.error && <ProblemNotice error={updateStatus.error} />}
       {exportLeads.error && <ProblemNotice error={exportLeads.error} />}
       {/* The team list failing is not the leads list failing: the rows are fine and only
           the picker is dead, which is why this is its own notice and the owner cells
           fall back to naming the owner in plain text rather than to an empty select. */}
       {members.error != null && <ProblemNotice error={members.error} />}
-      {assignLead.error != null && <ProblemNotice error={assignLead.error} />}
+      {/* Inline-edit failures are NOT here. They belong to one row each and are rendered
+          in that row (`rowFailure`) — a page-level notice on a hundred-row table says an
+          edit failed without saying which, which is the half of the message that matters.
+          A bulk failure is likewise on the bar, beside the set it was about. */}
       {/* A refusal by the gate comes back 200 and is rendered on the row; this is for
           the real failures (network, 403, a lead with no dialable number). */}
       {callLead.error != null && <ProblemNotice error={callLead.error} />}
@@ -650,6 +791,31 @@ export default function LeadsPage() {
                       and two more hard-coded ones, which is precisely how the screen and
                       the file came to hold different columns. */}
                   <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
+                    {/* THE HEADER CHECKBOX IS PAGE-SCOPED, and its label says so. This
+                        is the researched division (PatternFly, Helios): the header
+                        selects what is in front of you, and extending to the whole
+                        filtered query is a separate, named act offered by the bar. */}
+                    {maySelect && (
+                      <th className={`${HEAD_CELL} w-8`} scope="col">
+                        {/* A column header whose only content is a checkbox has no
+                            accessible name of its own, so a screen reader announces the
+                            column as blank while reading every row's cell. The label is
+                            visually hidden rather than dropped. */}
+                        <span className="sr-only">Select</span>
+                        <input
+                          type="checkbox"
+                          aria-label="Select all leads on this page"
+                          checked={allOfPageTicked}
+                          onChange={() =>
+                            setSelection(
+                              allOfPageTicked
+                                ? EMPTY_SELECTION
+                                : { ids: pageIds, wholeQuery: false },
+                            )
+                          }
+                        />
+                      </th>
+                    )}
                     {columns.map((column) => (
                       <th key={column.key} className={HEAD_CELL}>
                         {column.label}
@@ -661,9 +827,23 @@ export default function LeadsPage() {
                 <tbody className="divide-y divide-line">
                   {items.map((lead) => (
                     <tr key={lead.id} className="hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
-                      {columns.map((column) => (
+                      {maySelect && (
+                        <td className={BODY_CELL}>
+                          <input
+                            type="checkbox"
+                            // Names the LEAD: a screen reader meeting a hundred boxes
+                            // called "select" cannot tell which row it is on.
+                            aria-label={`Select ${lead.name ?? lead.phone_masked}`}
+                            checked={ticked.has(lead.id)}
+                            onChange={() => toggleRow(lead.id)}
+                          />
+                        </td>
+                      )}
+                      {columns.map((column, index) => (
                         <td key={column.key} className={cellClass(column)}>
                           {renderCell(column, lead)}
+                          {/* Once per row, in its first cell — see `rowFailure`. */}
+                          {index === 0 && rowFailure(lead)}
                         </td>
                       ))}
                       {canCall && <td className={BODY_CELL}>{callCell(lead)}</td>}
@@ -729,13 +909,8 @@ export default function LeadsPage() {
                         <StatusSelect
                           value={lead.status}
                           label={`Status for ${lead.name ?? lead.phone_masked}`}
-                          disabled={updateStatus.isPending || readOnly}
-                          onChange={(next) =>
-                            updateStatus.mutate({
-                              leadId: lead.id,
-                              status: next,
-                            })
-                          }
+                          disabled={rows.pendingFor(lead.id) || readOnly}
+                          onChange={(next) => rows.edit(lead.id, { status: next })}
                           className="mt-1.5 w-full rounded-md border border-line bg-transparent px-1 py-0.5 text-xs capitalize text-ink"
                         />
                         {/* Same control as the table, for the reason the dispatch
@@ -748,6 +923,10 @@ export default function LeadsPage() {
                             "w-full rounded-md border border-line bg-transparent px-1 py-0.5 text-xs text-ink",
                           )}
                         </div>
+                        {/* The failure lands on the CARD for the same reason it lands on
+                            the row: a select that snapped back with no sentence is an
+                            edit the client cannot tell failed. */}
+                        {rowFailure(lead)}
                         {canCall && <div className="mt-1.5">{callCell(lead)}</div>}
                       </div>
                     ))}

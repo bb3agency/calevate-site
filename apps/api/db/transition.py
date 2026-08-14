@@ -36,6 +36,13 @@ Consequences worth knowing before calling it:
   makes the same call for the same reason).
 - Under RLS a neighbour's id updates nothing and then reads no row, so it 404s exactly
   like an id that never existed. Callers must run inside `tenant_session`.
+- `visible_where` extends that last sentence to the OTHER ways a row can fail to exist
+  for a caller — today, `leads.deleted_at IS NULL`. It is applied to the CAS **and** to
+  the discriminating SELECT, never one of them: applied to the UPDATE alone, a
+  soft-deleted row would fall through to a SELECT that finds it and answer 409 naming a
+  status the caller is not entitled to know it has; applied to the SELECT alone, the
+  CAS would resurrect it. The two together are what make "invisible" and "absent" one
+  answer, which is the same claim the paragraph above makes about RLS.
 """
 
 from __future__ import annotations
@@ -76,6 +83,7 @@ async def transition_status(
     to_status: str,
     from_statuses: Sequence[str],
     extra_set: str = "",
+    visible_where: str = "",
     params: Mapping[str, Any] | None = None,
     status_column: str = "status",
 ) -> bool:
@@ -89,6 +97,12 @@ async def transition_status(
     `extra_set` is extra assignments for the transition (`"approved_by = :by"`), whose
     binds come in `params`; `updated_at = now()` is always appended, because a status
     change that does not move `updated_at` is invisible to every "what changed" query.
+
+    `visible_where` is the caller's row-visibility predicate (`"deleted_at IS NULL"`),
+    interpolated like `extra_set` and therefore, like `extra_set`, only ever written as
+    a literal in our own source. Its binds also come in `params`. It reaches BOTH
+    statements — see the module docstring for why splitting it is a disclosure bug and
+    not merely untidy.
     """
     table = _identifier(table, "table")
     status_column = _identifier(status_column, "status_column")
@@ -103,12 +117,16 @@ async def transition_status(
     if extra_set:
         assignments.append(extra_set)
     assignments.append("updated_at = now()")
+    # Parenthesised: a caller writing `"a IS NULL OR b IS NULL"` must not have the OR
+    # bind looser than the AND that joins it to the id predicate.
+    visible = f" AND ({visible_where})" if visible_where else ""
 
     result = await session.execute(
         text(
             f"UPDATE {table} SET {', '.join(assignments)} "
             f"WHERE id = :{_RESERVED}id "
             f"AND {status_column} IN ({', '.join(f':{k}' for k in from_binds)})"
+            f"{visible}"
         ),
         {
             f"{_RESERVED}to": to_status,
@@ -122,10 +140,15 @@ async def transition_status(
 
     # `.first()`, not `.scalar()`: a NULL status and an absent row are different facts
     # and `.scalar()` returns None for both — the 404 must mean "no row".
+    #
+    # `supplied` rides along because `visible_where` may carry binds of its own.
+    # SQLAlchemy's `text()` compiles only the `:names` it finds in the string, so the
+    # `extra_set` binds that this SELECT does not mention are dropped rather than
+    # rejected — which is what lets one params dict serve both statements.
     row = (
         await session.execute(
-            text(f"SELECT {status_column} FROM {table} WHERE id = :{_RESERVED}id"),
-            {f"{_RESERVED}id": row_id},
+            text(f"SELECT {status_column} FROM {table} WHERE id = :{_RESERVED}id{visible}"),
+            {f"{_RESERVED}id": row_id, **supplied},
         )
     ).first()
     if row is None:

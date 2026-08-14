@@ -1079,6 +1079,39 @@ async def set_template_status(
     request: Request,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
 ) -> dict[str, str]:
+    """AUDITED, and deliberately NOT a `transition_status` state machine. Checked 2026-08.
+
+    This is a registrar-fact RECORDER, the same species as `set_number_dlt_status` above
+    and `ops.service.record_tm_registration` ("deliberately a full overwrite: there is
+    one registration and this is its current state"), and it is the reason those two are
+    not on `db/transition.py::transition_status` either. The three answers that module
+    discriminates are already the three this endpoint gives, but the middle one is
+    reached from the opposite direction and must stay that way:
+
+    * **A different status is not a conflict — it is the news.** The registrar moves a
+      template both ways, and `approved -> rejected` is a WITHDRAWAL. Constraining this
+      to a `from_statuses` set would make a revocation unrecordable and leave
+      `campaigns.service.launch_blockers` reading `approved` for a template the
+      registrar has pulled, which is SEC-COMP §1's most common registration failure
+      dialling on. `tests/campaign_dispatch_audit_test.py::
+      test_a_revoked_dlt_template_stops_the_campaign_before_the_next_dial` pins exactly
+      that move, and the gate's behaviour is what it pins.
+    * **Absent is already a 404, never a 409.** The service raises
+      `ProblemError.not_found` on `rowcount == 0`, and the UPDATE runs inside
+      `tenant_session(tenant_id)`, so another tenant's template id updates no row and
+      gets the same 404 an id that never existed gets (hard rule 1).
+    * **Re-recording the same status is a 200 AND a real audit row**, which is the one
+      place this diverges from `set_tenant_status`'s `changed` guard and does so on
+      purpose: there is no state machine here to be already-satisfied. A second POST is
+      an operator asserting "I checked with the registrar again just now, and it still
+      says submitted". `dlt_templates` has no `verified_at` to hold that, so the audit
+      row IS the record of the re-verification — the same fact `record_tm_registration`
+      stamps on the row it owns.
+
+    A single conditional UPDATE, so there is no read-then-write to race: two operators
+    recording two registrar verdicts is last-writer-wins over an external fact, and the
+    audit log carries both readings in order.
+    """
     async with tenant_session(tenant_id) as scoped:
         await campaigns_service.set_template_status(
             scoped, template_id=template_id, status=payload.status, dlt_ref=payload.dlt_ref

@@ -9,6 +9,7 @@ import {
   Bot,
   Eye,
   FileCheck2,
+  Flag,
   Hash,
   IndianRupee,
   PhoneCall,
@@ -169,6 +170,16 @@ export default function TenantDetailPage({
             icon={<IndianRupee className="h-4 w-4" />}
           >
             Commercials
+          </NavLink>
+          {/* Beta features and debug views, per client (SURFACES §1). Its own screen
+              rather than a panel here because each flag needs three facts beside it — the
+              platform default, this client's override, and the resolved answer — and a
+              row that showed only the last one would read as a switch nobody set. */}
+          <NavLink
+            href={`/admin/tenants/${tenantId}/feature-flags`}
+            icon={<Flag className="h-4 w-4" />}
+          >
+            Feature flags
           </NavLink>
           {/* Suspend / reactivate / close. Separate from everything above because it is
               the one control here that stops a client's outbound dialling outright. */}

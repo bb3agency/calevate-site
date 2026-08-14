@@ -91,7 +91,7 @@ from sqlalchemy import text
 
 from apps.api.agents.service import dispatch_call
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
-from apps.api.campaigns.scheduling import due_schedules, fire_schedule
+from apps.api.campaigns.scheduling import complete_or_rearm, due_schedules, fire_schedule
 from apps.api.campaigns.service import campaign_window_open, dispatch_blockers
 
 # Module import (not `from ... import ist_now`) so tests that pin the compliance
@@ -483,7 +483,14 @@ async def _fire_due_schedules(tenant_id: UUID) -> int:
 
     The clock is read ONCE for the whole tenant so every campaign in this tick is judged
     against the same instant — a schedule due at 10:00:00.4 and one due at 10:00:00.6
-    should not depend on which of them we looked at first.
+    should not depend on which of them we looked at first. A REPEAT needs that same
+    instant for a second reason: it decides whether an occurrence is inside its catch-up
+    window or has been missed, and two campaigns due together must not fall on opposite
+    sides of that line because the loop reached them a millisecond apart.
+
+    `fire_schedule` gains one more outcome for repeats — `skipped`, an occurrence that
+    came due too late to still mean what it said. It counts as zero starts here, like
+    `blocked`: nothing is running, so there is no budget worth reading for it.
     """
     now = datetime.now(UTC)
     async with tenant_session(tenant_id) as session:
@@ -700,15 +707,16 @@ async def _dispatch_for_campaign(
             )
         ).scalar()
         if not remaining:
-            done = await session.execute(
-                text(
-                    "UPDATE campaigns SET status = 'completed', updated_at = now() "
-                    "WHERE id = :cid AND status = 'running'"
-                ),
-                {"cid": campaign_id},
-            )
-            if rowcount_of(done):
+            # `complete_or_rearm`, not an UPDATE to 'completed': a campaign carrying a
+            # REPEAT is not finished when this run is, it is waiting for its next
+            # occurrence — and `due_schedules`/`dispatch_scan()` only look at `scheduled`,
+            # so completing it would silently retire the repeat after one run. What the
+            # column means stays `campaigns.scheduling`'s question.
+            settled = await complete_or_rearm(session, campaign_id=campaign_id)
+            if settled == "completed":
                 log.info("campaign_completed", extra={"campaign_id": str(campaign_id)})
+            elif settled == "scheduled":
+                log.info("campaign_recurrence_rearmed", extra={"campaign_id": str(campaign_id)})
 
     return {"dialled": dialled, "blocked": blocked, "exhausted": exhausted}
 

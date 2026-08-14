@@ -25,7 +25,7 @@ import {
 } from "@/components/ui";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import {
-  useAssignLead,
+  useEditLead,
   useLead,
   useLeadTimeline,
   useMembers,
@@ -106,7 +106,9 @@ export default function LeadDetailPage({
   const lead = useLead(session, leadId);
   const timeline = useLeadTimeline(session, leadId, TIMELINE_LIMIT);
   const members = useMembers(session);
-  const assignLead = useAssignLead(session);
+  // ONE mutation for every edit of a lead — the same `useEditLead` the table uses,
+  // moved here in the change that replaced `useAssignLead` and `useUpdateLeadStatus`.
+  const editLead = useEditLead(session);
   const me = useMe(session);
   const mayAssign = useWriteAccess(session, "leads:write", "change who owns a lead");
 
@@ -158,8 +160,8 @@ export default function LeadDetailPage({
                   ? "We could not read your team just now, so the owner cannot be changed. Reload the page to try again."
                   : mayAssign.reason
               }
-              disabled={!mayAssign.allowed || assignLead.isPending}
-              onChange={(userId) => assignLead.mutate({ leadId, userId })}
+              disabled={!mayAssign.allowed || editLead.isPending}
+              onChange={(userId) => editLead.mutate({ leadId, edit: { assigned_to: userId } })}
               className="rounded-md border border-line bg-transparent px-2 py-1 text-xs text-ink"
             />
           </div>
@@ -183,7 +185,7 @@ export default function LeadDetailPage({
       )}
 
       {members.error != null && <ProblemNotice error={members.error} />}
-      {assignLead.error != null && <ProblemNotice error={assignLead.error} />}
+      {editLead.error != null && <ProblemNotice error={editLead.error} />}
 
       <section className="space-y-2">
         <div className="flex flex-wrap items-baseline justify-between gap-2">

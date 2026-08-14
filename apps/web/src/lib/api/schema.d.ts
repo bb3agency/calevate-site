@@ -423,7 +423,7 @@ export interface paths {
         put?: never;
         /**
          * Stop the test, and optionally promote an arm through the publish path
-         * @description Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS §7) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears — the test still ends.
+         * @description Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS §7) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears — the test still ends. Idempotent: a test that already ended the way you asked returns 200 with `changed: false`, promotes nothing a second time and writes no audit row. 409 names the ending it found when that ending is a different one. 404 means this account has no such test.
          */
         post: operations["conclude_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_conclude_post"];
         delete?: never;
@@ -646,8 +646,82 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Approve or reject per the registrar — `approved` unlocks the launch gate */
+        /**
+         * Approve or reject per the registrar — `approved` unlocks the launch gate
+         * @description AUDITED, and deliberately NOT a `transition_status` state machine. Checked 2026-08.
+         *
+         *     This is a registrar-fact RECORDER, the same species as `set_number_dlt_status` above
+         *     and `ops.service.record_tm_registration` ("deliberately a full overwrite: there is
+         *     one registration and this is its current state"), and it is the reason those two are
+         *     not on `db/transition.py::transition_status` either. The three answers that module
+         *     discriminates are already the three this endpoint gives, but the middle one is
+         *     reached from the opposite direction and must stay that way:
+         *
+         *     * **A different status is not a conflict — it is the news.** The registrar moves a
+         *       template both ways, and `approved -> rejected` is a WITHDRAWAL. Constraining this
+         *       to a `from_statuses` set would make a revocation unrecordable and leave
+         *       `campaigns.service.launch_blockers` reading `approved` for a template the
+         *       registrar has pulled, which is SEC-COMP §1's most common registration failure
+         *       dialling on. `tests/campaign_dispatch_audit_test.py::
+         *       test_a_revoked_dlt_template_stops_the_campaign_before_the_next_dial` pins exactly
+         *       that move, and the gate's behaviour is what it pins.
+         *     * **Absent is already a 404, never a 409.** The service raises
+         *       `ProblemError.not_found` on `rowcount == 0`, and the UPDATE runs inside
+         *       `tenant_session(tenant_id)`, so another tenant's template id updates no row and
+         *       gets the same 404 an id that never existed gets (hard rule 1).
+         *     * **Re-recording the same status is a 200 AND a real audit row**, which is the one
+         *       place this diverges from `set_tenant_status`'s `changed` guard and does so on
+         *       purpose: there is no state machine here to be already-satisfied. A second POST is
+         *       an operator asserting "I checked with the registrar again just now, and it still
+         *       says submitted". `dlt_templates` has no `verified_at` to hold that, so the audit
+         *       row IS the record of the re-verification — the same fact `record_tm_registration`
+         *       stamps on the row it owns.
+         *
+         *     A single conditional UPDATE, so there is no read-then-write to race: two operators
+         *     recording two registrar verdicts is last-writer-wins over an external fact, and the
+         *     audit log carries both readings in order.
+         */
         post: operations["set_template_status_v1_admin_tenants__tenant_id__dlt_templates__template_id__status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/feature-flags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every feature flag this client is on, and where each answer comes from
+         * @description Resolution is platform default → this tenant's override. A flag with no row for this tenant resolves to its declared default — no row is required to exist for any tenant. Rows for flags this build no longer declares are listed with `declared: false`; they change nothing and clearing them is safe.
+         */
+        get: operations["read_feature_flags_v1_admin_tenants__tenant_id__feature_flags_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/feature-flags/{flag}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set this client's position on one flag, or clear it (audited on a real change)
+         * @description `enabled: true|false` records an explicit position for this client. `enabled: null` CLEARS the override, so they follow the platform default again. A `reason` is required either way. Restating the position already on file returns `changed: false` and writes nothing — no row moves and no audit entry is made. Setting a flag this build does not declare is refused; CLEARING one is allowed, because that is how a retired flag's leftover rows are removed.
+         */
+        put: operations["put_feature_flag_v1_admin_tenants__tenant_id__feature_flags__flag__put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1384,6 +1458,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/recurrence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Repeat this campaign weekly — the gate runs on EVERY occurrence
+         * @description Record a standing instruction to start this campaign on given weekdays.
+         *
+         *     `leads:dispatch`, the same permission as `POST /launch` and `POST /schedule`, and for
+         *     the stronger version of the same reason: this is not one launch with a delay on it,
+         *     it is every launch from now until somebody stops it.
+         *
+         *     **No compliance gate here, and that is the design** (`campaigns/scheduling.py`
+         *     decision 3). The gate runs inside `launch_campaign` when the dispatch tick fires each
+         *     occurrence, so a DLT registration that lapses in week three refuses week three — a
+         *     gate at THIS moment would be a claim about a Tuesday six weeks away.
+         *
+         *     Audited: "who told this campaign to dial every Tuesday, and when" is precisely the
+         *     question `audit_log` exists to answer, and a repeat nobody remembers creating is the
+         *     version of that question that gets asked after a complaint.
+         */
+        post: operations["set_recurrence_v1_campaigns__campaign_id__recurrence_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/resume": {
         parameters: {
             query?: never;
@@ -1433,7 +1540,15 @@ export interface paths {
          *     question `campaign.launched` exists to answer.
          */
         post: operations["schedule_v1_campaigns__campaign_id__schedule_post"];
-        /** Cancel a pending start — the campaign goes back to draft */
+        /**
+         * Cancel a pending start or stop a repeat — one button for both
+         * @description One stop for one column, whichever kind of promise it held.
+         *
+         *     The response is the status the campaign is ACTUALLY in afterwards, not the constant
+         *     "draft" this used to return: a campaign that was waiting goes back to draft, and a
+         *     campaign that is dialling keeps dialling — stopping a repeat means "do not start this
+         *     again", never "abandon the calls going out now" (`scheduling.unschedule_campaign`).
+         */
         delete: operations["unschedule_v1_campaigns__campaign_id__schedule_delete"];
         options?: never;
         head?: never;
@@ -2138,6 +2253,47 @@ export interface paths {
         get: operations["get_leads_v1_leads_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/leads/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * One action over many leads — page-scoped or filter-scoped, and it says which
+         * @description Move many leads at once, and report what happened to each of them.
+         *
+         *     **`leads:write` and no new permission.** Both actions are the ones the row already
+         *     offers inline, done to more rows at a time; a bulk-only permission would be a fourth
+         *     RBAC entry every role holds exactly when it holds `leads:write`. `leads:write` is in
+         *     `MUTATING_PERMISSIONS`, so a D-22 impersonating operator is refused this for free.
+         *
+         *     **No `Idempotency-Key`, and that is a property rather than an omission.** The
+         *     reliability triad asks for one where a repeat has a side effect that cannot be undone
+         *     — a phone ringing twice (`POST /leads/{id}/call`), a campaign launched twice. Here a
+         *     repeat is *the same request*: `status` and `assigned_to` are single-value fields, so
+         *     the second run finds every lead already in the target state and answers
+         *     `unchanged: N` with no timeline rows written (`db/transition.py`). The idempotency
+         *     that matters is in the write, not in a key.
+         *
+         *     **200, always, when the request itself was well-formed.** A lead the action could not
+         *     move is a per-item outcome in `failures`, not an HTTP error — the same shape
+         *     `POST /leads/{id}/call` uses for a compliance refusal, and the reason RFC-9457 stays
+         *     reserved for "the request failed". The two cases that ARE request failures and are
+         *     refused up front: a filter matching more than the cap (`lead_bulk_too_many` — never a
+         *     silent truncation), and a set that moved out from under a confirmation
+         *     (`lead_bulk_set_moved`).
+         */
+        post: operations["bulk_leads_v1_leads_bulk_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3258,10 +3414,20 @@ export interface components {
             /** Promote */
             promote?: string | null;
         };
-        /** ConcludeExperimentOut */
+        /**
+         * ConcludeExperimentOut
+         * @description What THIS call did, which on a repeat is nothing.
+         *
+         *     `promoted_label` is the ending the test HAS (so a repeat still reports the arm that
+         *     won); the other three are what this request performed. On `changed: false` they are
+         *     therefore null/false together — the first call's version number is not recoverable
+         *     from the concluded row, and a guess is worse than a null a console can read.
+         */
         ConcludeExperimentOut: {
             /** Applied */
             applied: boolean;
+            /** Changed */
+            changed: boolean;
             /** Engine Synced */
             engine_synced: boolean;
             /**
@@ -4090,6 +4256,84 @@ export interface components {
             question: string;
         };
         /**
+         * FeatureFlagChangeOut
+         * @description What the write did — including doing nothing, which is a normal outcome.
+         *
+         *     `changed: false` means the request restated the position already on file: no row
+         *     moved, `updated_at` did not bump, and NO audit entry was written. That is the
+         *     convention `admin.record_commercial_terms`, `approve_kb` and
+         *     `integrations.deactivate_endpoint` share — the audit log answers "who changed this
+         *     client's behaviour", and a row per button press makes that question harder to answer.
+         */
+        FeatureFlagChangeOut: {
+            after: components["schemas"]["FlagStateOut"];
+            before: components["schemas"]["FlagStateOut"];
+            /** Changed */
+            changed: boolean;
+            /** Flag */
+            flag: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /** FeatureFlagIn */
+        FeatureFlagIn: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * FeatureFlagOut
+         * @description One flag as it stands for one tenant: the answer, and everything behind it.
+         *
+         *     The three booleans are three different facts and none of them can be derived from
+         *     another. `platform_default` is what a tenant with no row gets; `override` is this
+         *     tenant's stored position, `null` when there is none; `enabled` is the resolved answer
+         *     the code would see. A tenant explicitly overridden to the same value as the default
+         *     is not the same as a tenant with no row — the next change to the default reaches one
+         *     and not the other — so the console is given both rather than being asked to guess.
+         */
+        FeatureFlagOut: {
+            /** Consumed By */
+            consumed_by: string | null;
+            /** Declared */
+            declared: boolean;
+            /** Description */
+            description: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Flag */
+            flag: string;
+            /** Override */
+            override: boolean | null;
+            /** Platform Default */
+            platform_default: boolean | null;
+            /** Reason */
+            reason: string | null;
+            /** Set At */
+            set_at: string | null;
+            /** Set By Admin Id */
+            set_by_admin_id: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "platform_default" | "tenant_override";
+        };
+        /** FeatureFlagsOut */
+        FeatureFlagsOut: {
+            /** Items */
+            items: components["schemas"]["FeatureFlagOut"][];
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
          * FieldLimit
          * @description One column of the client's leads list that the configured model does not fill.
          *
@@ -4154,6 +4398,16 @@ export interface components {
             rule: string | null;
             /** Status */
             status: string | null;
+        };
+        /** FlagStateOut */
+        FlagStateOut: {
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "platform_default" | "tenant_override";
         };
         /**
          * HealthSignalOut
@@ -4591,6 +4845,94 @@ export interface components {
             dnc_scrubbed: number;
             /** Status */
             status: string;
+        };
+        /**
+         * LeadBulkFailureOut
+         * @description One lead the action did not move, named and explained.
+         *
+         *     `(rule, reason)` is this API's established pair for a refusal — `BlockerOut`,
+         *     `CallLeadOut.blocked_rule`/`blocked_reason`, `DispatchDecision` — so a client that
+         *     already renders one of those renders this. `lead_id` and nothing else identifies the
+         *     row: the response must be safe to log and to put in an audit summary (hard rule 6).
+         */
+        LeadBulkFailureOut: {
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Reason */
+            reason: string;
+            /** Rule */
+            rule: string;
+        };
+        /**
+         * LeadBulkIn
+         * @description One bulk action, and the two ways of saying which leads it is about.
+         *
+         *     **`scope` is required and has no default**, which is the whole guardrail. A default
+         *     would decide the ambiguous case — page or query — on the caller's behalf, and that
+         *     ambiguity is the defect this field exists to remove; a client that forgets to say
+         *     gets a 422 rather than an action over a set it did not choose.
+         *
+         *     The FILTER scope's predicates are not here: they ride as the same query parameters
+         *     `GET /v1/leads` and `GET /v1/leads/export.csv` take, with the same meanings, so there
+         *     is one spelling of "which rows" across the screen, the file and this. Putting them in
+         *     the body would be a second one.
+         */
+        LeadBulkIn: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "status" | "assign";
+            /** Assign To */
+            assign_to?: string | null;
+            /** Expected Count */
+            expected_count?: number | null;
+            /** Ids */
+            ids?: string[];
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "ids" | "filter";
+            /** Status */
+            status?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost") | null;
+        };
+        /**
+         * LeadBulkOut
+         * @description What the action DID — the three buckets, and which set it ran over.
+         *
+         *     `scope` and `action` are echoed so the sentence on screen ("Moved 47 of the 1,240
+         *     leads matching these filters") is built from the server's answer rather than from
+         *     what the screen believed it had asked for.
+         *
+         *     `changed + unchanged + len(failures) == requested`, always. `unchanged` is a success:
+         *     a lead already in the target state is the caller's intent already satisfied (D-65,
+         *     `db/transition.py`), and reporting it as a failure would make the most ordinary bulk
+         *     outcome — re-running an action over a set that partly overlaps the last one — look
+         *     like an incident.
+         */
+        LeadBulkOut: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "status" | "assign";
+            /** Changed */
+            changed: number;
+            /** Failures */
+            failures?: components["schemas"]["LeadBulkFailureOut"][];
+            /** Requested */
+            requested: number;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "ids" | "filter";
+            /** Unchanged */
+            unchanged: number;
         };
         /**
          * LeadColumnOut
@@ -5300,6 +5642,7 @@ export interface components {
             };
             /** Launched At */
             launched_at: string | null;
+            recurrence?: components["schemas"]["RecurrenceOut"] | null;
             /** Schedule Blocked Rules */
             schedule_blocked_rules?: string[];
             /** Scheduled Start At */
@@ -5527,6 +5870,88 @@ export interface components {
             expires_in_s: number;
             /** Url */
             url: string;
+        };
+        /**
+         * RecurrenceIn
+         * @description A standing instruction: which weekdays, at what IST time, until when.
+         *
+         *     `days` are ISO weekday numbers (1 = Monday), the same vocabulary
+         *     `datetime.isoweekday()` and the service use — one numbering across the wire, the rule
+         *     and the UI, because a second one is an off-by-one that dials on the wrong day.
+         *
+         *     `at` is an IST wall-clock "HH:MM", NOT an instant, and that is the whole difference
+         *     between a repeat and a start. "10am every Tuesday" means ten o'clock on each of those
+         *     Tuesdays; an instant would freeze one particular Tuesday's ten o'clock and the
+         *     schedule would have to re-derive the intent from it. The pattern is enforced here so
+         *     the generated TypeScript client cannot send "10" or "10:00 AM".
+         *
+         *     `until` is optional and offset-carrying for the same reason `ScheduleIn.start_at` is:
+         *     a bare local date on the wire is a date the server has to guess the zone of.
+         */
+        RecurrenceIn: {
+            /** At */
+            at: string;
+            /** Days */
+            days: number[];
+            /** Until */
+            until?: string | null;
+        };
+        /**
+         * RecurrenceOut
+         * @description A repeat as the screen renders it — the RULE and the NEXT OCCURRENCE together.
+         *
+         *     The next occurrence is here because a repeat a client cannot read is a repeat they
+         *     cannot trust: "every Tuesday" with no date beside it leaves them to work out whether
+         *     tomorrow counts. `last_skipped_at`/`last_skipped_reason` answer the other question
+         *     the word "scheduled" cannot — why last Tuesday did not run (`campaigns/scheduling.py`
+         *     decision 2: a missed occurrence is skipped, never caught up).
+         */
+        RecurrenceOut: {
+            /** At */
+            at: string;
+            /** Days */
+            days: number[];
+            /** Last Skipped At */
+            last_skipped_at?: string | null;
+            /** Last Skipped Reason */
+            last_skipped_reason?: string | null;
+            /**
+             * Next Occurrence At
+             * Format: date-time
+             */
+            next_occurrence_at: string;
+            /** Until */
+            until?: string | null;
+        };
+        /**
+         * RecurrenceSetOut
+         * @description What `POST /recurrence` answers with: the repeat, plus when it can first dial.
+         *
+         *     Both, for `ScheduleOut`'s reason — they differ whenever the campaign narrowed its own
+         *     calling hours, and a screen showing only the occurrence would promise a 10:00 dial on
+         *     a campaign that only dials from noon.
+         */
+        RecurrenceSetOut: {
+            /** At */
+            at: string;
+            /** Days */
+            days: number[];
+            /**
+             * First Dial Not Before
+             * Format: date-time
+             */
+            first_dial_not_before: string;
+            /** Last Skipped At */
+            last_skipped_at?: string | null;
+            /** Last Skipped Reason */
+            last_skipped_reason?: string | null;
+            /**
+             * Next Occurrence At
+             * Format: date-time
+             */
+            next_occurrence_at: string;
+            /** Until */
+            until?: string | null;
         };
         /** RegisterTemplateIn */
         RegisterTemplateIn: {
@@ -7876,6 +8301,73 @@ export interface operations {
             };
         };
     };
+    read_feature_flags_v1_admin_tenants__tenant_id__feature_flags_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureFlagsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_feature_flag_v1_admin_tenants__tenant_id__feature_flags__flag__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                flag: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeatureFlagIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureFlagChangeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     decide_v1_admin_tenants__tenant_id__first_campaign_review_post: {
         parameters: {
             query?: never;
@@ -9173,6 +9665,41 @@ export interface operations {
             };
         };
     };
+    set_recurrence_v1_campaigns__campaign_id__recurrence_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecurrenceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurrenceSetOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     resume_v1_campaigns__campaign_id__resume_post: {
         parameters: {
             query?: never;
@@ -10431,6 +10958,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    bulk_leads_v1_leads_bulk_post: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                search?: string | null;
+                agent_id?: string | null;
+                assigned_to?: string | null;
+                /** @description Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together. */
+                f?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadBulkIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadBulkOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

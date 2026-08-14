@@ -303,13 +303,74 @@ export function useScheduleCampaign(session: Session, campaignId: string | null)
   });
 }
 
-/** Cancel a pending start; the campaign returns to draft. */
+/**
+ * Cancel a pending start OR stop a repeat — one button, because it is one column.
+ *
+ * The response carries the status the campaign is ACTUALLY in afterwards: a campaign
+ * that was waiting goes back to `draft`, and one that is mid-dial keeps running, because
+ * stopping a repeat means "do not start this again" and never "abandon the calls going
+ * out now". The screen re-reads progress rather than assuming either.
+ */
 export function useUnscheduleCampaign(session: Session, campaignId: string | null) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () =>
       apiRequest<{ status: string }>(session, `/v1/campaigns/${campaignId}/schedule`, {
         method: "DELETE",
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["campaign", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign-check", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
+    },
+  });
+}
+
+/* ------------------------------------------------------------------ recurrence */
+
+/**
+ * The recurrence wire types, aliased from the generated client.
+ *
+ * Two fields carry the design and are worth reading here rather than in the server:
+ * `days` is ISO weekday numbers (1 = Monday … 7 = Sunday) and `at` is an IST wall clock
+ * — a repeat is a TIME OF DAY, never an instant, which is what keeps it free of
+ * month-end ambiguity. `last_skipped_at`/`last_skipped_reason` exist because a missed
+ * occurrence is SKIPPED rather than caught up (D-79), and a skip the client cannot see
+ * is a dial they will ask about.
+ */
+export type CampaignRecurrence = Schemas["RecurrenceOut"];
+export type NewRecurrence = Schemas["RecurrenceIn"];
+export type RecurrenceSet = Schemas["RecurrenceSetOut"];
+
+/**
+ * A `<input type="date">` value → the offset-carrying `date-time` the API demands for a
+ * repeat's end date.
+ *
+ * The +05:30 is written in rather than taken from the browser, for `scheduleStartAt`'s
+ * reason: an operator viewing the account from London (D-22) must not send a different
+ * instant than the client would for the same two digits. End of day, not midnight, so
+ * "until the 30th" includes the 30th — a repeat that stops the morning of the day the
+ * client typed is the kind of off-by-one that silently drops a run.
+ */
+export function recurrenceUntil(date: string): string | null {
+  if (!date) return null;
+  const candidate = `${date}T23:59:00+05:30`;
+  return Number.isNaN(new Date(candidate).getTime()) ? null : candidate;
+}
+
+/**
+ * Set (or replace) the repeat. The launch check is invalidated for the same reason
+ * `useScheduleCampaign` invalidates it: a repeating campaign is still answerable by
+ * "would this launch right now", and the server runs that identical gate on every
+ * occurrence.
+ */
+export function useSetRecurrence(session: Session, campaignId: string | null) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: NewRecurrence) =>
+      apiRequest<RecurrenceSet>(session, `/v1/campaigns/${campaignId}/recurrence`, {
+        method: "POST",
+        body: payload,
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["campaign", campaignId] });

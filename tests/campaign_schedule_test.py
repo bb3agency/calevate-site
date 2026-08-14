@@ -827,9 +827,13 @@ async def test_the_scan_does_not_leak_one_tenants_pending_start_to_another() -> 
 async def test_a_schedule_kind_this_build_cannot_run_is_never_fired_as_a_one_time_start(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Recurrence is NOT built (see `campaigns/scheduling.py`). The `kind` discriminator
-    is what makes that safe to say: the day a `weekly` schedule exists, this build must
-    leave it alone rather than run it once and look finished."""
+    """Two kinds have readers (`one_time`, `recurring`); anything else has none.
+
+    The `kind` discriminator is what let recurrence land without a migration, and it goes
+    on earning that: a shape a future build introduces — `monthly` here — must be left
+    alone by THIS one rather than fired once as a start and made to look finished. The
+    same fail-closed branch, now guarding the next addition instead of the last one.
+    """
     tenant_id, _, campaign_id = await _ready_campaign()
     async with tenant_session(tenant_id) as session:
         await schedule_campaign(
@@ -840,7 +844,7 @@ async def test_a_schedule_kind_this_build_cannot_run_is_never_fired_as_a_one_tim
         )
         await session.execute(
             text(
-                "UPDATE campaigns SET schedule = jsonb_set(schedule, '{kind}', '\"weekly\"') "
+                "UPDATE campaigns SET schedule = jsonb_set(schedule, '{kind}', '\"monthly\"') "
                 "WHERE id = :c"
             ),
             {"c": campaign_id},
@@ -1110,7 +1114,7 @@ async def test_a_tenant_the_scan_flagged_but_whose_schedule_is_unrunnable_starts
         )
         await session.execute(
             text("UPDATE campaigns SET schedule = CAST(:s AS jsonb) WHERE id = :c"),
-            {"s": f'{{"kind": "weekly", "start_at": "{start_at.isoformat()}"}}', "c": campaign_id},
+            {"s": f'{{"kind": "monthly", "start_at": "{start_at.isoformat()}"}}', "c": campaign_id},
         )
     assert await campaign_dispatch._fire_due_schedules(tenant_id) == 0
     assert (await _status(tenant_id, campaign_id))[0] == "scheduled"

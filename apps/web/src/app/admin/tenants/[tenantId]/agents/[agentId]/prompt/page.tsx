@@ -32,6 +32,7 @@ import {
   useTenantLanes,
   useTenantPending,
   useUndoChanges,
+  type ConcludeExperimentOut,
   type Experiment,
   type ExperimentVariant,
   type PendingState,
@@ -825,6 +826,43 @@ function voiceReading(voice: Voice): string {
 }
 
 /**
+ * What the Conclude button reports, including the ending it did not perform.
+ *
+ * Concluding is idempotent on the server: a second operator on the same screen, or a
+ * retry of a request whose response was lost, gets 200 and a test that ended exactly
+ * once — nothing is promoted or published a second time. That call's response carries
+ * the arm the test ENDED on and a null `new_version`, because no version was minted by
+ * it, and printing "as vnull" at an operator is how a correct server answer becomes a
+ * broken screen.
+ *
+ * The server states it outright as `changed`, and that is now what this reads. It used
+ * to derive the same fact from `promoted_label != null && new_version == null` because
+ * the generated client predated the field; the two agree by construction, but the
+ * derivation was a second way of knowing one thing and this is the first.
+ */
+function concludeMessage(data: ConcludeExperimentOut): string {
+  if (!data.promoted_label) {
+    // True of an ending with no promotion whether or not this call made it: either way
+    // the control is what callers keep hearing.
+    return "Stopped. Callers keep hearing the control script.";
+  }
+  if (!data.changed) {
+    return (
+      `This test had already ended, promoting variant ${data.promoted_label}. ` +
+      "Nothing was published again — reload to see the version it produced."
+    );
+  }
+  return (
+    `Promoted variant ${data.promoted_label} as v${data.new_version}.` +
+    (data.applied
+      ? data.engine_synced
+        ? " The voice platform has it."
+        : " The agent is not live, so nothing was sent to the voice platform."
+      : " It is STAGED — press Apply above to put it on live calls.")
+  );
+}
+
+/**
  * A/B script testing with conversion attribution (ROADMAP M3).
  *
  * THE ONE THING THIS PANEL MUST NOT DO is print a number that reads as a verdict. The
@@ -934,16 +972,7 @@ function ExperimentPanel({
               />
             )}
             {conclude.data && (
-              <p className="text-xs text-ink-muted">
-                {conclude.data.promoted_label
-                  ? `Promoted variant ${conclude.data.promoted_label} as v${conclude.data.new_version}.` +
-                    (conclude.data.applied
-                      ? conclude.data.engine_synced
-                        ? " The voice platform has it."
-                        : " The agent is not live, so nothing was sent to the voice platform."
-                      : " It is STAGED — press Apply above to put it on live calls.")
-                  : "Stopped. Callers keep hearing the control script."}
-              </p>
+              <p className="text-xs text-ink-muted">{concludeMessage(conclude.data)}</p>
             )}
           </>
         )}

@@ -11,6 +11,7 @@ from apps.api.campaigns import models as campaigns_models
 from apps.api.compliance import models as compliance_models
 from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
+from apps.api.flags import models as flags_models
 from apps.api.integrations import models as integrations_models
 from apps.api.kb import models as kb_models
 from apps.api.quality import models as quality_models
@@ -26,6 +27,7 @@ __all__ = [
     "campaigns_models",
     "compliance_models",
     "crm_models",
+    "flags_models",
     "integrations_models",
     "kb_models",
     "quality_models",
@@ -83,6 +85,12 @@ TENANT_TABLES = [
     # mitigation). Tenant data — what a reviewer decided about this account — read by
     # the campaign launch gate and by every dispatch tick.
     "first_campaign_reviews",
+    # One row per tenant per feature flag they are OFF the platform default for
+    # (SURFACES §1, migration 3a91c7e04d58). Tenant data in the sense that matters here:
+    # it is OUR configuration decision ABOUT one client, readable only through the admin
+    # surface, and no other tenant may see it. Absence is the default, so most tenants
+    # have no rows at all.
+    "tenant_feature_flags",
     "retention_policies",
     "deletion_requests",
     "inbound_webhooks",

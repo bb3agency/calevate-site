@@ -129,7 +129,12 @@ describe("the column chooser reaches the table AND the file", () => {
   it("renders exactly the columns the server resolved, in its order", async () => {
     await renderClientPage(<LeadsPage />, routes());
     const headers = (await screen.findAllByRole("columnheader")).map((h) => h.textContent);
-    expect(headers).toEqual(["Name", "Phone", "Budget band", "Updated"]);
+    // The leading "Select" is the bulk-selection column (slice AE), not a data column:
+    // it is a CONTROL the screen owns, so it is not part of the server's resolved list
+    // and it is deliberately absent from the CSV. The assertion still pins that the
+    // DATA columns are the server's, in the server's order, which is what this test is
+    // about — the mirroring between the table and the file.
+    expect(headers).toEqual(["Select", "Name", "Phone", "Budget band", "Updated"]);
   });
 
   it("sends a column choice to the list and the identical one to the export", async () => {

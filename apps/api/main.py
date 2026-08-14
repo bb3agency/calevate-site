@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from apps.api.core.bootstrap import create_app
 from apps.api.core.errors import install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
+from apps.api.flags.registry import assert_flag_registry_wellformed
 
 app: FastAPI = create_app(service="api", title="Calevate API", version="0.1.0")
 install_error_handlers(app)
@@ -48,6 +49,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.compliance.kyc_routes import router as kyc_router
     from apps.api.compliance.registration_routes import router as dlt_registration_router
     from apps.api.crm.routes import router as crm_router
+    from apps.api.flags.routes import router as feature_flags_router
     from apps.api.ingest.routes import router as ingest_router
     from apps.api.ingest.routes import sources_router as lead_sources_router
     from apps.api.integrations.routes import router as integrations_router
@@ -109,6 +111,11 @@ def _mount_routers(application: FastAPI) -> None:
     # package owns its admin publishing routes.
     application.include_router(first_campaign_router)
     application.include_router(first_campaign_admin_router)
+    # Per-tenant feature flags (SURFACES §1). Its own
+    # `/v1/admin/tenants/{tenant_id}/feature-flags` prefix, like every other per-tenant
+    # admin surface that owns its own table — the flags package owns `tenant_feature_flags`
+    # exactly as the compliance package owns `first_campaign_reviews`.
+    application.include_router(feature_flags_router)
     application.include_router(signup_router)
     # Both are literal paths under `/v1/billing` and neither carries a `{param}` at
     # that position, so declaration order is not load-bearing between them — but caps
@@ -130,3 +137,8 @@ _mount_routers(app)
 # route that needs a permission must declare one, asserted at startup rather than
 # discovered at first use.
 assert_policy_registry_complete(app)
+# The feature-flag registry, asserted at the same moment and for the same reason
+# (BACKEND-PATTERNS §7): `FlagName` is what `mypy` checks call sites against and `FLAGS`
+# is what the console offers, so a name in one and not the other is a flag that is either
+# unreachable from code or unsettable from the console.
+assert_flag_registry_wellformed()

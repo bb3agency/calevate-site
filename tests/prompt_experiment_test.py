@@ -17,6 +17,12 @@ What is pinned here, and why each one is worth a test:
    (copy-forward), the applied pointer moved by `publishing.apply_to_live`, the engine
    holding the promoted script. Not a second way to change what an agent says.
 6. **An experiment can be ENDED**, with or without a winner, and cannot be started twice.
+   Ending answers the THREE questions `db/transition.py::transition_status` names, which
+   this path used to answer with one 409 apiece: an agent with no test (or a neighbour's
+   agent, which RLS makes the same thing) is a 404; a repeat of the ending the test
+   already has is an idempotent success that promotes nothing twice and writes no second
+   audit row; a DIFFERENT ending is a 409 that names the one it found. Two concurrent
+   Conclude presses end it exactly once.
 7. **The fast lane still reaches a running experiment**: a call-cap change republishes
    the arms, so the cost-runaway guard does not silently stop guarding mid-test.
 8. **Inbound is attributed by FACT or not at all.** A call the engine says was answered
@@ -34,21 +40,27 @@ Run: uv run pytest -q tests/prompt_experiment_test.py
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents import experiments, prompts
+from apps.api.agents import experiment_routes, experiments, prompts
 from apps.api.agents import publishing as publishing_service
 from apps.api.agents.service import dispatch_call
-from apps.api.core.errors import ProblemError
+from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import FakeEngine
 from apps.workers.pipeline import ingest_engine_event
 from calevate_shared.engine import CallContext
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = [pytest.mark.rls]
 
@@ -420,11 +432,180 @@ async def test_an_experiment_can_be_ended_without_a_winner() -> None:
 
 
 async def test_concluding_twice_is_a_conflict_not_a_second_promotion() -> None:
+    """A DIFFERENT ending is the one genuine conflict, and the refusal has to NAME the
+    ending it found — "conflict" with no state in it leaves an operator with nothing to
+    reload towards (`db/transition.py`'s contract)."""
     tenant_id, agent_id, _, _ = await _running()
     await experiments.conclude(tenant_id=tenant_id, agent_id=agent_id, promote_label="B")
     with pytest.raises(ProblemError) as caught:
         await experiments.conclude(tenant_id=tenant_id, agent_id=agent_id, promote_label="A")
     assert caught.value.code == "no_running_experiment"
+    assert caught.value.status == 409
+    assert "variant B" in caught.value.detail, "the 409 does not say how the test ended"
+
+    async with tenant_session(tenant_id) as session:
+        live = (
+            await session.execute(
+                text(
+                    "SELECT pv.body FROM agents a JOIN prompt_versions pv "
+                    "ON pv.id = a.live_prompt_id WHERE a.id = :a"
+                ),
+                {"a": agent_id},
+            )
+        ).scalar()
+    assert str(live) == CHALLENGER, "the refused promotion changed the live script anyway"
+
+
+# --- 5b. the three answers a conclude owes its caller -------------------------
+#
+# D-65 established the discriminator in `db/transition.py` and named this path as one it
+# had not audited. It answered ONE 409 (`no_running_experiment`) to all three questions:
+# an agent that never ran a test, a neighbour's agent that RLS hides, and a retry of a
+# conclude that had already succeeded.
+
+
+async def test_an_agent_with_no_script_test_is_a_404_not_a_409() -> None:
+    """A 409 asserts a conflict with a resource that is there. Neither of these is:
+    the first agent has never run a test, and the second id names nothing at all.
+    Telling an operator "conflict" for a typo sends them looking for the test."""
+    tenant_id, agent_id, _ = await _agent()
+
+    with pytest.raises(ProblemError) as never_tested:
+        await experiments.conclude(tenant_id=tenant_id, agent_id=agent_id, promote_label=None)
+    assert never_tested.value.status == 404, never_tested.value.detail
+
+    with pytest.raises(ProblemError) as no_such_agent:
+        await experiments.conclude(tenant_id=tenant_id, agent_id=uuid.uuid4(), promote_label=None)
+    assert no_such_agent.value.status == 404, no_such_agent.value.detail
+
+
+async def test_another_tenants_experiment_is_a_404_and_is_left_running() -> None:
+    """Hard rule 1. Under RLS the neighbour's rows are invisible, so the honest answer
+    is the one a typo gets — a 409 would confirm to tenant B that tenant A has a script
+    test on this agent id."""
+    tenant_a, agent_a, _, _ = await _running()
+    tenant_b, _, _ = await _agent()
+
+    with pytest.raises(ProblemError) as caught:
+        await experiments.conclude(tenant_id=tenant_b, agent_id=agent_a, promote_label="B")
+
+    assert caught.value.status == 404, caught.value.detail
+    async with tenant_session(tenant_a) as session:
+        status = (
+            await session.execute(
+                text("SELECT status FROM prompt_experiments WHERE agent_id = :a"), {"a": agent_a}
+            )
+        ).scalar()
+    assert str(status) == "running", "a neighbour ended tenant A's test"
+
+
+async def test_repeating_a_conclude_promotes_nothing_a_second_time() -> None:
+    """The retry of a lost response, and the second operator on the same screen.
+
+    RFC 9110 §9.2.2: N identical requests have the effect of one. So it is a SUCCESS —
+    the test has ended the way the caller asked — and `changed=False` says this call is
+    not what ended it. What must not happen is a second copy-forward: two promotions of
+    one arm would leave the agent on v4 of a script it already ran as v3, with an Apply
+    banner for a change nobody made.
+    """
+    tenant_id, agent_id, _, _ = await _running()
+
+    first = await experiments.conclude(tenant_id=tenant_id, agent_id=agent_id, promote_label="B")
+    second = await experiments.conclude(tenant_id=tenant_id, agent_id=agent_id, promote_label="B")
+
+    assert first.changed is True and first.new_version == 3
+    assert second.changed is False
+    # The ending the test HAS, not a claim about what this call did — the console prints
+    # the arm, and blanking it would read as "stopped, kept the control".
+    assert second.promoted_label == "B"
+    # ...and nothing this call performed, because it performed nothing.
+    assert (second.new_version, second.applied, second.engine_synced) == (None, False, False)
+
+    async with tenant_session(tenant_id) as session:
+        versions = (
+            await session.execute(
+                text("SELECT count(*) FROM prompt_versions WHERE agent_id = :a"), {"a": agent_id}
+            )
+        ).scalar()
+    assert versions == 3, "the repeat minted a second promotion version"
+
+
+async def test_repeating_a_stop_with_no_winner_is_a_success_too() -> None:
+    """`promote: null` is an ending in its own right, so a repeat of it is a repeat."""
+    tenant_id, agent_id, _, _ = await _running()
+
+    first = await experiments.conclude(tenant_id=tenant_id, agent_id=agent_id, promote_label=None)
+    second = await experiments.conclude(tenant_id=tenant_id, agent_id=agent_id, promote_label=None)
+
+    assert first.changed is True
+    assert second.changed is False
+    assert (second.promoted_label, second.new_version) == (None, None)
+
+
+async def test_promoting_over_a_test_that_was_stopped_without_a_winner_is_a_409() -> None:
+    """The mirror of the case above: "stopped, kept the control" is not a repeat of
+    "promote B", and answering 200 would tell the operator B is live when it is not."""
+    tenant_id, agent_id, _, _ = await _running()
+    await experiments.conclude(tenant_id=tenant_id, agent_id=agent_id, promote_label=None)
+
+    with pytest.raises(ProblemError) as caught:
+        await experiments.conclude(tenant_id=tenant_id, agent_id=agent_id, promote_label="B")
+
+    assert caught.value.status == 409
+    assert "no promotion" in caught.value.detail
+
+
+async def test_two_concurrent_concludes_end_the_test_exactly_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two operators pressing Promote B at the same moment, on two connections.
+
+    The CAS in `transition_status` is what makes exactly one of them the one that ended
+    it. A read-then-write would let both read `running`, both write, both mint a
+    copy-forward version and both write an audit row for one ending.
+
+    The barrier is what makes this deterministic rather than lucky — the same argument
+    `campaigns_test.py::test_two_concurrent_pauses...` makes. It is installed on
+    `tenant_session` rather than inside the service, so it holds whatever the transition
+    is implemented with: both callers are inside their transactions, past nothing and
+    before every statement, when they are released.
+    """
+    tenant_id, agent_id, _, _ = await _running()
+    both_inside = asyncio.Barrier(2)
+    real_session = experiments.tenant_session
+
+    @asynccontextmanager
+    async def barriered(tid: uuid.UUID) -> AsyncIterator[AsyncSession]:
+        async with real_session(tid) as session:
+            # Bounded, so a change that stops opening a session here fails this test
+            # instead of hanging the suite.
+            await asyncio.wait_for(both_inside.wait(), timeout=15)
+            yield session
+
+    monkeypatch.setattr(experiments, "tenant_session", barriered)
+
+    async def end() -> experiments.ConcludeResult:
+        return await experiments.conclude(tenant_id=tenant_id, agent_id=agent_id, promote_label="B")
+
+    outcomes = await asyncio.gather(end(), end())
+
+    assert sorted(o.changed for o in outcomes) == [False, True], (
+        f"two writers both ended one test: {[o.changed for o in outcomes]}"
+    )
+    assert {o.promoted_label for o in outcomes} == {"B"}, "the loser lost the ending too"
+    async with tenant_session(tenant_id) as session:
+        versions = (
+            await session.execute(
+                text("SELECT count(*) FROM prompt_versions WHERE agent_id = :a"), {"a": agent_id}
+            )
+        ).scalar()
+        concluded = (
+            await session.execute(
+                text("SELECT count(*) FROM prompt_experiments WHERE status = 'concluded'")
+            )
+        ).scalar()
+    assert versions == 3, "both callers minted a promotion version"
+    assert concluded == 1
 
 
 # --- 6. refusals --------------------------------------------------------------
@@ -694,3 +875,106 @@ async def test_a_call_cap_change_reaches_the_running_arms() -> None:
             ).all()
         ]
     assert refs and all(engine._agents[ref].max_call_duration_s == 120 for ref in refs)
+
+
+# --- 9. the audit row belongs to the ending, not to the button ----------------
+
+
+def _conclude_app() -> FastAPI:
+    """The conclude endpoint on its own router, with the error ladder installed.
+
+    Assembled here rather than reached through `main.py` for the reason
+    `two_speed_publishing_routes_test` gives: the router is adopted by
+    `agents/routes.py`, and asserting against the assembled router catches a break when
+    it is written rather than when somebody remembers where it is mounted.
+    """
+    application = FastAPI()
+    install_error_handlers(application)
+    application.include_router(experiment_routes.router)
+    return application
+
+
+async def _admin_token() -> str:
+    """A real `admin_users` row plus the dev-token spelling of its realm — the idiom
+    `commercial_terms_test._make_admin` uses. `operator` holds `agents:write`."""
+    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
+                "VALUES (:id, :cid, 'Ops', 'operator', now(), now())"
+            ),
+            {"id": uuid.uuid4(), "cid": clerk_id},
+        )
+    return f"dev:admin:{clerk_id}"
+
+
+async def _conclude_over_http(
+    token: str, tenant_id: uuid.UUID, agent_id: uuid.UUID, promote: str | None
+) -> Response:
+    async with AsyncClient(
+        transport=ASGITransport(app=_conclude_app()), base_url="http://api"
+    ) as client:
+        return await client.post(
+            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment/conclude",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"promote": promote},
+        )
+
+
+async def _conclusion_audit_rows(tenant_id: uuid.UUID) -> list[str]:
+    async with tenant_session(tenant_id) as session:
+        return [
+            str(row[0])
+            for row in (
+                await session.execute(
+                    text(
+                        "SELECT action FROM audit_log WHERE tenant_id = :t "
+                        "AND action = 'agent.experiment_concluded' ORDER BY created_at"
+                    ),
+                    {"t": tenant_id},
+                )
+            ).all()
+        ]
+
+
+async def test_a_repeated_conclude_writes_no_second_audit_row() -> None:
+    """The defect D-65 fixed for KB approve, on this endpoint.
+
+    `audit_log` is append-only (hard rule 4), so a row written for an ending that did not
+    happen is not correctable — it is a second "concluded, promoted B" with a different
+    actor and a later timestamp, in the one log that has to stay readable a year from
+    now. The repeat is a 200 BECAUSE the intent already holds, and it is silent in the
+    ledger for exactly the same reason.
+    """
+    tenant_id, agent_id, _, _ = await _running()
+    token = await _admin_token()
+
+    first = await _conclude_over_http(token, tenant_id, agent_id, "B")
+    second = await _conclude_over_http(token, tenant_id, agent_id, "B")
+
+    assert first.status_code == 200, first.text
+    assert first.json()["changed"] is True
+    assert second.status_code == 200, second.text
+    assert second.json()["changed"] is False
+    assert second.json()["promoted_label"] == "B"
+    assert await _conclusion_audit_rows(tenant_id) == ["agent.experiment_concluded"], (
+        "the audit log records the ending, not the button press"
+    )
+
+
+async def test_the_endpoint_gives_404_for_no_test_and_409_for_another_ending() -> None:
+    """The two refusals as an operator meets them: status codes, not exceptions."""
+    tenant_id, agent_id, _ = await _agent()
+    token = await _admin_token()
+
+    missing = await _conclude_over_http(token, tenant_id, agent_id, None)
+    assert missing.status_code == 404, missing.text
+    assert missing.headers["content-type"].startswith("application/problem+json")
+
+    running_tenant, running_agent, _, _ = await _running()
+    assert (await _conclude_over_http(token, running_tenant, running_agent, "B")).status_code == 200
+    clash = await _conclude_over_http(token, running_tenant, running_agent, "A")
+    assert clash.status_code == 409, clash.text
+    assert "variant B" in clash.json()["detail"]
+    assert await _conclusion_audit_rows(running_tenant) == ["agent.experiment_concluded"]

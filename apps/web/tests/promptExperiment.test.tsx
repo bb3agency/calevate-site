@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
@@ -48,6 +48,7 @@ const HISTORY_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/prompt`;
 const PENDING_PATH = `/v1/agents/${AGENT}/pending`;
 const LANES_PATH = "/v1/agents/lanes";
 const EXPERIMENT_PATH = `/v1/agents/${AGENT}/experiment`;
+const CONCLUDE_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/experiment/conclude`;
 
 const RULES = {
   metrics: [
@@ -359,5 +360,56 @@ describe("the A/B script test panel", () => {
 
     await screen.findByText(/A test needs two prompt versions/);
     expect(screen.queryByRole("button", { name: /Start test/ })).toBeNull();
+  });
+
+  it("reports a promotion this press performed, with the version it minted", async () => {
+    await render({
+      [EXPERIMENT_PATH]: state({ experiment: experiment() }),
+      [`POST ${CONCLUDE_PATH}`]: {
+        experiment_id: "0192f0aa-7777-7000-8000-0000000000d1",
+        promoted_label: "B",
+        new_version: 3,
+        applied: true,
+        engine_synced: true,
+        changed: true,
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Promote B (v2)" }));
+
+    await screen.findByText(/Promoted variant B as v3\./);
+    expect(screen.getByText(/The voice platform has it\./)).toBeTruthy();
+  });
+
+  it("does not report a promotion for a conclude that ended nothing", async () => {
+    /**
+     * The server is idempotent about ending a test: the second operator on this screen,
+     * and the retry of a request whose response was lost, both get 200 with the arm the
+     * test ENDED on and a null version — nothing was promoted or published twice.
+     *
+     * Rendering that response through the success branch printed "Promoted variant B as
+     * vnull. It is STAGED — press Apply above", which is two false statements about the
+     * platform's state at the operator who is least able to check: one who has just been
+     * beaten to the button by a colleague.
+     */
+    const { container } = await render({
+      [EXPERIMENT_PATH]: state({ experiment: experiment() }),
+      [`POST ${CONCLUDE_PATH}`]: {
+        experiment_id: "0192f0aa-7777-7000-8000-0000000000d1",
+        promoted_label: "B",
+        new_version: null,
+        applied: false,
+        engine_synced: false,
+        changed: false,
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Promote B (v2)" }));
+
+    await screen.findByText(/This test had already ended, promoting variant B\./);
+    expect(container.textContent).not.toContain("vnull");
+    // The success branch's staged-change sentence, which would send this operator to
+    // press Apply for a version that does not exist.
+    expect(container.textContent).not.toContain("It is STAGED");
   });
 });
