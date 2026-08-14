@@ -13,6 +13,12 @@ import {
 } from "@/lib/api/admin";
 
 import {
+  OPS_SECRETS_PATH,
+  secretConfirmation,
+  type KekState,
+  type SecretsList,
+} from "@/lib/api/opsSecrets";
+import {
   OPS_CONFIG_PATH,
   configConfirmation,
   revertConfirmation,
@@ -105,9 +111,61 @@ function routes(
     [PLATFORM]: platformAnswer,
     [ADMIN_ME_PATH]: identity,
     [OPS_CONFIG_PATH]: configList(),
+    [OPS_SECRETS_PATH]: secretsList(),
+    [`${OPS_SECRETS_PATH}/kek`]: kekState(),
     ...extra,
   };
 }
+
+/** Two credentials on purpose: one INSTALLED and one that is not, plus one shadowed by
+ *  the environment — three different pieces of markup that a single-row fixture would
+ *  leave unscanned. */
+function secretsList(over: Partial<SecretsList> = {}): SecretsList {
+  return { ...SECRETS_FIXTURE, ...over };
+}
+
+const SECRETS_FIXTURE: SecretsList = {
+  secrets: [
+    {
+      key: "bolna_api_key",
+      env_var: "BOLNA_API_KEY",
+      installed: true,
+      version: 2,
+      versions: 2,
+      last_four: "9f3c",
+      kek_id: 1633907231,
+      created_at: "2026-08-10T06:30:00Z",
+      created_by: "Ops",
+      shadowed_by_env: false,
+      testable: true,
+    },
+    {
+      key: "sarvam_api_key",
+      env_var: "SARVAM_API_KEY",
+      installed: false,
+      version: 0,
+      versions: 0,
+      last_four: "",
+      kek_id: 0,
+      created_at: null,
+      created_by: null,
+      shadowed_by_env: true,
+      testable: true,
+    },
+  ],
+};
+
+function kekState(over: Partial<KekState> = {}): KekState {
+  return { ...KEK_FIXTURE, ...over };
+}
+
+const KEK_FIXTURE: KekState = {
+  active_kek_id: 1633907231,
+  has_retired_kek: false,
+  versions: 2,
+  current: 2,
+  pending: 0,
+};
 
 /** One managed setting, as `GET /v1/ops/config` returns it. */
 function configField(over: Partial<ConfigField> = {}): ConfigField {
@@ -1468,5 +1526,179 @@ describe("the platform configuration panel", () => {
     // The permission is NOT ops:manage — an operator who may run the recovery tools
     // still has no business switching the platform's voice engine (§7).
     expect(change.disabled).toBe(true);
+  });
+});
+
+/**
+ * Credentials and key management (PLATFORM-CONFIG §8 panels 3-4).
+ *
+ * Ranked by cost, worst first:
+ *
+ * 1. **No plaintext, on any screen, ever.** §7's rule is a property of the API, and this
+ *    asserts the console never grows a field for one — including through the `/test`
+ *    flow, which is the one place a credential is in the browser's memory.
+ * 2. **A read we could not make must not render as "not installed".** That reads as "this
+ *    platform has no Sarvam key", and an operator would install one over a working
+ *    credential. §52 at its highest stake on this screen.
+ * 3. **A credential the environment shadows says so.** Otherwise an operator rotates a
+ *    key here and the platform goes on using the one in `.env` — §4's precedence turning
+ *    into a silent no-op.
+ * 4. **`pending > 0` blocks the environment cleanup, in those words.** The whole point of
+ *    the key-management panel is that removing `PLATFORM_KEK_RETIRED` too early makes
+ *    rows permanently unreadable.
+ */
+describe("the credentials panel", () => {
+  it("never puts a credential on screen, including after a test", async () => {
+    const { container, calls } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [`POST ${OPS_SECRETS_PATH}/bolna_api_key/test`]: {
+          key: "bolna_api_key",
+          outcome: "accepted",
+          status: 200,
+          detail: "The vendor accepted this credential for one authenticated read.",
+          verified: false,
+          candidate_last_four: "cdef",
+        },
+      }),
+    );
+
+    await screen.findByText("bolna_api_key");
+    fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
+    const secret = "bn-live-secret-abcdef";
+    const [input] = document.querySelectorAll('input[type="password"]');
+    fireEvent.change(input, { target: { value: secret } });
+    fireEvent.click(screen.getByRole("button", { name: /Test with the vendor/ }));
+
+    await screen.findByText("The vendor accepted this credential");
+    // The value went to the API and came back nowhere. The response carries four
+    // characters and the screen shows those four and nothing more.
+    expect(container.textContent).not.toContain(secret);
+    expect(container.textContent).toContain("…cdef");
+    // And the test STORED nothing: no PUT was made.
+    expect(calls.some((c) => c.method === "PUT")).toBe(false);
+  });
+
+  it("marks an unverified probe as indicative rather than authoritative", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [`POST ${OPS_SECRETS_PATH}/bolna_api_key/test`]: {
+          key: "bolna_api_key",
+          outcome: "rejected",
+          status: 401,
+          detail: "The vendor refused this credential.",
+          verified: false,
+          candidate_last_four: "wxyz",
+        },
+      }),
+    );
+    await screen.findByText("bolna_api_key");
+    fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
+    fireEvent.change(document.querySelector('input[type="password"]')!, {
+      target: { value: "a-wrong-key-wxyz" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Test with the vendor/ }));
+
+    await screen.findByText("The vendor REFUSED this credential");
+    // OPERATIONS §2: an unverified vendor behaviour is a MARKED assumption.
+    expect(container.textContent).toContain("not been confirmed against the live vendor");
+  });
+
+  it("refuses to report 'not installed' from a read that failed", async () => {
+    renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [OPS_SECRETS_PATH]: problem(503, { title: "Service unavailable" }),
+      }),
+    );
+    await screen.findByText("We could not read which credentials are installed");
+    expect(screen.queryByText("bolna_api_key")).toBeNull();
+  });
+
+  it("says when a stored credential is inert because the environment sets it", async () => {
+    const { container } = renderAdminPage(<OpsPage />, routes(platform()));
+    await screen.findByText("sarvam_api_key");
+    expect(container.textContent).toContain("SARVAM_API_KEY");
+    expect(container.textContent).toContain("the environment always wins");
+  });
+
+  it("sends the key-bound confirmation when installing", async () => {
+    const { calls } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [`PUT ${OPS_SECRETS_PATH}/bolna_api_key`]: {
+          ...SECRETS_FIXTURE.secrets[0],
+          version: 3,
+          versions: 3,
+        },
+      }),
+    );
+    await screen.findByText("bolna_api_key");
+    fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
+    fireEvent.change(document.querySelector('input[type="password"]')!, {
+      target: { value: "bn-live-new-key-0001" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/rotating after/), {
+      target: { value: "vendor breach notice" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("BOLNA_API_KEY"), {
+      target: { value: "BOLNA_API_KEY" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Rotate$/ }));
+
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    const write = calls.find((c) => c.method === "PUT");
+    expect(write?.headers["X-Confirm-Action"]).toBe(secretConfirmation("bolna_api_key"));
+  });
+});
+
+describe("the key-management panel", () => {
+  it("tells the operator NOT to remove the retired key while any DEK is pending", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [`${OPS_SECRETS_PATH}/kek`]: kekState({
+          has_retired_kek: true,
+          versions: 5,
+          current: 2,
+          pending: 3,
+        }),
+      }),
+    );
+    await screen.findByText("3 stored versions are still wrapped under another key");
+    // The sentence that prevents permanent data loss, in the imperative.
+    expect(container.textContent).toContain(
+      "Do not remove PLATFORM_KEK_RETIRED from the environment yet",
+    );
+  });
+
+  it("names the versions a rewrap could not open rather than counting them away", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [`POST ${OPS_SECRETS_PATH}/kek/rewrap`]: {
+          examined: 4,
+          rewrapped: 3,
+          unreadable: ["sarvam_api_key#1"],
+          active_kek_id: 1633907231,
+        },
+      }),
+    );
+    await screen.findByText("Every stored key is wrapped under the current KEK");
+    fireEvent.change(screen.getByPlaceholderText("REWRAP"), { target: { value: "REWRAP" } });
+    fireEvent.click(screen.getByRole("button", { name: /Re-wrap every key/ }));
+
+    await screen.findByText("3 of 4 versions re-wrapped");
+    // A row nobody can open is the one that will be LOST, so it is named.
+    expect(container.textContent).toContain("sarvam_api_key#1");
+    expect(container.textContent).toContain("will be lost if the retired key is removed");
+  });
+
+  it("keeps the rewrap dead for a session without platform:secrets", async () => {
+    renderAdminPage(<OpsPage />, routes(platform(), OPERATOR));
+    await screen.findByText("Key management");
+    const button = screen.getByRole("button", { name: /Re-wrap every key/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
   });
 });

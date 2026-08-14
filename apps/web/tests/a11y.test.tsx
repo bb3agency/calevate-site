@@ -348,6 +348,48 @@ const PLATFORM = {
  * refusal sentence with the variable name in it — so a one-row fixture would scan half
  * the panel.
  */
+/** One installed credential and one that is not — different markup, so a one-row
+ *  fixture would scan half the panel. Nothing here carries a value: there is no field
+ *  on the wire that could. */
+const OPS_SECRETS = {
+  secrets: [
+    {
+      key: "bolna_api_key",
+      env_var: "BOLNA_API_KEY",
+      installed: true,
+      version: 2,
+      versions: 2,
+      last_four: "9f3c",
+      kek_id: 1633907231,
+      created_at: "2026-08-10T06:30:00Z",
+      created_by: "Ops",
+      shadowed_by_env: false,
+      testable: true,
+    },
+    {
+      key: "sarvam_api_key",
+      env_var: "SARVAM_API_KEY",
+      installed: false,
+      version: 0,
+      versions: 0,
+      last_four: "",
+      kek_id: 0,
+      created_at: null,
+      created_by: null,
+      shadowed_by_env: true,
+      testable: true,
+    },
+  ],
+};
+
+const OPS_KEK = {
+  active_kek_id: 1633907231,
+  has_retired_kek: false,
+  versions: 2,
+  current: 2,
+  pending: 0,
+};
+
 const OPS_CONFIG = {
   fields: [
     {
@@ -1151,6 +1193,8 @@ const ADMIN_SCREENS: Screen[] = [
       "/v1/admin/me": ADMIN_ME,
       "/v1/ops/platform": PLATFORM,
       "/v1/ops/config": OPS_CONFIG,
+      "/v1/ops/secrets": OPS_SECRETS,
+      "/v1/ops/secrets/kek": OPS_KEK,
     },
   },
   {

@@ -36,6 +36,15 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": "prompt history, admin only",
     "/v1/ops/platform": "the platform switches — superadmin surface",
     "/v1/ops/audit/verify": "the audit chain check — superadmin surface",
+    "/v1/ops/secrets": (
+        "installed credentials — superadmin surface, and the one list a view-as session "
+        "must never reach. It returns no plaintext at all, so hiding it from "
+        "impersonation costs a support person nothing"
+    ),
+    "/v1/ops/secrets/kek": (
+        "key-management state — superadmin surface, and it names no credential at all: "
+        "a KEK fingerprint and two counts"
+    ),
     "/v1/ops/config": (
         "platform configuration — superadmin surface, and the one thing a view-as "
         "session has no business seeing: it is OUR deployment's settings, not the "

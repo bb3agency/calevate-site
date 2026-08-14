@@ -53,60 +53,6 @@ import type { components } from "./schema";
 
 type Schemas = components["schemas"];
 
-/* ==========================================================================
- * TEMPORARY HAND-WRITTEN TYPES — DELETE THIS ENTIRE BLOCK AFTER `pnpm gen:api`
- * ==========================================================================
- *
- * D-89 added `POST /v1/admin/tenants/{tenant_id}/credits/restatements` and one field to
- * `CreditsOut`. `schema.d.ts` is regenerated centrally, so until that lands these mirror
- * `apps/api/billing/credit_routes.py` FIELD FOR FIELD.
- *
- * AFTER REGENERATION, restore exactly this — nothing else in this file changes:
- *
- *   export type Payment = Schemas["PaymentOut"];
- *   export type Credits = Schemas["CreditsOut"];
- *   export type RestatementIn = Schemas["RestatementIn"];
- *   export type RestatementResult = Schemas["RestatementOut"];
- *
- * …then delete `PaymentShape`, `RestatementInShape` and `RestatementOutShape` below.
- *
- * OPTIONALITY IS THE TRAP THIS BLOCK HAS TO GET RIGHT: a Pydantic field WITH A DEFAULT
- * generates an OPTIONAL TypeScript property, so a hand-written `required` breaks on the
- * swap. Every field mirrored here is declared on the Python model with no default —
- * deliberately, the rule `ChainVerifyOut` follows — so every one is required, and
- * `corrected_amount_inr` is `number | string` because that is what the generator emits
- * for a `Decimal` (Pydantic accepts both; the route REFUSES the number — see the header).
- */
-
-/** Mirrors `credit_routes.PaymentOut`. */
-interface PaymentShape {
-  payment_ref: string;
-  credited_inr: string;
-  entries: number;
-  first_at: string;
-}
-
-/** Mirrors `credit_routes.RestatementIn`. */
-interface RestatementInShape {
-  payment_ref: string;
-  corrected_amount_inr: number | string;
-  reason: string;
-}
-
-/** Mirrors `credit_routes.RestatementOut`. */
-interface RestatementOutShape {
-  tenant_id: string;
-  entry_id: string;
-  payment_ref: string;
-  ref: string;
-  added_inr: string;
-  credited_inr: string;
-  balance_inr: string;
-  is_low: boolean;
-  recorded: boolean;
-}
-
-/* ===================== end of the hand-written block ===================== */
 
 /**
  * One line of `credit_ledger`. Every amount is exact digits — never a number.
@@ -132,13 +78,13 @@ export type LedgerEntry = Schemas["LedgerEntryOut"];
  * restatement is visible AS one, which is the point — reconciliation must see one bank
  * transfer, not two references invented to fit around an append-only ledger.
  */
-export type Payment = PaymentShape;
+export type Payment = Schemas["PaymentOut"];
 
 /**
  * The wallet: balance, the server's low-balance verdict, the recent entries — and the
  * bank transfers behind them.
  */
-export type Credits = Schemas["CreditsOut"] & { payments: Payment[] };
+export type Credits = Schemas["CreditsOut"];
 
 /**
  * The adjustment request body. `amount_inr` is a POSITIVE magnitude, and it is sent as
@@ -501,10 +447,10 @@ export function restatementsPath(tenantId: string): string {
 }
 
 /** The request body. `corrected_amount_inr` is sent as a STRING; see the header. */
-export type RestatementIn = RestatementInShape;
+export type RestatementIn = Schemas["RestatementIn"];
 
 /** The answer. `recorded: false` means this restatement was already made. */
-export type RestatementResult = RestatementOutShape;
+export type RestatementResult = Schemas["RestatementOut"];
 
 /**
  * The step-up string, copied from the route VERBATIM

@@ -9,12 +9,10 @@
  * on it — see apps/api/ingest/routes.py `test_webhook` for why that is not a
  * gate bypass.
  *
- * The ACTIVITY shapes are aliased from the generated schema. The DRY-RUN shapes below
- * are hand-written for one more regeneration only: `POST /v1/lead-sources/{id}/test`
- * NOW answers `LeadSourceDryRunOut` — it used to return a plain dict, which is why they
- * were written by hand in the first place — so they become
- * `Schemas["LeadSourceDryRunOut"]` and `Schemas["LeadSourceDryRunStepOut"]` at the next
- * `pnpm gen:api`, exactly as the activity types did. Mirrored field for field until then.
+ * Every shape here is aliased from the generated schema. The dry-run pair was
+ * hand-written while `POST /v1/lead-sources/{id}/test` still answered a plain dict; it
+ * now answers `LeadSourceDryRunOut` (D-84's untyped-2xx sweep), so the mirrors are gone
+ * and there is one source of truth again.
  */
 
 import {
@@ -55,21 +53,9 @@ export type IngestActivity = Schemas["IngestActivityOut"];
  * NAMES, and the number the dry run normalized to answer the question never leaves the
  * server (apps/api/ingest/routes.py).
  */
-export interface LeadSourceDryRunStep {
-  step: "field_mapping" | "phone_number" | "agent" | "form_consent" | "compliance_gate";
-  ok: boolean;
-  detail: string;
-  /** The compliance gate's rule on the gate step; null on every other. */
-  rule?: string | null;
-  /** Which configured fields the sample filled in — null where the question does not
-   *  apply, `[]` when the mapping matched nothing in this sample. */
-  mapped_fields?: string[] | null;
-}
+export type LeadSourceDryRunStep = Schemas["LeadSourceDryRunStepOut"];
 
-export interface LeadSourceDryRun {
-  would_call: boolean;
-  steps: LeadSourceDryRunStep[];
-}
+export type LeadSourceDryRun = Schemas["LeadSourceDryRunOut"];
 
 export function useIngestActivity(session: Session): UseQueryResult<IngestActivity> {
   return useQuery({

@@ -17,6 +17,11 @@ than records. Three independent failure modes, so three checks:
    row-level, covering both UPDATE and DELETE, running a function that raises. A
    trigger that merely exists (or exists and is DISABLEd) is decoration.
 
+ONE bounded exception exists and it is registered rather than hidden — see
+`BOUNDED_MUTATIONS`. It is not a weakening of rule 4: the DATABASE still refuses every
+mutation the registry does not describe, and the registry only silences check 1 for a
+statement check 3 would allow anyway.
+
 What it deliberately does NOT catch, so nobody reads a green run as total coverage:
 `session.delete(obj)` on an already-loaded instance, and SQL assembled at runtime from
 variables — neither is resolvable without running the program. Check 3 is the backstop
@@ -45,6 +50,38 @@ SEARCH_DIRS = ("apps", "packages", "scripts")
 # Migrations legitimately create and drop these tables, and the retention/erasure
 # workers legitimately read them — the checks below only match mutations.
 EXCLUDED_PARTS = ("alembic/versions", "__pycache__", "check_ledger_immutability.py")
+
+# (file, table) -> why a BOUNDED mutation is permitted there.
+#
+# THIS IS NOT AN EXEMPTION FROM HARD RULE 4, and the difference is the whole reason it is
+# safe. Check 3 — the database trigger — is unchanged and is the real enforcement: for
+# `platform_secrets` it permits an UPDATE only when every column except the WRAPPING
+# (`dek_wrapped`, `dek_nonce`, `kek_version`) and `retired_at` is byte-for-byte
+# unchanged, and RAISEs on everything else including every DELETE. So a statement this
+# registry lets past check 1 is one the database would still refuse if it touched a
+# ciphertext. What the entry buys is that check 1 stops reporting a statement that
+# CANNOT do the thing check 1 exists to prevent.
+#
+# It is keyed by FILE as well as by table, so the allowance is one module wide rather
+# than repo wide: the same UPDATE written anywhere else is still a finding, which
+# `tests/platform_secrets_test.py` proves by mutating the real tree.
+#
+# Fenced on three sides, like `RLS_EXEMPT_TENANT_COLUMNS`: an entry whose file no longer
+# exists is reported, an entry naming a table that is not append-only is reported, and a
+# reason too thin to review is reported.
+BOUNDED_MUTATIONS: dict[tuple[str, str], str] = {
+    ("apps/api/ops/secret_service.py", "platform_secrets"): (
+        "a KEK rotation must re-wrap historical DEKs in place, or the retired KEK could "
+        "never be removed from the environment without losing the ability to read "
+        "history — and retiring a superseded version stamps `retired_at`. Both are "
+        "UPDATEs of columns the trigger explicitly permits; the ciphertext, the version "
+        "and the created_* columns remain immutable, and DELETE is refused outright. "
+        "Migration b8e3f2a71c04 argues the boundary and records the rejected alternative."
+    ),
+}
+
+#: An allowance is an argument, not a checkbox — same floor as the RLS exemption list.
+MIN_ALLOWANCE_REASON = 80
 
 # Optional schema qualifier and/or quoting around the table name: `public."usage_events"`
 # is the same table as `usage_events`, and a guardrail that only knows the bare form is
@@ -196,7 +233,10 @@ def scan_source(path: Path, source: str, *, classes: dict[str, str] | None = Non
     except SyntaxError:
         tree = None
     findings: set[tuple[int, str, str]] = set()
+    allowed = {table for (file, table) in BOUNDED_MUTATIONS if str(path) == file}
     for lineno, table in _sql_hits(source, tree, ledgers):
+        if table in allowed:
+            continue
         findings.add((lineno, table, "raw SQL mutates"))
     if tree is not None:
         for lineno, table in _orm_hits(tree, classes):
@@ -204,6 +244,31 @@ def scan_source(path: Path, source: str, *, classes: dict[str, str] | None = Non
         for lineno, table in _cascade_hits(tree, classes):
             findings.add((lineno, table, "cascade delete reaches"))
     return [f"{path}:{line} {why} {table}" for line, table, why in sorted(findings)]
+
+
+def check_allowances(root: Path | None = None) -> list[str]:
+    """The registry itself stays honest.
+
+    A stale allowance is worse than none: the file gets renamed, the entry stays, and the
+    next module to land on that path inherits a pass it never earned. Same three fences
+    the RLS exemption list carries, for the same reason.
+    """
+    root = root or REPO_ROOT
+    failures: list[str] = []
+    for (file, table), reason in sorted(BOUNDED_MUTATIONS.items()):
+        if not (root / file).exists():
+            failures.append(f"{file}: STALE bounded-mutation allowance — no such file")
+        if table not in APPEND_ONLY_TABLES:
+            failures.append(
+                f"{file}/{table}: allowance names a table that is not append-only, so it "
+                "silences a check that was never running"
+            )
+        if len(reason.strip()) < MIN_ALLOWANCE_REASON:
+            failures.append(
+                f"{file}/{table}: allowance reason is too thin to review ({reason.strip()!r}). "
+                "State exactly which columns the trigger permits and why."
+            )
+    return failures
 
 
 def check_sources(root: Path | None = None, dirs: tuple[str, ...] = SEARCH_DIRS) -> list[str]:
@@ -310,6 +375,14 @@ def check_triggers() -> list[str]:
 
 
 def main() -> int:
+    # The registry first: a stale allowance would silence a real finding below it.
+    allowance_offenders = check_allowances()
+    if allowance_offenders:
+        print("LEDGER IMMUTABILITY: FAIL — the bounded-mutation registry is stale")
+        for offender in allowance_offenders:
+            print(f"  - {offender}")
+        return 1
+
     source_offenders = check_sources()
     if source_offenders:
         print("LEDGER IMMUTABILITY: FAIL — code mutates an append-only ledger")

@@ -125,6 +125,21 @@ _KEK_GENERATE_HINT = (
 )
 
 
+#: Everything "this does not open" can look like coming out of `AESGCM.decrypt`.
+#:
+#: `InvalidTag` is the expected one: right shape, wrong key or edited bytes. `ValueError`
+#: is the one that is easy to miss and was found by a test rather than by reading — a row
+#: whose `nonce` is not 8..128 bytes raises BEFORE any tag is checked, and an uncaught
+#: `ValueError` there does not refuse one credential, it kills the refresh that was
+#: loading ALL of them. A single malformed row (a hand-written INSERT, a truncated
+#: restore) would then freeze every process's configuration, which is the failure
+#: direction §6 exists to forbid.
+#:
+#: `ValueError` also covers the third case for free — `UnicodeDecodeError` is a subclass
+#: of it, and that is what a payload decrypting to non-UTF-8 bytes raises at `.decode()`.
+_UNOPENABLE = (InvalidTag, ValueError)
+
+
 @dataclass(frozen=True, slots=True)
 class Kek:
     """One key-encryption key and the id that names it wherever a DEK is stored.
@@ -367,7 +382,7 @@ def unseal(envelope: Envelope, *, context: str, ring: KekRing | None = None) -> 
         try:
             dek = AESGCM(candidate.material).decrypt(envelope.dek_nonce, envelope.dek_wrapped, aad)
             break
-        except InvalidTag:
+        except _UNOPENABLE:
             continue
     if dek is None:
         log.error("platform_secret_unwrappable", extra={"keys_tried": len(keys)})
@@ -385,7 +400,7 @@ def unseal(envelope: Envelope, *, context: str, ring: KekRing | None = None) -> 
         )
     try:
         return AESGCM(dek).decrypt(envelope.nonce, envelope.ciphertext, aad).decode()
-    except InvalidTag:
+    except _UNOPENABLE:
         # The DEK opened, so the KEK is right and the wrapping is intact — but the
         # payload's tag did not verify. Either the row was edited, or this envelope came
         # from a different context and was moved here. Both are incidents.
@@ -401,6 +416,56 @@ def unseal(envelope: Envelope, *, context: str, ring: KekRing | None = None) -> 
                 "security incident (PLATFORM-CONFIG §10)."
             ),
         ) from None
+
+
+def rewrap(envelope: Envelope, *, context: str, ring: KekRing | None = None) -> Envelope:
+    """Re-wrap one envelope's DEK under the ACTIVE KEK. The payload is not touched.
+
+    This is the operation the whole envelope design exists for (§3 rule 3): a KEK
+    rotation re-wraps 32 bytes per secret version rather than re-encrypting every
+    credential, so it is cheap, it needs no plaintext anywhere, and a row that has not
+    been reached yet still opens under the retired key while the run is in flight.
+
+    `ciphertext` and `nonce` are copied through UNREAD. There is deliberately no code
+    path here that could decrypt a credential: a rotation must be safe to run against a
+    live platform by an operator who is not entitled to read what they are re-wrapping.
+
+    Returns a NEW envelope with a fresh `dek_nonce` — never the old one. Re-using the
+    nonce while re-wrapping the same DEK under a DIFFERENT key would be harmless, and
+    re-wrapping under the SAME key with the same nonce would encrypt identical plaintext
+    under an identical (key, nonce) pair, which is AES-GCM's one catastrophic misuse.
+    Drawing fresh removes the question rather than reasoning about which case applies.
+    """
+    keys = ring or kek_ring()
+    aad = context.encode()
+    dek: bytes | None = None
+    for candidate in keys.all_keys:
+        try:
+            dek = AESGCM(candidate.material).decrypt(envelope.dek_nonce, envelope.dek_wrapped, aad)
+            break
+        except _UNOPENABLE:
+            continue
+    if dek is None:
+        log.error("platform_secret_unwrappable", extra={"keys_tried": len(keys.all_keys)})
+        raise ProblemError(
+            kind="dependency",
+            code="platform_secret_unwrappable",
+            title="A stored credential could not be unwrapped",
+            detail="No configured platform key opens this credential.",
+            remediation=(
+                "This row was written under a KEK this deployment no longer has. Put the "
+                "outgoing value in PLATFORM_KEK_RETIRED and run the rewrap again; until "
+                "then this row must not be treated as re-wrapped."
+            ),
+        )
+    dek_nonce = os.urandom(NONCE_BYTES)
+    return Envelope(
+        ciphertext=envelope.ciphertext,
+        nonce=envelope.nonce,
+        dek_wrapped=AESGCM(keys.active.material).encrypt(dek_nonce, dek, aad),
+        dek_nonce=dek_nonce,
+        kek_id=keys.active.kek_id,
+    )
 
 
 #: Below this length a "last four" IS the secret, so there is nothing to show.
@@ -432,6 +497,7 @@ __all__ = [
     "build_ring",
     "kek_ring",
     "last_four",
+    "rewrap",
     "seal",
     "unseal",
 ]

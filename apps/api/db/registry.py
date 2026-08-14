@@ -152,6 +152,16 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "PII and no credential — a key whose NAME marks it as a credential is refused "
         "at the boundary and lives encrypted in platform_secrets instead."
     ),
+    "platform_secrets": (
+        "platform-scoped, admin realm only (PLATFORM-CONFIG §5). Vendor credentials for "
+        "the whole deployment — one Bolna key, one Sarvam key — so there is no tenant "
+        "whose row this could be and it carries no tenant_id. Reachable only behind "
+        "`platform:secrets` in the admin realm, and NO route returns plaintext on any "
+        "surface: a session gives write access, never read access. What stops PII "
+        "leaking is that nothing here is PII and nothing here is readable — the only "
+        "plaintext fragment on disk is `last_four`. Per-TENANT credentials are a "
+        "different table (§11) and that one carries tenant_id + FORCEd RLS."
+    ),
     "platform_config_version": (
         "platform-scoped, admin realm only (PLATFORM-CONFIG §6). One integer that every "
         "process polls to learn whether the config changed; it is bumped by a trigger on "
@@ -172,4 +182,13 @@ APPEND_ONLY_TABLES = [
     # supersedes: DPDP §6(6) requires withdrawal to be as easy as consent, not that it
     # erase the evidence of the consent that was live when we sent last month's alerts.
     "whatsapp_alert_optin_ledger",
+    # Vendor credentials, versioned (PLATFORM-CONFIG §5). A new value is a new VERSION so
+    # that "which key was live when this call was billed?" stays answerable a year later.
+    # Its trigger is NOT the blanket `calevate_forbid_mutation` the others carry: a KEK
+    # rotation must re-wrap historical DEKs in place, or the retired KEK could never be
+    # removed from the environment. The trigger permits exactly `dek_wrapped`,
+    # `dek_nonce`, `kek_version` and `retired_at` to change and RAISEs on everything else
+    # including every DELETE — migration b8e3f2a71c04 argues it and records the rejected
+    # alternative.
+    "platform_secrets",
 ]

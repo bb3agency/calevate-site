@@ -282,6 +282,29 @@ def test_a_ciphertext_moved_to_another_key_s_row_does_not_open() -> None:
     assert raised.value.code == "platform_secret_unwrappable"
 
 
+def test_a_structurally_malformed_row_refuses_instead_of_raising() -> None:
+    """FOUND BY A TEST, NOT BY READING, and it is the difference between one bad
+    credential and a frozen fleet.
+
+    `AESGCM.decrypt` raises `ValueError` — not `InvalidTag` — when the NONCE is not
+    8..128 bytes, because it never gets as far as checking a tag. An unhandled
+    `ValueError` there does not refuse one row; it escapes the background refresh that
+    was loading every credential, so a single malformed row (a hand-written INSERT, a
+    truncated restore) would stop every process picking up any configuration at all.
+    That is the failure direction §6 forbids, arrived at from an unexpected angle.
+    """
+    ring = _ring()
+    for broken in (
+        Envelope(ciphertext=b"", nonce=b"", dek_wrapped=b"", dek_nonce=b"", kek_id=0),
+        Envelope(
+            ciphertext=b"\x00", nonce=b"\x00", dek_wrapped=b"\x00", dek_nonce=b"\x00", kek_id=1
+        ),
+    ):
+        with pytest.raises(ProblemError) as raised:
+            unseal(broken, context=CONTEXT, ring=ring)
+        assert raised.value.code == "platform_secret_unwrappable"
+
+
 # --- the one fragment that may be stored --------------------------------------
 
 

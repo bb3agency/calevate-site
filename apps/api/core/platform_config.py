@@ -72,7 +72,7 @@ import time
 from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from calevate_shared.config import Settings
 from pydantic import TypeAdapter, ValidationError
@@ -89,6 +89,9 @@ from apps.api.core.settings import (
     env_var_for,
 )
 from apps.api.db.session import untenanted_session
+
+if TYPE_CHECKING:  # a cycle at runtime, a plain name to the type checker
+    from apps.api.ops.secret_service import ResolvedSecrets
 
 log = get_logger(__name__)
 
@@ -425,6 +428,21 @@ async def _read_rows() -> dict[str, Any]:
     return {str(key): value for key, value in rows}
 
 
+async def _read_secrets() -> ResolvedSecrets:
+    """Decrypt the current version of every stored credential, for this process.
+
+    A LOCAL import, and deliberately: `ops.secret_service` imports this module for
+    `is_secret_key`, so a module-level import here would be a cycle. Keeping the
+    dependency one-way at module level and reaching down inside the one function that
+    needs it is the same judgement `apps/api/main.py` makes about its routers — and it
+    means a process that never refreshes never imports the crypto path at all.
+    """
+    from apps.api.ops.secret_service import resolve_secrets
+
+    async with untenanted_session() as session:
+        return await resolve_secrets(session)
+
+
 async def _sentinel() -> int:
     """The current config version, from Redis when it is there and Postgres when it is not.
 
@@ -506,6 +524,7 @@ async def refresh(*, force: bool = False) -> ConfigSnapshot:
                     _snapshot = replace(_snapshot, degraded=False)
                 return _snapshot
             rows = await _read_rows()
+            secrets = await _read_secrets()
         except Exception as exc:
             _snapshot = replace(_snapshot, degraded=True)
             if _snapshot.loaded_at is None:
@@ -535,6 +554,32 @@ async def refresh(*, force: bool = False) -> ConfigSnapshot:
             return _snapshot
 
         overrides = _resolve(rows, effective_env())
+        # SECRETS RIDE THE SAME SENTINEL AND THE SAME LAYER. §6 proposed resolving them
+        # lazily on a shorter TTL of their own; one mechanism is strictly better here —
+        # the sentinel is FASTER than any TTL (a rotation propagates in ≤8s rather than
+        # in a TTL's worth of luck), it is one thing to reason about rather than two, and
+        # a rotation is precisely the change that must not wait. `_read_secrets` already
+        # applied §4's precedence, so a key the environment declares never appears.
+        #
+        # `overrides` now holds live credentials. It is applied to `Settings` and dropped;
+        # nothing logs it, nothing serializes it, and `ConfigFieldOut` cannot carry one
+        # because `managed_fields()` excludes every credential-shaped key by name.
+        overrides.update(secrets.values)
+        if secrets.unreadable:
+            # A row exists and no configured KEK opens it. The platform keeps running on
+            # whatever the environment or the previous snapshot gave it — but an operator
+            # has to know, because the symptom otherwise presents as "the vendor is
+            # rejecting our key" and sends them to the wrong system entirely.
+            alert(
+                "CORE_LOGIC",
+                "platform_secret_unreadable",
+                detail=(
+                    "Stored credentials could not be decrypted with this deployment's "
+                    "PLATFORM_KEK. Put the outgoing key in PLATFORM_KEK_RETIRED if this "
+                    "follows a rotation."
+                ),
+                keys=",".join(secrets.unreadable),
+            )
         apply_platform_overrides(overrides)
         _snapshot = ConfigSnapshot(
             version=version,

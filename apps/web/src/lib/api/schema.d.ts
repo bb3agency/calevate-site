@@ -103,11 +103,20 @@ export interface paths {
          *     2. verify the signature over those RAW bytes, before any parse;
          *     3. only then parse, normalize, and do work.
          *
-         *     The answer is always 200 once the signature holds, including for the deliveries we
-         *     refuse. Meta retries a non-2xx with backoff for hours and eventually unsubscribes
-         *     the Page — and our refusal is permanent (no retriever), so retrying could only
-         *     delay the verdict and end with the client's integration switched off. The refusal
-         *     is recorded instead, against the `leadgen_id`, where the client can see it.
+         *     The answer is 200 once the signature holds, including for the deliveries we REFUSE.
+         *     Meta retries a non-2xx with backoff for hours and eventually unsubscribes the Page,
+         *     and a refusal here is a verdict — an unreadable lead, a number we cannot dial, an
+         *     agent nobody published — so retrying could only delay it and end with the client's
+         *     integration switched off. The refusal is recorded instead, against the `leadgen_id`,
+         *     where the client can see it.
+         *
+         *     THE ONE EXCEPTION IS A TRANSIENT FAILURE, and it is 503 on purpose. A Graph timeout
+         *     or a 5xx is not a verdict about the lead; it is us being unable to ask. Acking it
+         *     200 would silently drop the enquiry the whole product exists to catch, and Meta's
+         *     at-least-once ladder is a retry mechanism we already have — so we use it rather than
+         *     building a second one. Redelivery is free because the `leadgen_id` claim absorbs the
+         *     siblings that already committed: a batch of three with one deferred comes back as
+         *     two duplicates and one fresh attempt.
          */
         post: operations["meta_leadgen_hooks_v1_ingest_meta__webhook_id__post"];
         delete?: never;
@@ -640,6 +649,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/credits/restatements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restate an UNDER-credited payment to the amount the bank actually moved
+         * @description For a payment recorded for less than the bank transferred. Send the payment's own reference and the TOTAL the bank moved — not the difference; the route credits what is missing as a second entry against the same reference, so the wallet still shows one bank transfer and reconciliation keeps balancing. Sending the same total again returns the entry that already exists and moves nothing. Every call needs the header `X-Confirm-Action: restate_topup:<payment_ref>:<corrected_amount_inr>`, which echoes the amount because this correction has no ceiling but the statement in front of you. A total at or below what the reference already credits is refused — crediting less is an adjustment against the entry that was wrong.
+         */
+        post: operations["record_restatement_v1_admin_tenants__tenant_id__credits_restatements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/dlt-registration": {
         parameters: {
             query?: never;
@@ -982,6 +1011,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/whatsapp-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record that a client's owner agreed to WhatsApp alerts (append-only)
+         * @description For an opt-in given during onboarding rather than on the settings screen. A grant must carry the reference of the document or ticket the client agreed in, and the row names the operator who recorded it.
+         */
+        post: operations["record_for_client_v1_admin_tenants__tenant_id__whatsapp_alerts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents": {
         parameters: {
             query?: never;
@@ -1029,16 +1078,20 @@ export interface paths {
         };
         /**
          * The voices an agent may speak in (client-readable; D-36's premium/value ladder)
-         * @description Static data, deliberately: no DB, no engine call, no tenant scoping.
+         * @description Static data plus one capability read: no DB, no network, no tenant scoping.
          *
          *     Client-realm readable on purpose — a client is legally the Principal Entity and
          *     should be able to see what their own agent sounds like, exactly as they can read
          *     its disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to
          *     `realm="any"`, so an admin (including one impersonating, since this is a read) gets
-         *     the same list — one catalog, no realm-specific truth.
+         *     the same answer — one catalog, no realm-specific truth.
          *
          *     Entries carry `verified: false` until the Bolna pilot confirms each string is
          *     selectable (OPERATIONS §2 gate 3); render that, do not hide it.
+         *
+         *     The capability read is the SAME selector `set_agent_voice` uses, and that is the whole
+         *     point: this endpoint is what the picker is built from, so if the two could disagree
+         *     the console would offer precisely the choice the write refuses.
          */
         get: operations["list_voices_v1_agents_voices_get"];
         put?: never;
@@ -1807,6 +1860,30 @@ export interface paths {
          *     "who asked, and what were they told?", which has an answer either way.
          */
         post: operations["subject_export_v1_compliance_subject_export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/whatsapp-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Are WhatsApp hot-lead alerts on for me?
+         * @description The current state of your own WhatsApp alert opt-in, plus the wording in force and whether this deployment can deliver on the channel at all. No phone number is accepted or returned.
+         */
+        get: operations["read_v1_compliance_whatsapp_alerts_get"];
+        put?: never;
+        /**
+         * Turn your own WhatsApp hot-lead alerts on or off (append-only)
+         * @description Appends one row to the opt-in ledger. Withdrawing is a new row with `status: withdrawn`, never an edit of the opt-in it supersedes. Only the account owner can record their own opt-in, and an impersonated session cannot.
+         */
+        post: operations["record_v1_compliance_whatsapp_alerts_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2657,6 +2734,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every managed platform setting, with its value, source and provenance
+         * @description Lists every `Settings` field that can be managed from the console: its current value in the serving process, where that value came from (`env` / `db` / `default`), who set it and when. A key set in the environment is reported `source: env` and `editable: false` — the environment always wins over the store, so offering to change it here would be a field that does nothing. Credentials are NOT in this list; they live encrypted in platform_secrets.
+         */
+        get: operations["read_config_v1_ops_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/config/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set one platform setting (step-up confirmed, audited)
+         * @description Validates the value against the same `Settings` model the application loads at boot — including the field's own constraints — and refuses it here if the app would refuse it there. Requires `X-Confirm-Action: set_config:<key>`. The change reaches every other process within a few seconds without a restart; a field whose `applies` is `on_restart` is the exception and says so.
+         */
+        put: operations["set_config_v1_ops_config__key__put"];
+        post?: never;
+        /**
+         * Revert one platform setting to its code default (step-up confirmed, audited)
+         * @description Deletes the stored row so the value falls back to the environment, or to the code default when the environment does not set it. Requires `X-Confirm-Action: revert_config:<key>` — a DIFFERENT string from setting it, because reverting puts a value nobody has looked at recently back into force.
+         */
+        delete: operations["revert_config_v1_ops_config__key__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/outbox/replay": {
         parameters: {
             query?: never;
@@ -2731,6 +2852,103 @@ export interface paths {
          * @description The company half of SEC-COMP §3's first bullet. While this is not `active`, NO tenant can launch an outbound campaign, however complete their own Principal Entity registration is. Inbound answering is unaffected.
          */
         post: operations["set_tm_registration_route_v1_ops_platform_tm_registration_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which credentials are installed — key, last-4, version, who, when
+         * @description Lists every vendor credential this deployment uses, whether one is installed, its last four characters and who installed it. **No plaintext, ever, on any route.** A credential the environment also sets is reported `shadowed_by_env: true` — the environment wins, so the stored value is inert.
+         */
+        get: operations["list_secrets_v1_ops_secrets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/secrets/kek": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which KEK is live, and how many DEKs are still wrapped under another */
+        get: operations["read_kek_v1_ops_secrets_kek_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/secrets/kek/rewrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-wrap every DEK under the current KEK (step-up confirmed, audited)
+         * @description Runs after a KEK rotation: every stored secret version has its DEK unwrapped with whichever configured key opens it and re-wrapped under the current one. The credentials themselves are NEVER decrypted — only the 32-byte DEKs — so this is safe to run against a live platform. Requires `X-Confirm-Action: rewrap_platform_keks`. Until `pending` reaches 0, PLATFORM_KEK_RETIRED must stay set.
+         */
+        post: operations["rewrap_keks_v1_ops_secrets_kek_rewrap_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/secrets/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Install or rotate a credential (step-up confirmed, audited, alerted)
+         * @description Seals the value with a fresh DEK and stores it as a NEW VERSION — the previous version is retired, never overwritten, so which key was live when a call was billed stays answerable. Requires `X-Confirm-Action: set_secret:<key>`. The value is never returned, logged or traced. Test it first: `POST /v1/ops/secrets/{key}/test`.
+         */
+        put: operations["set_secret_route_v1_ops_secrets__key__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/secrets/{key}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the vendor whether a candidate credential works — stores nothing
+         * @description Sends ONE cheap authenticated request to the vendor with the candidate value and reports whether they accepted it. Nothing is stored, so a wrong key is refused at the screen rather than at the next call. `no_probe` means this build cannot test that vendor — which is an answer, not a pass.
+         */
+        post: operations["test_secret_v1_ops_secrets__key__test_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2991,6 +3209,31 @@ export interface components {
             provider: string | null;
             /** Voice Id */
             voice_id: string;
+        };
+        /**
+         * AlertOptInOut
+         * @description Never the number. `status: "none"` means this person has never been asked, which
+         *     is a 200 and the normal state of the world, not a 404.
+         */
+        AlertOptInOut: {
+            /** Captured At */
+            captured_at: string | null;
+            /** Channel */
+            channel: string | null;
+            /** Current Notice Text */
+            current_notice_text: string;
+            /** Current Notice Version */
+            current_notice_version: string;
+            /** Delivery Available */
+            delivery_available: boolean;
+            /** Delivery Unavailable Reason */
+            delivery_unavailable_reason: string | null;
+            /** Messageable */
+            messageable: boolean;
+            /** Notice Version */
+            notice_version: string | null;
+            /** Status */
+            status: string;
         };
         /**
          * ApplyIn
@@ -3582,6 +3825,92 @@ export interface components {
             promoted_label: string | null;
         };
         /**
+         * ConfigFieldOut
+         * @description One managed key, as the console renders it.
+         *
+         *     NO FIELD HERE CARRIES A DEFAULT, and that is load-bearing rather than tidy. A
+         *     Pydantic field with a default is OPTIONAL in the generated TypeScript, so the
+         *     console would have to write `field.editable ?? true` — and the fallback for
+         *     "we do not know whether this is editable" would be "offer the form". Every fact the
+         *     console must trust is required on the wire; `null` is used where the answer
+         *     genuinely has no value, which is a different thing from absent.
+         */
+        ConfigFieldOut: {
+            /** Applies */
+            applies: string;
+            /** Caveat */
+            caveat: string | null;
+            /** Default */
+            default: string | boolean | number | null;
+            /** Editable */
+            editable: boolean;
+            /** Env Var */
+            env_var: string;
+            /** Has Default */
+            has_default: boolean;
+            /** Key */
+            key: string;
+            /** Kind */
+            kind: string;
+            /** Note */
+            note: string | null;
+            /** Options */
+            options: string[];
+            /** Source */
+            source: string;
+            /** Updated At */
+            updated_at: string | null;
+            /** Updated By */
+            updated_by: string | null;
+            /** Value */
+            value: string | boolean | number | null;
+        };
+        /**
+         * ConfigOut
+         * @description The whole managed surface, plus how much this answer can be trusted.
+         *
+         *     `config_version` and `stale` ride along for the §52 reason: a console that showed
+         *     values without saying whether the process could still reach the store would render a
+         *     snapshot from an hour ago identically to a live one.
+         */
+        ConfigOut: {
+            /** Config Changed At */
+            config_changed_at: string | null;
+            /** Config Version */
+            config_version: number;
+            /** Fields */
+            fields: components["schemas"]["ConfigFieldOut"][];
+            /** Never Loaded */
+            never_loaded: boolean;
+            /** Stale */
+            stale: boolean;
+        };
+        /** ConfigSetIn */
+        ConfigSetIn: {
+            /** Reason */
+            reason: string;
+            /** Value */
+            value: string | boolean | number | null;
+        };
+        /**
+         * ConfigWriteOut
+         * @description What changed, and the field as it now stands.
+         *
+         *     The FIELD is returned rather than a bare acknowledgement so the console re-renders
+         *     from the server's own view — including `source`, which is the one thing a write can
+         *     change in a way the form would not predict (a value equal to the default still
+         *     reports `db`, because a row exists and reverting it is now a distinct act).
+         */
+        ConfigWriteOut: {
+            /** Config Version */
+            config_version: number;
+            field: components["schemas"]["ConfigFieldOut"];
+            /** Key */
+            key: string;
+            /** Previous */
+            previous: string | boolean | number | null;
+        };
+        /**
          * ConsentProvenanceIn
          * @description Where this list's consent came from, and when (SEC-COMP §3).
          *
@@ -3751,6 +4080,8 @@ export interface components {
             is_low: boolean;
             /** Low Balance Threshold Inr */
             low_balance_threshold_inr: string;
+            /** Payments */
+            payments: components["schemas"]["PaymentOut"][];
             /**
              * Tenant Id
              * Format: uuid
@@ -5028,6 +5359,28 @@ export interface components {
             minutes_used: string;
         };
         /**
+         * KekOut
+         * @description The key-management panel's read (§8 panel 4): which KEK is live, and what is
+         *     still wrapped under something else.
+         *
+         *     `pending` is the number that decides whether a rotation is FINISHED. While it is
+         *     above zero the retired KEK must stay in the environment, because removing it would
+         *     make those rows permanently unreadable — and that is a decision an operator makes
+         *     from this number, so it is published rather than implied.
+         */
+        KekOut: {
+            /** Active Kek Id */
+            active_kek_id: number;
+            /** Current */
+            current: number;
+            /** Has Retired Kek */
+            has_retired_kek: boolean;
+            /** Pending */
+            pending: number;
+            /** Versions */
+            versions: number;
+        };
+        /**
          * KycRecordIn
          * @description What an operator recorded after verifying a business's identity (R-11).
          *
@@ -5792,6 +6145,28 @@ export interface components {
             vertical_template?: string | null;
         };
         /**
+         * PaymentOut
+         * @description One bank transfer, as the wallet holds it — the reconciliation view.
+         *
+         *     Published because a correction that had to be spread over two ledger rows must still
+         *     read as ONE payment to the person holding a bank statement. They compare
+         *     `credited_inr` against the statement line; `entries` tells them how many rows it took
+         *     to get there, which is the only place a restatement is visible as such.
+         */
+        PaymentOut: {
+            /** Credited Inr */
+            credited_inr: string;
+            /** Entries */
+            entries: number;
+            /**
+             * First At
+             * Format: date-time
+             */
+            first_at: string;
+            /** Payment Ref */
+            payment_ref: string;
+        };
+        /**
          * PeRegistrationOut
          * @description This tenant's Principal Entity registration, as the platform last verified it.
          *
@@ -6158,6 +6533,21 @@ export interface components {
              */
             week_start: string;
         };
+        /**
+         * RecordAlertOptInIn
+         * @description No phone field, deliberately — see the module docstring. The number is read from
+         *     the principal's own profile so the consent key and the delivery key are the same
+         *     read.
+         */
+        RecordAlertOptInIn: {
+            /** Notice Version */
+            notice_version: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "granted" | "withdrawn";
+        };
         /** RecordConsentIn */
         RecordConsentIn: {
             /** Call Id */
@@ -6178,6 +6568,21 @@ export interface components {
              * @enum {string}
              */
             status: "granted" | "declined" | "withdrawn";
+        };
+        /**
+         * RecordOperatorOptInIn
+         * @description An operator recording that the owner already agreed. Carries the document.
+         */
+        RecordOperatorOptInIn: {
+            /** Evidence */
+            evidence?: {
+                [key: string]: string;
+            } | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "granted" | "withdrawn";
         };
         /** RecordTermsOut */
         RecordTermsOut: {
@@ -6305,6 +6710,62 @@ export interface components {
             job: string | null;
             /** Replayed */
             replayed: number;
+        };
+        /**
+         * RestatementIn
+         * @description A payment that credited LESS than the bank moved, described by the TRUE TOTAL.
+         *
+         *     It does NOT inherit `MoneyIn`, and the field is not called `amount_inr`. The other
+         *     two writes on this router take an amount to MOVE; this one takes the amount the
+         *     payment WAS. One name for two meanings on one router is the confusion that would
+         *     eventually be resolved at 2am by a tired operator, so the names differ and the
+         *     shared part — the float refusal — is shared as a function.
+         */
+        RestatementIn: {
+            /** Corrected Amount Inr */
+            corrected_amount_inr: number | string;
+            /** Payment Ref */
+            payment_ref: string;
+            /** Reason */
+            reason: string;
+        };
+        /** RestatementOut */
+        RestatementOut: {
+            /** Added Inr */
+            added_inr: string;
+            /** Balance Inr */
+            balance_inr: string;
+            /** Credited Inr */
+            credited_inr: string;
+            /**
+             * Entry Id
+             * Format: uuid
+             */
+            entry_id: string;
+            /** Is Low */
+            is_low: boolean;
+            /** Payment Ref */
+            payment_ref: string;
+            /** Recorded */
+            recorded: boolean;
+            /** Ref */
+            ref: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /** RewrapOut */
+        RewrapOut: {
+            /** Active Kek Id */
+            active_kek_id: number;
+            /** Examined */
+            examined: number;
+            /** Rewrapped */
+            rewrapped: number;
+            /** Unreadable */
+            unreadable: string[];
         };
         /** RollbackIn */
         RollbackIn: {
@@ -6525,6 +6986,79 @@ export interface components {
              * Format: date-time
              */
             start_at: string;
+        };
+        /**
+         * SecretOut
+         * @description One credential, as much as anyone may ever see of it.
+         *
+         *     NO VALUE FIELD, ON ANY ROUTE, EVER. `last_four` is the only fragment that exists, and
+         *     `core/envelope.last_four` masks it entirely below eight characters.
+         *
+         *     No field carries a default: the console must not have to write `installed ?? true`
+         *     for a fact that decides whether it offers to rotate or to install.
+         */
+        SecretOut: {
+            /** Created At */
+            created_at: string | null;
+            /** Created By */
+            created_by: string | null;
+            /** Env Var */
+            env_var: string;
+            /** Installed */
+            installed: boolean;
+            /** Kek Id */
+            kek_id: number;
+            /** Key */
+            key: string;
+            /** Last Four */
+            last_four: string;
+            /** Shadowed By Env */
+            shadowed_by_env: boolean;
+            /** Testable */
+            testable: boolean;
+            /** Version */
+            version: number;
+            /** Versions */
+            versions: number;
+        };
+        /** SecretSetIn */
+        SecretSetIn: {
+            /** Reason */
+            reason: string;
+            /** Value */
+            value: string;
+        };
+        /** SecretTestIn */
+        SecretTestIn: {
+            /** Value */
+            value: string;
+        };
+        /**
+         * SecretTestOut
+         * @description The vendor's verdict, in OUR vocabulary.
+         *
+         *     `outcome` is one of `accepted` / `rejected` / `unreachable` / `no_probe`, and the
+         *     last two are deliberately NOT collapsed into a failure: "we could not check this" and
+         *     "the vendor said no" send an operator to different systems.
+         */
+        SecretTestOut: {
+            /** Candidate Last Four */
+            candidate_last_four: string;
+            /** Detail */
+            detail: string;
+            /** Key */
+            key: string;
+            /** Outcome */
+            outcome: string;
+            /** Status */
+            status: number | null;
+            /** Verified */
+            verified: boolean;
+        };
+        /** SecretsOut */
+        SecretsOut: {
+            /** Secrets */
+            secrets: components["schemas"]["SecretOut"][];
         };
         /**
          * ServiceItem
@@ -7301,6 +7835,37 @@ export interface components {
              * @default false
              */
             verified: boolean;
+        };
+        /**
+         * VoiceCatalogueOut
+         * @description The catalog AND whether it may be chosen from (D-93).
+         *
+         *     IT USED TO BE A BARE `list[Voice]`, and that shape cannot express the one answer this
+         *     endpoint now has to be able to give. On an engine that supplies its own voices the
+         *     honest response is "no selection here, and that is normal" — and a bare list has
+         *     exactly one way to say it, `[]`, which the console reads as "this agent has no voices
+         *     available" and renders as a claim about the product. (The console's own comment in
+         *     `VoicePanel` says exactly that, which is how the shape was found to be wrong.) An
+         *     empty list and a closed choice are different facts, and the envelope keeps them
+         *     different.
+         *
+         *     The same argument `ExecutionListing` makes: the caller needs the rows AND the verdict
+         *     about them, and inferring the verdict from the length of the rows is the bug.
+         *
+         *     NO FIELD HERE HAS A DEFAULT. A Pydantic field with a default is OPTIONAL in the
+         *     generated TypeScript, and every one of these is a field the console must trust: a
+         *     `selectable` that can arrive undefined would be read as falsy and hide the picker on
+         *     a perfectly capable engine.
+         */
+        VoiceCatalogueOut: {
+            /** Control */
+            control: string;
+            /** Note */
+            note: string;
+            /** Selectable */
+            selectable: boolean;
+            /** Voices */
+            voices: components["schemas"]["Voice"][];
         };
         /**
          * VoiceStateOut
@@ -8613,6 +9178,43 @@ export interface operations {
             };
         };
     };
+    record_restatement_v1_admin_tenants__tenant_id__credits_restatements_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestatementIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestatementOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     record_dlt_registration_v1_admin_tenants__tenant_id__dlt_registration_post: {
         parameters: {
             query?: never;
@@ -9173,6 +9775,41 @@ export interface operations {
             };
         };
     };
+    record_for_client_v1_admin_tenants__tenant_id__whatsapp_alerts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordOperatorOptInIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertOptInOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_agents_v1_agents_get: {
         parameters: {
             query?: never;
@@ -9246,7 +9883,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Voice"][];
+                    "application/json": components["schemas"]["VoiceCatalogueOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -10475,6 +11112,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SubjectExportOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_v1_compliance_whatsapp_alerts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertOptInOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_v1_compliance_whatsapp_alerts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordAlertOptInIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertOptInOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -11930,6 +12629,105 @@ export interface operations {
             };
         };
     };
+    read_config_v1_ops_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_config_v1_ops_config__key__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigSetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    revert_config_v1_ops_config__key__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     replay_outbox_v1_ops_outbox_replay_post: {
         parameters: {
             query?: {
@@ -12049,6 +12847,167 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TmRegistrationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_secrets_v1_ops_secrets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_kek_v1_ops_secrets_kek_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KekOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rewrap_keks_v1_ops_secrets_kek_rewrap_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RewrapOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_secret_route_v1_ops_secrets__key__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretSetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    test_secret_v1_ops_secrets__key__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretTestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretTestOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

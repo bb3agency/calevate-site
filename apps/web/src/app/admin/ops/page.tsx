@@ -20,6 +20,7 @@ import {
 
 import { useAdminAccess, type AdminAccess } from "@/app/admin/access";
 import { ConfigPanel } from "@/app/admin/ops/ConfigPanel";
+import { KeyManagementPanel, SecretsPanel } from "@/app/admin/ops/SecretsPanel";
 import {
   Card,
   DANGER_BUTTON,
@@ -355,6 +356,11 @@ export default function OpsPage() {
   // `ops:manage`). The config panel reads no platform-row state, so it is gated on the
   // permission alone — the same rule the replay and the audit-chain panels follow.
   const mayConfigure = useAdminAccess("platform:config", "change platform configuration");
+  // A THIRD permission, and the narrowest one on this screen. `platform:secrets` is held
+  // by fewer people than anything else (§10's first mitigation), so the credential and
+  // key-management panels gate on it alone — an operator who may change the calling
+  // window does not thereby get to replace the Bolna key.
+  const maySecrets = useAdminAccess("platform:secrets", "install or rotate credentials");
   const access = opsAccess(mayManage, state);
 
   return (
@@ -396,6 +402,12 @@ export default function OpsPage() {
           lives here because §8 puts it beside the other ops panels, and it disables
           itself with its own reason for a session that lacks its own permission. */}
       <ConfigPanel access={mayConfigure} />
+
+      {/* Credentials and the keys that protect them (§8 panels 3 and 4). Gated on
+          `platform:secrets`, not on `platform:config`: the blast radii are not
+          comparable, and the separation IS the mitigation §10's accepted trade rests on. */}
+      <SecretsPanel access={maySecrets} />
+      <KeyManagementPanel access={maySecrets} />
 
       <Card title="What is never shed">
         <ul className="space-y-1.5 text-sm text-ink-muted">

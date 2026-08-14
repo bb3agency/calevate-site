@@ -84,6 +84,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.kb.routes import router as kb_router
     from apps.api.ops.config_routes import router as ops_config_router
     from apps.api.ops.routes import router as ops_router
+    from apps.api.ops.secret_routes import router as ops_secrets_router
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
     from apps.api.tenancy.clerk_webhooks import router as clerk_router
@@ -176,6 +177,9 @@ def _mount_routers(application: FastAPI) -> None:
     # switchboard, and its own permission: `ops:manage` is the incident surface, this is
     # change management, and the two are held by different people on purpose.
     application.include_router(ops_config_router)
+    # Credentials — its OWN permission (`platform:secrets`), held by fewer people than
+    # anything else on this list. No route on it returns plaintext (§7).
+    application.include_router(ops_secrets_router)
 
 
 _mount_routers(app)

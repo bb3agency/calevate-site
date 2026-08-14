@@ -366,6 +366,90 @@
         "title": "AgentVoiceOut",
         "type": "object"
       },
+      "AlertOptInOut": {
+        "additionalProperties": false,
+        "description": "Never the number. `status: \"none\"` means this person has never been asked, which\nis a 200 and the normal state of the world, not a 404.",
+        "properties": {
+          "captured_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured At"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "current_notice_text": {
+            "title": "Current Notice Text",
+            "type": "string"
+          },
+          "current_notice_version": {
+            "title": "Current Notice Version",
+            "type": "string"
+          },
+          "delivery_available": {
+            "title": "Delivery Available",
+            "type": "boolean"
+          },
+          "delivery_unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Unavailable Reason"
+          },
+          "messageable": {
+            "title": "Messageable",
+            "type": "boolean"
+          },
+          "notice_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Version"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "channel",
+          "captured_at",
+          "notice_version",
+          "messageable",
+          "current_notice_version",
+          "current_notice_text",
+          "delivery_available",
+          "delivery_unavailable_reason"
+        ],
+        "title": "AlertOptInOut",
+        "type": "object"
+      },
       "ApplyIn": {
         "additionalProperties": false,
         "description": "`expected_version` is the CAS token (BACKEND-PATTERNS \u00a75): the staged version\nthe operator actually looked at. Optional, because a caller with no screen has\nnothing to be stale about \u2014 but a UI that omits it is choosing last-write-wins.",
@@ -1887,6 +1971,276 @@
         "title": "ConcludeExperimentOut",
         "type": "object"
       },
+      "ConfigFieldOut": {
+        "additionalProperties": false,
+        "description": "One managed key, as the console renders it.\n\nNO FIELD HERE CARRIES A DEFAULT, and that is load-bearing rather than tidy. A\nPydantic field with a default is OPTIONAL in the generated TypeScript, so the\nconsole would have to write `field.editable ?? true` \u2014 and the fallback for\n\"we do not know whether this is editable\" would be \"offer the form\". Every fact the\nconsole must trust is required on the wire; `null` is used where the answer\ngenuinely has no value, which is a different thing from absent.",
+        "properties": {
+          "applies": {
+            "title": "Applies",
+            "type": "string"
+          },
+          "caveat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caveat"
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          },
+          "editable": {
+            "title": "Editable",
+            "type": "boolean"
+          },
+          "env_var": {
+            "title": "Env Var",
+            "type": "string"
+          },
+          "has_default": {
+            "title": "Has Default",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "env_var",
+          "value",
+          "source",
+          "default",
+          "has_default",
+          "kind",
+          "options",
+          "editable",
+          "applies",
+          "caveat",
+          "updated_by",
+          "updated_at",
+          "note"
+        ],
+        "title": "ConfigFieldOut",
+        "type": "object"
+      },
+      "ConfigOut": {
+        "additionalProperties": false,
+        "description": "The whole managed surface, plus how much this answer can be trusted.\n\n`config_version` and `stale` ride along for the \u00a752 reason: a console that showed\nvalues without saying whether the process could still reach the store would render a\nsnapshot from an hour ago identically to a live one.",
+        "properties": {
+          "config_changed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Changed At"
+          },
+          "config_version": {
+            "title": "Config Version",
+            "type": "integer"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigFieldOut"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "never_loaded": {
+            "title": "Never Loaded",
+            "type": "boolean"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "fields",
+          "config_version",
+          "stale",
+          "never_loaded",
+          "config_changed_at"
+        ],
+        "title": "ConfigOut",
+        "type": "object"
+      },
+      "ConfigSetIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "reason"
+        ],
+        "title": "ConfigSetIn",
+        "type": "object"
+      },
+      "ConfigWriteOut": {
+        "additionalProperties": false,
+        "description": "What changed, and the field as it now stands.\n\nThe FIELD is returned rather than a bare acknowledgement so the console re-renders\nfrom the server's own view \u2014 including `source`, which is the one thing a write can\nchange in a way the form would not predict (a value equal to the default still\nreports `db`, because a row exists and reverting it is now a distinct act).",
+        "properties": {
+          "config_version": {
+            "title": "Config Version",
+            "type": "integer"
+          },
+          "field": {
+            "$ref": "#/components/schemas/ConfigFieldOut"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "previous": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous"
+          }
+        },
+        "required": [
+          "key",
+          "previous",
+          "field",
+          "config_version"
+        ],
+        "title": "ConfigWriteOut",
+        "type": "object"
+      },
       "ConsentProvenanceIn": {
         "additionalProperties": false,
         "description": "Where this list's consent came from, and when (SEC-COMP \u00a73).\n\n`source` is a Literal, not a string: the wire type IS the enum, so the generated\nTypeScript client offers a client the five real answers instead of a free-text box\nsomebody types \"yes\" into. `purchased_list` is offered because the gate has to be\nable to refuse it by name \u2014 see campaigns/models.py.",
@@ -2338,6 +2692,13 @@
             "title": "Low Balance Threshold Inr",
             "type": "string"
           },
+          "payments": {
+            "items": {
+              "$ref": "#/components/schemas/PaymentOut"
+            },
+            "title": "Payments",
+            "type": "array"
+          },
           "tenant_id": {
             "format": "uuid",
             "title": "Tenant Id",
@@ -2349,7 +2710,8 @@
           "balance_inr",
           "is_low",
           "low_balance_threshold_inr",
-          "entries"
+          "entries",
+          "payments"
         ],
         "title": "CreditsOut",
         "type": "object"
@@ -5187,6 +5549,41 @@
         "title": "InvoiceUsageOut",
         "type": "object"
       },
+      "KekOut": {
+        "additionalProperties": false,
+        "description": "The key-management panel's read (\u00a78 panel 4): which KEK is live, and what is\nstill wrapped under something else.\n\n`pending` is the number that decides whether a rotation is FINISHED. While it is\nabove zero the retired KEK must stay in the environment, because removing it would\nmake those rows permanently unreadable \u2014 and that is a decision an operator makes\nfrom this number, so it is published rather than implied.",
+        "properties": {
+          "active_kek_id": {
+            "title": "Active Kek Id",
+            "type": "integer"
+          },
+          "current": {
+            "title": "Current",
+            "type": "integer"
+          },
+          "has_retired_kek": {
+            "title": "Has Retired Kek",
+            "type": "boolean"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "integer"
+          },
+          "versions": {
+            "title": "Versions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "active_kek_id",
+          "has_retired_kek",
+          "versions",
+          "current",
+          "pending"
+        ],
+        "title": "KekOut",
+        "type": "object"
+      },
       "KycRecordIn": {
         "additionalProperties": false,
         "description": "What an operator recorded after verifying a business's identity (R-11).\n\nDeliberately NOT a document upload. Indian business-connection KYC is satisfied\nagainst the entity's registry documents (DoT's Aug-2023/May-2024 business-connection\ninstructions \u2014 see `apps/api/compliance/kyc.py` for the sources), and the documents\nthemselves belong with the licensee's Customer Acquisition Form, not in our\ndatabase. What we keep is the REFERENCE: which registry, which identifier, who\nsigned, and where the pack is filed. There is no field here that could carry an\nAadhaar or a personal PAN, and a DB CHECK stands behind that.\n\n`verified_at` is absent on purpose and is stamped by the database. An operator who\ncould supply the date a verification happened could supply any date, and the whole\nvalue of that column to an auditor is that it records when the system observed the\nfact \u2014 `dlt_registrations.verified_at` means the same thing for the same reason.",
@@ -6887,6 +7284,38 @@
         "title": "OrganizationOut",
         "type": "object"
       },
+      "PaymentOut": {
+        "additionalProperties": false,
+        "description": "One bank transfer, as the wallet holds it \u2014 the reconciliation view.\n\nPublished because a correction that had to be spread over two ledger rows must still\nread as ONE payment to the person holding a bank statement. They compare\n`credited_inr` against the statement line; `entries` tells them how many rows it took\nto get there, which is the only place a restatement is visible as such.",
+        "properties": {
+          "credited_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Credited Inr",
+            "type": "string"
+          },
+          "entries": {
+            "title": "Entries",
+            "type": "integer"
+          },
+          "first_at": {
+            "format": "date-time",
+            "title": "First At",
+            "type": "string"
+          },
+          "payment_ref": {
+            "title": "Payment Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "payment_ref",
+          "credited_inr",
+          "entries",
+          "first_at"
+        ],
+        "title": "PaymentOut",
+        "type": "object"
+      },
       "PeRegistrationOut": {
         "additionalProperties": false,
         "description": "This tenant's Principal Entity registration, as the platform last verified it.\n\nEvery field except `recorded` and `is_active` is nullable, because all of them are\ngenuinely absent before ops files anything. `is_active` is computed server-side for\nthe same reason `TmRegistrationOut.is_live` is: \"is `submitted` good enough\" is a\nquestion the console must not answer for itself, and this response and the launch\ngate must never disagree about it.",
@@ -7944,6 +8373,32 @@
         "title": "QaSampleOut",
         "type": "object"
       },
+      "RecordAlertOptInIn": {
+        "additionalProperties": false,
+        "description": "No phone field, deliberately \u2014 see the module docstring. The number is read from\nthe principal's own profile so the consent key and the delivery key are the same\nread.",
+        "properties": {
+          "notice_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Notice Version",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "granted",
+              "withdrawn"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "notice_version"
+        ],
+        "title": "RecordAlertOptInIn",
+        "type": "object"
+      },
       "RecordConsentIn": {
         "additionalProperties": false,
         "properties": {
@@ -8007,6 +8462,40 @@
           "source"
         ],
         "title": "RecordConsentIn",
+        "type": "object"
+      },
+      "RecordOperatorOptInIn": {
+        "additionalProperties": false,
+        "description": "An operator recording that the owner already agreed. Carries the document.",
+        "properties": {
+          "evidence": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "maxProperties": 20,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence"
+          },
+          "status": {
+            "enum": [
+              "granted",
+              "withdrawn"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "RecordOperatorOptInIn",
         "type": "object"
       },
       "RecordTermsOut": {
@@ -8316,6 +8805,134 @@
           "job"
         ],
         "title": "ReplayOut",
+        "type": "object"
+      },
+      "RestatementIn": {
+        "additionalProperties": false,
+        "description": "A payment that credited LESS than the bank moved, described by the TRUE TOTAL.\n\nIt does NOT inherit `MoneyIn`, and the field is not called `amount_inr`. The other\ntwo writes on this router take an amount to MOVE; this one takes the amount the\npayment WAS. One name for two meanings on one router is the confusion that would\neventually be resolved at 2am by a tired operator, so the names differ and the\nshared part \u2014 the float refusal \u2014 is shared as a function.",
+        "properties": {
+          "corrected_amount_inr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,11}0*$)\\d{0,8}\\.\\d{0,2}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Corrected Amount Inr"
+          },
+          "payment_ref": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Payment Ref",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "payment_ref",
+          "corrected_amount_inr",
+          "reason"
+        ],
+        "title": "RestatementIn",
+        "type": "object"
+      },
+      "RestatementOut": {
+        "additionalProperties": false,
+        "properties": {
+          "added_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Added Inr",
+            "type": "string"
+          },
+          "balance_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance Inr",
+            "type": "string"
+          },
+          "credited_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Credited Inr",
+            "type": "string"
+          },
+          "entry_id": {
+            "format": "uuid",
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "is_low": {
+            "title": "Is Low",
+            "type": "boolean"
+          },
+          "payment_ref": {
+            "title": "Payment Ref",
+            "type": "string"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "entry_id",
+          "payment_ref",
+          "ref",
+          "added_inr",
+          "credited_inr",
+          "balance_inr",
+          "is_low",
+          "recorded"
+        ],
+        "title": "RestatementOut",
+        "type": "object"
+      },
+      "RewrapOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active_kek_id": {
+            "title": "Active Kek Id",
+            "type": "integer"
+          },
+          "examined": {
+            "title": "Examined",
+            "type": "integer"
+          },
+          "rewrapped": {
+            "title": "Rewrapped",
+            "type": "integer"
+          },
+          "unreadable": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unreadable",
+            "type": "array"
+          }
+        },
+        "required": [
+          "examined",
+          "rewrapped",
+          "unreadable",
+          "active_kek_id"
+        ],
+        "title": "RewrapOut",
         "type": "object"
       },
       "RollbackIn": {
@@ -8733,6 +9350,188 @@
           "first_dial_not_before"
         ],
         "title": "ScheduleOut",
+        "type": "object"
+      },
+      "SecretOut": {
+        "additionalProperties": false,
+        "description": "One credential, as much as anyone may ever see of it.\n\nNO VALUE FIELD, ON ANY ROUTE, EVER. `last_four` is the only fragment that exists, and\n`core/envelope.last_four` masks it entirely below eight characters.\n\nNo field carries a default: the console must not have to write `installed ?? true`\nfor a fact that decides whether it offers to rotate or to install.",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "env_var": {
+            "title": "Env Var",
+            "type": "string"
+          },
+          "installed": {
+            "title": "Installed",
+            "type": "boolean"
+          },
+          "kek_id": {
+            "title": "Kek Id",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "last_four": {
+            "title": "Last Four",
+            "type": "string"
+          },
+          "shadowed_by_env": {
+            "title": "Shadowed By Env",
+            "type": "boolean"
+          },
+          "testable": {
+            "title": "Testable",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "versions": {
+            "title": "Versions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "env_var",
+          "installed",
+          "version",
+          "versions",
+          "last_four",
+          "kek_id",
+          "created_at",
+          "created_by",
+          "shadowed_by_env",
+          "testable"
+        ],
+        "title": "SecretOut",
+        "type": "object"
+      },
+      "SecretSetIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "reason"
+        ],
+        "title": "SecretSetIn",
+        "type": "object"
+      },
+      "SecretTestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "value": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "title": "SecretTestIn",
+        "type": "object"
+      },
+      "SecretTestOut": {
+        "additionalProperties": false,
+        "description": "The vendor's verdict, in OUR vocabulary.\n\n`outcome` is one of `accepted` / `rejected` / `unreachable` / `no_probe`, and the\nlast two are deliberately NOT collapsed into a failure: \"we could not check this\" and\n\"the vendor said no\" send an operator to different systems.",
+        "properties": {
+          "candidate_last_four": {
+            "title": "Candidate Last Four",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "outcome",
+          "status",
+          "detail",
+          "verified",
+          "candidate_last_four"
+        ],
+        "title": "SecretTestOut",
+        "type": "object"
+      },
+      "SecretsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "secrets": {
+            "items": {
+              "$ref": "#/components/schemas/SecretOut"
+            },
+            "title": "Secrets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "secrets"
+        ],
+        "title": "SecretsOut",
         "type": "object"
       },
       "ServiceItem": {
@@ -10732,6 +11531,39 @@
         "title": "Voice",
         "type": "object"
       },
+      "VoiceCatalogueOut": {
+        "additionalProperties": false,
+        "description": "The catalog AND whether it may be chosen from (D-93).\n\nIT USED TO BE A BARE `list[Voice]`, and that shape cannot express the one answer this\nendpoint now has to be able to give. On an engine that supplies its own voices the\nhonest response is \"no selection here, and that is normal\" \u2014 and a bare list has\nexactly one way to say it, `[]`, which the console reads as \"this agent has no voices\navailable\" and renders as a claim about the product. (The console's own comment in\n`VoicePanel` says exactly that, which is how the shape was found to be wrong.) An\nempty list and a closed choice are different facts, and the envelope keeps them\ndifferent.\n\nThe same argument `ExecutionListing` makes: the caller needs the rows AND the verdict\nabout them, and inferring the verdict from the length of the rows is the bug.\n\nNO FIELD HERE HAS A DEFAULT. A Pydantic field with a default is OPTIONAL in the\ngenerated TypeScript, and every one of these is a field the console must trust: a\n`selectable` that can arrive undefined would be read as falsy and hide the picker on\na perfectly capable engine.",
+        "properties": {
+          "control": {
+            "title": "Control",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "selectable": {
+            "title": "Selectable",
+            "type": "boolean"
+          },
+          "voices": {
+            "items": {
+              "$ref": "#/components/schemas/Voice"
+            },
+            "title": "Voices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "control",
+          "selectable",
+          "voices",
+          "note"
+        ],
+        "title": "VoiceCatalogueOut",
+        "type": "object"
+      },
       "VoiceStateOut": {
         "additionalProperties": false,
         "description": "The voice CONFIGURED on the agent and the voice the engine was last SENT.\n\nTwo fields because they are two facts. `PATCH /v1/agents/{id}/voice` writes our row\nand stops there, so a live agent keeps its old voice until the next publish \u2014 one\nvalue labelled \"the voice\" would be a claim about a client's phone line that nobody\nchecked.\n\n`live` is null when nothing is recorded as sent, which reads two ways and is\ndisambiguated by `PendingOut.published`: an unpublished agent has nothing live, and\na published one was published before the mirror existed (or with no voice set). Both\nresolve to `republish_required` when a voice is configured, because a sync we cannot\nprove is not a sync.",
@@ -11318,7 +12150,7 @@
         ]
       },
       "post": {
-        "description": "One verified delivery \u2192 n leads, deduped per `leadgen_id`.\n\nOrder is the security argument, and it is the same one `billing/payments.py` and\nthe voice-runtime receiver make:\n\n1. bound the body BEFORE reading it \u2014 we cannot check a signature without the\n   bytes, so an unauthenticated caller decides how much we allocate unless a cap\n   decides first;\n2. verify the signature over those RAW bytes, before any parse;\n3. only then parse, normalize, and do work.\n\nThe answer is always 200 once the signature holds, including for the deliveries we\nrefuse. Meta retries a non-2xx with backoff for hours and eventually unsubscribes\nthe Page \u2014 and our refusal is permanent (no retriever), so retrying could only\ndelay the verdict and end with the client's integration switched off. The refusal\nis recorded instead, against the `leadgen_id`, where the client can see it.",
+        "description": "One verified delivery \u2192 n leads, deduped per `leadgen_id`.\n\nOrder is the security argument, and it is the same one `billing/payments.py` and\nthe voice-runtime receiver make:\n\n1. bound the body BEFORE reading it \u2014 we cannot check a signature without the\n   bytes, so an unauthenticated caller decides how much we allocate unless a cap\n   decides first;\n2. verify the signature over those RAW bytes, before any parse;\n3. only then parse, normalize, and do work.\n\nThe answer is 200 once the signature holds, including for the deliveries we REFUSE.\nMeta retries a non-2xx with backoff for hours and eventually unsubscribes the Page,\nand a refusal here is a verdict \u2014 an unreadable lead, a number we cannot dial, an\nagent nobody published \u2014 so retrying could only delay it and end with the client's\nintegration switched off. The refusal is recorded instead, against the `leadgen_id`,\nwhere the client can see it.\n\nTHE ONE EXCEPTION IS A TRANSIENT FAILURE, and it is 503 on purpose. A Graph timeout\nor a 5xx is not a verdict about the lead; it is us being unable to ask. Acking it\n200 would silently drop the enquiry the whole product exists to catch, and Meta's\nat-least-once ladder is a retry mechanism we already have \u2014 so we use it rather than\nbuilding a second one. Redelivery is free because the `leadgen_id` claim absorbs the\nsiblings that already committed: a batch of three with one deferred comes back as\ntwo duplicates and one fresh attempt.",
         "operationId": "meta_leadgen_hooks_v1_ingest_meta__webhook_id__post",
         "parameters": [
           {
@@ -12819,6 +13651,73 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/credits/restatements": {
+      "post": {
+        "description": "For a payment recorded for less than the bank transferred. Send the payment's own reference and the TOTAL the bank moved \u2014 not the difference; the route credits what is missing as a second entry against the same reference, so the wallet still shows one bank transfer and reconciliation keeps balancing. Sending the same total again returns the entry that already exists and moves nothing. Every call needs the header `X-Confirm-Action: restate_topup:<payment_ref>:<corrected_amount_inr>`, which echoes the amount because this correction has no ceiling but the statement in front of you. A total at or below what the reference already credits is refused \u2014 crediting less is an adjustment against the entry that was wrong.",
+        "operationId": "record_restatement_v1_admin_tenants__tenant_id__credits_restatements_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestatementIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestatementOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Restate an UNDER-credited payment to the amount the bank actually moved",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/dlt-registration": {
       "post": {
         "description": "The third registration in the same family as the number header and the voice template, and the one the campaign launch gate reads as `pe_registration_*` / `tm_link_not_active`. Upserts: re-recording is what happens every time we re-verify with the registrar.",
@@ -13693,6 +14592,58 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/whatsapp-alerts": {
+      "post": {
+        "description": "For an opt-in given during onboarding rather than on the settings screen. A grant must carry the reference of the document or ticket the client agreed in, and the row names the operator who recorded it.",
+        "operationId": "record_for_client_v1_admin_tenants__tenant_id__whatsapp_alerts_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordOperatorOptInIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertOptInOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record that a client's owner agreed to WhatsApp alerts (append-only)",
+        "tags": [
+          "admin",
+          "compliance"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/agents": {
       "get": {
         "operationId": "list_agents_v1_agents_get",
@@ -13756,18 +14707,14 @@
     },
     "/v1/agents/voices": {
       "get": {
-        "description": "Static data, deliberately: no DB, no engine call, no tenant scoping.\n\nClient-realm readable on purpose \u2014 a client is legally the Principal Entity and\nshould be able to see what their own agent sounds like, exactly as they can read\nits disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to\n`realm=\"any\"`, so an admin (including one impersonating, since this is a read) gets\nthe same list \u2014 one catalog, no realm-specific truth.\n\nEntries carry `verified: false` until the Bolna pilot confirms each string is\nselectable (OPERATIONS \u00a72 gate 3); render that, do not hide it.",
+        "description": "Static data plus one capability read: no DB, no network, no tenant scoping.\n\nClient-realm readable on purpose \u2014 a client is legally the Principal Entity and\nshould be able to see what their own agent sounds like, exactly as they can read\nits disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to\n`realm=\"any\"`, so an admin (including one impersonating, since this is a read) gets\nthe same answer \u2014 one catalog, no realm-specific truth.\n\nEntries carry `verified: false` until the Bolna pilot confirms each string is\nselectable (OPERATIONS \u00a72 gate 3); render that, do not hide it.\n\nThe capability read is the SAME selector `set_agent_voice` uses, and that is the whole\npoint: this endpoint is what the picker is built from, so if the two could disagree\nthe console would offer precisely the choice the write refuses.",
         "operationId": "list_voices_v1_agents_voices_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Voice"
-                  },
-                  "title": "Response List Voices V1 Agents Voices Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/VoiceCatalogueOut"
                 }
               }
             },
@@ -15364,6 +16311,72 @@
           "compliance"
         ],
         "x-calevate-permission": "calls:read_raw"
+      }
+    },
+    "/v1/compliance/whatsapp-alerts": {
+      "get": {
+        "description": "The current state of your own WhatsApp alert opt-in, plus the wording in force and whether this deployment can deliver on the channel at all. No phone number is accepted or returned.",
+        "operationId": "read_v1_compliance_whatsapp_alerts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertOptInOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Are WhatsApp hot-lead alerts on for me?",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "description": "Appends one row to the opt-in ledger. Withdrawing is a new row with `status: withdrawn`, never an edit of the opt-in it supersedes. Only the account owner can record their own opt-in, and an impersonated session cannot.",
+        "operationId": "record_v1_compliance_whatsapp_alerts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordAlertOptInIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertOptInOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Turn your own WhatsApp hot-lead alerts on or off (append-only)",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/dashboard": {
@@ -17473,6 +18486,159 @@
         "x-calevate-permission": "ops:manage"
       }
     },
+    "/v1/ops/config": {
+      "get": {
+        "description": "Lists every `Settings` field that can be managed from the console: its current value in the serving process, where that value came from (`env` / `db` / `default`), who set it and when. A key set in the environment is reported `source: env` and `editable: false` \u2014 the environment always wins over the store, so offering to change it here would be a field that does nothing. Credentials are NOT in this list; they live encrypted in platform_secrets.",
+        "operationId": "read_config_v1_ops_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every managed platform setting, with its value, source and provenance",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/config/{key}": {
+      "delete": {
+        "description": "Deletes the stored row so the value falls back to the environment, or to the code default when the environment does not set it. Requires `X-Confirm-Action: revert_config:<key>` \u2014 a DIFFERENT string from setting it, because reverting puts a value nobody has looked at recently back into force.",
+        "operationId": "revert_config_v1_ops_config__key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Revert one platform setting to its code default (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      },
+      "put": {
+        "description": "Validates the value against the same `Settings` model the application loads at boot \u2014 including the field's own constraints \u2014 and refuses it here if the app would refuse it there. Requires `X-Confirm-Action: set_config:<key>`. The change reaches every other process within a few seconds without a restart; a field whose `applies` is `on_restart` is the exception and says so.",
+        "operationId": "set_config_v1_ops_config__key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigSetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set one platform setting (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
     "/v1/ops/outbox/replay": {
       "post": {
         "description": "Moves up to 100 of the OLDEST dead-lettered outbox messages back to `pending` with a fresh attempt budget, for every tenant at once. The next dispatch tick re-sends them: HMAC-signed webhooks to clients' own systems, Google Sheets appends, notification emails. A message can dead-letter AFTER its side effect landed, so the outcome to be sure of before sending this is a second delivery, not a flag in a row. `job` scopes the run to one kind of side effect and MUST be echoed in the confirmation header (`replay_dead_letters:<job>`); omit it to replay every job, which is `X-Confirm-Action: replay_dead_letters`. Read the depth and the per-job breakdown from `GET /v1/ops/platform` first \u2014 `outbox_dead_letters` is published so this confirmation can be an informed one.",
@@ -17676,6 +18842,230 @@
           "ops"
         ],
         "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/secrets": {
+      "get": {
+        "description": "Lists every vendor credential this deployment uses, whether one is installed, its last four characters and who installed it. **No plaintext, ever, on any route.** A credential the environment also sets is reported `shadowed_by_env: true` \u2014 the environment wins, so the stored value is inert.",
+        "operationId": "list_secrets_v1_ops_secrets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Which credentials are installed \u2014 key, last-4, version, who, when",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:secrets"
+      }
+    },
+    "/v1/ops/secrets/kek": {
+      "get": {
+        "operationId": "read_kek_v1_ops_secrets_kek_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KekOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Which KEK is live, and how many DEKs are still wrapped under another",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:secrets"
+      }
+    },
+    "/v1/ops/secrets/kek/rewrap": {
+      "post": {
+        "description": "Runs after a KEK rotation: every stored secret version has its DEK unwrapped with whichever configured key opens it and re-wrapped under the current one. The credentials themselves are NEVER decrypted \u2014 only the 32-byte DEKs \u2014 so this is safe to run against a live platform. Requires `X-Confirm-Action: rewrap_platform_keks`. Until `pending` reaches 0, PLATFORM_KEK_RETIRED must stay set.",
+        "operationId": "rewrap_keks_v1_ops_secrets_kek_rewrap_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RewrapOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Re-wrap every DEK under the current KEK (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:secrets"
+      }
+    },
+    "/v1/ops/secrets/{key}": {
+      "put": {
+        "description": "Seals the value with a fresh DEK and stores it as a NEW VERSION \u2014 the previous version is retired, never overwritten, so which key was live when a call was billed stays answerable. Requires `X-Confirm-Action: set_secret:<key>`. The value is never returned, logged or traced. Test it first: `POST /v1/ops/secrets/{key}/test`.",
+        "operationId": "set_secret_route_v1_ops_secrets__key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretSetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Install or rotate a credential (step-up confirmed, audited, alerted)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:secrets"
+      }
+    },
+    "/v1/ops/secrets/{key}/test": {
+      "post": {
+        "description": "Sends ONE cheap authenticated request to the vendor with the candidate value and reports whether they accepted it. Nothing is stored, so a wrong key is refused at the screen rather than at the next call. `no_probe` means this build cannot test that vendor \u2014 which is an answer, not a pass.",
+        "operationId": "test_secret_v1_ops_secrets__key__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretTestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretTestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask the vendor whether a candidate credential works \u2014 stores nothing",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:secrets"
       }
     },
     "/v1/ops/tenants/{tenant_id}/spend-cap/recompute": {

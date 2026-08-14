@@ -63,22 +63,14 @@ export type VoiceTier = Voice["tier"];
 /**
  * The catalogue AND whether it may be chosen from (D-93).
  *
- * HAND-WRITTEN, TEMPORARILY. `pnpm gen:api` is not run in this workstream, so this
- * restates `VoiceCatalogueOut` from `agents/voice_routes.py`. Every field is REQUIRED on
- * the wire — none has a Pydantic default — and that is deliberate: an optional
- * `selectable` would arrive `undefined`, read as falsy, and hide the picker on a
- * perfectly capable engine. Delete this block when the schema is regenerated and switch
- * to `Schemas["VoiceCatalogueOut"]`.
+ * Every field is REQUIRED on the wire — none carries a Pydantic default — and that is
+ * deliberate: an optional `selectable` would arrive `undefined`, read as falsy, and hide
+ * the picker on a perfectly capable engine. `control` says who owns the TTS leg; when it
+ * is the engine's, `voices` is empty BY DESIGN rather than by failure, and `note` is the
+ * sentence to print verbatim in either state.
  */
-export type VoiceCatalogue = {
-  /** Who chooses the TTS leg on this deployment's engine. */
-  control: string;
-  /** True when a voice may be set here. False ⇒ `voices` is empty BY DESIGN, not by failure. */
-  selectable: boolean;
-  voices: Voice[];
-  /** One sentence to print verbatim, in both states. */
-  note: string;
-};
+export type VoiceCatalogue = Schemas["VoiceCatalogueOut"];
+
 export type SetVoiceIn = Schemas["SetVoiceIn"];
 export type SetVoiceOut = Schemas["SetVoiceOut"];
 

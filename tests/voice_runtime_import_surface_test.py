@@ -195,6 +195,23 @@ ALLOWED_APPS_MODULES: frozenset[str] = frozenset(
         "apps.api.core.logging",
         "apps.api.core.middleware",
         "apps.api.core.observability",
+        # Console-managed configuration (PLATFORM-CONFIG §6, D-95). Added DELIBERATELY,
+        # and this test is why the addition had to be argued rather than noticed: it
+        # failed the moment `main.py` imported it, which is the guardrail working.
+        #
+        # It qualifies as library code on the same terms as `settings` beside it — it
+        # resolves configuration and owns no product behaviour. What it buys this service
+        # specifically is the ability to change the engine source-IP allowlist without a
+        # deploy. That allowlist is the ENTIRE authenticity control for an unsigned
+        # engine and the vendor can renumber it without telling us; before this, a stale
+        # one meant every webhook 401'd until somebody edited `.env` on the VPS and
+        # restarted the latency-critical service.
+        #
+        # The cost is a background Redis GET of one integer every 3s. Nothing moves onto
+        # the request path: handlers still read an in-memory snapshot with zero IO, which
+        # is what hard rule 3 constrains. The companion test above — "boots without a
+        # single forbidden import" — is what proves this module drags nothing heavy in.
+        "apps.api.core.platform_config",
         "apps.api.core.queue",
         "apps.api.core.redis",
         "apps.api.core.settings",

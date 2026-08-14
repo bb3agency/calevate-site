@@ -214,6 +214,7 @@ class TestRlsCoverage:
             "engine_agent_routes",
             "platform_settings",
             "platform_config_version",
+            "platform_secrets",
         }
 
 
@@ -606,7 +607,10 @@ class TestEnvParity:
 
         fields = set(Settings.model_fields) | {"whatsapp_token"}
         failures = check_env_parity.evaluate(declared, fields, {})
-        assert any("whatsapp_token" in f and "not .env.example" in f for f in failures)
+        # The message changed when the console became a second place a key can be
+        # declared (PLATFORM-CONFIG §12): the failure is now "in neither", which is the
+        # claim that was always doing the work.
+        assert any("whatsapp_token" in f and "not in .env.example" in f for f in failures)
 
     def test_catches_a_worker_reading_the_environment_directly(self) -> None:
         """The direction the old check had no way to see: a key that exists in neither
@@ -646,7 +650,13 @@ class TestEnvParity:
 
         fields = set(Settings.model_fields)
         for key in check_env_parity.direct_env_reads():
-            assert key in check_env_parity.INFRA_ENV_KEYS or key.lower() in fields
+            assert (
+                key in check_env_parity.INFRA_ENV_KEYS
+                # Operator tooling that runs outside every deployable (the restore
+                # drill), each entry carrying the reason it is not application config.
+                or key in check_env_parity.DRILL_ENV_KEYS
+                or key.lower() in fields
+            ), key
 
 
 # ============================================================================
