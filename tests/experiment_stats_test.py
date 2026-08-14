@@ -17,6 +17,7 @@ Run: uv run pytest -q tests/experiment_stats_test.py
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
@@ -29,16 +30,19 @@ from apps.api.agents.proportions import (
 )
 
 
-def _arm(label: str, attributed: int, conversions: int) -> VariantResult:
-    interval = wilson_interval(conversions, attributed) if attributed else None
+def _arm(label: str, completed: int, conversions: int) -> VariantResult:
+    interval = wilson_interval(conversions, completed) if completed else None
     return VariantResult(
         variant_id=UUID(int=ord(label)),
         label=label,
         prompt_version=1 if label == "A" else 2,
         weight_bp=5000,
         published=True,
-        dialled=attributed,
-        attributed=attributed,
+        # `judge` reads `completed` and `conversions` only; the direction split exists
+        # for the reader, not the arithmetic, so these arms are all-outbound.
+        outbound_dialled=completed,
+        completed=completed,
+        inbound_completed=0,
         conversions=conversions,
         rate=interval.point if interval else None,
         rate_low=interval.low if interval else None,
@@ -188,3 +192,66 @@ def test_the_split_is_honoured_and_the_edges_land_where_the_weights_say() -> Non
         pick_arm(arms, bucket_of(UUID(int=7), f"+9190000{n:05d}")).label == "A" for n in range(2000)
     )
     assert 1500 < in_a < 1700, in_a
+
+
+# --- the counts survive the trip to the wire ----------------------------------
+
+
+def test_the_three_counts_reach_the_response_under_their_own_names() -> None:
+    """Three counts that are all small integers about the same arm are three chances to
+    publish one under another's name, and `_render` is a hand-written mapping with no
+    other test over it. So: three DIFFERENT numbers, checked individually.
+
+    This is the shape of the defect the split replaced — a count that meant one thing and
+    was labelled another — and a transposition here would reproduce it exactly, with the
+    server and the screen agreeing on the wrong number.
+    """
+    from apps.api.agents.experiment_routes import _render
+    from apps.api.agents.experiments import ExperimentResults
+
+    arm = VariantResult(
+        variant_id=UUID(int=1),
+        label="A",
+        prompt_version=1,
+        weight_bp=5000,
+        published=True,
+        outbound_dialled=71,
+        completed=53,
+        inbound_completed=17,
+        conversions=11,
+        rate=11 / 53,
+        rate_low=0.11,
+        rate_high=0.34,
+    )
+    rendered = _render(
+        ExperimentResults(
+            experiment_id=UUID(int=9),
+            agent_id=UUID(int=8),
+            name="Direct booking greeting",
+            status="running",
+            conversion_metric="call_outcome_resolved",
+            conversion_metric_label="calls the agent resolved",
+            started_at=datetime(2026, 8, 1, tzinfo=UTC),
+            concluded_at=None,
+            promoted_label=None,
+            variants=[arm],
+            minimum_calls_per_variant=MIN_CALLS_PER_VARIANT,
+            basis="insufficient_data",
+            verdict="not_enough_data",
+            leader_label=None,
+            winner_label=None,
+            difference_point=None,
+            difference_low=None,
+            difference_high=None,
+            headline="Not enough calls to compare yet.",
+            caveat="The 95% confidence is per reading.",
+            attributed_directions=("inbound", "outbound"),
+            unattributed_inbound=4,
+            coverage_note="Some inbound calls were answered by an arm's own line.",
+        )
+    )
+    published = rendered.variants[0]
+    assert published.outbound_dialled == 71, "calls we PLACED into the arm"
+    assert published.completed == 53, "completed calls — the denominator of the rate"
+    assert published.inbound_completed == 17, "of those, the ones nobody split into it"
+    assert published.conversions == 11

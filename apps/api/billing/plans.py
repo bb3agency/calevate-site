@@ -132,6 +132,27 @@ def plan_in_effect_sql(columns: str, *, at: str = ":at") -> str:
     """
 
 
+def ist_billing_month(moment: datetime) -> str:
+    """Which IST billing month an instant falls in — `"2026-08"`.
+
+    THE Python side of `billing.service._IST_MONTH`, which does the same +05:30 shift in
+    SQL. Two spellings of "which month is this" is how a panel and a bill end up
+    disagreeing about a 23:00 IST call, so callers that hold an instant in Python (the
+    tenant's `organizations.created_at`, `now()`) come here rather than adding their own
+    offset — `current_billing_month` is this function applied to now.
+
+    REFUSES a naive datetime instead of assuming one. `astimezone` on a naive instant
+    silently reads it in the process's local timezone, which on a UTC container and an
+    IST laptop gives two different billing months for the same row. Every timestamp this
+    is called with comes from a `timestamptz` column or `datetime.now(UTC)`, so a naive
+    one means a caller lost the timezone somewhere upstream and the honest answer is to
+    say so rather than to bill a month we guessed.
+    """
+    if moment.tzinfo is None:
+        raise ValueError("a billing month needs an aware instant (timestamptz or UTC-aware)")
+    return moment.astimezone(IST).strftime("%Y-%m")
+
+
 def parse_billing_month(month: str) -> tuple[int, int]:
     """`"2026-07"` -> `(2026, 7)`, or a 422 the caller can act on.
 
@@ -235,6 +256,7 @@ async def warn_no_plan_in_effect(
 __all__ = [
     "IST",
     "NOW_SQL",
+    "ist_billing_month",
     "month_pricing_instant",
     "parse_billing_month",
     "plan_in_effect_sql",

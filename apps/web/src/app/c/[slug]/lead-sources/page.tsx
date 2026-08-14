@@ -8,6 +8,9 @@ import {
   EyeOff,
   FlaskConical,
   Inbox,
+  KeyRound,
+  Plus,
+  Power,
   ShieldAlert,
   Webhook,
   XCircle,
@@ -23,15 +26,23 @@ import {
   formatCount,
   formatIST,
   PRIMARY_BUTTON_SM,
+  SECONDARY_BUTTON_SM,
 } from "@/components/ui";
 import { API_BASE } from "@/lib/api/client";
+import { useAgents } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import {
+  useCreateLeadSource,
   useIngestActivity,
+  useLeadSources,
   useMetaSetup,
+  useRotateLeadSourceSecret,
+  useSetLeadSourceActive,
   useTestWebhook,
+  type LeadSource,
   type MetaSetup,
+  type NewLeadSource,
   type TestWebhookResult,
 } from "@/lib/api/leadSources";
 import { lookup } from "@/lib/lookup";
@@ -74,6 +85,27 @@ import { lookup } from "@/lib/lookup";
  * - **The same identifier was called two different things** — "Webhook ID" in one card
  *   and "Lead source ID" in the other — for one value the client is told to paste into
  *   both. It is a lead source everywhere now, which is what the API calls the resource.
+ *
+ * ## What the provisioning pass changed
+ *
+ * The two cards below used to take a raw UUID in a text box, under a line reading
+ * "Don't have an ID? Ask us — lead sources are provisioned by Calevate", because nothing
+ * in the product could create one: every `inbound_webhooks` row was an operator running
+ * SQL. `GET/POST /v1/lead-sources` ended that, so the ID boxes are pickers over the
+ * client's own sources and the sentence they stood under is gone.
+ *
+ * Three rules the new card obeys, each of which is a way this screen could lie:
+ *
+ * - **The secret is on screen exactly once.** The create and rotate responses are the
+ *   only place the plaintext exists outside the database; the list carries a
+ *   fingerprint, and nothing here re-fetches a value.
+ * - **Rotation states its deadline.** "Rotated" without a deadline reads as "the old one
+ *   is dead", and it is not — the old secret keeps working for the grace window, which
+ *   is the whole reason a client can rotate without dropping leads. The banner says when
+ *   it stops, and the row keeps saying so until it does.
+ * - **§52 holds for the list too.** A failed read renders a refusal and NO list — never
+ *   "no lead sources yet", which on this screen would invite a client to create a second
+ *   source for a form that is already wired up.
  */
 
 /**
@@ -108,9 +140,25 @@ const QUIET_BUTTON =
   "flex items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5";
 const CODE = "break-all rounded bg-app px-2 py-1 font-mono text-xs text-ink";
 
+/** What a client calls each `inbound_webhooks.source`. The API's enum is the contract;
+ *  this is the only place it is turned into English. */
+const SOURCE_LABELS: Record<string, string> = {
+  website_form: "Website form",
+  meta_lead_ads: "Meta Lead Ads (Facebook / Instagram)",
+  zoho: "Zoho",
+  sheets: "Google Sheets",
+  custom: "Something else (custom POST)",
+};
+
+/** The order the picker offers them in: the two most clients use, then the rest. */
+const CREATABLE_SOURCES = ["website_form", "meta_lead_ads", "zoho", "sheets", "custom"] as const;
+
+const sourceLabel = (source: string) => lookup(SOURCE_LABELS, source) ?? source;
+
 export default function LeadSourcesPage() {
   const session = useClientSession();
 
+  const sources = useLeadSources(session);
   const activity = useIngestActivity(session);
   const test = useTestWebhook(session);
   const metaSetup = useMetaSetup(session);
@@ -129,8 +177,9 @@ export default function LeadSourcesPage() {
    */
   const write = useWriteAccess(session, "org:manage", "test or set up a lead source");
 
-  // There is no list-lead-sources endpoint yet, so the ID is a raw UUID input. A proper
-  // picker lands when the lead-source config CRUD ships.
+  // Pickers over the client's own sources now that `GET /v1/lead-sources` exists. The
+  // state is still an id string, so a request built from it is unchanged — what went
+  // away is a client having to know a UUID by heart.
   const [testSourceId, setTestSourceId] = useState("");
   // Separate from the test above on purpose: the two cards are independent tasks and
   // a client wiring up Meta is usually not the same person rehearsing a form post.
@@ -178,6 +227,8 @@ export default function LeadSourcesPage() {
 
       <RestrictionNote reason={write.reason} />
 
+      <LeadSourcesCard session={session} canWrite={write.allowed} />
+
       <Card title="Try a sample lead">
         <p className="text-sm text-ink-muted">
           Send a sample through the same checks a real submission goes through, and see
@@ -190,13 +241,11 @@ export default function LeadSourcesPage() {
             runTest();
           }}
         >
-          <input
-            required
+          <SourcePicker
+            label="Lead source to test"
             value={testSourceId}
-            onChange={(e) => setTestSourceId(e.target.value)}
-            aria-label="Lead source ID to test"
-            placeholder="Lead source ID (from your setup email, e.g. 018f3c…)"
-            className={`${FIELD} w-full font-mono`}
+            onChange={setTestSourceId}
+            query={sources}
           />
           <textarea
             value={payloadText}
@@ -286,35 +335,32 @@ export default function LeadSourcesPage() {
       <Card title="Meta Lead Ads">
         <p className="text-sm text-ink-muted">
           Point a Facebook or Instagram lead form straight at Calevate — no Zapier in
-          between. Your lead source is created for you during setup; enter its ID here
-          to see what to paste into the Meta App Dashboard.
-        </p>
-        {/* Nothing in the product creates one of these yet, and pretending otherwise
-            with a "Create source" button would be a form that 404s. Say where it
-            comes from instead. */}
-        <p className="mt-1 text-xs text-ink-faint">
-          Don&apos;t have an ID? Ask us — lead sources are provisioned by Calevate.
+          between. Add a Meta Lead Ads source above, then pick it here to see what to
+          paste into the Meta App Dashboard.
         </p>
 
         <form
-          className="mt-3 flex flex-wrap items-center gap-2"
+          className="mt-3 flex flex-wrap items-end gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             metaSetup.mutate(metaSourceId.trim());
           }}
         >
-          <input
-            required
+          <SourcePicker
+            label="Meta lead source"
             value={metaSourceId}
-            onChange={(e) => {
-              setMetaSourceId(e.target.value);
+            onChange={(id) => {
+              setMetaSourceId(id);
               // The response carries a credential for ONE source; leaving it on screen
               // beside a different ID is how the wrong token gets pasted into Meta.
               metaSetup.reset();
             }}
-            placeholder="Lead source ID (e.g. 018f3c…)"
-            aria-label="Meta lead source ID"
-            className={`${FIELD} w-full max-w-md font-mono`}
+            query={sources}
+            // Only Meta sources: the other kinds have no Meta endpoint at all, and
+            // `POST .../meta/setup` answers 404 for them. A picker that offers a choice
+            // whose only outcome is a refusal is a worse ID box than the one it replaced.
+            only="meta_lead_ads"
+            emptyHint="Add a Meta Lead Ads source above first."
           />
           <button
             type="submit"
@@ -415,6 +461,492 @@ export default function LeadSourcesPage() {
         )}
       </Card>
     </div>
+  );
+}
+
+type SourcesQuery = ReturnType<typeof useLeadSources>;
+
+/**
+ * Pick one of the client's own lead sources.
+ *
+ * §52 applies to a form control as much as to a panel: while the list is loading this
+ * is a skeleton, when the read FAILED it is a disabled control saying so, and only a
+ * successful empty list may say there is nothing to pick. The three used to be one
+ * text box that accepted anything, which is how "I pasted the ID from the email and it
+ * says not found" became a support thread.
+ */
+function SourcePicker({
+  label,
+  value,
+  onChange,
+  query,
+  only,
+  emptyHint = "Add a lead source above first.",
+}: {
+  label: string;
+  value: string;
+  onChange: (id: string) => void;
+  query: SourcesQuery;
+  only?: string;
+  emptyHint?: string;
+}) {
+  if (query.isLoading) {
+    return (
+      <div className="w-full max-w-md">
+        <Skeleton rows={1} />
+      </div>
+    );
+  }
+  const items = query.data?.items;
+  if (!items) {
+    // The read failed. The card's own ProblemNotice carries the reason and the retry;
+    // what this must not do is render an empty picker, which reads as "you have none".
+    return (
+      <select
+        disabled
+        aria-label={label}
+        className={`${FIELD} w-full max-w-md`}
+        value=""
+        onChange={() => undefined}
+      >
+        <option value="">We could not load your lead sources</option>
+      </select>
+    );
+  }
+  const choices = only ? items.filter((item) => item.source === only) : items;
+  return (
+    <select
+      required
+      aria-label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={choices.length === 0}
+      className={`${FIELD} w-full max-w-md`}
+    >
+      <option value="">{choices.length === 0 ? emptyHint : "Choose a lead source…"}</option>
+      {choices.map((item) => (
+        <option key={item.id} value={item.id}>
+          {sourceLabel(item.source)} · {item.id.slice(0, 8)}
+          {item.active ? "" : " (off)"}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * The card that ended out-of-band provisioning: create a source, see the ones you have,
+ * rotate a secret, turn one off and back on.
+ *
+ * The secret banner is the delicate part. It is rendered from the create/rotate
+ * RESPONSE and from nothing else — there is no route that returns it again, and there
+ * must never be a code path here that re-reads one — and it carries the whole
+ * instruction (which header, which URL) because a client who dismisses it and comes
+ * back cannot recover the value.
+ */
+function LeadSourcesCard({
+  session,
+  canWrite,
+}: {
+  session: ReturnType<typeof useClientSession>;
+  canWrite: boolean;
+}) {
+  const sources = useLeadSources(session);
+  const agents = useAgents(session);
+  const create = useCreateLeadSource(session);
+  const rotate = useRotateLeadSourceSecret(session);
+  const setActive = useSetLeadSourceActive(session);
+
+  const [source, setSource] = useState<string>("website_form");
+  const [agentId, setAgentId] = useState("");
+  const [phoneField, setPhoneField] = useState("phone");
+  const [nameField, setNameField] = useState("name");
+  const [consentField, setConsentField] = useState("");
+  const [appSecret, setAppSecret] = useState("");
+  const [issued, setIssued] = useState<IssuedSecret | null>(null);
+
+  const items = sources.data?.items;
+  const isMeta = source === "meta_lead_ads";
+
+  const submit = () => {
+    // Only the rules the client filled in. A blank field is not a mapping to an empty
+    // field name — the server refuses those — it is "we do not map this one".
+    const mapping: Record<string, string> = {};
+    if (phoneField.trim()) mapping.phone = phoneField.trim();
+    if (nameField.trim()) mapping.name = nameField.trim();
+    if (consentField.trim()) mapping.consent_field = consentField.trim();
+
+    create.mutate(
+      {
+        source,
+        agent_id: agentId || null,
+        mapping,
+        ...(isMeta && appSecret.trim() ? { app_secret: appSecret.trim() } : {}),
+      },
+      {
+        onSuccess: (made: NewLeadSource) => {
+          setIssued({
+            secret: made.secret,
+            header: made.secret_header,
+            path: made.ingest_path,
+            expiresAt: null,
+          });
+          setAppSecret("");
+        },
+      },
+    );
+  };
+
+  return (
+    <Card title="Your lead sources">
+      <p className="text-sm text-ink-muted">
+        Each lead source is one place leads come from — a website form, an ad account, a
+        CRM. It has its own address and its own secret, so you can turn one off without
+        touching the others.
+      </p>
+
+      {issued && <IssuedSecretNotice issued={issued} onDismiss={() => setIssued(null)} />}
+
+      {sources.error != null && (
+        <div className="mt-3">
+          <ProblemNotice error={sources.error} onRetry={() => sources.refetch()} />
+        </div>
+      )}
+      {create.error != null && (
+        <div className="mt-3">
+          <ProblemNotice error={create.error} />
+        </div>
+      )}
+      {rotate.error != null && (
+        <div className="mt-3">
+          <ProblemNotice error={rotate.error} />
+        </div>
+      )}
+      {setActive.error != null && (
+        <div className="mt-3">
+          <ProblemNotice error={setActive.error} />
+        </div>
+      )}
+
+      {/* Loading is a skeleton, a failed read is the notice above and NO list. "No lead
+          sources yet" under a failed request would have a client create a second source
+          for a form that is already wired up — two secrets, one form, and leads landing
+          on whichever they pasted last. */}
+      {sources.isLoading ? (
+        <div className="mt-3">
+          <Skeleton rows={2} />
+        </div>
+      ) : !items ? null : items.length ? (
+        <ul className="mt-3 divide-y divide-line">
+          {items.map((item) => (
+            <LeadSourceRow
+              key={item.id}
+              item={item}
+              canWrite={canWrite}
+              busy={rotate.isPending || setActive.isPending}
+              onRotate={(graceMinutes, secret) =>
+                rotate.mutate(
+                  { webhookId: item.id, graceMinutes, appSecret: secret },
+                  {
+                    onSuccess: (result) =>
+                      setIssued({
+                        secret: result.secret,
+                        header: result.secret_header,
+                        path: null,
+                        expiresAt: result.previous_secret_expires_at,
+                      }),
+                  },
+                )
+              }
+              onToggle={() => setActive.mutate({ webhookId: item.id, active: !item.active })}
+            />
+          ))}
+        </ul>
+      ) : (
+        <div className="mt-3">
+          <EmptyState
+            title="No lead sources yet"
+            hint="Add one below and point your website form at the address we give you."
+          />
+        </div>
+      )}
+
+      <form
+        className="mt-4 space-y-3 border-t border-line pt-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <p className="text-sm font-medium text-ink">Add a lead source</p>
+        <div className="flex flex-wrap gap-3">
+          <label className="text-xs text-ink-muted">
+            Where leads come from
+            <select
+              aria-label="Lead source kind"
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              className={`${FIELD} mt-1 block w-full min-w-[16rem]`}
+            >
+              {CREATABLE_SOURCES.map((kind) => (
+                <option key={kind} value={kind}>
+                  {sourceLabel(kind)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-ink-muted">
+            Which agent answers them
+            <select
+              aria-label="Agent to answer these leads"
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+              className={`${FIELD} mt-1 block w-full min-w-[16rem]`}
+            >
+              {/* Honest, not blank: a source with no agent SAVES leads and never dials
+                  them, which is a legitimate state and a surprising one. Say it. */}
+              <option value="">Not yet — save leads, don&apos;t call</option>
+              {(agents.data ?? []).map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <fieldset className="flex flex-wrap gap-3">
+          <legend className="text-xs text-ink-muted">
+            What your form calls each field (leave blank to send ours)
+          </legend>
+          <input
+            value={phoneField}
+            onChange={(e) => setPhoneField(e.target.value)}
+            aria-label="Your form's phone field name"
+            placeholder="phone_number"
+            className={`${FIELD} font-mono`}
+          />
+          <input
+            value={nameField}
+            onChange={(e) => setNameField(e.target.value)}
+            aria-label="Your form's name field name"
+            placeholder="full_name"
+            className={`${FIELD} font-mono`}
+          />
+          <input
+            value={consentField}
+            onChange={(e) => setConsentField(e.target.value)}
+            aria-label="Your form's consent field name"
+            placeholder="consent_to_call (optional)"
+            className={`${FIELD} font-mono`}
+          />
+        </fieldset>
+        {/* Consent is not a formality on this path: a lead that does not affirm it is
+            saved and never dialled (FLOWS §4). Say what naming the field does. */}
+        <p className="text-xs text-ink-faint">
+          If your form asks permission to call, name that field — a lead that does not
+          confirm it is saved and never dialled.
+        </p>
+
+        {isMeta && (
+          <label className="block text-xs text-ink-muted">
+            Your Meta app&apos;s App Secret
+            <input
+              required
+              type="password"
+              value={appSecret}
+              onChange={(e) => setAppSecret(e.target.value)}
+              aria-label="Meta App Secret"
+              className={`${FIELD} mt-1 block w-full max-w-md font-mono`}
+            />
+            <span className="mt-1 block text-ink-faint">
+              Meta signs every notification with this, so we cannot generate it. Find it
+              under App settings → Basic in the Meta App Dashboard.
+            </span>
+          </label>
+        )}
+
+        <button
+          type="submit"
+          disabled={!canWrite || create.isPending || (isMeta && !appSecret.trim())}
+          className={PRIMARY_BUTTON_SM}
+        >
+          <Plus className="h-4 w-4" />
+          {create.isPending ? "Adding…" : "Add lead source"}
+        </button>
+      </form>
+    </Card>
+  );
+}
+
+interface IssuedSecret {
+  /** Null when the client supplied it themselves (Meta) — there is nothing to show. */
+  secret: string | null;
+  header: string;
+  /** Only on creation: where to send leads. Null after a rotation, which changes
+   *  nothing about the address. */
+  path: string | null;
+  /** Only after a rotation with a grace window: when the OLD secret stops working. */
+  expiresAt: string | null;
+}
+
+/**
+ * The one moment the plaintext is on screen.
+ *
+ * It says "copy it now" because that is literally true — no route returns it again —
+ * and, after a rotation, it says when the old one stops working. A rotation banner
+ * without that deadline is the dangerous version: a client who reads "rotated" as "the
+ * old key is dead" will scramble, and one who reads it as "nothing changed" will never
+ * update their form. The date is the only sentence that produces the right behaviour.
+ */
+function IssuedSecretNotice({
+  issued,
+  onDismiss,
+}: {
+  issued: IssuedSecret;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className={`mt-3 rounded-lg border p-3 text-sm ${NOTICE_TONES.warn}`}>
+      {issued.secret ? (
+        <>
+          <p className="font-medium">Copy this secret now — we will not show it again.</p>
+          <code className={`${CODE} mt-2 block`}>{issued.secret}</code>
+          <p className="mt-2 text-xs">
+            Send it in the <code className="font-mono">{issued.header}</code> header on
+            every submission.
+          </p>
+        </>
+      ) : (
+        <p className="font-medium">
+          Saved. We store your app secret and verify every notification against it —
+          there is nothing new for you to copy.
+        </p>
+      )}
+      {issued.path && (
+        <p className="mt-2 text-xs">
+          Send leads to <code className="font-mono">{`${API_BASE}${issued.path}`}</code>
+        </p>
+      )}
+      {issued.expiresAt && (
+        <p className="mt-2 text-xs">
+          Your previous secret keeps working until {formatIST(issued.expiresAt)} — update
+          your form before then and no lead is lost.
+        </p>
+      )}
+      {issued.expiresAt === null && issued.path === null && (
+        <p className="mt-2 text-xs">The previous secret stopped working immediately.</p>
+      )}
+      <button type="button" onClick={onDismiss} className={`${QUIET_BUTTON} mt-3`}>
+        I&apos;ve saved it
+      </button>
+    </div>
+  );
+}
+
+/** One source: what it is, which secret we hold, and the two things you can do to it. */
+function LeadSourceRow({
+  item,
+  canWrite,
+  busy,
+  onRotate,
+  onToggle,
+}: {
+  item: LeadSource;
+  canWrite: boolean;
+  busy: boolean;
+  onRotate: (graceMinutes: number, appSecret?: string) => void;
+  onToggle: () => void;
+}) {
+  const [rotating, setRotating] = useState(false);
+  const [grace, setGrace] = useState("60");
+  const [appSecret, setAppSecret] = useState("");
+  const isMeta = item.source === "meta_lead_ads";
+
+  return (
+    <li className="py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-ink">{sourceLabel(item.source)}</span>
+        {!item.active && (
+          <span className="rounded-full border border-line bg-app px-2 py-0.5 text-xs text-ink-muted">
+            off
+          </span>
+        )}
+        <code className="text-xs text-ink-faint">{item.id}</code>
+        {/* The fingerprint, never the secret: enough to tell the client which key we
+            hold when they are staring at two of them in a form vendor's settings. */}
+        <span className="ml-auto text-xs text-ink-faint">key ···{item.secret_fingerprint}</span>
+        <button
+          type="button"
+          disabled={!canWrite || busy}
+          onClick={() => setRotating((open) => !open)}
+          className={SECONDARY_BUTTON_SM}
+        >
+          <KeyRound className="h-3.5 w-3.5" />
+          {rotating ? "Cancel" : "New secret"}
+        </button>
+        <button
+          type="button"
+          disabled={!canWrite || busy}
+          onClick={onToggle}
+          className={SECONDARY_BUTTON_SM}
+        >
+          <Power className="h-3.5 w-3.5" />
+          {item.active ? "Turn off" : "Turn on"}
+        </button>
+      </div>
+
+      {item.previous_secret_expires_at && (
+        <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+          Your previous secret still works until {formatIST(item.previous_secret_expires_at)}.
+        </p>
+      )}
+
+      {rotating && (
+        <form
+          className="mt-2 flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onRotate(Number(grace), isMeta ? appSecret.trim() || undefined : undefined);
+            setRotating(false);
+            setAppSecret("");
+          }}
+        >
+          {isMeta && (
+            <label className="text-xs text-ink-muted">
+              Your new Meta App Secret
+              <input
+                required
+                type="password"
+                value={appSecret}
+                onChange={(e) => setAppSecret(e.target.value)}
+                aria-label="New Meta App Secret"
+                className={`${FIELD} mt-1 block w-56 font-mono`}
+              />
+            </label>
+          )}
+          <label className="text-xs text-ink-muted">
+            Keep the old secret working for
+            <select
+              aria-label="How long the old secret keeps working"
+              value={grace}
+              onChange={(e) => setGrace(e.target.value)}
+              className={`${FIELD} mt-1 block`}
+            >
+              <option value="60">1 hour (recommended)</option>
+              <option value="1440">24 hours</option>
+              {/* The revocation, named for what it costs rather than for what it is:
+                  a client choosing this because it sounds tidiest would drop the leads
+                  submitted in the minutes it takes them to update their form. */}
+              <option value="0">Stop it immediately — my secret leaked</option>
+            </select>
+          </label>
+          <button type="submit" disabled={busy} className={PRIMARY_BUTTON_SM}>
+            Issue new secret
+          </button>
+        </form>
+      )}
+    </li>
   );
 }
 

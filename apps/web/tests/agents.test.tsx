@@ -70,7 +70,28 @@ function agent(over: Partial<Agent> = {}): Agent {
   } as Agent;
 }
 
-/** No staged edit: the state an agent spends most of its life in. */
+/** One voice as `GET /v1/agents/{id}/pending` returns it, catalogue entry and all. */
+function storedVoice(id: string, label: string): NonNullable<PendingState["voice"]["live"]> {
+  return {
+    voice_id: id,
+    provider: "sarvam",
+    catalog: {
+      id,
+      label,
+      provider: "sarvam",
+      tts_model: id,
+      tier: "premium",
+      gender: null,
+      languages: ["te-IN"],
+      note: "",
+      is_default: false,
+      verified: false,
+    },
+  } as NonNullable<PendingState["voice"]["live"]>;
+}
+
+/** No staged edit, and the engine holds the voice the row names: the state an agent
+ *  spends most of its life in. */
 function settled(over: Partial<PendingState> = {}): PendingState {
   return {
     agent_id: "agent-1",
@@ -82,6 +103,12 @@ function settled(over: Partial<PendingState> = {}): PendingState {
     call_cap_is_platform_default: true,
     worst_case_call_cost_inr: "65.00",
     precedence_rule: "Script decides content, rules decide conduct, voice only changes delivery.",
+    voice: {
+      configured: storedVoice("bulbul:v3", "Bulbul v3 — premium"),
+      live: storedVoice("bulbul:v3", "Bulbul v3 — premium"),
+      republish_required: false,
+      headline: "Callers hear Bulbul v3 — premium.",
+    },
     ...over,
   } as PendingState;
 }
@@ -308,6 +335,101 @@ describe("the controls this session may not use are absent, not waiting to 403",
       // would show up as a `/v1/admin/...` path in this list.
       expect(call.path).not.toContain("/v1/admin/");
     }
+  });
+});
+
+describe("which voice callers are actually hearing", () => {
+  /**
+   * A voice is TWO facts once it can be changed without being published, and this
+   * screen is where a client finds out which one their callers get.
+   *
+   * They are entitled to it: the catalogue is client-realm readable already ("a client
+   * is legally the Principal Entity and should be able to see what their own agent
+   * sounds like"), and D-36's ladder is a PRICE ladder — the premium and value rungs
+   * bill at different per-minute rates and `usage_events.meta.tts_tier` records which
+   * one each call ran on. Changing it stays ours (D-21), so there is no control here.
+   */
+  it("shows one voice when the calling system is holding the configured one", async () => {
+    const { container } = await renderClientPage(page, routes());
+
+    await screen.findByText("Voice callers hear");
+    expect(factValue("Voice callers hear")).toBe("Bulbul v3 — premium");
+    // No second box: there is one fact, and inventing a "waiting" row for an agent with
+    // nothing waiting is how a client learns to ignore the one that matters.
+    expect(container.textContent).not.toContain("New voice waiting");
+  });
+
+  it("names BOTH voices when one is chosen and not yet published", async () => {
+    // The inversion this screen must never ship: a chosen voice rendered as the one
+    // callers hear. `set_agent_voice` writes our row and does not touch the engine, so
+    // until a publish the two are different — and both are labelled, because a sentence
+    // can be read the wrong way round and two `dt`/`dd` pairs cannot.
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1/pending": settled({
+          voice: {
+            configured: storedVoice("bulbul:v2", "Bulbul v2 — value"),
+            live: storedVoice("bulbul:v3", "Bulbul v3 — premium"),
+            republish_required: true,
+            headline: "Callers still hear Bulbul v3 — premium.",
+          },
+        }),
+      }),
+    );
+
+    await screen.findByText("Voice callers hear");
+    expect(factValue("Voice callers hear")).toBe("Bulbul v3 — premium");
+    expect(factValue("New voice waiting")).toBe("Bulbul v2 — value");
+  });
+
+  it("says a published agent's voice is unknown rather than claiming it is the configured one", async () => {
+    // `live: null` on a PUBLISHED agent means we have no record of what the calling
+    // system is holding. Rendering the configured voice here would be the whole defect:
+    // an unverifiable claim about what a caller hears, made to the person paying for it.
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1/pending": settled({
+          voice: {
+            configured: storedVoice("bulbul:v2", "Bulbul v2 — value"),
+            live: null,
+            republish_required: true,
+            headline: "Callers hear whatever voice was last published.",
+          },
+        }),
+      }),
+    );
+
+    await screen.findByText("Voice callers hear");
+    expect(factValue("Voice callers hear")).toBe("We cannot say from here");
+    expect(container.textContent).not.toContain("Voice callers hearBulbul v2");
+    expect(factValue("New voice waiting")).toBe("Bulbul v2 — value");
+  });
+
+  it("says an unpublished agent has no voice in force at all", async () => {
+    // A DIFFERENT null: nothing is on the calling system, so no caller hears anything
+    // and nothing is waiting on us. "We cannot say" would be wrong here — we can.
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents": [agent({ published: false, status: "draft" })],
+        "/v1/agents/agent-1/pending": settled({
+          published: false,
+          agent_status: "draft",
+          voice: {
+            configured: storedVoice("bulbul:v2", "Bulbul v2 — value"),
+            live: null,
+            republish_required: false,
+            headline: "This agent is not on the voice platform yet.",
+          },
+        }),
+      }),
+    );
+
+    await screen.findByText("Voice callers hear");
+    expect(factValue("Voice callers hear")).toBe("Nothing yet");
+    expect(container.textContent).not.toContain("New voice waiting");
   });
 });
 

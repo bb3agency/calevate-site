@@ -32,10 +32,13 @@ import {
   useTenantLanes,
   useTenantPending,
   useUndoChanges,
+  type ConcludeExperimentOut,
   type Experiment,
   type ExperimentVariant,
   type PendingState,
 } from "@/lib/api/publishing";
+import type { AgentVoice, AgentVoiceState } from "@/lib/api/publishing";
+import { useSetAgentVoice, useTenantVoiceCatalogue, type Voice } from "@/lib/api/voices";
 
 import { useAdminAccess } from "@/app/admin/access";
 
@@ -124,6 +127,15 @@ export default function AgentPromptPage({
         agentId={agentId}
         slug={slug}
         pending={pending.data}
+        write={write}
+      />
+
+      <VoicePanel
+        tenantId={tenantId}
+        agentId={agentId}
+        slug={slug}
+        pending={pending.data}
+        tenantLoading={tenant.isLoading || pending.isLoading}
         write={write}
       />
 
@@ -569,6 +581,288 @@ function CallCapPanel({
 }
 
 /**
+ * Which voice this agent speaks in — D-36's premium/value ladder, selectable and, now,
+ * READABLE.
+ *
+ * **Why this screen.** Voice is agent CONFIGURATION and the write is admin-realm
+ * `agents:write` (`agents/voice_routes.py`, D-21: which voice speaks Telugu well is an ear
+ * test, so it routes through us). This is the only per-agent operator screen in the
+ * console and it already holds every other `agents:write` control — script, apply/undo,
+ * call cap, A/B — behind one `useAdminAccess` gate. A second per-agent screen for one
+ * dropdown would be a second place to look for the same class of setting.
+ *
+ * **CONFIGURED IS NOT LIVE, and this panel is built around that rather than around the
+ * dropdown.** The write touches our row only; `publish_agent` re-reads the column, so a
+ * live agent keeps its old voice until the next publish. `GET /v1/agents/{id}/pending`
+ * therefore answers with TWO voices — `voice.configured` and `voice.live` — and both are
+ * rendered as labelled data, side by side, exactly as `PendingRow` renders the two script
+ * pointers on the client screen. The reasoning is the same and it has been earned twice:
+ * a sentence can be read the wrong way round, two `dt`/`dd` pairs under "Callers hear
+ * now" and "Configured" cannot. The panel used to say it could not report the voice in
+ * force at all; the fix was not to start guessing but to make the server answer.
+ *
+ * **The select pre-selects `voice.configured`** and nothing else. Not `voice.live` (the
+ * operator edits the configuration, not the past), not the catalogue's `is_default` (that
+ * is D-36's written default, not this agent's state), and not a blank when the server
+ * answered — a picker that reopens on "choose a voice" over a configured agent invites
+ * the operator to re-pick a value that is already set.
+ *
+ * `verified: false` is rendered, not hidden: the catalogue entries carry it until the
+ * Bolna pilot confirms each string is selectable on the engine (OPERATIONS §2 gate 3), and
+ * an operator picking an unverified voice should know that is what they are doing.
+ */
+function VoicePanel({
+  tenantId,
+  agentId,
+  slug,
+  pending,
+  tenantLoading,
+  write,
+}: {
+  tenantId: string;
+  agentId: string;
+  slug: string;
+  pending: PendingState | undefined;
+  tenantLoading: boolean;
+  write: ReturnType<typeof useAdminAccess>;
+}) {
+  const catalogue = useTenantVoiceCatalogue(slug);
+  const save = useSetAgentVoice({ tenantId, agentId, slug });
+  // `null` means "not edited on this visit" — the select then shows the server's
+  // configured voice. Same shape, and the same reason, as the call-cap field above: an
+  // explicit "" is a real (invalid) choice and must not be confused with "unchanged".
+  const [choice, setChoice] = useState<string | null>(null);
+  const state = pending?.voice;
+  const selected = choice ?? state?.configured?.voice_id ?? "";
+
+  return (
+    <Card title="Voice">
+      <p className="-mt-2 text-xs text-ink-muted">
+        Setting a voice writes it to the agent and stops there — a live agent keeps
+        speaking in its old voice until the next publish, which is deliberate: re-voicing a
+        running client&apos;s phone line is not something to do silently.
+      </p>
+      <div className="mt-3 space-y-3">
+        <RestrictionNote reason={write.reason} />
+        {save.error && <ProblemNotice error={save.error} />}
+
+        {/* §52: the catalogue is a read like any other. A skeleton while it is in flight,
+            a refusal when it failed — never an empty `<select>`, which reads as "this
+            agent has no voices available" and is a claim about the product. The tenant
+            and pending reads gate it too: the catalogue request goes through that
+            tenant's impersonation session, and pre-selecting before the pending read
+            lands would flash "choose a voice" over a configured agent. */}
+        {tenantLoading || catalogue.isLoading ? (
+          <Skeleton rows={2} />
+        ) : catalogue.error || !catalogue.data ? (
+          <ProblemNotice
+            error={
+              catalogue.error ??
+              new Error("The voice catalogue did not load, so there is nothing to choose from.")
+            }
+            onRetry={() => void catalogue.refetch()}
+          />
+        ) : (
+          <>
+            <VoiceInForce state={state} published={pending?.published} />
+
+            <form
+              className="flex flex-wrap items-end gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                save.mutate(selected);
+              }}
+            >
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-ink-muted">Voice</span>
+                <select
+                  value={selected}
+                  disabled={!write.allowed}
+                  onChange={(event) => setChoice(event.target.value)}
+                  className={FIELD}
+                >
+                  <option value="">Choose a voice</option>
+                  {catalogue.data.map((voice) => (
+                    <option key={voice.id} value={voice.id}>
+                      {voiceReading(voice)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="submit"
+                disabled={save.isPending || selected === "" || !write.allowed}
+                className={PRIMARY_BUTTON_SM}
+              >
+                {save.isPending ? "Saving…" : "Set voice"}
+              </button>
+            </form>
+
+            <VoiceDetail voice={catalogue.data.find((entry) => entry.id === selected)} />
+          </>
+        )}
+
+        {save.data && (
+          <p className="text-xs text-ink-muted">
+            Saved — {save.data.voice.label} ({save.data.voice.tier} tier,{" "}
+            {save.data.voice.tts_model}). {save.data.next_step}
+          </p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * The two voices, named, with the gap between them stated where there is one.
+ *
+ * Modelled on `PendingRow` on the client agents screen, deliberately: that component
+ * exists because showing the STAGED script as the one callers hear was shipped once and
+ * `agents/publishing.py` opens by recording it. A voice has the same two-pointer shape
+ * for the same reason — our row moves, the engine does not until a publish — so it gets
+ * the same treatment: the server's headline, and both values as labelled data underneath
+ * so no one has to parse a sentence correctly to know which is which.
+ *
+ * `published` decides how a null `live` reads, and it is genuinely two different facts:
+ * an unpublished agent has nothing live, while a published one with nothing recorded is
+ * an agent whose voice we cannot name. The second is not "no voice" and must not be
+ * rendered as one — the server says `republish_required` for it either way.
+ *
+ * Nothing at all is rendered while the pending read is unavailable: the panel below still
+ * SETS a voice, and a missing "in force" block is a smaller lie than an invented one.
+ */
+function VoiceInForce({
+  state,
+  published,
+}: {
+  state: AgentVoiceState | undefined;
+  published: boolean | undefined;
+}) {
+  if (!state) return null;
+  return (
+    <div className="rounded-card border border-line p-3">
+      <p className="text-xs text-ink">{state.headline}</p>
+      <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
+        <div>
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+            Callers hear now
+          </dt>
+          <dd className="text-sm font-medium text-ink">
+            {state.live
+              ? voiceName(state.live)
+              : published
+                ? "Not recorded — publish to be sure"
+                : "Nothing — not on the voice platform yet"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+            Configured
+          </dt>
+          <dd className="text-sm font-medium text-ink">
+            {state.configured ? voiceName(state.configured) : "None set"}
+          </dd>
+        </div>
+      </dl>
+      {state.republish_required && (
+        /* Amber, and only when the server says so. The two values above are already
+           different at this point, but "different" is not the operator's question —
+           "does a caller hear the wrong thing until I act" is, and only the server can
+           answer it (an unpublished agent has two different values and no problem). */
+        <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+          Publishing this agent is what moves the voice callers hear. Nothing else on this
+          screen does it.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** A stored voice in the words an operator recognises, degrading to the raw id.
+ *
+ *  `catalog` is null for a voice the API no longer offers, and the id is then all we
+ *  have. Printing it beats printing "unknown": an operator can search for an id. */
+function voiceName(voice: AgentVoice): string {
+  return voice.catalog ? `${voice.catalog.label} (${voice.catalog.tts_model})` : voice.voice_id;
+}
+
+/**
+ * What the operator is about to choose, before they choose it.
+ *
+ * The `<option>` text carries the tier and the model because that is what an operator
+ * compares on; the rest — languages, the catalogue's own note, and whether the string has
+ * been confirmed on the engine — needs more room than an option can hold. Nothing is
+ * rendered when the select sits on "choose a voice", which now only happens on an agent
+ * with no voice configured: the block above has already said so, and repeating it here
+ * would be two answers to one question.
+ */
+function VoiceDetail({ voice }: { voice: Voice | undefined }) {
+  if (!voice) return null;
+  return (
+    <div className="rounded-card border border-line p-3 text-xs text-ink-muted">
+      <p>
+        <span className="font-semibold text-ink">{voice.label}</span> · {voice.provider}{" "}
+        {voice.tts_model} · {voice.tier} tier
+        {voice.gender ? ` · ${voice.gender}` : ""} · {voice.languages.join(", ")}
+      </p>
+      <p className="mt-1">{voice.note}</p>
+      {!voice.verified && (
+        // Stated, not hidden: the catalogue marks an entry verified only once the pilot
+        // has confirmed the engine accepts the string (OPERATIONS §2 gate 3). Setting an
+        // unverified one is allowed and is a decision the operator should make knowingly.
+        <p className="mt-1 text-amber-700 dark:text-amber-400">
+          Not yet confirmed against the voice platform — we have not heard this one on a
+          live call. Expect to verify it before a client hears it.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** One catalogue entry, in the words an operator picks on. */
+function voiceReading(voice: Voice): string {
+  const badge = voice.verified ? "" : " · unverified";
+  return `${voice.label} — ${voice.tier} (${voice.tts_model})${badge}`;
+}
+
+/**
+ * What the Conclude button reports, including the ending it did not perform.
+ *
+ * Concluding is idempotent on the server: a second operator on the same screen, or a
+ * retry of a request whose response was lost, gets 200 and a test that ended exactly
+ * once — nothing is promoted or published a second time. That call's response carries
+ * the arm the test ENDED on and a null `new_version`, because no version was minted by
+ * it, and printing "as vnull" at an operator is how a correct server answer becomes a
+ * broken screen.
+ *
+ * The server states it outright as `changed`, and that is now what this reads. It used
+ * to derive the same fact from `promoted_label != null && new_version == null` because
+ * the generated client predated the field; the two agree by construction, but the
+ * derivation was a second way of knowing one thing and this is the first.
+ */
+function concludeMessage(data: ConcludeExperimentOut): string {
+  if (!data.promoted_label) {
+    // True of an ending with no promotion whether or not this call made it: either way
+    // the control is what callers keep hearing.
+    return "Stopped. Callers keep hearing the control script.";
+  }
+  if (!data.changed) {
+    return (
+      `This test had already ended, promoting variant ${data.promoted_label}. ` +
+      "Nothing was published again — reload to see the version it produced."
+    );
+  }
+  return (
+    `Promoted variant ${data.promoted_label} as v${data.new_version}.` +
+    (data.applied
+      ? data.engine_synced
+        ? " The voice platform has it."
+        : " The agent is not live, so nothing was sent to the voice platform."
+      : " It is STAGED — press Apply above to put it on live calls.")
+  );
+}
+
+/**
  * A/B script testing with conversion attribution (ROADMAP M3).
  *
  * THE ONE THING THIS PANEL MUST NOT DO is print a number that reads as a verdict. The
@@ -678,16 +972,7 @@ function ExperimentPanel({
               />
             )}
             {conclude.data && (
-              <p className="text-xs text-ink-muted">
-                {conclude.data.promoted_label
-                  ? `Promoted variant ${conclude.data.promoted_label} as v${conclude.data.new_version}.` +
-                    (conclude.data.applied
-                      ? conclude.data.engine_synced
-                        ? " The voice platform has it."
-                        : " The agent is not live, so nothing was sent to the voice platform."
-                      : " It is STAGED — press Apply above to put it on live calls.")
-                  : "Stopped. Callers keep hearing the control script."}
-              </p>
+              <p className="text-xs text-ink-muted">{concludeMessage(conclude.data)}</p>
             )}
           </>
         )}
@@ -742,7 +1027,11 @@ function ExperimentResults({ experiment }: { experiment: Experiment }) {
             <tr>
               <th className="py-1 pr-3 font-medium">Arm</th>
               <th className="py-1 pr-3 font-medium">Share</th>
-              <th className="py-1 pr-3 font-medium">Dialled</th>
+              {/* "Dialled (outbound)" rather than "Dialled": an arm can also be credited
+                  with an inbound call its own line answered (D-60), and that call was
+                  never placed by us. Completed can therefore exceed it, which the rate
+                  cell explains on the same row. */}
+              <th className="py-1 pr-3 font-medium">Dialled (outbound)</th>
               <th className="py-1 pr-3 font-medium">Completed</th>
               <th className="py-1 pr-3 font-medium">Converted</th>
               <th className="py-1 font-medium">Rate (95% range)</th>
@@ -762,8 +1051,8 @@ function ExperimentResults({ experiment }: { experiment: Experiment }) {
                   )}
                 </td>
                 <td className="py-1.5 pr-3 tabular-nums">{variant.weight_bp / 100}%</td>
-                <td className="py-1.5 pr-3 tabular-nums">{variant.dialled}</td>
-                <td className="py-1.5 pr-3 tabular-nums">{variant.attributed}</td>
+                <td className="py-1.5 pr-3 tabular-nums">{variant.outbound_dialled}</td>
+                <td className="py-1.5 pr-3 tabular-nums">{variant.completed}</td>
                 <td className="py-1.5 pr-3 tabular-nums">{variant.conversions}</td>
                 <td className="py-1.5 tabular-nums">{rateReading(variant)}</td>
               </tr>
@@ -943,13 +1232,27 @@ function VersionSelect({
 }
 
 /** A rate with its plausible range, or the reason there is no rate. Never "0%" for an
- *  arm with no completed calls — that is a claim, and the server sent null. */
+ *  arm with no completed calls — that is a claim, and the server sent null.
+ *
+ *  The mixed-population qualifier is built INTO this string rather than rendered beside
+ *  it, and that is the point: the rate's denominator is `completed`, which can hold
+ *  inbound calls the engine credited to this arm (D-60) and which nothing ever SPLIT
+ *  between the arms. A caller who renders the number therefore cannot omit the fact that
+ *  part of it was not randomised — the alternative, a separate element somebody may
+ *  forget or a layout may drop, is how the "dialled" defect this replaced got shipped.
+ */
 function rateReading(variant: ExperimentVariant): string {
   if (variant.rate === null || variant.rate_low === null || variant.rate_high === null) {
     return "no completed calls yet";
   }
   const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
-  return `${pct(variant.rate)} (${pct(variant.rate_low)}–${pct(variant.rate_high)})`;
+  const reading = `${pct(variant.rate)} (${pct(variant.rate_low)}–${pct(variant.rate_high)})`;
+  if (variant.inbound_completed === 0) return reading;
+  return (
+    `${reading} · includes ${variant.inbound_completed} inbound call` +
+    `${variant.inbound_completed === 1 ? "" : "s"} this arm's line answered, which were ` +
+    `not split between the arms`
+  );
 }
 
 /** Percentage POINTS, signed, because the gap can legitimately run either way. */

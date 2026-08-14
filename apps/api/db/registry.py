@@ -11,8 +11,10 @@ from apps.api.campaigns import models as campaigns_models
 from apps.api.compliance import models as compliance_models
 from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
+from apps.api.flags import models as flags_models
 from apps.api.integrations import models as integrations_models
 from apps.api.kb import models as kb_models
+from apps.api.quality import models as quality_models
 from apps.api.reliability import models as reliability_models
 from apps.api.tenancy import models as tenancy_models
 
@@ -25,8 +27,10 @@ __all__ = [
     "campaigns_models",
     "compliance_models",
     "crm_models",
+    "flags_models",
     "integrations_models",
     "kb_models",
+    "quality_models",
     "reliability_models",
     "tenancy_models",
 ]
@@ -53,9 +57,17 @@ TENANT_TABLES = [
     "call_extractions",
     "leads",
     "lead_events",
+    # Per-user-per-tenant Leads-table state (SURFACES §2 saved views, migration
+    # a7e2c40d9b53). Tenant-isolated like every other row here; the per-USER half is an
+    # explicit `user_id` predicate in `crm.saved_views`, because RLS answers "which
+    # tenant" and never "which person".
+    "lead_saved_views",
     "usage_events",
     "plans",
     "credit_ledger",
+    # One-time charges (the onboarding setup fee, migration c7e1a4b90d63). Tenant money:
+    # what this client was billed once, read by the invoice.
+    "one_time_charges",
     "spend_state",
     "consent_ledger",
     # dnc_list is listed but its policy is HAND-WRITTEN (asymmetric read/write): the
@@ -73,6 +85,12 @@ TENANT_TABLES = [
     # mitigation). Tenant data — what a reviewer decided about this account — read by
     # the campaign launch gate and by every dispatch tick.
     "first_campaign_reviews",
+    # One row per tenant per feature flag they are OFF the platform default for
+    # (SURFACES §1, migration 3a91c7e04d58). Tenant data in the sense that matters here:
+    # it is OUR configuration decision ABOUT one client, readable only through the admin
+    # surface, and no other tenant may see it. Absence is the default, so most tenants
+    # have no rows at all.
+    "tenant_feature_flags",
     "retention_policies",
     "deletion_requests",
     "inbound_webhooks",
@@ -80,6 +98,11 @@ TENANT_TABLES = [
     "kb_sources",
     "kb_documents",
     "kb_retrieval_logs",
+    # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue
+    # (SURFACES §1), migration d5b8a2c60e17. Both are tenant data: the report is the
+    # client's own document and the sample names the client's own calls.
+    "qa_reports",
+    "qa_call_samples",
 ]
 
 # Tables carrying tenant_id that are deliberately NOT tenant-RLS'd, with reasons —
@@ -107,4 +130,10 @@ RLS_EXEMPT_TENANT_COLUMNS = {
 }
 
 # INSERT-only ledgers (hard rule 4): immutability triggers in the migration.
-APPEND_ONLY_TABLES = ["usage_events", "consent_ledger", "audit_log", "credit_ledger"]
+APPEND_ONLY_TABLES = [
+    "usage_events",
+    "consent_ledger",
+    "audit_log",
+    "credit_ledger",
+    "one_time_charges",
+]

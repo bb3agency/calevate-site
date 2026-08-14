@@ -160,56 +160,192 @@ and a call that waits for the 10-minute poller.
 `make check` (ruff, mypy strict, pytest incl. RLS zero-rows + engine conformance,
 web typecheck) → alembic upgrade head against the service DB → smoke test.
 
-**Deploy workflow** (`.github/workflows/deploy.yml`): `workflow_run` on CI success on
-main + `workflow_dispatch`. Runs on the **self-hosted runner installed on the VPS**
-(label `calevate-vps`) — the runner polls GitHub via outbound HTTPS; **no inbound SSH
-ever**. Gated on repo Variable `VPS_DEPLOY_ENABLED=true`; paths in Secrets
+**Deploy workflow** (`.github/workflows/deploy.yml` — BUILT, and disabled until a repo
+Variable says otherwise): `workflow_run` on CI success on main + `workflow_dispatch`.
+Runs on the **self-hosted runner installed on the VPS** (label `calevate-vps`) — the
+runner polls GitHub via outbound HTTPS; **no inbound SSH ever**. Paths in Secrets
 (`VPS_CLIENT_PATH=/var/www/calevate`), booleans/labels in Variables (raghava rule:
-paths are Secrets, flags are Variables). Concurrency group prevents overlapping
-deploys; no cancel-in-progress.
+paths are Secrets, flags are Variables). Concurrency group `deploy-production` prevents
+overlapping deploys, with `cancel-in-progress: false` — cancelling a deploy between the
+migration and the swap would manufacture the half-deployed state §4 exists to prevent.
 
-Three jobs, independent (a docs-only change must not rebuild Docker):
-1. **deploy-backend**: git pull `--ff-only` + **SHA-match against the CI run's SHA
-   (abort on mismatch)** → `scripts/vps-deploy.sh` (§4).
-2. **deploy-web**: `npm ci` + `next build` + `pm2 reload calevate-web --update-env`
-   + health poll on :3000.
-3. Both verify their required Secrets/Variables first and fail with instructions.
+**It cannot fire by accident, and that is enforced four times over**: repo Variable
+`VPS_DEPLOY_ENABLED` must be the string `true` (unset = every job skipped, so merging the
+file changes nothing); the job re-checks `workflow_run.conclusion == 'success'`, because
+`workflow_run` fires on FAILED runs too and that is the classic way a deploy workflow
+ships a red build; `head_branch` must be `main`, or CI on a pull request would deploy the
+PR; and `environment: production` gives a required-reviewer rule somewhere to attach
+without editing the workflow. **No credential is wired** — the runner is on the box, so
+there is no SSH key, and application secrets are read from `.env` on the host.
+
+**It uses no third-party action — not even `actions/checkout`** (hard rule 9). It does not
+need one: the deploy target is the runner's own host and the checkout already lives at
+`VPS_CLIENT_PATH`. Every action in a deploy workflow runs with production permissions on
+the production host; the cost of avoiding that entirely is two lines of bash.
+
+**One job, not the three this section originally sketched.** The property those three
+bought — a docs-only change must not rebuild Docker — is kept, but it is enforced inside
+`scripts/vps-deploy.sh`, which diffs the last deployed SHA against HEAD through an
+explicit path→component map and exits before building when nothing maps. Three jobs would
+need three `paths:` filters here, i.e. a second copy of that map in a different language,
+drifting the first time a directory moves. The hard-rule-3 property (an `api` change never
+restarts voice-runtime) comes from the same map plus `--no-deps`, not from job separation;
+a single component is still deployable alone via `workflow_dispatch` with
+`components: voice-runtime`.
 
 **Runner discipline** (raghava-proven): one runner dir per project
 (`~/actions-runner-calevate`), installed via their `install-github-runner.sh` pattern
 (`--labels "self-hosted,calevate-vps" --unattended --replace`, `svc.sh install/start`);
 never `cp -r` a configured runner; `verify-cd-status.sh`-style preflight after setup.
 
-## 4. vps-deploy.sh (adapt raghava's 650-line script — keep its scar tissue)
+## 4. vps-deploy.sh — BUILT (`scripts/vps-deploy.sh`)
+
+The artefact this section used to specify now exists, together with the two things it had
+no way to work without: a **`Dockerfile`** (one image, three services — see its header for
+why one) and **`compose.prod.yml`** (api · voice-runtime · workers · redis; Postgres stays
+on the host per D-26, web stays under pm2 per §1).
+
+```
+scripts/vps-deploy.sh                       # deploy whatever changed since the last deploy
+scripts/vps-deploy.sh --all                 # everything
+scripts/vps-deploy.sh voice-runtime         # exactly one component
+scripts/vps-deploy.sh --dry-run --all       # resolve and print the plan, change nothing
+scripts/vps-deploy.sh --expected-sha <sha>  # abort unless HEAD is that commit
+```
 
 Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
 
-1. Validate: `.env` present (deploy scripts NEVER write secrets; abort if missing),
-   compose files present.
-2. `git pull --ff-only`; **abort if HEAD ≠ CI-validated SHA**.
-3. Env preflight: run a `verify-bootstrap-env` check (pydantic Settings import against
-   `.env` — fail fast BEFORE any container swap).
-4. **Dead/orphan container tombstone sweep** (their §1.75 — Docker `Dead`-state ghosts
-   break compose's rename-on-recreate; sweep + `rm -rf /var/lib/docker/containers/<id>`
-   via scoped sudoers).
-5. **Pre-build disk reclaim**: container/image prune, `docker builder prune
-   --keep-storage 3GB`; hard-abort below 3GB free.
-6. **Serial builds** (`compose build api`, then `voice-runtime`, then `workers`) —
-   parallel builds OOM small hosts.
-7. Migrations from the host against 127.0.0.1: `uv run alembic upgrade head`
-   (DATABASE_URL rewritten `host.docker.internal`→`127.0.0.1`).
-8. nginx template render via envsubst + `nginx -t` before `systemctl reload`
-   (gated on `NGINX_AUTO_RELOAD=1`; scoped sudoers grants — copy their exact
-   `/etc/sudoers.d/deploy` list, §8 of the survey).
-9. Container swap → health wait **90×2s** on `/healthz` for api AND voice-runtime
-   (their lesson: 60s was shorter than a migrate-on-boot, training operators to
-   ignore red deploys).
-10. Post-deploy prune + summary.
+1. **Preflight, all refusals**: `.env` present (deploy scripts NEVER write secrets; abort
+   if missing, warn if not mode 600), compose file and Dockerfile present, docker compose
+   v2 present, **checkout clean** (a deploy from an edited tree ships code CI never saw),
+   ≥3GB free, and the Cloudflare IP list not older than 180 days (§5.3).
+2. `git pull --ff-only`; **abort if HEAD ≠ `--expected-sha`**. CI validates one commit and
+   `main` can move before the runner starts; without this gate that race ships silently.
+3. **Resolve the component plan** from `git diff <last deployed SHA> HEAD` through the
+   path map in `components_for_paths`. This is where hard rule 3 is enforced — see §4c.
+4. **Dead-container check**: Docker `Dead`-state ghosts break compose's rename-on-recreate
+   (§10). The script **detects and refuses with the exact command** rather than running
+   the playbook's `sudo rm -rf /var/lib/docker/containers/<id>` unattended — an automated
+   `rm -rf` under the daemon's state directory is a bigger hazard than the fault it fixes.
+5. **Serial builds** — parallel builds OOM small hosts, and the OOM kills the runner, so
+   it reads as a CI flake rather than as a memory ceiling.
+6. **Bootstrap-env preflight, run IN the new image** (`validate_bootstrap_env` +
+   `Settings()`), before any swap. In the image rather than on the host because what
+   matters is what the process about to serve traffic can read.
+7. **Migrations** (`compose --profile migrate run --rm migrate`), before the swap — §4a.
+8. **Container swap**, one service at a time, `compose up -d --no-deps <service>`, in the
+   order workers → api → voice-runtime (§4b), each followed by a health wait of
+   **90×2s** on `/healthz` (§10's lesson: 60s was shorter than a migrate-on-boot, which
+   trains operators to ignore red deploys).
+9. **web**: `pnpm install --frozen-lockfile` + `pnpm -C apps/web build` +
+   `pm2 reload calevate-web --update-env` + health poll on :3000.
+10. **nginx**: envsubst render → placeholder check → `nginx -t` → `systemctl reload`,
+    gated on `NGINX_AUTO_RELOAD=1`. Unset, it renders and prints the install commands.
+11. Post-deploy prune, record the SHA and the plan to `.deploy-state/history`, summary
+    with the before/after alembic revision and the rollback command.
 
-**voice-runtime caveat**: it deploys with the same script but hard rule 3 still holds —
-its deploy must not be COUPLED to api changes. The compose service split gives us
-`compose up -d --no-deps voice-runtime` for independent restarts; a future split into
-its own workflow job is allowed without a new decision.
+A failed step prints a banner naming the step, the exit code and the alembic revision,
+and stops — nothing after it runs, there is no automatic rollback, and
+**`runbooks/deploy-failed.md`** is ordered by which step failed, because the recovery for
+a failed build and a failed swap are not the same procedure.
+
+### 4a. Migration ordering, and why it is this way round
+
+**Migrations run BEFORE the container swap. Never after, and never automatically undone.**
+
+Hard rule 8 forbids dropping a column in the same release that stops writing it. That
+rule is exactly the statement *the OLD code can always run against the NEW schema* — an
+expand-only migration adds things the old code ignores and removes nothing it still uses.
+It says nothing about the reverse: **new code against the old schema is protected by
+nothing**, and a release that reads a column added this release fails on every request
+until the migration lands.
+
+So the window between migrate and swap is safe by construction and the window between
+swap and migrate is not. That asymmetry is the whole argument, and it is worth stating
+because "deploy then migrate" is a defensible ordering in codebases that do *not* have
+rule 8 — here it would throw away the property rule 8 buys.
+
+On failure: PostgreSQL has transactional DDL and alembic runs each revision in its own
+transaction, so a failure leaves the database at the last revision that fully applied — a
+valid intermediate state which, by the same argument, the still-running old containers can
+serve on. **No automatic downgrade.** A downgrade can drop a column a partially deployed
+system has already written to, turning a failed deploy into data loss; it is a judgement,
+not a step, and `runbooks/deploy-failed.md` §3 is where that judgement is written down.
+The revision is recorded before *and* after precisely so that a manual downgrade has a
+target rather than a guess.
+
+### 4b. The swap is low-downtime, not zero-downtime — and what absorbs the gap
+
+`compose up -d --no-deps <service>` **recreates** the container: the old one stops, the new
+one starts. That is a gap of a few seconds per service, and the honest thing is to name it
+rather than to claim a rollout mechanism this repo does not have.
+
+What is done about it:
+
+- **Order.** workers first (no reader waits on them; a job landing in their gap sits in
+  Redis), then api, then **voice-runtime last** — its gap is the only one that costs a
+  call, so it is the shortest-lived and the last thing to happen.
+- **Graceful stop.** `stop_grace_period` is 30s for voice-runtime (longer than its 2s
+  durable deadline plus the ack budget) and 60s for workers, so in-flight work finishes
+  instead of being killed.
+- **The safety net already exists.** A delivery arriving in voice-runtime's gap gets no
+  ack; Bolna does not retry (D-31); the reconciliation poller recovers it on a 10-minute
+  tick. Leads appear late, not never. This is the same net OPERATIONS §5 leans on.
+
+**Rejected: a blue/green rollout plugin** (`docker rollout` and friends — scale to two,
+wait for healthy, drop the old). It is the right shape and it would close the gap, but it
+is a third-party CLI plugin installed on the production host, which is a supply-chain
+surface (hard rule 9) and a new deployable-shaped dependency. Adopting one needs a
+decision-log entry, not a line in a script. Until then the gap is measured at the first
+attended deploy and recorded here.
+
+### 4c. How voice-runtime stays decoupled from api (hard rule 3)
+
+Not a caveat — a mechanism, in one reviewable table (`components_for_paths`):
+
+| A change under… | deploys |
+|---|---|
+| `apps/api/` (crm, billing, admin, …) | api, workers |
+| `apps/api/core/` | api, workers, **voice-runtime** |
+| `apps/voice-runtime/` | voice-runtime |
+| `apps/workers/` | workers |
+| `packages/shared/`, `uv.lock`, `pyproject.toml`, `Dockerfile`, `compose.prod.yml`, `alembic/` | all three |
+| `apps/web/`, `pnpm-lock.yaml` | web |
+| `infra/nginx/` | nginx |
+
+An `apps/api/crm/**` edit therefore does not rebuild, restart or touch the container
+answering live calls, and `--no-deps` means the swap cannot walk `depends_on` into it
+either. The map is deliberately conservative in the other direction: voice-runtime
+*imports* `apps/api/core` and `packages/shared`, so a change to either does deploy it.
+That is not coupling — it is the truth about what its process contains, and stating it in
+one table is what makes it reviewable. A shared image does not change this; the header of
+`Dockerfile` argues why one image is right anyway.
+
+### 4d. What a human must do before the first real deploy
+
+Stated here with pass conditions, the way §7 does for the backup drill, because **none of
+this has been run**: no image has been built, no container started, no nginx config
+loaded, no migration applied on a VPS.
+
+1. **Pin the uv image by digest.** `Dockerfile` pins `ghcr.io/astral-sh/uv:0.8.17` by
+   tag; a tag is mutable. Resolve the digest on a host with registry access and pin it.
+   *Pass condition*: the `COPY --from=` line names a `sha256:`.
+2. **Build the image once, by hand, and time it.** *Pass condition*: `docker compose -f
+   compose.prod.yml build api` succeeds on the target host without an OOM, with 2GB swap
+   present.
+3. **First deploy attended, with `--dry-run` first.** *Pass condition*: the dry run's plan
+   matches what you expected from the diff; the real run reaches the summary banner.
+4. **`nginx -t` the rendered config** — never done, no nginx existed where it was written
+   (`infra/nginx/README.md` §4). *Pass condition*: `nginx -t` passes and the four
+   hostnames answer through Cloudflare.
+5. **Measure the swap gap** (§4b) for api and voice-runtime, and write the numbers into
+   §4b. *Pass condition*: a number replaces "a few seconds".
+6. **Enable CD last.** Set `VPS_DEPLOY_ENABLED=true` only after steps 1–5, and only after
+   one full manual deploy has succeeded. *Pass condition*: §9 step 8's full CD cycle
+   verified green.
+
+Until step 6, **this repo has a deploy mechanism and no automatic deploys**, which is the
+correct state for something nobody has run yet.
 
 ## 5. nginx + TLS + Cloudflare (raghava config, four adaptations)
 
@@ -220,6 +356,15 @@ inline fallback — do NOT re-derive; their HARDENING_HISTORY documents why the 
 patterns fail), `certbot certonly --webroot` (NEVER `certbot --nginx` — it rewrites
 templated config), `000-default.conf` with Cloudflare Origin CA cert on
 `default_server` (the 525 fix), `cloudflare-only.conf` origin IP allowlist.
+
+> **STATUS (Aug 2026): the config now lives in `infra/nginx/` and has never been loaded
+> by an nginx process.** Read `infra/nginx/README.md` before this section — it is the
+> authority on what is there, where each file installs, and what has never been run.
+> `scripts/vps-deploy.sh` renders and installs it (§4 step 10). Two items of the
+> inheritance above are deliberately NOT built and are named as gaps rather than
+> approximated: the **maintenance gate** (its single-hop `error_page 401 =503` shape is
+> hard-won and a half-remembered version fails exactly when it is needed — §10 keeps the
+> lesson) and **`auth_request`**, which nothing here needs.
 
 Calevate adaptations:
 1. **Four server names**: admin./app. → :3000; api. → :8000; hooks. → :8100.
@@ -235,6 +380,20 @@ Calevate adaptations:
    `webhooks` 600r/m (engine events burst on campaign completion) · `health` 60r/m ·
    `default` 90r/m. App-layer limits stay authoritative; nginx is edge defense.
 
+5. **Where the files install, and the correction this forced.** `limit_req_zone` is an
+   `http`-context directive, so the zone file goes in `/etc/nginx/conf.d/` (Debian
+   auto-includes that inside `http {}`) and NOT in `/etc/nginx/snippets/`, which is
+   auto-included by nothing — that path, inherited above, would have needed an `include`
+   nobody would remember to add. `snippets/` is still right for the server/location
+   fragments (`calevate-tls`, `calevate-origin`, `calevate-headers`, `calevate-proxy`),
+   which is where they go. Full map: `infra/nginx/README.md` §1.
+6. **The Cloudflare range list is one list, dated, and expiring.** `set_real_ip_from` and
+   the origin `allow` lines are the same set of addresses stated twice, so they live as
+   paired lines in one file; keeping two lists is how one gets refreshed and the other
+   does not. It carries a `CLOUDFLARE_IPS_UPDATED` stamp and **the deploy fails when it is
+   older than 180 days** — a stale allowlist does not degrade gracefully, it either blocks
+   live traffic or trusts an address Cloudflare has released.
+
 Cloudflare per zone: A records → VPS IP, proxied (orange); **Full (strict)** only
 (Flexible = redirect loop with our port-80 301); no stray AAAA; origin locked to CF
 ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
@@ -243,7 +402,14 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
 
 1. **VPS `.env`** — bootstrap only (DATABASE_URL, REDIS_URL, object-store keys,
    Clerk keys, BOLNA_API_KEY, APP_ENV=prod). Never in git, never written by scripts;
-   `vps-deploy.sh` aborts if absent. Pydantic Settings fails fast on missing keys.
+   `vps-deploy.sh` aborts if absent, warns if it is not mode 600, and never prints a
+   value. Pydantic Settings fails fast on missing keys, and §4 step 6 runs that check in
+   the new image before any container is swapped.
+   **Write the DSNs as the CONTAINERS see them**: `DATABASE_URL` and
+   `ALEMBIC_DATABASE_URL` point at `host.docker.internal` (the host Postgres, D-26),
+   `REDIS_URL` at `redis` by service name. Every Python process — including migrations —
+   now runs in a container, so there is no second form of the URL and nothing rewrites
+   one at deploy time. `.dockerignore` excludes `.env` so it cannot reach an image layer.
 2. **DB-stored, encrypted** — per-tenant engine/BYOK keys already go through the
    secrets-manager references per SEC-COMP §5. (Raghava's AES-256-GCM
    `OpsConfigSecret` pattern is the reference implementation if we self-host this.)
@@ -379,10 +545,15 @@ OPERATIONS §4 alerts (email/WhatsApp) carry the load.
 ## 9. Go-live order (maps to their phases 6–14)
 
 1. VPS baseline (§2) → 2. DNS zones in Cloudflare (grey first) → 3. host PG + DB user
-+ pgvector → 4. clone repo, place `.env`, first manual deploy (`vps-deploy.sh` by
-hand) → 5. nginx render + certbot certonly + `000-default.conf` + origin lock →
++ pgvector (and `max_connections = 200`, §2a) → 4. clone repo, place `.env` from the
+secrets manager, first manual deploy — **`scripts/vps-deploy.sh --dry-run --all` first,
+then `--all --no-pull`**, attended, working through §4d's six hand-first items →
+5. nginx render + certbot certonly + `000-default.conf` + origin lock (§4 step 10 renders
+it; `NGINX_AUTO_RELOAD` stays unset for this first pass so the config is installed by
+hand after being read) →
 6. flip Cloudflare orange + Full (strict), verify with `dig +short` (CF IPs) and the
-525 checklist → 7. install runner + repo Secrets/Variables → 8. one full CD cycle
+525 checklist → 7. install runner + repo Secrets/Variables, **and only now set
+`VPS_DEPLOY_ENABLED=true`** → 8. one full CD cycle
 (push → CI → auto-deploy) verified green → **9. backups (below — the longest step, and
 the one this order previously assumed away)** → 10. configure Bolna per-agent webhook URLs against hooks.calevate.tech + verify the
 source-IP allowlist (13.203.39.153 via CF real_ip, D-27/D-31) rejects a spoofed test

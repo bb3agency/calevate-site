@@ -9,6 +9,10 @@ Two rules from the blueprint drive this module:
    simply be gone, and TRAI's 90-day floor is our obligation, not theirs.
 2. **Raw vendor payloads go to object storage as refs, never into typed columns**
    (hard rule 2). They exist for debugging and are never read by app code.
+3. **Delivered webhook bodies are PERSONAL DATA with a clock and an erasure duty**
+   (D-23, SEC-COMP §4). Unlike the two above they are read back — by support, by the
+   retention sweep and by the DPDP erasure worker — so their key SHAPE is part of the
+   contract: see `delivery_body_key`.
 
 Presigned URLs only, 5-minute TTL, never public (TRD §2).
 """
@@ -16,6 +20,7 @@ Presigned URLs only, 5-minute TTL, never public (TRD §2).
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -140,6 +145,239 @@ def archive_payload(*, engine: str, execution_id: str, payload: dict[str, Any]) 
     return key
 
 
+# --- delivered webhook bodies (D-23) ------------------------------------------
+#
+# WHAT THIS STORE IS, SAID PLAINLY: a copy of the CRM payload we POSTed to a client's
+# own endpoint — the lead's name, their (usually masked) number and every extracted
+# field. It exists because `webhook_deliveries` could previously prove only that a POST
+# happened, so "you sent us the wrong lead" and "the field is empty in our CRM" were
+# both unanswerable. Retaining it is therefore a deliberate act that ADDS a personal-data
+# store, and three properties are what make it defensible rather than a liability:
+#
+#   * it is ERASABLE BY SUBJECT — the key names whose data it is, so the DPDP worker can
+#     find every object for one person without a second index to keep in step;
+#   * it EXPIRES on the tenant's own `retention_policies` row (`lead` category, the same
+#     clock as `call_extractions.data`, which is the same class of thing);
+#   * it is BOUNDED — `MAX_RETAINED_BODY_BYTES` per delivery, truncation declared inside
+#     the object rather than guessed at by whoever reads it.
+#
+# NOT stored, ever: the endpoint URL (clients do put tokens in webhook query strings),
+# the signing secret, the signature header. The forensic question is what we SENT, and
+# none of those are part of it.
+
+DELIVERY_BODY_PREFIX = "webhook-bodies"
+
+# Per delivery. A lead payload is a few hundred bytes; 64 KiB is room for an unusually
+# large extraction schema and still small enough that a client with a busy integration
+# cannot turn this into a storage bill nobody noticed. Bodies above it are stored
+# TRUNCATED and say so — a silent prefix would be a forensic record that lies.
+MAX_RETAINED_BODY_BYTES = 64 * 1024
+
+# S3's DeleteObjects caps one request at 1000 keys (AWS S3 API reference, DeleteObjects).
+_DELETE_BATCH = 1000
+
+
+def delivery_body_key(
+    *, tenant_id: UUID, subject_type: str, subject_id: str, delivery_id: UUID
+) -> str:
+    """`webhook-bodies/{tenant}/{subject}/{delivery}.json`.
+
+    THE SUBJECT SEGMENT IS LOAD-BEARING, and it is why this key is not shaped like
+    `recording_key`'s date prefix. A DPDP erasure arrives naming a PERSON, not a date,
+    and an object nobody can enumerate for that person is a breach waiting for its first
+    request. Putting the subject in the key makes the object store itself the index the
+    erasure walks (`delivery_body_keys_for`), so an object written by a worker that then
+    crashed before recording the reference is still reachable — a DB-side index would
+    have missed exactly those.
+
+    The tenant segment is first for the reason `recording_key`'s is: a prefix is what a
+    bucket policy can be scoped by, and a cross-tenant read is visible in the key.
+    """
+    return f"{DELIVERY_BODY_PREFIX}/{tenant_id}/{subject_type}-{subject_id}/{delivery_id}.json"
+
+
+def delivery_body_subject_prefix(*, tenant_id: UUID, subject_type: str, subject_id: str) -> str:
+    """Everything stored for one subject in one tenant. Ends in `/` deliberately: without
+    it `lead-<uuid>` would also prefix-match a longer id that starts with the same bytes.
+    """
+    return f"{DELIVERY_BODY_PREFIX}/{tenant_id}/{subject_type}-{subject_id}/"
+
+
+def build_delivery_body_document(
+    *,
+    delivery_id: UUID,
+    endpoint_id: UUID,
+    event: str,
+    subject_type: str,
+    subject_id: str,
+    body: str,
+) -> tuple[bytes, int, bool]:
+    """The object we store, as `(bytes, original_bytes, truncated)`.
+
+    Truncation is applied to the ENCODED bytes, because the cap is about storage and
+    slicing a str would cap characters instead — 64k Telugu characters is 192 KiB. The
+    partial character at the cut is DROPPED (`errors="ignore"`) rather than replaced:
+    `errors="replace"` would put a U+FFFD in the record, which is a character we invented,
+    is not what we sent, and is three bytes wide — so the "truncated" copy would come back
+    slightly LARGER than the cap it was truncated to.
+
+    The stored document stays valid JSON either way — the delivered body rides inside it
+    as a STRING, so a truncated payload cannot make the record itself unparseable.
+    """
+    encoded = body.encode()
+    original_bytes = len(encoded)
+    truncated = original_bytes > MAX_RETAINED_BODY_BYTES
+    kept = encoded[:MAX_RETAINED_BODY_BYTES].decode(errors="ignore") if truncated else body
+    document = {
+        "delivery_id": str(delivery_id),
+        "endpoint_id": str(endpoint_id),
+        "event": event,
+        "subject_type": subject_type,
+        "subject_id": subject_id,
+        "stored_at": datetime.now(UTC).isoformat(),
+        "content_type": "application/json",
+        "original_bytes": original_bytes,
+        # Declared, not inferred. A reader comparing `len(body)` against a constant would
+        # be reading OUR cap at the time they read, not the cap that applied when the
+        # object was written.
+        "truncated": truncated,
+        "body": kept,
+    }
+    return json.dumps(document, separators=(",", ":")).encode(), original_bytes, truncated
+
+
+def store_delivery_body(
+    *,
+    key: str,
+    delivery_id: UUID,
+    endpoint_id: UUID,
+    event: str,
+    subject_type: str,
+    subject_id: str,
+    body: str,
+) -> str | None:
+    """Best-effort. Returns the key, or None when the store refused.
+
+    BEST-EFFORT IS THE WHOLE POINT: the delivery job exists to deliver, and a client's
+    lead must reach their CRM whether or not we managed to keep a copy of it. So this
+    never raises and never retries — the caller records the delivery either way, and the
+    missing reference is made visible by the caller's alert rather than by a failed job.
+    """
+    document, original_bytes, truncated = build_delivery_body_document(
+        delivery_id=delivery_id,
+        endpoint_id=endpoint_id,
+        event=event,
+        subject_type=subject_type,
+        subject_id=subject_id,
+        body=body,
+    )
+    try:
+        _client().put_object(
+            Bucket=get_settings().object_store_bucket,
+            Key=key,
+            Body=document,
+            ContentType="application/json",
+            ServerSideEncryption="AES256",
+        )
+    except (BotoCoreError, ClientError) as exc:
+        # Ids, byte counts and an exception TYPE. Never the key's subject segment as a
+        # separate field and never one byte of the body (hard rule 6).
+        log.warning(
+            "delivery_body_store_failed",
+            extra={
+                "delivery_id": str(delivery_id),
+                "bytes": original_bytes,
+                "reason": type(exc).__name__,
+            },
+        )
+        return None
+    log.info(
+        "delivery_body_stored",
+        extra={"delivery_id": str(delivery_id), "bytes": original_bytes, "truncated": truncated},
+    )
+    return key
+
+
+def read_delivery_body(key: str) -> dict[str, Any] | None:
+    """The stored document, or None when the object is GONE.
+
+    Gone and unreachable are DIFFERENT answers to "what did we send?" and this function
+    refuses to merge them: an erased or expired body is a fact about our retention, a
+    storage outage is a fact about today. `None` is the first; `StorageUnavailableError`
+    is the second, and every caller has to say which it is telling the reader.
+    """
+    try:
+        response = _client().get_object(Bucket=get_settings().object_store_bucket, Key=key)
+        raw = response["Body"].read()
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        # `NoSuchKey` is S3's; MinIO answers the same, and a 404 status covers a store
+        # that names it differently.
+        if code in ("NoSuchKey", "404", "NotFound"):
+            return None
+        raise StorageUnavailableError(
+            f"delivery body read failed: {code or 'ClientError'}"
+        ) from exc
+    except BotoCoreError as exc:
+        raise StorageUnavailableError(f"delivery body read failed: {type(exc).__name__}") from exc
+    try:
+        document = json.loads(raw)
+    except ValueError:
+        # Something is in our bucket under our key that we did not write. Not a body we
+        # can show anyone, and not an outage either.
+        log.warning("delivery_body_unreadable")
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def delivery_body_keys_for(prefix: str) -> list[str]:
+    """Every stored body under one subject prefix. RAISES on failure, deliberately.
+
+    The DPDP erasure calls this, and an erasure that treats "the store did not answer"
+    as "there was nothing there" writes a certificate claiming a deletion it did not
+    perform. Loud and retried beats quiet and false.
+    """
+    keys: list[str] = []
+    try:
+        paginator = _client().get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=get_settings().object_store_bucket, Prefix=prefix):
+            keys += [str(item["Key"]) for item in page.get("Contents", [])]
+    except (BotoCoreError, ClientError) as exc:
+        raise StorageUnavailableError(f"delivery body list failed: {type(exc).__name__}") from exc
+    return keys
+
+
+def delete_objects(keys: Sequence[str]) -> int:
+    """Delete objects by key; returns how many were asked for. RAISES on failure.
+
+    Raising rather than reporting a partial success is what lets both callers be
+    correct with one implementation: the erasure must retry rather than certify, and the
+    retention sweep must leave `payload_ref` pointing at an object it failed to delete —
+    a cleared reference to a surviving object is an orphan nothing can ever reach again.
+    """
+    if not keys:
+        return 0
+    bucket = get_settings().object_store_bucket
+    client = _client()
+    try:
+        for chunk in _chunks(keys, _DELETE_BATCH):
+            response = client.delete_objects(
+                Bucket=bucket, Delete={"Objects": [{"Key": key} for key in chunk], "Quiet": True}
+            )
+            errors = response.get("Errors") or []
+            if errors:
+                # Keys are not logged: a delivery-body key contains the subject's row id.
+                raise StorageUnavailableError(f"delivery body delete refused {len(errors)} key(s)")
+    except (BotoCoreError, ClientError) as exc:
+        raise StorageUnavailableError(f"object delete failed: {type(exc).__name__}") from exc
+    return len(keys)
+
+
+def _chunks(keys: Sequence[str], size: int) -> Iterable[Sequence[str]]:
+    for start in range(0, len(keys), size):
+        yield keys[start : start + size]
+
+
 def presigned_url(key: str, *, ttl_s: int = PRESIGN_TTL_S) -> str | None:
     settings = get_settings()
     try:
@@ -155,12 +393,21 @@ def presigned_url(key: str, *, ttl_s: int = PRESIGN_TTL_S) -> str | None:
 
 
 __all__ = [
+    "DELIVERY_BODY_PREFIX",
+    "MAX_RETAINED_BODY_BYTES",
     "PRESIGN_TTL_S",
     "RECORDING_RETRY_DEFER_S",
     "StorageUnavailableError",
     "archive_payload",
+    "build_delivery_body_document",
     "copy_recording",
+    "delete_objects",
+    "delivery_body_key",
+    "delivery_body_keys_for",
+    "delivery_body_subject_prefix",
     "payload_key",
     "presigned_url",
+    "read_delivery_body",
     "recording_key",
+    "store_delivery_body",
 ]

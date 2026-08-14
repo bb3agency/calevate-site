@@ -499,7 +499,10 @@ async def test_a_rejected_source_can_never_be_published() -> None:
             await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
         with pytest.raises(ProblemError) as publish:
             await kb_service.publish_source(session, tenant_id=tenant_id, source_id=submitted["id"])
-    assert reapprove.value.code == "kb_not_pending"
+    # 409 naming `rejected`, not the old catch-all: the reason the approval is refused
+    # is the state the row is actually in, and a reviewer has to be told which.
+    assert reapprove.value.code == "invalid_status_transition"
+    assert reapprove.value.status == 409
     assert publish.value.code in ("kb_not_approved", "kb_rejected")
 
 

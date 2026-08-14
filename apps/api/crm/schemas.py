@@ -18,13 +18,13 @@ and `tests/call_summary_redaction_test.py` is what proves the claim.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from calevate_shared.extraction import ExtractionField
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 LeadStatus = Literal["new", "contacted", "interested", "hot", "won", "lost"]
 
@@ -101,12 +101,73 @@ class LeadOut(Strict):
     assigned_to_name: str | None = None
 
 
+class LeadColumnOut(Strict):
+    """One selectable column of the Leads table — `crm.columns.LeadColumn` on the wire.
+
+    `kind` is what lets the screen render a column without knowing its name: `fixed`
+    columns come off `LeadOut`'s own attributes (and `phone` is `phone_masked` there,
+    which is hard rule 6 and not a rendering choice), `extraction` columns come out of
+    `LeadOut.data` under `key`.
+    """
+
+    key: str
+    label: str
+    kind: Literal["fixed", "extraction"]
+    type: Literal["text", "number", "bool", "enum", "date"]
+
+
+class LeadFacetValueOut(Strict):
+    value: str
+    #: Rows this value would give you, over every OTHER filter currently applied — the
+    #: standard faceted-search count, and the same scope rule as
+    #: `status_counts_matching_search` one field down.
+    count: int
+    #: `False` = a value the client's DATA holds that their capture list no longer
+    #: declares. Offered anyway (a value that exists and cannot be filtered on is a table
+    #: that lies), flagged so the UI can say which it is.
+    declared: bool
+
+
+class LeadFacetOut(Strict):
+    key: str
+    label: str
+    values: list[LeadFacetValueOut]
+
+
+class LeadFacetsOut(Strict):
+    """The filter rail, built from the per-agent EXTRACTION SCHEMA (SURFACES §2).
+
+    Enum fields only, and never a hard-coded list: different tenants and different
+    verticals have different columns, so a fixed facet set would be wrong the day a
+    second vertical lands. `crm.columns.facetable` is the definition, including why
+    `status` and `source` are deliberately not here.
+    """
+
+    facets: list[LeadFacetOut]
+    #: Enum fields beyond the rail's cap (`crm.service.MAX_FACET_FIELDS`). Reported
+    #: rather than hidden — a missing ninth facet should be a sentence, not a mystery.
+    omitted_field_count: int
+
+
 class LeadListOut(Strict):
     """The Leads table is schema-driven (TRD §7): the columns travel WITH the rows so
     the frontend never hard-codes a client's fields."""
 
     items: list[LeadOut]
-    columns: list[ExtractionField]
+    #: The columns to RENDER, in order — the chooser's resolved answer, and byte-for-byte
+    #: the same list `GET /v1/leads/export.csv` writes its header from for the same
+    #: query string. It used to be the raw extraction schema while the screen hard-coded
+    #: the fixed columns around it and the export hard-coded a different set; those two
+    #: lists are now one registry (`crm.columns`).
+    columns: list[LeadColumnOut]
+    #: Everything the chooser may offer for this agent. `columns` is a subset of it.
+    available_columns: list[LeadColumnOut]
+    #: Column keys the request ASKED for that this agent's schema no longer has. The
+    #: request still succeeds — a stale bookmark or a saved view outliving one schema
+    #: edit must degrade to a narrower table, never to a 500 (`crm.columns` cites what
+    #: the industry does instead). A dropped FILTER is refused rather than dropped,
+    #: because that one widens the set; `crm.routes.get_leads` argues the asymmetry.
+    dropped_column_keys: list[str]
     # Rows matching EVERY filter the request sent, `status` included — the denominator
     # in "showing 50 of 140".
     total: int
@@ -151,6 +212,223 @@ class LeadUpdateIn(Strict):
     # same table row, are the same permission, and would otherwise be two mutations, two
     # cache invalidations and two places for the next field to be added wrongly.
     assigned_to: UUID | None = None
+
+
+# --- bulk actions (SURFACES §2) ------------------------------------------------
+#
+# The wire half of `crm.service`'s bulk block, which carries the research this shape
+# comes from. Two things are worth having in the SCHEMA rather than only in the service:
+# the two selection scopes are named in the request AND echoed in the response, and the
+# outcome has three buckets rather than two.
+
+#: How many leads one bulk action may move. Declared HERE, and imported by the service,
+#: because `service` already imports `schemas` and the reverse would be a cycle — and
+#: because the number is part of the contract: it bounds `ids` at the wire and is the
+#: figure `lead_bulk_too_many` quotes back. Two constants would eventually be two numbers.
+#:
+#: The value is set by the status path being one `transition_status` call per lead —
+#: deliberately, so bulk and single-lead share ONE discriminator rather than a set-based
+#: copy of it — and by 500 rows being the point past which the honest answer to a person
+#: operating a grid is a narrower filter. The refusal says exactly that.
+MAX_BULK_LEADS = 500
+
+
+class LeadBulkIn(Strict):
+    """One bulk action, and the two ways of saying which leads it is about.
+
+    **`scope` is required and has no default**, which is the whole guardrail. A default
+    would decide the ambiguous case — page or query — on the caller's behalf, and that
+    ambiguity is the defect this field exists to remove; a client that forgets to say
+    gets a 422 rather than an action over a set it did not choose.
+
+    The FILTER scope's predicates are not here: they ride as the same query parameters
+    `GET /v1/leads` and `GET /v1/leads/export.csv` take, with the same meanings, so there
+    is one spelling of "which rows" across the screen, the file and this. Putting them in
+    the body would be a second one.
+    """
+
+    scope: Literal["ids", "filter"]
+    #: The ticked rows, for `scope: "ids"`. Bounded by the same cap the filter scope is
+    #: refused at, so neither route into the action can exceed it.
+    ids: list[UUID] = Field(default_factory=list, max_length=MAX_BULK_LEADS)
+    action: Literal["status", "assign"]
+    status: LeadStatus | None = None
+    #: The new owner, `null` to unassign. Named `assign_to` and not `assigned_to` on
+    #: purpose: `assigned_to` is already a QUERY parameter on this route meaning "leads
+    #: owned by this person" (the filter), and one word carrying both "which rows" and
+    #: "what to write" is a mistake waiting for its first reviewer.
+    assign_to: UUID | None = None
+    #: What the screen told the person it was about to change, for `scope: "filter"`.
+    #: A filter-scoped batch is confirmed against a count that can move while the dialog
+    #: is open — a call lands, a colleague edits a row — and the researched rule is that
+    #: the confirmation must describe the set that will actually be acted on. When this
+    #: is sent and no longer matches, the action is refused rather than run over a
+    #: different set than the one that was agreed to. Omitted = no such claim was made.
+    expected_count: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _coherent(self) -> LeadBulkIn:
+        if self.scope == "ids" and not self.ids:
+            raise ValueError("scope 'ids' needs at least one lead id")
+        if self.scope == "filter" and self.ids:
+            raise ValueError("scope 'filter' takes its rows from the filter, not from ids")
+        if self.action == "status" and self.status is None:
+            raise ValueError("action 'status' needs a status")
+        if self.action == "assign" and "assign_to" not in self.model_fields_set:
+            # An ABSENT `assign_to` is not an unassignment — the same distinction
+            # `LeadUpdateIn.assigned_to` makes, and the one a bulk action can least
+            # afford to get wrong: it would clear the owner of every lead in the batch.
+            raise ValueError("action 'assign' needs assign_to (send null to unassign)")
+        return self
+
+
+class LeadBulkFailureOut(Strict):
+    """One lead the action did not move, named and explained.
+
+    `(rule, reason)` is this API's established pair for a refusal — `BlockerOut`,
+    `CallLeadOut.blocked_rule`/`blocked_reason`, `DispatchDecision` — so a client that
+    already renders one of those renders this. `lead_id` and nothing else identifies the
+    row: the response must be safe to log and to put in an audit summary (hard rule 6).
+    """
+
+    lead_id: UUID
+    rule: str
+    reason: str
+
+
+class LeadBulkOut(Strict):
+    """What the action DID — the three buckets, and which set it ran over.
+
+    `scope` and `action` are echoed so the sentence on screen ("Moved 47 of the 1,240
+    leads matching these filters") is built from the server's answer rather than from
+    what the screen believed it had asked for.
+
+    `changed + unchanged + len(failures) == requested`, always. `unchanged` is a success:
+    a lead already in the target state is the caller's intent already satisfied (D-65,
+    `db/transition.py`), and reporting it as a failure would make the most ordinary bulk
+    outcome — re-running an action over a set that partly overlaps the last one — look
+    like an incident.
+    """
+
+    action: Literal["status", "assign"]
+    scope: Literal["ids", "filter"]
+    requested: int
+    changed: int
+    unchanged: int
+    #: Empty on a clean run. NEVER omitted and never summarised into a count alone: the
+    #: client has to be able to see which rows were left behind, which is the difference
+    #: between a partial success and a green tick over one.
+    failures: list[LeadBulkFailureOut] = Field(default_factory=list)
+
+
+# --- saved views (SURFACES §2: "named filter+column combinations per user") ----
+
+#: How many views one person may keep on one account. A named lens is a small thing and
+#: fifty of them is already a list nobody scans; the cap exists so an automated client
+#: cannot make an unbounded table out of per-user UI state.
+MAX_SAVED_VIEWS_PER_USER = 50
+
+#: Facet keys one view may pin, and values per key. Both bound the WHERE clause a single
+#: saved view can generate — `crm.service._lead_scope` emits one `= ANY` per key.
+MAX_VIEW_FILTER_KEYS = 10
+MAX_VIEW_FILTER_VALUES = 25
+
+
+class SavedViewFilters(Strict):
+    """What a saved view narrows the table to.
+
+    **`search` is deliberately not a field.** A saved view is a named LENS — a stage, a
+    set of facet values, an agent — and the search box is a transient lookup, not a lens.
+    Storing one would also put a phone SUFFIX (what the box accepts) into a durable row
+    for no product gain, which is a hard-rule-6 surface bought for nothing.
+
+    **`assigned_to_me` is a boolean, not a user id.** Views are private to one user
+    (see `SavedViewOut`), so the only owner a view can usefully pin is its own reader —
+    and a stored uuid would be a dangling pointer the day that colleague leaves, where a
+    boolean is resolved fresh against the caller on every read.
+    """
+
+    status: LeadStatus | None = None
+    agent_id: UUID | None = None
+    assigned_to_me: bool = False
+    #: extraction-schema key → the values selected under it. OR within a key, AND across
+    #: keys — the researched faceted-search semantic (`crm.service._lead_scope`).
+    fields: dict[str, list[str]] = Field(default_factory=dict)
+
+    @field_validator("fields")
+    @classmethod
+    def _bounded(cls, v: dict[str, list[str]]) -> dict[str, list[str]]:
+        if len(v) > MAX_VIEW_FILTER_KEYS:
+            raise ValueError(f"a view may filter on at most {MAX_VIEW_FILTER_KEYS} fields")
+        for key, values in v.items():
+            # The extraction-schema key grammar (`calevate_shared.extraction`). Checked
+            # here as well as against the live schema at read time, because this is what
+            # lands in the DB and the live check is what a schema edit invalidates.
+            if not re.fullmatch(r"[a-z][a-z0-9_]{0,39}", key):
+                raise ValueError(f"{key!r} is not an extraction field key")
+            if not values:
+                raise ValueError(f"{key!r} selects no values; drop the key instead")
+            if len(values) > MAX_VIEW_FILTER_VALUES:
+                raise ValueError(f"{key!r} selects more than {MAX_VIEW_FILTER_VALUES} values")
+        return v
+
+
+class SavedViewIn(Strict):
+    name: str = Field(min_length=1, max_length=60)
+    filters: SavedViewFilters = Field(default_factory=SavedViewFilters)
+    #: Column keys in the order the chooser left them. `null` = "whatever this agent
+    #: has", which keeps a view useful when the capture list grows.
+    columns: list[str] | None = Field(default=None, max_length=40)
+
+
+class SavedViewUpdateIn(Strict):
+    """Rename, or re-pin. Every field optional; an omitted one is left alone.
+
+    `columns` cannot be cleared back to `null` through this route — sending `null` means
+    "leave the columns alone", the same silence every other field here means. Clearing
+    is `columns: []`, which `crm.saved_views` stores as "no choice made". Two spellings
+    of "unset" on one field is how the assignee sentinel next door earned its comment,
+    and this field does not need the ambiguity: an empty selection has no other meaning.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    filters: SavedViewFilters | None = None
+    columns: list[str] | None = Field(default=None, max_length=40)
+
+
+class SavedViewOut(Strict):
+    """One saved view, RESOLVED against the agent's current extraction schema.
+
+    **Private to its author.** Shared views are a separate slice with a separate
+    question (who may edit a view three colleagues rely on), and the industry default
+    for a saved view is private-unless-published — Tableau and SeaTable both create
+    private and require an explicit act to share. Private-first is also the only choice
+    that cannot leak: this table holds no shared row to get the permission wrong on.
+
+    **`stale_*` is the graceful degradation.** A view pinned to a field an admin later
+    removed from the capture list is not an error — the reader gets the view with the
+    dead references REMOVED and named here, so the screen can say "this view also
+    filtered on Budget, which your capture list no longer has" instead of 500ing or
+    silently returning a different set of rows. Jira's answer to the same event is a
+    broken filter and an integrity checker; this is cheaper and kinder.
+    """
+
+    id: UUID
+    name: str
+    filters: SavedViewFilters
+    columns: list[str] | None
+    #: Facet keys this view pinned that the agent's schema no longer declares. Already
+    #: removed from `filters` above — reported so the removal is visible, never silent,
+    #: because a silently dropped filter WIDENS the set the client is looking at.
+    stale_filter_keys: list[str]
+    #: Column keys this view pinned that no longer exist. Already removed from `columns`.
+    stale_column_keys: list[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class SavedViewListOut(Strict):
+    items: list[SavedViewOut]
 
 
 class LeadTimelineEventOut(Strict):
@@ -472,6 +750,9 @@ class UsagePanelOut(Strict):
 
 
 __all__ = [
+    "MAX_SAVED_VIEWS_PER_USER",
+    "MAX_VIEW_FILTER_KEYS",
+    "MAX_VIEW_FILTER_VALUES",
     "AttentionItemOut",
     "AttentionKind",
     "AttentionOut",
@@ -483,6 +764,10 @@ __all__ = [
     "CallbackOut",
     "DashboardDayOut",
     "DashboardOut",
+    "LeadColumnOut",
+    "LeadFacetOut",
+    "LeadFacetValueOut",
+    "LeadFacetsOut",
     "LeadListOut",
     "LeadOut",
     "LeadStatus",
@@ -492,6 +777,11 @@ __all__ = [
     "PerformanceFunnelOut",
     "PerformanceOut",
     "RecordingLinkOut",
+    "SavedViewFilters",
+    "SavedViewIn",
+    "SavedViewListOut",
+    "SavedViewOut",
+    "SavedViewUpdateIn",
     "TranscriptTurnOut",
     "UsagePanelOut",
 ]

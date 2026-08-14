@@ -44,7 +44,15 @@ crm, analytics, billing, kb, integrations, compliance, audit.
 - **Queue:** Redis + ARQ. Promote only campaign orchestration to Temporal if/when retry
   semantics outgrow ARQ. Not before.
 - **Auth:** Clerk (Organizations) — admin realm and client realm are separate applications
-  with separate session cookies. MFA mandatory on admin realm.
+  with separate session cookies. **MFA mandatory on admin realm, enforced by the API**:
+  `core/auth.py::verify_token` refuses any admin-realm token whose Clerk session did not
+  complete a second factor, read from the `fva` (factor-verification-age) session claim —
+  `fva[1] == -1` is "no second factor", an absent claim fails closed. The gate is in the
+  verifier, not on the routes, so there is no admin identity that skipped it; the client
+  realm is unaffected. Two halves are NOT code and are pre-launch operator steps in
+  OPERATIONS §8: turning on "Require MFA" in the admin Clerk application, and leaving
+  that application on the default session-token claims (a custom JWT template that drops
+  `fva` locks the console out with `mfa_claim_missing`).
 - **Storage:** R2/Spaces, SSE encryption, presigned URLs (5-min TTL), never public.
 - **Observability:** OpenTelemetry traces; Sentry (errors); operator alerts by email.
   LLM tracing (prompt versions, per-call token cost, latency breakdown) is a NAMED GAP,
@@ -59,10 +67,8 @@ crm, analytics, billing, kb, integrations, compliance, audit.
   PostHog configuration was REMOVED rather than wired** (D-49): `LANGFUSE_PUBLIC_KEY`,
   `LANGFUSE_SECRET_KEY` and `POSTHOG_KEY` were settings with no client — no-ops even WITH
   credentials, which is worse than absent, because the next reader assumes traces are
-  being recorded. What survives is `redact_trace_payload`, kept as the hard-rule-6 hook
-  shape with a docstring that says plainly nothing calls it, so **per-call token cost and
-  the latency breakdown named above are NOT being recorded and are not one config value
-  away**: restoring Langfuse needs a project nobody holds plus a decision-log entry
+  being recorded. **Per-call token cost and the latency breakdown named above are NOT
+  being recorded and are not one config value away**: restoring Langfuse needs a project nobody holds plus a decision-log entry
   choosing a second tracing pipeline beside the OTel one already shipped, and PostHog
   restores as `NEXT_PUBLIC_POSTHOG_KEY` in `apps/web`, where browser analytics belongs.
   The restore steps sit in `calevate_shared/config.py` beside `SENTRY_DSN`, and a test
@@ -203,8 +209,12 @@ class VoiceEngine(Protocol):
         # the only adapter-independent way to prove a detach did anything
     async def get_execution(self, call_id: str) -> ExecutionSnapshot   # the authenticated
         # read; THIS, not the webhook, is what we persist
-    async def list_executions(self, *, since: datetime) -> list[ExecutionSnapshot]  # backs the
-        # reconciliation poller (D-31: guarantee of record, not a safety net)
+    async def list_executions(self, *, since: datetime) -> ExecutionListing  # backs the
+        # reconciliation poller (D-31: guarantee of record, not a safety net). Returns the
+        # snapshots AND whether they are all of them: a bare list cannot distinguish "a
+        # quiet window" from "page one of nine", and the executions in that gap are exactly
+        # the ones whose at-most-once webhook was lost. complete=False + a reason is what an
+        # adapter says when it cannot rule out another page; the poller alerts on it
     def verify_webhook(self, headers, body: bytes, source_ip: str) -> WebhookVerdict
         # per-engine: HMAC where the engine signs, source-IP + dedupe where it does not (§5).
         # A verdict, not a bool, so an UNSIGNED accept is recorded as the hint it is

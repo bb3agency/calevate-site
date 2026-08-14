@@ -134,12 +134,32 @@ Trigger: Meta Lead Ads / website form / Sheets/Zoho webhook hits our per-client 
 ## 5. Bulk Campaign Lifecycle
 
 Draft (CSV upload → dedupe → validation report) → Compliance gate (SEC-COMP §3; launch
-button disabled with reasons listed until green) → Schedule/launch via adapter →
+button disabled with reasons listed until green) → Schedule/launch →
 Running (live progress: dispatched/connected/failed/no-answer; concurrency slider ≤ plan
 ceiling; pause/resume) → per-contact retries per policy → Completed (batch analytics:
 pickup %, avg duration, interaction level, outcome distribution; leads flowed into CRM).
 Mid-campaign safeties: complaint-spike alarm (pause + notify), cap breach ⇒ auto-pause,
 big red switch halts all tenants' outbound.
+
+**Scheduled start (`campaigns.schedule`, `apps/api/campaigns/scheduling.py`).** A client
+may set a ONE-TIME future start instead of pressing Launch: `POST
+/v1/campaigns/{id}/schedule` moves `draft → scheduled` and the dispatch tick fires it.
+Three rules, all of them consequences of things stated elsewhere in this document:
+
+- **The compliance gate runs when the schedule FIRES, through the same
+  `launch_campaign` the button calls — never at the moment the date was picked.** A
+  campaign scheduled on Friday and started on Monday may have crossed a DNC addition, a
+  spend cap, a KYC expiry, a withdrawn DLT template or the big red switch; a gate passed
+  on Friday proves nothing about Monday (hard rule 5). A start the gate refuses is
+  retried each tick for 24 hours, its blocker rules shown on the campaign screen, and
+  then returned to `draft` rather than starting late.
+- **Starting is not dialling.** A start at 22:00 IST is accepted and makes the campaign
+  `running`; `calling_hours` and the per-dial gate then hold every contact until 09:00,
+  exactly as they do for a campaign launched by hand at 22:00. The schedule endpoint
+  returns `first_dial_not_before` so the client is told which hour that is.
+- **Recurrence is NOT built.** The column carries a `kind` discriminator and the
+  dispatcher refuses any value but `one_time`, so a recurring schedule cannot be fired
+  once and look finished.
 
 **Concurrency reservation (our dispatcher — the platform has no native reserved-inbound
 feature):** the platform account's line pool is shared across ALL tenants, so one client's

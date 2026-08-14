@@ -26,7 +26,7 @@ from apps.api.agents.t0 import KnowledgeFact, recompile_t0
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
-from apps.api.db.result import rowcount_of
+from apps.api.db.transition import transition_status
 from apps.api.engine import get_engine
 
 log = get_logger(__name__)
@@ -203,34 +203,49 @@ async def preview(session: AsyncSession, source_id: UUID) -> list[dict[str, Any]
 
 async def approve_source(
     session: AsyncSession, *, source_id: UUID, approved_by: UUID | None
-) -> None:
-    """CAS on `pending_approval` (BACKEND-PATTERNS §5): approving twice, or approving a
-    source someone already rejected, is a lost race and not an update."""
-    result = await session.execute(
-        text(
-            "UPDATE kb_sources SET status = 'approved', approved_by = :by, approved_at = now(), "
-            "updated_at = now() WHERE id = :sid AND status = 'pending_approval'"
-        ),
-        {"sid": source_id, "by": approved_by},
+) -> bool:
+    """CAS on `pending_approval` (BACKEND-PATTERNS §5). True when THIS call approved it.
+
+    The three answers are `db.transition.transition_status`'s: a source already
+    `approved` is a success with no second write (the approver and the timestamp stay
+    the FIRST reviewer's — an approval is attributable, and a double-clicked button
+    must not rewrite who signed off), a source someone rejected in the meantime is a
+    409 that names `rejected`, and an id no visible source has is a 404.
+
+    This used to answer `kb_not_pending` 409 to all three, which told an operator
+    reviewing a queue that an already-approved source "is not awaiting approval" when
+    the outcome they wanted had happened, and told them a source EXISTS when the id was
+    another tenant's — RLS makes those rows invisible, so the honest answer is 404.
+    """
+    return await transition_status(
+        session,
+        table="kb_sources",
+        entity="Knowledge source",
+        row_id=source_id,
+        to_status="approved",
+        from_statuses=("pending_approval",),
+        extra_set="approved_by = :by, approved_at = now()",
+        params={"by": approved_by},
     )
-    if rowcount_of(result) == 0:
-        raise ProblemError.conflict(
-            "kb_not_pending",
-            "This knowledge source is not awaiting approval.",
-            remediation="Reload — it may have already been approved or rejected.",
-        )
 
 
-async def reject_source(session: AsyncSession, *, source_id: UUID, reason: str) -> None:
-    result = await session.execute(
-        text(
-            "UPDATE kb_sources SET status = 'rejected', rejection_reason = :reason, "
-            "updated_at = now() WHERE id = :sid AND status = 'pending_approval'"
-        ),
-        {"sid": source_id, "reason": reason[:500]},
+async def reject_source(session: AsyncSession, *, source_id: UUID, reason: str) -> bool:
+    """The other half of the gate; True when THIS call rejected it.
+
+    Same discriminator as `approve_source`, and the same reason the reason text is not
+    rewritten on a repeat: the recorded rejection is the one the reviewer who first said
+    no wrote, and a retry must not quietly replace it with a later note.
+    """
+    return await transition_status(
+        session,
+        table="kb_sources",
+        entity="Knowledge source",
+        row_id=source_id,
+        to_status="rejected",
+        from_statuses=("pending_approval",),
+        extra_set="rejection_reason = :reason",
+        params={"reason": reason[:500]},
     )
-    if rowcount_of(result) == 0:
-        raise ProblemError.conflict("kb_not_pending", "This source is not awaiting approval.")
 
 
 async def _chunks_of(session: AsyncSession, source_id: UUID) -> list[str]:

@@ -483,7 +483,11 @@ def test_the_derived_copy_map_still_names_a_category_the_schema_allows() -> None
     (and someone else's territory), not a constant in this module."""
     assert retention.DERIVED_COPIES == {
         "transcript": ("calls.summary",),
-        "lead": ("call_extractions.data",),
+        # `webhook_deliveries.payload_ref` names the object holding the CRM payload we
+        # POSTed to a client's endpoint (D-23) — the same fields as
+        # `call_extractions.data`, so the same category and the same clock. Filed under
+        # `lead` rather than a fifth category for exactly the reason above.
+        "lead": ("call_extractions.data", "webhook_deliveries.payload_ref"),
     }
     assert set(retention.DERIVED_COPIES) <= set(SHIPPED_TTLS)
 

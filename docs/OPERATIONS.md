@@ -33,7 +33,7 @@ most of this is real PSTN call spend). 5–7 working days alongside other work.
 | 3 H | Telugu quality (BYOK) | Sarvam Saaras V3 STT + Bulbul V3 TTS on OUR keys. 10-utterance Telugu script on real PSTN: names/numbers ≥90% correct; Telugu-English code-mixed handled. Confirm **Bulbul V3 (not v2) is selectable**. |
 | 4 H | Real-call latency | 10 PSTN calls: voice-to-voice p50 ≤ 1.1s, p95 ≤ 1.8s (stopwatch + recording analysis). **Vendor latency claims are marketing — their site says "<300ms" undefined; plan only against our own measurement.** Record first-greeting delay after pickup separately (cold-start hides there). **Also capture `latency_data` from Get Execution as an adapter fixture and record whether it AGREES with the stopwatch.** Their docs describe `time_to_first_audio` plus per-component transcriber/llm/synthesizer blocks — unverified against a live account, and a different set of numbers from voice-to-voice turn latency, which would be our own arithmetic aligning three components. This capture is what re-opens durable per-call latency storage: `calls.latency` was dropped (`f1a7c39d5be2`) rather than filled with pipeline timings that are not the caller's experience, and the storage shape gets chosen from the payload we actually receive. Note the documented `transcriber.turns` entries carry recognised TEXT — hard rules 5/6 apply to wherever it lands. |
 | 5 H | Telugu turn-taking [NEW, D-32] | Barge-in mid-sentence, and end-of-utterance on slow/hesitant Telugu speech: does the agent cut callers off, or leave dead air? Endpointing is an ORCHESTRATION-layer property — BYOK models do NOT fix it. Measure, never assume. |
-| 6 H | Webhook loss behavior | Kill the receiver mid-call: call continues; observe whether ANY retry arrives (docs + OSS code say none). Then confirm the List-Executions poller recovers every missed execution — it is the guarantee of record, so its recovery must be proven, not assumed. |
+| 6 H | Webhook loss behavior | Kill the receiver mid-call: call continues; observe whether ANY retry arrives (docs + OSS code say none). Then confirm the List-Executions poller recovers every missed execution — it is the guarantee of record, so its recovery must be proven, not assumed. **And settle its PAGINATION, which recovery alone cannot.** Bolna documents none and publishes no OpenAPI spec, so `BolnaEngine.list_executions` follows only a continuation the payload itself hands it (`next`/`next_page_url`, same-origin, bounded to 20 pages) and never a guessed `?page=`/`?cursor=` — a parameter the vendor ignores re-reads page one forever. Where it cannot rule out a further page it returns `ExecutionListing.complete=False` and the poller alerts (`reconciliation_listing_incomplete`). Three things to record, all from ONE raw `GET /executions` body captured as a fixture: **(a)** the account's own execution count for the window from the dashboard, passed as `--attest gate6.executions_in_window=<n>` — more than we listed is proof of truncation and the gate goes red; **(b)** the number of rows a saturated request returns, i.e. the page size (the adapter currently GUESSES this from round numbers — `bolna._LISTING_PAGE_SIZES`); **(c)** whether the body carries `next`/`next_page_url`/`has_more`/`total`, and if it offers an opaque cursor instead of a link, the exact parameter name that consumes it. Until (b) and (c) exist, a complete-looking listing on a quiet pilot window is NOT RUN, never a pass. |
 | 7 S | Post-call data fidelity | `completed` (not `call-disconnected`) carries total_cost + cost_breakdown, recording_url, extracted_data. Verify currency (USD cents), transcript parses into TranscriptTurn, and time-to-`completed` (~2–3 min claimed) against our 2-min lead SLO. |
 | 8 S | KB + campaigns + tools + H1 handling [expanded, D-33] | Upload a Telugu FAQ to the rag_id KB (multilingual mode); measure retrieval quality + latency on-call. **Telugu is NOT named in their multilingual mode (Hindi/Tamil are) and the mode is immutable at KB creation** — if Telugu retrieval is poor, the external custom-function route is the fallback (TRD §6.2), so measure both in the same session. Test a custom function to our endpoint and record the tool-call p95 (**no timeout is documented — the ceiling is unmeasured**). Create a 10-contact batch; verify retry policy + per-contact statuses. **KB lifecycle, the two questions D-41's detach contract cannot answer from docs — Bolna publishes no OpenAPI spec, so the row shapes are hand-maintained claims:** (a) does `GET /knowledgebase/all` carry the AGENT LINKAGE we filter on? Our single account holds every tenant's agents, so `list_kb` attributes strictly — a row that does not name the agent is not counted, which means a missing linkage field silently reports every agent as having no knowledge base. (b) does `DELETE /knowledgebase/{rag_id}` also clear the AGENT's reference to it, or does the agent config keep a dangling `rag_id`? If the latter, detach grows a second call (an agent update) — it does NOT become optional. Capture both responses as adapter fixtures. **In-call working memory (H1, TRD §6.1):** does Bolna truncate or summarise conversation history at a window limit, and does it enable provider context caching on BYOK keys? Both drive the LLM leg on long calls. |
 | 9 H | Compute region + residency [NEW, D-32] | Where does the call actually execute? (Recordings sit on S3 us-east-1 — storage ≠ compute, but both matter.) Get India data-residency terms + price in writing. This is the one axis where LiveKit beats Bolna on verified evidence today. |
@@ -84,7 +84,10 @@ Gate 1 needs the raw deliveries your tunnel received (`--webhook-capture <file>`
 repeatable); gate 6 needs the execution ids whose webhook you dropped
 (`--missed-execution <id>`) plus what you saw with your own eyes
 (`--attest gate6.call_continued=yes`, `--attest gate6.retries_observed=0`) — those two
-are recorded as operator attestations, never as measurements. **Exit 2 means "nothing
+are recorded as operator attestations, never as measurements — and the dashboard's own
+execution count for the same window (`--attest gate6.executions_in_window=<n>`), which is
+the ONE independent check on whether List-Executions truncated: our own listing cannot
+testify about what it left out. **Exit 2 means "nothing
 went red and nothing was verified either"**; only exit 0 is a pass. Every gate result is
 PASS, FAIL or **NOT RUN**, and NOT RUN never renders as green.
 
@@ -97,14 +100,56 @@ What the harness found before any credentials existed, and what it therefore can
   `BolnaEngine.provision_number` raises `engine_capability_unverified` (M1 defers
   numbers to the telephony provider), so that step is a dashboard action, which is what
   "via API only, no dashboard" forbids.
-- there is **no agent read-back** on the contract (`create_agent` and `update_agent`
-  exist; nothing reads an agent's current config), so "update prompt" is confirmed only
-  as ACCEPTED — the vendor took the PUT — never as APPLIED. The only end-to-end proof
-  available is indirect: the prompt's effect on a live call, which is what the
-  `user_data` round-trip check measures. The same missing method is why gate 8's
-  dangling-`rag_id` question (D-41) cannot be answered through the adapter.
+- gate 2's **"update prompt"** can now be scored **APPLIED**, not only ACCEPTED. The
+  contract grew a read-back (`VoiceEngine.get_agent` → `AgentSnapshot`), and gate 2 emits
+  a second row, `update_prompt_applied`: `update_prompt` records that the vendor took the
+  PUT, `update_prompt_applied` records that the agent the engine HOLDS carries the prompt
+  we wrote (a marker in the prompt text, so the engine's own rendering — the prepended
+  disclosure line — does not break the comparison). A 2xx write that changed nothing is
+  now a red row instead of a green one, which matters most for the part of the prompt a
+  client is legally answerable for. What it still does NOT prove is that a RUNNING call
+  uses that prompt; the `user_data` round-trip row remains the live-call evidence, and
+  the two are deliberately separate rows.
+  **The read-back endpoint is itself an unverified vendor claim.** `GET /v2/agent/
+  {agent_id}` was written from Bolna's OSS server (`bolna-ai/bolna` documents and
+  implements `GET /agent/{agent_id}` returning the stored agent object) plus a search
+  summary of their hosted v2 reference — their docs site could not be read directly, and
+  they publish no OpenAPI spec. So record two things from the run: whether the GET
+  answered 2xx at all, and whether the prompt came back where
+  `bolna._agent_system_prompt` looks for it (`agent_prompts.task_1.system_prompt`). A 404
+  there means OUR path is wrong, not that the vendor dropped the prompt — the row fails
+  either way, which is the intended direction for an unverified endpoint.
+- gate 8's **dangling-`rag_id`** question (D-41) is now askable through the adapter and
+  is answered by the run rather than by a note. The read-back supplies gate 8's
+  `agent_ref_reader` automatically (`knowledge.agent_ref_reader_from_engine`), so after
+  the probe deletes the knowledge base it reads the AGENT object back and reports whether
+  the handle survives. **What is still unknown is the field name**: nothing published
+  says Bolna's agent object references a `rag_id` at all, so `bolna._AGENT_KB_REF_KEYS`
+  is a guessed set of names and the adapter reports
+  `AgentSnapshot.knowledge_base_refs_readable = False` when none of them appears. That
+  declination is scored INCONCLUSIVE, never as a cleared reference — "we could not find
+  the field" and "the reference was cleared" are opposite answers, and only one of them
+  adds a second call to `detach_kb`. One captured agent payload settles it.
 - gate 1's edge half (nginx rejecting a non-allowlisted source) needs an HTTP POST from
   another host against the deployed receiver; the harness exercises the in-app half only.
+- gate 6's **pagination** criterion is now MEASURED as far as our side can measure it,
+  and declared as an assumption for the rest. `list_executions` returns an
+  `ExecutionListing`, not a bare list: `complete=False` plus a reason
+  (`explicit_more` where the payload claims more, `full_page_suspected` where the row
+  count lands exactly on a conventional page size, `page_cap_reached` where our own bound
+  stopped a walk that was still producing, `next_link_loop` where a continuation URL
+  repeated, `next_link_no_progress` where a new continuation re-served rows we already
+  had, `empty_page_with_next` where a page carried no executions and still offered a
+  continuation) is what the adapter says when it cannot vouch
+  for the window, and `reconcile_executions` turns that into an alert, a metric
+  (`reconciliation_listing_incomplete`) and a job result that does not read as a quiet
+  tick. **What the pilot still has to settle is the vendor's behaviour itself** — whether
+  Bolna paginates, at what size, and in what form. Nothing in-process can: a listing
+  cannot report what it omitted, and a pilot window holds far too few executions to reach
+  any plausible page size, so `complete=True` here means "nothing in the response
+  suggested otherwise". The dashboard count (`gate6.executions_in_window`) is the only
+  independent evidence, and until a saturated listing has been captured the page-size
+  heuristic is a guess about round numbers rather than knowledge.
 - gate 7's **currency** criterion is now answerable in part from our own snapshot.
   `BolnaEngine._cost` reads the currency the payload states and records
   `CostBreakdown.currency_stated` — True = the vendor said so, False = we fell back to
@@ -358,9 +403,33 @@ one differs from a summary below, the runbook is the authority.
   validating the recording-expiry policy, and what it does NOT prove.
 - **Events not reaching a client's CRM** — `runbooks/webhook-delivery-failures.md`. Outbox
   → ARQ → delivery forensics, plus the client-side checks to hand them.
+- **A deploy failed** — `runbooks/deploy-failed.md`. Ordered by WHICH step of
+  `scripts/vps-deploy.sh` failed, because the recovery for a failed build and a failed
+  container swap are different procedures. The section worth reading before you need it is
+  §3: a failed migration leaves the database at the last revision that fully applied, the
+  old containers can serve on it (hard rule 8 is what guarantees that), and **there is no
+  automatic downgrade** — downgrading can drop a column something has already written to,
+  so it is a judgement rather than a step. **Never executed**; nothing in this repo has
+  been deployed to anything (DEPLOYMENT §4d).
 
 **Summaries only** (no written runbook yet):
 
+- **Every engine webhook is 401ing** (`webhook_source_rejected`): read the alert's
+  `detail`, because the two reasons have different cures and the same symptom.
+  `source ip not allowlisted` = the vendor renumbered; rotate `BOLNA_WEBHOOK_SOURCE_IPS`
+  and restart voice-runtime (calls are not lost, the 10-minute poller carries them —
+  D-31). `client ip not established` = **the EDGE is broken, not the vendor**: outside
+  `APP_ENV=local` the receiver takes the client address from `CF-Connecting-IP` and from
+  nothing else, refusing when it is absent or is not a single literal IP
+  (`apps/voice-runtime/engine_intake.py::client_ip`). Two nginx facts must hold for that
+  header to mean anything, and both live in `infra/nginx/snippets/`:
+  `real_ip_header CF-Connecting-IP` + `real_ip_recursive on` + the `set_real_ip_from` CF
+  ranges (`calevate-origin.conf`), and `proxy_set_header CF-Connecting-IP $remote_addr`
+  (`calevate-proxy.conf`) so our own nginx — the single trusted hop — is what writes the
+  header the app reads. Check those before touching the allowlist. A deployment that
+  terminates TLS anywhere other than this nginx, or puts a second proxy in front of the
+  container, breaks the hop count the control is built on and must update `client_ip`
+  in the same change.
 - **Engine outage**: numbers fail over to client phones (provisioned fallback); status
   banner in dashboards; reconcile calls post-recovery; if >4h, activate Bolna adapter for
   new calls (numbers re-point), inform clients.
@@ -381,10 +450,46 @@ Entity decided → DLT PE registered (or inbound-only mode explicitly accepted) 
 engine verification scorecard passed · agent passed test-call gate + regression five ·
 disclosure + consent verified on a real recording · caps set · backups verified ·
 alerts firing to Sri's phone · client owner trained on Leads table (15-min session) ·
-DPA + privacy notice signed · invoice template ready.
+DPA + privacy notice signed · invoice template ready · **admin-realm MFA switched on in
+the admin Clerk application**.
 
-**Two of those items have a pass condition that deployed code does not satisfy on its
-own**, stated here because both have previously been read as done:
+**Three of those items have a pass condition that deployed code does not satisfy on its
+own**, stated here because they have previously been read as done:
+
+- **Admin-realm MFA switched on** = a DASHBOARD change in the ADMIN Clerk application
+  (the one whose publishable key is `NEXT_PUBLIC_CLERK_ADMIN_PUBLISHABLE_KEY`), not a
+  deploy. The API already refuses any admin-realm session that did not complete a second
+  factor (`core/auth.py::verify_token`, SEC-COMP §5), and that refusal is the enforcement
+  — but it can only refuse; it cannot make Clerk OFFER a second factor. Two settings, and
+  both must be checked by a human against a live tenant, because neither is observable
+  from this repo:
+
+  1. **Enable a second-factor strategy and require it** — turn on TOTP (authenticator
+     app) and backup codes in the admin application's user-and-authentication settings,
+     and turn on its "Require MFA" organization/instance setting so operators are walked
+     through enrolment at sign-in. Without this, every operator meets `403 mfa_required`
+     with no way to satisfy it: the console explains the refusal, and that is all it can
+     do. Enrol the first superadmin BEFORE the setting goes live, or the first person to
+     sign in is locked out of the console that would let them fix it.
+  2. **Leave the admin application on the DEFAULT session-token claims.** The check reads
+     the `fva` claim, which is present on the default token and absent from a custom JWT
+     template that does not list it. A template that drops it fails closed —
+     `403 mfa_claim_missing` on every admin route — which is the safe direction and an
+     outage all the same. If a template is ever needed on this realm, `fva` goes in it.
+
+  **Verification is a two-person, five-minute check against staging**, and it is the only
+  proof that counts: sign in as an operator WITHOUT a second factor enrolled and confirm
+  `GET /v1/ops/platform` answers 403 `mfa_required`; enrol, sign out, sign in again, and
+  confirm the same call answers 200. Record the result in `docs/evidence/` the way the
+  backup drill is recorded — an untested auth control is a claim, not a control.
+
+  **NOT DONE, and deliberately**: requiring a FRESH second factor (Clerk reverification)
+  for the high-risk actions BACKEND-PATTERNS §7 lists — the big red switch, cap raises,
+  raw-transcript access. Those carry per-action `X-Confirm-Action` step-up today, which is
+  a different control and is retained (SEC-COMP §5); raising a real reverification prompt
+  needs a flow in `apps/web` that does not exist, and gating an incident lever on a prompt
+  nobody can answer at 3am is how a control gets switched off. It needs a decision-log
+  entry before it is built.
 
 - **Backups verified** = `runbooks/backup-restore-drill.md` has PASSED once, with the
   record committed to `docs/evidence/`. The existence of `infra/backup/` does not tick it:

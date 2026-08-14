@@ -30,8 +30,6 @@ import {
   type CallLeadResult,
   type CallSummary,
   type Dashboard,
-  type Lead,
-  type LeadStatus,
   type Me,
   type Session,
 } from "./client";
@@ -152,54 +150,21 @@ export function useCall(session: Session, callId: string): UseQueryResult<CallDe
 }
 
 /**
- * CSV export — `calls:read_raw` (owners only; the file carries FULL phone numbers),
- * fetched WITH the session headers.
- *
- * It cannot be a plain `<a href>`: the API authenticates every request from the
- * Authorization and X-Org-Slug headers, which a browser navigation does not carry,
- * so a link answers with a 401 problem+json instead of a file. Fetching it here and
- * handing the browser a blob keeps the download while letting a refusal render
- * through ProblemNotice like every other error.
- *
- * **`agent_id` is the ONLY filter the endpoint accepts.** It takes no `status` and no
- * `search`, so an export cannot be narrowed to what the table is currently showing.
- * This hook therefore sends what the endpoint understands and nothing else — the
- * alternative, quietly dropping the user's filters, is how someone filters to "hot",
- * presses Export, and mails a supplier every contact they have. The Leads screen states
- * the scope on screen; see the note there and the backend gap it records.
+ * `useExportLeads` MOVED to `lib/api/leads.ts` and now takes the same `LeadLens` the
+ * list takes — the column chooser and the facet filters have to reach the file, and a
+ * hook whose type could not name them was the reason the old one sent `agent_id` alone
+ * while the screen was filtered to "hot". Deleted here rather than deprecated: two ways
+ * to download one file is how the two get different filters again.
  */
-export function useExportLeads(session: Session) {
-  return useMutation({
-    mutationFn: ({ agentId }: { agentId?: string } = {}) =>
-      apiRequest<string>(session, `/v1/leads/export.csv${query({ agent_id: agentId })}`),
-    onSuccess: (csv) => {
-      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
-      // In the document and revoked a tick later: a detached anchor is a no-op in
-      // some browsers, and revoking synchronously can cancel the save.
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
-    },
-  });
-}
 
-export function useUpdateLeadStatus(session: Session) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ leadId, status }: { leadId: string; status: LeadStatus }) =>
-      apiRequest<Lead>(session, `/v1/leads/${leadId}`, { method: "PATCH", body: { status } }),
-    onSuccess: () => {
-      // Invalidate rather than patch the cache: the server may also have moved the
-      // lead (a hot-lead rule fires on the pipeline side), and the list is cheap.
-      void client.invalidateQueries({ queryKey: ["leads", session.orgSlug] });
-      void client.invalidateQueries({ queryKey: ["dashboard", session.orgSlug] });
-    },
-  });
-}
+/**
+ * `useUpdateLeadStatus` MOVED to `lib/api/leads.ts` and became `useEditLead`, with both
+ * callers moved in the same change. It and `useAssignLead` were two hooks issuing the
+ * same `PATCH /v1/leads/{id}` with two invalidation sets and two error channels — one
+ * route, two ways — and a row can only surface one failure at a time, so the two
+ * competed for the same pixel. Deleted here rather than deprecated, for the reason the
+ * note above gives about the export.
+ */
 
 export function useCallLead(session: Session) {
   const client = useQueryClient();

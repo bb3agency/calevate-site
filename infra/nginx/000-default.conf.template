@@ -1,0 +1,42 @@
+# The certless-default_server fix — DEPLOYMENT §10's first lesson, made real.
+#
+# THE FAILURE THIS PREVENTS. Cloudflare on Full (strict) validates the origin
+# certificate. Some of its origin-health probes and any SNI-less client reach nginx
+# WITHOUT a server name, so nginx answers from whichever `server` block is
+# `default_server`. If that block has no certificate, the handshake fails and Cloudflare
+# returns **525 — SSL handshake failed** on a perfectly healthy origin. It is a
+# spectacular symptom with an invisible cause: every named vhost tests fine.
+#
+# So the default_server exists, it holds a certificate, and it serves nothing.
+#
+# WHICH CERTIFICATE. A Cloudflare Origin CA certificate, not a Let's Encrypt one:
+# Origin CA issues for `*.${ROOT_DOMAIN}` with a 15-year life and is trusted by
+# Cloudflare specifically, which is the only client that ever reaches this block. A
+# Let's Encrypt cert here would need its own renewal for a vhost that answers no real
+# request — a renewal failure nobody would notice until the next 525.
+#
+# 444 = close the connection with no response. A direct-to-IP scanner learns nothing;
+# a Cloudflare handshake probe still succeeds, which is the entire job.
+#
+# Installed as /etc/nginx/conf.d/000-default.conf — the numeric prefix keeps it first in
+# the alphabetical include order, which is not required by nginx (default_server is
+# explicit) but makes the intent visible in a directory listing.
+#
+# Substituted variables: ROOT_DOMAIN  ORIGIN_CERT_PATH  ORIGIN_KEY_PATH
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+
+    ssl_certificate     ${ORIGIN_CERT_PATH};
+    ssl_certificate_key ${ORIGIN_KEY_PATH};
+    include /etc/nginx/snippets/calevate-tls.conf;
+
+    # No origin allowlist include here on purpose. This block's job is to complete a TLS
+    # handshake and say nothing; a 403 from the access module would be a longer answer
+    # than 444 and would still have completed the handshake anyway.
+    return 444;
+}

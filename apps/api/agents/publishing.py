@@ -54,11 +54,33 @@ attached to it. The test is not "how risky does this feel" but §2b's own senten
 - **max call length** is conduct. It cannot alter one word; it can only reduce
   exposure. Immediate.
 - **voice** is delivery. Immediate per §2b — with the caveat recorded under
-  `set_agent_voice` below, which this module does not overrule.
+  `set_agent_voice`, which this module does not overrule. See the next section: the
+  lane says what the design INTENDS, and `PendingState.voice` says what this agent's
+  callers are actually hearing right now.
 - **extraction fields** shape CRM columns, not the call. Immediate.
 - **training (T0)** is immediate, with one documented exception in `agents/t0.py`: a
   recompile splices into the DRAFT body, so while a script edit is staged the
   recompile stages with it rather than dragging an unapproved script live.
+
+⚠ AN OPEN CONFLICT BETWEEN THE DOCS AND THE CODE, REPORTED RATHER THAN RESOLVED
+--------------------------------------------------------------------------------
+§2b puts voice on the IMMEDIATE side and `LANES` above says so, but `set_agent_voice`
+does not reach the engine, so a voice change on a live agent is in practice STAGED
+until someone publishes. The lane table is therefore a description of the intended
+design that no agent currently obeys, and the client screen renders it under "Applies
+straight away".
+
+Not fixed here, and deliberately not fixed here: reconciling it means either
+auto-republishing on a voice change (which re-voices a running client's phone line on
+an ear test we have not run — `voice_routes.py` argues that at length, pilot gate 3) or
+moving `voice` to the `staged` lane (which contradicts an authoritative doc). Both are
+decision-log entries (ROADMAP §6), not a quiet edit.
+
+What IS fixed here is the part that needed no decision: the state was previously
+unobservable, so nobody could even see which side of the split a given agent was on.
+`PendingState.voice` reports the CONFIGURED voice and the voice the engine was last
+SENT as two fields, per agent, from the row — so a screen can tell a client the truth
+about their own agent whichever way the general rule is eventually settled.
 
 NOT MOUNTED HERE. `publishing_routes.py` carries the endpoints and, like
 `agents/prompt_routes.py` and `agents/voice_routes.py`, is wired into `main.py` by the
@@ -83,6 +105,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_MIN_S
 from apps.api.agents.service import effective_call_cap, publish_agent
+from apps.api.agents.voices import Voice, get_voice
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.billing.service import to_paise
 from apps.api.core.errors import ProblemError
@@ -171,6 +194,57 @@ def lane_of(field_name: str) -> LaneEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class AgentVoice:
+    """One voice at one moment: the id stored on the row, plus the catalog entry when
+    we recognise it.
+
+    `catalog` is None for a string outside `agents/voices.CATALOG` — a row set before
+    the catalog existed, or an entry retired since. The id is still returned, because
+    "we do not recognise this voice" and "there is no voice" are different answers and
+    only one of them is worth an operator's attention.
+    """
+
+    voice_id: str
+    provider: str | None
+    catalog: Voice | None
+
+
+@dataclass(frozen=True, slots=True)
+class VoiceState:
+    """What the agent is CONFIGURED to speak in, and what the engine was last SENT.
+
+    THE WHOLE POINT IS THAT THESE ARE TWO FIELDS. `set_agent_voice` writes the row and
+    deliberately does not touch the engine (`voice_routes.py`: re-voicing a running
+    client's phone line on an ear test we have not done is not a safe default), so
+    between a voice change and the next publish the configured voice and the spoken
+    voice are different facts. Answering with one of them and calling it "the voice" is
+    the same defect `live_prompt_id` was added to fix for the script and that
+    `set_call_cap`'s in-transaction republish avoids for the cap — twice already, under
+    two other names.
+
+    `live` is None when nothing has been recorded as sent. Two situations produce that
+    and they are NOT distinguishable from the row, which is why the caller is given
+    `PendingState.published` to read alongside:
+
+        published = False   nothing is on the engine; there is nothing to know
+        published = True    published before migration c8b3f14e7a29, or published with
+                            no voice set — either way we cannot PROVE the engine holds
+                            the configured voice
+
+    Both resolve the same way: `republish_required` is true whenever the two are
+    distinct, so an unknown live voice errs towards "publish again", never towards a
+    claim of sync we cannot support.
+    """
+
+    configured: AgentVoice | None
+    live: AgentVoice | None
+    # `live IS DISTINCT FROM configured`, and the agent is actually on the engine. An
+    # unpublished agent has no callers to mislead, so it is never "republish required".
+    republish_required: bool
+    headline: str
+
+
+@dataclass(frozen=True, slots=True)
 class PendingChange:
     """One staged, unapplied change. Version NUMBERS and a lane, never a body."""
 
@@ -199,6 +273,17 @@ class PendingState:
     effective_call_cap_s: int
     call_cap_is_platform_default: bool
     worst_case_call_cost_inr: Decimal | None
+    # NOT a member of `pending`, and that is a statement about what Apply does rather
+    # than an oversight. `pending` is the list Apply and Undo act on: every entry is a
+    # `prompt_versions` number, Apply moves `live_prompt_id` and Undo moves it back. A
+    # voice divergence has no version to name and neither button clears it on its own —
+    # `undo_staged` does not touch the voice columns at all, so listing one here would
+    # put an Undo next to a change it cannot undo. It is cleared by a PUBLISH, which is
+    # what `set_agent_voice`'s `next_step` has always said. (Apply does clear it as a
+    # side effect when a script is ALSO staged, because `apply_to_live` publishes; the
+    # mirror is written by `publish_agent` wherever it is called from, so the answer
+    # stays correct either way.)
+    voice: VoiceState
     precedence_rule: str = PRECEDENCE_RULE
     lanes: tuple[LaneEntry, ...] = field(default=LANES)
 
@@ -237,6 +322,10 @@ class _AgentRow:
     draft_at: datetime | None
     live_version: int | None
     max_call_duration_s: int | None
+    tts_voice: str | None
+    tts_provider: str | None
+    live_tts_voice: str | None
+    live_tts_provider: str | None
 
     @property
     def is_live(self) -> bool:
@@ -246,10 +335,21 @@ class _AgentRow:
     def has_pending(self) -> bool:
         return self.draft_version is not None and self.draft_version != self.live_version
 
+    @property
+    def published(self) -> bool:
+        return bool(self.engine_agent_ref)
+
+    @property
+    def voice_diverged(self) -> bool:
+        """SQL's `IS DISTINCT FROM`, in Python. NULL on either side is a value here, not
+        an unknown: "no voice configured" and "nothing recorded as sent" are answers."""
+        return self.live_tts_voice != self.tts_voice
+
 
 _AGENT_SQL = (
     "SELECT a.status, a.engine_agent_ref, d.version, d.created_at, l.version, "
-    "a.max_call_duration_s FROM agents a "
+    "a.max_call_duration_s, a.tts_voice, a.tts_provider, a.live_tts_voice, "
+    "a.live_tts_provider FROM agents a "
     "LEFT JOIN prompt_versions d ON d.id = a.system_prompt_id "
     "LEFT JOIN prompt_versions l ON l.id = a.live_prompt_id "
     "WHERE a.id = :aid AND a.deleted_at IS NULL"
@@ -267,6 +367,10 @@ async def _load(session: AsyncSession, agent_id: UUID) -> _AgentRow:
         draft_at=row[3],
         live_version=int(row[4]) if row[4] is not None else None,
         max_call_duration_s=int(row[5]) if row[5] is not None else None,
+        tts_voice=row[6],
+        tts_provider=row[7],
+        live_tts_voice=row[8],
+        live_tts_provider=row[9],
     )
 
 
@@ -345,18 +449,76 @@ def _pending_changes(row: _AgentRow) -> list[PendingChange]:
     ]
 
 
+def _agent_voice(voice_id: str | None, provider: str | None) -> AgentVoice | None:
+    """One stored voice as the API answers it, or None when the column is empty.
+
+    The catalog lookup is best-effort ON PURPOSE. `agents.tts_voice` is free text
+    (`voices.py` explains why the allowlist lives at the API rather than the schema), so
+    a value we no longer offer must still read back as itself. Returning None for an
+    unrecognised id would make an agent speaking a retired voice indistinguishable from
+    one speaking none — and "none" is the reading that would send an operator to set a
+    voice that is already set.
+    """
+    if not voice_id:
+        return None
+    return AgentVoice(voice_id=voice_id, provider=provider, catalog=get_voice(voice_id))
+
+
+def _voice_headline(row: _AgentRow, configured: AgentVoice | None, live: AgentVoice | None) -> str:
+    """The one sentence a banner can carry, composed where the facts are.
+
+    Written here rather than in the UI for the reason the lane table is: a screen that
+    paraphrases the configured/live relationship is how "voice applies immediately"
+    becomes a support ticket. Names voices by their catalog LABEL where we have one and
+    by their raw id otherwise — never a guess, and never silence.
+    """
+    if configured is None:
+        return "No voice has been set on this agent."
+    chosen = _reading(configured)
+    if not row.published:
+        return f"This agent is not on the voice platform yet; publishing it will use {chosen}."
+    if not row.voice_diverged:
+        return f"Callers hear {chosen} — the voice platform is holding the configured voice."
+    if live is None:
+        return (
+            f"Callers hear whatever voice was last published; we have no record of which. "
+            f"{chosen} reaches them at the next publish."
+        )
+    return f"Callers still hear {_reading(live)}; {chosen} reaches them at the next publish."
+
+
+def _reading(voice: AgentVoice) -> str:
+    """A voice in the words an operator picks on, degrading to the raw id."""
+    return voice.catalog.label if voice.catalog else voice.voice_id
+
+
+def _voice_state(row: _AgentRow) -> VoiceState:
+    configured = _agent_voice(row.tts_voice, row.tts_provider)
+    live = _agent_voice(row.live_tts_voice, row.live_tts_provider)
+    return VoiceState(
+        configured=configured,
+        live=live,
+        # `published`, not `is_live`: a PAUSED agent still has an engine object holding
+        # a voice, and a republish still changes it. Using `is_live` here would tell an
+        # operator that un-pausing is enough, which it is not.
+        republish_required=row.published and row.voice_diverged,
+        headline=_voice_headline(row, configured, live),
+    )
+
+
 async def _state(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> PendingState:
     row = await _load(session, agent_id)
     cap = effective_call_cap(row.max_call_duration_s)
     return PendingState(
         agent_id=agent_id,
         agent_status=row.status,
-        published=bool(row.engine_agent_ref),
+        published=row.published,
         has_pending=row.has_pending,
         pending=_pending_changes(row),
         effective_call_cap_s=cap,
         call_cap_is_platform_default=row.max_call_duration_s is None,
         worst_case_call_cost_inr=worst_case_cost(cap, await _overage_rate(session, tenant_id)),
+        voice=_voice_state(row),
     )
 
 
@@ -573,6 +735,7 @@ async def set_call_cap(
 __all__ = [
     "LANES",
     "PRECEDENCE_RULE",
+    "AgentVoice",
     "ApplyResult",
     "CallCapResult",
     "Lane",
@@ -580,6 +743,7 @@ __all__ = [
     "PendingChange",
     "PendingState",
     "UndoResult",
+    "VoiceState",
     "apply_to_live",
     "lane_of",
     "pending_state_for",

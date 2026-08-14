@@ -154,23 +154,24 @@ DEPLOYMENT = REPO_ROOT / "docs" / "DEPLOYMENT.md"
 # make the check miss the real thing the day somebody lands it one level over.
 RATE_ZONE_TEMPLATE_NAME = "rate-zones.conf.template"
 
-# The one half of D-29's spec whose subject is not in this tree, with what closes it.
+# Deferrals: half of a spec whose subject is not in this tree, each with what closes it.
 # A DEFERRAL, not an exemption: `stale_deferrals()` fails the moment the file exists, so
 # this dict can only shrink and only by the artefact arriving. Same contract as
 # `check_wiring.UNWIRED_BASELINE` and for the same reason — an exemption nobody can take
 # away is one nobody can prove still describes reality.
-DEFERRED_MIRRORS: dict[str, str] = {
-    RATE_ZONE_TEMPLATE_NAME: (
-        "nginx config has never lived in this repo. DEPLOYMENT §5 reuses raghava's "
-        "`client.conf.template` + a `limit_req_zone` snippet installed at "
-        "`/etc/nginx/snippets/` on the VPS, and §9's `vps-deploy.sh` (also not in the "
-        "tree yet) is what renders it — so there is no local artefact for §5.4's zone "
-        "table to disagree with, and inventing one here would be a config file nothing "
-        "reads. `rate_zone_drift()` below is the comparator, written and tested, and it "
-        "starts running the day a file with this name lands anywhere in the repo; this "
-        "entry FAILS on that same day, so the deferral cannot outlive its subject."
-    ),
-}
+#
+# EMPTY, and it got that way the honest way. It held exactly one entry —
+# `rate-zones.conf.template`, deferred because nginx config had never lived in this repo.
+# `infra/nginx/rate-zones.conf.template` landed with the deploy path (`scripts/vps-deploy.sh`
+# renders it), so `rate_zone_drift()` below stopped returning early and now diffs
+# DEPLOYMENT §5.4's zone table against the directives the edge would actually load. The
+# entry was deleted in the same change, which is what the deferral's own text promised
+# would happen on that day.
+#
+# Leave the dict here rather than deleting the mechanism: the next spec whose subject
+# lands later needs somewhere to say so out loud, and `stale_deferrals()` is what keeps
+# such an entry from becoming permanent.
+DEFERRED_MIRRORS: dict[str, str] = {}
 
 # pnpm subcommands that are pnpm's own, not a script in a package.json. `test` and
 # `start` are deliberately NOT here: pnpm shorthands them to the script of that name, so

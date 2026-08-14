@@ -102,8 +102,8 @@ from apps.api.agents.service import publish_variant
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
-from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
+from apps.api.db.transition import transition_status
 
 log = get_logger(__name__)
 
@@ -136,9 +136,36 @@ INBOUND_ON_AN_ARM_NOTE = (
 class VariantResult:
     """One arm's counts and its Wilson interval.
 
-    `dialled` and `attributed` are both here because they answer different questions: a
-    large gap between them means the arm's calls are not connecting, which is a
-    telephony problem masquerading as a script problem.
+    THREE COUNTS, AND WHY THE OLD SINGLE `dialled` COULD NOT SURVIVE D-60
+    ---------------------------------------------------------------------
+    `dialled` was `count(*)` over the arm's assignment rows, from a time when the only
+    way to get one was `dispatch_call` deciding to place a call. D-60 gave assignment a
+    second writer: an inbound call the engine says an arm's OWN agent answered carries
+    that arm as a fact. The count then held calls nobody dialled, under a column a client
+    reads as "calls we placed for you". Renaming it to something direction-neutral would
+    have made the label true and left both numbers it feeds wrong:
+
+    * **The connect-rate diagnostic is an outbound question.** The gap between calls
+      placed and calls completed is how a telephony problem is told apart from a script
+      problem. An inbound call arrives already connected, so folding inbound into both
+      sides of that ratio moves it towards 1 — it makes a bad connect rate look better,
+      which is the exact direction a diagnostic must never fail in. So `outbound_dialled`
+      is SCOPED, not renamed: it counts the calls we chose to place into this arm.
+    * **`completed` — the denominator of `rate` and of Newcombe's interval — is the
+      count that can actually be a MIXTURE.** Outbound calls are randomised into arms by
+      `assignment.bucket_of`; inbound ones are not drawn at all, they land wherever the
+      client's telephony happens to point (D-60). Two arms whose completed calls mix the
+      two populations in different proportions are not two randomised binomials, and the
+      interval over them describes the mix as much as the script. `inbound_completed`
+      is how much of `completed` came that way, published as a NUMBER so the screen can
+      qualify the rate it renders instead of relying on a reader having read the prose.
+      Outbound completed calls are `completed - inbound_completed`.
+
+    What is deliberately NOT done here: the comparison is still made over the whole
+    `completed`, exactly as D-60 left it. Restricting the analysis set to randomised
+    traffic is the statistically cleaner move and it is a decision about what the product
+    measures, not a naming repair — it belongs with the data this field now makes
+    visible, not ahead of it.
     """
 
     variant_id: UUID
@@ -146,8 +173,20 @@ class VariantResult:
     prompt_version: int
     weight_bp: int
     published: bool
-    dialled: int
-    attributed: int
+    # Calls we PLACED into this arm, any status. Outbound only — see the class note.
+    outbound_dialled: int
+    # Completed calls in this arm, either direction. The denominator of `rate`.
+    # NAMED FOR THE FILTER THAT PRODUCES IT. It was `attributed`, which named the join
+    # rather than the count: EVERY assignment row is attributed to an arm, ringing and
+    # failed ones included, so `outbound_dialled - attributed` read as "calls we could
+    # not attribute" when it is in fact "calls that did not complete" — the difference
+    # between a bookkeeping bug and an unanswered phone. Attribution is still a real
+    # concept here; it is what `attributed_directions` and `unattributed_inbound` on
+    # `ExperimentResults` count, and those keep the word.
+    completed: int
+    # How many of `completed` arrived inbound, i.e. were never split into this arm.
+    # Zero in today's provisioning, where inbound answers as the agent and carries no arm.
+    inbound_completed: int
     conversions: int
     # None until there is a single completed call — a rate over zero calls is not 0%.
     rate: float | None
@@ -203,6 +242,12 @@ class ConcludeResult:
     new_version: int | None
     applied: bool
     engine_synced: bool
+    # False when the test had ALREADY ended this way — a success with no second
+    # promotion, no second engine push and no second audit row (`LifecycleOut.changed`
+    # is the same flag for the same reason). `new_version` and `applied` are then this
+    # CALL's facts, which are "none" and "nothing": the first call's version is not
+    # recoverable from the concluded row and inventing one would be a guess.
+    changed: bool
 
 
 _AGENT_SQL = (
@@ -427,8 +472,13 @@ def _counts_sql(conversion_predicate: str) -> str:
 
     DENOMINATOR = COMPLETED calls, not dialled ones. A script cannot influence whether a
     phone is answered; putting no-answers in the denominator would measure the contact
-    list and call it a script difference. `dialled` is reported alongside so a lopsided
-    connection rate is visible rather than buried.
+    list and call it a script difference. `outbound_dialled` is reported alongside so a
+    lopsided connection rate is visible rather than buried.
+
+    Every count is resolved BY DIRECTION here rather than by the reader, because since
+    D-60 an assignment row can be an inbound call the engine attributed to an arm, and
+    the two directions answer different questions (see `VariantResult`). `calls` is the
+    only place the direction lives, and the join is already made for `status`.
 
     The predicate is interpolated, and it is safe BECAUSE it is never a caller's string:
     the only values that reach it are `CONVERSION_METRICS`' own SQL fragments, selected
@@ -436,8 +486,10 @@ def _counts_sql(conversion_predicate: str) -> str:
     """
     return (
         "SELECT v.id, v.label, pv.version, v.weight_bp, v.engine_agent_ref, "
-        "count(a.call_id) AS dialled, "
-        "count(a.call_id) FILTER (WHERE c.status = 'completed') AS attributed, "
+        "count(a.call_id) FILTER (WHERE c.direction = 'outbound') AS outbound_dialled, "
+        "count(a.call_id) FILTER (WHERE c.status = 'completed') AS completed, "
+        "count(a.call_id) FILTER (WHERE c.status = 'completed' AND c.direction = 'inbound') "
+        "AS inbound_completed, "
         f"count(a.call_id) FILTER (WHERE c.status = 'completed' AND {conversion_predicate}) "
         "AS conversions "
         "FROM prompt_experiment_variants v "
@@ -503,17 +555,18 @@ METRIC_LABELS = {
 
 
 def _variant_result(row: tuple[Any, ...]) -> VariantResult:
-    attributed = int(row[6])
-    conversions = int(row[7])
-    interval = wilson_interval(conversions, attributed) if attributed else None
+    completed = int(row[6])
+    conversions = int(row[8])
+    interval = wilson_interval(conversions, completed) if completed else None
     return VariantResult(
         variant_id=UUID(str(row[0])),
         label=str(row[1]),
         prompt_version=int(row[2]),
         weight_bp=int(row[3]),
         published=bool(row[4]),
-        dialled=int(row[5]),
-        attributed=attributed,
+        outbound_dialled=int(row[5]),
+        completed=completed,
+        inbound_completed=int(row[7]),
         conversions=conversions,
         rate=interval.point if interval else None,
         rate_low=interval.low if interval else None,
@@ -557,7 +610,7 @@ def judge(variants: list[VariantResult]) -> tuple[Basis, Verdict, str | None, st
     if a.rate is not None and b.rate is not None and a.rate == b.rate:
         leader = None
 
-    smallest = min(a.attributed, b.attributed)
+    smallest = min(a.completed, b.completed)
     if smallest < MIN_CALLS_PER_VARIANT:
         return (
             "insufficient_data",
@@ -571,7 +624,7 @@ def judge(variants: list[VariantResult]) -> tuple[Basis, Verdict, str | None, st
             ),
         )
 
-    difference = newcombe_difference(a.conversions, a.attributed, b.conversions, b.attributed)
+    difference = newcombe_difference(a.conversions, a.completed, b.conversions, b.completed)
     if not difference.excludes_zero:
         return (
             "measured",
@@ -646,9 +699,9 @@ async def results_for(*, tenant_id: UUID, agent_id: UUID) -> ExperimentResults |
     difference = (
         newcombe_difference(
             variants[0].conversions,
-            variants[0].attributed,
+            variants[0].completed,
             variants[1].conversions,
-            variants[1].attributed,
+            variants[1].completed,
         )
         if basis == "measured"
         else None
@@ -684,6 +737,44 @@ async def results_for(*, tenant_id: UUID, agent_id: UUID) -> ExperimentResults |
     )
 
 
+async def _recorded_promotion(session: AsyncSession, experiment_id: UUID) -> str | None:
+    """The arm a concluded experiment promoted, or None for "stopped, kept the control".
+
+    Read on the LOSING path only — after the CAS has already failed — so it cannot
+    reintroduce a read-then-write. It is a second read rather than a reuse of the
+    `_LATEST_SQL` row because that row was fetched before the CAS: in the two-operators
+    case it says `running`, which is exactly the fact the CAS has just disproved.
+    """
+    label = (
+        await session.execute(
+            text(
+                "SELECT v.label FROM prompt_experiments e "
+                "LEFT JOIN prompt_experiment_variants v ON v.id = e.promoted_variant_id "
+                "WHERE e.id = :eid"
+            ),
+            {"eid": experiment_id},
+        )
+    ).scalar()
+    return None if label is None else str(label)
+
+
+def _ended_differently(recorded: str | None, requested: str | None) -> ProblemError:
+    """409 for a conclude that names an ending this test did not have.
+
+    NAMES what was found, per `db/transition.py`'s contract — "conflict" with no state
+    in it leaves an operator with nothing to reload towards. The CODE stays
+    `no_running_experiment`: it is what the console already switches on, and it is still
+    the literal reason the request cannot be honoured.
+    """
+    found = f"promoting variant {recorded}" if recorded else "with no promotion"
+    wanted = f"promote variant {requested}" if requested else "end with no promotion"
+    return ProblemError.conflict(
+        "no_running_experiment",
+        f"This script test has already ended {found}, so it cannot now {wanted}.",
+        remediation="Reload the agent to see how it ended.",
+    )
+
+
 async def conclude(
     *, tenant_id: UUID, agent_id: UUID, promote_label: str | None, created_by: UUID | None = None
 ) -> ConcludeResult:
@@ -691,8 +782,8 @@ async def conclude(
 
     ENDING IS PART OF THE FEATURE. Three things happen and they happen in this order:
 
-    1. **CAS `running -> concluded`.** A conditional UPDATE, so a second operator's
-       Conclude is a 409 rather than a second promotion (BACKEND-PATTERNS §5). Doing this
+    1. **CAS `running -> concluded`**, through `db/transition.py::transition_status` —
+       the repo's ONE state-transition discriminator, not a second copy of it. Doing this
        FIRST also stops `dispatch_call` assigning any further calls to the arms, and
        stops `publish_agent` republishing them.
     2. **The arms' engine agents are taken out of the routing table.** They are not
@@ -711,6 +802,35 @@ async def conclude(
     vendor). If it fails, the new version is STAGED and the operator sees the ordinary
     "Apply to live calls" banner on the same screen — a failure that leaves a button to
     press, rather than one that leaves the experiment un-endable.
+
+    THE THREE ANSWERS A CONCLUDE OWES ITS CALLER
+    ---------------------------------------------
+    This path answered ONE 409 (`no_running_experiment`) to all three, which told an
+    operator "conflict" for an agent id that names nothing at all and confirmed a row
+    exists that RLS deliberately hides:
+
+    * **No test to end** — an agent with no experiment ever, an agent that is not this
+      tenant's, or an id that names nothing — is a **404**. A 409 asserts a conflict
+      with a resource that is there; here there is none, and under RLS a neighbour's
+      agent must be indistinguishable from a typo (`ProblemError.not_found`).
+      Deliberately NOT preceded by an `_agent` lookup: "this agent does not exist" and
+      "this agent never ran a test" are one answer to the caller of THIS route, and a
+      separate agent probe would also start refusing to end the running test of an agent
+      somebody soft-deleted mid-experiment.
+    * **Already ended the way you asked** — the retry of a lost response, the second
+      operator on the same screen — is a **success that promotes nothing a second time**
+      (`changed=False`, RFC 9110 §9.2.2: N identical requests have the effect of one).
+      `publishing.apply_to_live`, which this function delegates the promotion to, already
+      answers its own no-op that way; a 409 here would have been this feature's second
+      opinion about the same shape.
+    * **Already ended some OTHER way** stays a **409 that names the ending it found**.
+      This is the one case that is a real conflict: promoting B over a test that
+      concluded on A is not a repeat of anything, and answering 200 would tell an
+      operator that B is live when A is.
+
+    The ending is compared on the PROMOTION, not merely on the status, because that is
+    what the caller asked for. `promote=None` is an ending in its own right ("stop, keep
+    the control"), so a repeat of it is a success and a promotion over it is a conflict.
     """
     if promote_label is not None and promote_label not in VARIANT_LABELS:
         raise ProblemError.business_rule(
@@ -722,12 +842,10 @@ async def conclude(
     new_version: int | None = None
     async with tenant_session(tenant_id) as session:
         header = (await session.execute(text(_LATEST_SQL), {"aid": agent_id})).first()
-        if header is None or str(header[2]) != "running":
-            raise ProblemError.conflict(
-                "no_running_experiment",
-                "This agent has no script test running.",
-                remediation="Reload the agent — someone may have concluded it already.",
-            )
+        if header is None:
+            # Nothing to end, rather than a conflict with something. Same answer for an
+            # agent this tenant cannot see, deliberately (hard rule 1).
+            raise ProblemError.not_found("Script test")
         experiment_id = UUID(str(header[0]))
 
         promoted_id: UUID | None = None
@@ -748,19 +866,30 @@ async def conclude(
                 raise ProblemError.not_found("Variant")
             promoted_id = UUID(str(arm[0]))
 
-        result = await session.execute(
-            text(
-                "UPDATE prompt_experiments SET status = 'concluded', concluded_at = now(), "
-                "promoted_variant_id = :pid, updated_at = now() "
-                "WHERE id = :eid AND status = 'running'"
-            ),
-            {"eid": experiment_id, "pid": promoted_id},
+        changed = await transition_status(
+            session,
+            table="prompt_experiments",
+            entity="Script test",
+            row_id=experiment_id,
+            to_status="concluded",
+            from_statuses=("running",),
+            extra_set="concluded_at = now(), promoted_variant_id = :pid",
+            params={"pid": promoted_id},
         )
-        if rowcount_of(result) == 0:
-            raise ProblemError.conflict(
-                "no_running_experiment",
-                "This script test was concluded while the request was in flight.",
-                remediation="Reload the agent to see how it ended.",
+        if not changed:
+            # It was already over — either before this request, or by the operator who
+            # won the race with it. Everything below (retiring the arms' routes, minting
+            # the version, the caller's audit row) belongs to the call that MOVED it.
+            recorded = await _recorded_promotion(session, experiment_id)
+            if recorded != promote_label:
+                raise _ended_differently(recorded, promote_label)
+            return ConcludeResult(
+                experiment_id=experiment_id,
+                promoted_label=recorded,
+                new_version=None,
+                applied=False,
+                engine_synced=False,
+                changed=False,
             )
 
         await session.execute(
@@ -822,6 +951,7 @@ async def conclude(
         new_version=new_version,
         applied=applied,
         engine_synced=engine_synced,
+        changed=True,
     )
 
 

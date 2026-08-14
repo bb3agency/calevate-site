@@ -104,13 +104,21 @@ class ExperimentRulesOut(Strict):
 
 
 class VariantOut(Strict):
+    """One arm's counts. THREE, resolved by direction, because since D-60 an arm can be
+    credited with a call nobody dialled — `experiments.VariantResult` carries the full
+    argument. Briefly: `outbound_dialled` is the connect-rate diagnostic and is an
+    outbound question; `completed` is what `rate` is over; `inbound_completed` says how
+    much of it was never split into this arm, so a client cannot read the rate as a clean
+    randomised comparison when it is not one."""
+
     variant_id: UUID
     label: str
     prompt_version: int
     weight_bp: int
     published: bool
-    dialled: int
-    attributed: int
+    outbound_dialled: int
+    completed: int
+    inbound_completed: int
     conversions: int
     # Proportions in [0,1], not money. Null — never 0.0 — when the arm has no completed
     # call: a rate over zero calls is not zero percent.
@@ -187,11 +195,23 @@ class ConcludeExperimentIn(Strict):
 
 
 class ConcludeExperimentOut(Strict):
+    """What THIS call did, which on a repeat is nothing.
+
+    `promoted_label` is the ending the test HAS (so a repeat still reports the arm that
+    won); the other three are what this request performed. On `changed: false` they are
+    therefore null/false together — the first call's version number is not recoverable
+    from the concluded row, and a guess is worse than a null a console can read.
+    """
+
     experiment_id: UUID
     promoted_label: str | None
     new_version: int | None
     applied: bool
     engine_synced: bool
+    # False when the test had already ended this way: a success (RFC 9110 §9.2.2) that
+    # promoted nothing a second time and wrote no audit row. Same flag, same reason, as
+    # `admin/routes.py::LifecycleOut.changed`.
+    changed: bool
 
 
 def _rules() -> ExperimentRulesOut:
@@ -250,8 +270,9 @@ def _render(state: experiments.ExperimentResults) -> ExperimentOut:
                 prompt_version=v.prompt_version,
                 weight_bp=v.weight_bp,
                 published=v.published,
-                dialled=v.dialled,
-                attributed=v.attributed,
+                outbound_dialled=v.outbound_dialled,
+                completed=v.completed,
+                inbound_completed=v.inbound_completed,
                 conversions=v.conversions,
                 rate=v.rate,
                 rate_low=v.rate_low,
@@ -339,7 +360,10 @@ async def start_experiment(
         "Promotion mints a NEW prompt version from the winning arm (copy-forward, "
         "FLOWS §7) and applies it with the same 'Apply to live calls' mechanism the "
         "prompt screen uses. If the apply fails, the version is left STAGED and the "
-        "ordinary Apply banner appears — the test still ends."
+        "ordinary Apply banner appears — the test still ends. Idempotent: a test that "
+        "already ended the way you asked returns 200 with `changed: false`, promotes "
+        "nothing a second time and writes no audit row. 409 names the ending it found "
+        "when that ending is a different one. 404 means this account has no such test."
     ),
     tags=["admin"],
 )
@@ -357,27 +381,34 @@ async def conclude_experiment(
         promote_label=payload.promote,
         created_by=principal.user_id,
     )
-    await write_audit(
-        session,
-        action="agent.experiment_concluded",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="agent",
-        object_id=str(agent_id),
-        ip=request.client.host if request.client else None,
-        summary={
-            "experiment_id": str(result.experiment_id),
-            "promoted": result.promoted_label,
-            "version": result.new_version,
-            "applied": result.applied,
-        },
-    )
+    if result.changed:
+        # The audit row belongs to the transition, never to the button press — the
+        # convention `admin/routes.py::set_tenant_status` and `integrations/routes.py::
+        # deactivate_endpoint` follow. A retried conclude that ended nothing would
+        # otherwise put a second "concluded, promoted B" in the one log that has to stay
+        # readable a year from now, with a different actor and a later timestamp.
+        await write_audit(
+            session,
+            action="agent.experiment_concluded",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=request.client.host if request.client else None,
+            summary={
+                "experiment_id": str(result.experiment_id),
+                "promoted": result.promoted_label,
+                "version": result.new_version,
+                "applied": result.applied,
+            },
+        )
     return ConcludeExperimentOut(
         experiment_id=result.experiment_id,
         promoted_label=result.promoted_label,
         new_version=result.new_version,
         applied=result.applied,
         engine_synced=result.engine_synced,
+        changed=result.changed,
     )
 
 

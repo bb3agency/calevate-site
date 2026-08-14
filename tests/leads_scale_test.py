@@ -175,9 +175,15 @@ def _csv_phones(body: str) -> set[str]:
     tab-prefixed. Stripping it here is this reader's job; `redteam_extraction_poisoning_test`
     is where the prefix itself is asserted, and these tests are about which ROWS the
     export contains.
+
+    THE PHONE COLUMN IS FOUND BY ITS HEADER, not by position. The export's columns are
+    now chooseable and reorderable (`crm.columns`), so `row[0]` was an assumption about
+    the DEFAULT order that a client's own column choice invalidates — and a test that
+    silently reads the wrong column is worse than one that fails.
     """
     rows = list(csv.reader(io.StringIO(body.strip())))
-    return {row[0].removeprefix("\t") for row in rows[1:] if row}
+    phone = rows[0].index("Phone")
+    return {row[phone].removeprefix("\t") for row in rows[1:] if row}
 
 
 # --------------------------------------------------------------- 1. export filters

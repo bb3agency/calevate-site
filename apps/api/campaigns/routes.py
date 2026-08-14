@@ -21,11 +21,11 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.campaigns import service
+from apps.api.campaigns import scheduling, service
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
@@ -125,12 +125,104 @@ class LaunchOut(Strict):
     dnc_scrubbed: int
 
 
+class ScheduleIn(Strict):
+    """When a one-time start should happen.
+
+    `AwareDatetime`, not `datetime`: the wire type itself refuses a bare local string,
+    so the generated TypeScript client cannot send "2026-08-17T10:00" and have the
+    server decide which 10 o'clock it meant. A client picking 10am IST sends
+    `2026-08-17T10:00:00+05:30`; the service converts to UTC for storage, and the screen
+    renders IST again. Getting this wrong dials households at 15:30 or 02:30, so it is
+    pinned at the type level and re-checked in `scheduling.schedule_campaign` for
+    callers that are not HTTP requests.
+    """
+
+    start_at: AwareDatetime
+
+
+class ScheduleOut(Strict):
+    """The start we recorded, and when dialling can actually begin.
+
+    Both fields, always, because they differ whenever the client picks a time outside
+    the calling window — and that difference is the answer to the most natural
+    misreading of this feature. A 22:00 start is accepted (starting a campaign is not
+    dialling it) and `first_dial_not_before` says 09:00 the next morning, which is what
+    TRAI's window means for that choice.
+    """
+
+    start_at: datetime
+    first_dial_not_before: datetime
+
+
+class RecurrenceIn(Strict):
+    """A standing instruction: which weekdays, at what IST time, until when.
+
+    `days` are ISO weekday numbers (1 = Monday), the same vocabulary
+    `datetime.isoweekday()` and the service use — one numbering across the wire, the rule
+    and the UI, because a second one is an off-by-one that dials on the wrong day.
+
+    `at` is an IST wall-clock "HH:MM", NOT an instant, and that is the whole difference
+    between a repeat and a start. "10am every Tuesday" means ten o'clock on each of those
+    Tuesdays; an instant would freeze one particular Tuesday's ten o'clock and the
+    schedule would have to re-derive the intent from it. The pattern is enforced here so
+    the generated TypeScript client cannot send "10" or "10:00 AM".
+
+    `until` is optional and offset-carrying for the same reason `ScheduleIn.start_at` is:
+    a bare local date on the wire is a date the server has to guess the zone of.
+    """
+
+    days: list[int] = Field(min_length=1, max_length=7)
+    at: str = Field(pattern=_HHMM)
+    until: AwareDatetime | None = None
+
+
+class RecurrenceOut(Strict):
+    """A repeat as the screen renders it — the RULE and the NEXT OCCURRENCE together.
+
+    The next occurrence is here because a repeat a client cannot read is a repeat they
+    cannot trust: "every Tuesday" with no date beside it leaves them to work out whether
+    tomorrow counts. `last_skipped_at`/`last_skipped_reason` answer the other question
+    the word "scheduled" cannot — why last Tuesday did not run (`campaigns/scheduling.py`
+    decision 2: a missed occurrence is skipped, never caught up).
+    """
+
+    days: list[int]
+    at: str
+    until: datetime | None = None
+    next_occurrence_at: datetime
+    last_skipped_at: datetime | None = None
+    last_skipped_reason: str | None = None
+
+
+class RecurrenceSetOut(RecurrenceOut):
+    """What `POST /recurrence` answers with: the repeat, plus when it can first dial.
+
+    Both, for `ScheduleOut`'s reason — they differ whenever the campaign narrowed its own
+    calling hours, and a screen showing only the occurrence would promise a 10:00 dial on
+    a campaign that only dials from noon.
+    """
+
+    first_dial_not_before: datetime
+
+
 class ProgressOut(Strict):
     status: str
     launched_at: datetime | None
     concurrency: int
     contacts: dict[str, int]
     total: int
+    # The pending start, echoed from `campaigns.schedule`, so a `scheduled` campaign can
+    # say WHEN rather than just that it is waiting. None for every other status.
+    scheduled_start_at: datetime | None = None
+    # The rules the gate refused this start with on its last attempt, if any. A
+    # scheduled campaign whose start keeps being blocked otherwise sits on screen saying
+    # "scheduled" until it silently returns to draft a day later.
+    schedule_blocked_rules: list[str] = Field(default_factory=list)
+    # The repeat, if this campaign has one — at ANY status, unlike `scheduled_start_at`.
+    # A one-time start is spent when it fires; a repeat outlives every occurrence, so a
+    # campaign that is dialling right now still has a next Tuesday to show and a repeat
+    # to offer stopping.
+    recurrence: RecurrenceOut | None = None
 
 
 class CampaignSummaryOut(Strict):
@@ -376,32 +468,237 @@ async def launch(
 
 
 @router.post(
+    "/{campaign_id}/schedule",
+    response_model=ScheduleOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Start this campaign later — the gate runs when it FIRES, not now",
+)
+async def schedule(
+    campaign_id: UUID,
+    payload: ScheduleIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> ScheduleOut:
+    """Record a one-time start.
+
+    `leads:dispatch`, the same permission as `POST /launch`, because this IS a launch —
+    one with a delay on it. Anything weaker would be a way to cause dialling without the
+    authority to dial.
+
+    **No compliance gate here, and that is the design, not an omission.** The gate runs
+    inside `launch_campaign` when the dispatch tick fires this schedule (hard rule 5,
+    `campaigns/scheduling.py` decision 2): a campaign scheduled on Friday and started on
+    Monday may have crossed a DNC addition, a spend cap, a KYC expiry or the platform
+    halt in between, so a gate at THIS moment would prove nothing about the moment that
+    matters. `GET /launch-check` remains available and answers "would it launch right
+    now" for a scheduled campaign exactly as for a draft.
+
+    Audited: "who told this campaign to start dialling, and when for" is the same
+    question `campaign.launched` exists to answer.
+    """
+    assert principal.tenant_id is not None
+    result = await scheduling.schedule_campaign(
+        session,
+        tenant_id=principal.tenant_id,
+        campaign_id=campaign_id,
+        start_at=payload.start_at,
+    )
+    await write_audit(
+        session,
+        action="campaign.scheduled",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="campaign",
+        object_id=str(campaign_id),
+        ip=request.client.host if request.client else None,
+        summary={"start_at": result.start_at.isoformat()},
+    )
+    return ScheduleOut(start_at=result.start_at, first_dial_not_before=result.first_dial_not_before)
+
+
+@router.post(
+    "/{campaign_id}/recurrence",
+    response_model=RecurrenceSetOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Repeat this campaign weekly — the gate runs on EVERY occurrence",
+)
+async def set_recurrence(
+    campaign_id: UUID,
+    payload: RecurrenceIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> RecurrenceSetOut:
+    """Record a standing instruction to start this campaign on given weekdays.
+
+    `leads:dispatch`, the same permission as `POST /launch` and `POST /schedule`, and for
+    the stronger version of the same reason: this is not one launch with a delay on it,
+    it is every launch from now until somebody stops it.
+
+    **No compliance gate here, and that is the design** (`campaigns/scheduling.py`
+    decision 3). The gate runs inside `launch_campaign` when the dispatch tick fires each
+    occurrence, so a DLT registration that lapses in week three refuses week three — a
+    gate at THIS moment would be a claim about a Tuesday six weeks away.
+
+    Audited: "who told this campaign to dial every Tuesday, and when" is precisely the
+    question `audit_log` exists to answer, and a repeat nobody remembers creating is the
+    version of that question that gets asked after a complaint.
+    """
+    assert principal.tenant_id is not None
+    result = await scheduling.schedule_recurrence(
+        session,
+        tenant_id=principal.tenant_id,
+        campaign_id=campaign_id,
+        days=payload.days,
+        at=datetime.strptime(payload.at, "%H:%M").time(),
+        until=payload.until,
+    )
+    await write_audit(
+        session,
+        action="campaign.recurrence_set",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="campaign",
+        object_id=str(campaign_id),
+        ip=request.client.host if request.client else None,
+        summary={
+            "days": list(result.days),
+            "at_ist": payload.at,
+            "until": result.until.isoformat() if result.until else None,
+            "next_occurrence": result.next_occurrence_at.isoformat(),
+        },
+    )
+    return RecurrenceSetOut(
+        days=list(result.days),
+        at=f"{result.at:%H:%M}",
+        until=result.until,
+        next_occurrence_at=result.next_occurrence_at,
+        first_dial_not_before=result.first_dial_not_before,
+    )
+
+
+@router.delete(
+    "/{campaign_id}/schedule",
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Cancel a pending start or stop a repeat — one button for both",
+)
+async def unschedule(
+    campaign_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> dict[str, str]:
+    """One stop for one column, whichever kind of promise it held.
+
+    The response is the status the campaign is ACTUALLY in afterwards, not the constant
+    "draft" this used to return: a campaign that was waiting goes back to draft, and a
+    campaign that is dialling keeps dialling — stopping a repeat means "do not start this
+    again", never "abandon the calls going out now" (`scheduling.unschedule_campaign`).
+    """
+    assert principal.tenant_id is not None
+    cancelled = await scheduling.unschedule_campaign(
+        session, tenant_id=principal.tenant_id, campaign_id=campaign_id
+    )
+    await write_audit(
+        session,
+        action="campaign.schedule_cancelled",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="campaign",
+        object_id=str(campaign_id),
+        ip=request.client.host if request.client else None,
+        summary={"kind": cancelled.kind},
+    )
+    return {"status": cancelled.status}
+
+
+@router.post(
     "/{campaign_id}/pause",
     openapi_extra=permission_meta("leads:dispatch"),
+    summary="Stop dialling now — idempotent, so a panicked double-click is not an error",
+    description=(
+        "Pause a running campaign. Idempotent: pausing a campaign that is already "
+        "paused returns 200, so a second click and the retry of a request whose "
+        "response was lost are both safe. 409 means the campaign is in some other "
+        "state (cancelled, or still a draft) and the response names it. 404 means no "
+        "campaign of yours has that id."
+    ),
 )
 async def pause(
     campaign_id: UUID,
     session: Session,
-    _: Principal = Depends(requires("leads:dispatch")),
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
 ) -> dict[str, str]:
-    await service.set_campaign_status(
+    """Stated on the decorator as well as here because `/docs` is public and this is a
+    contract a client cannot guess: pause is the button someone presses when calls are
+    going out that should not be, and answering the second press with an error is how
+    an operator comes to believe the first one did not work.
+
+    **Audited, and ONLY on a real transition.** "Who stopped the calls, and when" is a
+    question that gets asked after a complaint, and until now the answer was nowhere —
+    this was the one campaign state change with no ledger entry at all. It is written on
+    `True` alone (D-65 made that answer available): a second click, or the retry of a
+    request whose response was lost, is the same request as the first and must not appear
+    in an append-only ledger as a second act by a second person. Same call, same reason,
+    as `integrations/routes.py::deactivate_endpoint`.
+    """
+    assert principal.tenant_id is not None
+    if await service.set_campaign_status(
         session, campaign_id=campaign_id, to_status="paused", from_statuses=("running",)
-    )
+    ):
+        await write_audit(
+            session,
+            action="campaign.paused",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=request.client.host if request.client else None,
+        )
     return {"status": "paused"}
 
 
 @router.post(
     "/{campaign_id}/resume",
     openapi_extra=permission_meta("leads:dispatch"),
+    summary="Dial again from where it stopped — the compliance re-check is at dial time",
+    description=(
+        "Resume a paused campaign. Idempotent: resuming a campaign that is already "
+        "running returns 200. 409 means the campaign is in some other state and the "
+        "response names it. 404 means no campaign of yours has that id. Resuming does "
+        "not re-run the launch gate — the per-dial compliance check does, on every "
+        "contact, which is what catches paperwork that lapsed while it was paused."
+    ),
 )
 async def resume(
     campaign_id: UUID,
     session: Session,
-    _: Principal = Depends(requires("leads:dispatch")),
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
 ) -> dict[str, str]:
-    await service.set_campaign_status(
+    """NO GATE HERE, and that is the design (`service.dispatch_blockers` argues it in
+    full): a campaign can sit paused for a week, so a gate at the moment of resuming
+    proves nothing about the moment it dials. The dial-time check is the enforcement.
+
+    Audited on a real transition only, exactly like `pause` above — and this is the half
+    of the pair that matters most after an incident: "calls started going out again at
+    16:40, and this is who pressed it".
+    """
+    assert principal.tenant_id is not None
+    if await service.set_campaign_status(
         session, campaign_id=campaign_id, to_status="running", from_statuses=("paused",)
-    )
+    ):
+        await write_audit(
+            session,
+            action="campaign.resumed",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=request.client.host if request.client else None,
+        )
     return {"status": "running"}
 
 

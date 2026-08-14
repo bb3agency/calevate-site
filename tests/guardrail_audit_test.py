@@ -464,20 +464,74 @@ class TestRedactionExposure:
         failures = check_redaction_exposure.check_allowlist(facts)
         assert any("this check is blind" in f for f in failures)
 
+    def test_the_subject_export_is_inspected_rather_than_skipped(
+        self, live_spec: dict[str, Any]
+    ) -> None:
+        """The DPDP export is on ALLOWED_ROUTES, and that used to mean "never looked at
+        again". It is the one response whose payload is an entire named human being, so
+        the allowance is scoped to `phone_e164` and the walk stays ON: a raw field added
+        beside it must still be reported.
+        """
+        spec = copy.deepcopy(live_spec)
+        spec["components"]["schemas"]["SubjectExportCallOut"]["properties"]["to_e164"] = {
+            "type": "string"
+        }
+        offenders = check_redaction_exposure.check(spec)
+        assert any("SubjectExportCallOut" in o and "to_e164" in o for o in offenders)
+        assert not any("phone_e164" in o for o in offenders), "the allowed field stays allowed"
+
+    def test_the_subject_exports_own_number_is_allowed_only_because_it_is_declared(
+        self, live_spec: dict[str, Any]
+    ) -> None:
+        """The mutation is the allowance, not the schema. `phone_e164` is legitimately in
+        that document — it is the subject's own number, echoed back so they can check the
+        file is about them — and the ONLY thing keeping the check green is the field set
+        on its `RawDisclosure`. Narrow it and the field must come back into view, or the
+        entry is load-bearing for nothing."""
+        narrowed = {
+            path: replace(disclosure, fields=frozenset())
+            if path == "/v1/compliance/subject-export"
+            else disclosure
+            for path, disclosure in check_redaction_exposure.ALLOWED_ROUTES.items()
+        }
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(check_redaction_exposure, "ALLOWED_ROUTES", narrowed)
+            offenders = check_redaction_exposure.check(live_spec)
+        assert any("SubjectExportOut" in o and "phone_e164" in o for o in offenders)
+        assert any("SubjectExportLeadOut" in o and "phone_e164" in o for o in offenders)
+
     def test_exemption_registries_are_pinned(self) -> None:
         """Every raw-PII exemption costs a diff here as well as in the script."""
         assert set(check_redaction_exposure.ALLOWED_ROUTES) == {
             "/v1/calls/{call_id}/transcript/raw",
             "/v1/leads/export.csv",
+            # The retained delivery body (D-23): the CRM payload we POSTed, byte for
+            # byte. `calls:read_raw` + an audit row, which `check_allowlist` verifies
+            # against the live app rather than taking from this comment.
+            "/v1/integrations/deliveries/{delivery_id}/payload",
+            # The DPDP subject access document. Field-SCOPED rather than a whole-path
+            # skip (`RawDisclosure.fields`), so the rest of the document stays inspected.
+            "/v1/compliance/subject-export",
         }
+        assert {
+            path
+            for path, disclosure in check_redaction_exposure.ALLOWED_ROUTES.items()
+            if disclosure.fields is not None
+        } == {"/v1/compliance/subject-export"}, (
+            "a whole-path skip is the widest form this registry has; adding one is a "
+            "decision to stop inspecting a response model entirely"
+        )
         assert set(check_redaction_exposure.KNOWN_SAFE_FIELDS) == {
             "TranscriptTurnOut.text",
             "CallSummaryOut.summary",
             "CallDetailOut.summary",
+            "SubjectExportTurnOut.text",
+            "SubjectExportCallOut.summary",
         }
         assert set(check_redaction_exposure.ACKNOWLEDGED_PASSTHROUGH) == {
             "LeadOut.data",
             "CallDetailOut.extraction",
+            "SubjectExportLeadOut.data",
         }
 
 

@@ -25,6 +25,12 @@ there are three ways raw text reaches a browser:
    the handler must write audit_log. Otherwise removing the role check from the raw
    transcript endpoint would leave this guardrail green.
 
+An allowlist entry may also NAME the raw fields it is permitted to return instead of
+switching the walk off for the whole path (`RawDisclosure.fields`) — so the DPDP subject
+access document may echo the subject's own `phone_e164` back at them while every other
+field in it stays under inspection. A whole-path skip is the widest form this registry
+has, and it is the right shape only where there is no response model to judge.
+
 Run: `uv run python -m scripts.check_redaction_exposure`
 """
 
@@ -71,16 +77,53 @@ RAW_PII_FIELDS: frozenset[str] = frozenset(
     }
 )
 
+
+@dataclass(frozen=True)
+class RawDisclosure:
+    """A route permitted to return raw values, and HOW MUCH of it is permitted.
+
+    `fields=None` means the whole response: the route returns a file, a byte-for-byte
+    stored body or a shape with no model to inspect, so there is nothing for the field
+    walk to judge. Naming a field set instead keeps the walk switched ON for that route
+    and allows only those names — every OTHER raw field, including one added to the same
+    model next year, is still reported.
+
+    That distinction is the point. A blanket path skip was the only form this registry
+    had, and it turns "this route may disclose the subject's own number" into "this route
+    may disclose anything forever" — which is how a route earns an exemption for one field
+    and keeps it for the next ten.
+    """
+
+    reason: str
+    fields: frozenset[str] | None = None
+
+
 # Routes permitted to return raw values, with the reason each is safe. Adding an entry
 # is a deliberate act that shows up in review as a change to THIS file — and each entry
 # is verified against the live app below, not taken on trust.
-ALLOWED_ROUTES: dict[str, str] = {
-    "/v1/calls/{call_id}/transcript/raw": (
+ALLOWED_ROUTES: dict[str, RawDisclosure] = {
+    "/v1/calls/{call_id}/transcript/raw": RawDisclosure(
         "requires calls:read_raw AND writes audit_log in the same transaction"
     ),
-    "/v1/leads/export.csv": (
+    "/v1/integrations/deliveries/{delivery_id}/payload": RawDisclosure(
+        "the delivered CRM body, byte for byte — a lead's name and number in whatever "
+        "form the endpoint's own opt-in produced. Requires calls:read_raw AND writes "
+        "audit_log in the same transaction; a redacted copy could not answer the "
+        "question it exists for ('you sent us the wrong lead')"
+    ),
+    "/v1/leads/export.csv": RawDisclosure(
         "the client's own contact data, role-gated and audit-logged; a CSV of masked "
         "numbers cannot serve the follow-up call it exists for"
+    ),
+    "/v1/compliance/subject-export": RawDisclosure(
+        "the DPDP subject access document: one person's own record, disclosed to that "
+        "person. Requires calls:read_raw AND writes audit_log in the same transaction. "
+        "Scoped to `phone_e164` — the subject's OWN number, echoed back so the recipient "
+        "can check the document is about them (compliance/export.py decision 3). "
+        "Everything else in the document is inspected normally: the transcript text is "
+        "`text_redacted`, the call summary is masked, and a raw field added to any of "
+        "these models tomorrow is reported like any other",
+        fields=frozenset({"phone_e164"}),
     ),
 }
 
@@ -108,6 +151,18 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "by the allowlisted raw-transcript route, which is role-checked and audited "
         "(tests/call_summary_redaction_test.py)"
     ),
+    "SubjectExportTurnOut.text": (
+        "holds `text_redacted` and never the raw column — the raw column is not even "
+        "named in the query that builds it — and an unredacted turn ships as "
+        "`export.REDACTION_PENDING` rather than falling back "
+        "(tests/subject_export_test.py)"
+    ),
+    "SubjectExportCallOut.summary": (
+        "model-written prose with every phone-shaped run that is NOT the subject's own "
+        "replaced by `export.mask_foreign_numbers` before it ships; the subject's own "
+        "number survives it by design, which is the allowance the route declares "
+        "(tests/subject_export_test.py)"
+    ),
 }
 
 # `dict[str, Any]` response fields: the serializer cannot vouch for their contents, so
@@ -120,6 +175,12 @@ ACKNOWLEDGED_PASSTHROUGH: dict[str, str] = {
     "CallDetailOut.extraction": (
         "the tenant's own extracted fields for this call, same schema-driven surface as "
         "LeadOut.data; never the raw vendor payload, which lives in object storage."
+    ),
+    "SubjectExportLeadOut.data": (
+        "the same schema-driven extraction payload as LeadOut.data, inside the DPDP "
+        "subject access document. It is the subject's OWN data by construction — the "
+        "client defined those fields to describe this caller — so masking it would "
+        "corrupt the very answer the request asks for (compliance/export.py decision 3)."
     ),
 }
 
@@ -188,8 +249,14 @@ def check(spec: dict[str, Any], safe_fields: dict[str, str] | None = None) -> li
     offenders: list[str] = []
 
     for path, operations in spec.get("paths", {}).items():
-        if path in ALLOWED_ROUTES:
-            continue
+        # An allowlisted route is either skipped whole (`fields is None`) or kept under
+        # inspection with a named set of raw fields permitted — see `RawDisclosure`.
+        permitted: frozenset[str] = frozenset()
+        allowance = ALLOWED_ROUTES.get(path)
+        if allowance is not None:
+            if allowance.fields is None:
+                continue
+            permitted = allowance.fields
         for method, operation in operations.items():
             if method not in _METHODS or not isinstance(operation, dict):
                 continue
@@ -200,7 +267,7 @@ def check(spec: dict[str, Any], safe_fields: dict[str, str] | None = None) -> li
                     properties = schemas.get(model_name, {}).get("properties", {})
                     exposed = {
                         field
-                        for field in RAW_PII_FIELDS & set(properties)
+                        for field in (RAW_PII_FIELDS & set(properties)) - permitted
                         if f"{model_name}.{field}" not in known_safe
                     }
                     if exposed:

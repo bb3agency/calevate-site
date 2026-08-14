@@ -233,6 +233,44 @@
         "title": "AgentOut",
         "type": "object"
       },
+      "AgentVoiceOut": {
+        "additionalProperties": false,
+        "description": "One voice at one moment: the stored id, and the catalogue entry when we know it.\n\n`catalog` is null for an id outside `GET /v1/agents/voices` \u2014 a row set before the\ncatalogue existed, or an entry retired since. `voice_id` is still populated, so a UI\ncan name what it cannot describe rather than rendering an agent with a retired voice\nas one with no voice at all.",
+        "properties": {
+          "catalog": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Voice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "voice_id": {
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_id",
+          "provider",
+          "catalog"
+        ],
+        "title": "AgentVoiceOut",
+        "type": "object"
+      },
       "ApplyIn": {
         "additionalProperties": false,
         "description": "`expected_version` is the CAS token (BACKEND-PATTERNS \u00a75): the staged version\nthe operator actually looked at. Optional, because a caller with no screen has\nnothing to be stale about \u2014 but a UI that omits it is choosing last-write-wins.",
@@ -1472,6 +1510,200 @@
         "title": "ClientHealthOut",
         "type": "object"
       },
+      "CommercialTermsIn": {
+        "additionalProperties": false,
+        "description": "The terms an operator agreed, as they cross the wire.\n\n**Every amount is a STRING** (`\"9999.00\"`), never a JSON number: `2500.10` has\nalready been through a binary float by the time Pydantic sees it, and these are\nexact NUMERIC rupee amounts (hard rule 7). The two rate fields carry FOUR decimal\nplaces and the fees two, matching their columns and the invoice's own arithmetic \u2014\n`qty x unit = amount` only holds if the rate is published unrounded.\n\n**`null` means UNSET on every field, and unset is not zero.** An `overage_rate` of\n0 is free minutes; an absent one is a plan that quotes no overage at all. Nothing\nhere is defaulted to a number: this endpoint refuses to invent a price.",
+        "properties": {
+          "concurrency_ceiling": {
+            "default": 10,
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Concurrency Ceiling",
+            "type": "integer"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "effective_to": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective To"
+          },
+          "hard_cap_minutes": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hard Cap Minutes"
+          },
+          "hard_cap_spend_inr": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hard Cap Spend Inr"
+          },
+          "included_minutes": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Included Minutes"
+          },
+          "monthly_fee_inr": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Fee Inr"
+          },
+          "overage_rate_inr": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Rate Inr"
+          },
+          "overage_rate_value_inr": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Rate Value Inr"
+          },
+          "setup_fee_inr": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Fee Inr"
+          }
+        },
+        "title": "CommercialTermsIn",
+        "type": "object"
+      },
+      "CommercialTermsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/PlanRowOut"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "in_effect": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanRowOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "loosening_confirmation": {
+            "title": "Loosening Confirmation",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "state",
+          "in_effect",
+          "history",
+          "loosening_confirmation"
+        ],
+        "title": "CommercialTermsOut",
+        "type": "object"
+      },
       "ConcludeExperimentIn": {
         "additionalProperties": false,
         "description": "`promote` is null for \"stop it and keep the control\" \u2014 the commonest honest\nending of an A/B test, and a first-class option rather than a cancel button.",
@@ -1494,9 +1726,14 @@
       },
       "ConcludeExperimentOut": {
         "additionalProperties": false,
+        "description": "What THIS call did, which on a repeat is nothing.\n\n`promoted_label` is the ending the test HAS (so a repeat still reports the arm that\nwon); the other three are what this request performed. On `changed: false` they are\ntherefore null/false together \u2014 the first call's version number is not recoverable\nfrom the concluded row, and a guess is worse than a null a console can read.",
         "properties": {
           "applied": {
             "title": "Applied",
+            "type": "boolean"
+          },
+          "changed": {
+            "title": "Changed",
             "type": "boolean"
           },
           "engine_synced": {
@@ -1536,7 +1773,8 @@
           "promoted_label",
           "new_version",
           "applied",
-          "engine_synced"
+          "engine_synced",
+          "changed"
         ],
         "title": "ConcludeExperimentOut",
         "type": "object"
@@ -1770,6 +2008,59 @@
           "secret"
         ],
         "title": "CreateEndpointOut",
+        "type": "object"
+      },
+      "CreateLeadSourceIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "app_secret": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Secret"
+          },
+          "mapping": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Mapping",
+            "type": "object"
+          },
+          "source": {
+            "enum": [
+              "meta_lead_ads",
+              "website_form",
+              "zoho",
+              "sheets",
+              "custom"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "CreateLeadSourceIn",
         "type": "object"
       },
       "CreateOrgIn": {
@@ -2351,6 +2642,60 @@
         "title": "DeletionRequestOut",
         "type": "object"
       },
+      "DeletionRequestSummaryOut": {
+        "additionalProperties": false,
+        "description": "One row of the index \u2014 what the client needs to FIND a request again, and nothing\nelse. The docstring on the route below says what is excluded and why.\n\n`has_certificate` rather than the certificate itself: the list exists to hand back a\nhandle, and shipping every proof on the account to render an index would make the\ncheapest read on this surface the largest. It is a separate field rather than inferred\nfrom `status` because \"completed with no proof recorded\" is a real state the screen\nmust be able to warn about (`deletion_routes` has always modelled `proof` as\nnullable), and a list that inferred it would hide exactly that case.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "has_certificate": {
+            "title": "Has Certificate",
+            "type": "boolean"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_ref": {
+            "title": "Subject Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "subject_ref",
+          "status",
+          "requested_at",
+          "completed_at",
+          "has_certificate"
+        ],
+        "title": "DeletionRequestSummaryOut",
+        "type": "object"
+      },
       "DeliveryOut": {
         "additionalProperties": false,
         "properties": {
@@ -2384,6 +2729,10 @@
             "title": "Last At",
             "type": "string"
           },
+          "payload_stored": {
+            "title": "Payload Stored",
+            "type": "boolean"
+          },
           "status": {
             "anyOf": [
               {
@@ -2402,9 +2751,65 @@
           "status",
           "attempts",
           "first_at",
-          "last_at"
+          "last_at",
+          "payload_stored"
         ],
         "title": "DeliveryOut",
+        "type": "object"
+      },
+      "DeliveryPayloadOut": {
+        "additionalProperties": false,
+        "description": "What we actually sent, byte for byte \u2014 the raw-PII surface of this module.\n\nSame class of data as a raw transcript and gated the same way (hard rule 5):\n`calls:read_raw` AND an `audit_log` row, never one of the two. `body` is the exact\nstring that went on the wire, so it carries the lead's name and their number in\nwhatever form the endpoint's own `include_raw_phone` choice produced \u2014 which is the\nentire point, since \"you sent us the wrong lead\" cannot be answered with a redaction.",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "delivery_id": {
+            "format": "uuid",
+            "title": "Delivery Id",
+            "type": "string"
+          },
+          "event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
+          },
+          "original_bytes": {
+            "title": "Original Bytes",
+            "type": "integer"
+          },
+          "stored_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stored At"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "delivery_id",
+          "event_type",
+          "body",
+          "truncated",
+          "original_bytes",
+          "stored_at"
+        ],
+        "title": "DeliveryPayloadOut",
         "type": "object"
       },
       "DltRegistrationIn": {
@@ -2578,6 +2983,29 @@
           "removable"
         ],
         "title": "DncEntryOut",
+        "type": "object"
+      },
+      "EndpointOptionsOut": {
+        "additionalProperties": false,
+        "description": "What an endpoint may subscribe to, and what this deployment can deliver on.\n\nA DECLARED model rather than the `dict[str, list[str]]` this route used to return.\nAn undeclared response is one `openapi-typescript` can only describe as an index\nsignature, so `events` was not a NAMED field and the console's single read of it was\nthe one read `tsc` could not check \u2014 the same defect, and the same fix, as\n`SubjectExportOut` replacing a free-form dict, and the reason `MetaSetupOut` one\nmodule over says \"declared rather than a bare dict\". It also puts the response back\ninside `scripts/check_redaction_exposure.py`'s walk, which inspects response MODELS:\na route with no model is a route that guardrail cannot inspect at all.\n\n`events` stays `list[str]` rather than `list[EventName]`, and that is deliberate.\n`EventName` is what THIS BUILD can put in a request body; `EVENT_TYPES` is what the\nRUNNING deployment offers. A console generated from an older snapshot has to be able\nto see a name outside its own union in order to SAY SO, rather than render a checkbox\nwhose only possible outcome is a 422 \u2014 narrowing this to the literal would make that\ngap unrepresentable, and would turn a deployment that adds an event into a 500 out of\nresponse validation.",
+        "properties": {
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "sheets_delivery_available": {
+            "title": "Sheets Delivery Available",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "events",
+          "sheets_delivery_available"
+        ],
+        "title": "EndpointOptionsOut",
         "type": "object"
       },
       "EndpointOut": {
@@ -3164,6 +3592,230 @@
         "title": "Faq",
         "type": "object"
       },
+      "FeatureFlagChangeOut": {
+        "additionalProperties": false,
+        "description": "What the write did \u2014 including doing nothing, which is a normal outcome.\n\n`changed: false` means the request restated the position already on file: no row\nmoved, `updated_at` did not bump, and NO audit entry was written. That is the\nconvention `admin.record_commercial_terms`, `approve_kb` and\n`integrations.deactivate_endpoint` share \u2014 the audit log answers \"who changed this\nclient's behaviour\", and a row per button press makes that question harder to answer.",
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/FlagStateOut"
+          },
+          "before": {
+            "$ref": "#/components/schemas/FlagStateOut"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "flag": {
+            "title": "Flag",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "flag",
+          "changed",
+          "before",
+          "after"
+        ],
+        "title": "FeatureFlagChangeOut",
+        "type": "object"
+      },
+      "FeatureFlagIn": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "FeatureFlagIn",
+        "type": "object"
+      },
+      "FeatureFlagOut": {
+        "additionalProperties": false,
+        "description": "One flag as it stands for one tenant: the answer, and everything behind it.\n\nThe three booleans are three different facts and none of them can be derived from\nanother. `platform_default` is what a tenant with no row gets; `override` is this\ntenant's stored position, `null` when there is none; `enabled` is the resolved answer\nthe code would see. A tenant explicitly overridden to the same value as the default\nis not the same as a tenant with no row \u2014 the next change to the default reaches one\nand not the other \u2014 so the console is given both rather than being asked to guess.",
+        "properties": {
+          "consumed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consumed By"
+          },
+          "declared": {
+            "title": "Declared",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "flag": {
+            "title": "Flag",
+            "type": "string"
+          },
+          "override": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Override"
+          },
+          "platform_default": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform Default"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "set_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set At"
+          },
+          "set_by_admin_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set By Admin Id"
+          },
+          "source": {
+            "enum": [
+              "platform_default",
+              "tenant_override"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "flag",
+          "declared",
+          "description",
+          "consumed_by",
+          "platform_default",
+          "override",
+          "enabled",
+          "source",
+          "reason",
+          "set_by_admin_id",
+          "set_at"
+        ],
+        "title": "FeatureFlagOut",
+        "type": "object"
+      },
+      "FeatureFlagsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FeatureFlagOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "items"
+        ],
+        "title": "FeatureFlagsOut",
+        "type": "object"
+      },
+      "FieldLimit": {
+        "additionalProperties": false,
+        "description": "One column of the client's leads list that the configured model does not fill.\n\nNamed by the client's own LABEL, never our key: `budget_lakhs` is our column and\n\"Budget (lakhs)\" is theirs.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "scenarios": {
+            "title": "Scenarios",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "scenarios"
+        ],
+        "title": "FieldLimit",
+        "type": "object"
+      },
       "FirstCampaignDecisionIn": {
         "additionalProperties": false,
         "properties": {
@@ -3326,6 +3978,29 @@
           "decided_at"
         ],
         "title": "FirstCampaignHoldOut",
+        "type": "object"
+      },
+      "FlagStateOut": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "source": {
+            "enum": [
+              "platform_default",
+              "tenant_override"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "source"
+        ],
+        "title": "FlagStateOut",
         "type": "object"
       },
       "HealthSignalOut": {
@@ -4329,15 +5004,300 @@
         "title": "LaunchOut",
         "type": "object"
       },
+      "LeadBulkFailureOut": {
+        "additionalProperties": false,
+        "description": "One lead the action did not move, named and explained.\n\n`(rule, reason)` is this API's established pair for a refusal \u2014 `BlockerOut`,\n`CallLeadOut.blocked_rule`/`blocked_reason`, `DispatchDecision` \u2014 so a client that\nalready renders one of those renders this. `lead_id` and nothing else identifies the\nrow: the response must be safe to log and to put in an audit summary (hard rule 6).",
+        "properties": {
+          "lead_id": {
+            "format": "uuid",
+            "title": "Lead Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lead_id",
+          "rule",
+          "reason"
+        ],
+        "title": "LeadBulkFailureOut",
+        "type": "object"
+      },
+      "LeadBulkIn": {
+        "additionalProperties": false,
+        "description": "One bulk action, and the two ways of saying which leads it is about.\n\n**`scope` is required and has no default**, which is the whole guardrail. A default\nwould decide the ambiguous case \u2014 page or query \u2014 on the caller's behalf, and that\nambiguity is the defect this field exists to remove; a client that forgets to say\ngets a 422 rather than an action over a set it did not choose.\n\nThe FILTER scope's predicates are not here: they ride as the same query parameters\n`GET /v1/leads` and `GET /v1/leads/export.csv` take, with the same meanings, so there\nis one spelling of \"which rows\" across the screen, the file and this. Putting them in\nthe body would be a second one.",
+        "properties": {
+          "action": {
+            "enum": [
+              "status",
+              "assign"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "assign_to": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assign To"
+          },
+          "expected_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Count"
+          },
+          "ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Ids",
+            "type": "array"
+          },
+          "scope": {
+            "enum": [
+              "ids",
+              "filter"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "new",
+                  "contacted",
+                  "interested",
+                  "hot",
+                  "won",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "scope",
+          "action"
+        ],
+        "title": "LeadBulkIn",
+        "type": "object"
+      },
+      "LeadBulkOut": {
+        "additionalProperties": false,
+        "description": "What the action DID \u2014 the three buckets, and which set it ran over.\n\n`scope` and `action` are echoed so the sentence on screen (\"Moved 47 of the 1,240\nleads matching these filters\") is built from the server's answer rather than from\nwhat the screen believed it had asked for.\n\n`changed + unchanged + len(failures) == requested`, always. `unchanged` is a success:\na lead already in the target state is the caller's intent already satisfied (D-65,\n`db/transition.py`), and reporting it as a failure would make the most ordinary bulk\noutcome \u2014 re-running an action over a set that partly overlaps the last one \u2014 look\nlike an incident.",
+        "properties": {
+          "action": {
+            "enum": [
+              "status",
+              "assign"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "integer"
+          },
+          "failures": {
+            "items": {
+              "$ref": "#/components/schemas/LeadBulkFailureOut"
+            },
+            "title": "Failures",
+            "type": "array"
+          },
+          "requested": {
+            "title": "Requested",
+            "type": "integer"
+          },
+          "scope": {
+            "enum": [
+              "ids",
+              "filter"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "unchanged": {
+            "title": "Unchanged",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action",
+          "scope",
+          "requested",
+          "changed",
+          "unchanged"
+        ],
+        "title": "LeadBulkOut",
+        "type": "object"
+      },
+      "LeadColumnOut": {
+        "additionalProperties": false,
+        "description": "One selectable column of the Leads table \u2014 `crm.columns.LeadColumn` on the wire.\n\n`kind` is what lets the screen render a column without knowing its name: `fixed`\ncolumns come off `LeadOut`'s own attributes (and `phone` is `phone_masked` there,\nwhich is hard rule 6 and not a rendering choice), `extraction` columns come out of\n`LeadOut.data` under `key`.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "fixed",
+              "extraction"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "text",
+              "number",
+              "bool",
+              "enum",
+              "date"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "kind",
+          "type"
+        ],
+        "title": "LeadColumnOut",
+        "type": "object"
+      },
+      "LeadFacetOut": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/LeadFacetValueOut"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "values"
+        ],
+        "title": "LeadFacetOut",
+        "type": "object"
+      },
+      "LeadFacetValueOut": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "declared": {
+            "title": "Declared",
+            "type": "boolean"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "count",
+          "declared"
+        ],
+        "title": "LeadFacetValueOut",
+        "type": "object"
+      },
+      "LeadFacetsOut": {
+        "additionalProperties": false,
+        "description": "The filter rail, built from the per-agent EXTRACTION SCHEMA (SURFACES \u00a72).\n\nEnum fields only, and never a hard-coded list: different tenants and different\nverticals have different columns, so a fixed facet set would be wrong the day a\nsecond vertical lands. `crm.columns.facetable` is the definition, including why\n`status` and `source` are deliberately not here.",
+        "properties": {
+          "facets": {
+            "items": {
+              "$ref": "#/components/schemas/LeadFacetOut"
+            },
+            "title": "Facets",
+            "type": "array"
+          },
+          "omitted_field_count": {
+            "title": "Omitted Field Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "facets",
+          "omitted_field_count"
+        ],
+        "title": "LeadFacetsOut",
+        "type": "object"
+      },
       "LeadListOut": {
         "additionalProperties": false,
         "description": "The Leads table is schema-driven (TRD \u00a77): the columns travel WITH the rows so\nthe frontend never hard-codes a client's fields.",
         "properties": {
+          "available_columns": {
+            "items": {
+              "$ref": "#/components/schemas/LeadColumnOut"
+            },
+            "title": "Available Columns",
+            "type": "array"
+          },
           "columns": {
             "items": {
-              "$ref": "#/components/schemas/ExtractionField"
+              "$ref": "#/components/schemas/LeadColumnOut"
             },
             "title": "Columns",
+            "type": "array"
+          },
+          "dropped_column_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dropped Column Keys",
             "type": "array"
           },
           "items": {
@@ -4370,6 +5330,8 @@
         "required": [
           "items",
           "columns",
+          "available_columns",
+          "dropped_column_keys",
           "total",
           "limit",
           "offset",
@@ -4498,6 +5460,148 @@
           "updated_at"
         ],
         "title": "LeadOut",
+        "type": "object"
+      },
+      "LeadSourceCreatedOut": {
+        "additionalProperties": false,
+        "description": "The one moment a minted secret is ever returned.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "ingest_path": {
+            "title": "Ingest Path",
+            "type": "string"
+          },
+          "secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secret"
+          },
+          "secret_header": {
+            "title": "Secret Header",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "ingest_path",
+          "secret",
+          "secret_header"
+        ],
+        "title": "LeadSourceCreatedOut",
+        "type": "object"
+      },
+      "LeadSourceListOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LeadSourceOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "secret_header": {
+            "title": "Secret Header",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "secret_header"
+        ],
+        "title": "LeadSourceListOut",
+        "type": "object"
+      },
+      "LeadSourceOut": {
+        "additionalProperties": false,
+        "description": "A lead source as the config screen sees it \u2014 fingerprint only, never a value.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mapping": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Mapping",
+            "type": "object"
+          },
+          "previous_secret_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Secret Expires At"
+          },
+          "secret_fingerprint": {
+            "title": "Secret Fingerprint",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "agent_id",
+          "active",
+          "mapping",
+          "secret_fingerprint",
+          "previous_secret_expires_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "LeadSourceOut",
         "type": "object"
       },
       "LeadTimelineEventOut": {
@@ -4708,6 +5812,63 @@
         "title": "LedgerEntryOut",
         "type": "object"
       },
+      "LifecycleIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "suspended",
+              "churned"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "LifecycleIn",
+        "type": "object"
+      },
+      "LifecycleOut": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "status",
+          "changed"
+        ],
+        "title": "LifecycleOut",
+        "type": "object"
+      },
       "LookupConsentIn": {
         "additionalProperties": false,
         "properties": {
@@ -4836,6 +5997,36 @@
           "impersonating"
         ],
         "title": "MeOut",
+        "type": "object"
+      },
+      "Measurement": {
+        "additionalProperties": false,
+        "description": "A number with the reason it is trustworthy attached, or the reason it is not.",
+        "properties": {
+          "basis": {
+            "enum": [
+              "measured",
+              "too_few",
+              "no_baseline"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "passed",
+          "total",
+          "basis"
+        ],
+        "title": "Measurement",
         "type": "object"
       },
       "MemberOut": {
@@ -5359,6 +6550,9 @@
             "title": "Published",
             "type": "boolean"
           },
+          "voice": {
+            "$ref": "#/components/schemas/VoiceStateOut"
+          },
           "worst_case_call_cost_inr": {
             "anyOf": [
               {
@@ -5381,6 +6575,7 @@
           "effective_call_cap_s",
           "call_cap_is_platform_default",
           "worst_case_call_cost_inr",
+          "voice",
           "precedence_rule"
         ],
         "title": "PendingOut",
@@ -5491,6 +6686,172 @@
         "title": "PerformanceOut",
         "type": "object"
       },
+      "PlanRowOut": {
+        "additionalProperties": false,
+        "description": "One dated agreement, as an operator reads it. Money as exact strings throughout.",
+        "properties": {
+          "client_cap_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Cap Minutes"
+          },
+          "client_cap_spend_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Cap Spend Inr"
+          },
+          "concurrency_ceiling": {
+            "title": "Concurrency Ceiling",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "effective_to": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective To"
+          },
+          "hard_cap_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hard Cap Minutes"
+          },
+          "hard_cap_spend_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hard Cap Spend Inr"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "included_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Included Minutes"
+          },
+          "monthly_fee_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Fee Inr"
+          },
+          "overage_rate_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Rate Inr"
+          },
+          "overage_rate_value_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Rate Value Inr"
+          },
+          "setup_fee_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Fee Inr"
+          },
+          "states_pricing": {
+            "title": "States Pricing",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "setup_fee_inr",
+          "monthly_fee_inr",
+          "included_minutes",
+          "overage_rate_inr",
+          "overage_rate_value_inr",
+          "hard_cap_minutes",
+          "hard_cap_spend_inr",
+          "client_cap_minutes",
+          "client_cap_spend_inr",
+          "concurrency_ceiling",
+          "effective_from",
+          "effective_to",
+          "created_at",
+          "states_pricing"
+        ],
+        "title": "PlanRowOut",
+        "type": "object"
+      },
       "PlatformStateIn": {
         "additionalProperties": false,
         "properties": {
@@ -5599,6 +6960,35 @@
               }
             ],
             "title": "Launched At"
+          },
+          "recurrence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecurrenceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule_blocked_rules": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Schedule Blocked Rules",
+            "type": "array"
+          },
+          "scheduled_start_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled Start At"
           },
           "status": {
             "title": "Status",
@@ -5739,6 +7129,299 @@
         "title": "ProvisionNumberIn",
         "type": "object"
       },
+      "QaReport": {
+        "additionalProperties": false,
+        "description": "The whole report, computed once.\n\n`scenarios_total` = `everything_captured.total` = `field_left_blank.total` by\nconstruction, and the two measurements' `passed` counts add up to it: the split\nexists because one number would answer two questions and answer both badly (see\n`scripts/qa_report.render`).",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "client": {
+            "title": "Client",
+            "type": "string"
+          },
+          "defects": {
+            "title": "Defects",
+            "type": "integer"
+          },
+          "everything_captured": {
+            "$ref": "#/components/schemas/Measurement"
+          },
+          "field_left_blank": {
+            "$ref": "#/components/schemas/Measurement"
+          },
+          "known_limits": {
+            "items": {
+              "$ref": "#/components/schemas/FieldLimit"
+            },
+            "title": "Known Limits",
+            "type": "array"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "red_team": {
+            "title": "Red Team",
+            "type": "integer"
+          },
+          "scenario_classes": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioClassCount"
+            },
+            "title": "Scenario Classes",
+            "type": "array"
+          },
+          "scenarios_total": {
+            "title": "Scenarios Total",
+            "type": "integer"
+          },
+          "trend": {
+            "default": "no_baseline",
+            "enum": [
+              "measured",
+              "too_few",
+              "no_baseline"
+            ],
+            "title": "Trend",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "vertical": {
+            "title": "Vertical",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client",
+          "vertical",
+          "as_of",
+          "model",
+          "scenarios_total",
+          "defects",
+          "red_team",
+          "everything_captured",
+          "field_left_blank"
+        ],
+        "title": "QaReport",
+        "type": "object"
+      },
+      "QaReviewIn": {
+        "additionalProperties": false,
+        "description": "A reviewer's conclusion. An enum and nothing else.\n\nNo note field, deliberately (hard rule 6): a free-text box on a cross-tenant queue is\nan invitation to type what the caller said into it, and `admin/holds.py` already\nrefuses operator prose on a list for exactly that reason. What a reviewer found that\nthe enum cannot express belongs in the incident it justifies, not in this row.",
+        "properties": {
+          "verdict": {
+            "enum": [
+              "clean",
+              "concern",
+              "defect"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict"
+        ],
+        "title": "QaReviewIn",
+        "type": "object"
+      },
+      "QaSampleDetailOut": {
+        "additionalProperties": false,
+        "description": "A sampled call opened for review \u2014 the queue row plus the REDACTED call.\n\n`call` is `CallDetailOut` exactly as the client's own screen receives it: transcript\nturns hold `text_redacted` and each carries `redacted: true`. This model adds no\nfield of its own to the call, which is the point \u2014 there is one shape for \"a call as\na human reads it\", and this surface uses it rather than defining a reviewer's\nvariant that could quietly diverge on what it masks.",
+        "properties": {
+          "call": {
+            "$ref": "#/components/schemas/CallDetailOut"
+          },
+          "sample": {
+            "$ref": "#/components/schemas/QaSampleOut"
+          }
+        },
+        "required": [
+          "sample",
+          "call"
+        ],
+        "title": "QaSampleDetailOut",
+        "type": "object"
+      },
+      "QaSampleOut": {
+        "additionalProperties": false,
+        "description": "One sampled call. Ids, timings and tags \u2014 no transcript text, no phone number.",
+        "properties": {
+          "agent_name": {
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "call_id": {
+            "format": "uuid",
+            "title": "Call Id",
+            "type": "string"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "disclosure_played": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclosure Played"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration S"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Tag"
+          },
+          "population": {
+            "title": "Population",
+            "type": "integer"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "selected_at": {
+            "format": "date-time",
+            "title": "Selected At",
+            "type": "string"
+          },
+          "selection_rank": {
+            "title": "Selection Rank",
+            "type": "integer"
+          },
+          "selection_seed": {
+            "title": "Selection Seed",
+            "type": "string"
+          },
+          "sentiment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentiment"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "target": {
+            "title": "Target",
+            "type": "integer"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tenant_name": {
+            "title": "Tenant Name",
+            "type": "string"
+          },
+          "tenant_slug": {
+            "title": "Tenant Slug",
+            "type": "string"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "enum": [
+                  "clean",
+                  "concern",
+                  "defect"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "week_start": {
+            "format": "date",
+            "title": "Week Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "tenant_name",
+          "tenant_slug",
+          "call_id",
+          "agent_name",
+          "week_start",
+          "population",
+          "target",
+          "selection_rank",
+          "selection_seed",
+          "selected_at",
+          "started_at",
+          "duration_s",
+          "direction",
+          "outcome_tag",
+          "sentiment",
+          "disclosure_played",
+          "verdict",
+          "reviewed_at"
+        ],
+        "title": "QaSampleOut",
+        "type": "object"
+      },
       "RecordConsentIn": {
         "additionalProperties": false,
         "properties": {
@@ -5804,6 +7487,44 @@
         "title": "RecordConsentIn",
         "type": "object"
       },
+      "RecordTermsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "plan_id": {
+            "format": "uuid",
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "superseded_plan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded Plan Id"
+          }
+        },
+        "required": [
+          "plan_id",
+          "changed",
+          "superseded_plan_id",
+          "state"
+        ],
+        "title": "RecordTermsOut",
+        "type": "object"
+      },
       "RecordingLinkOut": {
         "additionalProperties": false,
         "properties": {
@@ -5821,6 +7542,178 @@
           "expires_in_s"
         ],
         "title": "RecordingLinkOut",
+        "type": "object"
+      },
+      "RecurrenceIn": {
+        "additionalProperties": false,
+        "description": "A standing instruction: which weekdays, at what IST time, until when.\n\n`days` are ISO weekday numbers (1 = Monday), the same vocabulary\n`datetime.isoweekday()` and the service use \u2014 one numbering across the wire, the rule\nand the UI, because a second one is an off-by-one that dials on the wrong day.\n\n`at` is an IST wall-clock \"HH:MM\", NOT an instant, and that is the whole difference\nbetween a repeat and a start. \"10am every Tuesday\" means ten o'clock on each of those\nTuesdays; an instant would freeze one particular Tuesday's ten o'clock and the\nschedule would have to re-derive the intent from it. The pattern is enforced here so\nthe generated TypeScript client cannot send \"10\" or \"10:00 AM\".\n\n`until` is optional and offset-carrying for the same reason `ScheduleIn.start_at` is:\na bare local date on the wire is a date the server has to guess the zone of.",
+        "properties": {
+          "at": {
+            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "At",
+            "type": "string"
+          },
+          "days": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 7,
+            "minItems": 1,
+            "title": "Days",
+            "type": "array"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "required": [
+          "days",
+          "at"
+        ],
+        "title": "RecurrenceIn",
+        "type": "object"
+      },
+      "RecurrenceOut": {
+        "additionalProperties": false,
+        "description": "A repeat as the screen renders it \u2014 the RULE and the NEXT OCCURRENCE together.\n\nThe next occurrence is here because a repeat a client cannot read is a repeat they\ncannot trust: \"every Tuesday\" with no date beside it leaves them to work out whether\ntomorrow counts. `last_skipped_at`/`last_skipped_reason` answer the other question\nthe word \"scheduled\" cannot \u2014 why last Tuesday did not run (`campaigns/scheduling.py`\ndecision 2: a missed occurrence is skipped, never caught up).",
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "days": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "last_skipped_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Skipped At"
+          },
+          "last_skipped_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Skipped Reason"
+          },
+          "next_occurrence_at": {
+            "format": "date-time",
+            "title": "Next Occurrence At",
+            "type": "string"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "required": [
+          "days",
+          "at",
+          "next_occurrence_at"
+        ],
+        "title": "RecurrenceOut",
+        "type": "object"
+      },
+      "RecurrenceSetOut": {
+        "additionalProperties": false,
+        "description": "What `POST /recurrence` answers with: the repeat, plus when it can first dial.\n\nBoth, for `ScheduleOut`'s reason \u2014 they differ whenever the campaign narrowed its own\ncalling hours, and a screen showing only the occurrence would promise a 10:00 dial on\na campaign that only dials from noon.",
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "days": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "first_dial_not_before": {
+            "format": "date-time",
+            "title": "First Dial Not Before",
+            "type": "string"
+          },
+          "last_skipped_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Skipped At"
+          },
+          "last_skipped_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Skipped Reason"
+          },
+          "next_occurrence_at": {
+            "format": "date-time",
+            "title": "Next Occurrence At",
+            "type": "string"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "required": [
+          "days",
+          "at",
+          "next_occurrence_at",
+          "first_dial_not_before"
+        ],
+        "title": "RecurrenceSetOut",
         "type": "object"
       },
       "RegisterTemplateIn": {
@@ -5937,6 +7830,365 @@
         "title": "RollbackOut",
         "type": "object"
       },
+      "RotateSecretIn": {
+        "additionalProperties": false,
+        "properties": {
+          "app_secret": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Secret"
+          },
+          "grace_minutes": {
+            "default": 60,
+            "maximum": 1440.0,
+            "minimum": 0.0,
+            "title": "Grace Minutes",
+            "type": "integer"
+          }
+        },
+        "title": "RotateSecretIn",
+        "type": "object"
+      },
+      "RotateSecretOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "previous_secret_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Secret Expires At"
+          },
+          "secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secret"
+          },
+          "secret_header": {
+            "title": "Secret Header",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "secret",
+          "secret_header",
+          "previous_secret_expires_at"
+        ],
+        "title": "RotateSecretOut",
+        "type": "object"
+      },
+      "SavedViewFilters": {
+        "additionalProperties": false,
+        "description": "What a saved view narrows the table to.\n\n**`search` is deliberately not a field.** A saved view is a named LENS \u2014 a stage, a\nset of facet values, an agent \u2014 and the search box is a transient lookup, not a lens.\nStoring one would also put a phone SUFFIX (what the box accepts) into a durable row\nfor no product gain, which is a hard-rule-6 surface bought for nothing.\n\n**`assigned_to_me` is a boolean, not a user id.** Views are private to one user\n(see `SavedViewOut`), so the only owner a view can usefully pin is its own reader \u2014\nand a stored uuid would be a dangling pointer the day that colleague leaves, where a\nboolean is resolved fresh against the caller on every read.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "assigned_to_me": {
+            "default": false,
+            "title": "Assigned To Me",
+            "type": "boolean"
+          },
+          "fields": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "new",
+                  "contacted",
+                  "interested",
+                  "hot",
+                  "won",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "SavedViewFilters",
+        "type": "object"
+      },
+      "SavedViewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 40,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/SavedViewFilters"
+          },
+          "name": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SavedViewIn",
+        "type": "object"
+      },
+      "SavedViewListOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SavedViewOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SavedViewListOut",
+        "type": "object"
+      },
+      "SavedViewOut": {
+        "additionalProperties": false,
+        "description": "One saved view, RESOLVED against the agent's current extraction schema.\n\n**Private to its author.** Shared views are a separate slice with a separate\nquestion (who may edit a view three colleagues rely on), and the industry default\nfor a saved view is private-unless-published \u2014 Tableau and SeaTable both create\nprivate and require an explicit act to share. Private-first is also the only choice\nthat cannot leak: this table holds no shared row to get the permission wrong on.\n\n**`stale_*` is the graceful degradation.** A view pinned to a field an admin later\nremoved from the capture list is not an error \u2014 the reader gets the view with the\ndead references REMOVED and named here, so the screen can say \"this view also\nfiltered on Budget, which your capture list no longer has\" instead of 500ing or\nsilently returning a different set of rows. Jira's answer to the same event is a\nbroken filter and an integrity checker; this is cheaper and kinder.",
+        "properties": {
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/SavedViewFilters"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "stale_column_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stale Column Keys",
+            "type": "array"
+          },
+          "stale_filter_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stale Filter Keys",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "filters",
+          "columns",
+          "stale_filter_keys",
+          "stale_column_keys",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SavedViewOut",
+        "type": "object"
+      },
+      "SavedViewUpdateIn": {
+        "additionalProperties": false,
+        "description": "Rename, or re-pin. Every field optional; an omitted one is left alone.\n\n`columns` cannot be cleared back to `null` through this route \u2014 sending `null` means\n\"leave the columns alone\", the same silence every other field here means. Clearing\nis `columns: []`, which `crm.saved_views` stores as \"no choice made\". Two spellings\nof \"unset\" on one field is how the assignee sentinel next door earned its comment,\nand this field does not need the ambiguity: an empty selection has no other meaning.",
+        "properties": {
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 40,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "filters": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedViewFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "SavedViewUpdateIn",
+        "type": "object"
+      },
+      "ScenarioClassCount": {
+        "additionalProperties": false,
+        "description": "One of the six scenario classes, counted, in the CLIENT's vocabulary.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "meaning": {
+            "title": "Meaning",
+            "type": "string"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scenario",
+          "label",
+          "meaning",
+          "count"
+        ],
+        "title": "ScenarioClassCount",
+        "type": "object"
+      },
+      "ScheduleIn": {
+        "additionalProperties": false,
+        "description": "When a one-time start should happen.\n\n`AwareDatetime`, not `datetime`: the wire type itself refuses a bare local string,\nso the generated TypeScript client cannot send \"2026-08-17T10:00\" and have the\nserver decide which 10 o'clock it meant. A client picking 10am IST sends\n`2026-08-17T10:00:00+05:30`; the service converts to UTC for storage, and the screen\nrenders IST again. Getting this wrong dials households at 15:30 or 02:30, so it is\npinned at the type level and re-checked in `scheduling.schedule_campaign` for\ncallers that are not HTTP requests.",
+        "properties": {
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_at"
+        ],
+        "title": "ScheduleIn",
+        "type": "object"
+      },
+      "ScheduleOut": {
+        "additionalProperties": false,
+        "description": "The start we recorded, and when dialling can actually begin.\n\nBoth fields, always, because they differ whenever the client picks a time outside\nthe calling window \u2014 and that difference is the answer to the most natural\nmisreading of this feature. A 22:00 start is accepted (starting a campaign is not\ndialling it) and `first_dial_not_before` says 09:00 the next morning, which is what\nTRAI's window means for that choice.",
+        "properties": {
+          "first_dial_not_before": {
+            "format": "date-time",
+            "title": "First Dial Not Before",
+            "type": "string"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_at",
+          "first_dial_not_before"
+        ],
+        "title": "ScheduleOut",
+        "type": "object"
+      },
       "ServiceItem": {
         "additionalProperties": false,
         "description": "`price_inr` is a STRING (hard rule 7): a price read aloud to a caller must be\nthe digits the client typed, and a JSON float cannot promise that. It is also\noptional \u2014 \"consultation: ask at reception\" is a real answer.",
@@ -6039,6 +8291,17 @@
             "title": "Engine Synced",
             "type": "boolean"
           },
+          "live_voice_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Voice Id"
+          },
           "next_step": {
             "title": "Next Step",
             "type": "string"
@@ -6061,6 +8324,7 @@
           "agent_status",
           "published",
           "engine_synced",
+          "live_voice_id",
           "republish_required",
           "next_step"
         ],
@@ -6503,6 +8767,184 @@
         "title": "StartExperimentOut",
         "type": "object"
       },
+      "SubjectExportCallOut": {
+        "additionalProperties": false,
+        "description": "One call, with the audio reported as a fact rather than as a link.\n\n`recording_available` is a boolean and never a URL (`export.py` decision 2): a\npresigned URL inside a document that gets emailed and forwarded is a bearer\ncredential travelling with it.",
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration S"
+          },
+          "outcome_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Tag"
+          },
+          "recording_available": {
+            "title": "Recording Available",
+            "type": "boolean"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "call_id",
+          "direction",
+          "started_at",
+          "duration_s",
+          "outcome_tag",
+          "summary",
+          "recording_available"
+        ],
+        "title": "SubjectExportCallOut",
+        "type": "object"
+      },
+      "SubjectExportConsentOut": {
+        "additionalProperties": false,
+        "description": "One consent-ledger entry. `evidence_recorded` is a boolean for the same reason\nthe recording is: the evidence is a transcript SPAN, raw by construction, and it\nstays behind the audited raw-transcript path.",
+        "properties": {
+          "call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
+          "captured_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured At"
+          },
+          "evidence_recorded": {
+            "title": "Evidence Recorded",
+            "type": "boolean"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "call_id",
+          "purpose",
+          "status",
+          "captured_at",
+          "evidence_recorded"
+        ],
+        "title": "SubjectExportConsentOut",
+        "type": "object"
+      },
+      "SubjectExportCountsOut": {
+        "additionalProperties": false,
+        "description": "What the document contains, stated in the document.\n\n`leads` is the TRUE number of lead rows this number matched while `lead` carries only\nthe most recently updated one, so a second row (a tenant running two agents) is\nvisible in the answer rather than silently dropped from it.",
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "consent_records": {
+            "title": "Consent Records",
+            "type": "integer"
+          },
+          "leads": {
+            "title": "Leads",
+            "type": "integer"
+          },
+          "recordings_available": {
+            "title": "Recordings Available",
+            "type": "integer"
+          },
+          "transcript_turns": {
+            "title": "Transcript Turns",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "leads",
+          "calls",
+          "transcript_turns",
+          "consent_records",
+          "recordings_available"
+        ],
+        "title": "SubjectExportCountsOut",
+        "type": "object"
+      },
       "SubjectExportIn": {
         "additionalProperties": false,
         "description": "`extra=\"forbid\"` so a caller cannot smuggle a second selector (a lead id, a\ntenant slug) into a request whose whole security argument is \"one phone number\".",
@@ -6519,6 +8961,234 @@
           "phone"
         ],
         "title": "SubjectExportIn",
+        "type": "object"
+      },
+      "SubjectExportLeadOut": {
+        "additionalProperties": false,
+        "description": "The CRM record, as the client holds it.\n\n`phone_e164` is the subject's OWN number and appears unmasked \u2014 `export.py` decision\n3: masking the identifier the subject asked about produces a document they cannot\ncheck is about them. It is declared here rather than hidden in a dict so\n`check_redaction_exposure` judges it against a named, reasoned allowance instead of\nnever seeing it.",
+        "properties": {
+          "call_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Count"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_repeat_caller": {
+            "title": "Is Repeat Caller",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "phone_e164": {
+            "title": "Phone E164",
+            "type": "string"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Version"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "phone_e164",
+          "name",
+          "status",
+          "source",
+          "data",
+          "schema_version",
+          "call_count",
+          "is_repeat_caller",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SubjectExportLeadOut",
+        "type": "object"
+      },
+      "SubjectExportOut": {
+        "additionalProperties": false,
+        "description": "The whole disclosure, and therefore the whole output whitelist\n(BACKEND-PATTERNS \u00a71).",
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportCallOut"
+            },
+            "title": "Calls",
+            "type": "array"
+          },
+          "consent": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportConsentOut"
+            },
+            "title": "Consent",
+            "type": "array"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/SubjectExportCountsOut"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "lead": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubjectExportLeadOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phone_e164": {
+            "title": "Phone E164",
+            "type": "string"
+          },
+          "transcripts": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportTranscriptOut"
+            },
+            "title": "Transcripts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "phone_e164",
+          "generated_at",
+          "lead",
+          "calls",
+          "transcripts",
+          "consent",
+          "counts"
+        ],
+        "title": "SubjectExportOut",
+        "type": "object"
+      },
+      "SubjectExportTranscriptOut": {
+        "additionalProperties": false,
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportTurnOut"
+            },
+            "title": "Turns",
+            "type": "array"
+          }
+        },
+        "required": [
+          "call_id",
+          "turns"
+        ],
+        "title": "SubjectExportTranscriptOut",
+        "type": "object"
+      },
+      "SubjectExportTurnOut": {
+        "additionalProperties": false,
+        "description": "One transcript turn. `text` carries `text_redacted`, never the raw column \u2014 hard\nrule 5, reinforced rather than relaxed here because this is the one response that\nleaves the client's own screen (`export.py` decision 1). A turn that has not been\nthrough the redaction pass yet says so (`export.REDACTION_PENDING`) rather than\nfalling back to raw.",
+        "properties": {
+          "idx": {
+            "title": "Idx",
+            "type": "integer"
+          },
+          "speaker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idx",
+          "speaker",
+          "text"
+        ],
+        "title": "SubjectExportTurnOut",
         "type": "object"
       },
       "SubmitIn": {
@@ -7338,22 +10008,27 @@
       },
       "VariantOut": {
         "additionalProperties": false,
+        "description": "One arm's counts. THREE, resolved by direction, because since D-60 an arm can be\ncredited with a call nobody dialled \u2014 `experiments.VariantResult` carries the full\nargument. Briefly: `outbound_dialled` is the connect-rate diagnostic and is an\noutbound question; `completed` is what `rate` is over; `inbound_completed` says how\nmuch of it was never split into this arm, so a client cannot read the rate as a clean\nrandomised comparison when it is not one.",
         "properties": {
-          "attributed": {
-            "title": "Attributed",
+          "completed": {
+            "title": "Completed",
             "type": "integer"
           },
           "conversions": {
             "title": "Conversions",
             "type": "integer"
           },
-          "dialled": {
-            "title": "Dialled",
+          "inbound_completed": {
+            "title": "Inbound Completed",
             "type": "integer"
           },
           "label": {
             "title": "Label",
             "type": "string"
+          },
+          "outbound_dialled": {
+            "title": "Outbound Dialled",
+            "type": "integer"
           },
           "prompt_version": {
             "title": "Prompt Version",
@@ -7412,8 +10087,9 @@
           "prompt_version",
           "weight_bp",
           "published",
-          "dialled",
-          "attributed",
+          "outbound_dialled",
+          "completed",
+          "inbound_completed",
           "conversions",
           "rate",
           "rate_low",
@@ -7508,6 +10184,48 @@
           "note"
         ],
         "title": "Voice",
+        "type": "object"
+      },
+      "VoiceStateOut": {
+        "additionalProperties": false,
+        "description": "The voice CONFIGURED on the agent and the voice the engine was last SENT.\n\nTwo fields because they are two facts. `PATCH /v1/agents/{id}/voice` writes our row\nand stops there, so a live agent keeps its old voice until the next publish \u2014 one\nvalue labelled \"the voice\" would be a claim about a client's phone line that nobody\nchecked.\n\n`live` is null when nothing is recorded as sent, which reads two ways and is\ndisambiguated by `PendingOut.published`: an unpublished agent has nothing live, and\na published one was published before the mirror existed (or with no voice set). Both\nresolve to `republish_required` when a voice is configured, because a sync we cannot\nprove is not a sync.",
+        "properties": {
+          "configured": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentVoiceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "live": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentVoiceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "republish_required": {
+            "title": "Republish Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "configured",
+          "live",
+          "republish_required",
+          "headline"
+        ],
+        "title": "VoiceStateOut",
         "type": "object"
       },
       "WebhookAck": {
@@ -8293,6 +11011,157 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/admin/qa-samples": {
+      "get": {
+        "description": "Calls drawn for review, newest week first and in the draw's own order. Each row carries the frame it came from \u2014 the week, the number of calls in it, the number drawn \u2014 and the seed the order was computed from, so the sample can be recomputed and checked by anyone. `pending` (default) shows only calls nobody has reviewed yet. No transcript text and no phone number appear on this list.",
+        "operationId": "list_qa_samples_v1_admin_qa_samples_get",
+        "parameters": [
+          {
+            "description": "only calls nobody has reviewed yet",
+            "in": "query",
+            "name": "pending",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "only calls nobody has reviewed yet",
+              "title": "Pending",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/QaSampleOut"
+                  },
+                  "title": "Response List Qa Samples V1 Admin Qa Samples Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The weekly QA spot-check queue \u2014 5% of calls per client",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/qa-samples/{sample_id}": {
+      "get": {
+        "description": "The sampled call as a reviewer reads it: the draw's own record, and the call with its transcript in the redacted form every ordinary reader gets. Raw transcript text is NOT available here \u2014 it has one route in this API, which is role-checked and audit-logged. This read is itself written to the audit log.",
+        "operationId": "get_qa_sample_v1_admin_qa_samples__sample_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sample_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Sample Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QaSampleDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "A sampled call for review \u2014 transcript REDACTED (hard rule 5), read audited",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/admin/qa-samples/{sample_id}/review": {
+      "post": {
+        "description": "Records what the reviewer concluded: `clean`, `concern` or `defect`. A call can only be reviewed once \u2014 a second verdict is refused rather than overwriting the first, so a disagreement is visible instead of silent. Audit-logged.",
+        "operationId": "review_qa_sample_v1_admin_qa_samples__sample_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sample_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Sample Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QaReviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QaSampleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record a reviewer's verdict on a sampled call \u2014 first writer wins",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants": {
       "get": {
         "operationId": "list_tenants_v1_admin_tenants_get",
@@ -8589,7 +11458,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment/conclude": {
       "post": {
-        "description": "Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS \u00a77) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears \u2014 the test still ends.",
+        "description": "Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS \u00a77) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears \u2014 the test still ends. Idempotent: a test that already ended the way you asked returns 200 with `changed: false`, promotes nothing a second time and writes no audit row. 409 names the ending it found when that ending is a different one. 404 means this account has no such test.",
         "operationId": "conclude_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_conclude_post",
         "parameters": [
           {
@@ -9097,6 +11966,112 @@
         "x-calevate-permission": "agents:write"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/commercial-terms": {
+      "get": {
+        "description": "The `plans` rows for one client, newest agreement first by valid time, with the one in effect now resolved by the same expression the invoice uses. `state` names what an operator is looking at: `none` (no terms have ever been set \u2014 the state every new tenant is in), `unpriced` (a row is in effect but states no price), `lapsed` (rows exist and none is in effect, which is a misconfiguration), or `set`.",
+        "operationId": "read_commercial_terms_v1_admin_tenants__tenant_id__commercial_terms_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommercialTermsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What this client pays, and every dated agreement behind it (SURFACES \u00a71)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
+      },
+      "post": {
+        "description": "Records what this client pays from a given instant. Always an INSERT: the row that priced a month the client has already been billed for is never touched, because an invoice here is derived and re-rendering it reads `plans` again. Leave `effective_from` null for terms that apply now and until further notice; set it to a future instant to prepare a change, which takes effect on that instant and not before. Idempotent \u2014 submitting the terms already in effect writes nothing, returns `changed: false` and records no audit row. Raising or REMOVING a spend ceiling additionally needs a superadmin and the `X-Confirm-Action` header the read publishes.",
+        "operationId": "record_commercial_terms_v1_admin_tenants__tenant_id__commercial_terms_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommercialTermsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordTermsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Agree new commercial terms \u2014 a NEW dated row, never an edit to an old one",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/credits": {
       "get": {
         "operationId": "read_credits_v1_admin_tenants__tenant_id__credits_get",
@@ -9305,6 +12280,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/dlt-templates/{template_id}/status": {
       "post": {
+        "description": "AUDITED, and deliberately NOT a `transition_status` state machine. Checked 2026-08.\n\nThis is a registrar-fact RECORDER, the same species as `set_number_dlt_status` above\nand `ops.service.record_tm_registration` (\"deliberately a full overwrite: there is\none registration and this is its current state\"), and it is the reason those two are\nnot on `db/transition.py::transition_status` either. The three answers that module\ndiscriminates are already the three this endpoint gives, but the middle one is\nreached from the opposite direction and must stay that way:\n\n* **A different status is not a conflict \u2014 it is the news.** The registrar moves a\n  template both ways, and `approved -> rejected` is a WITHDRAWAL. Constraining this\n  to a `from_statuses` set would make a revocation unrecordable and leave\n  `campaigns.service.launch_blockers` reading `approved` for a template the\n  registrar has pulled, which is SEC-COMP \u00a71's most common registration failure\n  dialling on. `tests/campaign_dispatch_audit_test.py::\n  test_a_revoked_dlt_template_stops_the_campaign_before_the_next_dial` pins exactly\n  that move, and the gate's behaviour is what it pins.\n* **Absent is already a 404, never a 409.** The service raises\n  `ProblemError.not_found` on `rowcount == 0`, and the UPDATE runs inside\n  `tenant_session(tenant_id)`, so another tenant's template id updates no row and\n  gets the same 404 an id that never existed gets (hard rule 1).\n* **Re-recording the same status is a 200 AND a real audit row**, which is the one\n  place this diverges from `set_tenant_status`'s `changed` guard and does so on\n  purpose: there is no state machine here to be already-satisfied. A second POST is\n  an operator asserting \"I checked with the registrar again just now, and it still\n  says submitted\". `dlt_templates` has no `verified_at` to hold that, so the audit\n  row IS the record of the re-verification \u2014 the same fact `record_tm_registration`\n  stamps on the row it owns.\n\nA single conditional UPDATE, so there is no read-then-write to race: two operators\nrecording two registrar verdicts is last-writer-wins over an external fact, and the\naudit log carries both readings in order.",
         "operationId": "set_template_status_v1_admin_tenants__tenant_id__dlt_templates__template_id__status_post",
         "parameters": [
           {
@@ -9361,6 +12337,109 @@
           }
         },
         "summary": "Approve or reject per the registrar \u2014 `approved` unlocks the launch gate",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/feature-flags": {
+      "get": {
+        "description": "Resolution is platform default \u2192 this tenant's override. A flag with no row for this tenant resolves to its declared default \u2014 no row is required to exist for any tenant. Rows for flags this build no longer declares are listed with `declared: false`; they change nothing and clearing them is safe.",
+        "operationId": "read_feature_flags_v1_admin_tenants__tenant_id__feature_flags_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureFlagsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every feature flag this client is on, and where each answer comes from",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/feature-flags/{flag}": {
+      "put": {
+        "description": "`enabled: true|false` records an explicit position for this client. `enabled: null` CLEARS the override, so they follow the platform default again. A `reason` is required either way. Restating the position already on file returns `changed: false` and writes nothing \u2014 no row moves and no audit entry is made. Setting a flag this build does not declare is refused; CLEARING one is allowed, because that is how a retired flag's leftover rows are removed.",
+        "operationId": "put_feature_flag_v1_admin_tenants__tenant_id__feature_flags__flag__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "flag",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]{2,63}$",
+              "title": "Flag",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureFlagIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureFlagChangeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set this client's position on one flag, or clear it (audited on a real change)",
         "tags": [
           "admin"
         ],
@@ -9570,6 +12649,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/kb/{source_id}/approve": {
       "post": {
+        "description": "Approve a submitted knowledge source. Idempotent: approving a source that is already approved returns 200 and changes nothing \u2014 the first reviewer stays the recorded approver. 409 means the source is in another state (rejected, archived) and the response names it. 404 means this tenant has no source with that id.",
         "operationId": "approve_kb_v1_admin_tenants__tenant_id__kb__source_id__approve_post",
         "parameters": [
           {
@@ -9675,6 +12755,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/kb/{source_id}/reject": {
       "post": {
+        "description": "Reject a submitted knowledge source. Idempotent: rejecting an already-rejected source returns 200 and keeps the reason the first reviewer gave. 409 means the source is in another state (approved, archived) and the response names it. 404 means this tenant has no source with that id.",
         "operationId": "reject_kb_v1_admin_tenants__tenant_id__kb__source_id__reject_post",
         "parameters": [
           {
@@ -9730,7 +12811,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Reject Kb",
+        "summary": "Refuse a submitted source, with a reason the client can act on",
         "tags": [
           "admin"
         ],
@@ -9959,6 +13040,57 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/status": {
+      "post": {
+        "description": "Moves `organizations.status`. Suspending or closing an account stops its OUTBOUND calling at the next dial: `compliance.check_dispatch` refuses `account_suspended` / `account_closed`, so the campaign tick, the 'call this lead' button and the lead-callback webhook all stop, and the campaign launch gate names the same rule. Inbound answering is deliberately unaffected \u2014 the caller initiated it, and dropping it punishes them rather than the account. Idempotent: setting the state an account is already in returns 200 and writes no audit row. 409 names the state found when the move is not allowed from it \u2014 `churned` is terminal. 404 means no such client.",
+        "operationId": "set_tenant_status_v1_admin_tenants__tenant_id__status_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecycleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Suspend, reactivate or close a client account \u2014 the switch that stops dialling",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/agents": {
       "get": {
         "operationId": "list_agents_v1_agents_get",
@@ -10136,7 +13268,7 @@
     },
     "/v1/agents/{agent_id}/pending": {
       "get": {
-        "description": "Backs the unsaved-changes banner. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).",
+        "description": "Backs the unsaved-changes banner and the voice picker. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).\n\n`voice.configured` is what `PATCH /v1/agents/{agent_id}/voice` wrote; `voice.live` is what the engine was last sent. They differ until a publish, which is what `voice.republish_required` reports. A null `voice.live` on a published agent means we have no record of what it is holding \u2014 read it with `published`, and never as 'in sync'.",
         "operationId": "pending_v1_agents__agent_id__pending_get",
         "parameters": [
           {
@@ -10168,7 +13300,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "What is staged but not live, and what one capped call costs",
+        "summary": "What is staged but not live, what one capped call costs, and which voice is live",
         "tags": [
           "agents"
         ],
@@ -11061,6 +14193,7 @@
     },
     "/v1/campaigns/{campaign_id}/pause": {
       "post": {
+        "description": "Pause a running campaign. Idempotent: pausing a campaign that is already paused returns 200, so a second click and the retry of a request whose response was lost are both safe. 409 means the campaign is in some other state (cancelled, or still a draft) and the response names it. 404 means no campaign of yours has that id.",
         "operationId": "pause_v1_campaigns__campaign_id__pause_post",
         "parameters": [
           {
@@ -11096,7 +14229,58 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Pause",
+        "summary": "Stop dialling now \u2014 idempotent, so a panicked double-click is not an error",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/recurrence": {
+      "post": {
+        "description": "Record a standing instruction to start this campaign on given weekdays.\n\n`leads:dispatch`, the same permission as `POST /launch` and `POST /schedule`, and for\nthe stronger version of the same reason: this is not one launch with a delay on it,\nit is every launch from now until somebody stops it.\n\n**No compliance gate here, and that is the design** (`campaigns/scheduling.py`\ndecision 3). The gate runs inside `launch_campaign` when the dispatch tick fires each\noccurrence, so a DLT registration that lapses in week three refuses week three \u2014 a\ngate at THIS moment would be a claim about a Tuesday six weeks away.\n\nAudited: \"who told this campaign to dial every Tuesday, and when\" is precisely the\nquestion `audit_log` exists to answer, and a repeat nobody remembers creating is the\nversion of that question that gets asked after a complaint.",
+        "operationId": "set_recurrence_v1_campaigns__campaign_id__recurrence_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecurrenceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecurrenceSetOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Repeat this campaign weekly \u2014 the gate runs on EVERY occurrence",
         "tags": [
           "campaigns"
         ],
@@ -11105,6 +14289,7 @@
     },
     "/v1/campaigns/{campaign_id}/resume": {
       "post": {
+        "description": "Resume a paused campaign. Idempotent: resuming a campaign that is already running returns 200. 409 means the campaign is in some other state and the response names it. 404 means no campaign of yours has that id. Resuming does not re-run the launch gate \u2014 the per-dial compliance check does, on every contact, which is what catches paperwork that lapsed while it was paused.",
         "operationId": "resume_v1_campaigns__campaign_id__resume_post",
         "parameters": [
           {
@@ -11140,7 +14325,101 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Resume",
+        "summary": "Dial again from where it stopped \u2014 the compliance re-check is at dial time",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/schedule": {
+      "delete": {
+        "description": "One stop for one column, whichever kind of promise it held.\n\nThe response is the status the campaign is ACTUALLY in afterwards, not the constant\n\"draft\" this used to return: a campaign that was waiting goes back to draft, and a\ncampaign that is dialling keeps dialling \u2014 stopping a repeat means \"do not start this\nagain\", never \"abandon the calls going out now\" (`scheduling.unschedule_campaign`).",
+        "operationId": "unschedule_v1_campaigns__campaign_id__schedule_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Unschedule V1 Campaigns  Campaign Id  Schedule Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Cancel a pending start or stop a repeat \u2014 one button for both",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      },
+      "post": {
+        "description": "Record a one-time start.\n\n`leads:dispatch`, the same permission as `POST /launch`, because this IS a launch \u2014\none with a delay on it. Anything weaker would be a way to cause dialling without the\nauthority to dial.\n\n**No compliance gate here, and that is the design, not an omission.** The gate runs\ninside `launch_campaign` when the dispatch tick fires this schedule (hard rule 5,\n`campaigns/scheduling.py` decision 2): a campaign scheduled on Friday and started on\nMonday may have crossed a DNC addition, a spend cap, a KYC expiry or the platform\nhalt in between, so a gate at THIS moment would prove nothing about the moment that\nmatters. `GET /launch-check` remains available and answers \"would it launch right\nnow\" for a scheduled campaign exactly as for a draft.\n\nAudited: \"who told this campaign to start dialling, and when for\" is the same\nquestion `campaign.launched` exists to answer.",
+        "operationId": "schedule_v1_campaigns__campaign_id__schedule_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Start this campaign later \u2014 the gate runs when it FIRES, not now",
         "tags": [
           "campaigns"
         ],
@@ -11148,6 +14427,51 @@
       }
     },
     "/v1/compliance/deletion-requests": {
+      "get": {
+        "description": "The account's own register of erasure obligations, newest first.\n\nWithout it a filed request was reachable only by its opaque id, so closing the tab\nlost the handle on an in-flight legal obligation with a statutory clock on it.\n\n**What this returns and what it deliberately does not.** Data minimisation is the\nwhole subject of the feature, so the list is the narrowest thing that answers \"which\nerasures do I owe an answer on, and which are done?\":\n\n- `request_id`, `requested_at`, `completed_at`, `status` \u2014 the handle and the clock.\n- `has_certificate` \u2014 whether the proof exists yet, so the screen can distinguish\n  \"done, here is the document\" from \"marked done with no proof recorded\", which is\n  the one state on this surface a client must not report to a data principal as\n  finished.\n- `subject_ref` \u2014 the hash, because a client with several erasures in flight needs to\n  tell one row from another and match it to their own case file. It is pseudonymous\n  rather than anonymous (`deletion.list_requests` says why), which is precisely why it\n  is here and the number is not.\n- **NOT `phone_e164`.** An open row still holds the number so the worker can find the\n  subject; returning it in a LIST would hand back every number this account has been\n  asked to erase in one read \u2014 an index of the people who exercised the right, which\n  is the inverse of what the right is for (hard rule 6). The column is not selected\n  at all.\n- **NOT the proof certificate.** It is available per request from the read below; an\n  index that carried every certificate would make the cheapest read the largest.\n\n`org:read`, matching the single-request read: this discloses no personal data, and an\nadmin who may not *cause* an erasure (D-22 refuses `org:manage` while impersonating)\nshould still be able to confirm one. Read-as, never act-as.",
+        "operationId": "list_requests_v1_compliance_deletion_requests_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeletionRequestSummaryOut"
+                  },
+                  "title": "Response List Requests V1 Compliance Deletion Requests Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every erasure request this account has filed \u2014 hashes and timestamps only",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      },
       "post": {
         "description": "Write the request, queue the erasure, record that it was asked for.\n\nA number we hold nothing about is accepted just the same, and produces an\nempty-but-valid certificate. The client cannot know in advance whether they hold\nanything, and \"we found nothing\" is a complete answer to an erasure request that\nthey are entitled to be able to give in writing.",
         "operationId": "request_erasure_v1_compliance_deletion_requests_post",
@@ -11410,9 +14734,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Subject Export V1 Compliance Subject Export Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SubjectExportOut"
                 }
               }
             },
@@ -11670,6 +14992,47 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/integrations/deliveries/{delivery_id}/payload": {
+      "get": {
+        "description": "The exact body we POSTed for one delivery, as your endpoint received it. This is your customer's personal data in unredacted form, so it requires the same permission as an unredacted transcript and every read is written to your audit log. Bodies are kept for as long as your lead-retention policy allows and are destroyed by an erasure request; `404 delivery_body_not_retained` means there is no longer one to show.",
+        "operationId": "get_delivery_payload_v1_integrations_deliveries__delivery_id__payload_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "delivery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Delivery Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryPayloadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What we actually sent \u2014 role-checked AND audit-logged on every read",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "calls:read_raw"
+      }
+    },
     "/v1/integrations/endpoints": {
       "get": {
         "operationId": "list_endpoints_v1_integrations_endpoints_get",
@@ -11779,6 +15142,7 @@
     },
     "/v1/integrations/endpoints/{endpoint_id}": {
       "delete": {
+        "description": "Deactivate an endpoint. The endpoint and its delivery history are kept, so past attempts stay readable. Idempotent: deactivating an endpoint that is already inactive returns 204, so retrying after a lost response is safe. 404 means only that no endpoint of yours has that id.",
         "operationId": "deactivate_endpoint_v1_integrations_endpoints__endpoint_id__delete",
         "parameters": [
           {
@@ -11812,20 +15176,14 @@
     },
     "/v1/integrations/events": {
       "get": {
-        "operationId": "list_event_types_v1_integrations_events_get",
+        "description": "The events an endpoint may subscribe to, and whether this account can deliver to a Google Sheet. `sheets_delivery_available: false` means `POST /v1/integrations/endpoints/sheets` will be refused with `sheets_delivery_unavailable`, so a form for it should not be offered \u2014 but the refusal remains the authority, and this field is only how you learn about it without attempting the create.",
+        "operationId": "endpoint_options_v1_integrations_events_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  },
-                  "title": "Response List Event Types V1 Integrations Events Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EndpointOptionsOut"
                 }
               }
             },
@@ -11838,7 +15196,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The events an endpoint may subscribe to",
+        "summary": "What an endpoint may subscribe to, and which transports this account can use",
         "tags": [
           "integrations"
         ],
@@ -12122,6 +15480,72 @@
         "x-calevate-permission": "agents:read"
       }
     },
+    "/v1/lead-sources": {
+      "get": {
+        "description": "The list that made the ID box on the lead-sources screen unnecessary.\n\nTenant scoping is RLS and only RLS (hard rule 1) \u2014 there is no `WHERE tenant_id`\nhere, because a hand-written predicate beside the policy is a second, weaker\nboundary that the next query forgets.",
+        "operationId": "list_lead_sources_v1_lead_sources_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSourceListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every lead source on this account \u2014 fingerprints, never secrets (SURFACES \u00a72b)",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "description": "Create an endpoint your website form, CRM or ad account can post leads to. The response carries the secret to send in the `X-Ingest-Secret` header, and it is the only time that value is ever returned \u2014 the list endpoint shows a fingerprint. Meta Lead Ads sources are different: Meta signs with your own app's App Secret, so you supply it as `app_secret` and nothing is minted.",
+        "operationId": "create_lead_source_v1_lead_sources_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLeadSourceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSourceCreatedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Create a lead source \u2014 the ingest secret is shown once (SURFACES \u00a72b)",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/lead-sources/activity": {
       "get": {
         "description": "Reads the same durable inbox the dedupe writes, so this view costs nothing new.\n\n`duplicate_count` is the column that answers the classic support thread: the form\nvendor retried fifteen times, we rang the customer once, and the client wants to\nknow which of those two things happened.",
@@ -12165,6 +15589,74 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/lead-sources/{webhook_id}": {
+      "delete": {
+        "description": "Deactivate, and close any rotation window with it.\n\nIdempotent: disabling an already-disabled source is 204, not 404. The outbound\ntwin (`DELETE /v1/integrations/endpoints/{id}`) once answered 404 to the second\nclick, because its CAS predicate and its existence check were the same statement;\nit now shares this shape (`integrations.service.deactivate_endpoint`), so the two\ndirections of D-23 answer the same question the same way. The audit row is written\nonly for a real transition, so the ledger records changes and not button presses.",
+        "operationId": "disable_lead_source_v1_lead_sources__webhook_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Disable \u2014 kept, not deleted, so the delivery history stays readable",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/lead-sources/{webhook_id}/enable": {
+      "post": {
+        "description": "The other half of disable, which the outbound surface never grew.\n\nWithout it a client who disabled a source to stop a misbehaving form has no way\nback except a support ticket \u2014 which is the same out-of-band provisioning this whole\nmodule exists to end. The secret is UNCHANGED by re-enabling: a source comes back\nexactly as it left, so a client who did not rotate does not have to re-paste.",
+        "operationId": "enable_lead_source_v1_lead_sources__webhook_id__enable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Re-enable a disabled lead source",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/lead-sources/{webhook_id}/meta/setup": {
       "post": {
         "description": "POST for a read, and `org:manage` rather than `org:read` \u2014 the two go together.\n\nThe response hands over a credential-shaped string, so it must not be reachable by\na read-only impersonating admin (D-22). But D-22 is enforced structurally: NO GET\nmay require a MUTATING permission, and `org:manage` is one \u2014 a GET here would fail\n`tests/impersonation_reads_test.py`, which walks the live route table precisely so\nthis cannot be argued case by case.\n\nBoth halves are satisfiable at once because the shape is wrong, not the permission.\nThis is the same resolution `/v1/dnc/check` reached from the other direction: it is\na POST because the IDENTIFIER is sensitive, and this is a POST because the RESPONSE\nis. Spending a D-22 exemption instead would buy one route a hole in the rule that\nfive near-misses in this repo say should stay unarguable.\n\nIt states the capability BEFORE the client wires anything up, rather than letting\nthem discover it from an activity view full of rejections \u2014 the same argument\n`payment_capability` makes about rendering a pay button for a deployment that\ncannot take payments.",
@@ -12200,6 +15692,57 @@
           }
         },
         "summary": "Callback URL + verify token for a Meta Lead Ads source (SURFACES \u00a72b)",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/lead-sources/{webhook_id}/rotate-secret": {
+      "post": {
+        "description": "Replace this source's secret. The new value is returned once. The previous secret keeps working for `grace_minutes` (default 60, max 1440) so leads submitted while you update your form vendor are not rejected \u2014 send `grace_minutes: 0` to revoke the old secret immediately, which is what a leaked secret needs. For a Meta source, supply the new App Secret as `app_secret`; nothing is minted and the response's `secret` is null.",
+        "operationId": "rotate_lead_source_secret_v1_lead_sources__webhook_id__rotate_secret_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateSecretIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotateSecretOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Issue a new secret, with the old one honoured for a stated window",
         "tags": [
           "lead-ingest"
         ],
@@ -12352,6 +15895,38 @@
               ],
               "title": "Assigned To"
             }
+          },
+          {
+            "description": "Comma-separated column keys, in display order. Omit for every column.",
+            "in": "query",
+            "name": "columns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated column keys, in display order. Omit for every column.",
+              "title": "Columns"
+            }
+          },
+          {
+            "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+              "items": {
+                "type": "string"
+              },
+              "title": "F",
+              "type": "array"
+            }
           }
         ],
         "responses": {
@@ -12377,6 +15952,128 @@
           "crm"
         ],
         "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/leads/bulk": {
+      "post": {
+        "description": "Move many leads at once, and report what happened to each of them.\n\n**`leads:write` and no new permission.** Both actions are the ones the row already\noffers inline, done to more rows at a time; a bulk-only permission would be a fourth\nRBAC entry every role holds exactly when it holds `leads:write`. `leads:write` is in\n`MUTATING_PERMISSIONS`, so a D-22 impersonating operator is refused this for free.\n\n**No `Idempotency-Key`, and that is a property rather than an omission.** The\nreliability triad asks for one where a repeat has a side effect that cannot be undone\n\u2014 a phone ringing twice (`POST /leads/{id}/call`), a campaign launched twice. Here a\nrepeat is *the same request*: `status` and `assigned_to` are single-value fields, so\nthe second run finds every lead already in the target state and answers\n`unchanged: N` with no timeline rows written (`db/transition.py`). The idempotency\nthat matters is in the write, not in a key.\n\n**200, always, when the request itself was well-formed.** A lead the action could not\nmove is a per-item outcome in `failures`, not an HTTP error \u2014 the same shape\n`POST /leads/{id}/call` uses for a compliance refusal, and the reason RFC-9457 stays\nreserved for \"the request failed\". The two cases that ARE request failures and are\nrefused up front: a filter matching more than the cap (`lead_bulk_too_many` \u2014 never a\nsilent truncation), and a set that moved out from under a confirmation\n(`lead_bulk_set_moved`).",
+        "operationId": "bulk_leads_v1_leads_bulk_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 60,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "assigned_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Assigned To"
+            }
+          },
+          {
+            "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+              "items": {
+                "type": "string"
+              },
+              "title": "F",
+              "type": "array"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadBulkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadBulkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One action over many leads \u2014 page-scoped or filter-scoped, and it says which",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
       }
     },
     "/v1/leads/export.csv": {
@@ -12449,6 +16146,38 @@
               ],
               "title": "Assigned To"
             }
+          },
+          {
+            "description": "Comma-separated column keys, in display order. Omit for every column.",
+            "in": "query",
+            "name": "columns",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated column keys, in display order. Omit for every column.",
+              "title": "Columns"
+            }
+          },
+          {
+            "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+              "items": {
+                "type": "string"
+              },
+              "title": "F",
+              "type": "array"
+            }
           }
         ],
         "responses": {
@@ -12467,6 +16196,263 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read_raw"
+      }
+    },
+    "/v1/leads/facets": {
+      "get": {
+        "description": "The filter rail and its counts, over the SAME scope `GET /v1/leads` is answering.\n\nA separate route rather than another field on the list response, for one reason: the\ncounts change when the FILTERS change and not when the PAGE changes, so folding them\ninto the list would recompute up to eight aggregates every time somebody scrolls.\nSame query parameters, minus the paging ones, so \"the rail describes this table\" is\ncheckable by comparing two query strings.",
+        "operationId": "get_lead_facets_v1_leads_facets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 60,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "assigned_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Assigned To"
+            }
+          },
+          {
+            "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "description": "Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together.",
+              "items": {
+                "type": "string"
+              },
+              "title": "F",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadFacetsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Faceted filters, built from this agent's extraction schema",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/leads/views": {
+      "get": {
+        "operationId": "get_saved_views_v1_leads_views_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedViewListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "My saved views on this account",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
+      "post": {
+        "operationId": "create_saved_view_v1_leads_views_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedViewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedViewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save the current filters and columns under a name",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
+      }
+    },
+    "/v1/leads/views/{view_id}": {
+      "delete": {
+        "operationId": "delete_saved_view_v1_leads_views__view_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "view_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "View Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Delete one of my saved views",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
+      },
+      "patch": {
+        "operationId": "patch_saved_view_v1_leads_views__view_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "view_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "View Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedViewUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedViewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rename a saved view, or re-pin its filters and columns",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
       }
     },
     "/v1/leads/{lead_id}": {
@@ -13193,6 +17179,53 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/quality/reports": {
+      "get": {
+        "description": "Every stored quality report for this account, newest month first. Each one is the regression run we do before any change to the agent: how many scenarios were replayed, how many defects were found (zero is the only acceptable number), and which of your columns the model does not yet fill. An EMPTY list means no run has been stored for this account yet \u2014 it does not mean a clean run. Contains nothing from any real call.",
+        "operationId": "list_quality_reports_v1_quality_reports_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "maximum": 60,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/QaReport"
+                  },
+                  "title": "Response List Quality Reports V1 Quality Reports Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Monthly QA reports, newest month first (D-15)",
+        "tags": [
+          "quality"
+        ],
+        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/usage": {

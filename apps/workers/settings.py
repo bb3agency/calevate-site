@@ -26,12 +26,14 @@ from apps.api.core.observability import (
 )
 from apps.api.core.queue import WORKER_MAX_TRIES, redis_settings
 from apps.api.core.settings import runtime_config_missing_keys, validate_bootstrap_env
+from apps.workers.billing import issue_one_time_charges
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.dispatcher import dispatch_outbox, report_stalled_pipeline, sweep_expired
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.optout import record_in_call_optout
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from apps.workers.pipeline import ingest_engine_event, reconcile_executions, run_post_call_pipeline
+from apps.workers.qa_sampling import draw_qa_samples
 from apps.workers.retention import apply_retention, execute_deletion_request
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
@@ -100,9 +102,54 @@ CRON_JOBS = [
     # `campaign_dispatch._tick_lease` is where single-flight actually comes from.
     cron(traced_job(dispatch_campaign_tick), second=set(TICK_SECONDS)),
     cron(traced_job(sweep_expired), hour={3}, minute={17}),
+    # THE WEEKLY QA SPOT-CHECK (SURFACES §1): 5% of every client's calls, drawn so the
+    # draw can be re-run and checked (`apps/api/quality/sampling.py`). Monday, early.
+    #
+    # **The schedule does not decide which week is sampled** — `qa_sampling.closed_weeks`
+    # does, from the firing instant converted to IST, and it only ever asks for weeks
+    # that have CLOSED. That matters because arq evaluates cron fields in the WORKER
+    # HOST's timezone (`Worker.timezone` defaults to the system zone), which this repo
+    # pins nowhere; a schedule whose correctness depended on the host clock would sample
+    # a partial week the day somebody deployed to a differently-configured box. Monday
+    # 02:20 is after the IST week boundary on both a UTC host (07:50 IST) and an IST one,
+    # so the tick is early either way and the draw is right regardless.
+    #
+    # `max_tries` EXPLICIT for the reason `issue_one_time_charges` states below:
+    # `cron()` defaults it to 1 and `WorkerSettings.max_tries` does not reach a function
+    # carrying its own. A sampling tick that gave up on its first failure would leave a
+    # week undrawn with every screen still green. Verified against a real
+    # `arq.worker.Worker` in `tests/qa_sampling_test.py`, not asserted by this comment.
+    cron(
+        traced_job(draw_qa_samples),
+        weekday={0},
+        hour={2},
+        minute={20},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # Retention is a legal obligation, not a cleanup task: without this the
     # policies we promise in the DPA are only a table (SEC-COMP §4).
     cron(traced_job(apply_retention), hour={3}, minute={40}),
+    # THE SETUP FEE STOPS WAITING FOR A HUMAN. Before this cron the onboarding charge
+    # was written by whoever rendered the tenant's invoice, so a client nobody looked
+    # at was never billed (`apps/workers/billing.py` and `billing/charges.py` carry the
+    # argument, including why daily and not monthly, and why the schedule cannot decide
+    # which month the fee lands on).
+    #
+    # `max_tries` is passed EXPLICITLY because `cron()` defaults it to 1 — the
+    # `WorkerSettings.max_tries` below is only a default for functions that do not set
+    # their own, and a billing job that quietly gave up its first time out would be the
+    # kind of half-wired feature that still looks green. It costs nothing when the tick
+    # succeeds: the job only asks for a retry when a tenant actually failed.
+    #
+    # 02:05 local, ahead of the 03:xx retention/sweep block so a slow sweep cannot
+    # delay billing behind it. Which tenant-month a charge belongs to does not depend on
+    # this hour, which is what lets it be chosen for scheduling reasons alone.
+    cron(
+        traced_job(issue_one_time_charges),
+        hour={2},
+        minute={5},
+        max_tries=WORKER_MAX_TRIES,
+    ),
 ]
 
 

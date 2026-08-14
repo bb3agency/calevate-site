@@ -2404,6 +2404,445 @@ DELTAS against `audit_log`, never a globally clean chain. The database carries p
 historical damage, so a test demanding a clean log is green in CI and red on every
 developer's machine for a reason that is not theirs.
 
+## §56 — four slices that needed no vendor, and the instrument that had been lying to all of them
+
+Four agents, one whole slice each, chosen on the criterion §54 set: **nothing blocked on
+the Bolna pilot or on a founder decision.** Three of the four turned out to be guards that
+existed and did not guard, which is now this repo's confirmed signature (§55). The fourth
+found something worse: **the instrument we grade ourselves with has been wrong since it was
+built.**
+
+**The coverage ratchet has been blind to async database code.** SQLAlchemy's asyncio layer
+is a greenlet bridge — `session.execute` hands off to a greenlet that runs the sync DBAPI
+and switches back — and coverage's tracer is per-execution-context, so it is lost across
+that switch and never reinstated. The code runs, the test passes, and every line after the
+await is recorded as never executed. `[tool.coverage.run]` had no `concurrency` setting, so
+this was true of every number this repo has ever ratcheted. Isolated on one route test:
+`crm/service.dashboard` recorded 14 lines with no setting, 14 with `concurrency=thread`
+(so threads were never the issue), and 18 with `greenlet` — the four gained being exactly
+the lines after `await session.execute`. Locking it in moved four of six areas at once:
+compliance-gate 63→37, dial-path 123→97, ledgers-and-money 49→32, voice-runtime-ack 22→20.
+`redaction` and `tenancy-session` did not move, which is the sanity check — both are
+synchronous primitives that never touch the bridge.
+
+**Two things follow, and the second is the uncomfortable one.** The gate was never wrong in
+the direction that matters: it over-reported uncovered units, so it never called something
+covered that was not. But it had been pointing sessions at "gaps" that were tested all
+along — which is how a guardrail spends other people's time — and `dial-path`, the hard
+rule 5 surface, was reading 27% worse than the truth on precisely the code most likely to
+be exercised through a route.
+
+**How it was found is the part worth keeping.** Nobody went looking. The ratchet failed a
+slice fairly (+21 uncovered units, all of them refusal branches in new provisioning code —
+the area's own docstring predicts exactly that, because the happy path is what the demo
+exercises). The agent sent back to cover them noticed its PASSING route-level tests were
+reported as never executing the handler, and reached for service-level tests instead. Its
+diagnosis named the wrong mechanism — it blamed `httpx.ASGITransport` — but the observation
+was sound, and checking the mechanism rather than accepting the conclusion is what turned a
+local workaround into a repo-wide correction. **An agent's evidence can be right while its
+explanation is wrong; the evidence is the part to verify.**
+
+**The tracing hook that hard rule 6 names had no caller — and the audit found a live leak.**
+`redact_trace_payload` existed and, by its own docstring, nothing called it; D-49 had
+deliberately KEPT it as a shape. Every call site in the repo was already clean, which is
+why this survived: the PII came from three fields the OTel SDK writes ITSELF.
+`record_exception=True` and `set_status_on_exception=True` are defaults, so any exception
+escaping any span writes `exception.message`, `exception.stacktrace` — a span EVENT, which
+the attribute allowlist never inspects — and a `Status.description`. A transcript went out
+in full against the live exporter, and the production vector is ordinary: `str(IntegrityError)`
+embeds its bind parameters, and a duplicate-lead insert reaches it. Fixed at the exporter,
+not the call sites, because `record_exception=False` at four sites fails at the fifth
+(D-61). Two Sentry gaps came with it, including `traces_sample_rate` running a second
+UNFILTERED pipeline whose transaction events `before_send` never sees.
+
+**Two allowlists decided one security question, and only one of them was the network's.**
+Bolna signs nothing, so the source-IP allowlist IS the authenticity mechanism; the adapter
+checked a hardcoded constant while the receiver read the configurable setting. The argument
+that settles which wins is structural rather than aesthetic: **the enforcing half is
+voice-runtime, which is forbidden from importing `apps.api.engine` at all**, so the
+adapter's constant could never have been what the network is judged against. It also
+explains why no test caught it — seven suites patched the receiver's module global, i.e.
+they moved one of the two halves.
+
+**Inbound A/B attribution: the ROADMAP's own phrasing was the trap.** "An assignment lookup
+at inbound call creation" implies `assign()`, which DRAWS A BUCKET — and a bucket drawn for
+an inbound call names an arm nobody spoke, then reports a real conversion under it. Refused,
+and attributed on a fact instead: each arm is published as its own engine agent, so
+`engine_agent_ref` says which script object actually answered. A live outbound defect fell
+out of the same lookup — `dispatch_call` recorded the assignment only when its own INSERT
+won the race, so a fast webhook left arm-dialled calls carrying no arm at all, silently
+under-counting one side of a running comparison.
+
+**`inbound_webhooks` finally has a writer.** Every client's ingest endpoint was an operator
+running SQL. The substance is that rotation is a CUTOVER, not an instant: the secret lives
+in someone's Meta app or form-vendor settings screen, and 401-ing during the paste loses
+enquiries — the one thing the ingest path exists not to do. So the retiring secret keeps
+verifying for a bounded grace window, bounded by DATA rather than by an operator's memory.
+Hashing the stored secret was rejected structurally, not lazily: a Meta source's
+`secret_ref` IS the App Secret and must stay in the clear to compute `X-Hub-Signature-256`,
+so hashing only the rows where it works would put two schemes in one column.
+
+**What this wave adds to the method.** §53 asked what a pixel claims when the server does
+not answer; §54 asked whether two paths carrying one value are really the same; §55 asked
+whether a guard fires. This one: **check the instrument.** Three of these slices were
+verified by sabotage against a coverage report that was systematically under-counting, and
+none of them was wrong because of it — but the one number that decides whether a hard-rule
+surface is losing its tests had been wrong for the entire life of the guardrail, and it was
+only ever going to be found by someone who refused to believe a passing test was uncovered.
+
+**Two sabotages passed this wave and both became tests rather than statistics** — slice A's
+window filter made an assertion vacuous, and slice B's "a lapsed rotation window reads as no
+window" was simply untested. That is the ratio worth watching: a wave with no failed
+sabotages is a wave whose sabotages were too easy.
+
+## §57 — five slices, and the labels that were telling operators the wrong thing
+
+Five independent slices, none of them blocked on a vendor. Two frontend (a11y), three
+backend (state contracts, operator labels, billing schedule). Every slice sabotage-verified
+by its author; three of them additionally sabotaged by the orchestrator on a line the
+author did not choose, because a sabotage you pick yourself tests what you were already
+thinking about.
+
+**The a11y sweep closed, and found the defect the gate cannot see.** The three screens
+deferred behind "a concurrent slice is live" — `campaigns`, `lead-sources`, `integrations` —
+are in `SCREENS` with real fixtures read off `schema.d.ts`, and `UNSWEPT_SCREENS` is down to
+the root `layout.tsx` (which still closes only with a browser-mode run). The screen flagged
+as "the one genuine hole" scanned CLEAN, and that was reported as such rather than dressed
+up. What it did have was a barrier **axe structurally cannot detect**: the endpoint-URL
+input's only accessible name was its `placeholder`, which satisfies the `label` rule and
+then vanishes on the first keystroke (WCAG 3.3.2). Proof it is a blind spot rather than a
+missed rule: deleting the fix leaves the suite green. Every other field in the console
+carries a persistent label; this one was the exception.
+
+Adding those screens also turned a latent fixture hole into a deterministic failure on an
+EXISTING screen: `/v1/compliance/kyc` was absent from `TENANT_ROUTES`, so the KYC screen has
+been scanned rendering `ProblemNotice` instead of its identity record for as long as the
+sweep has existed — passing at HEAD only because the request lost a race. Green for the
+wrong reason, which is the §52 shape one level down.
+
+**The off-screen drawer kept 18 elements in the tab order, in both realms.** Hidden by CSS
+transform alone, no `inert`, no `aria-hidden` — a keyboard or screen-reader user tabbed
+through an invisible menu. Both shells turned out to be the same duplicated markup, so they
+now share one `components/navDrawer.tsx` rather than carrying one fix each. Two things the
+research settled and the code records: this repo pins **React 19**, where `inert={false}`
+renders NO attribute — under React 18 the same expression rendered `inert="false"`, a
+PRESENT and therefore inert attribute (facebook/react#24730), which is exactly why the test
+counts tabbables instead of asserting an attribute. And `inert` cannot be gated on `!isOpen`,
+because above `lg` the same element IS the permanent desktop sidebar with `isOpen === false`;
+`inert` is not a CSS property, so the breakpoint is read in JS. `aria-hidden` is not added
+beside it — `inert` already removes the subtree from the accessibility tree, and `aria-hidden`
+over a focusable subtree is itself an axe failure. The repo had no focus-trap idiom, so this
+is now the first one; a future modal reuses or replaces it rather than adding a second.
+Stated limit: the page BEHIND an open drawer is not made inert.
+
+**A state transition answers three questions, not one (D-65).** Campaign pause/resume and KB
+approve/reject collapsed "already in that state", "moved somewhere else" and "no such row"
+into a single 409. That lied in two directions — it told a reviewer that an already-approved
+source "is not awaiting approval" when their intended outcome had happened, and it answered
+409 for **another tenant's id**, i.e. confirmed a row exists that RLS makes invisible. Both
+now go through one `db/transition.py`, generalised from the boolean-flag version that already
+existed in `ingest` and `integrations` rather than invented beside it. A repeat approval
+writes nothing, so the approver and timestamp stay the FIRST reviewer's. Incidentally found:
+`set_campaign_status` was interpolating its from-statuses into SQL as string literals — bound
+parameters now; internal constants, so one refactor away from mattering rather than
+exploitable. The agent's first concurrency test PASSED under its own sabotage because the two
+coroutines never interleaved; it added an `asyncio.Barrier` and re-verified RED 3/3. That
+self-catch is the point of the discipline.
+
+**Two labels that named something other than what happened (D-62 follow-on).** `next_link_loop`
+was emitted for three distinct facts, so an operator reading it went looking for a pagination
+bug that often did not exist. It now splits: `next_link_loop` (the continuation URL genuinely
+repeats), `empty_page_with_next` (no executions, still offered a continuation — `pages_fetched
+== 1` distinguishes the empty FIRST page), and `next_link_no_progress` (a fresh link that
+re-served rows we already had). Fetch behaviour is deliberately unchanged; walking to the cap
+instead would report `page_cap_reached`, an even more misleading label. And `VariantResult.attributed`
+was `count(...) FILTER (WHERE c.status = 'completed')` — every assignment row IS attributed to an
+arm, so the number counted COMPLETED calls and `outbound_dialled - attributed` read as "could not
+attribute" when it meant "did not complete". Renamed to `completed`/`inbound_completed` (a
+breaking API rename; the frontend column header already said "Completed", which corroborated it).
+`attributed_directions` and `unattributed_inbound` were deliberately NOT renamed — those genuinely
+count attribution.
+
+**The setup fee stopped waiting for a human (D-64).** D-63 named this gap in its own docstring:
+the fee was recorded when a statement was RENDERED, and nothing renders statements on a schedule,
+so a tenant whose invoice nobody opened was never charged — through a GET with a side effect. Now
+a daily arq cron issues every owed fee and the GET is a pure read. `POST .../issue` was rejected:
+a button is still a human. Two traps found in the building: `arq.cron()` defaults `max_tries` to
+**1** and `WorkerSettings.max_tries` does not apply to a function carrying its own, so the mandated
+retry ladder would have been silently absent (passed explicitly, verified against a real `Worker`
+schedule); and the schedule must not pick the billing month — it is derived from the tenant's IST
+`created_at`, because arq evaluates cron against the worker's LOCAL clock and a billing decision
+cannot depend on a container's TZ.
+
+Its one real judgement call is recorded rather than buried: the cross-tenant scan runs under
+`admin_session()`, because the `engine_agent_routes` bridge other workers use is a SUBSET of this
+population (a tenant can owe an onboarding fee having never published an agent) and the alternative
+was making every client's commercial terms globally readable. The fencing is a SECURITY INVOKER
+plpgsql loop setting `app.tenant_id` per tenant — and it is load-bearing, not asserted: dropping
+that one line turns 6 of 22 tests red.
+
+**A measurement trap this session cost hours to, recorded so the next one does not pay it again:**
+`campaign_dispatch._tick_lease` is a platform-wide single-flight lease, so **parallel pytest sessions
+against the one Postgres produce false REDs on every dispatch test** — one session's tick takes the
+lease and the others' ticks correctly skip. Three agents saw the same seven failures and all three
+were contention. Any wave gate has to be a SERIAL run to mean anything.
+
+## §58 — the wave that asked what the docs were promising and nobody had built
+
+This wave was planned from a VERIFIED SURVEY rather than from the previous session's
+memory, and that changed what got built. The survey grep-checked every claim it made,
+and its first finding was that **the build log itself was partly stale**: the ROADMAP
+still said `save_intake_draft` had no route (it shipped in `60944da`), this file still
+said SEVEN `UNWIRED_BASELINE` entries when §57 left six, SURFACES still asked for a
+cost-runaway guard that exists, and TRD called admin MFA mandatory when no MFA code
+existed anywhere. Two of those four understated what was built; one was a security
+control that was simply absent. **Read the code before believing a doc, including this
+one** — that is now a demonstrated rule and not a maxim.
+
+**Nothing in this product wrote a plan row (D-66), and a suspended tenant kept dialling
+(D-67).** The second is the serious one. `organizations.status` had a five-value CHECK,
+was read by the health board, and was written by NOTHING — so no operator could suspend
+an account. Worse, `check_dispatch` — the one gate every outbound path calls — never read
+the column, so even once a status could be set, a suspended account would have kept
+placing calls. Both halves landed together because both live in the admin surface: terms
+are recorded INSERT-only through the existing `plan_in_effect_sql`, and the absence of
+terms is surfaced as a state an operator must clear rather than papered over with a seeded
+all-NULL row that every reader already treats as no row at all.
+
+**Admin-realm MFA now exists, and the sabotage is what proves it is not theatre (D-68).**
+With the backend check removed and the UI gate left fully intact, the frontend suite stayed
+GREEN while four backend tests went red — including the big red switch actually going
+through. The gate lives in `verify_token` so that "an admin token" and "an admin token that
+passed MFA" are the same object across ~60 route declarations. `X-Confirm-Action` was kept
+rather than superseded: MFA proves WHO holds the session once per 12h, the header proves
+WHICH ACT on WHICH TARGET per request, and a fully MFA'd session is exactly what a tab left
+open on an unlocked laptop is.
+
+**The repo could not be deployed at all (D-69).** `DEPLOYMENT.md` named
+`scripts/vps-deploy.sh` as the deploy mechanism and the file did not exist; no nginx config,
+no Dockerfile, no deploy job. Building it also resolved a self-contradiction in the doc
+(§2 "Python is NOT needed on the host" against §4.7 running alembic on the host) in favour
+of containerised migrations, and closing the drift guard's `DEFERRED_MIRRORS` entry ARMED a
+comparator that had been written and idle: it can now refuse a rate-zone disagreement
+between the doc and the template.
+
+**The engine could not read an agent back (T), which was quietly blocking two pilot gates.**
+`VoiceEngine` had `create_agent` and `update_agent` and nothing that reads. Gate 2 could
+therefore only ever score ACCEPTED, never APPLIED, and D-41's dangling-`rag_id` question was
+unanswerable through the adapter. Both are now instrumented — and instrumented HONESTLY:
+Bolna's hosted docs are blocked by this environment's egress proxy, so three separate
+assumptions are marked in the adapter, and the design is TRI-STATE. An unrecognised response
+shape yields `knowledge_base_refs_readable=False`, which scores INCONCLUSIVE — never "the
+reference was cleared". D-41 stays a pilot gate rather than becoming a guess wearing a
+finding's clothes.
+
+**The DPDP subject-rights endpoints were fully built and no screen called them (U).** Export,
+file-erasure and status were mounted, audited, worker-backed and producing proof certificates,
+with zero frontend callers — so a client exercising a data principal's rights did it by curl.
+The screen hands the export document to the caller as a FILE and never paints it into a
+console that gets screen-shared.
+
+**Three things the wave found and did not fix**, recorded so they are not rediscovered:
+`POST /v1/compliance/subject-export` has no `response_model`, so it is typed as a free dict
+AND is structurally invisible to the redaction guardrail — on the one endpoint whose payload
+is a named human being. There is no list endpoint for deletion requests, so a client who
+closes the tab loses the handle on an in-flight legal obligation. And
+`voice-runtime/engine_intake.py::client_ip` takes the LEFTMOST `X-Forwarded-For` entry, which
+is caller-controlled; Cloudflare appends rather than replaces. That is the whole authenticity
+control for an unsigned engine (hard rule 3), currently safe only because the origin lock
+guarantees `CF-Connecting-IP` is present.
+
+**A coordination lesson, and a near miss.** An agent ran `git stash push --keep-index` while
+four other agents had uncommitted work in the same tree. It popped immediately and nothing
+was lost — verified, not assumed — but it was one `git checkout` from destroying a wave.
+Subagents get read-only git and nothing else. Separately, CI's coverage ratchet caught six
+untested defensive branches in §57's new `db/transition.py` that the local gate had skipped,
+because the ratchet needs both stores empty and agents were using them. The budget was NOT
+raised; the branches were covered. A shortcut around a gate is a decision to let a later gate
+find it.
+
+## §59 — the wave where the guardrails got better, not just the code
+
+Five slices, all from the previous wave's verified findings rather than from a fresh guess.
+Three of them improved an EXISTING guard rather than only adding features, which is the
+pattern worth noticing: a guard that cannot see a thing is worse than no guard, because it
+reads as coverage.
+
+**The source-IP allowlist could be fed a caller-controlled address (D-70).** `client_ip`
+took the LEFTMOST `X-Forwarded-For` entry, which is caller input by construction, and
+Cloudflare appends rather than replaces. This is the ENTIRE authenticity control for an
+unsigned engine. It was safe only because the origin lock made `CF-Connecting-IP` always
+present — a property of the edge, not of the code, and exactly the kind of margin that
+disappears when somebody adds a proxy. Now: one header, from one trusted hop, refuse
+otherwise. The slice also closed a hole nobody had named — the origin lock allows
+`127.0.0.1` for deploy health polls, so an on-box process could POST a forged
+`CF-Connecting-IP`; nginx now WRITES that header rather than passing it through.
+
+**A guardrail exception was all-or-nothing, and the one endpoint that most needed
+examining was exempt by accident (D-71).** `subject-export` returned `dict[str, Any]`, so
+`check_redaction_exposure` — which inspects response MODELS — could not see it at all, on
+the one payload in this product that is an entire named human being. Rather than just
+adding a model, the slice made `ALLOWED_ROUTES` entries field-scoped: a route can now be
+excused for `phone_e164` and still have every other field walked. The three pre-existing
+entries keep byte-identical behaviour. Proven, not asserted: adding `to_e164` to a call
+model is reported, and narrowing the field set makes both phone fields reappear.
+
+**Two hand-maintained column lists disagreed (D-72).** The leads screen and the CSV export
+each had their own; the file carried `source`/`created_at` and the screen carried
+`owner`/`updated_at`. One registry now serves both, so the mirroring is structural rather
+than promised — and the formula-injection guard from §54 is tested against EVERY selectable
+column rather than against a list of interesting ones. The safety call worth remembering is
+the asymmetry: an unknown COLUMN key degrades (it narrows) but an unknown FILTER key is a
+422, because dropping a filter WIDENS the set on the one route that emits unmasked numbers.
+
+**The QA report existed only as a CLI, and the sampling queue not at all (D-73).** Both
+shipped, with the anti-fork rule enforced by a test that parses the numbers back out of the
+CLI's rendered Markdown and compares them with the live route — the two documents a client
+can actually hold. The sample is a keyed hash with its seed, rank and FRAME stored, because
+a sample nobody can re-derive is not evidence and "we sample 5%" is unfalsifiable without
+the population it was drawn from.
+
+**Three endpoints existed and no screen called them.** DLT registration (a client whose
+campaigns are being refused could not see why), Sheets endpoint creation plus the event
+catalogue, and the voice catalogue. Wiring them surfaced a latent rendering bug — the
+endpoint list would have printed `key ···null` for every Sheets endpoint a client created —
+and a real gap: an agent's current voice CANNOT BE READ at all, so the picker sets without
+displaying and nothing is pre-selected rather than showing a guess.
+
+**What the OpenAPI regen caught, which is the argument for doing it centrally.** Four
+slices left clearly-marked temporary types; swapping them for the generated ones was not
+cosmetic. `CommercialTermsIn`'s ceilings are OPTIONAL on the wire while the hand mirror
+declared them required-and-nullable — and reading an absent ceiling as "not a loosening"
+would have let a cap raise reach the server without its step-up confirmation. `QaReport`'s
+two lists are optional for the same reason. A hand-written mirror is a claim about the
+server that nothing checks, and it fails in whichever direction the author assumed.
+
+**An operational note that cost time.** `make db-reset` cannot complete on a machine whose
+Postgres cluster holds other Calevate databases: `alembic downgrade base` drops the
+`calevate_app` ROLE, roles are cluster-wide, and the drop fails on dependent objects — but
+only AFTER partially downgrading, which leaves the dev database mid-chain and produces
+failures that look like code defects (`column "has_due_schedule" does not exist`). Use a
+fresh scratch database instead: `createdb`, `alembic upgrade head`, seed, and point
+`DATABASE_URL` at it. The coverage ratchet needs exactly that state anyway, and it will
+REFUSE to score rather than report a number it cannot vouch for.
+
+## §60 — the two findings the last wave reported and did not fix
+
+A small, deliberate wave: the three defects §59's agents surfaced and correctly declined
+to fix out of scope. Both slices came back having found that the stated defect was the
+smaller half of the real one.
+
+**The voice picker could set and not display — because the thing to display was TWO
+things (D-74).** `set_agent_voice` writes our row and never touches the engine, so a
+published agent is CONFIGURED for one voice and SPEAKING another until the next publish.
+Nothing in the schema held the second answer, so `republish_required` was computed as
+`published` — an assumption that is right the first time and wrong every time after,
+including when an operator re-selects the voice the engine is already running. Adding a
+single `tts_voice` to `AgentOut` would have closed the reported gap and shipped a screen
+that states a wrong fact confidently, which is worse than the honest blank it replaced.
+`live_tts_voice` mirrors `live_prompt_id`, `publish_agent` is its single writer and
+records what it actually SENT after the vendor call, and the picker now shows **Callers
+hear now** beside **Configured**.
+
+Its no-backfill decision is the one to remember: `live_tts_voice := tts_voice` would tell
+a client their callers already hear the new voice, which is exactly the false claim the
+column exists to prevent.
+
+**The event catalogue was an untyped dict, and the Sheets capability did not exist
+(D-75).** Both are the same defect as D-71's `dict[str, Any]` one level down: a response
+the generated client cannot describe is a response nothing checks. What is worth keeping
+from this slice is what it REFUSED to do. It did not narrow `events` to the `EventName`
+literal, because the union is what this build can REQUEST and the server's list is what
+the deployment OFFERS — narrowing makes that gap unrepresentable and turns a deployment
+that adds an event into a 500 out of response validation. And it did not delete the
+frontend's hard failure on a malformed body once the types made it "unnecessary": a 200
+missing `sheets_delivery_available` would render "Sheets is not switched on for your
+account", which is our ignorance printed as one of the server's two answers.
+
+**The capability is a hint, never the gate**, and that is pinned by a test that reads the
+capability as true, flips the setting, and asserts the create is still refused with zero
+rows written. A screen is allowed to be optimistic and wrong; it is not allowed to be the
+check.
+
+**Two questions surfaced and deliberately left open**, recorded in ROADMAP §6 above the
+decision table rather than settled by an agent: SURFACES §2b lists the voice on the
+IMMEDIATE lane and `set_agent_voice` does not publish, so no agent obeys the lane table;
+and `publish_variant` sends the CONFIGURED voice to experiment arms, so starting an
+experiment can move traffic while the mirror still says "republish required". The second
+over-reports, which is the safe direction. Neither blocks anything today, and both need a
+decision rather than a patch — what this wave fixed is that the state was previously
+unobservable, so nobody could see which side of the lane a given agent was on.
+
+`docs/DATA-MODEL.md` §3's `agents` block gained the four columns it had been missing —
+`live_prompt_id`, `live_tts_voice`, `live_tts_provider` and `max_call_duration_s`. Only
+the last two are this wave's; documenting just those would have made the older drift look
+intentional. No guard enforces that block, which is why it drifted.
+
+## §61 — four slices, and the two that were most valuable for what they refused
+
+The largest wave so far by surface area, and the two results worth reading first are a
+refutation and a self-caught test.
+
+**A finding was REFUTED, on compliance grounds (AH).** D-65 named DLT template status as
+an unaudited transition. It is not a defect: constraining it to `from_statuses` would make
+`approved → rejected` — a registrar WITHDRAWING a template — unrecordable, and
+`launch_blockers` would go on reading `approved` for a pulled template. That is a gate
+going stale-green, and there is already a test pinning the move. The repeat audit row
+there is also correct rather than the D-65 defect, because that endpoint records an
+EXTERNAL OBSERVATION: a repeat means "I re-checked with the registrar and it still says
+submitted", and `dlt_templates` has no column to hold that, so the audit row is the only
+record of the re-verification. The reasoning is now a docstring so the next sweep does not
+re-audit it.
+
+Experiment conclude WAS a real defect and is fixed: one 409 answered all three questions.
+It now answers 404 for absent or cross-tenant, an idempotent 200 for a repeat (no second
+promotion, no second engine push, no second audit row), and a 409 naming the ending found.
+
+**An agent's own sabotage passed, and it treated that as a finding (AG).** Leaking one
+tenant's flag override to another initially went GREEN, because the cross-tenant probe only
+ran in the direction where neither tenant had rows. It added the observable direction — A's
+own session, which CAN see A's override, then asked about B — and got the RED. That
+assertion is now permanent. A sabotage that passes is information, not an inconvenience.
+
+**The feature-flag slice is mostly an argument about what NOT to build.** This repo already
+had four flag-shaped mechanisms, and the fifth had to say which of them it was not
+replacing. The one that matters: the build-time constants `PROVIDER_CREATES_ORDERS`,
+`LEAD_RETRIEVAL_IMPLEMENTED` and `PROVISIONING_IMPLEMENTED` mean "no adapter exists", and a
+row cannot make unwritten code exist — migrating them would let someone flip on a lie. The
+recommendation is that none of the four move. A flag may also never gate a compliance
+control, which is hard rule 5 restated with better manners and pinned by a test.
+
+**Lead status was never using the discriminator, and that had cost three things (AE).** A
+second click wrote a second `status_change` TIMELINE ROW claiming a change that never
+happened; a no-op edit bumped `updated_at`, this table's sort key, so the client's list
+re-ordered under them for nothing; and a soft-deleted lead's 404 was a coincidence rather
+than a statement. `transition_status` gained `visible_where`, applied to BOTH the CAS and
+the discriminating SELECT — applied to only one, a soft-deleted row would answer 409 naming
+a status the caller may not know it has.
+
+Bulk delete was considered and rejected on DPDP grounds: `deleted_at` only hides a row, so
+the button would teach a client they had answered an erasure request when they had not.
+
+**Recurrence is conservative in the directions that ring phones (AF).** A missed occurrence
+is skipped rather than caught up, bounded at an hour — a worker down for three days comes
+back to one upcoming run, not three at once. A repeat repeats the START and not the
+dialling, because re-dialling reached subscribers is a different act from the one the client
+scheduled. And `launch_campaign` kept its own CAS while borrowing D-65's discriminator,
+because launch is NOT idempotent: it scrubs DNC, stamps `launched_at` and writes an
+append-only row.
+
+**What the central OpenAPI regen caught this time**, continuing the pattern: `LeadBulkOut.failures`
+is OPTIONAL on the wire, so `result.failures.length` would have rendered an ABSENT list as
+"nothing failed". The count now comes from the server's own invariant
+(`changed + unchanged + len(failures) == requested`) rather than from the array, so a batch
+that failed silently still says so. And `FeatureFlagIn.enabled` is optional, where an omitted
+field means the same as an explicit null — clear the override — which the screen's `=== null`
+test would have sent down the override branch.
+
+**Carried, reported and not fixed:** `experiments.conclude` is keyed on the AGENT rather than
+the experiment, so a stale retry arriving after a NEW test started would conclude the new
+test. Fixing it moves the request shape and the console, so it wants its own slice.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and
@@ -2453,8 +2892,9 @@ is honest at the surface rather than silent in a worker:
   endpoint creation while no service account exists.
 - **Meta Lead Ads field retrieval.** Intake is native; the Graph read that carries the form
   answers needs a Page token this deployment does not hold.
-- **`redact_trace_payload`.** The hard-rule-6 hook shape, kept, with a docstring saying
-  plainly that nothing calls it.
+- ~~**`redact_trace_payload`.**~~ No longer inert and no longer present: it was DELETED
+  (D-61) once the audit found that hard rule 6 was being broken on the tracing path by the
+  OTel SDK's own exception events. Redaction is now automatic in `_RedactingSpanExporter`.
 - **`kb_retrieval_logs`.** No producer, and cannot have one until the engine reports a
   retrieval — three of its columns are the dated deferrals in `UNWIRED_BASELINE`.
 - **`inbound_webhooks` rows**, still provisioned out of band because nothing writes them.
@@ -2462,7 +2902,8 @@ is honest at the surface rather than silent in a worker:
   code, so this is a business switch rather than a blocked one.
 - **`plans.overage_rate_value`**, present and NULL on every plan until a retail number is
   decided.
-- The remaining seven entries of `UNWIRED_BASELINE`, each keyed per column and each naming
+- The remaining SIX entries of `UNWIRED_BASELINE` (this line said seven until §58; §57
+  closed three of nine and the prose was not updated with them), each keyed per column and each naming
   what closes it. The list may only shrink; the guard fails if an entry no longer holds.
 
 **Deliberately NOT built, with what would change it.** No vector infrastructure of ours

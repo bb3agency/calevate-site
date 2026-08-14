@@ -21,13 +21,27 @@ DELIVERY_DIRECTIONS = ("in", "out")
 
 class InboundWebhook(PKMixin, TimestampMixin, Base):
     __tablename__ = "inbound_webhooks"
-    __table_args__ = (CheckConstraint(f"source IN {INBOUND_SOURCES!r}", name="source_enum"),)
+    __table_args__ = (
+        CheckConstraint(f"source IN {INBOUND_SOURCES!r}", name="source_enum"),
+        # The retiring secret and its deadline are one fact (migration a1c7d4e93b02):
+        # a previous secret with no expiry never dies, an expiry with no secret is a
+        # window onto nothing.
+        CheckConstraint(
+            "(previous_secret_ref IS NULL) = (previous_secret_expires_at IS NULL)",
+            name="previous_secret_paired",
+        ),
+    )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     source: Mapped[str] = mapped_column(String, nullable=False)
     secret_ref: Mapped[str] = mapped_column(Text, nullable=False)  # secrets-manager ref, never raw
+    # The secret this one replaced, honoured until `previous_secret_expires_at` so a
+    # rotation does not 401 every submission a client has not finished re-pasting yet
+    # (ingest/service.py `accepted_secrets`). Bounded by construction: nothing renews it.
+    previous_secret_ref: Mapped[str | None] = mapped_column(Text)
+    previous_secret_expires_at: Mapped[datetime | None] = mapped_column()
     agent_id: Mapped[UUID | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
     mapping: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")

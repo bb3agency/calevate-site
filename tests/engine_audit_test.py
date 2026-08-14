@@ -48,8 +48,11 @@ from calevate_shared.config import (
     parse_source_ip_allowlist,
 )
 from calevate_shared.engine import (
+    AgentConfig,
+    AgentSnapshot,
     CallContext,
     CostBreakdown,
+    ExecutionListing,
     ExecutionSnapshot,
     VoiceEngine,
     WebhookVerdict,
@@ -99,12 +102,19 @@ async def _conformance_failures(engine: VoiceEngine) -> list[str]:
     considers this adapter conformant.
     """
     suite = _suite()
+    fixtures = _suite_fixtures()
     failures: list[str] = []
     for name, fn in vars(suite).items():
         if not name.startswith("test_") or not inspect.iscoroutinefunction(fn):
             continue
+        # A clause may ask for the adapter in a particular STATE — `saturated_engine` is
+        # one whose listing has been driven to a full page. The parameter name is how the
+        # suite says so to pytest, so it is how this harness reads it too; a clause whose
+        # setup this loop cannot perform is a clause no saboteur below can ever fail.
+        wants = next(iter(inspect.signature(fn).parameters), "engine")
+        subject = fixtures.saturated(engine) if wants == "saturated_engine" else engine
         try:
-            await fn(engine)
+            await fn(subject)
         except AssertionError:
             failures.append(name)
         except Exception as exc:  # a crash is a caught divergence too
@@ -137,11 +147,16 @@ class _DropsAgentRef(FakeEngine):
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:
         return (await super().get_execution(call_id)).model_copy(update={"engine_agent_ref": None})
 
-    async def list_executions(self, *, since: Any) -> list[ExecutionSnapshot]:
-        return [
-            snapshot.model_copy(update={"engine_agent_ref": None})
-            for snapshot in await super().list_executions(since=since)
-        ]
+    async def list_executions(self, *, since: Any) -> ExecutionListing:
+        listing = await super().list_executions(since=since)
+        return listing.model_copy(
+            update={
+                "snapshots": [
+                    snapshot.model_copy(update={"engine_agent_ref": None})
+                    for snapshot in listing.snapshots
+                ]
+            }
+        )
 
 
 class _UnstampedCost(FakeEngine):
@@ -202,7 +217,58 @@ class _ForgetsRawStatus(FakeEngine):
         return super().parse_webhook(payload).model_copy(update={"raw_status": None})
 
 
+class _EchoesTheLastWrite(FakeEngine):
+    """A read-back that returns whatever was written LAST, for any agent asked about.
+
+    The defect that makes `get_agent` worthless while looking like it works: it agrees
+    with the caller by construction, so gate 2 would score every prompt update APPLIED —
+    including one the vendor silently dropped — and would score it APPLIED for agents
+    that were never touched. This is the reason the conformance clause reads TWO agents
+    back instead of one; against a single agent, an echo and a real read-back are
+    indistinguishable.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        # The audit harness re-constructs a saboteur to reach the saturated-listing
+        # clause (`conftest.saturated`), so the base engine's kwargs must pass through.
+        super().__init__(**kwargs)
+        self._last_write: AgentConfig | None = None
+
+    async def create_agent(self, cfg: AgentConfig) -> str:
+        self._last_write = cfg
+        return await super().create_agent(cfg)
+
+    async def update_agent(self, ref: str, cfg: AgentConfig) -> None:
+        self._last_write = cfg
+        await super().update_agent(ref, cfg)
+
+    async def get_agent(self, ref: str) -> AgentSnapshot:
+        snapshot = await super().get_agent(ref)
+        if self._last_write is None:
+            return snapshot
+        sent = self._last_write
+        return snapshot.model_copy(
+            update={"system_prompt": f"{sent.disclosure_line}\n\n{sent.system_prompt}"}
+        )
+
+
+class _ClaimsToReadKbRefsAndReadsNone(FakeEngine):
+    """Reports `knowledge_base_refs_readable=True` with an empty list.
+
+    D-41's failure mode in one line: "the agent references nothing" is a claim, and an
+    adapter that makes it without looking closes the dangling-`rag_id` question in the
+    direction that adds no work to our code. Declining (`readable=False`) is conformant;
+    a confident empty answer is not.
+    """
+
+    async def get_agent(self, ref: str) -> AgentSnapshot:
+        snapshot = await super().get_agent(ref)
+        return snapshot.model_copy(update={"knowledge_base_refs": []})
+
+
 SABOTEURS: dict[str, Callable[[], VoiceEngine]] = {
+    "agent-read-back-echoes-the-last-write": _EchoesTheLastWrite,
+    "claims-to-read-kb-refs-and-reads-none": _ClaimsToReadKbRefsAndReadsNone,
     "accepts-any-source-ip": _AcceptsAnySource,
     "drops-engine-agent-ref": _DropsAgentRef,
     "cost-without-fx-stamp": _UnstampedCost,

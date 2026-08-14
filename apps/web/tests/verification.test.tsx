@@ -2,6 +2,7 @@ import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import VerificationPage from "@/app/c/[slug]/verification/page";
+import { PE_REGISTRATION_PATH, type PeRegistration } from "@/lib/api/dltRegistration";
 import { KYC_PATH, type KycRecord } from "@/lib/api/kyc";
 
 import { problem, renderClientPage } from "./harness";
@@ -58,6 +59,25 @@ const NOTHING_ON_FILE: KycRecord = record({
   submitted_at: null,
 });
 
+/**
+ * The DLT half of the screen, answering 200 with an ACTIVE registration.
+ *
+ * Present in every route table below because the screen now makes two independent reads
+ * and the harness throws on an unrouted one. Active on purpose: these cases are about the
+ * KYC half, and a blocked DLT registration would add a second verdict box to every
+ * assertion about what the screen says.
+ */
+const PE_ACTIVE: PeRegistration = {
+  recorded: true,
+  status: "active",
+  tm_link_status: "active",
+  pe_id: "1101234567890123456",
+  entity_name: "Sri Clinic Pvt Ltd",
+  registered_at: "2026-01-05T06:00:00Z",
+  verified_at: "2026-02-01T06:00:00Z",
+  is_active: true,
+};
+
 const SCREEN = /Indian telecom rules/;
 
 describe("the verification gate under failure", () => {
@@ -70,6 +90,7 @@ describe("the verification gate under failure", () => {
         title: "Service unavailable",
         detail: "We could not read your verification.",
       }),
+      [PE_REGISTRATION_PATH]: PE_ACTIVE,
     });
 
     expect(await screen.findByRole("alert")).toBeTruthy();
@@ -88,6 +109,7 @@ describe("the verification gate under failure", () => {
     // one-character edit that leaves a blocked client reloading the browser.
     const { container } = await renderClientPage(<VerificationPage />, {
       [KYC_PATH]: problem(503, { title: "Service unavailable", retryable: true }),
+      [PE_REGISTRATION_PATH]: PE_ACTIVE,
     });
 
     const alert = await screen.findByRole("alert");
@@ -101,6 +123,7 @@ describe("the verification gate under failure", () => {
     // server's own selector for the third, and it is false for every account today.
     const { container } = await renderClientPage(<VerificationPage />, {
       [KYC_PATH]: record(),
+      [PE_REGISTRATION_PATH]: PE_ACTIVE,
     });
 
     await screen.findByText(SCREEN);
@@ -119,6 +142,7 @@ describe("the verification gate under failure", () => {
     // dropped rather than dashed, and the status label prints what is filed.
     const { container } = await renderClientPage(<VerificationPage />, {
       [KYC_PATH]: NOTHING_ON_FILE,
+      [PE_REGISTRATION_PATH]: PE_ACTIVE,
     });
 
     await screen.findByText(SCREEN);
@@ -138,6 +162,7 @@ describe("the verification gate under failure", () => {
     // whose only outcome is an error costs the client a support ticket.
     const { container } = await renderClientPage(<VerificationPage />, {
       [KYC_PATH]: record({ status: "verified", is_verified: true, verified_at: "2026-03-01T06:00:00Z" }),
+      [PE_REGISTRATION_PATH]: PE_ACTIVE,
     });
 
     await screen.findByText(SCREEN);

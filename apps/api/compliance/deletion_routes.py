@@ -29,6 +29,10 @@ Four shapes worth explaining before someone "tidies" them:
   mutating permissions to an impersonating admin is the feature rather than the
   obstacle — is in `compliance/deletion.py`'s docstring, next to the rest of the
   design.
+- **The LIST carries hashes, never numbers.** `GET ""` exists because a request reachable
+  only by its opaque id is an obligation a client loses the handle on the moment they
+  close the tab. It is the one read on this surface that returns many subjects at once,
+  which is exactly why it does not select `phone_e164` — see the route's own docstring.
 - **A duplicate is a 200, not a 409.** The caller's intent, "erase this person", is
   already satisfied by the request in flight; an error would tell a support agent that
   something went wrong when nothing did. `already_open` is on the body so a typed client
@@ -48,7 +52,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -187,6 +191,26 @@ class DeletionRequestAcceptedOut(DeletionRequestOut):
     already_open: bool
 
 
+class DeletionRequestSummaryOut(Strict):
+    """One row of the index — what the client needs to FIND a request again, and nothing
+    else. The docstring on the route below says what is excluded and why.
+
+    `has_certificate` rather than the certificate itself: the list exists to hand back a
+    handle, and shipping every proof on the account to render an index would make the
+    cheapest read on this surface the largest. It is a separate field rather than inferred
+    from `status` because "completed with no proof recorded" is a real state the screen
+    must be able to warn about (`deletion_routes` has always modelled `proof` as
+    nullable), and a list that inferred it would hide exactly that case.
+    """
+
+    request_id: UUID
+    subject_ref: str
+    status: Literal["pending", "completed"]
+    requested_at: datetime
+    completed_at: datetime | None
+    has_certificate: bool
+
+
 def _out(record: deletion.DeletionRequestRecord) -> dict[str, Any]:
     # The stored proof is RENDERED, never handed over raw. Two reasons: a raw row
     # validated against `ErasureProofOut` (extra="forbid") turns the day a worker records
@@ -260,6 +284,62 @@ async def request_erasure(
 
 
 @router.get(
+    "",
+    response_model=list[DeletionRequestSummaryOut],
+    openapi_extra=permission_meta("org:read"),
+    summary="Every erasure request this account has filed — hashes and timestamps only",
+)
+async def list_requests(
+    session: Session,
+    _: StatusReader,
+    limit: int = Query(default=100, ge=1, le=deletion.MAX_LIST),
+) -> list[DeletionRequestSummaryOut]:
+    """The account's own register of erasure obligations, newest first.
+
+    Without it a filed request was reachable only by its opaque id, so closing the tab
+    lost the handle on an in-flight legal obligation with a statutory clock on it.
+
+    **What this returns and what it deliberately does not.** Data minimisation is the
+    whole subject of the feature, so the list is the narrowest thing that answers "which
+    erasures do I owe an answer on, and which are done?":
+
+    - `request_id`, `requested_at`, `completed_at`, `status` — the handle and the clock.
+    - `has_certificate` — whether the proof exists yet, so the screen can distinguish
+      "done, here is the document" from "marked done with no proof recorded", which is
+      the one state on this surface a client must not report to a data principal as
+      finished.
+    - `subject_ref` — the hash, because a client with several erasures in flight needs to
+      tell one row from another and match it to their own case file. It is pseudonymous
+      rather than anonymous (`deletion.list_requests` says why), which is precisely why it
+      is here and the number is not.
+    - **NOT `phone_e164`.** An open row still holds the number so the worker can find the
+      subject; returning it in a LIST would hand back every number this account has been
+      asked to erase in one read — an index of the people who exercised the right, which
+      is the inverse of what the right is for (hard rule 6). The column is not selected
+      at all.
+    - **NOT the proof certificate.** It is available per request from the read below; an
+      index that carried every certificate would make the cheapest read the largest.
+
+    `org:read`, matching the single-request read: this discloses no personal data, and an
+    admin who may not *cause* an erasure (D-22 refuses `org:manage` while impersonating)
+    should still be able to confirm one. Read-as, never act-as.
+    """
+    return [
+        DeletionRequestSummaryOut(
+            request_id=summary.id,
+            subject_ref=summary.subject_ref,
+            # `status` is a Literal on the model and a plain string on the record: the
+            # model is the boundary that proves the two spellings still agree.
+            status="pending" if summary.status == deletion.STATUS_PENDING else "completed",
+            requested_at=summary.requested_at,
+            completed_at=summary.completed_at,
+            has_certificate=summary.has_certificate,
+        )
+        for summary in await deletion.list_requests(session, limit=limit)
+    ]
+
+
+@router.get(
     "/{request_id}",
     response_model=DeletionRequestOut,
     openapi_extra=permission_meta("org:read"),
@@ -283,6 +363,7 @@ __all__ = [
     "DeletionRequestAcceptedOut",
     "DeletionRequestIn",
     "DeletionRequestOut",
+    "DeletionRequestSummaryOut",
     "ErasureLimitationOut",
     "ErasureProofOut",
     "ErasureScopeOut",

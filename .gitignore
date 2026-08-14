@@ -45,3 +45,10 @@ htmlcov/
 
 # Local Redis snapshot — a runtime artifact of the dev redis-server, never source.
 dump.rdb
+
+# What `scripts/vps-deploy.sh` remembers about a HOST: the SHA last deployed there and
+# the deploy history. Per-host state, not source — committing it would make one machine's
+# history the whole fleet's, and the script's change detection would then diff against
+# whatever the last committer's box happened to be running.
+.deploy-state/
+

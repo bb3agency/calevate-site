@@ -22,8 +22,12 @@ registration can lapse. `dispatch_blockers` asks that subset again, under the SA
 names, once per campaign per dispatch tick — see its docstring for why `check_dispatch`
 structurally cannot.
 
-State transitions are CAS (BACKEND-PATTERNS §5): `rowcount == 0` means someone else
-moved the row first, reported as INVALID_STATUS_TRANSITION, never silently retried.
+State transitions are CAS (BACKEND-PATTERNS §5) and go through
+`db.transition.transition_status`, which turns `rowcount == 0` into the three answers it
+actually stands for: the campaign already holds the requested status (success — the
+second click is the same request), it moved to a DIFFERENT status (409
+INVALID_STATUS_TRANSITION, naming what was found), or no visible campaign has that id
+(404). Never silently retried, and never a read-then-write.
 """
 
 from __future__ import annotations
@@ -45,6 +49,7 @@ from apps.api.compliance.service import (
     DEFAULT_WINDOW,
     NO_CREDITS_REASON,
     SPEND_CAP_REASON,
+    account_stopped_blocker,
     credits_exhausted,
     first_campaign_hold_blocker,
     kyc_blocker,
@@ -54,6 +59,7 @@ from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
+from apps.api.db.transition import transition_status
 from apps.api.ingest.service import normalize_phone
 from apps.api.ops.service import TM_REGISTRATION_MISSING_REASON, read_tm_registration
 
@@ -474,15 +480,25 @@ async def add_contacts(
     contacts: list[dict[str, Any]],
 ) -> dict[str, int]:
     """CSV rows → contact rows. Dedupe inside the upload AND against the campaign
-    (UNIQUE(campaign_id, phone)); malformed numbers are counted, never guessed at."""
+    (UNIQUE(campaign_id, phone)); malformed numbers are counted, never guessed at.
+
+    `scheduled` is accepted alongside `draft` because both are PRE-LAUNCH states — a
+    campaign waiting for Monday has not dialled anyone, and refusing its contact upload
+    would leave the client's only route "cancel the schedule, upload, re-pick the date".
+    It is the same pairing `declare_consent_provenance` and `launch_blockers` already
+    use. What stays refused is everything from `running` on: contacts appearing under a
+    campaign mid-dial would move the "N people will be called" number the client
+    confirmed at launch.
+    """
     status = (
         await session.execute(
             text("SELECT status FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
         )
     ).scalar()
-    if status != "draft":
+    if status not in ("draft", "scheduled"):
         raise ProblemError.business_rule(
-            "campaign_not_draft", "Contacts can only be added to a draft campaign."
+            "campaign_not_draft",
+            "Contacts can only be added before a campaign is launched.",
         )
 
     added, malformed, duplicate = 0, 0, 0
@@ -694,7 +710,13 @@ async def launch_blockers(
     blockers.extend(await _entity_blockers(session, tenant_id=tenant_id, facts=facts))
 
     # Tenant-level refusals, asked with the same functions the dial-time gate uses.
-    # KYC first, for the reason `check_dispatch` orders it first: telling an unverified
+    # The ACCOUNT's own lifecycle state first, because it outranks every other tenant
+    # refusal: telling a suspended client to top up or to file a document is advice they
+    # cannot act on. `check_dispatch` orders it first for the same reason.
+    stopped = await account_stopped_blocker(session, tenant_id=tenant_id)
+    if stopped is not None:
+        blockers.append(LaunchBlocker(*stopped))
+    # KYC next, for the reason `check_dispatch` orders it before the money: telling an unverified
     # account to top up when topping up will not let them dial is a worse answer than
     # no answer. Not in `_entity_blockers` despite being an entity question, because
     # that helper is shared with `dispatch_blockers` and `check_dispatch` already asks
@@ -748,6 +770,28 @@ async def launch_blockers(
     return blockers
 
 
+async def _why_not_launchable(session: AsyncSession, campaign_id: UUID) -> ProblemError:
+    """The launch CAS affected no rows. Which of the two facts was it?
+
+    D-65's discriminator, borrowed rather than delegated to (see `launch_campaign`): the
+    CAS has already run and written nothing, and this read exists only to name the state
+    it found. It cannot reintroduce a read-then-write race because it runs after the
+    write and decides nothing but the wording.
+
+    Returns the error rather than raising it, so the caller's `raise` stays visible at
+    the call site — the shape `scheduling._why_not_schedulable` already uses.
+    """
+    status = (
+        await session.execute(
+            text("SELECT status FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+        )
+    ).scalar()
+    if status is None:
+        # Absent, or another tenant's — RLS makes those the same answer on purpose.
+        return ProblemError.not_found("Campaign")
+    return InvalidStatusTransitionError("campaign", str(status), "running")
+
+
 async def launch_campaign(
     session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
 ) -> dict[str, Any]:
@@ -756,6 +800,22 @@ async def launch_campaign(
     Scrub-at-launch marks known-DNC contacts terminally, so the "N contacts will be
     dialled" number the client confirms is true. The per-dial re-check still runs —
     this is UX honesty, not the enforcement.
+
+    **The CAS is NOT `db.transition.transition_status`, and that is a decision rather
+    than an oversight (D-65 left this one open).** That helper answers "already in the
+    target state" with SUCCESS, which is right for pause/resume and wrong here: launching
+    is not idempotent. It scrubs the DNC list, stamps `launched_at`, and both callers
+    write a `campaign.launched` row into an append-only ledger and count a start on the
+    strength of the return value. A loser that reported success — the tick whose gate read
+    happened before the winner committed — would put a SECOND launch in the audit trail
+    for one campaign and a phantom start in the dispatch tick's count, which is exactly
+    what `tests/campaign_schedule_test.py`'s two-tick test measures.
+
+    What D-65 is actually about is the ERROR NAMING THE STATE IT FOUND, and that part is
+    adopted here: `_why_not_launchable` runs the same CAS-first-then-a-write-free-SELECT
+    discriminator, so a lost race says `paused`, `cancelled` or `running` instead of the
+    place-holder "non-draft" this used to raise, and an id no visible campaign has is a
+    404 rather than a 409 asserting a row exists.
     """
     blockers = await launch_blockers(session, tenant_id=tenant_id, campaign_id=campaign_id)
     if blockers:
@@ -785,7 +845,7 @@ async def launch_campaign(
         {"cid": campaign_id},
     )
     if rowcount_of(result) == 0:
-        raise InvalidStatusTransitionError("campaign", "non-draft", "running")
+        raise await _why_not_launchable(session, campaign_id)
 
     dialable = (
         await session.execute(
@@ -813,18 +873,31 @@ async def launch_campaign(
 
 async def set_campaign_status(
     session: AsyncSession, *, campaign_id: UUID, to_status: str, from_statuses: tuple[str, ...]
-) -> None:
-    """pause/resume/cancel — all the same CAS shape."""
-    placeholders = ", ".join(f"'{s}'" for s in from_statuses)
-    result = await session.execute(
-        text(
-            f"UPDATE campaigns SET status = :to, updated_at = now() "
-            f"WHERE id = :cid AND status IN ({placeholders})"
-        ),
-        {"to": to_status, "cid": campaign_id},
+) -> bool:
+    """pause/resume/cancel — all the same CAS shape. True when THIS call moved the row.
+
+    The three answers are `db.transition.transition_status`'s, not this function's:
+    already-in-`to_status` is a success (False), a different state is a 409 naming the
+    state actually found, and an id no visible campaign has is a 404. This used to
+    raise `INVALID_STATUS_TRANSITION` for all three at once, so pausing a campaign that
+    was already paused — the second click, or the retry of a request whose response was
+    lost — was reported as a conflict, and a campaign id from another tenant was
+    reported as one too.
+
+    **No compliance gate here, on the resume path or any other, and that is deliberate**
+    (see `dispatch_blockers`): a campaign can sit paused for a week, so a gate at THIS
+    moment would prove nothing about the moment it dials. The dial-time check is the
+    enforcement — `tests/campaign_dispatch_audit_test.py` pins it. This change moves
+    only which of the three answers each caller gets; it adds and removes no gate.
+    """
+    return await transition_status(
+        session,
+        table="campaigns",
+        entity="Campaign",
+        row_id=campaign_id,
+        to_status=to_status,
+        from_statuses=from_statuses,
     )
-    if rowcount_of(result) == 0:
-        raise InvalidStatusTransitionError("campaign", f"not in {from_statuses}", to_status)
 
 
 async def register_dlt_template(
@@ -938,6 +1011,27 @@ async def list_campaigns(session: AsyncSession) -> list[dict[str, Any]]:
 
 
 async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[str, Any]:
+    """Live progress, plus the pending start if there is one.
+
+    The schedule fields are read from `campaigns.schedule` here rather than through a
+    second endpoint, because a screen that shows "scheduled" without saying WHEN — or
+    without saying that the last attempt to start was refused — is a state, which §52
+    says a screen may not stop at. The two one-time fields are extracted in SQL by key
+    rather than handing the whole JSONB to the response model, because a response model
+    is an output WHITELIST (BACKEND-PATTERNS §1).
+
+    A REPEAT is read whatever the status, and that asymmetry is deliberate: a one-time
+    start is spent the moment it fires (hence the `status = 'scheduled'` guard, so a
+    running campaign does not advertise a start that already happened), while a repeat
+    outlives every occurrence — a campaign dialling right now still has a next Tuesday,
+    and the screen has to be able to say so and offer the stop button.
+    `scheduling.describe_recurrence` does the reading, so the JSON shape keeps one owner.
+    """
+    # Imported here, not at module scope: `scheduling` imports `launch_campaign` from
+    # this module (the gate lives on one side of that seam and the column's meaning on
+    # the other), so a top-level import would close the cycle.
+    from apps.api.campaigns.scheduling import describe_recurrence
+
     rows = (
         await session.execute(
             text(
@@ -950,18 +1044,33 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
     counts = {str(r[0]): int(r[1]) for r in rows}
     campaign = (
         await session.execute(
-            text("SELECT status, launched_at, concurrency FROM campaigns WHERE id = :cid"),
+            text(
+                "SELECT status, launched_at, concurrency, "
+                # Only while the campaign is still WAITING. `launch_campaign` leaves the
+                # column populated on the row it starts (it is the record of why that
+                # launch happened, and `_expire` is the only thing that clears it), so an
+                # unconditional read would have a running campaign still advertising a
+                # start time that has already been honoured.
+                "  CASE WHEN status = 'scheduled' THEN schedule->>'start_at' END, "
+                "  CASE WHEN status = 'scheduled' THEN schedule->'last_blocked'->'rules' END, "
+                "  schedule "
+                "FROM campaigns WHERE id = :cid"
+            ),
             {"cid": campaign_id},
         )
     ).first()
     if campaign is None:
         raise ProblemError.not_found("Campaign")
+    blocked_rules = campaign[4]
     return {
         "status": campaign[0],
         "launched_at": campaign[1],
         "concurrency": campaign[2],
         "contacts": counts,
         "total": sum(counts.values()),
+        "scheduled_start_at": campaign[3],
+        "schedule_blocked_rules": [str(rule) for rule in blocked_rules] if blocked_rules else [],
+        "recurrence": describe_recurrence(campaign[5]),
     }
 
 

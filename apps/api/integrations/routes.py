@@ -14,29 +14,31 @@ secret turns every screenshot and every support session into a key disclosure.
 `create_sheets_endpoint` for the argument; the short version is that a checkbox for a
 transport that cannot deliver is the defect the sheets work exists to remove, so the
 route refuses rather than offering it where Google Sheets delivery does not exist.
+The gate is also PUBLISHED, on `EndpointOptionsOut.sheets_delivery_available`, so a
+console does not have to discover the refusal by attempting the create — but publishing
+it changes nothing about who decides: the route still refuses on its own.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import secrets
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.base import uuid7
-from apps.api.db.result import rowcount_of
 from apps.api.integrations import service
 from apps.api.integrations.service import EVENT_TYPES
 
@@ -55,6 +57,47 @@ EventName = Literal["lead.created", "lead.updated", "call.completed", "campaign.
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class EndpointOptionsOut(Strict):
+    """What an endpoint may subscribe to, and what this deployment can deliver on.
+
+    A DECLARED model rather than the `dict[str, list[str]]` this route used to return.
+    An undeclared response is one `openapi-typescript` can only describe as an index
+    signature, so `events` was not a NAMED field and the console's single read of it was
+    the one read `tsc` could not check — the same defect, and the same fix, as
+    `SubjectExportOut` replacing a free-form dict, and the reason `MetaSetupOut` one
+    module over says "declared rather than a bare dict". It also puts the response back
+    inside `scripts/check_redaction_exposure.py`'s walk, which inspects response MODELS:
+    a route with no model is a route that guardrail cannot inspect at all.
+
+    `events` stays `list[str]` rather than `list[EventName]`, and that is deliberate.
+    `EventName` is what THIS BUILD can put in a request body; `EVENT_TYPES` is what the
+    RUNNING deployment offers. A console generated from an older snapshot has to be able
+    to see a name outside its own union in order to SAY SO, rather than render a checkbox
+    whose only possible outcome is a 422 — narrowing this to the literal would make that
+    gap unrepresentable, and would turn a deployment that adds an event into a 500 out of
+    response validation.
+    """
+
+    events: list[str]
+    # Whether THIS DEPLOYMENT can append to a Google Sheet at all — the same selector
+    # `create_sheets_endpoint` asks, so this response cannot offer a transport that route
+    # refuses. It rides here rather than on an endpoint of its own for the reason
+    # `KycRecordOut.number_purchase_available` does: it is half of "which of these forms
+    # can I use", the event list is the other half, and a screen holding one without the
+    # other would render a form built from something it does not have.
+    #
+    # A HINT FOR RENDERING, never the check. The route still refuses on its own, because
+    # nothing obliges a client to have read this first — and because this value is a
+    # deployment constant a console may legitimately have cached for half an hour while
+    # an operator turned Sheets off.
+    #
+    # NOT a statement about any particular endpoint: whether a row has a Google
+    # credential attached is `EndpointOut.secret_fingerprint`, checked per row by
+    # `append_event`. False on every deployment today (no `GOOGLE_SHEETS_PROVIDER`),
+    # which is a FOUNDER/OPS decision rather than a fault.
+    sheets_delivery_available: bool
 
 
 class CreateEndpointIn(Strict):
@@ -129,21 +172,68 @@ class DeliveryOut(Strict):
     attempts: int
     first_at: datetime
     last_at: datetime
+    # Whether a copy of what we sent is still retained for this delivery. A BOOLEAN, not
+    # the key: the object-storage key names the subject's row id, and a client-facing
+    # list is not the place for it. False is a real answer with several honest causes —
+    # the body aged out on the tenant's own retention policy, an erasure destroyed it,
+    # object storage was down when the delivery ran, or the event carries no subject we
+    # could file it under (`service.body_subject`). The screen offers the link only when
+    # this is true, so nobody clicks through to a refusal.
+    payload_stored: bool
 
 
-def _fingerprint(secret: str) -> str:
-    """First 8 hex of the digest — enough to tell two secrets apart in a support call,
-    useless for forging one."""
-    return hashlib.sha256(secret.encode()).hexdigest()[:8]
+class DeliveryPayloadOut(Strict):
+    """What we actually sent, byte for byte — the raw-PII surface of this module.
+
+    Same class of data as a raw transcript and gated the same way (hard rule 5):
+    `calls:read_raw` AND an `audit_log` row, never one of the two. `body` is the exact
+    string that went on the wire, so it carries the lead's name and their number in
+    whatever form the endpoint's own `include_raw_phone` choice produced — which is the
+    entire point, since "you sent us the wrong lead" cannot be answered with a redaction.
+    """
+
+    delivery_id: UUID
+    event_type: str | None
+    # The client's own field names when they configured a mapping, because that is what
+    # we sent them.
+    body: str
+    # Declared by the stored object, never inferred by comparing `len(body)` to today's
+    # cap: a reader has to be able to tell "this is all of it" from "this is the first
+    # 64 KiB of it", including for objects written when the cap was different.
+    truncated: bool
+    original_bytes: int
+    stored_at: str | None
 
 
 @router.get(
     "/events",
+    response_model=EndpointOptionsOut,
     openapi_extra=permission_meta("org:read"),
-    summary="The events an endpoint may subscribe to",
+    summary="What an endpoint may subscribe to, and which transports this account can use",
+    description=(
+        "The events an endpoint may subscribe to, and whether this account can deliver "
+        "to a Google Sheet. `sheets_delivery_available: false` means "
+        "`POST /v1/integrations/endpoints/sheets` will be refused with "
+        "`sheets_delivery_unavailable`, so a form for it should not be offered — but the "
+        "refusal remains the authority, and this field is only how you learn about it "
+        "without attempting the create."
+    ),
 )
-async def list_event_types(_: Principal = Depends(requires("org:read"))) -> dict[str, list[str]]:
-    return {"events": list(EVENT_TYPES)}
+async def endpoint_options(_: Principal = Depends(requires("org:read"))) -> EndpointOptionsOut:
+    """Both facts the two create forms need, in ONE read.
+
+    Two reads would let a screen hold the events without the capability (or the reverse)
+    and render half a decision; one read cannot. The path stays `/events` because
+    renaming it churns every generated client for no contract gain — what moved is the
+    response, not the resource.
+    """
+    return EndpointOptionsOut(
+        events=list(EVENT_TYPES),
+        # Asked per request rather than captured at import: enabling Sheets is a config
+        # change, and an operator who makes one must not need an API restart before the
+        # form appears.
+        sheets_delivery_available=sheets_delivery_available(),
+    )
 
 
 @router.get(
@@ -180,7 +270,7 @@ async def list_endpoints(
             url=r[1],
             events=list(r[2] or []),
             active=bool(r[3]),
-            secret_fingerprint=_fingerprint(r[4]) if r[4] else None,
+            secret_fingerprint=service.secret_fingerprint(r[4]) if r[4] else None,
             created_at=r[5],
         )
         for r in rows
@@ -379,21 +469,48 @@ async def create_sheets_endpoint(
     status_code=204,
     openapi_extra=permission_meta("org:manage"),
     summary="Deactivate — kept, not deleted, so the delivery history stays readable",
+    # Stated rather than inherited from the docstring, for the reason
+    # `create_sheets_endpoint` gives: `/docs` is public, and the reasoning below names
+    # internal call sites. What a client needs is the CONTRACT, and the contract here
+    # has a part they can only learn from us — that a repeat is a success.
+    description=(
+        "Deactivate an endpoint. The endpoint and its delivery history are kept, so "
+        "past attempts stay readable. Idempotent: deactivating an endpoint that is "
+        "already inactive returns 204, so retrying after a lost response is safe. 404 "
+        "means only that no endpoint of yours has that id."
+    ),
 )
 async def deactivate_endpoint(
     endpoint_id: UUID,
     session: Session,
-    _: Principal = Depends(requires("org:manage")),
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
 ) -> None:
-    result = await session.execute(
-        text(
-            "UPDATE outbound_webhooks SET active = false, updated_at = now() "
-            "WHERE id = :id AND active = true"
-        ),
-        {"id": endpoint_id},
-    )
-    if rowcount_of(result) == 0:
-        raise ProblemError.not_found("Endpoint")
+    """Deactivate the endpoint; the row and its delivery history stay.
+
+    Idempotent: disabling an already-disabled endpoint is 204, not 404 — the second
+    click, and the retry of a request whose response was lost, are the same request as
+    the first (RFC 9110 §9.2.2). A genuinely absent id — including another tenant's,
+    which RLS makes indistinguishable on purpose — is still 404. `service.
+    deactivate_endpoint` carries the argument and the CAS; this route only decides what
+    to write down.
+
+    The audit row follows the inbound twin: written ONLY for a real transition, so the
+    ledger records changes rather than button presses. An audit trail that logs actions
+    nobody took is worse than one that logs fewer (`tenancy.members.set_role` makes the
+    same call for the same reason).
+    """
+    assert principal.tenant_id is not None
+    if await service.deactivate_endpoint(session, endpoint_id=endpoint_id):
+        await write_audit(
+            session,
+            action="integration_endpoint.disabled",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="outbound_webhook",
+            object_id=str(endpoint_id),
+            ip=request.client.host if request.client else None,
+        )
 
 
 @router.get(
@@ -419,7 +536,11 @@ async def list_deliveries(
     rows = (
         await session.execute(
             text(
-                "SELECT d.id, d.event_type, d.status, d.attempts, d.first_at, d.last_at "
+                "SELECT d.id, d.event_type, d.status, d.attempts, d.first_at, d.last_at, "
+                # The presence of the key, never the key. `payload_ref` contains the
+                # subject's row id, and this endpoint is `org:read` — the raw body is
+                # two permissions further up.
+                "d.payload_ref IS NOT NULL "
                 "FROM webhook_deliveries d WHERE d.direction = 'out' "
                 "AND d.endpoint_id IN (SELECT id FROM outbound_webhooks) "
                 "ORDER BY d.last_at DESC LIMIT :limit"
@@ -435,9 +556,125 @@ async def list_deliveries(
             attempts=int(r[3] or 0),
             first_at=r[4],
             last_at=r[5],
+            payload_stored=bool(r[6]),
         )
         for r in rows
     ]
+
+
+@router.get(
+    "/deliveries/{delivery_id}/payload",
+    response_model=DeliveryPayloadOut,
+    openapi_extra=permission_meta("calls:read_raw"),
+    summary="What we actually sent — role-checked AND audit-logged on every read",
+    description=(
+        "The exact body we POSTed for one delivery, as your endpoint received it. This "
+        "is your customer's personal data in unredacted form, so it requires the same "
+        "permission as an unredacted transcript and every read is written to your audit "
+        "log. Bodies are kept for as long as your lead-retention policy allows and are "
+        "destroyed by an erasure request; `404 delivery_body_not_retained` means there "
+        "is no longer one to show."
+    ),
+)
+async def get_delivery_payload(
+    delivery_id: UUID,
+    session: Session,
+    request: Request,
+    # `calls:read_raw`, NOT `org:read` — the permission follows the DATA, not the screen
+    # it happens to be on. This body carries the lead's name and their number in exactly
+    # the form the endpoint's `include_raw_phone` choice produced, which is the same
+    # class of thing as `text` versus `text_redacted`, and hard rule 5 puts that behind
+    # a role check AND an audit row. `crm.routes.get_lead_contact` makes the identical
+    # call for the identical reason. It also settles the D-22 question in the right
+    # direction by construction: `operator` does not hold `calls:read_raw` at all, so an
+    # impersonating support user sees the delivery list — which is what they need to
+    # answer "did it arrive?" — and never the payload.
+    principal: Principal = Depends(requires("calls:read_raw")),
+) -> DeliveryPayloadOut:
+    """One retained delivery body. Absent, expired and unreachable are three answers.
+
+    A NULL `payload_ref` is 404 `delivery_body_not_retained`: the body aged out, an
+    erasure destroyed it, or none was ever kept. An object the store cannot produce is
+    503 `delivery_body_unavailable` — a fact about today, not about our retention — and
+    collapsing the two would tell a client their evidence is gone during an outage.
+    """
+    payload_ref, event_type = await service.delivery_body_ref(session, delivery_id)
+    if payload_ref is None:
+        raise ProblemError(
+            # `not_found` (404), not `business_rule` (422): the client asked for a thing
+            # and it is not there. 422 would say their REQUEST was wrong, which it was
+            # not — and the same code answers a delivery that never had a body, one that
+            # aged out and one an erasure destroyed, because those are one fact to them.
+            kind="not_found",
+            code="delivery_body_not_retained",
+            title="No copy of this delivery is kept",
+            detail=(
+                "We no longer hold a copy of what was sent for this delivery. Bodies are "
+                "kept for as long as your lead-retention policy allows, and an erasure "
+                "request destroys them."
+            ),
+            remediation=(
+                "The delivery record itself — event, result and attempts — is still on "
+                "your integrations screen."
+            ),
+        )
+
+    # The audit row is written in the SAME transaction as the read, so there is no window
+    # in which someone saw raw PII without it being recorded (hard rule 5). Written
+    # BEFORE the object is fetched for the same reason: a read that failed on our side
+    # was still an attempt to see this person's data.
+    await write_audit(
+        session,
+        action="webhook_delivery.read_payload",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="webhook_delivery",
+        object_id=str(delivery_id),
+        ip=request.client.host if request.client else None,
+    )
+
+    # Imported here, not at module scope, for the reason `crm.routes.get_recording`
+    # gives: boto3 belongs to the workers package and pulling it into every API import
+    # would slow cold starts for one route.
+    from apps.workers.storage import StorageUnavailableError, read_delivery_body
+
+    try:
+        document = read_delivery_body(payload_ref)
+    except StorageUnavailableError as exc:
+        raise ProblemError(
+            kind="dependency",
+            code="delivery_body_unavailable",
+            title="The stored copy could not be retrieved",
+            detail="The delivery body could not be read right now. It has not been deleted.",
+            remediation="Try again in a few minutes.",
+        ) from exc
+    if document is None:
+        # The reference outlived the object — an erasure or a sweep that cleared the
+        # bytes and lost the row update, which the next sweep tidies. Says the same
+        # thing to the client as a NULL ref, because it means the same thing to them.
+        raise ProblemError(
+            # `not_found` (404), not `business_rule` (422): the client asked for a thing
+            # and it is not there. 422 would say their REQUEST was wrong, which it was
+            # not — and the same code answers a delivery that never had a body, one that
+            # aged out and one an erasure destroyed, because those are one fact to them.
+            kind="not_found",
+            code="delivery_body_not_retained",
+            title="No copy of this delivery is kept",
+            detail="We no longer hold a copy of what was sent for this delivery.",
+            remediation=(
+                "The delivery record itself — event, result and attempts — is still on "
+                "your integrations screen."
+            ),
+        )
+
+    return DeliveryPayloadOut(
+        delivery_id=delivery_id,
+        event_type=event_type or None,
+        body=str(document.get("body") or ""),
+        truncated=bool(document.get("truncated")),
+        original_bytes=int(document.get("original_bytes") or 0),
+        stored_at=str(document["stored_at"]) if document.get("stored_at") else None,
+    )
 
 
 __all__ = ["router"]

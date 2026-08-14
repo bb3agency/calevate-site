@@ -9,8 +9,11 @@ import {
   Bot,
   Eye,
   FileCheck2,
+  Flag,
   Hash,
+  IndianRupee,
   PhoneCall,
+  Power,
   ReceiptIndianRupee,
   ScrollText,
   ShieldCheck,
@@ -157,6 +160,34 @@ export default function TenantDetailPage({
             icon={<ReceiptIndianRupee className="h-4 w-4" />}
           >
             Invoice
+          </NavLink>
+          {/* What the invoice above is DERIVED FROM. `plans` had no writer at all until
+              this screen landed, so every number on the invoice rested on a row somebody
+              had inserted by hand. Its own screen because a plan change is an audited,
+              dated agreement with a history an operator has to be able to read. */}
+          <NavLink
+            href={`/admin/tenants/${tenantId}/commercials`}
+            icon={<IndianRupee className="h-4 w-4" />}
+          >
+            Commercials
+          </NavLink>
+          {/* Beta features and debug views, per client (SURFACES §1). Its own screen
+              rather than a panel here because each flag needs three facts beside it — the
+              platform default, this client's override, and the resolved answer — and a
+              row that showed only the last one would read as a switch nobody set. */}
+          <NavLink
+            href={`/admin/tenants/${tenantId}/feature-flags`}
+            icon={<Flag className="h-4 w-4" />}
+          >
+            Feature flags
+          </NavLink>
+          {/* Suspend / reactivate / close. Separate from everything above because it is
+              the one control here that stops a client's outbound dialling outright. */}
+          <NavLink
+            href={`/admin/tenants/${tenantId}/lifecycle`}
+            icon={<Power className="h-4 w-4" />}
+          >
+            Account state
           </NavLink>
           {/* `?view=admin` tells the client-realm shell to build the IMPERSONATING
               session (admin token + X-Impersonate-Org) instead of a client one — see

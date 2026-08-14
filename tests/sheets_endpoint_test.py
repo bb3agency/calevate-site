@@ -26,6 +26,10 @@ rule the previous agent's refusal implies rather than to their conclusion:
    proves it — not the principal the handler was handed.
 6. **The secret is an opaque `sm://` reference.** Never resolved, never logged, never
    in a response.
+7. **The gate is PUBLISHED and is still not the check.**
+   `EndpointOptionsOut.sheets_delivery_available` exists so a console does not have to
+   learn the refusal by attempting the create, and the route refuses anyway — including
+   for a client that read `true` a moment before an operator turned Sheets off.
 
 CONCURRENCY: every test mints its own tenant and touches no global row, so this file can
 run beside the other suites on the shared Postgres.
@@ -51,12 +55,15 @@ from apps.api.db.session import tenant_session
 from apps.api.integrations import service
 from apps.api.integrations.routes import (
     CreateSheetEndpointIn,
+    EndpointOptionsOut,
     SheetEndpointOut,
     create_sheets_endpoint,
     deactivate_endpoint,
+    endpoint_options,
     list_deliveries,
     list_endpoints,
 )
+from apps.api.main import app
 from apps.workers import outbound_webhooks, sheets_sync
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from apps.workers.sheets_sync import (
@@ -70,6 +77,7 @@ from calevate_shared.config import Settings
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
+from starlette.requests import Request
 
 # A real-shaped Google spreadsheet id (44 url-safe chars). Names a document nobody owns.
 SHEET_ID = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
@@ -97,6 +105,22 @@ async def _tenant() -> UUID:
         created_by=None,
     )
     return UUID(str(created["id"]))
+
+
+def _request() -> Request:
+    """The audit row's `ip` comes off the request, so the route now takes one. Built
+    rather than faked: `write_audit` reads `request.client`, and a stub that happened to
+    have the attribute would stop matching the day it reads another."""
+    return Request(
+        {
+            "type": "http",
+            "method": "DELETE",
+            "path": "/v1/integrations/endpoints",
+            "headers": [],
+            "query_string": b"",
+            "client": ("127.0.0.1", 1234),
+        }
+    )
 
 
 def _principal(tenant_id: UUID) -> Principal:
@@ -543,7 +567,7 @@ async def test_the_client_can_turn_off_what_they_configured(
             _principal(tenant_id),
         )
     async with tenant_session(tenant_id) as session:
-        await deactivate_endpoint(created.id, session, _principal(tenant_id))
+        await deactivate_endpoint(created.id, session, _request(), _principal(tenant_id))
 
     async with tenant_session(tenant_id) as session:
         listed = await list_endpoints(session, _=None)  # type: ignore[arg-type]
@@ -685,3 +709,135 @@ async def test_the_session_not_the_principal_decides_whose_endpoint_this_is(
     assert "row-level security" in str(excinfo.value).lower(), str(excinfo.value)
     assert await _endpoint_rows(victim) == []
     assert await _endpoint_rows(attacker) == []
+
+
+# --------------------------------------------------------------------------------
+# 6. The capability the console renders from — published, and still not the check
+# --------------------------------------------------------------------------------
+#
+# Two defects the integrations screen found and correctly refused to fix from the
+# frontend:
+#
+# AD1. `GET /v1/integrations/events` returned `dict[str, list[str]]`, so
+#      `openapi-typescript` produced a bare index signature and `events` was not a NAMED
+#      field — the one read on that screen `tsc` could not check. The fix is a declared
+#      model, exactly as `SubjectExportOut` replaced a free-form dict.
+# AD2. Nothing published `sheets_delivery_available()`, so a screen could only discover
+#      the deployment's refusal BY ATTEMPTING the create. The fix follows
+#      `KycRecordOut.number_purchase_available`: a boolean on the read the screen already
+#      makes, computed from the SAME selector the write route asks.
+#
+# The third test in this section is the one that matters most, and it is what a sabotage
+# of the screen has to trip: publishing a capability does not move the decision. The
+# route refuses on its own, from its own read, no matter what any client believes.
+
+
+def test_the_events_response_is_a_named_model_not_an_index_signature() -> None:
+    """AD1, pinned where it actually bites: the generated OpenAPI.
+
+    An inline `{"additionalProperties": {...}}` schema is what produced a TypeScript
+    index signature, and a client cannot name a field an index signature does not have.
+    Asserting the `$ref` and its properties fails the moment somebody returns a bare
+    dict from this route again — which is the only way the defect comes back.
+    """
+    schema = app.openapi()
+    media = schema["paths"]["/v1/integrations/events"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    assert "$ref" in media, f"an inline schema is an index signature downstream: {media}"
+
+    model = schema["components"]["schemas"][media["$ref"].rsplit("/", 1)[-1]]
+    assert set(model["properties"]) == {"events", "sheets_delivery_available"}
+    # Both REQUIRED: an optional field is `T | undefined` in the generated client, which
+    # hands every caller back the same "is it missing or is it false" question the index
+    # signature created.
+    assert set(model["required"]) == {"events", "sheets_delivery_available"}
+    assert model["properties"]["events"]["items"] == {"type": "string"}, (
+        "the catalogue is the RUNNING deployment's list; narrowing it to this build's "
+        "literal union would make a console unable to report an event it cannot offer"
+    )
+
+
+async def test_the_catalogue_is_the_list_the_create_routes_validate_against(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _sheets_enabled(monkeypatch)
+    options = await endpoint_options(_principal(await _tenant()))
+    assert isinstance(options, EndpointOptionsOut)
+    assert options.events == list(service.EVENT_TYPES)
+
+
+async def test_the_capability_is_true_exactly_where_the_create_route_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The two halves of "can I use this form" agree, because they are one selector.
+
+    Asserting the boolean alone would pass just as well against a hardcoded `True`; the
+    create in the same test is what makes it a statement about the route.
+    """
+    _sheets_enabled(monkeypatch)
+    tenant_id = await _tenant()
+
+    options = await endpoint_options(_principal(tenant_id))
+    assert options.sheets_delivery_available is True
+
+    async with tenant_session(tenant_id) as session:
+        created = await create_sheets_endpoint(
+            CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
+            session,
+            _principal(tenant_id),
+        )
+    assert isinstance(created, SheetEndpointOut)
+
+
+async def test_the_capability_is_false_exactly_where_the_create_route_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The state EVERY deployment is in today, and the reason the field exists: the
+    screen can now say so before someone fills a form in, instead of learning it from a
+    refusal."""
+    _sheets_absent(monkeypatch)
+    tenant_id = await _tenant()
+
+    options = await endpoint_options(_principal(tenant_id))
+    assert options.sheets_delivery_available is False
+    # The catalogue is unaffected — the webhook form the refusal recommends is built
+    # from it, so a false capability must not empty it.
+    assert options.events == list(service.EVENT_TYPES)
+
+    with pytest.raises(ProblemError) as excinfo:
+        async with tenant_session(tenant_id) as session:
+            await create_sheets_endpoint(
+                CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
+                session,
+                _principal(tenant_id),
+            )
+    assert excinfo.value.as_problem()["type"].rsplit("/", 1)[-1] == "sheets_delivery_unavailable"
+
+
+async def test_a_client_that_believes_sheets_are_available_is_still_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE invariant the published capability must not weaken.
+
+    A console reads this once and caches it for half an hour (it is a deployment
+    constant, not an account fact). If an operator turns Sheets off inside that window,
+    the screen is optimistic and WRONG — and the create still has to be refused, from
+    the route's own read, writing nothing. The capability is a hint for rendering; it
+    never becomes the check.
+    """
+    tenant_id = await _tenant()
+    _sheets_enabled(monkeypatch)
+    believed = await endpoint_options(_principal(tenant_id))
+    assert believed.sheets_delivery_available is True
+
+    _sheets_absent(monkeypatch)
+    with pytest.raises(ProblemError) as excinfo:
+        async with tenant_session(tenant_id) as session:
+            await create_sheets_endpoint(
+                CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
+                session,
+                _principal(tenant_id),
+            )
+    assert excinfo.value.as_problem()["type"].rsplit("/", 1)[-1] == "sheets_delivery_unavailable"
+    assert await _endpoint_rows(tenant_id) == [], "a refused create writes nothing"

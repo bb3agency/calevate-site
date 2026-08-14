@@ -115,6 +115,35 @@ cite the same string:
 | Security safeguards | §5 below |
 | Cross-border | CAUTION (D-31): Bolna call recordings observed on S3 us-east-1; their Enterprise tier offers full India data-residency (audio, transcripts, logs, in-India inference) — residency posture must be pinned in the Bolna contract and disclosed in the client DPA until then. **Models are all-India BY DEFAULT since D-36** — Sarvam is sovereign and now serves STT, LLM *and* TTS, so no transcript text leaves India on the default stack. This inverts the earlier posture: "all-India" is no longer a client opt-in at a quality tradeoff, it is what ships. Gemini remains a *configurable fallback*; enabling it sends transcript text (never audio) to Google and therefore requires a DPA disclosure and an explicit per-tenant decision — treat switching an agent to Gemini as a residency change, not a config tweak. This is a live differentiator: Outpero's privacy policy admits "some providers may process data on servers located outside India" (evidence/outpero-teardown-aug2026.md §9b) |
 
+**Delivered CRM bodies (D-23) are personal data we now retain, and the terms are these.**
+`webhook_deliveries.payload_ref` holds the object-storage key of the body we POSTed to a
+client's own endpoint — the lead's name, their number in whatever form that endpoint's
+`include_raw_phone` choice produced, and every extracted field. Kept because the delivery
+log could otherwise prove only that a POST happened, so "you sent us the wrong lead" was
+answerable with a reconstruction rather than with evidence. What makes retaining it
+lawful rather than merely useful:
+
+- **Retention period**: the tenant's OWN `lead` policy — the same category and clock as
+  `call_extractions.data`, because it is the same class of data (see the retention row
+  above; the seed default is 1095 days and is subject to the open question below). The
+  nightly sweep deletes the objects and clears the references. This one does NOT depend
+  on the bucket lifecycle rule the recording arm relies on: nothing here sits under a
+  statutory floor, so the per-tenant mechanism is the whole answer and it exists.
+- **Erasure**: `execute_deletion_request` deletes them by SUBJECT. The subject is in the
+  object key (`webhook-bodies/{tenant}/{lead|call}-{id}/{delivery}.json`), so the erasure
+  enumerates the object store by prefix rather than trusting the reference column — which
+  is what reaches an object written by a worker that died before recording the reference.
+  A store that will not answer aborts the erasure and retries it; the certificate never
+  claims a deletion we could not perform. The count appears in the proof's `actions`.
+- **What is deliberately NOT retained**: any event we cannot attribute to an erasable
+  subject (today, `campaign.completed`). An object no data principal can be matched to is
+  precisely the breach this store is designed not to become, so it is not written.
+- **Access**: same class as a raw transcript and gated the same way — `calls:read_raw`
+  plus an `audit_log` row on every read (`GET /v1/integrations/deliveries/{id}/payload`).
+  `staff` and an impersonating operator see the delivery record and never the body.
+- **Bounded**: 64 KiB per delivery, truncation declared inside the stored object. Neither
+  the endpoint URL nor the signing secret is ever part of it.
+
 **OPEN DECISION — erasure vs. the 90-day recording floor.** Surfaced by the DPDP erasure
 producer (`apps/api/compliance/deletion.py`), stated here rather than resolved, because
 two adjacent rows of the table above point opposite ways for one concrete case: a call
@@ -247,6 +276,19 @@ audit_log. Redaction runs BEFORE any transcript leaves our system (exports, noti
 Identity & access
 - Two auth realms (admin vs client), separate Clerk apps, separate cookies/domains; MFA
   mandatory on admin; session lifetimes: admin 12h, client 7d refresh.
+  - **MFA is enforced server-side**, in `apps/api/core/auth.py::verify_token`, from
+    Clerk's `fva` session claim: an admin-realm token whose second-factor age is `-1`
+    (never verified) is refused `403 mfa_required`, and a token carrying no `fva` at all
+    is refused `403 mfa_claim_missing` — unknown fails closed. It gates READS as well as
+    writes, because it is authentication, not authorization. Enforced in the verifier so
+    no route can forget it; `tests/admin_mfa_test.py` pins both directions plus the
+    client realm's exemption. The admin console explains the refusal rather than
+    enforcing it (`app/admin/layout.tsx`).
+  - **Step-up (`X-Confirm-Action`) is a SEPARATE control and is retained**, not replaced:
+    MFA is per SESSION (once, at sign-in, for 12h), step-up is per ACTION and per TARGET.
+    The session that mis-clicks the big red switch is a session that has already passed
+    MFA. Requiring a *fresh* second factor for high-risk actions (Clerk reverification)
+    is the named next step and needs a browser reverification flow — OPERATIONS §8.
 - RBAC: admin{superadmin,operator}; client{owner,staff}. Staff cannot access billing,
   org settings, raw transcripts, or exports containing unredacted data.
 - Admin impersonation (D-22): READ-ONLY "view as client" — a scoped read-only session
@@ -292,9 +334,11 @@ SDLC & ops
   promotion is an explicit audited action.
 - Logging: no PII in application logs; call ids only. The redaction pair (`redact_text` /
   `redact_mapping`) backs the JSON formatter, the Sentry `scrub_event` hook and every
-  operator alert body; `redact_trace_payload` remains the pre-agreed hook for LLM traces
-  and nothing calls it, because that integration's configuration was removed rather than
-  faked (D-49). Backups encrypted; restore drill quarterly — **the mechanism exists in
+  operator alert body. Tracing is redacted at the EXPORTER (`_RedactingSpanExporter`), not
+  at each call site: exception events and status descriptions are written by the OTel SDK
+  itself and never reached the attribute allowlist, so they were exporting transcripts
+  verbatim (D-61). Sentry breadcrumbs go through `scrub_breadcrumb` for the same reason —
+  the logging integration builds them from the raw message before our formatter runs. Backups encrypted; restore drill quarterly — **the mechanism exists in
   `infra/backup/` and has been applied to nothing and never run** (D-50), so treat
   "backups" as a design until the drill passes once.
 - Per-tenant rate/spend caps double as abuse protection; global circuit breaker halts all

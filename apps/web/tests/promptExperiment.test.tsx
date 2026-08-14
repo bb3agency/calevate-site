@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
@@ -28,6 +28,11 @@ import { problem, type Routes } from "./harness";
  * 4. **A real winner is still allowed to be declared.** A gate so tight that nothing ever
  *    passes it is its own dishonesty, and the test that only asserts refusals would pass
  *    against a panel that never says anything.
+ * 5. **A rate over a population that was not randomised cannot be rendered bare.** An
+ *    arm can be credited with an inbound call its own line answered (D-60) — a fact, but
+ *    not a draw — and that call sits in the denominator of the rate beside calls that
+ *    were split. The screen must say so on the row, and must not count the call as one
+ *    we dialled.
  *
  * Everything statistical is the SERVER's: `headline`, `caveat` and `basis` are printed
  * verbatim, so these tests feed the payloads the API produces rather than re-deriving a
@@ -43,6 +48,7 @@ const HISTORY_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/prompt`;
 const PENDING_PATH = `/v1/agents/${AGENT}/pending`;
 const LANES_PATH = "/v1/agents/lanes";
 const EXPERIMENT_PATH = `/v1/agents/${AGENT}/experiment`;
+const CONCLUDE_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/experiment/conclude`;
 
 const RULES = {
   metrics: [
@@ -63,8 +69,9 @@ function variant(over: Record<string, unknown> = {}) {
     prompt_version: 1,
     weight_bp: 5000,
     published: true,
-    dialled: 60,
-    attributed: 50,
+    outbound_dialled: 60,
+    completed: 50,
+    inbound_completed: 0,
     conversions: 10,
     rate: 0.2,
     rate_low: 0.112,
@@ -152,11 +159,11 @@ describe("the A/B script test panel", () => {
       [EXPERIMENT_PATH]: state({
         experiment: experiment({
           variants: [
-            variant({ attributed: 11, conversions: 5, rate: 0.4545, rate_low: 0.211, rate_high: 0.72 }),
+            variant({ completed: 11, conversions: 5, rate: 0.4545, rate_low: 0.211, rate_high: 0.72 }),
             variant({
               label: "B",
               prompt_version: 2,
-              attributed: 11,
+              completed: 11,
               conversions: 1,
               rate: 0.0909,
               rate_low: 0.016,
@@ -197,8 +204,8 @@ describe("the A/B script test panel", () => {
       [EXPERIMENT_PATH]: state({
         experiment: experiment({
           variants: [
-            variant({ attributed: 11, conversions: 5, rate: 0.4545 }),
-            variant({ label: "B", prompt_version: 2, attributed: 11, conversions: 1, rate: 0.09 }),
+            variant({ completed: 11, conversions: 5, rate: 0.4545 }),
+            variant({ label: "B", prompt_version: 2, completed: 11, conversions: 1, rate: 0.09 }),
           ],
           basis: "insufficient_data",
           verdict: "not_enough_data",
@@ -220,8 +227,8 @@ describe("the A/B script test panel", () => {
       [EXPERIMENT_PATH]: state({
         experiment: experiment({
           variants: [
-            variant({ attributed: 40, conversions: 8, rate: 0.2 }),
-            variant({ label: "B", prompt_version: 2, attributed: 40, conversions: 7, rate: 0.175 }),
+            variant({ completed: 40, conversions: 8, rate: 0.2 }),
+            variant({ label: "B", prompt_version: 2, completed: 40, conversions: 7, rate: 0.175 }),
           ],
           leader_label: "A",
           headline:
@@ -242,8 +249,8 @@ describe("the A/B script test panel", () => {
       [EXPERIMENT_PATH]: state({
         experiment: experiment({
           variants: [
-            variant({ attributed: 200, conversions: 20, rate: 0.1 }),
-            variant({ label: "B", prompt_version: 2, attributed: 200, conversions: 70, rate: 0.35 }),
+            variant({ completed: 200, conversions: 20, rate: 0.1 }),
+            variant({ label: "B", prompt_version: 2, completed: 200, conversions: 70, rate: 0.35 }),
           ],
           verdict: "winner",
           leader_label: "B",
@@ -296,6 +303,47 @@ describe("the A/B script test panel", () => {
     expect(container.textContent).toContain("Only outbound calls are assigned to an arm.");
   });
 
+  it("qualifies the rate of an arm whose denominator holds calls nobody split", async () => {
+    /**
+     * The defect this replaced: one count called `dialled` held every assigned call, so
+     * an inbound call an arm's own line answered was reported as a call we placed, and
+     * the rate over it read as a clean randomised comparison.
+     *
+     * Both halves are pinned here. The Dialled column is OUTBOUND — an arm with 40
+     * completed calls of which 12 arrived inbound has dialled 30, not 42 — and the rate
+     * cell carries the mixture, so no rendering of the number can drop it.
+     */
+    const { container } = await render({
+      [EXPERIMENT_PATH]: state({
+        experiment: experiment({
+          variants: [
+            variant({ outbound_dialled: 45, completed: 40, inbound_completed: 0, conversions: 8 }),
+            variant({
+              label: "B",
+              prompt_version: 2,
+              outbound_dialled: 30,
+              completed: 40,
+              inbound_completed: 12,
+              conversions: 7,
+              rate: 0.175,
+            }),
+          ],
+          coverage_note: "Some inbound calls were answered by an arm's own line.",
+        }),
+      }),
+    });
+
+    await screen.findByText(/No difference we can stand behind/);
+    expect(container.textContent).toContain("includes 12 inbound calls this arm's line answered");
+    expect(container.textContent).toContain("not split between the arms");
+    // The unmixed arm's rate stays a bare reading — the qualifier is a statement about
+    // this arm's data, not a blanket disclaimer bolted onto every row.
+    expect(container.textContent).toContain("20.0% (11.2%–33.1%)");
+    expect(container.textContent).not.toContain("includes 0 inbound");
+    // And the calls we placed are 30, not the 40 that completed.
+    expect(screen.getByText("30")).toBeTruthy();
+  });
+
   it("offers a test between two existing versions when none is running, and never authors one", async () => {
     const { container } = await render();
 
@@ -312,5 +360,56 @@ describe("the A/B script test panel", () => {
 
     await screen.findByText(/A test needs two prompt versions/);
     expect(screen.queryByRole("button", { name: /Start test/ })).toBeNull();
+  });
+
+  it("reports a promotion this press performed, with the version it minted", async () => {
+    await render({
+      [EXPERIMENT_PATH]: state({ experiment: experiment() }),
+      [`POST ${CONCLUDE_PATH}`]: {
+        experiment_id: "0192f0aa-7777-7000-8000-0000000000d1",
+        promoted_label: "B",
+        new_version: 3,
+        applied: true,
+        engine_synced: true,
+        changed: true,
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Promote B (v2)" }));
+
+    await screen.findByText(/Promoted variant B as v3\./);
+    expect(screen.getByText(/The voice platform has it\./)).toBeTruthy();
+  });
+
+  it("does not report a promotion for a conclude that ended nothing", async () => {
+    /**
+     * The server is idempotent about ending a test: the second operator on this screen,
+     * and the retry of a request whose response was lost, both get 200 with the arm the
+     * test ENDED on and a null version — nothing was promoted or published twice.
+     *
+     * Rendering that response through the success branch printed "Promoted variant B as
+     * vnull. It is STAGED — press Apply above", which is two false statements about the
+     * platform's state at the operator who is least able to check: one who has just been
+     * beaten to the button by a colleague.
+     */
+    const { container } = await render({
+      [EXPERIMENT_PATH]: state({ experiment: experiment() }),
+      [`POST ${CONCLUDE_PATH}`]: {
+        experiment_id: "0192f0aa-7777-7000-8000-0000000000d1",
+        promoted_label: "B",
+        new_version: null,
+        applied: false,
+        engine_synced: false,
+        changed: false,
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Promote B (v2)" }));
+
+    await screen.findByText(/This test had already ended, promoting variant B\./);
+    expect(container.textContent).not.toContain("vnull");
+    // The success branch's staged-change sentence, which would send this operator to
+    // press Apply for a version that does not exist.
+    expect(container.textContent).not.toContain("It is STAGED");
   });
 });

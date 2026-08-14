@@ -4,7 +4,7 @@
 # in the repo root would make `make guardrails` print "nothing to be done" and exit 0:
 # the CI gate reporting success without running a single check.
 .PHONY: help dev up down check lint lint-check types test db-reset eval eval-ci \
-        qa-report \
+        qa-report qa-report-publish \
         gen-api conformance smoke guardrails web-check coverage-ratchet \
         coverage-ratchet-accept
 
@@ -26,6 +26,7 @@ help:  ## List targets
 	@echo '  make db-reset    - drop, migrate, seed'
 	@echo '  make eval CLIENT=slug - regression harness (core5)'
 	@echo '  make qa-report CLIENT=slug VERTICAL=clinic - client-facing QA report'
+	@echo '  make qa-report-publish CLIENT=slug VERTICAL=clinic - same, stored for their Quality screen'
 	@echo '  make gen-api     - OpenAPI snapshot -> typed TS client'
 	@echo '  make guardrails  - executable governance (D-29)'
 	@echo '  make coverage-ratchet - suite under coverage + the per-surface ratchet [CI gate]'
@@ -151,6 +152,15 @@ REQUIRE_QA_CLIENT = $(or $(CLIENT),$(error make qa-report needs CLIENT=<slug>))
 
 qa-report:  ## make qa-report CLIENT=<slug> VERTICAL=<clinic|real_estate>   [client-facing QA report, ROADMAP M3]
 	uv run python -m scripts.qa_report --client=$(REQUIRE_QA_CLIENT) --vertical=$(REQUIRE_VERTICAL)
+
+# The same document, ALSO filed against the tenant so it appears on their Quality screen
+# (SURFACES §2 "rendered in-app, not just PDF"). A separate target rather than a flag on
+# the one above, because the two have different requirements: `qa-report` needs no
+# database and prints for any CLIENT string, while this one needs a database and refuses
+# a CLIENT that is not a real tenant slug. One target that sometimes needs Postgres would
+# be a target nobody could tell had half-worked.
+qa-report-publish:  ## make qa-report-publish CLIENT=<slug> VERTICAL=<...>   [same report, stored for the client's in-app Quality screen]
+	uv run python -m scripts.qa_report --client=$(REQUIRE_QA_CLIENT) --vertical=$(REQUIRE_VERTICAL) --store
 
 gen-api:
 	pnpm -C apps/web gen:api

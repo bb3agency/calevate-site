@@ -141,7 +141,9 @@ Three rules that matter:
   (first 8 hex characters of the secret's SHA-256) so you can confirm *which* secret
   you hold without anyone re-displaying it.
 - `DELETE /v1/integrations/endpoints/{id}` **deactivates** the endpoint — it is kept,
-  not deleted, so its delivery history stays readable.
+  not deleted, so its delivery history stays readable. It is idempotent (RFC 9110
+  §9.2.2): deactivating an already-inactive endpoint is `204`, so a retry after a lost
+  response is safe. `404` means only that no endpoint of yours has that id.
 
 **To rotate a secret:** create a new endpoint with the same URL, deploy the new secret
 to your receiver (accept both during the cutover), then deactivate the old endpoint.

@@ -43,6 +43,7 @@ from calevate_shared.config import Settings
 from calevate_shared.engine import (
     AgentConfig,
     CallContext,
+    ExecutionListing,
     ExecutionSnapshot,
     ModelConfig,
     NumberSpec,
@@ -82,6 +83,9 @@ ATTESTABLE: dict[str, str] = {
     "gate6.call_continued": "yes|no — the call kept running after the receiver was killed",
     "gate6.retries_observed": "integer — deliveries seen for one transition after the "
     "receiver came back up (TRD §5 says this is 0)",
+    "gate6.executions_in_window": "integer — how many executions the account really has "
+    "since the poller window opened, read off the Bolna dashboard. The ONE independent "
+    "check on List-Executions truncation: our own listing cannot reveal what it omitted",
 }
 
 
@@ -174,13 +178,84 @@ def _pilot_agent_config(settings: Settings, *, nonce: str, prompt_marker: str) -
 def _round_trip_nonce_seen(snapshot: ExecutionSnapshot, nonce: str) -> bool:
     """Did the per-call context actually reach the prompt?
 
-    The ONLY observable proof available through our contract. There is no `get_agent` on
-    `VoiceEngine`, so we cannot read the rendered prompt back; what we can do is put a
-    nonce in `CallContext.fields`, instruct the agent to say it, and look for it in an
-    AGENT turn of the transcript. Caller turns are excluded deliberately: a human on the
-    pilot call reading the nonce aloud would otherwise pass this check for us.
+    Complementary to the prompt read-back, not superseded by it: `get_agent` proves the
+    engine HOLDS our prompt, this proves a per-call `user_data` variable was RENDERED
+    into it on a live call. A nonce goes into `CallContext.fields`, the agent is told to
+    say it, and we look for it in an AGENT turn. Caller turns are excluded deliberately:
+    a human on the pilot call reading the nonce aloud would otherwise pass this for us.
     """
     return any(turn.speaker == "agent" and nonce in turn.text for turn in snapshot.transcript)
+
+
+async def _prompt_applied_check(
+    ctx: GateContext, ref: str, marker: str, *, accepted: bool
+) -> SubCheck:
+    """ACCEPTED → APPLIED: read the agent back and look for the marker we just wrote.
+
+    THE DISTINCTION THIS SCORES. `update_agent` returning cleanly means the vendor took
+    the PUT. It does not mean the agent is running that prompt, and the prompt is where
+    the compliance disclosure lives (hard rule 5) — so "we wrote it and assumed it stuck"
+    is precisely the class of claim a pilot exists to replace with evidence. Gate 2 could
+    not previously ask, because `VoiceEngine` had no read-back at all.
+
+    WHAT A PASS HERE DOES AND DOES NOT PROVE. It proves the engine's stored configuration
+    carries our text. It does NOT prove the running call uses it — that is what the
+    `user_data` round-trip below observes, on a live call, and the two are deliberately
+    separate rows. The endpoint itself is an unverified vendor claim (see
+    `BolnaEngine.get_agent`): a wrong path 404s, which surfaces here as a FAILED read-back
+    rather than a quiet pass, and that is the intended failure direction.
+    """
+    if not accepted:
+        return not_run(
+            "update_prompt_applied",
+            "the update was never accepted, so there is nothing to confirm was applied",
+        )
+    try:
+        snapshot = await ctx.engine.get_agent(ref)
+    except ProblemError as exc:
+        if exc.code == "engine_capability_unverified":
+            return not_run(
+                "update_prompt_applied",
+                f"the adapter does not implement an agent read-back (`{exc.code}`), so "
+                "this engine can confirm the write only as ACCEPTED.",
+            )
+        return failed(
+            "update_prompt_applied",
+            f"get_agent failed: {_engine_error(exc)}. The write was accepted and cannot "
+            "be confirmed as applied — and if the failure is a 404 the read-back endpoint "
+            "itself is wrong (it is an unverified vendor claim, see BolnaEngine.get_agent).",
+        )
+    except Exception as exc:
+        return failed("update_prompt_applied", f"get_agent failed: {_engine_error(exc)}")
+
+    if snapshot.engine_agent_ref != ref:
+        return failed(
+            "update_prompt_applied",
+            "the read-back describes a different agent than the one we updated — every "
+            "verdict drawn from it would be about the wrong agent",
+        )
+    carried = snapshot.carries_prompt_marker(marker)
+    if carried is None:
+        return not_run(
+            "update_prompt_applied",
+            "the adapter could not read a system prompt out of the agent object, so the "
+            "update stands as ACCEPTED only. Capture one raw agent payload "
+            "(`scripts/pilot/record.py`) and correct the field names in "
+            "`bolna._agent_system_prompt` — the shape is hand-maintained, not specified.",
+        )
+    if carried:
+        return passed(
+            "update_prompt_applied",
+            "APPLIED: the agent the engine holds carries the prompt we wrote (marker "
+            "found in the live system prompt), not merely a 2xx on the write",
+        )
+    return failed(
+        "update_prompt_applied",
+        "ACCEPTED BUT NOT APPLIED: `update_agent` succeeded and the live agent does NOT "
+        "carry the new prompt. Every prompt change we have ever made to this engine is "
+        "suspect, including the disclosure line, and publish must verify rather than "
+        "trust the write.",
+    )
 
 
 async def run_gate_2(ctx: GateContext) -> GateRun:
@@ -202,29 +277,32 @@ async def run_gate_2(ctx: GateContext) -> GateRun:
         )
     checks.append(passed("create_agent", f"agent created (ref {ref})"))
 
+    # The marker the read-back looks for. It goes INTO the prompt text, so it survives
+    # whatever rendering the engine applies (the adapter prepends the disclosure line) —
+    # comparing the live prompt to what we sent would fail on a correctly applied update.
+    applied_marker = f"rev-2 {nonce}"
     updated = cfg.model_copy(
-        update={"system_prompt": cfg.system_prompt.replace("rev-1", f"rev-2 {nonce}")}
+        update={"system_prompt": cfg.system_prompt.replace("rev-1", applied_marker)}
     )
+    accepted = False
     try:
         await ctx.engine.update_agent(ref, updated)
+        accepted = True
         checks.append(passed("update_prompt", "update_agent accepted a changed system prompt"))
     except Exception as exc:
         checks.append(failed("update_prompt", f"update_agent failed: {_engine_error(exc)}"))
-    # Accepted ≠ applied, and our contract cannot tell the difference. This sub-check
-    # therefore scores the vendor ACCEPTING the write, and nothing else — "we wrote it
-    # and assumed it stuck" is exactly the class of claim a pilot exists to replace with
-    # evidence, so it is written down here rather than left implied by a green tick.
+    checks.append(await _prompt_applied_check(ctx, ref, applied_marker, accepted=accepted))
     findings.append(
-        "ADAPTER GAP — NO AGENT READ-BACK. `VoiceEngine` carries `create_agent` and "
-        "`update_agent` and nothing that reads an agent's current config, so gate 2's "
-        "'update prompt' step is confirmed only as ACCEPTED (the vendor took the PUT), "
-        "never as APPLIED. The only end-to-end proof available through this contract is "
-        "indirect: the prompt's effect on a live call, which is what the `user_data` "
-        "round-trip check below actually measures. The same missing method is what makes "
-        "D-41's second question unanswerable — does `DELETE /knowledgebase/{rag_id}` "
-        "clear the agent's reference, or does a dangling `rag_id` remain? One `get_agent` "
-        "would settle both, and it is deliberately NOT being added blind: its endpoint "
-        "shape is a vendor claim, and vendor claims get verified, never assumed."
+        "THE AGENT READ-BACK ITSELF IS AN UNVERIFIED VENDOR CLAIM, AND THIS RUN IS WHERE "
+        "IT STOPS BEING ONE. `VoiceEngine.get_agent` is what lifts 'update prompt' from "
+        "ACCEPTED to APPLIED, but `GET /v2/agent/{agent_id}` was written from Bolna's OSS "
+        "server (`bolna-ai/bolna`, which documents and implements `GET /agent/{agent_id}` "
+        "returning the stored agent object) plus a search summary of their hosted v2 "
+        "reference — their docs site could not be read directly. So record two things "
+        "from this run: whether the GET returned 2xx at all, and whether the prompt came "
+        "back where `bolna._agent_system_prompt` looks for it "
+        "(`agent_prompts.task_1.system_prompt`). A 404 here means the path is wrong, not "
+        "that the vendor dropped our prompt."
     )
 
     try:
@@ -631,10 +709,121 @@ def _attested_yes(value: str | None) -> bool | None:
     return None
 
 
+def _executions_in_window(ctx: GateContext) -> int | None:
+    """The operator's independent count, or None. Never inferred from our own listing."""
+    raw = ctx.attestations.get("gate6.executions_in_window")
+    if raw is None:
+        return None
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return None
+
+
+def _listing_completeness_check(ctx: GateContext, listing: ExecutionListing) -> SubCheck:
+    """Did List-Executions cover the whole window — and how would we know?
+
+    WHAT IS NOW MEASURABLE: the adapter reports `ExecutionListing.complete`, so a listing
+    it could not vouch for is a FAIL here instead of a silence. It reaches that verdict
+    from the payload where the payload says anything (`has_more`, a `total` larger than
+    the rows, a `next` it followed) and otherwise from the row count landing exactly on a
+    conventional page size.
+
+    WHAT IS STILL AN ASSUMPTION: whether Bolna paginates at all, at what size, and in
+    what form. Nothing inside our process can settle that — a listing cannot report what
+    it omitted — so the only independent evidence is the operator's own count from the
+    dashboard (`--attest gate6.executions_in_window=<n>`). Without it a `complete=True`
+    on a quiet pilot window is NOT RUN, not a pass: it would be our own adapter agreeing
+    with itself, which is the mistake gate 7's currency row was rewritten to stop making.
+    """
+    rows = len(listing.snapshots)
+    expected = _executions_in_window(ctx)
+    measurements: dict[str, Any] = {
+        "executions_listed": rows,
+        "pages_fetched": listing.pages_fetched,
+    }
+    if expected is not None:
+        measurements["executions_expected"] = expected
+
+    if not listing.complete:
+        return failed(
+            "listing_covers_the_whole_window",
+            f"the adapter could NOT vouch for this listing ({listing.incomplete_reason}). "
+            "Under D-31 the poller is the guarantee of record, so an execution beyond the "
+            "part we read has no webhook, no repair and no trace anywhere. Capture the "
+            "response body and record the page size before the pilot closes.",
+            **measurements,
+        )
+    if expected is not None and expected > rows:
+        return failed(
+            "listing_covers_the_whole_window",
+            f"TRUNCATION CONFIRMED AND UNDETECTED: the dashboard shows {expected} "
+            f"executions in this window and List-Executions returned {rows}. Bolna "
+            "paginates, our page-size heuristic did not fire on it, and the poller has "
+            "been reading a prefix of the truth. Record the exact page size and the "
+            "continuation form — this is a code change, not a note.",
+            **measurements,
+        )
+    if expected is not None:
+        return passed(
+            "listing_covers_the_whole_window",
+            f"the operator's own count ({expected}) is covered by the {rows} executions "
+            "List-Executions returned, and the adapter saw nothing suggesting another page",
+            **measurements,
+        )
+    return not_run(
+        "listing_covers_the_whole_window",
+        "the adapter reports the listing as complete, but nothing independent has "
+        "confirmed it: a listing cannot report what it left out, and a pilot window is "
+        "far too quiet to reach any plausible page size. Count the account's executions "
+        "since the window opened on the Bolna dashboard and record it with "
+        "--attest gate6.executions_in_window=<n>.",
+        **measurements,
+    )
+
+
+def _listing_completeness_findings(ctx: GateContext, listing: ExecutionListing) -> list[str]:
+    """The prose an operator acts on, separated from the verdict for the same reason
+    gate 7 does it: a check says pass/fail, a finding says what to DO next."""
+    rows = len(listing.snapshots)
+    expected = _executions_in_window(ctx)
+    if not listing.complete or (expected is not None and expected > rows):
+        return [
+            "PAGINATION IS REAL OR CANNOT BE RULED OUT, AND THE POLLER IS THE GUARANTEE "
+            "OF RECORD. Capture one raw `GET /executions` body as a fixture (`scripts/"
+            "pilot/record.py --gate 6`), and record three things from it: the number of "
+            "rows a saturated request returns (the page size), whether the body carries "
+            "any of `next`/`next_page_url`/`has_more`/`total`, and — if it carries a "
+            "cursor rather than a link — the exact parameter name that consumes it. "
+            "`BolnaEngine._next_link` already follows a self-describing link; a cursor "
+            "whose parameter name we would have to guess is deliberately NOT followed, "
+            "because a guessed parameter is ignored by the vendor and re-reads page one "
+            "forever."
+        ]
+    if expected is None:
+        return [
+            "LIST-EXECUTIONS PAGINATION REMAINS AN ASSUMPTION, NOW A DECLARED ONE. The "
+            "adapter no longer returns a page as if it were a window: it returns "
+            "`ExecutionListing.complete`, and `reconcile_executions` alerts "
+            "(`reconciliation_listing_incomplete`) and meters every tick it cannot vouch "
+            "for. What is still unverified is the vendor's behaviour itself — Bolna "
+            "publishes no OpenAPI spec and no pagination contract, and a pilot window "
+            "holds too few executions to reach any page size, so `complete=True` here "
+            "means 'nothing in the response suggested otherwise', not 'we saw the whole "
+            "window'. Settling it needs exactly one thing this harness cannot fabricate: "
+            "the account's own execution count for the same window, from the dashboard, "
+            "via --attest gate6.executions_in_window=<n>. Until a saturated listing has "
+            "been captured, the page-size heuristic in `bolna._LISTING_PAGE_SIZES` is "
+            "the only thing standing between us and a silent gap, and it is a guess about "
+            "round numbers, not knowledge."
+        ]
+    return []
+
+
 async def run_gate_6(ctx: GateContext) -> GateRun:
     """Gate 6 H — kill the receiver mid-call; prove the poller recovers.
 
-    The three claims are graded very differently and that is deliberate:
+    The four claims are graded very differently and that is deliberate:
 
     * the call surviving a dead receiver is a HUMAN observation (nothing in-process can
       see it), so it is an attestation and is labelled as one;
@@ -643,7 +832,12 @@ async def run_gate_6(ctx: GateContext) -> GateRun:
       code), so an observed retry contradicts a documented claim and must be loud;
     * poller recovery is MEASURED here, through `list_executions`, because it is the
       guarantee of record for the entire product and an attestation is not good enough
-      for that.
+      for that;
+    * whether the listing COVERED the window is measured as far as our side can measure
+      it (`ExecutionListing.complete`) and is otherwise NOT RUN. Recovery and coverage
+      are different questions: an execution can be recovered perfectly and still sit on
+      page one of a listing whose page two we never read, and the calls on page two are
+      the ones nothing else will ever mention.
     """
     checks: list[SubCheck] = []
     findings: list[str] = []
@@ -745,6 +939,12 @@ async def run_gate_6(ctx: GateContext) -> GateRun:
         checks.append(
             not_run("poller_recovers_billable_data", "no execution ids to recover — see above.")
         )
+        checks.append(
+            not_run(
+                "listing_covers_the_whole_window",
+                "the poller listing was never read on this run — see above.",
+            )
+        )
         return GateRun(
             number=6,
             title="Webhook loss behaviour",
@@ -753,7 +953,7 @@ async def run_gate_6(ctx: GateContext) -> GateRun:
         )
 
     try:
-        snapshots = await ctx.engine.list_executions(since=ctx.since)
+        listing = await ctx.engine.list_executions(since=ctx.since)
     except Exception as exc:
         checks.append(
             failed(
@@ -765,6 +965,12 @@ async def run_gate_6(ctx: GateContext) -> GateRun:
         checks.append(
             not_run("poller_recovers_billable_data", "the execution listing could not be read")
         )
+        checks.append(
+            not_run(
+                "listing_covers_the_whole_window",
+                "the execution listing could not be read, so its coverage is unknowable",
+            )
+        )
         return GateRun(
             number=6,
             title="Webhook loss behaviour",
@@ -772,7 +978,7 @@ async def run_gate_6(ctx: GateContext) -> GateRun:
             findings=tuple(findings),
         )
 
-    listed = {s.engine_call_id: s for s in snapshots}
+    listed = {s.engine_call_id: s for s in listing.snapshots}
     absent = [eid for eid in missed if eid not in listed]
     if absent:
         checks.append(
@@ -796,15 +1002,8 @@ async def run_gate_6(ctx: GateContext) -> GateRun:
                 window_hours=round((datetime.now(UTC) - ctx.since).total_seconds() / 3600, 2),
             )
         )
-        findings.append(
-            "PAGINATION IS UNTESTED AND THE POLLER DEPENDS ON IT. "
-            "`BolnaEngine.list_executions` issues one GET /executions?created_after=... "
-            "and reads one page; no `page`/`limit`/cursor is sent and no continuation is "
-            "followed. If Bolna paginates — undocumented, no OpenAPI spec — the guarantee "
-            "of record silently truncates at page one, and it will do so first on the "
-            "busiest window, which is the one where losing calls costs most. Confirm the "
-            "response shape during the pilot and record the page size."
-        )
+    checks.append(_listing_completeness_check(ctx, listing))
+    findings.extend(_listing_completeness_findings(ctx, listing))
 
     incomplete = [eid for eid in missed if eid in listed and not listed[eid].billable_ready]
     if absent:

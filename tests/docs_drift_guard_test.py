@@ -337,9 +337,11 @@ class TestRuleNames:
 
 
 class TestRateZones:
-    """The deferred half of D-29's spec. The comparator is written and exercised HERE so
-    that it is not vapourware: the day a `rate-zones.conf.template` lands anywhere in the
-    repo, `rate_zone_drift()` starts judging it with no code to write."""
+    """D-29's spec, no longer deferred. `infra/nginx/rate-zones.conf.template` landed with
+    the deploy path, so `rate_zone_drift()` now judges the REAL tree on every CI run
+    (`TestWiring.test_the_real_tree_is_clean`). These cases keep judging the comparator
+    itself against synthetic templates in tmp_path — a check that is only ever run against
+    a tree that passes has never been shown to fail."""
 
     def _template(self, root: Path, body: str) -> Path:
         path = root / "infra" / "nginx" / guard.RATE_ZONE_TEMPLATE_NAME
@@ -384,9 +386,23 @@ class TestRateZones:
 
     def test_the_deferral_fails_the_day_the_template_lands(self, tmp_path: Path) -> None:
         """A deferral outlives its subject or it is an excuse. This is what keeps
-        DEFERRED_MIRRORS shrink-only: the entry cannot survive the file arriving."""
+        DEFERRED_MIRRORS shrink-only: the entry cannot survive the file arriving.
+
+        The real dict is now EMPTY — the template landed with the deploy path and the
+        entry was deleted in the same change — so the deferral is supplied explicitly
+        here. The mechanism still has to be exercised: the next deferral anybody adds
+        inherits this rule, and a test that only passed while one particular entry
+        existed would have retired the rule along with the entry."""
         self._template(tmp_path, self._faithful())
-        failures = guard.stale_deferrals(root=tmp_path)
+        failures = guard.stale_deferrals(
+            root=tmp_path,
+            deferrals={
+                guard.RATE_ZONE_TEMPLATE_NAME: (
+                    "a reason long enough to pass the thinness check, standing in for "
+                    "the one this entry carried before the template landed"
+                )
+            },
+        )
         assert any("Delete the entry" in f for f in failures), failures
 
     def test_a_reasonless_deferral_is_refused(self) -> None:
@@ -394,9 +410,13 @@ class TestRateZones:
         assert any("too thin" in f for f in failures), failures
 
     def test_the_deferral_is_pinned(self) -> None:
-        """Deferring a second mirror costs a visible diff in a TEST, not one line in a
-        dict — the rule `guardrail_audit_test` applies to every other exemption here."""
-        assert set(guard.DEFERRED_MIRRORS) == {"rate-zones.conf.template"}
+        """Deferring a mirror costs a visible diff in a TEST, not one line in a dict —
+        the rule `guardrail_audit_test` applies to every other exemption here.
+
+        The set is now empty, and that is the assertion worth keeping: `rate-zones.conf.template`
+        exists in the tree, `rate_zone_drift()` judges it on every CI run, and nothing is
+        deferred. Adding an entry to `DEFERRED_MIRRORS` must break this line."""
+        assert set(guard.DEFERRED_MIRRORS) == set()
 
 
 class TestBlindSpots:

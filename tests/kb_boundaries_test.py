@@ -115,9 +115,15 @@ def test_every_object_key_function_is_one_the_lifecycle_policy_knows_about() -> 
     without a lifecycle rule is what this refuses.
     """
     key_functions = {name for name in storage.__all__ if name.endswith("_key")}
-    assert key_functions == {"recording_key", "payload_key"}, (
+    # `delivery_body_key` (D-23) joined the set with its own rule
+    # (`webhook-bodies-growth-ceiling-not-retention`) and its own coverage assertion in
+    # `object_lifecycle_test`. It is the first key whose bytes are ALSO expired per
+    # tenant, by the retention sweep — the bucket rule is its orphan backstop, not its
+    # retention mechanism.
+    assert key_functions == {"recording_key", "payload_key", "delivery_body_key"}, (
         f"apps/workers/storage.py exports new object key function(s) "
-        f"{sorted(key_functions - {'recording_key', 'payload_key'})}. Every prefix we "
+        f"{sorted(key_functions - {'recording_key', 'payload_key', 'delivery_body_key'})}. "
+        "Every prefix we "
         "write must be covered by an enabled expiry rule in "
         "infra/object-lifecycle/policy.json — add the rule, extend the coverage "
         "assertions in tests/object_lifecycle_test.py, then update this set."

@@ -14,7 +14,9 @@ import {
   PhoneOff,
   Play,
   Plus,
+  Repeat,
   Rocket,
+  CalendarClock,
   Users,
 } from "lucide-react";
 
@@ -47,6 +49,12 @@ import {
   useLaunchCampaign,
   useLaunchCheck,
   usePauseCampaign,
+  recurrenceUntil,
+  scheduleStartAt,
+  useScheduleCampaign,
+  useSetRecurrence,
+  useUnscheduleCampaign,
+  type CampaignRecurrence,
   type CampaignSummary,
   type Classification,
   type ConsentSource,
@@ -378,6 +386,75 @@ function todayInputValue(): string {
   return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 }
 
+/**
+ * The days of the week, in the server's own numbering (ISO: 1 = Monday).
+ *
+ * Not `Date.getDay()`'s numbering, which starts at Sunday = 0. One vocabulary from the
+ * checkbox to the stored rule to the dispatch tick; a second one is an off-by-one that
+ * dials on the wrong day, which on this product means calling strangers on a Sunday.
+ */
+const WEEKDAYS: { value: number; label: string; short: string }[] = [
+  { value: 1, label: "Monday", short: "Mon" },
+  { value: 2, label: "Tuesday", short: "Tue" },
+  { value: 3, label: "Wednesday", short: "Wed" },
+  { value: 4, label: "Thursday", short: "Thu" },
+  { value: 5, label: "Friday", short: "Fri" },
+  { value: 6, label: "Saturday", short: "Sat" },
+  { value: 7, label: "Sunday", short: "Sun" },
+];
+
+/**
+ * An occurrence in the words a client can check against their own calendar.
+ *
+ * `formatIST` (ui.tsx) gives "14 Aug, 10:00", which is right everywhere else on this
+ * console and NOT enough here: the one thing a repeat has to survive is the client
+ * asking "is that this Tuesday?". So the weekday is spelled out — "Tuesday 14 Aug, 10:00
+ * IST" — and only for schedule times. A local helper rather than a second export from
+ * `ui.tsx`, because the weekday matters exactly where a repeat rule is read and nowhere
+ * else on the console.
+ */
+function formatOccurrence(value: string | null | undefined): string {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return parsed.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    weekday: "long",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** "every Tuesday and Friday at 10:00" — the rule, read back as a sentence. */
+function describeRepeat(recurrence: CampaignRecurrence): string {
+  const chosen = WEEKDAYS.filter((day) => recurrence.days.includes(day.value));
+  if (chosen.length === WEEKDAYS.length) return `every day at ${recurrence.at}`;
+  const names = chosen.map((day) => day.label);
+  const listed =
+    names.length <= 1
+      ? (names[0] ?? "no day")
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `every ${listed} at ${recurrence.at}`;
+}
+
+/**
+ * Why an occurrence did not run, in the client's words.
+ *
+ * `missed` is the only reason the server records today, and it is the one that most
+ * needs explaining: a client who sees "we skipped Tuesday" and no reason assumes we
+ * dropped their campaign. The truth — we would have dialled at the wrong time of day, so
+ * we waited for the next slot — is both better and reassuring, and it is the promise
+ * `campaigns/scheduling.py` decision 2 makes on their behalf.
+ */
+const SKIP_COPY: Record<string, string> = {
+  missed: [
+    "We could not start it close enough to the time you picked, so we waited for the",
+    "next one rather than calling people at a different time of day.",
+  ].join(" "),
+};
+
 const CLASSIFICATIONS: { value: Classification; label: string; hint: string }[] = [
   { value: "promotional", label: "Promotional", hint: "Offers and marketing — dials from a 140 number" },
   { value: "service", label: "Service", hint: "Updates to existing customers — 160 or standard" },
@@ -438,6 +515,29 @@ export default function CampaignsPage() {
   const launch = useLaunchCampaign(session, campaignId);
   const progress = useCampaignProgress(session, campaignId);
   const setStatus = usePauseCampaign(session, campaignId);
+  const schedule = useScheduleCampaign(session, campaignId);
+  const unschedule = useUnscheduleCampaign(session, campaignId);
+  const repeat = useSetRecurrence(session, campaignId);
+
+  // Two fields, not one datetime-local: a date picker and a time picker are what a
+  // phone renders usefully, and most of these clients are on one. Empty by default —
+  // there is no sensible default start, and a pre-filled "tomorrow 10am" is a date
+  // nobody chose sitting one click from dialling a list.
+  const [startDate, setStartDate] = useState("");
+  const [startTime, setStartTime] = useState("10:00");
+  const startIso = scheduleStartAt(startDate, startTime);
+
+  // The repeat form. Days empty by default and no day pre-ticked: "every Monday" is a
+  // standing instruction to call strangers, and a default one is an instruction nobody
+  // gave. The time defaults to 10:00 only because the control needs a value at all — it
+  // is inside the calling window either way, which is the part the server enforces.
+  const [repeatDays, setRepeatDays] = useState<number[]>([]);
+  const [repeatTime, setRepeatTime] = useState("10:00");
+  const [repeatEnds, setRepeatEnds] = useState("");
+  const toggleRepeatDay = (day: number) =>
+    setRepeatDays((days) =>
+      days.includes(day) ? days.filter((value) => value !== day) : [...days, day].sort(),
+    );
 
   const parsed = useMemo(() => parseContactCsv(csv), [csv]);
   // Both or neither, decided here so the two halves cannot be sent apart: the API
@@ -483,6 +583,10 @@ export default function CampaignsPage() {
   // contact-upload and launch cards over a campaign that is already running.
   const status = progress.data?.status ?? null;
   const counts = progress.data?.contacts ?? {};
+  // The repeat, only ever from a response that ARRIVED. Undefined while the request is in
+  // flight or after it failed, which is why nothing below defaults it to "no repeat":
+  // telling a client their campaign does not repeat is a claim, and a 503 did not make it.
+  const recurrence = progress.data?.recurrence ?? null;
 
   /**
    * Back to the list, with the audited answer CLEARED.
@@ -540,6 +644,16 @@ export default function CampaignsPage() {
       {addContacts.error && <ProblemNotice error={addContacts.error} />}
       {launch.error && <ProblemNotice error={launch.error} />}
       {setStatus.error && <ProblemNotice error={setStatus.error} />}
+      {/* A refused schedule is a refusal, never a silently unchanged form: the server
+          names the reason (a start in the past, one beyond the horizon, a campaign that
+          has already launched) and the client can only act on it if it is on screen. */}
+      {schedule.error && <ProblemNotice error={schedule.error} />}
+      {unschedule.error && <ProblemNotice error={unschedule.error} />}
+      {/* A refused repeat is a refusal with something to do about it: a time outside
+          calling hours, no day chosen, an end date before the first run. All three are
+          named by the server and none of them is guessable from a form that simply does
+          nothing. */}
+      {repeat.error && <ProblemNotice error={repeat.error} />}
 
       {/* A skeleton, not an empty list: "you have no campaigns" is a claim about this
           business, and the request had not answered yet. */}
@@ -968,8 +1082,116 @@ export default function CampaignsPage() {
             </Card>
           )}
 
-          {status === "draft" && (
-            <Card title="Before you launch">
+          {/* THE REPEAT, at any status.
+              A one-time start is spent the moment it fires, so its card is keyed on
+              `scheduled`. A repeat is not: a campaign dialling right now still repeats
+              next Tuesday, and the client needs both that fact and the button that stops
+              it wherever they are looking. Rendered only from a response that arrived —
+              the loading and failure states are the skeleton and the notice above, and
+              "this campaign does not repeat" is a claim neither of them supports. */}
+          {recurrence && (
+            <Card title="Repeats">
+              <div className="space-y-3">
+                <p className="flex items-center gap-2 text-sm font-medium text-ink">
+                  <Repeat aria-hidden className="h-4 w-4 shrink-0" />
+                  Calls {describeRepeat(recurrence)} IST
+                </p>
+                {/* The sentence this whole card exists for: a schedule a client cannot
+                    read against their own calendar is a schedule they cannot trust. */}
+                <p className="text-sm text-ink-muted">
+                  Next: {formatOccurrence(recurrence.next_occurrence_at)} IST
+                  {recurrence.until && ` · stops repeating after ${formatIST(recurrence.until)}`}
+                </p>
+                {/* An occurrence that did not run, and why. Without this the campaign
+                    simply says "scheduled" on a week it never dialled, which is the
+                    silence §52 is about. */}
+                {recurrence.last_skipped_at && (
+                  <p className="flex gap-2.5 text-sm text-ink-muted">
+                    <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <span>
+                      We skipped the run due {formatOccurrence(recurrence.last_skipped_at)} IST.{" "}
+                      {lookup(SKIP_COPY, recurrence.last_skipped_reason) ??
+                        "The next one is unaffected."}
+                    </span>
+                  </p>
+                )}
+                {/* Same wording the one-time card uses, because it is the same fact: the
+                    gate refused the last attempt to start. */}
+                {(progress.data?.schedule_blocked_rules?.length ?? 0) > 0 && (
+                  <p className="flex gap-2.5 text-sm text-ink-muted">
+                    <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <span>
+                      We tried to start this run and could not. The reasons are listed
+                      below — fix them and it will start on the next attempt.
+                    </span>
+                  </p>
+                )}
+                <button
+                  type="button"
+                  title={refusal}
+                  disabled={!write.allowed || unschedule.isPending}
+                  onClick={() => unschedule.mutate()}
+                  className={SECONDARY_BUTTON}
+                >
+                  {unschedule.isPending ? "Stopping…" : "Stop repeating"}
+                </button>
+                <p className={FIELD_HINT}>
+                  Stopping ends the repeat only. Calls already going out are not affected —
+                  pause the campaign for that.
+                </p>
+              </div>
+            </Card>
+          )}
+
+          {status === "scheduled" && !recurrence && (
+            <Card title="Scheduled">
+              {/* §52: loading is a skeleton, failure is the notice above — neither is a
+                  date and neither is the word "scheduled" on its own. */}
+              {progress.isLoading ? (
+                <Skeleton rows={2} />
+              ) : (
+                <div className="space-y-3">
+                  <p className="flex items-center gap-2 text-sm font-medium text-ink">
+                    <CalendarClock aria-hidden className="h-4 w-4 shrink-0" />
+                    Starts {formatIST(progress.data?.scheduled_start_at)} IST
+                  </p>
+                  {/* The gate refused the last attempt to start it. Without this the
+                      campaign sits here saying "scheduled" for a day and then quietly
+                      becomes a draft again — a start that never happened and never said
+                      so. The rules are the launch gate's own names, so the list above
+                      already explains each one in the client's words. */}
+                  {(progress.data?.schedule_blocked_rules?.length ?? 0) > 0 && (
+                    <p className="flex gap-2.5 text-sm text-ink-muted">
+                      <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                      <span>
+                        We tried to start this campaign and could not. The reasons are
+                        listed below — fix them and it will start on the next attempt.
+                        If they are still outstanding a day after the start time, the
+                        campaign goes back to draft.
+                      </span>
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    title={refusal}
+                    disabled={!write.allowed || unschedule.isPending}
+                    onClick={() => unschedule.mutate()}
+                    className={SECONDARY_BUTTON}
+                  >
+                    {unschedule.isPending ? "Cancelling…" : "Cancel scheduled start"}
+                  </button>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* `scheduled` shares this card with `draft`: a campaign waiting for Monday
+              has not launched, its blockers are still the launch gate's, and the server
+              re-runs exactly this check when the schedule fires. Rendering it only for
+              `draft` would leave a scheduled campaign with no card at all — a status and
+              nothing else, which §52 says a screen may not stop at. */}
+          {(status === "draft" || status === "scheduled") && (
+            <Card title={status === "scheduled" ? "Before it starts" : "Before you launch"}>
               {check.isLoading ? (
                 <Skeleton rows={3} />
               ) : check.error ? (
@@ -992,6 +1214,135 @@ export default function CampaignsPage() {
                     <Rocket aria-hidden className="h-4 w-4" />
                     {launch.isPending ? "Launching…" : "Launch campaign"}
                   </button>
+
+                  {/* Schedule, in the SAME card as Launch, because it is the same
+                      action with a delay on it — and the gate that guards Launch runs
+                      again when this fires. The green tick above is about right now;
+                      the note below says plainly that it is not a promise about the
+                      start. */}
+                  {status === "draft" && (
+                    <div className="space-y-2 border-t border-line pt-3">
+                      <p className={FIELD_LABEL}>Or start it later</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="date"
+                          aria-label="Start date"
+                          value={startDate}
+                          onChange={(e) => setStartDate(e.target.value)}
+                          className={FIELD}
+                        />
+                        <input
+                          type="time"
+                          aria-label="Start time (IST)"
+                          value={startTime}
+                          onChange={(e) => setStartTime(e.target.value)}
+                          className={FIELD}
+                        />
+                        <button
+                          type="button"
+                          title={refusal}
+                          disabled={!write.allowed || !startIso || schedule.isPending}
+                          onClick={() => startIso && schedule.mutate(startIso)}
+                          className={SECONDARY_BUTTON}
+                        >
+                          <CalendarClock aria-hidden className="h-3.5 w-3.5" />
+                          {schedule.isPending ? "Scheduling…" : "Schedule start"}
+                        </button>
+                      </div>
+                      <p className={FIELD_HINT}>
+                        Times are IST. We check every one of these requirements again at
+                        the moment it starts — a campaign that stops being allowed to
+                        dial between now and then will not start.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* REPEAT, in the same card and for the same reason as the schedule
+                      form above: it is the Launch button with a calendar on it, and the
+                      gate that guards Launch runs again on every single occurrence. Both
+                      `draft` and `scheduled` can set one — a client who picked Monday and
+                      then decided they want it weekly should not have to cancel first. */}
+                  {(status === "draft" || status === "scheduled") && (
+                    <div className="space-y-2 border-t border-line pt-3">
+                      <p className={FIELD_LABEL}>Or repeat it every week</p>
+                      <fieldset>
+                        <legend className={FIELD_HINT}>Which days</legend>
+                        <div className="mt-1 flex flex-wrap gap-3">
+                          {WEEKDAYS.map((day) => (
+                            <label
+                              key={day.value}
+                              className="flex items-center gap-1.5 text-sm text-ink"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={repeatDays.includes(day.value)}
+                                onChange={() => toggleRepeatDay(day.value)}
+                                className="h-4 w-4 rounded border-line accent-brand"
+                              />
+                              {/* The full day name for a screen reader, the short one on
+                                  screen: seven visible "Wednesday"s wrap onto three lines
+                                  on a phone, and an icon-only toggle would be a control
+                                  with no label at all. */}
+                              <span aria-hidden>{day.short}</span>
+                              <span className="sr-only">{day.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <label className="block">
+                          <span className={FIELD_LABEL}>Time (IST)</span>
+                          <input
+                            type="time"
+                            value={repeatTime}
+                            onChange={(e) => setRepeatTime(e.target.value)}
+                            className={FIELD}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className={FIELD_LABEL}>Stop repeating after (optional)</span>
+                          <input
+                            type="date"
+                            value={repeatEnds}
+                            onChange={(e) => setRepeatEnds(e.target.value)}
+                            className={FIELD}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          title={refusal}
+                          disabled={
+                            !write.allowed || repeatDays.length === 0 || repeat.isPending
+                          }
+                          onClick={() =>
+                            repeat.mutate({
+                              days: repeatDays,
+                              at: repeatTime,
+                              until: recurrenceUntil(repeatEnds),
+                            })
+                          }
+                          className={SECONDARY_BUTTON}
+                        >
+                          <Repeat aria-hidden className="h-3.5 w-3.5" />
+                          {repeat.isPending ? "Setting…" : "Set repeat"}
+                        </button>
+                      </div>
+                      {/* A dead button needs its reason beside it, like the create
+                          form's provenance note — and this one is dead by default,
+                          because no day is pre-ticked. */}
+                      {repeatDays.length === 0 && (
+                        <p className="text-xs text-ink-faint">
+                          Choose at least one day for this campaign to repeat on.
+                        </p>
+                      )}
+                      <p className={FIELD_HINT}>
+                        Calls go out between 9am and 9pm, so a repeat has to sit inside
+                        those hours. If a run is missed — a fault our side, or a previous
+                        run still going — we skip it and wait for the next one rather than
+                        calling people at a different time of day.
+                      </p>
+                    </div>
+                  )}
                   {/* THE ONE PLACE THE TOP-OF-SCREEN RESTRICTION NOTE IS REPEATED, and
                       the exception is earned: this is the only branch where the sentence
                       immediately above a dead control says everything is fine. A `staff`

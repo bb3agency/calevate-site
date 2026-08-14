@@ -159,8 +159,10 @@ async def _jobs(tenant_id: uuid.UUID) -> list[dict[str, object]]:
 
 
 def _app() -> FastAPI:
-    """The router is deliberately NOT mounted in `main.py` — the integrator mounts it.
-    Mounting it here keeps the `permission_meta` boot contract honest all the same."""
+    """`main.py` mounts this router; mounting it alone here keeps a failure pointed at
+    this surface, and keeps the `permission_meta` boot contract honest either way. (This
+    used to say the router was deliberately NOT mounted — it was already false, and
+    `deletion_routes.py` corrected the same sentence in its own docstring.)"""
     application = FastAPI()
     install_error_handlers(application)
     application.include_router(deletion_router)
@@ -572,6 +574,100 @@ async def test_a_number_we_hold_nothing_about_still_gets_a_request_and_a_certifi
     assert [entry["outcome"] for entry in proof["not_erased"]] == [
         exception.outcome for exception in ERASURE_EXCEPTIONS
     ]
+
+
+async def test_the_list_returns_this_accounts_requests_newest_first_and_no_numbers() -> None:
+    """The index that makes a filed request survive closing the tab.
+
+    Two things are asserted together on purpose: that the list is complete and ordered,
+    and that it carries no phone number ANYWHERE in the body. A list is the one read on
+    this surface that returns many subjects at once, so it is where the number would leak
+    in bulk — every number this account has been asked to erase, in one response.
+    """
+    older, newer = _phone(), _phone()
+    tenant_id, agent_id, slug, token = await _tenant()
+    await _seed_call(tenant_id, agent_id, phone=older)
+
+    async with _client(_app()) as http:
+        first = await http.post(BASE, json={"phone": older}, headers=_headers(token, slug))
+        second = await http.post(BASE, json={"phone": newer}, headers=_headers(token, slug))
+        listed = await http.get(BASE, headers=_headers(token, slug))
+
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()
+    assert [row["request_id"] for row in rows] == [
+        second.json()["request_id"],
+        first.json()["request_id"],
+    ], "newest first — the request a client is chasing is the one they just filed"
+
+    assert rows[1]["subject_ref"] == subject_ref(older)
+    assert rows[0]["status"] == "pending"
+    assert rows[0]["completed_at"] is None
+    assert rows[0]["has_certificate"] is False
+
+    # Hard rule 6, on the response as a whole rather than field by field: a number added
+    # to this shape by a later edit fails here whatever it is called.
+    body = listed.text
+    for phone in (older, newer):
+        assert phone.lstrip("+") not in body
+        assert phone[-10:] not in body
+    assert "phone" not in body, "not even an empty or masked phone field belongs on an index"
+
+    # The certificate is per request, never on the index — an index that carried every
+    # proof on the account would make the cheapest read the largest.
+    assert "proof" not in rows[0]
+
+    async with _client(_app()) as http:
+        await execute_deletion_request({}, (await _jobs(tenant_id))[0])
+        after = await http.get(BASE, headers=_headers(token, slug))
+
+    filed_id = first.json()["request_id"]
+    done = next(row for row in after.json() if row["request_id"] == filed_id)
+    assert done["status"] == "completed"
+    assert done["completed_at"] is not None
+    # `has_certificate` rather than `proof is None` reversed: "completed with no proof
+    # recorded" is a real state the screen must be able to warn about, and a list that
+    # inferred the certificate from the status would hide exactly that case.
+    assert done["has_certificate"] is True
+
+
+async def test_one_tenants_deletion_request_list_is_empty_to_another() -> None:
+    """RLS cross-tenant zero rows (hard rule 1). The single-request read already answers
+    404 across tenants; a LIST fails differently and worse — it would hand back another
+    client's whole register of erasure obligations without anyone asking for an id.
+    """
+    phone = _phone()
+    tenant_a, agent_a, slug_a, token_a = await _tenant()
+    _tenant_b, _agent_b, slug_b, token_b = await _tenant()
+    await _seed_call(tenant_a, agent_a, phone=phone)
+
+    async with _client(_app()) as http:
+        filed = await http.post(BASE, json={"phone": phone}, headers=_headers(token_a, slug_a))
+        theirs = await http.get(BASE, headers=_headers(token_a, slug_a))
+        others = await http.get(BASE, headers=_headers(token_b, slug_b))
+
+    assert filed.status_code == 201
+    assert [row["request_id"] for row in theirs.json()] == [filed.json()["request_id"]]
+    assert others.json() == [], "another tenant's erasure register must read as empty"
+
+
+async def test_listing_needs_a_session_and_only_the_read_permission() -> None:
+    """Same split as the single read: `org:read` to see the register, `org:manage` to add
+    to it. A staff member answering "where is that erasure up to?" needs the first and
+    must not have the second."""
+    tenant_id, agent_id, slug, owner_token = await _tenant(role="owner")
+    staff_token = await _member(tenant_id, "staff")
+    phone = _phone()
+    await _seed_call(tenant_id, agent_id, phone=phone)
+
+    async with _client(_app()) as http:
+        await http.post(BASE, json={"phone": phone}, headers=_headers(owner_token, slug))
+        staff = await http.get(BASE, headers=_headers(staff_token, slug))
+        anonymous = await http.get(BASE)
+
+    assert staff.status_code == 200, staff.text
+    assert len(staff.json()) == 1
+    assert anonymous.status_code == 401
 
 
 async def test_an_unknown_request_id_is_a_404_not_a_500() -> None:

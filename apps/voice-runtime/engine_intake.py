@@ -46,6 +46,10 @@ TRUSTED_PROXY_CIDRS: tuple[str, ...] = (
     "192.168.0.0/16",
 )
 
+# THE ONE header this service will take a client address from, and the ONE hop allowed to
+# have written it. Everything about that choice is argued in `client_ip` below.
+_EDGE_CLIENT_IP_HEADER = "cf-connecting-ip"
+
 EngineName = Literal["bolna", "fake"]
 VerifyMethod = Literal["hmac", "source_ip", "none"]
 
@@ -80,24 +84,109 @@ def is_trusted_peer(peer_ip: str) -> bool:
     return any(address in ipaddress.ip_network(cidr) for cidr in TRUSTED_PROXY_CIDRS)
 
 
-def client_ip(peer_ip: str | None, headers: dict[str, str]) -> str:
-    """Real caller IP. A forwarded header is believed ONLY when the immediate peer is
-    a trusted proxy — otherwise anyone could send `CF-Connecting-IP: 13.203.39.153`
-    and walk straight through the allowlist."""
+def _literal_ip(value: str) -> str | None:
+    """`value` if it is exactly one IP address, else None.
+
+    "Exactly one" is doing real work: a comma-separated list, a `host:port`, an empty
+    string and a stray `unknown` all fail `ip_address` and therefore all fail closed.
+    One parse of a short string — the whole cost this function adds to the ack path.
+    """
+    candidate = value.strip()
+    if not candidate:
+        return None
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        return None
+    return candidate
+
+
+def client_ip(peer_ip: str | None, headers: dict[str, str]) -> str | None:
+    """The caller's address as this DEPLOYMENT can actually vouch for it, or None when it
+    cannot be established — in which case the caller must refuse, never guess.
+
+    WHAT WAS WRONG BEFORE. This function preferred `CF-Connecting-IP` and otherwise took
+    the LEFTMOST `X-Forwarded-For` entry. The leftmost entry is the one the ORIGINAL
+    CALLER wrote: every proxy in the chain appends, so position 0 is attacker input by
+    construction. MDN states the rule plainly — "any security-related use of
+    X-Forwarded-For (such as for rate limiting or IP-based access control) must only use
+    IP addresses added by a trusted proxy" (developer.mozilla.org/en-US/docs/Web/HTTP/
+    Reference/Headers/X-Forwarded-For), and RFC 7239 §8.1 says the same of `Forwarded`:
+    the field "cannot be relied upon to be correct... it may be modified by every node on
+    the way to the server, including the client making the request", so only the entries
+    your own trusted proxies appended mean anything. The established remedy is to know how
+    many trusted hops sit in front and count that many from the RIGHT (adam-p.ca's
+    "The perils of the 'real' client IP" is the canonical write-up; express's
+    `trust proxy` hop-count and nginx's `real_ip_recursive` are the same idea in two other
+    stacks). Leftmost-wins was safe here only because `CF-Connecting-IP` happened to
+    always be present — i.e. the entire authenticity control for an unsigned engine rested
+    on a fallback never being reached.
+
+    WHAT THIS DEPLOYMENT PROMISES, which is what is implemented (DEPLOYMENT §1, §5):
+
+        Bolna → Cloudflare (proxied, Full strict, origin locked) → nginx → this container
+
+    exactly ONE trusted hop in front of us, and that hop is nginx, which is only reachable
+    from Cloudflare's ranges (`infra/nginx/snippets/calevate-origin.conf` — `allow` the CF
+    ranges, `deny all`). Cloudflare sets `CF-Connecting-IP` to the address that connected
+    to it on every proxied request and it is one of the headers Cloudflare refuses to let
+    a Transform Rule modify, so from behind the origin lock it is the edge's statement,
+    not the caller's. nginx neither sets nor clears it.
+
+    So the hop count is one, and the value that hop guarantees is `CF-Connecting-IP`. That
+    is the only thing read. `X-Forwarded-For` is NOT consulted at all: our nginx appends
+    `$remote_addr` (already real-ip-restored) to whatever the caller sent, so its rightmost
+    entry would merely restate `CF-Connecting-IP` — a second way to answer one question,
+    which is how the two drift apart later. One header, one hop, one answer.
+
+    FAILS CLOSED. Outside `local`, a peer that is not a trusted proxy, an absent header, or
+    a header that is not a single literal IP all return None, and `verify_source` turns
+    None into a refusal. An unsigned engine's only authenticity control must never degrade
+    to "we could not tell, so we accepted it" — a misconfigured edge (real_ip missing, the
+    header stripped) now shows up as `webhook_source_rejected` plus a 10-minute poller
+    catch-up, not as an open door.
+
+    LOCAL is the one environment with no edge in front, so the socket peer IS the caller
+    (D-49 made `APP_ENV` explicit precisely so this branch cannot be reached by a
+    production deploy that forgot to set it). A header is still honoured there when the
+    peer is a trusted/loopback address, which keeps a dev proxy and the test suite working
+    without any of it being reachable in staging or prod.
+    """
     peer = peer_ip or ""
-    if not is_trusted_peer(peer):
-        return peer
-    forwarded = headers.get("cf-connecting-ip") or headers.get("x-forwarded-for", "")
-    first = forwarded.split(",")[0].strip()
-    return first or peer
+    trusted_peer = is_trusted_peer(peer)
+    if get_settings().app_env == "local":
+        if trusted_peer:
+            return _literal_ip(headers.get(_EDGE_CLIENT_IP_HEADER, "")) or peer or None
+        return peer or None
+    if not trusted_peer:
+        # Nothing reaches this service except through nginx on the container network. A
+        # direct peer is either a misconfiguration or someone inside the perimeter, and
+        # neither is a caller whose self-declared address we should be reading.
+        return None
+    return _literal_ip(headers.get(_EDGE_CLIENT_IP_HEADER, ""))
 
 
-def verify_source(engine: str, source_ip: str) -> IntakeVerdict:
+def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
+    """`source_ip` is None when `client_ip` could not establish one — see there.
+
+    That is a REFUSAL for an allowlisted engine, with its own reason string so the alert
+    tells an operator which half broke: "not allowlisted" is a vendor renumber (rotate
+    `BOLNA_WEBHOOK_SOURCE_IPS`), "client ip not established" is the EDGE (real_ip or the
+    `CF-Connecting-IP` line in `calevate-proxy.conf` is gone, or something is reaching the
+    container without going through nginx). Two very different runbook entries, and an
+    unsigned engine cannot afford them to look alike.
+    """
     if engine == "bolna":
-        if source_ip in bolna_source_ips(get_settings()):
+        if source_ip is not None and source_ip in bolna_source_ips(get_settings()):
             # `source_ip`, not `hmac`: the caller must keep treating this as a hint.
             return IntakeVerdict(ok=True, method="source_ip")
-        return IntakeVerdict(ok=False, method="source_ip", reason="source ip not allowlisted")
+        return IntakeVerdict(
+            ok=False,
+            method="source_ip",
+            reason="source ip not allowlisted"
+            if source_ip is not None
+            else "client ip not established",
+        )
     if engine == "fake":
         # The fake engine verifies NOTHING by design — that is how the whole pipeline
         # runs offline (DEV-SETUP §3). Which makes this route an unauthenticated write

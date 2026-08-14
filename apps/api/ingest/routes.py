@@ -20,10 +20,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.alerting import alert
 from apps.api.core.auth import requires
@@ -33,7 +34,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import ingest_config_session, tenant_session
-from apps.api.ingest import meta
+from apps.api.ingest import meta, service
 from apps.api.ingest.service import (
     IngestConfig,
     apply_mapping,
@@ -161,6 +162,12 @@ async def meta_verify(
     does not match. Nothing is written on either path — a handshake is not a delivery.
     """
     config = await _meta_config(webhook_id)
+    # THE CURRENT SECRET ONLY, even mid-rotation. The grace window `accepted_secrets`
+    # opens exists so a DELIVERY is not lost while the client finishes re-pasting, and a
+    # handshake loses nothing: a refused subscription is retried with the token the
+    # setup card is showing right now. Honouring the retiring token here would also take
+    # back what `meta.verify_token_for` promises in as many words — that a rotated
+    # secret leaves no stale token able to complete a subscription.
     expected = meta.verify_token_for(webhook_id=webhook_id, app_secret=config.secret_ref)
     if not meta.handshake_matches(mode=hub_mode, token=hub_verify_token, expected=expected):
         log.warning("meta_handshake_rejected", extra={"webhook_id": str(webhook_id)})
@@ -212,8 +219,15 @@ async def meta_leadgen(webhook_id: UUID, request: Request) -> dict[str, int]:
             detail="The notification body exceeds the accepted size.",
             status=413,
         )
-    if not meta.verify_signature(
-        app_secret=config.secret_ref, body=raw, header=request.headers.get(meta.SIGNATURE_HEADER)
+    # Every secret this endpoint currently honours, not just the newest. A client who
+    # rotates their Meta App Secret changes it in two places at two different moments,
+    # and the deliveries in between are signed with the one they have not replaced yet —
+    # those are leads, and the grace window (`accepted_secrets`) is what keeps them.
+    # Unlike the handshake above, refusing here loses something.
+    signature = request.headers.get(meta.SIGNATURE_HEADER)
+    if not any(
+        meta.verify_signature(app_secret=candidate, body=raw, header=signature)
+        for candidate in config.accepted_secrets()
     ):
         # An alert, not just a log: a signed endpoint receiving unsigned or wrongly
         # signed traffic is either a rotated app secret (the client's integration is
@@ -360,6 +374,101 @@ class TestWebhookIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     payload: dict[str, Any]
+
+
+# --- provisioning (SURFACES §2b) ----------------------------------------------
+#
+# CLIENT REALM, and the same permissions the outbound endpoint surface next door uses:
+# `org:read` to look, `org:manage` to change. A lead source is the client's own account
+# configuration — which of their forms may hand us leads, which agent answers them —
+# so it belongs where they already manage the OTHER direction of the same integration
+# (`/v1/integrations/endpoints`), not behind a support request. `staff` holds `org:read`
+# and not `org:manage` (SEC-COMP §5: staff do not get org settings), so a staff user can
+# see that a source exists and cannot mint a credential; an impersonating operator gets
+# the list and is refused every write (D-22), which is the same shape the outbound
+# surface already has.
+#
+# An admin-realm twin was considered and NOT built. It would need its own tenant
+# resolution, its own audit story and its own screen, to do what an operator can already
+# do by impersonating for the read and asking the client to press the button for the
+# write — and two provisioning paths for one row is precisely the drift the "one way per
+# problem" rule is about. What the admin realm keeps is the part it uniquely holds: the
+# `sm://` credential attachment SEC-COMP §5 will bring, which no client may ever name.
+
+
+class CreateLeadSourceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["meta_lead_ads", "website_form", "zoho", "sheets", "custom"]
+    # Which agent answers leads from this source. Optional because the honest answer at
+    # setup time is often "not yet" — `ingest_lead` refuses with `ingest_no_agent` and
+    # names the fix, rather than this route forcing a guess.
+    agent_id: UUID | None = None
+    # `dict[str, str]`, not `dict[str, Any]`: a mapping value is a field NAME, and the
+    # loose type is also the shape `scripts/check_redaction_exposure.py` refuses on a
+    # response model. Validated in `service.validate_mapping`.
+    mapping: dict[str, str] = Field(default_factory=dict)
+    # Only for the sources whose secret is not ours to mint (Meta's App Secret). The
+    # field is named for what it is so nobody pastes a Page access token into it.
+    app_secret: str | None = Field(default=None, min_length=8, max_length=512)
+
+
+class LeadSourceCreatedOut(BaseModel):
+    """The one moment a minted secret is ever returned."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    source: str
+    ingest_path: str
+    # `null` when the client supplied the secret themselves — there is nothing of ours
+    # to show once. Never re-readable: no other route returns this field.
+    secret: str | None
+    secret_header: str
+
+
+class LeadSourceOut(BaseModel):
+    """A lead source as the config screen sees it — fingerprint only, never a value."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    source: str
+    agent_id: UUID | None
+    active: bool
+    mapping: dict[str, str]
+    secret_fingerprint: str
+    # Set only while a rotation grace window is still open; `null` the moment it closes.
+    previous_secret_expires_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class LeadSourceListOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[LeadSourceOut]
+    secret_header: str
+
+
+class RotateSecretIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # An hour by default, zero on request. The default is a planned rotation, where the
+    # client still has to paste the new value into a form vendor; zero is a revocation,
+    # which is what a leak needs and what nobody should get by accident.
+    grace_minutes: int = Field(default=60, ge=0, le=service.MAX_GRACE_MINUTES)
+    app_secret: str | None = Field(default=None, min_length=8, max_length=512)
+
+
+class RotateSecretOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    secret: str | None
+    secret_header: str
+    # When the OLD secret stops working; `null` means it already has.
+    previous_secret_expires_at: datetime | None
 
 
 class IngestActivityItemOut(BaseModel):
@@ -614,6 +723,237 @@ async def test_webhook(
         }
     )
     return {"would_call": decision.allowed, "steps": steps}
+
+
+def _ingest_path(webhook_id: UUID, source: str) -> str:
+    """The URL the sender posts to, built from the routes above rather than typed out.
+
+    A Meta source has a DIFFERENT receiver (signature-verified, `leadgen_id`-deduped),
+    and handing a client the shared-secret path for it would produce a source that
+    authenticates with a header Meta never sends.
+    """
+    return (
+        f"/hooks/v1/ingest/meta/{webhook_id}"
+        if source == META_SOURCE
+        else f"/hooks/v1/ingest/{webhook_id}"
+    )
+
+
+@sources_router.get(
+    "",
+    response_model=LeadSourceListOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="Every lead source on this account — fingerprints, never secrets (SURFACES §2b)",
+)
+async def list_lead_sources(
+    session: SessionDep,
+    # A READ permission on a read, same as the activity view beside it: nothing here is
+    # written and no secret VALUE is returned, so hiding it from a read-only
+    # impersonating operator (D-22) would cost support the screen and buy nothing.
+    _: Principal = Depends(requires("org:read")),
+) -> LeadSourceListOut:
+    """The list that made the ID box on the lead-sources screen unnecessary.
+
+    Tenant scoping is RLS and only RLS (hard rule 1) — there is no `WHERE tenant_id`
+    here, because a hand-written predicate beside the policy is a second, weaker
+    boundary that the next query forgets.
+    """
+    return LeadSourceListOut(
+        items=[
+            LeadSourceOut(
+                id=row.id,
+                source=row.source,
+                agent_id=row.agent_id,
+                active=row.active,
+                mapping=row.mapping,
+                secret_fingerprint=row.secret_fingerprint,
+                previous_secret_expires_at=row.previous_secret_expires_at,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            )
+            for row in await service.list_lead_sources(session)
+        ],
+        secret_header=SECRET_HEADER,
+    )
+
+
+@sources_router.post(
+    "",
+    response_model=LeadSourceCreatedOut,
+    status_code=201,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Create a lead source — the ingest secret is shown once (SURFACES §2b)",
+    # Stated rather than inherited from the docstring, for the reason
+    # `create_sheets_endpoint` gives: `/docs` is public, and the argument below names
+    # column names and internal call sites.
+    description=(
+        "Create an endpoint your website form, CRM or ad account can post leads to. "
+        "The response carries the secret to send in the `X-Ingest-Secret` header, and "
+        "it is the only time that value is ever returned — the list endpoint shows a "
+        "fingerprint. Meta Lead Ads sources are different: Meta signs with your own "
+        "app's App Secret, so you supply it as `app_secret` and nothing is minted."
+    ),
+)
+async def create_lead_source(
+    payload: CreateLeadSourceIn,
+    session: SessionDep,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> LeadSourceCreatedOut:
+    """`org:manage`, and audited in the same transaction as the row.
+
+    Creating a lead source mints a credential that dials this tenant's customers on
+    arrival, which puts it in the same class as the outbound endpoint that ships their
+    leads elsewhere: an account-level decision, not a lead-handling one, so `staff` is
+    out (SEC-COMP §5) and an impersonating operator is refused (D-22).
+
+    The audit summary carries IDS AND THE SOURCE NAME AND NOTHING ELSE — no secret, no
+    fingerprint. `write_audit`'s summary is written to the log stream, and a fingerprint
+    in a log is a stable identifier for a live credential.
+    """
+    assert principal.tenant_id is not None
+    webhook_id, minted = await service.create_lead_source(
+        session,
+        tenant_id=principal.tenant_id,
+        source=payload.source,
+        agent_id=payload.agent_id,
+        mapping=payload.mapping,
+        supplied_secret=payload.app_secret,
+    )
+    await write_audit(
+        session,
+        action="lead_source.created",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="inbound_webhook",
+        object_id=str(webhook_id),
+        ip=request.client.host if request.client else None,
+        summary={"source": payload.source, "agent_id": str(payload.agent_id or "")},
+    )
+    return LeadSourceCreatedOut(
+        id=webhook_id,
+        source=payload.source,
+        ingest_path=_ingest_path(webhook_id, payload.source),
+        secret=minted,
+        secret_header=SECRET_HEADER,
+    )
+
+
+@sources_router.post(
+    "/{webhook_id}/rotate-secret",
+    response_model=RotateSecretOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Issue a new secret, with the old one honoured for a stated window",
+    description=(
+        "Replace this source's secret. The new value is returned once. The previous "
+        "secret keeps working for `grace_minutes` (default 60, max 1440) so leads "
+        "submitted while you update your form vendor are not rejected — send "
+        "`grace_minutes: 0` to revoke the old secret immediately, which is what a "
+        "leaked secret needs. For a Meta source, supply the new App Secret as "
+        "`app_secret`; nothing is minted and the response's `secret` is null."
+    ),
+)
+async def rotate_lead_source_secret(
+    webhook_id: UUID,
+    payload: RotateSecretIn,
+    session: SessionDep,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> RotateSecretOut:
+    """The rotation is safe by DEFAULT and instant by REQUEST, and the response says
+    which one happened — `previous_secret_expires_at` is the deadline the client has to
+    finish pasting, or `null` when they asked for none."""
+    assert principal.tenant_id is not None
+    rotation = await service.rotate_secret(
+        session,
+        webhook_id=webhook_id,
+        grace_minutes=payload.grace_minutes,
+        supplied_secret=payload.app_secret,
+    )
+    await write_audit(
+        session,
+        action="lead_source.secret_rotated",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="inbound_webhook",
+        object_id=str(webhook_id),
+        ip=request.client.host if request.client else None,
+        # The GRACE is the security-relevant fact: "rotated with an hour of overlap" and
+        # "revoked on the spot" are different answers to an incident review.
+        summary={"grace_minutes": payload.grace_minutes},
+    )
+    return RotateSecretOut(
+        id=webhook_id,
+        secret=rotation.secret,
+        secret_header=SECRET_HEADER,
+        previous_secret_expires_at=rotation.previous_secret_expires_at,
+    )
+
+
+@sources_router.delete(
+    "/{webhook_id}",
+    status_code=204,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Disable — kept, not deleted, so the delivery history stays readable",
+)
+async def disable_lead_source(
+    webhook_id: UUID,
+    session: SessionDep,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> None:
+    """Deactivate, and close any rotation window with it.
+
+    Idempotent: disabling an already-disabled source is 204, not 404. The outbound
+    twin (`DELETE /v1/integrations/endpoints/{id}`) once answered 404 to the second
+    click, because its CAS predicate and its existence check were the same statement;
+    it now shares this shape (`integrations.service.deactivate_endpoint`), so the two
+    directions of D-23 answer the same question the same way. The audit row is written
+    only for a real transition, so the ledger records changes and not button presses.
+    """
+    assert principal.tenant_id is not None
+    if await service.set_active(session, webhook_id=webhook_id, active=False):
+        await write_audit(
+            session,
+            action="lead_source.disabled",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="inbound_webhook",
+            object_id=str(webhook_id),
+            ip=request.client.host if request.client else None,
+        )
+
+
+@sources_router.post(
+    "/{webhook_id}/enable",
+    status_code=204,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Re-enable a disabled lead source",
+)
+async def enable_lead_source(
+    webhook_id: UUID,
+    session: SessionDep,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> None:
+    """The other half of disable, which the outbound surface never grew.
+
+    Without it a client who disabled a source to stop a misbehaving form has no way
+    back except a support ticket — which is the same out-of-band provisioning this whole
+    module exists to end. The secret is UNCHANGED by re-enabling: a source comes back
+    exactly as it left, so a client who did not rotate does not have to re-paste.
+    """
+    assert principal.tenant_id is not None
+    if await service.set_active(session, webhook_id=webhook_id, active=True):
+        await write_audit(
+            session,
+            action="lead_source.enabled",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="inbound_webhook",
+            object_id=str(webhook_id),
+            ip=request.client.host if request.client else None,
+        )
 
 
 __all__ = ["META_SOURCE", "SECRET_HEADER", "router", "sources_router"]

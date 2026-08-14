@@ -49,7 +49,15 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
     -- CHECK (D-31: retired before any adapter or production row existed, so the
     -- two-step deprecation in hard rule 8 does not apply — nothing ever wrote it)
     --, engine_agent_ref TEXT,
-  engine_staging_ref TEXT, deleted_at)
+  engine_staging_ref TEXT, deleted_at,
+  -- TWO-SPEED PUBLISHING: the `live_*` columns hold what the ENGINE was last SENT, which
+  -- is a different fact from what the agent is configured with. A save stages; a publish
+  -- is what moves the live pointer, so the pair can legitimately disagree and every
+  -- screen that renders one of them has to say which one it is showing.
+  live_prompt_id → prompt_versions,          -- a4e7b2c95d18
+  live_tts_voice, live_tts_provider,         -- c8b3f14e7a29; NULL = nothing recorded as
+                                             -- sent, never "in sync" (no backfill: see D-74)
+  max_call_duration_s)                       -- the per-agent cost-runaway ceiling
 prompt_versions(id, tenant_id, agent_id, version INT, body TEXT, compiled_t0_context TEXT,
   notes TEXT, created_by, published_at, UNIQUE(agent_id,version))   -- full history + rollback
   -- notes = operator-facing "why this version exists" ("rollback to v3", "new pricing").
@@ -116,7 +124,12 @@ lead_events(id, tenant_id, lead_id, type ENUM[status_change,note,call,notificati
 campaigns(id, tenant_id, agent_id, name, classification ENUM[promotional,transactional,service] NOT NULL,
   number_id → phone_numbers, dlt_template_id → dlt_templates,
   status ENUM[draft,scheduled,running,paused,completed,cancelled],
-  schedule JSONB, concurrency INT CHECK (1..10), retry_policy JSONB,   -- shipped default:
+  schedule JSONB,   -- a ONE-TIME future start: {kind: 'one_time', start_at: <UTC ISO-8601>}
+    -- plus an optional {last_blocked: {at, rules[]}} when the gate refused that start.
+    -- `kind` is a discriminator, not decoration: recurrence is NOT built, and the
+    -- dispatcher refuses any other value rather than firing it once (FLOWS §5).
+    -- NULL = no pending start. Read only by apps/api/campaigns/scheduling.py.
+  concurrency INT CHECK (1..10), retry_policy JSONB,   -- shipped default:
     -- {max_attempts: 3, backoff_minutes: [30, 120]} — this per-CONTACT ladder is the one
     -- place backoff actually exists; the ARQ job ladder is flat (FLOWS §6)
   calling_hours JSONB, engine_campaign_ref TEXT, launched_at,
@@ -274,6 +287,23 @@ credit_ledger(id, tenant_id, delta NUMERIC, reason ENUM[topup,usage,adjustment,r
 --   not by deleting money rows. Consequence for developers: a database carrying that
 --   residue cannot reach head — `runbooks/stale-dev-database.md`, and do not stamp past
 --   it.
+one_time_charges(id, tenant_id, kind ENUM[setup_fee], ref, description, amount NUMERIC,
+  billing_month, plan_id NULL, occurred_at)          -- INSERT-only (hard rule 4)
+-- INDEX ux_one_time_charges_tenant_kind_ref UNIQUE (tenant_id, kind, ref)
+--   (migration c7e1a4b90d63). What a charge billed ONCE actually is: `plans.setup_fee`
+--   reaches a client through this ledger and nowhere else. The writer
+--   (apps/api/billing/charges.py) does an unconditional INSERT … ON CONFLICT DO NOTHING,
+--   so regeneration of a derived invoice, a plan change, a re-onboarding and two
+--   concurrent generations all resolve to the same one row — there is no read-then-write
+--   to lose a race (BACKEND-PATTERNS §5). `ref` is in the key so a fee that must be
+--   undone is a NEW row with a negative amount under its own ref (hard rule 4's
+--   compensating entry), which the same invoice prints as a credit line.
+--   `billing_month` is WHICH STATEMENT the charge belongs to — the tenant's onboarding
+--   month, i.e. the IST month of organizations.created_at — and is not derivable from
+--   `occurred_at`, which is the (later) moment that month's invoice was first rendered.
+--   `amount` is the fee AS BILLED, copied from the plan in effect at that month's
+--   pricing instant: `plans` is mutable, so a re-derived amount could change a statement
+--   the client already paid.
 spend_state(tenant_id PK, month, minutes_used NUMERIC, spend_used NUMERIC, capped BOOL)
   -- read by the COMPLIANCE GATE before every outbound dispatch (fail closed when capped)
   -- — apps/api/compliance/service.py, not voice-runtime; see TRD §9
@@ -297,6 +327,9 @@ invoices(id, tenant_id, period, lines JSONB, subtotal, gst, total,
   -- collide with, and regenerating a month can never mint a second number for it.
   -- This table lands only when an invoice acquires state we cannot derive (sent/paid/
   -- overdue, razorpay_ref) — i.e. with collection, not with the statement.
+  -- The one fact a derived statement could NOT re-derive — "this tenant's one-time
+  -- onboarding fee has been billed" — lives in `one_time_charges` above rather than
+  -- forcing this table to exist early (D-63).
 ```
 
 ## 9. Compliance & Audit
@@ -448,6 +481,20 @@ webhook_deliveries(id, direction ENUM[in,out], source, event_type, status, attem
   -- endpoint_id is outbound-only (D-23) and is how the client-facing delivery screen
   -- scopes rows: it filters THROUGH outbound_webhooks, which IS tenant-RLS'd, so this
   -- table needs no policy of its own.
+  -- payload_ref (outbound) is the object-storage key of the BODY we POSTed:
+  --   webhook-bodies/{tenant}/{lead|call}-{id}/{delivery}.json. It is personal data, so
+  --   it comes with the three things personal data needs. ERASABLE: the subject is in
+  --   the key, so the DPDP worker enumerates the store by prefix and finds even an
+  --   object whose row never recorded the reference. EXPIRING: the retention sweep runs
+  --   it on the tenant's own `lead` policy, the same clock as call_extractions.data
+  --   (SEC-COMP §4). BOUNDED: 64 KiB per delivery, truncation declared inside the
+  --   object. An event that names no subject (campaign.completed) is NOT retained —
+  --   we keep nothing we could not later be asked to destroy. Storage is best-effort
+  --   and never blocks a delivery, so NULL means "no copy", by any of four honest
+  --   routes; the client-facing list exposes that as a boolean, never the key.
+  -- INDEX ix_webhook_deliveries_retained_body (created_at) WHERE payload_ref IS NOT NULL
+  --   (migration b3d61f0a97c4) — partial, because the sweep clears references and no row
+  --   ever regains one, so the population it serves is the small live tail.
 -- Reliability triad (D-30, BACKEND-PATTERNS §4; all claims via conditional-UPDATE CAS):
 outbox_messages(id, queue, job, payload JSONB, status ENUM[pending,published,failed],
   attempt_count INT, locked_until, job_id, published_at, last_error)  -- written in the

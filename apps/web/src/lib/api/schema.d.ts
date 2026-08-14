@@ -252,6 +252,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/qa-samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The weekly QA spot-check queue — 5% of calls per client
+         * @description Calls drawn for review, newest week first and in the draw's own order. Each row carries the frame it came from — the week, the number of calls in it, the number drawn — and the seed the order was computed from, so the sample can be recomputed and checked by anyone. `pending` (default) shows only calls nobody has reviewed yet. No transcript text and no phone number appear on this list.
+         */
+        get: operations["list_qa_samples_v1_admin_qa_samples_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/qa-samples/{sample_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A sampled call for review — transcript REDACTED (hard rule 5), read audited
+         * @description The sampled call as a reviewer reads it: the draw's own record, and the call with its transcript in the redacted form every ordinary reader gets. Raw transcript text is NOT available here — it has one route in this API, which is role-checked and audit-logged. This read is itself written to the audit log.
+         */
+        get: operations["get_qa_sample_v1_admin_qa_samples__sample_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/qa-samples/{sample_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a reviewer's verdict on a sampled call — first writer wins
+         * @description Records what the reviewer concluded: `clean`, `concern` or `defect`. A call can only be reviewed once — a second verdict is refused rather than overwriting the first, so a disagreement is visible instead of silent. Audit-logged.
+         */
+        post: operations["review_qa_sample_v1_admin_qa_samples__sample_id__review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants": {
         parameters: {
             query?: never;
@@ -363,7 +423,7 @@ export interface paths {
         put?: never;
         /**
          * Stop the test, and optionally promote an arm through the publish path
-         * @description Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS §7) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears — the test still ends.
+         * @description Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS §7) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears — the test still ends. Idempotent: a test that already ended the way you asked returns 200 with `changed: false`, promotes nothing a second time and writes no audit row. 409 names the ending it found when that ending is a different one. 404 means this account has no such test.
          */
         post: operations["conclude_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_conclude_post"];
         delete?: never;
@@ -495,6 +555,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/commercial-terms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What this client pays, and every dated agreement behind it (SURFACES §1)
+         * @description The `plans` rows for one client, newest agreement first by valid time, with the one in effect now resolved by the same expression the invoice uses. `state` names what an operator is looking at: `none` (no terms have ever been set — the state every new tenant is in), `unpriced` (a row is in effect but states no price), `lapsed` (rows exist and none is in effect, which is a misconfiguration), or `set`.
+         */
+        get: operations["read_commercial_terms_v1_admin_tenants__tenant_id__commercial_terms_get"];
+        put?: never;
+        /**
+         * Agree new commercial terms — a NEW dated row, never an edit to an old one
+         * @description Records what this client pays from a given instant. Always an INSERT: the row that priced a month the client has already been billed for is never touched, because an invoice here is derived and re-rendering it reads `plans` again. Leave `effective_from` null for terms that apply now and until further notice; set it to a future instant to prepare a change, which takes effect on that instant and not before. Idempotent — submitting the terms already in effect writes nothing, returns `changed: false` and records no audit row. Raising or REMOVING a spend ceiling additionally needs a superadmin and the `X-Confirm-Action` header the read publishes.
+         */
+        post: operations["record_commercial_terms_v1_admin_tenants__tenant_id__commercial_terms_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/credits": {
         parameters: {
             query?: never;
@@ -562,8 +646,82 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Approve or reject per the registrar — `approved` unlocks the launch gate */
+        /**
+         * Approve or reject per the registrar — `approved` unlocks the launch gate
+         * @description AUDITED, and deliberately NOT a `transition_status` state machine. Checked 2026-08.
+         *
+         *     This is a registrar-fact RECORDER, the same species as `set_number_dlt_status` above
+         *     and `ops.service.record_tm_registration` ("deliberately a full overwrite: there is
+         *     one registration and this is its current state"), and it is the reason those two are
+         *     not on `db/transition.py::transition_status` either. The three answers that module
+         *     discriminates are already the three this endpoint gives, but the middle one is
+         *     reached from the opposite direction and must stay that way:
+         *
+         *     * **A different status is not a conflict — it is the news.** The registrar moves a
+         *       template both ways, and `approved -> rejected` is a WITHDRAWAL. Constraining this
+         *       to a `from_statuses` set would make a revocation unrecordable and leave
+         *       `campaigns.service.launch_blockers` reading `approved` for a template the
+         *       registrar has pulled, which is SEC-COMP §1's most common registration failure
+         *       dialling on. `tests/campaign_dispatch_audit_test.py::
+         *       test_a_revoked_dlt_template_stops_the_campaign_before_the_next_dial` pins exactly
+         *       that move, and the gate's behaviour is what it pins.
+         *     * **Absent is already a 404, never a 409.** The service raises
+         *       `ProblemError.not_found` on `rowcount == 0`, and the UPDATE runs inside
+         *       `tenant_session(tenant_id)`, so another tenant's template id updates no row and
+         *       gets the same 404 an id that never existed gets (hard rule 1).
+         *     * **Re-recording the same status is a 200 AND a real audit row**, which is the one
+         *       place this diverges from `set_tenant_status`'s `changed` guard and does so on
+         *       purpose: there is no state machine here to be already-satisfied. A second POST is
+         *       an operator asserting "I checked with the registrar again just now, and it still
+         *       says submitted". `dlt_templates` has no `verified_at` to hold that, so the audit
+         *       row IS the record of the re-verification — the same fact `record_tm_registration`
+         *       stamps on the row it owns.
+         *
+         *     A single conditional UPDATE, so there is no read-then-write to race: two operators
+         *     recording two registrar verdicts is last-writer-wins over an external fact, and the
+         *     audit log carries both readings in order.
+         */
         post: operations["set_template_status_v1_admin_tenants__tenant_id__dlt_templates__template_id__status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/feature-flags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every feature flag this client is on, and where each answer comes from
+         * @description Resolution is platform default → this tenant's override. A flag with no row for this tenant resolves to its declared default — no row is required to exist for any tenant. Rows for flags this build no longer declares are listed with `declared: false`; they change nothing and clearing them is safe.
+         */
+        get: operations["read_feature_flags_v1_admin_tenants__tenant_id__feature_flags_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/feature-flags/{flag}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set this client's position on one flag, or clear it (audited on a real change)
+         * @description `enabled: true|false` records an explicit position for this client. `enabled: null` CLEARS the override, so they follow the platform default again. A `reason` is required either way. Restating the position already on file returns `changed: false` and writes nothing — no row moves and no audit entry is made. Setting a flag this build does not declare is refused; CLEARING one is allowed, because that is how a retired flag's leftover rows are removed.
+         */
+        put: operations["put_feature_flag_v1_admin_tenants__tenant_id__feature_flags__flag__put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -650,7 +808,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Approval gate (D-28: stays ours whichever RAG provider wins) */
+        /**
+         * Approval gate (D-28: stays ours whichever RAG provider wins)
+         * @description Approve a submitted knowledge source. Idempotent: approving a source that is already approved returns 200 and changes nothing — the first reviewer stays the recorded approver. 409 means the source is in another state (rejected, archived) and the response names it. 404 means this tenant has no source with that id.
+         */
         post: operations["approve_kb_v1_admin_tenants__tenant_id__kb__source_id__approve_post"];
         delete?: never;
         options?: never;
@@ -687,7 +848,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Reject Kb */
+        /**
+         * Refuse a submitted source, with a reason the client can act on
+         * @description Reject a submitted knowledge source. Idempotent: rejecting an already-rejected source returns 200 and keeps the reason the first reviewer gave. 409 means the source is in another state (approved, archived) and the response names it. 404 means this tenant has no source with that id.
+         */
         post: operations["reject_kb_v1_admin_tenants__tenant_id__kb__source_id__reject_post"];
         delete?: never;
         options?: never;
@@ -769,6 +933,26 @@ export interface paths {
         put?: never;
         /** Record what the DLT registrar decided about this number */
         post: operations["set_number_dlt_status_v1_admin_tenants__tenant_id__numbers__number_id__dlt_status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Suspend, reactivate or close a client account — the switch that stops dialling
+         * @description Moves `organizations.status`. Suspending or closing an account stops its OUTBOUND calling at the next dial: `compliance.check_dispatch` refuses `account_suspended` / `account_closed`, so the campaign tick, the 'call this lead' button and the lead-callback webhook all stop, and the campaign launch gate names the same rule. Inbound answering is deliberately unaffected — the caller initiated it, and dropping it punishes them rather than the account. Idempotent: setting the state an account is already in returns 200 and writes no audit row. 409 names the state found when the move is not allowed from it — `churned` is terminal. 404 means no such client.
+         */
+        post: operations["set_tenant_status_v1_admin_tenants__tenant_id__status_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -887,8 +1071,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What is staged but not live, and what one capped call costs
-         * @description Backs the unsaved-changes banner. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).
+         * What is staged but not live, what one capped call costs, and which voice is live
+         * @description Backs the unsaved-changes banner and the voice picker. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).
+         *
+         *     `voice.configured` is what `PATCH /v1/agents/{agent_id}/voice` wrote; `voice.live` is what the engine was last sent. They differ until a publish, which is what `voice.republish_required` reports. A null `voice.live` on a published agent means we have no record of what it is holding — read it with `published`, and never as 'in sync'.
          */
         get: operations["pending_v1_agents__agent_id__pending_get"];
         put?: never;
@@ -1261,8 +1447,44 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Pause */
+        /**
+         * Stop dialling now — idempotent, so a panicked double-click is not an error
+         * @description Pause a running campaign. Idempotent: pausing a campaign that is already paused returns 200, so a second click and the retry of a request whose response was lost are both safe. 409 means the campaign is in some other state (cancelled, or still a draft) and the response names it. 404 means no campaign of yours has that id.
+         */
         post: operations["pause_v1_campaigns__campaign_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/recurrence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Repeat this campaign weekly — the gate runs on EVERY occurrence
+         * @description Record a standing instruction to start this campaign on given weekdays.
+         *
+         *     `leads:dispatch`, the same permission as `POST /launch` and `POST /schedule`, and for
+         *     the stronger version of the same reason: this is not one launch with a delay on it,
+         *     it is every launch from now until somebody stops it.
+         *
+         *     **No compliance gate here, and that is the design** (`campaigns/scheduling.py`
+         *     decision 3). The gate runs inside `launch_campaign` when the dispatch tick fires each
+         *     occurrence, so a DLT registration that lapses in week three refuses week three — a
+         *     gate at THIS moment would be a claim about a Tuesday six weeks away.
+         *
+         *     Audited: "who told this campaign to dial every Tuesday, and when" is precisely the
+         *     question `audit_log` exists to answer, and a repeat nobody remembers creating is the
+         *     version of that question that gets asked after a complaint.
+         */
+        post: operations["set_recurrence_v1_campaigns__campaign_id__recurrence_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1278,9 +1500,56 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Resume */
+        /**
+         * Dial again from where it stopped — the compliance re-check is at dial time
+         * @description Resume a paused campaign. Idempotent: resuming a campaign that is already running returns 200. 409 means the campaign is in some other state and the response names it. 404 means no campaign of yours has that id. Resuming does not re-run the launch gate — the per-dial compliance check does, on every contact, which is what catches paperwork that lapsed while it was paused.
+         */
         post: operations["resume_v1_campaigns__campaign_id__resume_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start this campaign later — the gate runs when it FIRES, not now
+         * @description Record a one-time start.
+         *
+         *     `leads:dispatch`, the same permission as `POST /launch`, because this IS a launch —
+         *     one with a delay on it. Anything weaker would be a way to cause dialling without the
+         *     authority to dial.
+         *
+         *     **No compliance gate here, and that is the design, not an omission.** The gate runs
+         *     inside `launch_campaign` when the dispatch tick fires this schedule (hard rule 5,
+         *     `campaigns/scheduling.py` decision 2): a campaign scheduled on Friday and started on
+         *     Monday may have crossed a DNC addition, a spend cap, a KYC expiry or the platform
+         *     halt in between, so a gate at THIS moment would prove nothing about the moment that
+         *     matters. `GET /launch-check` remains available and answers "would it launch right
+         *     now" for a scheduled campaign exactly as for a draft.
+         *
+         *     Audited: "who told this campaign to start dialling, and when for" is the same
+         *     question `campaign.launched` exists to answer.
+         */
+        post: operations["schedule_v1_campaigns__campaign_id__schedule_post"];
+        /**
+         * Cancel a pending start or stop a repeat — one button for both
+         * @description One stop for one column, whichever kind of promise it held.
+         *
+         *     The response is the status the campaign is ACTUALLY in afterwards, not the constant
+         *     "draft" this used to return: a campaign that was waiting goes back to draft, and a
+         *     campaign that is dialling keeps dialling — stopping a repeat means "do not start this
+         *     again", never "abandon the calls going out now" (`scheduling.unschedule_campaign`).
+         */
+        delete: operations["unschedule_v1_campaigns__campaign_id__schedule_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1293,7 +1562,39 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Every erasure request this account has filed — hashes and timestamps only
+         * @description The account's own register of erasure obligations, newest first.
+         *
+         *     Without it a filed request was reachable only by its opaque id, so closing the tab
+         *     lost the handle on an in-flight legal obligation with a statutory clock on it.
+         *
+         *     **What this returns and what it deliberately does not.** Data minimisation is the
+         *     whole subject of the feature, so the list is the narrowest thing that answers "which
+         *     erasures do I owe an answer on, and which are done?":
+         *
+         *     - `request_id`, `requested_at`, `completed_at`, `status` — the handle and the clock.
+         *     - `has_certificate` — whether the proof exists yet, so the screen can distinguish
+         *       "done, here is the document" from "marked done with no proof recorded", which is
+         *       the one state on this surface a client must not report to a data principal as
+         *       finished.
+         *     - `subject_ref` — the hash, because a client with several erasures in flight needs to
+         *       tell one row from another and match it to their own case file. It is pseudonymous
+         *       rather than anonymous (`deletion.list_requests` says why), which is precisely why it
+         *       is here and the number is not.
+         *     - **NOT `phone_e164`.** An open row still holds the number so the worker can find the
+         *       subject; returning it in a LIST would hand back every number this account has been
+         *       asked to erase in one read — an index of the people who exercised the right, which
+         *       is the inverse of what the right is for (hard rule 6). The column is not selected
+         *       at all.
+         *     - **NOT the proof certificate.** It is available per request from the read below; an
+         *       index that carried every certificate would make the cheapest read the largest.
+         *
+         *     `org:read`, matching the single-request read: this discloses no personal data, and an
+         *     admin who may not *cause* an erasure (D-22 refuses `org:manage` while impersonating)
+         *     should still be able to confirm one. Read-as, never act-as.
+         */
+        get: operations["list_requests_v1_compliance_deletion_requests_get"];
         put?: never;
         /**
          * File a DPDP erasure request for one phone number — queued, audited, proved
@@ -1542,6 +1843,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/integrations/deliveries/{delivery_id}/payload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What we actually sent — role-checked AND audit-logged on every read
+         * @description The exact body we POSTed for one delivery, as your endpoint received it. This is your customer's personal data in unredacted form, so it requires the same permission as an unredacted transcript and every read is written to your audit log. Bodies are kept for as long as your lead-retention policy allows and are destroyed by an erasure request; `404 delivery_body_not_retained` means there is no longer one to show.
+         */
+        get: operations["get_delivery_payload_v1_integrations_deliveries__delivery_id__payload_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/integrations/endpoints": {
         parameters: {
             query?: never;
@@ -1590,7 +1911,10 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Deactivate — kept, not deleted, so the delivery history stays readable */
+        /**
+         * Deactivate — kept, not deleted, so the delivery history stays readable
+         * @description Deactivate an endpoint. The endpoint and its delivery history are kept, so past attempts stay readable. Idempotent: deactivating an endpoint that is already inactive returns 204, so retrying after a lost response is safe. 404 means only that no endpoint of yours has that id.
+         */
         delete: operations["deactivate_endpoint_v1_integrations_endpoints__endpoint_id__delete"];
         options?: never;
         head?: never;
@@ -1604,8 +1928,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The events an endpoint may subscribe to */
-        get: operations["list_event_types_v1_integrations_events_get"];
+        /**
+         * What an endpoint may subscribe to, and which transports this account can use
+         * @description The events an endpoint may subscribe to, and whether this account can deliver to a Google Sheet. `sheets_delivery_available: false` means `POST /v1/integrations/endpoints/sheets` will be refused with `sheets_delivery_unavailable`, so a form for it should not be offered — but the refusal remains the authority, and this field is only how you learn about it without attempting the create.
+         */
+        get: operations["endpoint_options_v1_integrations_events_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1728,6 +2055,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/lead-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every lead source on this account — fingerprints, never secrets (SURFACES §2b)
+         * @description The list that made the ID box on the lead-sources screen unnecessary.
+         *
+         *     Tenant scoping is RLS and only RLS (hard rule 1) — there is no `WHERE tenant_id`
+         *     here, because a hand-written predicate beside the policy is a second, weaker
+         *     boundary that the next query forgets.
+         */
+        get: operations["list_lead_sources_v1_lead_sources_get"];
+        put?: never;
+        /**
+         * Create a lead source — the ingest secret is shown once (SURFACES §2b)
+         * @description Create an endpoint your website form, CRM or ad account can post leads to. The response carries the secret to send in the `X-Ingest-Secret` header, and it is the only time that value is ever returned — the list endpoint shows a fingerprint. Meta Lead Ads sources are different: Meta signs with your own app's App Secret, so you supply it as `app_secret` and nothing is minted.
+         */
+        post: operations["create_lead_source_v1_lead_sources_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/lead-sources/activity": {
         parameters: {
             query?: never;
@@ -1746,6 +2101,58 @@ export interface paths {
         get: operations["ingest_activity_v1_lead_sources_activity_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-sources/{webhook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disable — kept, not deleted, so the delivery history stays readable
+         * @description Deactivate, and close any rotation window with it.
+         *
+         *     Idempotent: disabling an already-disabled source is 204, not 404. The outbound
+         *     twin (`DELETE /v1/integrations/endpoints/{id}`) once answered 404 to the second
+         *     click, because its CAS predicate and its existence check were the same statement;
+         *     it now shares this shape (`integrations.service.deactivate_endpoint`), so the two
+         *     directions of D-23 answer the same question the same way. The audit row is written
+         *     only for a real transition, so the ledger records changes and not button presses.
+         */
+        delete: operations["disable_lead_source_v1_lead_sources__webhook_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-sources/{webhook_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-enable a disabled lead source
+         * @description The other half of disable, which the outbound surface never grew.
+         *
+         *     Without it a client who disabled a source to stop a misbehaving form has no way
+         *     back except a support ticket — which is the same out-of-band provisioning this whole
+         *     module exists to end. The secret is UNCHANGED by re-enabling: a source comes back
+         *     exactly as it left, so a client who did not rotate does not have to re-paste.
+         */
+        post: operations["enable_lead_source_v1_lead_sources__webhook_id__enable_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1783,6 +2190,26 @@ export interface paths {
          *     cannot take payments.
          */
         post: operations["meta_setup_v1_lead_sources__webhook_id__meta_setup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-sources/{webhook_id}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a new secret, with the old one honoured for a stated window
+         * @description Replace this source's secret. The new value is returned once. The previous secret keeps working for `grace_minutes` (default 60, max 1440) so leads submitted while you update your form vendor are not rejected — send `grace_minutes: 0` to revoke the old secret immediately, which is what a leaked secret needs. For a Meta source, supply the new App Secret as `app_secret`; nothing is minted and the response's `secret` is null.
+         */
+        post: operations["rotate_lead_source_secret_v1_lead_sources__webhook_id__rotate_secret_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1832,6 +2259,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/leads/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * One action over many leads — page-scoped or filter-scoped, and it says which
+         * @description Move many leads at once, and report what happened to each of them.
+         *
+         *     **`leads:write` and no new permission.** Both actions are the ones the row already
+         *     offers inline, done to more rows at a time; a bulk-only permission would be a fourth
+         *     RBAC entry every role holds exactly when it holds `leads:write`. `leads:write` is in
+         *     `MUTATING_PERMISSIONS`, so a D-22 impersonating operator is refused this for free.
+         *
+         *     **No `Idempotency-Key`, and that is a property rather than an omission.** The
+         *     reliability triad asks for one where a repeat has a side effect that cannot be undone
+         *     — a phone ringing twice (`POST /leads/{id}/call`), a campaign launched twice. Here a
+         *     repeat is *the same request*: `status` and `assigned_to` are single-value fields, so
+         *     the second run finds every lead already in the target state and answers
+         *     `unchanged: N` with no timeline rows written (`db/transition.py`). The idempotency
+         *     that matters is in the write, not in a key.
+         *
+         *     **200, always, when the request itself was well-formed.** A lead the action could not
+         *     move is a per-item outcome in `failures`, not an HTTP error — the same shape
+         *     `POST /leads/{id}/call` uses for a compliance refusal, and the reason RFC-9457 stays
+         *     reserved for "the request failed". The two cases that ARE request failures and are
+         *     refused up front: a filter matching more than the cap (`lead_bulk_too_many` — never a
+         *     silent truncation), and a set that moved out from under a confirmation
+         *     (`lead_bulk_set_moved`).
+         */
+        post: operations["bulk_leads_v1_leads_bulk_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/leads/export.csv": {
         parameters: {
             query?: never;
@@ -1847,6 +2315,68 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/v1/leads/facets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Faceted filters, built from this agent's extraction schema
+         * @description The filter rail and its counts, over the SAME scope `GET /v1/leads` is answering.
+         *
+         *     A separate route rather than another field on the list response, for one reason: the
+         *     counts change when the FILTERS change and not when the PAGE changes, so folding them
+         *     into the list would recompute up to eight aggregates every time somebody scrolls.
+         *     Same query parameters, minus the paging ones, so "the rail describes this table" is
+         *     checkable by comparing two query strings.
+         */
+        get: operations["get_lead_facets_v1_leads_facets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/leads/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My saved views on this account */
+        get: operations["get_saved_views_v1_leads_views_get"];
+        put?: never;
+        /** Save the current filters and columns under a name */
+        post: operations["create_saved_view_v1_leads_views_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/leads/views/{view_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete one of my saved views */
+        delete: operations["delete_saved_view_v1_leads_views__view_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename a saved view, or re-pin its filters and columns */
+        patch: operations["patch_saved_view_v1_leads_views__view_id__patch"];
         trace?: never;
     };
     "/v1/leads/{lead_id}": {
@@ -2170,6 +2700,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/quality/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Monthly QA reports, newest month first (D-15)
+         * @description Every stored quality report for this account, newest month first. Each one is the regression run we do before any change to the agent: how many scenarios were replayed, how many defects were found (zero is the only acceptable number), and which of your columns the model does not yet fill. An EMPTY list means no run has been stored for this account yet — it does not mean a clean run. Contains nothing from any real call.
+         */
+        get: operations["list_quality_reports_v1_quality_reports_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/usage": {
         parameters: {
             query?: never;
@@ -2302,6 +2852,22 @@ export interface components {
             published: boolean;
             /** Status */
             status: string;
+        };
+        /**
+         * AgentVoiceOut
+         * @description One voice at one moment: the stored id, and the catalogue entry when we know it.
+         *
+         *     `catalog` is null for an id outside `GET /v1/agents/voices` — a row set before the
+         *     catalogue existed, or an entry retired since. `voice_id` is still populated, so a UI
+         *     can name what it cannot describe rather than rendering an agent with a retired voice
+         *     as one with no voice at all.
+         */
+        AgentVoiceOut: {
+            catalog: components["schemas"]["Voice"] | null;
+            /** Provider */
+            provider: string | null;
+            /** Voice Id */
+            voice_id: string;
         };
         /**
          * ApplyIn
@@ -2786,6 +3352,60 @@ export interface components {
             tenant_id: string;
         };
         /**
+         * CommercialTermsIn
+         * @description The terms an operator agreed, as they cross the wire.
+         *
+         *     **Every amount is a STRING** (`"9999.00"`), never a JSON number: `2500.10` has
+         *     already been through a binary float by the time Pydantic sees it, and these are
+         *     exact NUMERIC rupee amounts (hard rule 7). The two rate fields carry FOUR decimal
+         *     places and the fees two, matching their columns and the invoice's own arithmetic —
+         *     `qty x unit = amount` only holds if the rate is published unrounded.
+         *
+         *     **`null` means UNSET on every field, and unset is not zero.** An `overage_rate` of
+         *     0 is free minutes; an absent one is a plan that quotes no overage at all. Nothing
+         *     here is defaulted to a number: this endpoint refuses to invent a price.
+         */
+        CommercialTermsIn: {
+            /**
+             * Concurrency Ceiling
+             * @default 10
+             */
+            concurrency_ceiling: number;
+            /** Effective From */
+            effective_from?: string | null;
+            /** Effective To */
+            effective_to?: string | null;
+            /** Hard Cap Minutes */
+            hard_cap_minutes?: number | null;
+            /** Hard Cap Spend Inr */
+            hard_cap_spend_inr?: number | string | null;
+            /** Included Minutes */
+            included_minutes?: number | null;
+            /** Monthly Fee Inr */
+            monthly_fee_inr?: number | string | null;
+            /** Overage Rate Inr */
+            overage_rate_inr?: number | string | null;
+            /** Overage Rate Value Inr */
+            overage_rate_value_inr?: number | string | null;
+            /** Setup Fee Inr */
+            setup_fee_inr?: number | string | null;
+        };
+        /** CommercialTermsOut */
+        CommercialTermsOut: {
+            /** History */
+            history: components["schemas"]["PlanRowOut"][];
+            in_effect: components["schemas"]["PlanRowOut"] | null;
+            /** Loosening Confirmation */
+            loosening_confirmation: string;
+            /** State */
+            state: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
          * ConcludeExperimentIn
          * @description `promote` is null for "stop it and keep the control" — the commonest honest
          *     ending of an A/B test, and a first-class option rather than a cancel button.
@@ -2794,10 +3414,20 @@ export interface components {
             /** Promote */
             promote?: string | null;
         };
-        /** ConcludeExperimentOut */
+        /**
+         * ConcludeExperimentOut
+         * @description What THIS call did, which on a repeat is nothing.
+         *
+         *     `promoted_label` is the ending the test HAS (so a repeat still reports the arm that
+         *     won); the other three are what this request performed. On `changed: false` they are
+         *     therefore null/false together — the first call's version number is not recoverable
+         *     from the concluded row, and a guess is worse than a null a console can read.
+         */
         ConcludeExperimentOut: {
             /** Applied */
             applied: boolean;
+            /** Changed */
+            changed: boolean;
             /** Engine Synced */
             engine_synced: boolean;
             /**
@@ -2901,6 +3531,22 @@ export interface components {
             secret: string;
             /** Url */
             url: string;
+        };
+        /** CreateLeadSourceIn */
+        CreateLeadSourceIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** App Secret */
+            app_secret?: string | null;
+            /** Mapping */
+            mapping?: {
+                [key: string]: string;
+            };
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "meta_lead_ads" | "website_form" | "zoho" | "sheets" | "custom";
         };
         /** CreateOrgIn */
         CreateOrgIn: {
@@ -3185,6 +3831,41 @@ export interface components {
             /** Subject Ref */
             subject_ref: string;
         };
+        /**
+         * DeletionRequestSummaryOut
+         * @description One row of the index — what the client needs to FIND a request again, and nothing
+         *     else. The docstring on the route below says what is excluded and why.
+         *
+         *     `has_certificate` rather than the certificate itself: the list exists to hand back a
+         *     handle, and shipping every proof on the account to render an index would make the
+         *     cheapest read on this surface the largest. It is a separate field rather than inferred
+         *     from `status` because "completed with no proof recorded" is a real state the screen
+         *     must be able to warn about (`deletion_routes` has always modelled `proof` as
+         *     nullable), and a list that inferred it would hide exactly that case.
+         */
+        DeletionRequestSummaryOut: {
+            /** Completed At */
+            completed_at: string | null;
+            /** Has Certificate */
+            has_certificate: boolean;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "completed";
+            /** Subject Ref */
+            subject_ref: string;
+        };
         /** DeliveryOut */
         DeliveryOut: {
             /** Attempts */
@@ -3206,8 +3887,37 @@ export interface components {
              * Format: date-time
              */
             last_at: string;
+            /** Payload Stored */
+            payload_stored: boolean;
             /** Status */
             status: string | null;
+        };
+        /**
+         * DeliveryPayloadOut
+         * @description What we actually sent, byte for byte — the raw-PII surface of this module.
+         *
+         *     Same class of data as a raw transcript and gated the same way (hard rule 5):
+         *     `calls:read_raw` AND an `audit_log` row, never one of the two. `body` is the exact
+         *     string that went on the wire, so it carries the lead's name and their number in
+         *     whatever form the endpoint's own `include_raw_phone` choice produced — which is the
+         *     entire point, since "you sent us the wrong lead" cannot be answered with a redaction.
+         */
+        DeliveryPayloadOut: {
+            /** Body */
+            body: string;
+            /**
+             * Delivery Id
+             * Format: uuid
+             */
+            delivery_id: string;
+            /** Event Type */
+            event_type: string | null;
+            /** Original Bytes */
+            original_bytes: number;
+            /** Stored At */
+            stored_at: string | null;
+            /** Truncated */
+            truncated: boolean;
         };
         /**
          * DltRegistrationIn
@@ -3278,6 +3988,33 @@ export interface components {
             scope: string;
             /** Source */
             source: string | null;
+        };
+        /**
+         * EndpointOptionsOut
+         * @description What an endpoint may subscribe to, and what this deployment can deliver on.
+         *
+         *     A DECLARED model rather than the `dict[str, list[str]]` this route used to return.
+         *     An undeclared response is one `openapi-typescript` can only describe as an index
+         *     signature, so `events` was not a NAMED field and the console's single read of it was
+         *     the one read `tsc` could not check — the same defect, and the same fix, as
+         *     `SubjectExportOut` replacing a free-form dict, and the reason `MetaSetupOut` one
+         *     module over says "declared rather than a bare dict". It also puts the response back
+         *     inside `scripts/check_redaction_exposure.py`'s walk, which inspects response MODELS:
+         *     a route with no model is a route that guardrail cannot inspect at all.
+         *
+         *     `events` stays `list[str]` rather than `list[EventName]`, and that is deliberate.
+         *     `EventName` is what THIS BUILD can put in a request body; `EVENT_TYPES` is what the
+         *     RUNNING deployment offers. A console generated from an older snapshot has to be able
+         *     to see a name outside its own union in order to SAY SO, rather than render a checkbox
+         *     whose only possible outcome is a 422 — narrowing this to the literal would make that
+         *     gap unrepresentable, and would turn a deployment that adds an event into a 500 out of
+         *     response validation.
+         */
+        EndpointOptionsOut: {
+            /** Events */
+            events: string[];
+            /** Sheets Delivery Available */
+            sheets_delivery_available: boolean;
         };
         /** EndpointOut */
         EndpointOut: {
@@ -3518,6 +4255,97 @@ export interface components {
             /** Question */
             question: string;
         };
+        /**
+         * FeatureFlagChangeOut
+         * @description What the write did — including doing nothing, which is a normal outcome.
+         *
+         *     `changed: false` means the request restated the position already on file: no row
+         *     moved, `updated_at` did not bump, and NO audit entry was written. That is the
+         *     convention `admin.record_commercial_terms`, `approve_kb` and
+         *     `integrations.deactivate_endpoint` share — the audit log answers "who changed this
+         *     client's behaviour", and a row per button press makes that question harder to answer.
+         */
+        FeatureFlagChangeOut: {
+            after: components["schemas"]["FlagStateOut"];
+            before: components["schemas"]["FlagStateOut"];
+            /** Changed */
+            changed: boolean;
+            /** Flag */
+            flag: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /** FeatureFlagIn */
+        FeatureFlagIn: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * FeatureFlagOut
+         * @description One flag as it stands for one tenant: the answer, and everything behind it.
+         *
+         *     The three booleans are three different facts and none of them can be derived from
+         *     another. `platform_default` is what a tenant with no row gets; `override` is this
+         *     tenant's stored position, `null` when there is none; `enabled` is the resolved answer
+         *     the code would see. A tenant explicitly overridden to the same value as the default
+         *     is not the same as a tenant with no row — the next change to the default reaches one
+         *     and not the other — so the console is given both rather than being asked to guess.
+         */
+        FeatureFlagOut: {
+            /** Consumed By */
+            consumed_by: string | null;
+            /** Declared */
+            declared: boolean;
+            /** Description */
+            description: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Flag */
+            flag: string;
+            /** Override */
+            override: boolean | null;
+            /** Platform Default */
+            platform_default: boolean | null;
+            /** Reason */
+            reason: string | null;
+            /** Set At */
+            set_at: string | null;
+            /** Set By Admin Id */
+            set_by_admin_id: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "platform_default" | "tenant_override";
+        };
+        /** FeatureFlagsOut */
+        FeatureFlagsOut: {
+            /** Items */
+            items: components["schemas"]["FeatureFlagOut"][];
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
+         * FieldLimit
+         * @description One column of the client's leads list that the configured model does not fill.
+         *
+         *     Named by the client's own LABEL, never our key: `budget_lakhs` is our column and
+         *     "Budget (lakhs)" is theirs.
+         */
+        FieldLimit: {
+            /** Label */
+            label: string;
+            /** Scenarios */
+            scenarios: number;
+        };
         /** FirstCampaignDecisionIn */
         FirstCampaignDecisionIn: {
             /**
@@ -3570,6 +4398,16 @@ export interface components {
             rule: string | null;
             /** Status */
             status: string | null;
+        };
+        /** FlagStateOut */
+        FlagStateOut: {
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "platform_default" | "tenant_override";
         };
         /**
          * HealthSignalOut
@@ -4009,13 +4847,163 @@ export interface components {
             status: string;
         };
         /**
+         * LeadBulkFailureOut
+         * @description One lead the action did not move, named and explained.
+         *
+         *     `(rule, reason)` is this API's established pair for a refusal — `BlockerOut`,
+         *     `CallLeadOut.blocked_rule`/`blocked_reason`, `DispatchDecision` — so a client that
+         *     already renders one of those renders this. `lead_id` and nothing else identifies the
+         *     row: the response must be safe to log and to put in an audit summary (hard rule 6).
+         */
+        LeadBulkFailureOut: {
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Reason */
+            reason: string;
+            /** Rule */
+            rule: string;
+        };
+        /**
+         * LeadBulkIn
+         * @description One bulk action, and the two ways of saying which leads it is about.
+         *
+         *     **`scope` is required and has no default**, which is the whole guardrail. A default
+         *     would decide the ambiguous case — page or query — on the caller's behalf, and that
+         *     ambiguity is the defect this field exists to remove; a client that forgets to say
+         *     gets a 422 rather than an action over a set it did not choose.
+         *
+         *     The FILTER scope's predicates are not here: they ride as the same query parameters
+         *     `GET /v1/leads` and `GET /v1/leads/export.csv` take, with the same meanings, so there
+         *     is one spelling of "which rows" across the screen, the file and this. Putting them in
+         *     the body would be a second one.
+         */
+        LeadBulkIn: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "status" | "assign";
+            /** Assign To */
+            assign_to?: string | null;
+            /** Expected Count */
+            expected_count?: number | null;
+            /** Ids */
+            ids?: string[];
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "ids" | "filter";
+            /** Status */
+            status?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost") | null;
+        };
+        /**
+         * LeadBulkOut
+         * @description What the action DID — the three buckets, and which set it ran over.
+         *
+         *     `scope` and `action` are echoed so the sentence on screen ("Moved 47 of the 1,240
+         *     leads matching these filters") is built from the server's answer rather than from
+         *     what the screen believed it had asked for.
+         *
+         *     `changed + unchanged + len(failures) == requested`, always. `unchanged` is a success:
+         *     a lead already in the target state is the caller's intent already satisfied (D-65,
+         *     `db/transition.py`), and reporting it as a failure would make the most ordinary bulk
+         *     outcome — re-running an action over a set that partly overlaps the last one — look
+         *     like an incident.
+         */
+        LeadBulkOut: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "status" | "assign";
+            /** Changed */
+            changed: number;
+            /** Failures */
+            failures?: components["schemas"]["LeadBulkFailureOut"][];
+            /** Requested */
+            requested: number;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "ids" | "filter";
+            /** Unchanged */
+            unchanged: number;
+        };
+        /**
+         * LeadColumnOut
+         * @description One selectable column of the Leads table — `crm.columns.LeadColumn` on the wire.
+         *
+         *     `kind` is what lets the screen render a column without knowing its name: `fixed`
+         *     columns come off `LeadOut`'s own attributes (and `phone` is `phone_masked` there,
+         *     which is hard rule 6 and not a rendering choice), `extraction` columns come out of
+         *     `LeadOut.data` under `key`.
+         */
+        LeadColumnOut: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "fixed" | "extraction";
+            /** Label */
+            label: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "text" | "number" | "bool" | "enum" | "date";
+        };
+        /** LeadFacetOut */
+        LeadFacetOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Values */
+            values: components["schemas"]["LeadFacetValueOut"][];
+        };
+        /** LeadFacetValueOut */
+        LeadFacetValueOut: {
+            /** Count */
+            count: number;
+            /** Declared */
+            declared: boolean;
+            /** Value */
+            value: string;
+        };
+        /**
+         * LeadFacetsOut
+         * @description The filter rail, built from the per-agent EXTRACTION SCHEMA (SURFACES §2).
+         *
+         *     Enum fields only, and never a hard-coded list: different tenants and different
+         *     verticals have different columns, so a fixed facet set would be wrong the day a
+         *     second vertical lands. `crm.columns.facetable` is the definition, including why
+         *     `status` and `source` are deliberately not here.
+         */
+        LeadFacetsOut: {
+            /** Facets */
+            facets: components["schemas"]["LeadFacetOut"][];
+            /** Omitted Field Count */
+            omitted_field_count: number;
+        };
+        /**
          * LeadListOut
          * @description The Leads table is schema-driven (TRD §7): the columns travel WITH the rows so
          *     the frontend never hard-codes a client's fields.
          */
         LeadListOut: {
+            /** Available Columns */
+            available_columns: components["schemas"]["LeadColumnOut"][];
             /** Columns */
-            columns: components["schemas"]["ExtractionField"][];
+            columns: components["schemas"]["LeadColumnOut"][];
+            /** Dropped Column Keys */
+            dropped_column_keys: string[];
             /** Items */
             items: components["schemas"]["LeadOut"][];
             /** Limit */
@@ -4068,6 +5056,67 @@ export interface components {
              * @enum {string}
              */
             status: "new" | "contacted" | "interested" | "hot" | "won" | "lost";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * LeadSourceCreatedOut
+         * @description The one moment a minted secret is ever returned.
+         */
+        LeadSourceCreatedOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Ingest Path */
+            ingest_path: string;
+            /** Secret */
+            secret: string | null;
+            /** Secret Header */
+            secret_header: string;
+            /** Source */
+            source: string;
+        };
+        /** LeadSourceListOut */
+        LeadSourceListOut: {
+            /** Items */
+            items: components["schemas"]["LeadSourceOut"][];
+            /** Secret Header */
+            secret_header: string;
+        };
+        /**
+         * LeadSourceOut
+         * @description A lead source as the config screen sees it — fingerprint only, never a value.
+         */
+        LeadSourceOut: {
+            /** Active */
+            active: boolean;
+            /** Agent Id */
+            agent_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Mapping */
+            mapping: {
+                [key: string]: string;
+            };
+            /** Previous Secret Expires At */
+            previous_secret_expires_at: string | null;
+            /** Secret Fingerprint */
+            secret_fingerprint: string;
+            /** Source */
+            source: string;
             /**
              * Updated At
              * Format: date-time
@@ -4168,6 +5217,28 @@ export interface components {
             /** Ref */
             ref: string | null;
         };
+        /** LifecycleIn */
+        LifecycleIn: {
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "suspended" | "churned";
+        };
+        /** LifecycleOut */
+        LifecycleOut: {
+            /** Changed */
+            changed: boolean;
+            /** Status */
+            status: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
         /** LookupConsentIn */
         LookupConsentIn: {
             /** Phone */
@@ -4210,6 +5281,21 @@ export interface components {
             role: string | null;
             /** User Id */
             user_id: string | null;
+        };
+        /**
+         * Measurement
+         * @description A number with the reason it is trustworthy attached, or the reason it is not.
+         */
+        Measurement: {
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "measured" | "too_few" | "no_baseline";
+            /** Passed */
+            passed: number;
+            /** Total */
+            total: number;
         };
         /**
          * MemberOut
@@ -4445,6 +5531,7 @@ export interface components {
             precedence_rule: string;
             /** Published */
             published: boolean;
+            voice: components["schemas"]["VoiceStateOut"];
             /** Worst Case Call Cost Inr */
             worst_case_call_cost_inr: string | null;
         };
@@ -4483,6 +5570,48 @@ export interface components {
             /** Qualify Rate Pct */
             qualify_rate_pct: number | null;
         };
+        /**
+         * PlanRowOut
+         * @description One dated agreement, as an operator reads it. Money as exact strings throughout.
+         */
+        PlanRowOut: {
+            /** Client Cap Minutes */
+            client_cap_minutes: number | null;
+            /** Client Cap Spend Inr */
+            client_cap_spend_inr: string | null;
+            /** Concurrency Ceiling */
+            concurrency_ceiling: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Effective From */
+            effective_from: string | null;
+            /** Effective To */
+            effective_to: string | null;
+            /** Hard Cap Minutes */
+            hard_cap_minutes: number | null;
+            /** Hard Cap Spend Inr */
+            hard_cap_spend_inr: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Included Minutes */
+            included_minutes: number | null;
+            /** Monthly Fee Inr */
+            monthly_fee_inr: string | null;
+            /** Overage Rate Inr */
+            overage_rate_inr: string | null;
+            /** Overage Rate Value Inr */
+            overage_rate_value_inr: string | null;
+            /** Setup Fee Inr */
+            setup_fee_inr: string | null;
+            /** States Pricing */
+            states_pricing: boolean;
+        };
         /** PlatformStateIn */
         PlatformStateIn: {
             /** Load Shed Mode */
@@ -4513,6 +5642,11 @@ export interface components {
             };
             /** Launched At */
             launched_at: string | null;
+            recurrence?: components["schemas"]["RecurrenceOut"] | null;
+            /** Schedule Blocked Rules */
+            schedule_blocked_rules?: string[];
+            /** Scheduled Start At */
+            scheduled_start_at?: string | null;
             /** Status */
             status: string;
             /** Total */
@@ -4558,6 +5692,143 @@ export interface components {
              */
             series: "140" | "160" | "standard";
         };
+        /**
+         * QaReport
+         * @description The whole report, computed once.
+         *
+         *     `scenarios_total` = `everything_captured.total` = `field_left_blank.total` by
+         *     construction, and the two measurements' `passed` counts add up to it: the split
+         *     exists because one number would answer two questions and answer both badly (see
+         *     `scripts/qa_report.render`).
+         */
+        QaReport: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /** Client */
+            client: string;
+            /** Defects */
+            defects: number;
+            everything_captured: components["schemas"]["Measurement"];
+            field_left_blank: components["schemas"]["Measurement"];
+            /** Known Limits */
+            known_limits?: components["schemas"]["FieldLimit"][];
+            /** Model */
+            model: string;
+            /** Red Team */
+            red_team: number;
+            /** Scenario Classes */
+            scenario_classes?: components["schemas"]["ScenarioClassCount"][];
+            /** Scenarios Total */
+            scenarios_total: number;
+            /**
+             * Trend
+             * @default no_baseline
+             * @enum {string}
+             */
+            trend: "measured" | "too_few" | "no_baseline";
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /** Vertical */
+            vertical: string;
+        };
+        /**
+         * QaReviewIn
+         * @description A reviewer's conclusion. An enum and nothing else.
+         *
+         *     No note field, deliberately (hard rule 6): a free-text box on a cross-tenant queue is
+         *     an invitation to type what the caller said into it, and `admin/holds.py` already
+         *     refuses operator prose on a list for exactly that reason. What a reviewer found that
+         *     the enum cannot express belongs in the incident it justifies, not in this row.
+         */
+        QaReviewIn: {
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "clean" | "concern" | "defect";
+        };
+        /**
+         * QaSampleDetailOut
+         * @description A sampled call opened for review — the queue row plus the REDACTED call.
+         *
+         *     `call` is `CallDetailOut` exactly as the client's own screen receives it: transcript
+         *     turns hold `text_redacted` and each carries `redacted: true`. This model adds no
+         *     field of its own to the call, which is the point — there is one shape for "a call as
+         *     a human reads it", and this surface uses it rather than defining a reviewer's
+         *     variant that could quietly diverge on what it masks.
+         */
+        QaSampleDetailOut: {
+            call: components["schemas"]["CallDetailOut"];
+            sample: components["schemas"]["QaSampleOut"];
+        };
+        /**
+         * QaSampleOut
+         * @description One sampled call. Ids, timings and tags — no transcript text, no phone number.
+         */
+        QaSampleOut: {
+            /** Agent Name */
+            agent_name: string;
+            /**
+             * Call Id
+             * Format: uuid
+             */
+            call_id: string;
+            /** Direction */
+            direction: string;
+            /** Disclosure Played */
+            disclosure_played: boolean | null;
+            /** Duration S */
+            duration_s: number | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Outcome Tag */
+            outcome_tag: string | null;
+            /** Population */
+            population: number;
+            /** Reviewed At */
+            reviewed_at: string | null;
+            /**
+             * Selected At
+             * Format: date-time
+             */
+            selected_at: string;
+            /** Selection Rank */
+            selection_rank: number;
+            /** Selection Seed */
+            selection_seed: string;
+            /** Sentiment */
+            sentiment: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Target */
+            target: number;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Tenant Name */
+            tenant_name: string;
+            /** Tenant Slug */
+            tenant_slug: string;
+            /** Verdict */
+            verdict: ("clean" | "concern" | "defect") | null;
+            /**
+             * Week Start
+             * Format: date
+             */
+            week_start: string;
+        };
         /** RecordConsentIn */
         RecordConsentIn: {
             /** Call Id */
@@ -4579,12 +5850,108 @@ export interface components {
              */
             status: "granted" | "declined" | "withdrawn";
         };
+        /** RecordTermsOut */
+        RecordTermsOut: {
+            /** Changed */
+            changed: boolean;
+            /**
+             * Plan Id
+             * Format: uuid
+             */
+            plan_id: string;
+            /** State */
+            state: string;
+            /** Superseded Plan Id */
+            superseded_plan_id: string | null;
+        };
         /** RecordingLinkOut */
         RecordingLinkOut: {
             /** Expires In S */
             expires_in_s: number;
             /** Url */
             url: string;
+        };
+        /**
+         * RecurrenceIn
+         * @description A standing instruction: which weekdays, at what IST time, until when.
+         *
+         *     `days` are ISO weekday numbers (1 = Monday), the same vocabulary
+         *     `datetime.isoweekday()` and the service use — one numbering across the wire, the rule
+         *     and the UI, because a second one is an off-by-one that dials on the wrong day.
+         *
+         *     `at` is an IST wall-clock "HH:MM", NOT an instant, and that is the whole difference
+         *     between a repeat and a start. "10am every Tuesday" means ten o'clock on each of those
+         *     Tuesdays; an instant would freeze one particular Tuesday's ten o'clock and the
+         *     schedule would have to re-derive the intent from it. The pattern is enforced here so
+         *     the generated TypeScript client cannot send "10" or "10:00 AM".
+         *
+         *     `until` is optional and offset-carrying for the same reason `ScheduleIn.start_at` is:
+         *     a bare local date on the wire is a date the server has to guess the zone of.
+         */
+        RecurrenceIn: {
+            /** At */
+            at: string;
+            /** Days */
+            days: number[];
+            /** Until */
+            until?: string | null;
+        };
+        /**
+         * RecurrenceOut
+         * @description A repeat as the screen renders it — the RULE and the NEXT OCCURRENCE together.
+         *
+         *     The next occurrence is here because a repeat a client cannot read is a repeat they
+         *     cannot trust: "every Tuesday" with no date beside it leaves them to work out whether
+         *     tomorrow counts. `last_skipped_at`/`last_skipped_reason` answer the other question
+         *     the word "scheduled" cannot — why last Tuesday did not run (`campaigns/scheduling.py`
+         *     decision 2: a missed occurrence is skipped, never caught up).
+         */
+        RecurrenceOut: {
+            /** At */
+            at: string;
+            /** Days */
+            days: number[];
+            /** Last Skipped At */
+            last_skipped_at?: string | null;
+            /** Last Skipped Reason */
+            last_skipped_reason?: string | null;
+            /**
+             * Next Occurrence At
+             * Format: date-time
+             */
+            next_occurrence_at: string;
+            /** Until */
+            until?: string | null;
+        };
+        /**
+         * RecurrenceSetOut
+         * @description What `POST /recurrence` answers with: the repeat, plus when it can first dial.
+         *
+         *     Both, for `ScheduleOut`'s reason — they differ whenever the campaign narrowed its own
+         *     calling hours, and a screen showing only the occurrence would promise a 10:00 dial on
+         *     a campaign that only dials from noon.
+         */
+        RecurrenceSetOut: {
+            /** At */
+            at: string;
+            /** Days */
+            days: number[];
+            /**
+             * First Dial Not Before
+             * Format: date-time
+             */
+            first_dial_not_before: string;
+            /** Last Skipped At */
+            last_skipped_at?: string | null;
+            /** Last Skipped Reason */
+            last_skipped_reason?: string | null;
+            /**
+             * Next Occurrence At
+             * Format: date-time
+             */
+            next_occurrence_at: string;
+            /** Until */
+            until?: string | null;
         };
         /** RegisterTemplateIn */
         RegisterTemplateIn: {
@@ -4621,6 +5988,187 @@ export interface components {
             new_version: number;
             /** To Version */
             to_version: number;
+        };
+        /** RotateSecretIn */
+        RotateSecretIn: {
+            /** App Secret */
+            app_secret?: string | null;
+            /**
+             * Grace Minutes
+             * @default 60
+             */
+            grace_minutes: number;
+        };
+        /** RotateSecretOut */
+        RotateSecretOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Previous Secret Expires At */
+            previous_secret_expires_at: string | null;
+            /** Secret */
+            secret: string | null;
+            /** Secret Header */
+            secret_header: string;
+        };
+        /**
+         * SavedViewFilters
+         * @description What a saved view narrows the table to.
+         *
+         *     **`search` is deliberately not a field.** A saved view is a named LENS — a stage, a
+         *     set of facet values, an agent — and the search box is a transient lookup, not a lens.
+         *     Storing one would also put a phone SUFFIX (what the box accepts) into a durable row
+         *     for no product gain, which is a hard-rule-6 surface bought for nothing.
+         *
+         *     **`assigned_to_me` is a boolean, not a user id.** Views are private to one user
+         *     (see `SavedViewOut`), so the only owner a view can usefully pin is its own reader —
+         *     and a stored uuid would be a dangling pointer the day that colleague leaves, where a
+         *     boolean is resolved fresh against the caller on every read.
+         */
+        SavedViewFilters: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * Assigned To Me
+             * @default false
+             */
+            assigned_to_me: boolean;
+            /** Fields */
+            fields?: {
+                [key: string]: string[];
+            };
+            /** Status */
+            status?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost") | null;
+        };
+        /** SavedViewIn */
+        SavedViewIn: {
+            /** Columns */
+            columns?: string[] | null;
+            filters?: components["schemas"]["SavedViewFilters"];
+            /** Name */
+            name: string;
+        };
+        /** SavedViewListOut */
+        SavedViewListOut: {
+            /** Items */
+            items: components["schemas"]["SavedViewOut"][];
+        };
+        /**
+         * SavedViewOut
+         * @description One saved view, RESOLVED against the agent's current extraction schema.
+         *
+         *     **Private to its author.** Shared views are a separate slice with a separate
+         *     question (who may edit a view three colleagues rely on), and the industry default
+         *     for a saved view is private-unless-published — Tableau and SeaTable both create
+         *     private and require an explicit act to share. Private-first is also the only choice
+         *     that cannot leak: this table holds no shared row to get the permission wrong on.
+         *
+         *     **`stale_*` is the graceful degradation.** A view pinned to a field an admin later
+         *     removed from the capture list is not an error — the reader gets the view with the
+         *     dead references REMOVED and named here, so the screen can say "this view also
+         *     filtered on Budget, which your capture list no longer has" instead of 500ing or
+         *     silently returning a different set of rows. Jira's answer to the same event is a
+         *     broken filter and an integrity checker; this is cheaper and kinder.
+         */
+        SavedViewOut: {
+            /** Columns */
+            columns: string[] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            filters: components["schemas"]["SavedViewFilters"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Stale Column Keys */
+            stale_column_keys: string[];
+            /** Stale Filter Keys */
+            stale_filter_keys: string[];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * SavedViewUpdateIn
+         * @description Rename, or re-pin. Every field optional; an omitted one is left alone.
+         *
+         *     `columns` cannot be cleared back to `null` through this route — sending `null` means
+         *     "leave the columns alone", the same silence every other field here means. Clearing
+         *     is `columns: []`, which `crm.saved_views` stores as "no choice made". Two spellings
+         *     of "unset" on one field is how the assignee sentinel next door earned its comment,
+         *     and this field does not need the ambiguity: an empty selection has no other meaning.
+         */
+        SavedViewUpdateIn: {
+            /** Columns */
+            columns?: string[] | null;
+            filters?: components["schemas"]["SavedViewFilters"] | null;
+            /** Name */
+            name?: string | null;
+        };
+        /**
+         * ScenarioClassCount
+         * @description One of the six scenario classes, counted, in the CLIENT's vocabulary.
+         */
+        ScenarioClassCount: {
+            /** Count */
+            count: number;
+            /** Label */
+            label: string;
+            /** Meaning */
+            meaning: string;
+            /** Scenario */
+            scenario: number;
+        };
+        /**
+         * ScheduleIn
+         * @description When a one-time start should happen.
+         *
+         *     `AwareDatetime`, not `datetime`: the wire type itself refuses a bare local string,
+         *     so the generated TypeScript client cannot send "2026-08-17T10:00" and have the
+         *     server decide which 10 o'clock it meant. A client picking 10am IST sends
+         *     `2026-08-17T10:00:00+05:30`; the service converts to UTC for storage, and the screen
+         *     renders IST again. Getting this wrong dials households at 15:30 or 02:30, so it is
+         *     pinned at the type level and re-checked in `scheduling.schedule_campaign` for
+         *     callers that are not HTTP requests.
+         */
+        ScheduleIn: {
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
+        };
+        /**
+         * ScheduleOut
+         * @description The start we recorded, and when dialling can actually begin.
+         *
+         *     Both fields, always, because they differ whenever the client picks a time outside
+         *     the calling window — and that difference is the answer to the most natural
+         *     misreading of this feature. A 22:00 start is accepted (starting a campaign is not
+         *     dialling it) and `first_dial_not_before` says 09:00 the next morning, which is what
+         *     TRAI's window means for that choice.
+         */
+        ScheduleOut: {
+            /**
+             * First Dial Not Before
+             * Format: date-time
+             */
+            first_dial_not_before: string;
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
         };
         /**
          * ServiceItem
@@ -4670,6 +6218,8 @@ export interface components {
             agent_status: string;
             /** Engine Synced */
             engine_synced: boolean;
+            /** Live Voice Id */
+            live_voice_id: string | null;
             /** Next Step */
             next_step: string;
             /** Published */
@@ -4859,6 +6409,68 @@ export interface components {
             variant_ids: string[];
         };
         /**
+         * SubjectExportCallOut
+         * @description One call, with the audio reported as a fact rather than as a link.
+         *
+         *     `recording_available` is a boolean and never a URL (`export.py` decision 2): a
+         *     presigned URL inside a document that gets emailed and forwarded is a bearer
+         *     credential travelling with it.
+         */
+        SubjectExportCallOut: {
+            /** Call Id */
+            call_id: string;
+            /** Direction */
+            direction: string | null;
+            /** Duration S */
+            duration_s: number | null;
+            /** Outcome Tag */
+            outcome_tag: string | null;
+            /** Recording Available */
+            recording_available: boolean;
+            /** Started At */
+            started_at: string | null;
+            /** Summary */
+            summary: string | null;
+        };
+        /**
+         * SubjectExportConsentOut
+         * @description One consent-ledger entry. `evidence_recorded` is a boolean for the same reason
+         *     the recording is: the evidence is a transcript SPAN, raw by construction, and it
+         *     stays behind the audited raw-transcript path.
+         */
+        SubjectExportConsentOut: {
+            /** Call Id */
+            call_id: string | null;
+            /** Captured At */
+            captured_at: string | null;
+            /** Evidence Recorded */
+            evidence_recorded: boolean;
+            /** Purpose */
+            purpose: string | null;
+            /** Status */
+            status: string | null;
+        };
+        /**
+         * SubjectExportCountsOut
+         * @description What the document contains, stated in the document.
+         *
+         *     `leads` is the TRUE number of lead rows this number matched while `lead` carries only
+         *     the most recently updated one, so a second row (a tenant running two agents) is
+         *     visible in the answer rather than silently dropped from it.
+         */
+        SubjectExportCountsOut: {
+            /** Calls */
+            calls: number;
+            /** Consent Records */
+            consent_records: number;
+            /** Leads */
+            leads: number;
+            /** Recordings Available */
+            recordings_available: number;
+            /** Transcript Turns */
+            transcript_turns: number;
+        };
+        /**
          * SubjectExportIn
          * @description `extra="forbid"` so a caller cannot smuggle a second selector (a lead id, a
          *     tenant slug) into a request whose whole security argument is "one phone number".
@@ -4866,6 +6478,84 @@ export interface components {
         SubjectExportIn: {
             /** Phone */
             phone: string;
+        };
+        /**
+         * SubjectExportLeadOut
+         * @description The CRM record, as the client holds it.
+         *
+         *     `phone_e164` is the subject's OWN number and appears unmasked — `export.py` decision
+         *     3: masking the identifier the subject asked about produces a document they cannot
+         *     check is about them. It is declared here rather than hidden in a dict so
+         *     `check_redaction_exposure` judges it against a named, reasoned allowance instead of
+         *     never seeing it.
+         */
+        SubjectExportLeadOut: {
+            /** Call Count */
+            call_count: number | null;
+            /** Created At */
+            created_at: string | null;
+            /** Data */
+            data: {
+                [key: string]: unknown;
+            };
+            /** Id */
+            id: string;
+            /** Is Repeat Caller */
+            is_repeat_caller: boolean;
+            /** Name */
+            name: string | null;
+            /** Phone E164 */
+            phone_e164: string;
+            /** Schema Version */
+            schema_version: number | null;
+            /** Source */
+            source: string | null;
+            /** Status */
+            status: string | null;
+            /** Updated At */
+            updated_at: string | null;
+        };
+        /**
+         * SubjectExportOut
+         * @description The whole disclosure, and therefore the whole output whitelist
+         *     (BACKEND-PATTERNS §1).
+         */
+        SubjectExportOut: {
+            /** Calls */
+            calls: components["schemas"]["SubjectExportCallOut"][];
+            /** Consent */
+            consent: components["schemas"]["SubjectExportConsentOut"][];
+            counts: components["schemas"]["SubjectExportCountsOut"];
+            /** Generated At */
+            generated_at: string;
+            lead: components["schemas"]["SubjectExportLeadOut"] | null;
+            /** Phone E164 */
+            phone_e164: string;
+            /** Transcripts */
+            transcripts: components["schemas"]["SubjectExportTranscriptOut"][];
+        };
+        /** SubjectExportTranscriptOut */
+        SubjectExportTranscriptOut: {
+            /** Call Id */
+            call_id: string;
+            /** Turns */
+            turns: components["schemas"]["SubjectExportTurnOut"][];
+        };
+        /**
+         * SubjectExportTurnOut
+         * @description One transcript turn. `text` carries `text_redacted`, never the raw column — hard
+         *     rule 5, reinforced rather than relaxed here because this is the one response that
+         *     leaves the client's own screen (`export.py` decision 1). A turn that has not been
+         *     through the redaction pass yet says so (`export.REDACTION_PENDING`) rather than
+         *     falling back to raw.
+         */
+        SubjectExportTurnOut: {
+            /** Idx */
+            idx: number;
+            /** Speaker */
+            speaker: string | null;
+            /** Text */
+            text: string;
         };
         /** SubmitIn */
         SubmitIn: {
@@ -5176,16 +6866,26 @@ export interface components {
             /** Spend Used Inr */
             spend_used_inr: string;
         };
-        /** VariantOut */
+        /**
+         * VariantOut
+         * @description One arm's counts. THREE, resolved by direction, because since D-60 an arm can be
+         *     credited with a call nobody dialled — `experiments.VariantResult` carries the full
+         *     argument. Briefly: `outbound_dialled` is the connect-rate diagnostic and is an
+         *     outbound question; `completed` is what `rate` is over; `inbound_completed` says how
+         *     much of it was never split into this arm, so a client cannot read the rate as a clean
+         *     randomised comparison when it is not one.
+         */
         VariantOut: {
-            /** Attributed */
-            attributed: number;
+            /** Completed */
+            completed: number;
             /** Conversions */
             conversions: number;
-            /** Dialled */
-            dialled: number;
+            /** Inbound Completed */
+            inbound_completed: number;
             /** Label */
             label: string;
+            /** Outbound Dialled */
+            outbound_dialled: number;
             /** Prompt Version */
             prompt_version: number;
             /** Published */
@@ -5245,6 +6945,29 @@ export interface components {
              * @default false
              */
             verified: boolean;
+        };
+        /**
+         * VoiceStateOut
+         * @description The voice CONFIGURED on the agent and the voice the engine was last SENT.
+         *
+         *     Two fields because they are two facts. `PATCH /v1/agents/{id}/voice` writes our row
+         *     and stops there, so a live agent keeps its old voice until the next publish — one
+         *     value labelled "the voice" would be a claim about a client's phone line that nobody
+         *     checked.
+         *
+         *     `live` is null when nothing is recorded as sent, which reads two ways and is
+         *     disambiguated by `PendingOut.published`: an unpublished agent has nothing live, and
+         *     a published one was published before the mirror existed (or with no voice set). Both
+         *     resolve to `republish_required` when a voice is configured, because a sync we cannot
+         *     prove is not a sync.
+         */
+        VoiceStateOut: {
+            configured: components["schemas"]["AgentVoiceOut"] | null;
+            /** Headline */
+            headline: string;
+            live: components["schemas"]["AgentVoiceOut"] | null;
+            /** Republish Required */
+            republish_required: boolean;
         };
         /** WebhookAck */
         WebhookAck: {
@@ -5711,6 +7434,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnfinishedOnboardingOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_qa_samples_v1_admin_qa_samples_get: {
+        parameters: {
+            query?: {
+                /** @description only calls nobody has reviewed yet */
+                pending?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaSampleOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_qa_sample_v1_admin_qa_samples__sample_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sample_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaSampleDetailOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    review_qa_sample_v1_admin_qa_samples__sample_id__review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sample_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QaReviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaSampleOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -6233,6 +8055,74 @@ export interface operations {
             };
         };
     };
+    read_commercial_terms_v1_admin_tenants__tenant_id__commercial_terms_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommercialTermsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_commercial_terms_v1_admin_tenants__tenant_id__commercial_terms_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommercialTermsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordTermsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_credits_v1_admin_tenants__tenant_id__credits_get: {
         parameters: {
             query?: {
@@ -6398,6 +8288,73 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_feature_flags_v1_admin_tenants__tenant_id__feature_flags_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureFlagsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_feature_flag_v1_admin_tenants__tenant_id__feature_flags__flag__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                flag: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeatureFlagIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureFlagChangeOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -6779,6 +8736,41 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_tenant_status_v1_admin_tenants__tenant_id__status_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LifecycleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -7673,6 +9665,41 @@ export interface operations {
             };
         };
     };
+    set_recurrence_v1_campaigns__campaign_id__recurrence_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecurrenceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurrenceSetOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     resume_v1_campaigns__campaign_id__resume_post: {
         parameters: {
             query?: never;
@@ -7693,6 +9720,105 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    schedule_v1_campaigns__campaign_id__schedule_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    unschedule_v1_campaigns__campaign_id__schedule_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_requests_v1_compliance_deletion_requests_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletionRequestSummaryOut"][];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -7942,9 +10068,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["SubjectExportOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -8148,6 +10272,37 @@ export interface operations {
             };
         };
     };
+    get_delivery_payload_v1_integrations_deliveries__delivery_id__payload_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryPayloadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_endpoints_v1_integrations_endpoints_get: {
         parameters: {
             query?: never;
@@ -8272,7 +10427,7 @@ export interface operations {
             };
         };
     };
-    list_event_types_v1_integrations_events_get: {
+    endpoint_options_v1_integrations_events_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -8287,9 +10442,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string[];
-                    };
+                    "application/json": components["schemas"]["EndpointOptionsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -8524,6 +10677,68 @@ export interface operations {
             };
         };
     };
+    list_lead_sources_v1_lead_sources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSourceListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_lead_source_v1_lead_sources_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLeadSourceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSourceCreatedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     ingest_activity_v1_lead_sources_activity_get: {
         parameters: {
             query?: {
@@ -8555,6 +10770,64 @@ export interface operations {
             };
         };
     };
+    disable_lead_source_v1_lead_sources__webhook_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    enable_lead_source_v1_lead_sources__webhook_id__enable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     meta_setup_v1_lead_sources__webhook_id__meta_setup_post: {
         parameters: {
             query?: never;
@@ -8573,6 +10846,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MetaSetupOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rotate_lead_source_secret_v1_lead_sources__webhook_id__rotate_secret_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RotateSecretIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RotateSecretOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -8632,6 +10940,10 @@ export interface operations {
                 search?: string | null;
                 agent_id?: string | null;
                 assigned_to?: string | null;
+                /** @description Comma-separated column keys, in display order. Omit for every column. */
+                columns?: string | null;
+                /** @description Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together. */
+                f?: string[];
             };
             header?: never;
             path?: never;
@@ -8659,6 +10971,46 @@ export interface operations {
             };
         };
     };
+    bulk_leads_v1_leads_bulk_post: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                search?: string | null;
+                agent_id?: string | null;
+                assigned_to?: string | null;
+                /** @description Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together. */
+                f?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadBulkIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadBulkOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     export_leads_v1_leads_export_csv_get: {
         parameters: {
             query?: {
@@ -8666,6 +11018,10 @@ export interface operations {
                 status?: string | null;
                 search?: string | null;
                 assigned_to?: string | null;
+                /** @description Comma-separated column keys, in display order. Omit for every column. */
+                columns?: string | null;
+                /** @description Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together. */
+                f?: string[];
             };
             header?: never;
             path?: never;
@@ -8679,6 +11035,168 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_lead_facets_v1_leads_facets_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                search?: string | null;
+                agent_id?: string | null;
+                assigned_to?: string | null;
+                /** @description Facet filter, repeatable: `f=<extraction_key>:<value>`. Repeating one key ORs its values; different keys AND together. */
+                f?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadFacetsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_saved_views_v1_leads_views_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedViewListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_saved_view_v1_leads_views_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedViewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedViewOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_saved_view_v1_leads_views__view_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    patch_saved_view_v1_leads_views__view_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedViewUpdateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedViewOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -9197,6 +11715,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PerformanceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_quality_reports_v1_quality_reports_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QaReport"][];
                 };
             };
             /** @description RFC-9457 problem+json */

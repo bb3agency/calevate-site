@@ -39,6 +39,10 @@ and are all closed by two non-code actions: the Engine Verification Session
 10. **DEPLOYMENT.md** — VPS deployment + CI/CD blueprint (adapted from the
     raghava-organics production playbook): topology, self-hosted-runner CD, nginx/TLS/
     Cloudflare, secrets tiers, backups/DR, go-live order, lessons-not-to-relearn.
+    The mechanism it describes now exists — `Dockerfile`, `compose.prod.yml`,
+    `scripts/vps-deploy.sh`, `infra/nginx/`, `.github/workflows/deploy.yml` — and
+    **has been run against nothing**: §4d is the hand-first checklist with pass
+    conditions, and CD stays disabled until its last item.
 11. **ENGINEERING-PRACTICES.md** — executable governance: the guardrail pack
     (fitness functions enforcing the Hard Rules in CI), git workflow (trunk-based +
     Conventional Commits + pre-commit hooks), dev-loop conventions, release

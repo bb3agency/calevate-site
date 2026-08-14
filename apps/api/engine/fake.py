@@ -24,11 +24,13 @@ from typing import Any
 from calevate_shared.engine import (
     E164,
     AgentConfig,
+    AgentSnapshot,
     CallContext,
     CallHandle,
     CostBreakdown,
     EngineAgentRef,
     EngineKBRef,
+    ExecutionListing,
     ExecutionSnapshot,
     KBSourceRef,
     NumberSpec,
@@ -78,7 +80,15 @@ class FakeEngine:
 
     name = "fake"
 
-    def __init__(self) -> None:
+    #: How many executions one `list_executions` call will return. Real vendors cap
+    #: their listings; a fake that returns everything forever would let a caller that
+    #: ignores `ExecutionListing.complete` pass the conformance suite. 100 keeps local
+    #: development unaffected (no dev tenant places 100 calls in a poll window) while
+    #: leaving the truncated branch reachable — the suite lowers it.
+    DEFAULT_LISTING_PAGE_SIZE = 100
+
+    def __init__(self, *, listing_page_size: int = DEFAULT_LISTING_PAGE_SIZE) -> None:
+        self.listing_page_size = listing_page_size
         self._agents: dict[str, AgentConfig] = {}
         self._calls: dict[str, dict[str, Any]] = {}
         self._kb: dict[str, list[KBSourceRef]] = {}
@@ -99,6 +109,48 @@ class FakeEngine:
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
         self._agents[ref] = cfg
+
+    async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
+        """Read back what this engine actually HOLDS for `ref` — never what it was last
+        handed.
+
+        Two details make this a real second implementation rather than a mirror:
+
+        * it reads `self._agents[ref]`, so it answers about the agent asked for. An
+          adapter that echoed the most recent `create_agent`/`update_agent` argument
+          would agree with every caller and detect nothing, which is why the conformance
+          suite reads two agents back;
+        * it renders the prompt the way a real engine holds it — disclosure line
+          PREPENDED, exactly as `BolnaEngine._agent_body` sends it (hard rule 5). Storing
+          `cfg.system_prompt` verbatim would make the fake the only engine where a
+          read-back equals what was sent, and a caller could then write an equality check
+          that passes here and fails against every real vendor.
+
+        An unknown ref raises, mirroring the vendor's 404: the caller that reads back an
+        agent nobody created must not be handed a snapshot that quietly disagrees.
+        """
+        cfg = self._agents.get(ref)
+        if cfg is None:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_rejected",
+                title="Voice engine rejected the request",
+                detail="The voice platform does not hold that agent.",
+            )
+        return AgentSnapshot(
+            engine_agent_ref=ref,
+            name=cfg.name,
+            system_prompt=f"{cfg.disclosure_line}\n\n{cfg.system_prompt}",
+            system_prompt_readable=True,
+            # The fake engine's agent really does reference its attached sources, so this
+            # is readable — and it is the ONLY place D-41's dangling-handle logic gets
+            # exercised until the pilot settles where Bolna keeps the reference.
+            knowledge_base_refs=[
+                self._kb_handle(ref, source.kb_id) for source in self._kb.get(ref, [])
+            ],
+            knowledge_base_refs_readable=True,
+            engine="fake",
+        )
 
     async def start_outbound_call(
         self, ref: EngineAgentRef, to: E164, ctx: CallContext
@@ -236,12 +288,33 @@ class FakeEngine:
             }
         return self._snapshot_from(call_id, call)
 
-    async def list_executions(self, *, since: datetime) -> list[ExecutionSnapshot]:
-        return [
+    async def list_executions(self, *, since: datetime) -> ExecutionListing:
+        """Paginates for real, because a fake that never truncates cannot keep the
+        contract honest.
+
+        The whole point of the second adapter is that a behaviour the contract requires
+        gets exercised somewhere other than the vendor's imagination. `ExecutionListing.
+        complete` is a claim the poller acts on (it alerts when it is False), so the fake
+        must be able to produce BOTH answers: it returns at most `listing_page_size`
+        snapshots and reports `complete=False` when it had to cut the window short.
+
+        It does NOT invent a continuation for the caller to follow: paging is the
+        adapter's private business and the contract exposes no cursor (hard rule 2), so
+        a truncated window here is exactly what the caller must cope with from any
+        adapter that cannot see past page one.
+        """
+        rows = [
             self._snapshot_from(cid, call)
             for cid, call in self._calls.items()
             if (call.get("started_at") or datetime.now(UTC)) >= since
         ]
+        if len(rows) <= self.listing_page_size:
+            return ExecutionListing(snapshots=rows, complete=True)
+        return ExecutionListing(
+            snapshots=rows[: self.listing_page_size],
+            complete=False,
+            incomplete_reason="full_page_suspected",
+        )
 
     # --- webhooks ------------------------------------------------------------
 

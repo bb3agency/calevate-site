@@ -71,16 +71,23 @@ export function stubApi(routes: Routes): ApiCall[] {
         body: typeof init?.body === "string" ? init.body : null,
         headers: (init?.headers ?? {}) as Record<string, string>,
       });
+      // A route may be keyed by path alone, or by `"<METHOD> <path>"` when one path
+      // answers differently per verb — `/v1/lead-sources` is a list on GET and a
+      // creation on POST, and a path-only table would have to answer both with one
+      // object that is honestly neither. The method-scoped key wins when present.
+      const method = init?.method ?? "GET";
+      const scoped = `${method} ${path}`;
       // `Object.hasOwn`, not `path in routes`: `in` walks the prototype chain, so a
       // path of "/constructor" would resolve to a function and the stub would answer a
       // request it was never given. The same defect this suite exists to catch.
-      if (!Object.hasOwn(routes, path)) {
+      const key = Object.hasOwn(routes, scoped) ? scoped : path;
+      if (!Object.hasOwn(routes, key)) {
         throw new Error(
-          `test stub has no route for ${path} — add it to the routes table, ` +
+          `test stub has no route for ${scoped} — add it to the routes table, ` +
             `or the screen under test is calling an endpoint nobody expected`,
         );
       }
-      const answer = routes[path];
+      const answer = routes[key];
       if (answer instanceof ProblemResponse) {
         return new Response(JSON.stringify(answer.body), {
           status: answer.status,

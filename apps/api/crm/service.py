@@ -25,8 +25,10 @@ from apps.api.agents.business_hours import count_after_hours_calls
 from apps.api.billing.caps import read_spend_counters
 from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
+from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
+    MAX_BULK_LEADS,
     CallDetailOut,
     CallSummaryOut,
     DashboardDayOut,
@@ -40,6 +42,7 @@ from apps.api.crm.schemas import (
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import session_tenant
+from apps.api.db.transition import transition_status
 
 # The SAME pass that produced `text_redacted` — see `redacted_summary`. Imported at
 # module scope unlike `apps.workers.storage` in routes.py: `redaction` is pure regex
@@ -60,6 +63,23 @@ LEAD_STATUSES: tuple[str, ...] = get_args(LeadStatus)
 # click into a hung worker, so the read is bounded and says so when it hits the bound —
 # a silently truncated contact export is a worse failure than a refused one.
 MAX_EXPORT_ROWS = 20_000
+
+#: One faceted filter: an extraction-schema key → the values selected under it. Values
+#: are OR'd, keys are AND'd (`_lead_scope`), which is the standard faceted-search
+#: semantic and the one users already expect from every storefront they have used.
+FieldFilters = dict[str, list[str]]
+
+#: How many facets a panel may offer at once. The researched range is 5-7 facets per
+#: results page before a filter rail stops being scannable; 8 leaves room for a client
+#: whose capture list is genuinely enum-heavy without turning the rail into the screen.
+#: A tenant with more enum fields gets the first eight IN SCHEMA ORDER and is told how
+#: many were left out, rather than silently seeing a subset.
+MAX_FACET_FIELDS = 8
+
+#: How many distinct values one facet may offer. Declared enum values are always shown;
+#: this bounds the UNDECLARED ones a client's data can also contain (a schema edited
+#: after rows were captured), which is otherwise unbounded.
+MAX_FACET_VALUES = 50
 
 
 def mask_phone(value: str | None) -> str | None:
@@ -311,6 +331,8 @@ def _lead_scope(
     search: str | None,
     agent_id: UUID | None,
     assigned_to: UUID | None = None,
+    field_filters: FieldFilters | None = None,
+    skip_field: str | None = None,
 ) -> list[str]:
     """The filters that define WHICH leads a request is about, minus `status`.
 
@@ -337,6 +359,19 @@ def _lead_scope(
     mails a supplier the whole contact list. It is a real predicate on a real column —
     never a slice of the page — and migration d2b6f04a17c9 measured the partial index
     that keeps it off a sequential scan.
+
+    `field_filters` are the FACETS, and they are the same kind of predicate for the same
+    reason: they narrow the table, so they must narrow the file. Each entry is one
+    extraction-schema key and the values selected under it, and the shape follows the
+    researched standard — OR within a facet (`= ANY`), AND across facets (one clause
+    each). Keys reach here already checked against the agent's extraction schema by the
+    route; they are still bound parameters rather than interpolated, because "validated
+    upstream" is a fact about today's caller.
+
+    `skip_field` omits ONE facet's own clause, which is what makes a facet count
+    answerable: "how many rows would this value give me" is a question about the table
+    with every OTHER filter applied. It is the same decision `status_counts` already
+    makes about `status`, spelled the same way.
     """
     clauses = ["l.deleted_at IS NULL"]
     if search:
@@ -351,6 +386,17 @@ def _lead_scope(
     if assigned_to:
         clauses.append("l.assigned_to = :assigned_to")
         params["assigned_to"] = assigned_to
+    for i, (key, values) in enumerate(sorted((field_filters or {}).items())):
+        if key == skip_field or not values:
+            continue
+        # `->>` yields text, so every comparison is a text comparison and a number field
+        # matches on its rendered form. Facets are enum fields (crm.columns.facetable),
+        # where the stored value IS the declared string, so this is exact rather than
+        # lucky — a numeric facet would need a cast and there is deliberately no such
+        # thing yet.
+        clauses.append(f"l.data ->> :ff_k{i} = ANY(:ff_v{i})")
+        params[f"ff_k{i}"] = key
+        params[f"ff_v{i}"] = list(values)
     return clauses
 
 
@@ -375,6 +421,7 @@ async def list_leads_page(
     search: str | None = None,
     agent_id: UUID | None = None,
     assigned_to: UUID | None = None,
+    field_filters: FieldFilters | None = None,
 ) -> LeadPage:
     """A page of leads and a truthful per-status breakdown of the set it came from.
 
@@ -394,7 +441,13 @@ async def list_leads_page(
     come here to find out which it is.
     """
     params: dict[str, Any] = {"limit": min(limit, MAX_PAGE), "offset": offset}
-    scope = _lead_scope(params, search=search, agent_id=agent_id, assigned_to=assigned_to)
+    scope = _lead_scope(
+        params,
+        search=search,
+        agent_id=agent_id,
+        assigned_to=assigned_to,
+        field_filters=field_filters,
+    )
     scope_where = f"WHERE {' AND '.join(scope)}"
 
     grouped = (
@@ -436,6 +489,117 @@ async def list_leads_page(
         )
     ).all()
     return LeadPage(items=[_lead_out(r) for r in rows], total=total, status_counts=counts)
+
+
+@dataclass(frozen=True, slots=True)
+class FacetValue:
+    """One selectable value of one facet, and how many rows it would give you."""
+
+    value: str
+    count: int
+    #: Is this value in the extraction schema's `enum_values`? A `False` here is a value
+    #: the client's DATA contains and their capture list no longer declares — a schema
+    #: edited after rows were captured. It is offered anyway, because a value that
+    #: demonstrably exists and cannot be filtered on is a table that lies about itself,
+    #: and it is flagged so the UI can say which of the two it is.
+    declared: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Facet:
+    """One extraction-schema enum field, rendered as a filter group."""
+
+    key: str
+    label: str
+    values: tuple[FacetValue, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FacetSet:
+    facets: tuple[Facet, ...]
+    #: Enum fields beyond `MAX_FACET_FIELDS`. Reported rather than hidden — a client
+    #: whose ninth facet is missing should be told, not left to wonder.
+    omitted_field_count: int
+
+
+async def lead_facets(
+    session: AsyncSession,
+    *,
+    fields: list[ExtractionField],
+    agent_id: UUID | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    assigned_to: UUID | None = None,
+    field_filters: FieldFilters | None = None,
+) -> FacetSet:
+    """The filter rail, counted over the set the client is actually looking at.
+
+    **Counts follow every OTHER filter and ignore this facet's own** (`skip_field`).
+    That is the researched standard — OR within a group, AND across groups, with counts
+    that answer "what would selecting this give me" — and it is the same rule
+    `status_counts_matching_search` already applies one screen element over, so the two
+    numbers on this page mean the same kind of thing.
+
+    **One query per facet, deliberately.** The single-round-trip alternative is a UNION
+    ALL over the same scope, and it was written and rejected: every branch omits a
+    DIFFERENT filter, so every branch needs its own uniquely-named binds and its own
+    clause list, which is the whole scope builder duplicated per branch for the sake of
+    seven fewer round trips on a query that reads a tenant's own lead table over a local
+    socket. `MAX_FACET_FIELDS` bounds the count at eight; the researched budget for a
+    facet rail is 200ms and this is nowhere near it. Revisit if a tenant's lead table
+    passes six figures, which is the same threshold `list_leads` names for pagination.
+
+    Values are DECLARED-FIRST, in schema order, zero-filled — a value with no rows
+    answers 0 rather than going missing, for the reason the status badges do: "none of
+    these" and "the server did not say" are different sentences. Undeclared values found
+    in the data follow, by descending count.
+    """
+    facetable = lead_column_registry.facetable(lead_column_registry.available(fields))
+    chosen = facetable[:MAX_FACET_FIELDS]
+
+    facets: list[Facet] = []
+    for column in chosen:
+        params: dict[str, Any] = {"facet_key": column.key}
+        clauses = _lead_scope(
+            params,
+            search=search,
+            agent_id=agent_id,
+            assigned_to=assigned_to,
+            field_filters=field_filters,
+            skip_field=column.key,
+        )
+        if status:
+            clauses.append("l.status = :status")
+            params["status"] = status
+        # `jsonb_typeof(...) = 'string'` rather than a bare NOT NULL: a field whose type
+        # changed leaves objects and arrays behind in `data`, and `->>` renders those as
+        # their JSON source — a facet value nobody can read and nobody stored.
+        clauses.append("jsonb_typeof(l.data -> :facet_key) = 'string'")
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT l.data ->> :facet_key AS value, count(*) AS n "
+                    f"FROM leads l WHERE {' AND '.join(clauses)} "
+                    "GROUP BY 1 ORDER BY n DESC, 1 ASC"
+                ),
+                params,
+            )
+        ).all()
+        observed = {str(value): int(n) for value, n in rows}
+
+        values = [
+            FacetValue(value=v, count=observed.pop(v, 0), declared=True) for v in column.enum_values
+        ]
+        room = max(MAX_FACET_VALUES - len(values), 0)
+        values.extend(
+            FacetValue(value=v, count=n, declared=False)
+            for v, n in sorted(observed.items(), key=lambda kv: (-kv[1], kv[0]))[:room]
+        )
+        facets.append(Facet(key=column.key, label=column.label, values=tuple(values)))
+
+    return FacetSet(
+        facets=tuple(facets), omitted_field_count=max(len(facetable) - MAX_FACET_FIELDS, 0)
+    )
 
 
 async def list_leads(
@@ -604,6 +768,122 @@ async def _assert_assignable(session: AsyncSession, user_id: UUID) -> None:
         )
 
 
+# A lead may go from ANY of its six states to any other, so `from_statuses` for a lead
+# transition is simply "every other one".
+#
+# The state machine is deliberately fully connected and D-21 is the reason: the six
+# values are fixed, and none of the moves between them is illegal — a lead marked `lost`
+# who calls back next month becomes `hot` again, and a client correcting a mis-click must
+# not need support. So `transition_status`'s MIDDLE answer (409, "it is in some other
+# state") is unreachable for a lead. That is a property of this state machine, not a hole
+# in the primitive: campaigns and knowledge sources have genuinely illegal moves and get
+# genuine 409s from the same call.
+#
+# What the shared primitive buys the lead is the other two answers, and lead status was
+# getting both of them wrong (BACKEND-PATTERNS §5 names "lead status" in the CAS list;
+# nothing here was doing it). A blanket `UPDATE ... SET status = :status` could not tell
+# "I moved it" from "it was already there", so every second click wrote another
+# `status_change` row claiming a change that did not happen and bumped `updated_at`,
+# which is the leads table's own sort key — a no-op edit re-ordered the client's screen.
+# And `WHERE id = :lid AND deleted_at IS NULL` returning zero rows was read as 404, which
+# is right, but only because there was nothing else it could mean; the discriminator now
+# says so on purpose.
+_LEAD_VISIBLE = "deleted_at IS NULL"
+
+
+def _lead_from_statuses(to_status: str) -> tuple[str, ...]:
+    return tuple(s for s in LEAD_STATUSES if s != to_status)
+
+
+async def set_lead_status(session: AsyncSession, lead_id: UUID, *, status: str, actor: str) -> bool:
+    """Move one lead into `status`. True when THIS call moved it, False when it was there.
+
+    404s an absent or soft-deleted lead (and, under RLS, a neighbour's — deliberately the
+    same answer). The timeline row is written ONLY on a real move, which is the point of
+    routing through `transition_status`: the lead timeline is evidence, and an event that
+    records a button press rather than a change is evidence of the wrong thing.
+    """
+    moved = await transition_status(
+        session,
+        table="leads",
+        entity="Lead",
+        row_id=lead_id,
+        to_status=status,
+        from_statuses=_lead_from_statuses(status),
+        visible_where=_LEAD_VISIBLE,
+    )
+    if moved:
+        await _write_lead_event(
+            session,
+            lead_id,
+            event_type="status_change",
+            payload_sql="jsonb_build_object('status', CAST(:status AS text))",
+            params={"status": status, "actor": actor},
+        )
+    return moved
+
+
+async def set_lead_assignee(
+    session: AsyncSession, lead_id: UUID, *, assignee: AssigneeChange, actor: str
+) -> bool:
+    """Set or clear one lead's owner. True when THIS call changed it.
+
+    The same three answers as `set_lead_status`, spelled out here rather than borrowed,
+    because `transition_status` cannot serve an owner column: its guard is
+    `status IN (:from0, …)` and the "every other value" list for `assigned_to` is every
+    user id in the world. So the guard becomes `IS DISTINCT FROM` — which is CAS in the
+    sense BACKEND-PATTERNS §5 means (the condition is in the WHERE clause, `rowcount == 0`
+    is the lost race), and `IS DISTINCT FROM` rather than `<>` because the owner is
+    nullable and `NULL <> NULL` is NULL, so an unassign of an already-unassigned lead
+    would match the row and write an event for nothing.
+
+    The caller validates the assignee first (`_assert_assignable`); this function assumes
+    that has happened, because the refusal is about the PERSON and belongs to the request,
+    not to each lead in it.
+    """
+    changed = rowcount_of(
+        await session.execute(
+            text(
+                "UPDATE leads SET assigned_to = :assigned_to, updated_at = now() "
+                f"WHERE id = :lid AND {_LEAD_VISIBLE} "
+                "AND assigned_to IS DISTINCT FROM :assigned_to"
+            ),
+            {"lid": lead_id, "assigned_to": assignee.user_id},
+        )
+    )
+    if not changed:
+        # Zero rows is "already this owner" or "no such lead", and those are a 200 and a
+        # 404. Same ordering rule as `transition_status`: the write ran first and
+        # unconditionally, so this read cannot reintroduce a race.
+        exists = (
+            await session.execute(
+                text(f"SELECT 1 FROM leads WHERE id = :lid AND {_LEAD_VISIBLE}"), {"lid": lead_id}
+            )
+        ).first()
+        if exists is None:
+            raise ProblemError.not_found("Lead")
+        return False
+    # UNASSIGNMENT IS AN EVENT TOO, and the `NULL` is the point: an owner who leaves is
+    # exactly the case somebody asks the timeline about later, so it is recorded rather
+    # than inferred from the absence of a later assignment.
+    #
+    # The payload carries the assignee's ID and never their NAME. A name copied into a
+    # timeline row is a name that goes stale the day they change it and stays readable
+    # after they leave the account; the read resolves it through `memberships` instead,
+    # so the tenant's own policy decides who can be named.
+    await _write_lead_event(
+        session,
+        lead_id,
+        event_type="assignment",
+        payload_sql="jsonb_build_object('assigned_to', CAST(:assigned_to AS text))",
+        params={
+            "assigned_to": str(assignee.user_id) if assignee.user_id else None,
+            "actor": actor,
+        },
+    )
+    return True
+
+
 async def update_lead(
     session: AsyncSession,
     lead_id: UUID,
@@ -613,67 +893,293 @@ async def update_lead(
     assignee: AssigneeChange | None = None,
     actor: str,
 ) -> LeadOut:
-    sets: list[str] = []
-    params: dict[str, Any] = {"lid": lead_id}
-    if status is not None:
-        sets.append("status = :status")
-        params["status"] = status
-    if name is not None:
-        sets.append("name = :name")
-        params["name"] = name
-    if assignee is not None:
-        # Validated BEFORE the write, so a refused assignment leaves no partial edit —
-        # a body carrying both a status and a bad assignee must move neither.
-        if assignee.user_id is not None:
-            await _assert_assignable(session, assignee.user_id)
-        sets.append("assigned_to = :assigned_to")
-        params["assigned_to"] = assignee.user_id
-    if not sets:
-        return await get_lead(session, lead_id)
+    """One lead's editable fields, each through the primitive that owns it.
 
-    result = await session.execute(
-        text(
-            f"UPDATE leads SET {', '.join(sets)}, updated_at = now() "
-            "WHERE id = :lid AND deleted_at IS NULL"
-        ),
-        params,
-    )
-    if rowcount_of(result) == 0:
-        raise ProblemError.not_found("Lead")
+    Three statements where there used to be one, and the split is what makes each field
+    able to report "already so". A single `SET status = …, assigned_to = …` can only say
+    how many ROWS it touched, never which of the two values actually moved — so the
+    events it wrote were guesses.
+    """
+    if assignee is not None and assignee.user_id is not None:
+        # Validated BEFORE any write, so a refused assignment leaves no partial edit —
+        # a body carrying both a status and a bad assignee must move neither.
+        await _assert_assignable(session, assignee.user_id)
+
     if status is not None:
-        # The lead timeline is what makes "who moved this to won?" answerable.
-        await _write_lead_event(
-            session,
-            lead_id,
-            event_type="status_change",
-            payload_sql="jsonb_build_object('status', CAST(:status AS text))",
-            params={"status": status, "actor": actor},
+        await set_lead_status(session, lead_id, status=status, actor=actor)
+    if name is not None:
+        renamed = await session.execute(
+            text(
+                "UPDATE leads SET name = :name, updated_at = now() "
+                f"WHERE id = :lid AND {_LEAD_VISIBLE}"
+            ),
+            {"lid": lead_id, "name": name},
         )
+        if rowcount_of(renamed) == 0:
+            raise ProblemError.not_found("Lead")
     if assignee is not None:
-        # UNASSIGNMENT IS AN EVENT TOO, and the `NULL` is the point: an owner who leaves
-        # is exactly the case somebody asks the timeline about later, so it is recorded
-        # rather than inferred from the absence of a later assignment.
-        #
-        # The payload carries the assignee's ID and never their NAME. A name copied into
-        # a timeline row is a name that goes stale the day they change it and stays
-        # readable after they leave the account; the read resolves it through
-        # `memberships` instead, so the tenant's own policy decides who can be named.
-        await _write_lead_event(
-            session,
-            lead_id,
-            event_type="assignment",
-            payload_sql="jsonb_build_object('assigned_to', CAST(:assigned_to AS text))",
-            params={
-                "assigned_to": str(assignee.user_id) if assignee.user_id else None,
-                "actor": actor,
-            },
-        )
+        await set_lead_assignee(session, lead_id, assignee=assignee, actor=actor)
+    # No field asked for: `get_lead` is still the 404, so a PATCH with an empty body
+    # against a lead that is not there does not answer 200 with somebody else's silence.
     return await get_lead(session, lead_id)
 
 
-#: The fixed columns of the lead export, in the order the row query selects them. Named
-#: so the header and the row cannot drift apart by an edit to one of them.
-_EXPORT_HEADER: tuple[str, ...] = ("phone", "name", "status", "source", "calls", "created_at")
+# --- bulk actions (SURFACES §2, "with the researched guardrails") ---------------
+#
+# WHAT THE RESEARCH SETTLED, and where each finding landed in this code.
+#
+# 1. **Selection scope is the classic defect and it is settled by having TWO scopes with
+#    two names, never one ambiguous "select all".** The header checkbox is page-scoped
+#    and a separate control extends to the whole matching set — PatternFly ("a checkbox
+#    in a table's header row will select … all items on the current page if pagination
+#    is in use"), Helios ("bulk selection is global in scope … not a replacement for the
+#    selection in the header of the table"), and Gmail's banner ("All 50 conversations on
+#    this page are selected. Select all conversations that match this search"), which is
+#    the interaction most people have already learned. GitLab's own enhanced-bulk-actions
+#    issue lists "select all results based on the current filter" as the missing half.
+#    Here that is `scope: "ids"` vs `scope: "filter"`, and the RESPONSE echoes which one
+#    ran so the sentence on screen is the server's answer rather than the screen's
+#    assumption. This table has facets, so the filtered set is routinely far larger than
+#    the page and the two scopes are genuinely different actions.
+# 2. **Partial success is the normal outcome and needs per-item results.** The REST
+#    debate is 207 Multi-Status (RFC 4918, WebDAV) versus 200 with per-item statuses;
+#    the widely-given advice for a general JSON API is 200 plus a documented result body,
+#    because intermediaries and generated clients treat 207 as success anyway. We take
+#    200 for a third, local reason: this repo already answers "the request was processed
+#    and the answer is a refusal" with a 200 body (`CallLeadOut.status == "blocked"`), and
+#    RFC-9457 problem+json is reserved for "the request failed" (BACKEND-PATTERNS §3). A
+#    207 would be parsed by `apiRequest` on exactly the same branch as the 200 while
+#    adding a status code no other route in this app uses.
+# 3. **The failure list names the row and the reason.** `(rule, reason)` is this repo's
+#    existing shape for a named refusal — `DispatchDecision`, `LaunchBlocker`/`BlockerOut`,
+#    `CallLeadOut.blocked_rule`/`blocked_reason` — so a bulk failure is that pair plus the
+#    lead it belongs to, and nothing new to learn.
+# 4. **The confirmation must describe the set that will ACTUALLY be acted on**, counted,
+#    before the click. That is the screen's job, but the server holds the two halves it
+#    cannot fake: the cap refusal below (never a silent truncation) and `expected_count`,
+#    which lets the screen's stated number be checked against the set the server is about
+#    to touch — a filter-scoped batch is chosen against a count that can move while the
+#    person is reading the dialog.
+# 5. **Undo.** Deliberately NOT built, and the reason is that the two actions here are
+#    their own undo: status and owner are single-value fields with no destructive side
+#    effect, and re-running the bulk with the previous value restores it exactly — which
+#    the `unchanged` count then reports honestly for the rows that never moved. An undo
+#    token would be a second, stateful way to do the same write.
+#
+# **Bulk DELETE was considered and is refused.** `leads.deleted_at` exists, so it would
+# have been four lines. It cannot be built honestly here: under DPDP the client's
+# erasure obligation runs through `compliance/deletion.py` — a `deletion_requests` row,
+# an outbox job, a worker that reaches calls, turns, extractions, storage and the engine,
+# and a certificate the client hands to the data principal — while `deleted_at` only
+# hides the row from this table and erases nothing. Shipping a button labelled "Delete"
+# that sets a hide-flag would teach a client that they had answered an erasure request
+# when they had not, which is the one misunderstanding this product must never create.
+# A bulk erasure (N deletion requests, N certificates, N statutory clocks) is a real
+# feature and a different slice; it belongs beside the data-rights screen that already
+# owns the single-subject version, not on the leads grid.
+
+BulkAction = Literal["status", "assign"]
+
+
+@dataclass(frozen=True, slots=True)
+class BulkFailure:
+    """One lead the action could not move, and why — `(rule, reason)` as everywhere else.
+
+    `rule` is the stable machine code (the same vocabulary `ProblemError.code` speaks),
+    `reason` is the sentence a client reads. The lead is named by ID and never by phone
+    or name: this object reaches an audit summary and a log line (hard rule 6).
+    """
+
+    lead_id: UUID
+    rule: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class BulkTargets:
+    """The leads a bulk action will touch, resolved BEFORE anything is written.
+
+    `missing` is the ids-scope half: an id the caller ticked that this tenant cannot see
+    — removed, soft-deleted, or a neighbour's (RLS makes those one answer on purpose).
+    Resolving first is what lets the response name them individually instead of the batch
+    failing wholesale on the first bad id.
+    """
+
+    ids: list[UUID]
+    missing: list[UUID]
+
+
+@dataclass(frozen=True, slots=True)
+class BulkOutcome:
+    """What a bulk action actually did. `changed + unchanged + len(failures) == requested`.
+
+    `unchanged` is a SUCCESS bucket and is separate from `failures` for the reason D-65
+    exists: "3 of the 10 were already hot" is the batch doing exactly what was asked, and
+    folding it into a failure count would make the correct outcome look like an incident.
+    """
+
+    requested: int
+    changed: int
+    unchanged: int
+    failures: list[BulkFailure]
+
+
+async def resolve_bulk_targets(
+    session: AsyncSession,
+    *,
+    ids: list[UUID] | None,
+    status: str | None = None,
+    search: str | None = None,
+    agent_id: UUID | None = None,
+    assigned_to: UUID | None = None,
+    field_filters: FieldFilters | None = None,
+) -> BulkTargets:
+    """Which leads the action is about — `ids is None` means "everything the lens matches".
+
+    The lens is the SAME `_lead_scope` the list, the facet counts and the CSV export use,
+    for the reason the export's docstring gives: a scope spelled twice is a scope that
+    drifts, and here the drift would move rows the client never saw.
+
+    In IDS scope the lens is deliberately NOT re-applied. The ticked rows are the ticked
+    rows; intersecting them with a filter the person may have changed since ticking would
+    silently drop rows from a set they had already confirmed, which is the same class of
+    lie as acting on rows they cannot see. The screen's obligation is the other half —
+    it clears the selection when the lens moves — and both halves are tested.
+
+    A filter matching more than `MAX_BULK_LEADS` is REFUSED rather than truncated.
+    Silently doing the first 500 of 5,000 and reporting success is the exact failure this
+    whole slice is about.
+    """
+    if ids is not None:
+        found = {
+            UUID(str(row[0]))
+            for row in (
+                await session.execute(
+                    text(f"SELECT id FROM leads WHERE {_LEAD_VISIBLE} AND id = ANY(:ids)"),
+                    {"ids": ids},
+                )
+            ).all()
+        }
+        # Caller order preserved so the failure list reads in the order the rows sat on
+        # screen, and de-duplicated so a doubled id is not counted (or reported) twice.
+        seen: set[UUID] = set()
+        ordered: list[UUID] = []
+        for lead_id in ids:
+            if lead_id not in seen:
+                seen.add(lead_id)
+                ordered.append(lead_id)
+        return BulkTargets(
+            ids=[i for i in ordered if i in found],
+            missing=[i for i in ordered if i not in found],
+        )
+
+    params: dict[str, Any] = {"cap": MAX_BULK_LEADS}
+    clauses = _lead_scope(
+        params,
+        search=search,
+        agent_id=agent_id,
+        assigned_to=assigned_to,
+        field_filters=field_filters,
+    )
+    if status:
+        clauses.append("l.status = :status")
+        params["status"] = status
+    rows = (
+        await session.execute(
+            text(
+                # `count(*) OVER ()` is evaluated before LIMIT, so one pass yields both
+                # the page of ids and the size of the set they came from — which is what
+                # tells a cap breach from a set that merely fills the cap exactly.
+                f"SELECT l.id, count(*) OVER () FROM leads l WHERE {' AND '.join(clauses)} "
+                "ORDER BY l.id LIMIT :cap"
+            ),
+            params,
+        )
+    ).all()
+    matched = int(rows[0][1]) if rows else 0
+    if matched > MAX_BULK_LEADS:
+        raise ProblemError.business_rule(
+            "lead_bulk_too_many",
+            f"This filter matches {matched} leads, and one bulk action can move at most "
+            f"{MAX_BULK_LEADS}.",
+            remediation=(
+                "Narrow the filter — by stage, by owner or by one of the panel's fields "
+                "— and run the action on each part."
+            ),
+        )
+    return BulkTargets(ids=[UUID(str(row[0])) for row in rows], missing=[])
+
+
+async def apply_bulk_leads(
+    session: AsyncSession,
+    *,
+    targets: BulkTargets,
+    action: BulkAction,
+    status: str | None = None,
+    assignee: AssigneeChange | None = None,
+    actor: str,
+) -> BulkOutcome:
+    """Run one action over resolved targets, reporting each lead's own outcome.
+
+    **Per-lead, not set-based, and that is the point.** `UPDATE leads SET status = :s
+    WHERE id = ANY(:ids)` would be one round trip and would be a second implementation of
+    the transition — it could report how many rows it touched but not which of them were
+    already there, and "already there" is a success this response has to be able to say
+    (D-65). So each lead goes through `set_lead_status` / `set_lead_assignee`, the same
+    two functions `PATCH /v1/leads/{id}` calls, and the batch is capped instead.
+
+    **One transaction, many outcomes.** Every write here is on the request's session, so
+    the batch commits together: a "failure" in this response always means *this lead was
+    not eligible*, never *this lead's write was lost*. If something raises that is not a
+    `ProblemError` the whole request 500s and nothing is applied, which is the honest
+    behaviour for a fault we do not understand — a half-applied batch reported as a
+    success would be worse than a refused one.
+
+    The per-lead `ProblemError`s caught here are raised after clean statements (a zero-row
+    UPDATE and a SELECT), so they leave the transaction usable; a driver-level error is
+    not caught and is not meant to be.
+    """
+    if assignee is not None and assignee.user_id is not None:
+        # ONCE for the batch, and before the first write. "That person is not on this
+        # team" is a fact about the REQUEST — repeating it as four hundred per-lead
+        # failures would bury the rows that failed for reasons of their own, and would
+        # report a 422 as a partial success.
+        await _assert_assignable(session, assignee.user_id)
+
+    changed = unchanged = 0
+    failures = [
+        BulkFailure(
+            lead_id=lead_id,
+            rule="not_found",
+            reason="This lead is no longer on this account, so it was left alone.",
+        )
+        for lead_id in targets.missing
+    ]
+    for lead_id in targets.ids:
+        try:
+            if action == "status":
+                assert status is not None  # the route's validator guarantees it
+                moved = await set_lead_status(session, lead_id, status=status, actor=actor)
+            else:
+                assert assignee is not None
+                moved = await set_lead_assignee(session, lead_id, assignee=assignee, actor=actor)
+        except ProblemError as problem:
+            # A lead deleted between the resolve and the write, or (for a state machine
+            # that had illegal moves) a row someone else moved first. Named, never
+            # counted: the client can act on "these three are gone", not on "three
+            # failed".
+            failures.append(BulkFailure(lead_id=lead_id, rule=problem.code, reason=problem.detail))
+            continue
+        if moved:
+            changed += 1
+        else:
+            unchanged += 1
+    return BulkOutcome(
+        requested=len(targets.ids) + len(targets.missing),
+        changed=changed,
+        unchanged=unchanged,
+        failures=failures,
+    )
 
 
 async def export_leads_csv(
@@ -683,8 +1189,23 @@ async def export_leads_csv(
     status: str | None = None,
     search: str | None = None,
     assigned_to: UUID | None = None,
+    field_filters: FieldFilters | None = None,
+    columns: list[str] | None = None,
 ) -> str:
     """CSV export with schema-driven columns (TRD §7 (e)).
+
+    **The header IS the column chooser.** `columns` goes through
+    `crm.columns.resolve` — the same function, with the same registry, that decides
+    what the Leads screen renders — so "export what I am looking at" is a property of
+    one resolver rather than a coincidence between two lists. There is no fixed header
+    constant here any more; the one that used to live above this function was the second
+    of the two lists, and it is what let the file hold `source` and `created_at` while
+    the screen showed `owner` and `updated_at`.
+
+    The row query therefore selects the SAME projection as the list (`_LEAD_COLUMNS`,
+    owner join included) rather than a shorter one of its own: a column the registry can
+    offer and the export cannot fetch would be a chooser entry that silently exports
+    blanks.
 
     The phone is exported IN FULL: this is the client's own customer data, the export
     is role-gated and audit-logged by the route, and a CSV of masked numbers is useless
@@ -703,21 +1224,29 @@ async def export_leads_csv(
     one builds the entire file in memory inside the request. The bound now applies to
     the FILTERED rows, which is what makes the refusal's advice ("narrow it") reachable.
     """
-    columns = await lead_columns(session, agent_id)
+    fields = await lead_columns(session, agent_id)
+    chosen = lead_column_registry.resolve(lead_column_registry.available(fields), columns).columns
     params: dict[str, Any] = {"limit": MAX_EXPORT_ROWS + 1}
-    clauses = _lead_scope(params, search=search, agent_id=agent_id, assigned_to=assigned_to)
+    clauses = _lead_scope(
+        params,
+        search=search,
+        agent_id=agent_id,
+        assigned_to=assigned_to,
+        field_filters=field_filters,
+    )
     if status:
         clauses.append("l.status = :status")
         params["status"] = status
     rows = (
         await session.execute(
             text(
-                "SELECT l.phone_e164, l.name, l.status, l.source, l.call_count, "
-                "l.created_at, l.data "
-                f"FROM leads l WHERE {' AND '.join(clauses)} "
+                f"SELECT {_LEAD_COLUMNS} "
+                f"FROM leads l {_LEAD_OWNER_JOIN} WHERE {' AND '.join(clauses)} "
                 # Tiebreaker for the same reason as the list — here the stakes are which
                 # rows survive the LIMIT, so an unstable sort means two exports of one
                 # unchanged account hand back two different sets of people.
+                # Qualified `l.`, because the owner join brings a second `id` and a
+                # second `created_at` into scope.
                 "ORDER BY l.created_at DESC, l.id DESC LIMIT :limit"
             ),
             # One row over the cap, so hitting it is detectable without a second count.
@@ -753,28 +1282,57 @@ async def export_leads_csv(
     # their own export. Picking the "interesting" columns is what created the gap;
     # rendering every column the one way is what closes it and keeps it closed.
     #
-    # The HEADER: `columns` are labels from the tenant's extraction schema, which is
-    # authored text, and the export is downloaded by a client's staff — not the author.
-    # The threat is thinner than the `name` column's, but a header cell is a cell and
-    # the argument for exempting it is only that it is inconvenient to include.
+    # The HEADER: extraction labels are authored text from the tenant's own schema, and
+    # the export is downloaded by a client's staff — not the author. The threat is
+    # thinner than the `name` column's, but a header cell is a cell and the argument for
+    # exempting it is only that it is inconvenient to include.
     #
     # The other row columns, audited rather than assumed: `status` and `source` are
     # CHECK-constrained enums (`ck_leads_status_enum`, `ck_leads_source_enum`), so no
-    # caller writes them today; `created_at` is an ISO-8601 instant and `call_count` an
-    # integer counter, both of which begin with a digit. None of them can lead a formula
-    # NOW — but that is a fact about four constraints, not a property of the row, and
-    # the cost of covering them is one function call each.
+    # caller writes them today; `created_at`/`updated_at` are ISO-8601 instants and
+    # `call_count` an integer counter, all of which begin with a digit; `owner` is a
+    # `users.name`, which is self-registered text and therefore exactly as hostile as
+    # `name`. None of the first group can lead a formula NOW — but that is a fact about
+    # four constraints, not a property of the row.
+    #
+    # **AND THAT IS WHY THE CHOOSER CANNOT CREATE A HOLE HERE.** The guard is applied by
+    # the RENDERER to every cell it is handed, not by a list of interesting columns, so
+    # a column added to `crm.columns` is disarmed the moment it is selectable. Picking
+    # columns to disarm is what left `name` raw for a release;
+    # `tests/lead_columns_test.py::test_every_selectable_column_is_disarmed` walks the
+    # registry and exports each column alone, so a future column that bypassed this
+    # would fail rather than ship.
     #
     # The PHONE column changes shape: E.164 begins with `+`, a formula leader, so it is
     # tab-prefixed on every row. That is not collateral damage — `+919812345678` is a
     # formula to Excel, which evaluates it to `919812345678` and eats the country-code
     # marker. The guard makes the number arrive as the string we stored.
-    writer.writerow([_csv_value(h) for h in _EXPORT_HEADER + tuple(c.label for c in columns)])
+    writer.writerow([_csv_value(c.label) for c in chosen])
     for r in rows:
-        data = r[6] or {}
-        cells = (*r[:6], *(data.get(c.key) for c in columns))
-        writer.writerow([_csv_value(cell) for cell in cells])
+        mapping = r._mapping
+        data = mapping["data"] or {}
+        writer.writerow(
+            [
+                _csv_value(mapping[c.row_key] if c.row_key is not None else _json_cell(data, c.key))
+                for c in chosen
+            ]
+        )
     return buffer.getvalue()
+
+
+def _json_cell(data: object, key: str) -> Any:
+    """One extraction value out of `leads.data`, without trusting the prototype chain.
+
+    `data` is JSONB decoded into a `dict`, and the KEY is a client's own extraction
+    field name — nothing constrains it away from `items` or `keys`, and `getattr`-shaped
+    lookups on a mapping are how a method ends up rendered into a cell. A plain
+    `.get()` on a verified `dict` is the whole guard; the type check is there because
+    a `data` column holding a JSON array or scalar is not a bug this function should
+    turn into an AttributeError inside a 20,000-row loop.
+    """
+    if not isinstance(data, dict):
+        return None
+    return data.get(key)
 
 
 # --- the lead timeline --------------------------------------------------------
@@ -1431,16 +1989,23 @@ __all__ = [
     "LEAD_STATUSES",
     "MAX_CALLBACK_DEPTH",
     "MAX_EXPORT_ROWS",
+    "MAX_FACET_FIELDS",
+    "MAX_FACET_VALUES",
     "MAX_PAGE",
     "MAX_TIMELINE_PAGE",
     "AssigneeChange",
     "CallbackPlan",
+    "Facet",
+    "FacetSet",
+    "FacetValue",
+    "FieldFilters",
     "LeadPage",
     "dashboard",
     "export_leads_csv",
     "get_call",
     "get_lead",
     "lead_columns",
+    "lead_facets",
     "lead_phone",
     "lead_timeline",
     "link_callback",

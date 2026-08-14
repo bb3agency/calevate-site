@@ -9,6 +9,10 @@ a real TRAI violation, because the one place it gets left on is production.
 Checks, in the order that fails cheapest-first:
 
 1. **Big red switch** — a global outbound halt beats every other consideration.
+1b. **Account lifecycle** — a `suspended` or `churned` organization dials nothing. The
+   status was written by nothing until the admin lifecycle route landed, so this was
+   the check that made suspending a client stop their campaigns rather than recolour a
+   row (`account_stopped_blocker`). Inbound is unaffected, like everything here.
 2. **Spend caps** — a capped tenant's outbound is refused (TRD §9); inbound is
    unaffected, which is why this gate is outbound-only.
 2b. **Prepaid credits** — a self-serve tenant with an empty wallet cannot dial (D-34).
@@ -89,6 +93,63 @@ def within_calling_hours(
     current = (now_ist or ist_now()).time()
     start, end = window
     return start <= current <= end
+
+
+# The client-facing wording of the two lifecycle refusals. Shared with the campaign
+# launch gate for the reason `SPEND_CAP_REASON` is: one condition, one sentence.
+ACCOUNT_SUSPENDED_REASON = "This account is suspended and cannot place calls."
+ACCOUNT_CLOSED_REASON = "This account is closed."
+
+# The `organizations.status` values that stop outbound dialling. `prospect`,
+# `onboarding` and `active` all dial: an onboarding client placing their first test call
+# is the point of onboarding.
+_STOPPED_STATUSES = {"suspended": ACCOUNT_SUSPENDED_REASON, "churned": ACCOUNT_CLOSED_REASON}
+
+
+async def account_stopped_blocker(
+    session: AsyncSession, *, tenant_id: UUID
+) -> tuple[str, str] | None:
+    """`(rule, reason)` if this ACCOUNT's lifecycle state stops its outbound, else None.
+
+    `organizations.status` carried a five-value CHECK from the first migration and was
+    written by NOTHING until the admin lifecycle route landed; the only reader was the
+    health board's ended-account filter (`admin/health.py`). That made "suspend this
+    client" a change of colour on a screen — the campaigns kept dialling, which for a
+    client we suspended over complaints or non-payment is a compliance problem and not
+    merely a billing one. This is the predicate that makes the status mean something.
+
+    It sits in the DIAL gate rather than in the dispatcher because `check_dispatch` is
+    the one function every outbound path calls (hard rule 5): the campaign tick, the
+    D-21 "call this lead" button, the instant-lead-callback webhook and the WhatsApp
+    escalation all pass through it, and a suspension has to stop all four. It is asked
+    again in `campaigns.service.launch_blockers`, under this same rule name, for the
+    reason that gate asks about caps and credits: a campaign that launches "ready" and is
+    then refused on every contact is worse than a launch button that says why.
+
+    INBOUND IS UNTOUCHED, deliberately and for the reason the whole gate is
+    outbound-only: a suspended client's own customers still ring their number, and
+    dropping those calls punishes the caller. Suspension stops US dialling OUT.
+
+    FAILS CLOSED. A tenant whose row is not visible — soft-deleted, or an id from
+    another tenant under RLS — is refused rather than waved through: every other answer
+    here is "we could not confirm this account may dial", and dialling on that is the
+    error that cannot be taken back.
+    """
+    row = (
+        await session.execute(
+            text("SELECT status, deleted_at FROM organizations WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+    ).first()
+    if row is None:
+        return ("account_missing", ACCOUNT_CLOSED_REASON)
+    status, deleted_at = str(row[0]), row[1]
+    if deleted_at is not None:
+        return ("account_closed", ACCOUNT_CLOSED_REASON)
+    reason = _STOPPED_STATUSES.get(status)
+    if reason is None:
+        return None
+    return ("account_suspended" if status == "suspended" else "account_closed", reason)
 
 
 async def spend_capped(session: AsyncSession, *, tenant_id: UUID) -> bool:
@@ -221,6 +282,14 @@ async def check_dispatch(
             reason="Outbound calling is halted platform-wide by the operations team.",
         )
 
+    # Before the agent, the paperwork and the money: an account we have STOPPED does not
+    # get to be told its agent is unpublished. Costs one primary-key read on a row this
+    # session is already scoped to.
+    stopped = await account_stopped_blocker(session, tenant_id=tenant_id)
+    if stopped is not None:
+        rule, reason = stopped
+        return DispatchDecision(allowed=False, rule=rule, reason=reason)
+
     agent = (
         await session.execute(
             text(
@@ -339,12 +408,15 @@ async def add_to_dnc(
 
 
 __all__ = [
+    "ACCOUNT_CLOSED_REASON",
+    "ACCOUNT_SUSPENDED_REASON",
     "DEFAULT_WINDOW",
     "IST",
     "NO_CREDITS_REASON",
     "SELF_SERVE_TIERS",
     "SPEND_CAP_REASON",
     "DispatchDecision",
+    "account_stopped_blocker",
     "add_to_dnc",
     "assert_dispatch_allowed",
     "check_dispatch",

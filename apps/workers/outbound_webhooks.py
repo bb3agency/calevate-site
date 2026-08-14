@@ -32,6 +32,14 @@ in two minutes, so retrying only delays the verdict on the delivery row and trip
 load on a host that is already unhappy. We stop, record `failed`, and alert — the client
 needs to hear about it either way, and the two cases are told apart by the alert detail.
 
+**The delivered body is retained, and that is a data-protection act, not a log line.**
+`webhook_deliveries` recorded that a POST happened and nothing about what was in it, so
+"you sent us the wrong lead" could only ever be answered with a reconstruction. The body
+now goes to object storage under a key that names its SUBJECT, which is what lets the
+DPDP erasure worker find it and the retention sweep expire it on the tenant's own `lead`
+policy. Retention is BEST-EFFORT and deliberately subordinate to delivery: see
+`_retain_body`.
+
 A tenant that has deleted or deactivated its endpoint between enqueue and delivery is
 NOT a failure — the client changed their mind, and retrying against a config row that
 no longer exists would be noise forever.
@@ -49,7 +57,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.integrations import service
-from apps.workers import sheets_sync
+from apps.workers import sheets_sync, storage
 
 log = get_logger(__name__)
 
@@ -153,6 +161,66 @@ async def _deliver_to_endpoint(
     )
 
 
+def _retain_body(
+    *,
+    tenant_id: UUID,
+    endpoint_id: UUID,
+    delivery_id: UUID,
+    event: str,
+    data: dict[str, Any],
+    result: service.DeliveryResult,
+) -> str | None:
+    """Keep a copy of what we sent, and return its object key — or None.
+
+    THE RULE THIS ENFORCES: nothing is retained that a DPDP erasure could not later
+    find. `body_subject` reads OUR field names off the pre-mapping payload and answers
+    "whose data is this?"; when it cannot, we store nothing rather than create an object
+    no data principal can ever reach (`workers/storage`, the delivered-bodies section).
+
+    STORAGE BEING DOWN MUST NOT COST A DELIVERY. This function never raises: the client's
+    lead has already reached their CRM by the time it runs, and failing the job here
+    would re-POST a body the receiver already accepted in order to save a support
+    artifact. The absence is made VISIBLE instead — a warning from the store, and an
+    alert on a stable code so an operator learns that bodies stopped being retained
+    rather than discovering later that this delivery looks like one from before the
+    feature existed.
+    """
+    if result.sent_body is None:
+        # No transport reported a body. Today that is the sheets append (whose record IS
+        # the row in the client's own document, delivery id and all) and the refusal for
+        # an unknown kind. Neither is a silent drop: both are stated by the transport.
+        return None
+    subject = service.body_subject(data)
+    if subject is None:
+        return None
+    subject_type, subject_id = subject
+    key = storage.delivery_body_key(
+        tenant_id=tenant_id,
+        subject_type=subject_type,
+        subject_id=subject_id,
+        delivery_id=delivery_id,
+    )
+    stored = storage.store_delivery_body(
+        key=key,
+        delivery_id=delivery_id,
+        endpoint_id=endpoint_id,
+        event=event,
+        subject_type=subject_type,
+        subject_id=subject_id,
+        body=result.sent_body,
+    )
+    if stored is None:
+        alert(
+            "WORKER_DELIVERY",
+            # A stable code, so the alerter's per-fingerprint suppression collapses an
+            # object-store outage into one notice instead of one per lead.
+            "delivery_body_not_retained",
+            detail="object storage refused the delivered body; the delivery itself is unaffected",
+            tenant_id=str(tenant_id),
+        )
+    return stored
+
+
 async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     tenant_id = UUID(str(payload["tenant_id"]))
     endpoint_id = UUID(str(payload["endpoint_id"]))
@@ -215,6 +283,16 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
             # be needed to discover. Always one of OUR authored codes, never vendor
             # prose and never a payload (hard rule 6).
             reason=None if result.delivered else result.error,
+            # The KEY of the body, never the body. Written in the same statement as the
+            # status, so a delivery row and the evidence behind it arrive together.
+            payload_ref=_retain_body(
+                tenant_id=tenant_id,
+                endpoint_id=endpoint_id,
+                delivery_id=delivery_id,
+                event=event,
+                data=data,
+                result=result,
+            ),
         )
 
     if result.delivered:

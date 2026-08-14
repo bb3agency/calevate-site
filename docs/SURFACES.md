@@ -387,6 +387,13 @@ Compliance API (client realm)
   stays available to them. Every response carries the erasure's stated limitations
   (SEC-COMP §4). Both surfaces speak `subject_ref`, never the phone number.
 - **Voice catalog**: `GET /v1/agents/voices` (D-36's premium/value ladder as data).
+- **Scheduled campaign start**: `POST /v1/campaigns/{campaign_id}/schedule` /
+  `DELETE` the same path (`leads:dispatch`, audited) — a ONE-TIME future start, stored
+  in `campaigns.schedule` and fired by the dispatch tick. Same permission as `POST
+  /launch` because it IS a launch with a delay on it, and the compliance gate runs at
+  FIRE time rather than at schedule time (FLOWS §5). The response carries
+  `first_dial_not_before`: a 22:00 start is accepted and answered with 09:00, because a
+  start is not a dial. Recurrence is deliberately unbuilt.
 - **Consent provenance for a campaign list**:
   `POST /v1/campaigns/{campaign_id}/consent-provenance` (`leads:dispatch`, drafts only,
   audited) — SEC-COMP §3's fourth bullet, and the answer path for a draft created before
@@ -484,6 +491,14 @@ that alert unreachable is FIXED — `deliver_outbound_webhook` raises `arq.Retry
 so the ladder walks and the exhaustion branch is live), delivery log (webhook_deliveries direction=out, one
 row per delivery with `endpoint_id`), and a per-endpoint disable switch on repeated
 failure. The client-facing form of these rules is WEBHOOKS §1.5.
+
+The delivery log answers "did it arrive?"; the retained BODY (`payload_ref`) answers "and
+what was in it?" — the question that actually ends a dispute. It is unredacted customer
+data, so the screen offers it only to a holder of `calls:read_raw` and only where a copy
+still exists, and opening it writes an `audit_log` row, exactly like a raw transcript
+(hard rule 5). Retention, erasure and the size cap are SEC-COMP §4; what the SCREEN owes
+is that a missing copy reads as a stated absence rather than a link into a refusal, and
+that a truncated copy says so.
 
 ### 3.2 Real-time UI sync (D-24)
 

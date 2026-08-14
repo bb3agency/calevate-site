@@ -376,7 +376,12 @@ function RecordingCard({
         <div className="space-y-2">
           {/* No <track>: the transcript above IS this recording's caption track, in the
               same view, and a second copy behind a control nobody opens is a copy that
-              drifts. */}
+              drifts. Disabled at the SITE rather than in eslint.config.mjs, so the next
+              <audio>/<video> added anywhere still has to answer the rule — the reason
+              here ("the captions are already on screen, as text") is specific to this
+              panel and does not generalise.
+              WCAG 1.2.2 is met by the transcript, not by the absence of a track. */}
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
           <audio controls src={recording.data.url} className="w-full" />
           <p className="text-xs text-ink-faint">
             This link stops working in about {Math.max(1, Math.round(recording.data.expires_in_s / 60))}{" "}

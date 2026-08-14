@@ -94,20 +94,6 @@ UNWIRED_BASELINE: dict[str, str] = {
         "the engine reports no per-call recording consent yet (pilot gate 3); "
         "`consent_ledger` is the ledger of record until it does"
     ),
-    "Campaign.schedule": (
-        "a future start/recurrence for a campaign. The dispatch tick reads "
-        "`calling_hours` and launches on demand — there is no scheduling surface in "
-        "either realm yet (SURFACES §4); closes with scheduled launch"
-    ),
-    "Plan.setup_fee": (
-        "one-time onboarding charge. Invoicing quotes monthly + overage only "
-        "(billing/invoice.py); closes when onboarding is billed through the invoice "
-        "rather than collected out of band"
-    ),
-    "WebhookDelivery.payload_ref": (
-        "object-storage key for the delivered body. Deliveries record status/attempts "
-        "and the body is not retained yet (D-23); closes with delivery-body retention"
-    ),
     "KbRetrievalLog.query": (
         "deliberate and dated — see the class docstring in apps/api/kb/models.py. It "
         "would hold raw caller utterances in a table with no `text_redacted` "
