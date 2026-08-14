@@ -333,6 +333,144 @@ async def test_an_unreachable_store_keeps_serving_the_last_good_snapshot(
     assert get_settings().self_serve_inr_per_min == Decimal("12.00")
 
 
+class _DeadRedis:
+    """A Redis that is down in the only two ways this module can meet one.
+
+    Not a `MagicMock`: what has to be exercised is the EXCEPTION escaping the client, and
+    a mock that returns a sentinel would exercise the happy path with a strange value.
+    """
+
+    async def get(self, _key: str) -> str:
+        raise ConnectionError("redis is gone")
+
+    async def set(self, *_: object, **__: object) -> None:
+        raise ConnectionError("redis is gone")
+
+
+async def test_a_redis_outage_costs_a_postgres_read_and_changes_no_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REDIS IS A COST OPTIMISATION HERE, NEVER THE TRUTH.
+
+    The sentinel lives in Redis so that the common case — nothing changed — costs a
+    sub-millisecond GET instead of a database connection in four processes. That is the
+    whole reason the key exists, and it is also the reason the ordering has to be
+    asserted: if a Redis incident propagated out of `_sentinel`, `refresh` would catch it
+    and mark the snapshot DEGRADED, so a cache outage would present to an operator as
+    "the platform cannot read its configuration" and would freeze every process's config
+    at whatever it last saw. With the fallback, a Redis outage is invisible to config
+    propagation — the answer is identical, it just costs one small SELECT.
+
+    Asserted against the DATABASE's own version rather than against "it did not raise",
+    because a fallback that returned `_UNKNOWN_VERSION` would also not raise — and would
+    make every process rebuild its snapshot on every poll.
+    """
+    await _write_row(DEMO_KEY, '"9.50"')
+    expected = await pc._read_version()
+
+    monkeypatch.setattr(pc, "get_redis", _DeadRedis)
+    assert await pc._sentinel() == expected
+    assert expected > 0, "the store has been written to, so the version cannot be 'nothing'"
+
+    # And the refresh built on top of it is a NORMAL one, not a degraded one: the values
+    # reach `get_settings()` with the cache still down.
+    snap = await pc.refresh(force=True)
+    assert snap.degraded is False
+    assert get_settings().self_serve_inr_per_min == Decimal("9.50")
+
+
+async def test_publishing_the_sentinel_is_best_effort_and_never_reaches_the_writer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A CONFIG WRITE MUST NOT FAIL BECAUSE THE CACHE IS DOWN.
+
+    `publish_version` runs after an operator's write has committed — from
+    `config_service.propagate`, on a background task — and it is a SPEED-UP over the
+    mechanism that actually guarantees delivery (the trigger's bump plus every process's
+    own poll). If this raised, an operator whose change had already landed would see a
+    failure for a value that is in force, and the background task would log an exception
+    for a store that is doing its job.
+
+    Two things are asserted, because "it did not raise" alone would also pass on a
+    function that swallowed the error AND corrupted the shared cache: nothing raises, and
+    the key in the real Redis is untouched by a publish that never happened — so the next
+    reader falls through to Postgres rather than reading a half-written version.
+    """
+    await pc.refresh(force=True)
+    before = await get_redis().get(pc._SENTINEL_KEY)
+
+    monkeypatch.setattr(pc, "get_redis", _DeadRedis)
+    await pc.publish_version(999_999)  # must not raise
+
+    monkeypatch.undo()
+    after = await get_redis().get(pc._SENTINEL_KEY)
+    assert after == before, "a publish that could not happen must not leave a partial value"
+    assert after != "999999"
+
+
+async def test_a_recovered_store_clears_the_stale_flag_without_a_rebuild(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RECOVERY IS AN EVENT THE CONSOLE HAS TO SEE.
+
+    `stale` is what stops a snapshot from an hour ago rendering identically to a live one
+    (§52). It is set the moment a refresh fails — and if nothing ever cleared it, a single
+    transient blip would leave every console for that process reading "possibly stale"
+    until it restarted, which trains an operator to ignore the one field that tells them
+    their change has not propagated.
+
+    The clearing happens on the CHEAP path, and that is the subtle part: after a recovery
+    the version has usually NOT moved, so the refresh returns early without re-reading the
+    table. This asserts both halves — the flag is cleared, and `loaded_at` is unchanged,
+    proving the recovery cost one sentinel read rather than a full rebuild.
+    """
+    await _write_row(DEMO_KEY, '"9.50"')
+    healthy = await pc.refresh(force=True)
+    assert healthy.degraded is False
+
+    async def _explode() -> int:
+        raise RuntimeError("postgres is gone")
+
+    monkeypatch.setattr(pc, "_sentinel", _explode)
+    assert (await pc.refresh(force=True)).degraded is True
+
+    monkeypatch.undo()
+    # NOT `force=True`: this is the ordinary poll that follows a recovery, and the version
+    # has not moved, so it takes the early-return path.
+    recovered = await pc.refresh()
+    assert recovered.degraded is False, "the console would say 'stale' forever after one blip"
+    assert recovered.loaded_at == healthy.loaded_at, "it rebuilt the snapshot to clear a flag"
+    assert recovered.version == healthy.version
+    assert get_settings().self_serve_inr_per_min == Decimal("9.50")
+
+
+async def test_starting_the_refresher_twice_leaves_exactly_one_poller() -> None:
+    """IDEMPOTENT, because the adoption surface invites a second call.
+
+    `start_config_refresher()` is documented as safe to call "from any lifespan, once or
+    ten times" — and a lifespan really can run twice in one process (a test harness
+    entering the context, an ASGI server reloading). Two live pollers would double every
+    process's database reads for ever, and worse: two rebuilds racing means the OLDER of
+    two reads can be installed last, which is a config that goes backwards with no error
+    anywhere.
+
+    Asserted on the task IDENTITY rather than on a count, because that is the fact the
+    guard actually establishes: the second call adopted the running poller instead of
+    replacing it.
+    """
+    await pc.stop_config_refresher()
+    try:
+        pc.start_config_refresher()
+        first = pc._refresher
+        assert first is not None and not first.done()
+
+        pc.start_config_refresher()
+        assert pc._refresher is first, "a second poller is now reading the store in parallel"
+    finally:
+        await pc.stop_config_refresher()
+    assert pc._refresher is None
+
+
 async def test_a_cold_start_with_no_store_serves_env_and_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

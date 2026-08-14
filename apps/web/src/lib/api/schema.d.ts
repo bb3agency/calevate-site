@@ -1268,6 +1268,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/billing/topups/capability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Can this deployment take an online payment, and can it create an order?
+         * @description A RENDERING HINT, never the check (D-75). The intent route asks the same selector and remains the authority; a stale answer here costs a refusal, never a payment.
+         */
+        get: operations["read_topup_capability_v1_billing_topups_capability_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/billing/topups/intent": {
         parameters: {
             query?: never;
@@ -1278,8 +1298,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Start a prepaid top-up — prices it and binds it to this tenant (D-34)
-         * @description Returns what a checkout needs. It does NOT create the provider-side order: that requires API credentials this deployment does not hold, so `provider_order_id` is null and `provider_order_pending` is true.
+         * Start a prepaid top-up — prices it, binds it to this tenant, creates the order (D-98)
+         * @description Creates the provider-side order when this deployment holds the API secret. It does not today — no Razorpay account is provisioned — so `provider_order_id` is null and `provider_order_pending` is true. Idempotent on a server-derived key: the same tenant asking for the same amount twice gets one order.
          */
         post: operations["create_topup_intent_v1_billing_topups_intent_post"];
         delete?: never;
@@ -7578,6 +7598,28 @@ export interface components {
             /** Verified At */
             verified_at: string | null;
         };
+        /**
+         * TopUpCapabilityOut
+         * @description What this deployment can do about money, asked before the click (D-75's shape).
+         *
+         *     Two booleans because they are two facts and a screen needs both:
+         *     `online_payments_available` decides whether the top-up form is offered at all, and
+         *     `provider_orders_available` decides what the screen may promise once it is submitted.
+         *
+         *     Neither carries a default, for the reason on `TopUpIntentOut.provider_order_id`: a
+         *     missing key must not read as `false`, which would render "online payment is switched
+         *     off for your account" out of our own ignorance rather than out of the server's answer.
+         *
+         *     NO reason code is published. `reason` names OUR configuration state and a client
+         *     cannot act on "no_webhook_secret"; telling them which of our secrets is missing is an
+         *     internals leak. It is logged where an operator can reach it (`payments_unavailable`).
+         */
+        TopUpCapabilityOut: {
+            /** Online Payments Available */
+            online_payments_available: boolean;
+            /** Provider Orders Available */
+            provider_orders_available: boolean;
+        };
         /** TopUpIn */
         TopUpIn: {
             /** Amount Inr */
@@ -7610,11 +7652,8 @@ export interface components {
                 [key: string]: string;
             };
             /** Provider Order Id */
-            provider_order_id?: string | null;
-            /**
-             * Provider Order Pending
-             * @default true
-             */
+            provider_order_id: string | null;
+            /** Provider Order Pending */
             provider_order_pending: boolean;
             /** Receipt */
             receipt: string;
@@ -10172,6 +10211,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InvoiceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_topup_capability_v1_billing_topups_capability_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopUpCapabilityOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

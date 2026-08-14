@@ -28,12 +28,18 @@ from collections.abc import AsyncIterator
 
 import pytest
 from apps.api.core import platform_config as pc
-from apps.api.core.envelope import MASKED, build_ring
+from apps.api.core.context import Principal
+from apps.api.core.envelope import MASKED, build_ring, kek_ring
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
-from apps.api.ops.secret_routes import secret_confirmation
+from apps.api.ops.secret_routes import (
+    REWRAP_CONFIRMATION,
+    SecretSetIn,
+    secret_confirmation,
+    set_secret_route,
+)
 from apps.api.ops.secret_service import (
     manageable_secret_keys,
     read_secrets,
@@ -43,9 +49,11 @@ from apps.api.ops.secret_service import (
     set_secret,
 )
 from calevate_shared.config import Settings
+from fastapi import BackgroundTasks
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+from starlette.requests import Request
 from tests.admin_security_test import _make_admin
 
 # A real `Settings` field, a credential by NAME, and absent from this repo's `.env` — so
@@ -665,6 +673,297 @@ def test_the_ledger_allowance_is_scoped_to_one_file() -> None:
         findings = scan_source(Path(elsewhere), statement)
         assert findings, f"{elsewhere} may now mutate platform_secrets — the allowance leaked"
         assert "platform_secrets" in findings[0]
+
+
+# --- the refusals the routes own -------------------------------------------------
+
+
+async def test_a_reason_that_is_only_whitespace_is_refused_and_installs_nothing() -> None:
+    """The rotation record is the ONLY thing this surface leaves behind.
+
+    A credential write stores no value anybody can read back, so `reason` in the audit row
+    is the entire answer to "was this rotation ours?" — the question §10 accepts as the
+    residual risk's only control. `""` and `"ab"` are refused by the length bound before
+    the validator runs; `"   "` satisfies it and says nothing, which is the case the
+    validator exists for and the one that would otherwise be indistinguishable from a real
+    reason in the ledger.
+    """
+    token = await _make_admin()
+    async with _client() as http:
+        for reason in ("", "ab", "   ", " \t\n "):
+            response = await http.put(
+                f"/v1/ops/secrets/{KEY}",
+                headers=_auth(token, secret_confirmation(KEY)),
+                json={"value": SECRET, "reason": reason},
+            )
+            assert response.status_code == 422, reason
+    async with untenanted_session() as session:
+        count = (
+            await session.execute(
+                text("SELECT count(*) FROM platform_secrets WHERE key = :k"), {"k": KEY}
+            )
+        ).scalar_one()
+    assert count == 0, "a credential was installed by a request that gave no reason"
+
+
+async def test_installing_a_credential_with_no_admin_identity_is_refused() -> None:
+    """§10's accepted trade is DETECTION, and detection needs a name.
+
+    A compromised admin session can point this platform at an attacker's vendor account;
+    what makes that an accepted risk rather than an unmonitored one is that every install
+    lands an attributed row in a hash-chained ledger and fires an alert. A write nobody
+    can be attributed to would defeat that control while looking like an ordinary
+    rotation, so it is refused before the value is sealed — with the step-up already
+    satisfied, so what is pinned here is the identity check and not the header in front
+    of it.
+    """
+    principal = Principal(
+        realm="admin", user_id=None, clerk_user_id="user_no_mirror_row", tenant_id=None, role=None
+    )
+    async with untenanted_session() as session:
+        with pytest.raises(ProblemError) as raised:
+            await set_secret_route(
+                SecretSetIn(value=SECRET, reason="a session with no admin row"),
+                session,
+                _request(),
+                BackgroundTasks(),
+                principal,
+                KEY,
+                x_confirm_action=secret_confirmation(KEY),
+            )
+    assert raised.value.code == "secret_actor_unknown"
+    assert raised.value.kind == "auth"
+    async with untenanted_session() as session:
+        count = (
+            await session.execute(
+                text("SELECT count(*) FROM platform_secrets WHERE key = :k"), {"k": KEY}
+            )
+        ).scalar_one()
+    assert count == 0, "an unattributable credential reached the ledger"
+
+
+async def test_a_credential_this_build_has_never_had_is_a_404_by_its_own_name() -> None:
+    """The FIRST of five refusals, and the only one that is a typo.
+
+    `secret_key_unknown` is what an operator meets when they mistype a key name;
+    `secret_key_bootstrap` and `secret_key_is_plain_config` are what they meet when they
+    misunderstand where a real key lives. Collapsing them would send somebody who
+    fat-fingered `sarvem_api_key` off to read §4 about bootstrap keys. It is also the
+    check that keeps the path parameter from reaching `Settings.model_fields[...]` and
+    raising a `KeyError` rendered as a 500.
+    """
+    token = await _make_admin()
+    async with _client() as http:
+        response = await http.put(
+            "/v1/ops/secrets/no_such_credential",
+            headers=_auth(token, secret_confirmation("no_such_credential")),
+            json={"value": SECRET, "reason": "a typo in the key name"},
+        )
+    assert response.status_code == 404, response.text
+    body = response.json()
+    assert body["type"].endswith("/secret_key_unknown")
+    assert "no_such_credential" in body["detail"]
+
+
+# --- the key-management panel (§8 panel 4) ----------------------------------------
+
+
+def _request() -> Request:
+    """A real `Request`: the audit row's `ip` is read off `request.client`."""
+    return Request(
+        {
+            "type": "http",
+            "method": "PUT",
+            "path": "/v1/ops/secrets",
+            "headers": [],
+            "query_string": b"",
+            "client": ("127.0.0.1", 1234),
+        }
+    )
+
+
+async def _newest_audit_id() -> str:
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(text("SELECT id FROM audit_log ORDER BY id DESC LIMIT 1"))
+        ).first()
+    return str(row[0]) if row is not None else str(uuid.UUID(int=0))
+
+
+async def _audit_since(since: str) -> list[str]:
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT action FROM audit_log WHERE id > :since "
+                    "AND action LIKE 'platform.kek%' ORDER BY id"
+                ),
+                {"since": since},
+            )
+        ).all()
+    return [str(r[0]) for r in rows]
+
+
+async def _wrappings() -> dict[str, int]:
+    """Every stored version and the KEK id its row claims, straight from the table."""
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(text("SELECT key, version, kek_version FROM platform_secrets"))
+        ).all()
+    return {f"{r[0]}#{int(r[1])}": int(r[2]) for r in rows}
+
+
+async def test_the_panel_counts_what_is_not_yet_under_the_active_key() -> None:
+    """`pending` IS THE NUMBER THAT DECIDES WHETHER A ROTATION IS FINISHED.
+
+    While it is above zero, `PLATFORM_KEK_RETIRED` must stay in the environment: removing
+    it makes those rows permanently unreadable, which is unrecoverable data loss dressed
+    as tidying up. So the count has to be real, and it is asserted against the TABLE
+    rather than against the route's own arithmetic — a `pending` computed from a filtered
+    query, or from the ring instead of the rows, would still be self-consistent and would
+    still tell an operator it is safe to drop the key that is holding a credential up.
+    """
+    admin = await _admin_id()
+    stranger = build_ring(kek=_kek(b"\x51"), retired=None, app_env="prod")
+    async with untenanted_session() as session:
+        # One row this deployment's KEK did NOT wrap — the mid-rotation state — and one it
+        # did, so both counters have something to count.
+        await _seal_under(session, admin, stranger)
+        await set_secret(session, key=KEY, value=SECRET, actor_id=admin)
+
+    ring = kek_ring()
+    token = await _make_admin()
+    async with _client() as http:
+        response = await http.get("/v1/ops/secrets/kek", headers=_auth(token))
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    wrappings = await _wrappings()
+    assert body["active_kek_id"] == ring.active.kek_id
+    assert body["has_retired_kek"] is bool(ring.retired)
+    assert body["versions"] == len(wrappings)
+    assert body["current"] == sum(1 for k in wrappings.values() if k == ring.active.kek_id)
+    assert body["pending"] == sum(1 for k in wrappings.values() if k != ring.active.kek_id)
+    assert body["pending"] >= 1, (
+        "a version wrapped under another KEK reported as nothing to do — an operator "
+        "reading this would drop PLATFORM_KEK_RETIRED and lose that credential"
+    )
+    assert SECRET not in response.text
+
+
+# --- the rewrap, from the console --------------------------------------------------
+
+
+async def test_a_console_rewrap_moves_every_readable_dek_and_names_the_rest() -> None:
+    """THE ROTATION'S LAST STEP, WITH ITS ONE HONEST FAILURE MODE.
+
+    After a KEK rotation this is what moves the fleet's DEKs onto the new key. Two claims
+    are asserted against the table itself rather than against the response's own counters:
+
+    * every row that COULD be opened now carries the active KEK's fingerprint;
+    * the rows still under another key are EXACTLY the ones reported as `unreadable`.
+
+    The second is the one that matters at 3am. A rewrap that quietly passed over a row it
+    could not open would report a clean run, an operator would then remove
+    `PLATFORM_KEK_RETIRED` on the strength of it, and that credential would be gone for
+    good. Reported, it is a row somebody can still rescue while the outgoing key exists.
+    """
+    admin = await _admin_id()
+    stranger = build_ring(kek=_kek(b"\x52"), retired=None, app_env="prod")
+    async with untenanted_session() as session:
+        await _seal_under(session, admin, stranger)  # version 1: no configured key opens it
+        await set_secret(session, key=KEY, value=SECRET, actor_id=admin)  # version 2
+
+    ring = kek_ring()
+    since = await _newest_audit_id()
+    token = await _make_admin()
+    async with _client() as http:
+        response = await http.post(
+            "/v1/ops/secrets/kek/rewrap", headers=_auth(token, REWRAP_CONFIRMATION), json={}
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    wrappings = await _wrappings()
+    assert body["active_kek_id"] == ring.active.kek_id
+    assert body["examined"] == len(wrappings), "a row was filtered out of the run (D-96)"
+    assert f"{KEY}#1" in body["unreadable"], "a row no key opens was counted away silently"
+    left_behind = sorted(k for k, kek in wrappings.items() if kek != ring.active.kek_id)
+    assert left_behind == sorted(body["unreadable"]), (
+        "the rows still under another KEK are not the ones the operator was told about"
+    )
+    assert body["rewrapped"] == len(wrappings) - len(body["unreadable"])
+    assert SECRET not in response.text
+
+    # The value still opens afterwards — a rewrap that broke what it moved would satisfy
+    # every count above.
+    async with untenanted_session() as session:
+        assert (await resolve_secrets(session)).values[KEY] == SECRET
+
+    assert await _audit_since(since) == ["platform.kek_rewrapped"]
+
+
+async def test_an_unconfirmed_rewrap_touches_no_row() -> None:
+    """The most invasive write on this router — it UPDATEs every row of an append-only
+    ledger — so the confirmation is not decoration. Asserted on the wrappings rather than
+    on the status code alone: a refusal that happened after the run would be a 403 over a
+    completed rotation."""
+    admin = await _admin_id()
+    async with untenanted_session() as session:
+        await _seal_under(
+            session, admin, build_ring(kek=_kek(b"\x53"), retired=None, app_env="prod")
+        )
+    before = await _wrappings()
+
+    token = await _make_admin()
+    async with _client() as http:
+        response = await http.post("/v1/ops/secrets/kek/rewrap", headers=_auth(token), json={})
+    assert response.status_code == 403
+    assert response.json()["type"].endswith("/step_up_required")
+    assert await _wrappings() == before
+
+
+async def test_an_undecryptable_row_alerts_the_operator_by_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE SYMPTOM POINTS AT THE WRONG SYSTEM UNLESS THIS FIRES.
+
+    A credential row no configured KEK opens presents downstream as "the vendor is
+    rejecting our key" — an operator will go and rotate a working credential at the vendor
+    before they ever suspect their own `PLATFORM_KEK`. So the refresh that finds one must
+    say so, with the KEY NAMED, and it must go on serving everything else: one bad row
+    turning into a fleet-wide config freeze is the failure direction §6 forbids.
+
+    The alert is asserted, not the log line, because an alert reaches a person and a log
+    line at 3am does not (that is the whole argument of `core/alerting`).
+    """
+    fired: list[tuple[str, str, dict[str, object]]] = []
+    monkeypatch.setattr(pc, "alert", lambda stage, code, **kw: fired.append((stage, code, kw)))
+
+    admin = await _admin_id()
+    async with untenanted_session() as session:
+        await set_secret(session, key=KEY, value=SECRET, actor_id=admin)
+        await session.execute(
+            text(
+                "INSERT INTO platform_secrets (key, version, ciphertext, nonce, dek_wrapped, "
+                "dek_nonce, kek_version, last_four, created_by) VALUES "
+                "('razorpay_webhook_secret', 1, '\\x00'::bytea, '\\x00'::bytea, '\\x00'::bytea, "
+                "'\\x00'::bytea, 1, 'zzzz', :by)"
+            ),
+            {"by": admin},
+        )
+
+    snap = await pc.refresh(force=True)
+
+    unreadable = [f for f in fired if f[1] == "platform_secret_unreadable"]
+    assert unreadable, "a credential nobody can decrypt passed without a word to anyone"
+    stage, _, kwargs = unreadable[0]
+    assert stage == "CORE_LOGIC"
+    assert kwargs["keys"] == "razorpay_webhook_secret", "the alert must NAME the row"
+    assert "PLATFORM_KEK" in str(kwargs.get("detail")), "and point at the right system"
+    # Serving, not degraded: the good credential landed on the same pass.
+    assert snap.degraded is False
+    assert get_settings().meta_page_access_tokens == SECRET
 
 
 def test_the_aad_namespaces_platform_secrets_away_from_tenant_secrets() -> None:

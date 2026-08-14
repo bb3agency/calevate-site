@@ -25,12 +25,25 @@ from decimal import Decimal
 
 import pytest
 from apps.api.core import platform_config as pc
+from apps.api.core.context import Principal
+from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
-from apps.api.ops.config_routes import config_confirmation, revert_confirmation
+from apps.api.ops.config_routes import (
+    ConfigSetIn,
+    _field,
+    _projected_field,
+    config_confirmation,
+    revert_config,
+    revert_confirmation,
+    set_config,
+)
+from apps.api.ops.config_service import WriteResult
+from fastapi import BackgroundTasks
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from starlette.requests import Request
 from tests.admin_security_test import _make_admin
 
 KEY = "self_serve_inr_per_min"
@@ -254,9 +267,18 @@ async def test_a_set_confirmation_does_not_authorise_a_revert() -> None:
 
 
 async def test_a_reason_is_required_and_may_not_be_whitespace() -> None:
+    """Two refusals with one message, and the second one is the one that was missing.
+
+    `""`, `"  "` and `"ab"` are all shorter than three characters, so they never reach the
+    validator at all — `Field(min_length=3)` refuses them first. `"   "` and `"  a  "` are
+    the cases the validator EXISTS for: they satisfy the length bound and carry nothing.
+    Without them a `reason` of three spaces would be stored as the note an operator reads
+    six months later when they find this value in force, which is the same as no reason
+    and looks like one.
+    """
     token = await _make_admin()
     async with _client() as http:
-        for reason in ("", "  ", "ab"):
+        for reason in ("", "  ", "ab", "   ", "  a  ", "\t\n \t"):
             response = await http.put(
                 PATH,
                 headers=_auth(token, config_confirmation(KEY)),
@@ -426,6 +448,135 @@ async def test_a_write_moves_the_sentinel_so_peers_converge() -> None:
     after = await _read_version()
     assert after > before
     assert response.json()["config_version"] == after
+
+
+# --- attribution, and the two internal refusals -----------------------------------
+
+
+def _request() -> Request:
+    """A real `Request` rather than a stub: `write_audit` reads `request.client`, and a
+    stub that happened to have the attribute would stop matching the day it reads
+    another."""
+    return Request(
+        {
+            "type": "http",
+            "method": "PUT",
+            "path": PATH,
+            "headers": [],
+            "query_string": b"",
+            "client": ("127.0.0.1", 1234),
+        }
+    )
+
+
+def _anonymous_operator() -> Principal:
+    """An admin-realm principal carrying no `admin_users` row.
+
+    Reached through the ROUTE FUNCTION rather than through HTTP, deliberately: the auth
+    dependency will not mint one of these today, which is exactly why the handler's guard
+    is untested by every request-level test in this file. The state is not hypothetical —
+    a Clerk user whose mirror row has not landed yet resolves to precisely this — and the
+    guard is what turns it into a sentence instead of a NOT NULL violation rendered as a
+    500 by the global handler.
+    """
+    return Principal(
+        realm="admin", user_id=None, clerk_user_id="user_no_mirror_row", tenant_id=None, role=None
+    )
+
+
+async def test_a_set_by_a_session_with_no_admin_identity_is_refused_and_stores_nothing() -> None:
+    """§9's row names an ACTOR, and `platform_settings.updated_by` is NOT NULL.
+
+    "Who changed the price on the day the margin moved" is the question this table exists
+    to answer, so a write nobody can be attributed to must not land at all. Asserted with
+    the step-up already satisfied, so what is being pinned is the identity check itself
+    rather than the confirmation in front of it.
+    """
+    async with untenanted_session() as session:
+        with pytest.raises(ProblemError) as raised:
+            await set_config(
+                ConfigSetIn(value="9.00", reason="a session with no admin row"),
+                session,
+                _request(),
+                BackgroundTasks(),
+                _anonymous_operator(),
+                KEY,
+                x_confirm_action=config_confirmation(KEY),
+            )
+    assert raised.value.code == "config_actor_unknown"
+    assert raised.value.kind == "auth"
+    assert await _row() is None, "an unattributable value reached the store"
+
+
+async def test_a_revert_by_a_session_with_no_admin_identity_is_refused_too() -> None:
+    """The same guard on the DELETE, asserted separately because it is a separate `if`.
+
+    A revert puts a value nobody has looked at in months back into force; it is not the
+    small sibling of setting, and an unattributable one is worse — there is no `note`
+    column left afterwards, so the audit row is the only record that it happened.
+    """
+    token = await _make_admin()
+    async with _client() as http:
+        await http.put(
+            PATH,
+            headers=_auth(token, config_confirmation(KEY)),
+            json={"value": "7.25", "reason": "a row for the revert to find"},
+        )
+
+    async with untenanted_session() as session:
+        with pytest.raises(ProblemError) as raised:
+            await revert_config(
+                session,
+                _request(),
+                BackgroundTasks(),
+                _anonymous_operator(),
+                KEY,
+                x_confirm_action=revert_confirmation(KEY),
+            )
+    assert raised.value.code == "config_actor_unknown"
+    assert await _row() is not None, "the row was removed by a caller with no identity"
+
+
+async def test_reading_one_key_back_never_invents_a_row_for_an_unmanaged_key() -> None:
+    """A CONFIG SURFACE THAT FABRICATES A FIELD IS WORSE THAN ONE THAT 500s.
+
+    `_field` assembles a single key's view from the same function the list uses, so the
+    two can never disagree about a `source` or an `editable`. That means the key has to be
+    IN the list — and if it is not (a field renamed between the write and the read back,
+    a managed set computed differently in two places) the honest answer is a named
+    internal error an operator can report, never a placeholder the console would render
+    as a real setting with a real value.
+
+    Both directions: a managed key comes back with its own facts, and an unmanaged one
+    refuses by name.
+    """
+    async with untenanted_session() as session:
+        field = await _field(session, KEY)
+        assert field.key == KEY
+        assert field.env_var == "SELF_SERVE_INR_PER_MIN"
+        assert field.kind == "decimal", "money must not render as a number the browser rounds"
+        assert field.editable is True
+
+        with pytest.raises(ProblemError) as raised:
+            await _field(session, "no_such_setting")
+    assert raised.value.code == "config_key_vanished"
+    assert raised.value.kind == "internal"
+    assert "no_such_setting" in (raised.value.detail or "")
+
+
+def test_the_projected_response_refuses_to_describe_a_key_it_cannot_find() -> None:
+    """The same refusal on the WRITE path, where the stakes are higher.
+
+    This response is rendered from a projection — this process's settings with the write
+    applied — because the caller's transaction has not committed yet. A projection that
+    could not find its own key and returned the FIRST field instead would report another
+    setting's value back to the operator who just changed this one, and they would believe
+    it. So the miss is a named error rather than anything that looks like an answer.
+    """
+    with pytest.raises(ProblemError) as raised:
+        _projected_field(WriteResult(key="no_such_setting", old='"9.00"', new=None, version=7))
+    assert raised.value.code == "config_key_vanished"
+    assert raised.value.kind == "internal"
 
 
 async def _read_version() -> int:

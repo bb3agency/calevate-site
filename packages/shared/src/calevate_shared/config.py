@@ -460,6 +460,15 @@ class Settings(BaseSettings):
     # receiver FAILS CLOSED — an unverifiable payment feed credits wallets on
     # anyone's say-so, which is worse than no feed at all.
     razorpay_webhook_secret: str | None = None
+    # The PRIVATE half of the key pair, used server-to-server to create orders
+    # (`apps/api/billing/payments.py::RazorpayOrders`). Unset = `creates_orders` is False
+    # with reason `no_api_secret` and no order is ever created — which is the state of
+    # every deployment today. Kept apart from `razorpay_key_id` deliberately: the id goes
+    # to a browser and this never does. It needs no `.env.example` line — that file is
+    # the 8-key bootstrap set now (D-95), and because the NAME contains `secret`,
+    # `platform_config.is_secret_key` classifies it automatically into the encrypted
+    # `platform_secrets` path with no allowlist to edit.
+    razorpay_key_secret: str | None = None
 
     # WHO CALEVATE IS ON AN INVOICE (SLICE AL). Rule 46 of the CGST Rules makes the
     # supplier's legal name, registered address and GSTIN mandatory particulars of a tax

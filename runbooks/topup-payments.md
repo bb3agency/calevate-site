@@ -7,32 +7,69 @@ or `razorpay_unknown_tenant` fire; or someone asks "can client #1 pay by card to
 Read this section before anything else, because it changes what you are allowed to
 promise.
 
-**Server-side order creation is not implemented.** `PROVIDER_CREATES_ORDERS` is `False`
-(`apps/api/billing/payments.py`) — a greppable constant, not a note in a doc, because
-"we have credentials" and "we have an order-creation adapter" are different facts.
-`POST /v1/billing/topups/intent` returns `provider_order_id: null` and
-`provider_order_pending: true` and always will until someone writes the adapter.
-Flipping the constant is not a config change.
+**The order-creation adapter now exists; the credential does not** (D-98).
+`PROVIDER_CREATES_ORDERS` is `True` in `apps/api/billing/payments.py` — a greppable
+constant, and it moved because somebody wrote `RazorpayOrders.create_order`, a real
+`POST /v1/orders`. That is a claim about CODE. **The claim about THIS DEPLOYMENT is
+`payment_capability().creates_orders`, and it is `False` everywhere**, reason
+`no_api_secret`: no Razorpay account has been provisioned and `RAZORPAY_KEY_SECRET` is
+unset. So `POST /v1/billing/topups/intent` still returns `provider_order_id: null` and
+`provider_order_pending: true` on every deployment today.
 
-**The vendor half of the integration is UNVERIFIED.** There are no Razorpay credentials
-in this repository and no call has ever been made against their API. Two things are our
-best reading of their contract and are marked UNVERIFIED in the code:
+Do not conflate the two. "We have an adapter" and "this box can take a payment" are
+different sentences, and §1's table now has a row for each.
 
-- `verify_signature` — HMAC-SHA256 of the raw request body, hex, compared against the
-  `X-Razorpay-Signature` header with the dashboard webhook secret as the key;
-- `extract_captured_payment` — `event`, and
+**The vendor half of the integration is PART VERIFIED, PART NOT**, and the difference is
+marked at the line in the code on a three-rung ladder (READ AT SOURCE / REPORTED, NOT
+READ / UNVERIFIED — the same ladder `apps/api/engine/cartesia.py` uses).
+
+`razorpay.com` is refused by this environment's egress proxy, so **nobody here has read
+their documentation pages.** What was read is `github.com/razorpay/razorpay-python`,
+Razorpay's own published client, on `master`, 2026-08-14. From it, READ AT SOURCE:
+
+- the host and the version path — `BASE_URL = 'https://api.razorpay.com'`, `V1 = '/v1'`
+  (and `V2` exists, which is why we pin), `ORDER_URL = "/orders"`;
+- HTTP Basic auth with `(key_id, key_secret)`, `Content-Type: application/json`;
+- the create body keys `amount` / `currency` / `receipt` / `notes`;
+- **the webhook signing scheme** — `verify_signature` is HMAC-SHA256 of the raw body,
+  hex-encoded, compared with `hmac.compare_digest`. This used to be marked UNVERIFIED.
+  It is now their own code, and ours matches it.
+
+Still NOT verified, and each fails loudly rather than quietly:
+
+- the **header name** `X-Razorpay-Signature` — their SDK is handed the signature and
+  never names where it came from. Wrong header ⇒ every event refused;
+- `extract_captured_payment`'s payload paths — `event`, and
   `payload.payment.entity.{id, amount, currency, notes}` with `amount` an integer count
-  of paise.
+  of paise. Webhook payloads are not in their Python SDK;
+- the **order RESPONSE** shape — that the order id comes back as `id`. Wrong ⇒
+  `payment_order_unreadable`, never a fabricated id;
+- whether an account rejects a duplicate `receipt`. It is a dashboard setting we do not
+  rely on: our idempotency is ours (§2a).
 
-Razorpay's public documentation describes both the same way ([Validate and Test
-Webhooks](https://razorpay.com/docs/webhooks/validate-test/), [Payment
-Payloads](https://razorpay.com/docs/webhooks/payloads/payments/)), which is
-corroboration, not verification: nothing here has ever been exercised against a live
-account. **So the first real payment is a test, not a routine.** Plan it as an
-attended event with someone watching the logs, on staging first if a staging Razorpay
-account can be had. If the scheme is wrong the failure is fail-closed — every event is
-refused and nothing is credited — which is the safe direction to be wrong in, and it is
-also the direction that looks like "the client paid and nothing happened".
+**So the first real payment is still a test, not a routine.** Nothing here has ever been
+exercised against a live account, in either direction. Plan it as an attended event, on
+a Razorpay TEST account first. What to watch, in order:
+
+1. **The order call.** `topup_order_created` in the API log carries the `order_id`. If
+   instead you see `razorpay_order_rejected` with a status, the request shape or the
+   credentials are wrong — the status is in the log line and the vendor's message
+   deliberately is not. `razorpay_order_amount_mismatch` means they priced it differently
+   from us and we stopped; treat that as a paise bug in our conversion until proven
+   otherwise and do not retry it.
+2. **The amount, in paise, against the dashboard.** ₹2,500.10 must appear as `250010`.
+   This is the number to check by eye on the first payment and never again.
+3. **The signature.** A first live `razorpay_webhook_bad_signature` is more likely to be
+   the header name than an attack (§4).
+4. **`notes.calevate_tenant_id` on the payment in their dashboard.** We now put it into
+   the order server-side, so if it is absent the order call is not doing what this
+   runbook says it does — and every payment would land on `payment_tenant_unresolved`.
+5. **One ledger row, and one only** (§5). Then click "add credit" twice quickly and
+   confirm the dashboard shows ONE order (§2a).
+
+If the scheme is wrong the failure is fail-closed — every event is refused and nothing is
+credited — which is the safe direction to be wrong in, and it is also the direction that
+looks like "the client paid and nothing happened".
 
 ---
 
@@ -43,7 +80,7 @@ One selector answers it, and every payment surface asks that one selector —
 screen cannot offer what the route will refuse.
 
 ```
-PaymentCapability(available, provider, reason, creates_orders)
+PaymentCapability(available, provider, reason, creates_orders, orders_reason)
 ```
 
 `reason` is non-None exactly when `available` is False, and it is an authored code
@@ -61,7 +98,30 @@ remediation "Contact us to pay by bank transfer instead."
 | `no_webhook_secret` | Key id set, `RAZORPAY_WEBHOOK_SECRET` unset | **The worst of the three states**: this deployment could take money and could never credit it. It is refused at the intent AND at the receiver, which is the point of one selector |
 
 `creates_orders` rides on the same object rather than being a separate lookup, so no
-caller can conclude "payments work" and then assume "so an order exists". It is False.
+caller can conclude "payments work" and then assume "so an order exists". It has its own
+reason, and there is exactly one:
+
+| `orders_reason` | Meaning | What to do |
+|---|---|---|
+| `no_api_secret` | `RAZORPAY_KEY_SECRET` unset. **This is the state of every deployment today** | Nothing is broken. The intent still prices the top-up and mints a reference; route the client to the manual path (§3) |
+
+**`no_api_secret` must never pull `available` down, and it does not.** A deployment
+holding the webhook secret but not the API secret is perfectly coherent — it credits
+payments taken somewhere else — so the receiver still works. Two questions, two answers,
+one object.
+
+### The client screen asks this too
+
+`GET /v1/billing/topups/capability` (client realm, `billing:read`) publishes exactly two
+booleans, `online_payments_available` and `provider_orders_available`. **No reason code is
+published** — a client cannot act on `no_webhook_secret` and naming our missing secret is
+an internals leak. The reasons are logged (`payments_unavailable`,
+`topup_capability_unavailable`, `topup_orders_unavailable`) where you can reach them.
+
+It is a RENDERING HINT and never the check: the intent route asks the same selector
+server-side and remains the authority, so a stale `true` costs a refusal after the click
+and can never cost a payment. It exists because without it the top-up form was offered on
+every deployment and refused on every deployment.
 
 ## 2. The intent route, and its own refusals
 
@@ -77,21 +137,55 @@ The tenant comes from the verified session, never from the body.
 | `topup_amount_out_of_range` | Outside ₹100 – ₹100,000 (`MIN_TOPUP_INR` / `MAX_TOPUP_INR`) |
 | `payments_not_configured` | §1. Writes NOTHING — no receipt is minted, no row is touched |
 | `topup_not_available` | The tenant's `plan_tier` is not `self_serve` or `trial`. A managed client is invoiced against their retainer; letting them top up would be charging twice |
+| `topup_amount_unrepresentable` | The amount is finer than a paisa, non-positive, or arrived as a float. **Refused, never rounded** — `inr_to_paise` |
+| `payment_provider_unreachable` | Razorpay did not answer within 8s. Nothing was created; the client is told to retry or transfer |
+| `payment_provider_rejected` | Razorpay refused the order. The HTTP status is in `razorpay_order_rejected`; their message is deliberately not forwarded |
+| `payment_order_unreadable` | 200 with no readable order `id`. **On a first live payment this is the response-shape guess being wrong**, and refusing beats fabricating an id a checkout would reject |
+| `payment_order_amount_mismatch` | They echoed a different `amount` from the paise we sent. A money fact — stop and reconcile before retrying |
+| `idempotent_request_in_flight` | A concurrent identical request is still creating the order. 409 with `Retry-After: 3` (§2a) |
 
 A successful response is not a payment. It is a priced, tenant-bound receipt plus
 `notes: {"calevate_tenant_id": "<uuid>"}` — and those notes are not decoration. The
-webhook resolves the tenant from exactly that key and from nothing else.
+webhook resolves the tenant from exactly that key and from nothing else. **Since D-98 the
+notes go INTO the order server-side**, not merely into the response, so a checkout that
+forgets to attach them can no longer strand a payment on `payment_tenant_unresolved`.
 
 Money crosses the wire as a string (`"2500.00"`), never as a JSON float. A float is
-refused at the boundary, not rounded (hard rule 7).
+refused at the boundary, not rounded (hard rule 7). It reaches Razorpay as an **integer
+count of paise** — ₹2,500.10 is `250010` — through `payments.inr_to_paise`, which is the
+only conversion in that direction and refuses anything finer than a paisa rather than
+rounding it.
+
+### 2a. Clicking twice
+
+**One order per (tenant, amount) per fifteen minutes.** The key is derived server-side by
+`payments.topup_receipt` — content-addressed over the tenant, the quantized amount and a
+time bucket — and claimed through `reliability.claim_idempotency`. It is also the
+`receipt` we send Razorpay and the reference the client quotes on a bank transfer: one
+string, because they are one fact.
+
+Two consequences an operator will meet:
+
+- **A client who genuinely wants to pay the same amount twice inside fifteen minutes gets
+  the first order back.** That is the stated cost of the window. Tell them to pay the one
+  they have, or ask for the combined amount. It is not a bug and there is nothing to
+  clear.
+- **A crashed attempt is retaken by the client's own next click**, because a failure marks
+  the claim `failed` rather than leaving it `processing`. If a click is answered
+  `idempotent_request_in_flight`, an identical request really is running; retry in a few
+  seconds. Past `CLAIM_LEASE` (10 min) it is retaken automatically.
+
+We do NOT rely on Razorpay's own receipt-uniqueness setting for any of this. It is a
+dashboard toggle, which is not an idempotency guarantee.
 
 ## 3. What to tell a client who wants to top up TODAY
 
 The honest answer, in this order:
 
 1. Online payment is not available on this deployment (§1 will tell you which reason).
-   Even with credentials in place, we cannot create the provider-side order, so there is
-   no checkout to send them to.
+   Even where it is, there is **no checkout in this build** — the adapter creates the
+   provider's order, and nothing opens a payment window. The client screen says so and
+   hands over the order id as a reference rather than implying a payment is in progress.
 2. The path that works is a bank transfer — NEFT or UPI — recorded by us against their
    wallet from the UTR the bank printed. Record it on the **admin credits screen**,
    `/admin/tenants/<tenantId>/credits` (D-82); it calls the same route that has always
@@ -130,9 +224,17 @@ The honest answer, in this order:
 3. Give them a realistic turnaround, because the recording is a human action, not a
    callback.
 
-Do not promise a card payment "once we switch it on". Switching it on means writing an
-order-creation adapter and verifying the signing scheme against a live account — two
-pieces of work, neither of them configuration.
+Do not promise a card payment "once we switch it on". Switching it on now means: a
+provisioned Razorpay account with `RAZORPAY_KEY_SECRET` in the secrets manager, a
+checkout on the client screen (deliberately not built — see below), and the first live
+payment run as an attended test. The adapter is written; the account, the checkout and
+the verification are not.
+
+**The checkout is a decision, not an omission.** Razorpay's `checkout.js` is a third
+unverified vendor surface and a supply-chain decision (hard rule 9), and it would not be
+the source of truth in any case: the wallet is credited by the signed webhook, never by
+the browser's callback. When it is built, the gate to insist on is that the browser's
+success callback changes NOTHING on the ledger.
 
 ## 4. The receiver, when a payment HAS been taken
 
@@ -265,7 +367,12 @@ LIMIT 20;
 - **Never credit a payment "manually to unblock the client" while a signature failure is
   unexplained.** The signature is the only thing standing between our wallets and
   anyone's say-so.
-- **Never flip `PROVIDER_CREATES_ORDERS` to make a frontend happy.**
-  `tests/payments_provider_seam_test.py` fails the moment it moves without an adapter
-  behind it, and that test is the point of the constant.
+- **Never flip `PROVIDER_CREATES_ORDERS` to make a frontend happy**, in either direction.
+  `tests/payments_provider_seam_test.py` fails the moment it claims an adapter this
+  module does not contain, and that tripwire is the point of the constant. The knob for
+  "this deployment cannot create orders" is the absence of `RAZORPAY_KEY_SECRET`, not the
+  constant.
+- **Never set `RAZORPAY_KEY_SECRET` to "see if it works".** It is the private half of the
+  key pair and setting it makes the intent route place real calls to Razorpay on a live
+  account. Use a Razorpay TEST account, or leave it unset.
 - **Never paste a webhook body, a signature header or the webhook secret** into a ticket.

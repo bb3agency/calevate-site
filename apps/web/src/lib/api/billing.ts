@@ -1,29 +1,49 @@
 "use client";
 
 /**
- * Prepaid wallet top-ups (D-34).
+ * Prepaid wallet top-ups (D-34, D-98).
  *
- * One hook, and a deliberate absence: there is no `useCompleteTopUp`, because the
- * server cannot yet create the provider-side order. `POST /v1/billing/topups/intent`
- * prices the top-up, binds it to the tenant and hands back a receipt, and returns
- * `provider_order_id: null` with `provider_order_pending: true` — creating the
- * Razorpay order is a server-to-server call with credentials this deployment does not
- * hold (`billing/payment_routes.py`).
+ * Two hooks, and a deliberate absence.
  *
- * So the intent is real (the amount is validated, the receipt is minted, the notes
- * carry the tenant the webhook will credit) and the payment is not. Every consumer of
- * this module has to say so; see the Usage screen, which renders the reference as
- * something to quote on a bank transfer rather than as a checkout that got stuck.
+ * `useTopUpCapability` asks the server what it can do BEFORE the form is offered. That
+ * is D-75's shape (`sheets_delivery_available`): the capability is a RENDERING HINT and
+ * never the check — `POST /v1/billing/topups/intent` asks the same selector server-side
+ * and remains the authority, so a stale hint costs a refusal and never a payment. It
+ * exists because without it the top-up form was offered on every deployment and refused
+ * on every deployment: `PAYMENT_PROVIDER` is unset by default, so `payments_not_configured`
+ * was the only answer this control could ever get. Offering a control that cannot work is
+ * §52's defect one step earlier than §52 usually catches it.
+ *
+ * `useTopUpIntent` prices the top-up, binds it to the tenant and — on a deployment
+ * holding the Razorpay API secret — returns the provider's `order_id`. **No deployment
+ * holds it**: no Razorpay account has been provisioned, so `provider_order_id` is null
+ * and `provider_order_pending` is true, exactly as before, now for a named reason
+ * (`no_api_secret`) rather than for a missing feature.
+ *
+ * THE ABSENCE: there is still no `useCompleteTopUp` and no checkout widget. Razorpay's
+ * `checkout.js` is a THIRD unverified vendor surface and a supply-chain decision (hard
+ * rule 9), and it would not be the source of truth in any case — the wallet is credited
+ * by the signed webhook, never by the browser's callback. So an order id is rendered as
+ * a reference to quote, and the screen says plainly that there is no checkout here.
  */
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
 
+/**
+ * `provider_order_id` and `provider_order_pending` are REQUIRED on the wire, and that is
+ * load-bearing rather than tidy. Their Pydantic models carry no default precisely so the
+ * generated types are required: with a default they would generate `field?: T`, and
+ * `provider_order_id === null` (there is no order) would become indistinguishable from
+ * `undefined` (the server did not say) — rendering our own ignorance as one of the
+ * server's answers. That is the trap this repository has hit four times.
+ */
 export type TopUpIntent = Schemas["TopUpIntentOut"];
+export type TopUpCapability = Schemas["TopUpCapabilityOut"];
 
 /**
  * The bounds the server enforces (`MIN_TOPUP_INR` / `MAX_TOPUP_INR`), mirrored here
@@ -58,5 +78,23 @@ export function useTopUpIntent(session: Session) {
         method: "POST",
         body: { amount_inr: amountInr },
       }),
+  });
+}
+
+/**
+ * What this deployment can do about money, asked before the click.
+ *
+ * `retry: false` deliberately. This decides whether a CONTROL is offered, so a failure
+ * must land on the screen as a refusal quickly rather than be masked by three silent
+ * retries during which the panel shows a skeleton that is really an error. The answer
+ * changes only when someone edits the environment, so it is cached for the session
+ * rather than re-fetched per mount.
+ */
+export function useTopUpCapability(session: Session) {
+  return useQuery({
+    queryKey: ["billing", "topup-capability"],
+    queryFn: () => apiRequest<TopUpCapability>(session, "/v1/billing/topups/capability"),
+    retry: false,
+    staleTime: Infinity,
   });
 }

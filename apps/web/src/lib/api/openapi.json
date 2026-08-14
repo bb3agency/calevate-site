@@ -10892,6 +10892,26 @@
         "title": "TmRegistrationOut",
         "type": "object"
       },
+      "TopUpCapabilityOut": {
+        "additionalProperties": false,
+        "description": "What this deployment can do about money, asked before the click (D-75's shape).\n\nTwo booleans because they are two facts and a screen needs both:\n`online_payments_available` decides whether the top-up form is offered at all, and\n`provider_orders_available` decides what the screen may promise once it is submitted.\n\nNeither carries a default, for the reason on `TopUpIntentOut.provider_order_id`: a\nmissing key must not read as `false`, which would render \"online payment is switched\noff for your account\" out of our own ignorance rather than out of the server's answer.\n\nNO reason code is published. `reason` names OUR configuration state and a client\ncannot act on \"no_webhook_secret\"; telling them which of our secrets is missing is an\ninternals leak. It is logged where an operator can reach it (`payments_unavailable`).",
+        "properties": {
+          "online_payments_available": {
+            "title": "Online Payments Available",
+            "type": "boolean"
+          },
+          "provider_orders_available": {
+            "title": "Provider Orders Available",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "online_payments_available",
+          "provider_orders_available"
+        ],
+        "title": "TopUpCapabilityOut",
+        "type": "object"
+      },
       "TopUpIn": {
         "additionalProperties": false,
         "properties": {
@@ -10995,7 +11015,6 @@
             "title": "Provider Order Id"
           },
           "provider_order_pending": {
-            "default": true,
             "title": "Provider Order Pending",
             "type": "boolean"
           },
@@ -11016,7 +11035,9 @@
           "amount_paise",
           "currency",
           "notes",
-          "key_id"
+          "key_id",
+          "provider_order_id",
+          "provider_order_pending"
         ],
         "title": "TopUpIntentOut",
         "type": "object"
@@ -15107,9 +15128,38 @@
         "x-calevate-permission": "billing:read"
       }
     },
+    "/v1/billing/topups/capability": {
+      "get": {
+        "description": "A RENDERING HINT, never the check (D-75). The intent route asks the same selector and remains the authority; a stale answer here costs a refusal, never a payment.",
+        "operationId": "read_topup_capability_v1_billing_topups_capability_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopUpCapabilityOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Can this deployment take an online payment, and can it create an order?",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "billing:read"
+      }
+    },
     "/v1/billing/topups/intent": {
       "post": {
-        "description": "Returns what a checkout needs. It does NOT create the provider-side order: that requires API credentials this deployment does not hold, so `provider_order_id` is null and `provider_order_pending` is true.",
+        "description": "Creates the provider-side order when this deployment holds the API secret. It does not today \u2014 no Razorpay account is provisioned \u2014 so `provider_order_id` is null and `provider_order_pending` is true. Idempotent on a server-derived key: the same tenant asking for the same amount twice gets one order.",
         "operationId": "create_topup_intent_v1_billing_topups_intent_post",
         "requestBody": {
           "content": {
@@ -15139,7 +15189,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Start a prepaid top-up \u2014 prices it and binds it to this tenant (D-34)",
+        "summary": "Start a prepaid top-up \u2014 prices it, binds it to this tenant, creates the order (D-98)",
         "tags": [
           "billing"
         ],

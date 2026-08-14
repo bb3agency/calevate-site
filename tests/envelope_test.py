@@ -27,6 +27,7 @@ from apps.api.core.envelope import (
     KEK_BYTES,
     MASKED,
     Envelope,
+    Kek,
     KekRing,
     build_ring,
     last_four,
@@ -132,6 +133,27 @@ def test_a_long_kek_is_refused_too_because_this_is_a_length_not_a_floor() -> Non
         build_ring(kek=base64.b64encode(b"\x03" * 40).decode(), retired=None, app_env="prod")
     assert raised.value.code == "platform_kek_unusable"
     assert "40 bytes" in (raised.value.remediation or "")
+
+
+def test_a_key_of_any_other_length_cannot_be_constructed_at_all() -> None:
+    """The invariant `Kek.__post_init__` exists to make, asserted at the type rather than
+    at one caller.
+
+    `build_ring` checks length on the way in, but it is not the only door: `rewrap`,
+    `unseal` and every future rotation job take a `KekRing` somebody else assembled, and
+    they all pass `Kek.material` straight into `AESGCM(...)`. AES accepts three key sizes
+    and nothing else, so a 31-byte value is not a weaker key — it is a `ValueError` raised
+    from inside the cipher, at unwrap time, on a row that was wrapped fine. Refusing at
+    CONSTRUCTION is what lets everything downstream assume 32 bytes without re-asking, and
+    what turns "your credentials will not open" into "this key is the wrong length".
+
+    Both directions are asserted: the wrong lengths refuse, and exactly 32 constructs —
+    a check written as `!= 32` and one written as `< 32` differ only on the long key.
+    """
+    for material in (b"", b"\x05" * 16, b"\x05" * 31, b"\x05" * 33, b"\x05" * 64):
+        with pytest.raises(ValueError, match=str(KEK_BYTES)):
+            Kek(kek_id=1, material=material)
+    assert len(Kek(kek_id=1, material=b"\x05" * KEK_BYTES).material) == KEK_BYTES
 
 
 def test_a_kek_that_is_not_base64_is_refused_as_an_encoding_problem() -> None:
