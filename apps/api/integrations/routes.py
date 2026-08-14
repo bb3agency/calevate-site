@@ -18,7 +18,6 @@ route refuses rather than offering it where Google Sheets delivery does not exis
 
 from __future__ import annotations
 
-import hashlib
 import json
 import secrets
 from datetime import datetime
@@ -131,12 +130,6 @@ class DeliveryOut(Strict):
     last_at: datetime
 
 
-def _fingerprint(secret: str) -> str:
-    """First 8 hex of the digest — enough to tell two secrets apart in a support call,
-    useless for forging one."""
-    return hashlib.sha256(secret.encode()).hexdigest()[:8]
-
-
 @router.get(
     "/events",
     openapi_extra=permission_meta("org:read"),
@@ -180,7 +173,7 @@ async def list_endpoints(
             url=r[1],
             events=list(r[2] or []),
             active=bool(r[3]),
-            secret_fingerprint=_fingerprint(r[4]) if r[4] else None,
+            secret_fingerprint=service.secret_fingerprint(r[4]) if r[4] else None,
             created_at=r[5],
         )
         for r in rows

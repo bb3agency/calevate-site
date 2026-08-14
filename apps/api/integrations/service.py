@@ -107,6 +107,19 @@ class DeliveryResult:
     transient: bool | None = None
 
 
+def secret_fingerprint(secret: str) -> str:
+    """First 8 hex of the digest — enough to tell two secrets apart in a support call,
+    useless for forging one.
+
+    Lives here rather than beside either config screen because BOTH webhook directions
+    need it: outbound endpoints show it for a signing secret they issued, inbound lead
+    sources for a shared secret they accept. Two copies would be two answers to "is the
+    value in my form vendor the one you hold" the first time somebody changed the
+    length.
+    """
+    return hashlib.sha256(secret.encode()).hexdigest()[:8]
+
+
 def sign_payload(secret: str, *, timestamp: str, body: str) -> str:
     """`t={ts},v1={hex}` — the timestamp is INSIDE the signed string.
 
@@ -557,6 +570,7 @@ __all__ = [
     "load_endpoint",
     "parse_spreadsheet_ref",
     "record_delivery",
+    "secret_fingerprint",
     "sheet_columns",
     "sheet_header",
     "sheet_row",

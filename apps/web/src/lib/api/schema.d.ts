@@ -1728,6 +1728,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/lead-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every lead source on this account — fingerprints, never secrets (SURFACES §2b)
+         * @description The list that made the ID box on the lead-sources screen unnecessary.
+         *
+         *     Tenant scoping is RLS and only RLS (hard rule 1) — there is no `WHERE tenant_id`
+         *     here, because a hand-written predicate beside the policy is a second, weaker
+         *     boundary that the next query forgets.
+         */
+        get: operations["list_lead_sources_v1_lead_sources_get"];
+        put?: never;
+        /**
+         * Create a lead source — the ingest secret is shown once (SURFACES §2b)
+         * @description Create an endpoint your website form, CRM or ad account can post leads to. The response carries the secret to send in the `X-Ingest-Secret` header, and it is the only time that value is ever returned — the list endpoint shows a fingerprint. Meta Lead Ads sources are different: Meta signs with your own app's App Secret, so you supply it as `app_secret` and nothing is minted.
+         */
+        post: operations["create_lead_source_v1_lead_sources_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/lead-sources/activity": {
         parameters: {
             query?: never;
@@ -1746,6 +1774,58 @@ export interface paths {
         get: operations["ingest_activity_v1_lead_sources_activity_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-sources/{webhook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disable — kept, not deleted, so the delivery history stays readable
+         * @description Deactivate, and close any rotation window with it.
+         *
+         *     Idempotent: disabling an already-disabled source is 204, not 404. The outbound
+         *     twin (`DELETE /v1/integrations/endpoints/{id}`) answers 404 to the second click
+         *     because its CAS predicate and its existence check are the same statement; that is a
+         *     defect there rather than a convention worth copying, and it is not this slice's to
+         *     fix. The audit row is written only for a real transition, so the ledger records
+         *     changes and not button presses.
+         */
+        delete: operations["disable_lead_source_v1_lead_sources__webhook_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-sources/{webhook_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-enable a disabled lead source
+         * @description The other half of disable, which the outbound surface never grew.
+         *
+         *     Without it a client who disabled a source to stop a misbehaving form has no way
+         *     back except a support ticket — which is the same out-of-band provisioning this whole
+         *     module exists to end. The secret is UNCHANGED by re-enabling: a source comes back
+         *     exactly as it left, so a client who did not rotate does not have to re-paste.
+         */
+        post: operations["enable_lead_source_v1_lead_sources__webhook_id__enable_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1783,6 +1863,26 @@ export interface paths {
          *     cannot take payments.
          */
         post: operations["meta_setup_v1_lead_sources__webhook_id__meta_setup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-sources/{webhook_id}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a new secret, with the old one honoured for a stated window
+         * @description Replace this source's secret. The new value is returned once. The previous secret keeps working for `grace_minutes` (default 60, max 1440) so leads submitted while you update your form vendor are not rejected — send `grace_minutes: 0` to revoke the old secret immediately, which is what a leaked secret needs. For a Meta source, supply the new App Secret as `app_secret`; nothing is minted and the response's `secret` is null.
+         */
+        post: operations["rotate_lead_source_secret_v1_lead_sources__webhook_id__rotate_secret_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2901,6 +3001,22 @@ export interface components {
             secret: string;
             /** Url */
             url: string;
+        };
+        /** CreateLeadSourceIn */
+        CreateLeadSourceIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** App Secret */
+            app_secret?: string | null;
+            /** Mapping */
+            mapping?: {
+                [key: string]: string;
+            };
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "meta_lead_ads" | "website_form" | "zoho" | "sheets" | "custom";
         };
         /** CreateOrgIn */
         CreateOrgIn: {
@@ -4075,6 +4191,67 @@ export interface components {
             updated_at: string;
         };
         /**
+         * LeadSourceCreatedOut
+         * @description The one moment a minted secret is ever returned.
+         */
+        LeadSourceCreatedOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Ingest Path */
+            ingest_path: string;
+            /** Secret */
+            secret: string | null;
+            /** Secret Header */
+            secret_header: string;
+            /** Source */
+            source: string;
+        };
+        /** LeadSourceListOut */
+        LeadSourceListOut: {
+            /** Items */
+            items: components["schemas"]["LeadSourceOut"][];
+            /** Secret Header */
+            secret_header: string;
+        };
+        /**
+         * LeadSourceOut
+         * @description A lead source as the config screen sees it — fingerprint only, never a value.
+         */
+        LeadSourceOut: {
+            /** Active */
+            active: boolean;
+            /** Agent Id */
+            agent_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Mapping */
+            mapping: {
+                [key: string]: string;
+            };
+            /** Previous Secret Expires At */
+            previous_secret_expires_at: string | null;
+            /** Secret Fingerprint */
+            secret_fingerprint: string;
+            /** Source */
+            source: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
          * LeadTimelineEventOut
          * @description One line of a lead's history, PROJECTED — never `lead_events.payload` itself.
          *
@@ -4621,6 +4798,30 @@ export interface components {
             new_version: number;
             /** To Version */
             to_version: number;
+        };
+        /** RotateSecretIn */
+        RotateSecretIn: {
+            /** App Secret */
+            app_secret?: string | null;
+            /**
+             * Grace Minutes
+             * @default 60
+             */
+            grace_minutes: number;
+        };
+        /** RotateSecretOut */
+        RotateSecretOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Previous Secret Expires At */
+            previous_secret_expires_at: string | null;
+            /** Secret */
+            secret: string | null;
+            /** Secret Header */
+            secret_header: string;
         };
         /**
          * ServiceItem
@@ -8524,6 +8725,68 @@ export interface operations {
             };
         };
     };
+    list_lead_sources_v1_lead_sources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSourceListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_lead_source_v1_lead_sources_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLeadSourceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSourceCreatedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     ingest_activity_v1_lead_sources_activity_get: {
         parameters: {
             query?: {
@@ -8555,6 +8818,64 @@ export interface operations {
             };
         };
     };
+    disable_lead_source_v1_lead_sources__webhook_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    enable_lead_source_v1_lead_sources__webhook_id__enable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     meta_setup_v1_lead_sources__webhook_id__meta_setup_post: {
         parameters: {
             query?: never;
@@ -8573,6 +8894,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MetaSetupOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rotate_lead_source_secret_v1_lead_sources__webhook_id__rotate_secret_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RotateSecretIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RotateSecretOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

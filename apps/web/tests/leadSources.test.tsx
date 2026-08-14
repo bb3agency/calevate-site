@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
 import type { Me } from "@/lib/api/client";
-import type { IngestActivityItem, MetaSetup } from "@/lib/api/leadSources";
+import type { IngestActivityItem, LeadSource, MetaSetup } from "@/lib/api/leadSources";
 
 import { problem, renderClientPage } from "./harness";
 
@@ -30,7 +30,13 @@ import { problem, renderClientPage } from "./harness";
  */
 
 const ACTIVITY_PATH = "/v1/lead-sources/activity";
+const SOURCES_PATH = "/v1/lead-sources";
+const AGENTS_PATH = "/v1/agents";
+/** One path, two verbs: the list is a GET and creation is a POST. */
+const CREATE_PATH = "POST /v1/lead-sources";
+/** A Meta source, so it appears in BOTH pickers (the Meta one filters to its kind). */
 const SOURCE_ID = "018f3c00-0000-7000-8000-000000000001";
+const FORM_SOURCE_ID = "018f3c00-0000-7000-8000-000000000002";
 const TEST_PATH = `/v1/lead-sources/${SOURCE_ID}/test`;
 const META_PATH = `/v1/lead-sources/${SOURCE_ID}/meta/setup`;
 const TOKEN = "verify-token-9f2c4a";
@@ -79,10 +85,34 @@ function retriesCell(source: string): string {
   return row!.querySelectorAll("td")[2]?.textContent ?? "";
 }
 
+function leadSource(over: Partial<LeadSource> = {}): LeadSource {
+  return {
+    id: SOURCE_ID,
+    source: "meta_lead_ads",
+    agent_id: null,
+    active: true,
+    mapping: { phone: "phone_number" },
+    secret_fingerprint: "a1b2c3d4",
+    previous_secret_expires_at: null,
+    created_at: "2026-08-01T09:00:00Z",
+    updated_at: "2026-08-01T09:00:00Z",
+    ...over,
+  };
+}
+
+function sourceList(...items: LeadSource[]) {
+  return { items, secret_header: "X-Ingest-Secret" };
+}
+
 async function renderPage(routes: Record<string, unknown> = {}, me: Me = ME) {
   const rendered = await renderClientPage(<LeadSourcesPage />, {
     "/v1/me": me,
     [ACTIVITY_PATH]: { items: [] },
+    [SOURCES_PATH]: sourceList(
+      leadSource(),
+      leadSource({ id: FORM_SOURCE_ID, source: "website_form" }),
+    ),
+    [AGENTS_PATH]: [],
     ...routes,
   });
   await screen.findByText("Try a sample lead");
@@ -153,7 +183,7 @@ describe("the delivery log", () => {
 describe("what the screen claims about a connection", () => {
   async function showSetup(over: Partial<MetaSetup> = {}) {
     const rendered = await renderPage({ [META_PATH]: setup(over) });
-    fireEvent.change(screen.getByLabelText("Meta lead source ID"), {
+    fireEvent.change(screen.getByLabelText("Meta lead source"), {
       target: { value: SOURCE_ID },
     });
     fireEvent.click(screen.getByRole("button", { name: "Show setup details" }));
@@ -216,7 +246,7 @@ describe("what the screen claims about a connection", () => {
 describe("the dry run", () => {
   async function runTest(answer: unknown) {
     const rendered = await renderPage({ [TEST_PATH]: answer });
-    fireEvent.change(screen.getByLabelText("Lead source ID to test"), {
+    fireEvent.change(screen.getByLabelText("Lead source to test"), {
       target: { value: SOURCE_ID },
     });
     fireEvent.click(screen.getByRole("button", { name: /Run test/ }));
@@ -268,7 +298,7 @@ describe("the dry run", () => {
   it("does not send anything when the sample is not valid JSON", async () => {
     const { calls } = await renderPage();
 
-    fireEvent.change(screen.getByLabelText("Lead source ID to test"), {
+    fireEvent.change(screen.getByLabelText("Lead source to test"), {
       target: { value: SOURCE_ID },
     });
     fireEvent.change(screen.getByLabelText("Sample lead payload (JSON)"), {
@@ -303,10 +333,10 @@ describe("controls are gated on the permission their route requires", () => {
       "Only an account owner can test or set up a lead source.",
     );
 
-    fireEvent.change(screen.getByLabelText("Lead source ID to test"), {
+    fireEvent.change(screen.getByLabelText("Lead source to test"), {
       target: { value: SOURCE_ID },
     });
-    fireEvent.change(screen.getByLabelText("Meta lead source ID"), {
+    fireEvent.change(screen.getByLabelText("Meta lead source"), {
       target: { value: SOURCE_ID },
     });
     expect((screen.getByRole("button", { name: /Run test/ }) as HTMLButtonElement).disabled).toBe(
@@ -320,10 +350,10 @@ describe("controls are gated on the permission their route requires", () => {
   it("enables them for an owner, so the disabled state is the permission and not the form", async () => {
     await renderPage();
 
-    fireEvent.change(screen.getByLabelText("Lead source ID to test"), {
+    fireEvent.change(screen.getByLabelText("Lead source to test"), {
       target: { value: SOURCE_ID },
     });
-    fireEvent.change(screen.getByLabelText("Meta lead source ID"), {
+    fireEvent.change(screen.getByLabelText("Meta lead source"), {
       target: { value: SOURCE_ID },
     });
     expect((screen.getByRole("button", { name: /Run test/ }) as HTMLButtonElement).disabled).toBe(
@@ -337,5 +367,150 @@ describe("controls are gated on the permission their route requires", () => {
   it("renders no heading of its own — the shell already prints the page title", async () => {
     const { container } = await renderPage();
     expect(container.querySelector("h1")).toBeNull();
+  });
+});
+
+/**
+ * Provisioning (the card that ended out-of-band SQL). Ranked by what a wrong render
+ * costs:
+ *
+ * 1. **"No lead sources yet" under a failed read.** Worse here than on the delivery log:
+ *    a client who believes they have none creates a second source for a form that is
+ *    already wired up, ends up with two secrets for one form, and leads start landing on
+ *    whichever they pasted last.
+ * 2. **A secret shown twice, or not at all.** The create/rotate response is the only
+ *    place the plaintext exists outside the database. It has to be on screen once, with
+ *    the header and address that make it usable, and it must never come back from the
+ *    list.
+ * 3. **A rotation with no deadline.** "Rotated" reads as "the old key is dead" to one
+ *    client and "nothing changed" to another; only the date produces the right
+ *    behaviour, and the row has to keep saying it until the window closes.
+ */
+describe("provisioning a lead source", () => {
+  const CREATED = {
+    id: "018f3c00-0000-7000-8000-0000000000aa",
+    source: "website_form",
+    ingest_path: "/hooks/v1/ingest/018f3c00-0000-7000-8000-0000000000aa",
+    secret: "s3cr3t-shown-once-abcdefghijklmnop",
+    secret_header: "X-Ingest-Secret",
+  };
+
+  it("refuses rather than reporting that the account has no lead sources", async () => {
+    const { container } = await renderPage({
+      [SOURCES_PATH]: problem(503, {
+        title: "Service unavailable",
+        detail: "We could not read your lead sources.",
+      }),
+    });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(container.textContent).not.toContain("No lead sources yet");
+    // …and the pickers must not read as "you have none" either.
+    expect(container.textContent).toContain("We could not load your lead sources");
+  });
+
+  it("says the account has none only when the server said so", async () => {
+    const { container } = await renderPage({ [SOURCES_PATH]: sourceList() });
+    await screen.findByText("No lead sources yet");
+    expect(container.textContent).not.toContain("We could not load your lead sources");
+  });
+
+  it("shows a fingerprint in the list and never a secret", async () => {
+    const { container } = await renderPage();
+    await screen.findByText("Your lead sources");
+    expect(container.textContent).toContain("key ···a1b2c3d4");
+    // The list response has no secret field at all; this pins the screen to that.
+    expect(container.textContent).not.toContain("Copy this secret now");
+  });
+
+  it("disables every provisioning control for a viewer without org:manage", async () => {
+    await renderPage({}, READ_ONLY_ME);
+    await screen.findByText("Your lead sources");
+    expect(
+      (screen.getByRole("button", { name: "Add lead source" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    for (const button of screen.getAllByRole("button", { name: "New secret" })) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    }
+    for (const button of screen.getAllByRole("button", { name: "Turn off" })) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
+  it("keeps saying the old secret works until the deadline the server gave", async () => {
+    // The row, not just the banner: a client who dismissed the banner or came back
+    // tomorrow still has to be able to find out whether they are inside the window.
+    const { container } = await renderPage({
+      [SOURCES_PATH]: sourceList(
+        leadSource({ previous_secret_expires_at: "2026-08-14T05:30:00Z" }),
+      ),
+    });
+    await screen.findByText(/Your previous secret still works until/);
+    expect(container.textContent).not.toContain("stopped working immediately");
+  });
+
+  it("offers the immediate revocation named for what it costs", async () => {
+    // A "0 minutes" option reads as tidiest and drops every lead submitted while the
+    // client updates their form. The label has to say what it is for.
+    await renderPage();
+    fireEvent.click(screen.getAllByRole("button", { name: "New secret" })[0]);
+    const options = screen.getByLabelText("How long the old secret keeps working");
+    expect(options.textContent).toContain("Stop it immediately — my secret leaked");
+    expect(options.textContent).toContain("1 hour (recommended)");
+  });
+
+  it("asks for the Meta App Secret only for a Meta source, and requires it", async () => {
+    await renderPage();
+    const kind = screen.getByLabelText("Lead source kind");
+    // A website form: we mint, so there is nothing to ask for.
+    expect(screen.queryByLabelText("Meta App Secret")).toBeNull();
+    expect(
+      (screen.getByRole("button", { name: "Add lead source" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+
+    fireEvent.change(kind, { target: { value: "meta_lead_ads" } });
+    expect(screen.getByLabelText("Meta App Secret")).toBeTruthy();
+    // Meta signs with a secret only the client holds, so the form cannot be submitted
+    // without it — the server would answer `app_secret_required`.
+    expect(
+      (screen.getByRole("button", { name: "Add lead source" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("sends only the field mappings the client filled in", async () => {
+    const { calls } = await renderPage({ [SOURCES_PATH]: sourceList(), [CREATE_PATH]: CREATED });
+    fireEvent.change(screen.getByLabelText("Your form's phone field name"), {
+      target: { value: "phone_number" },
+    });
+    // A blank field is "we do not map this one", not a mapping to an empty name — the
+    // server refuses those with `mapping_blank_field`.
+    fireEvent.change(screen.getByLabelText("Your form's name field name"), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add lead source" }));
+
+    await screen.findByText("Copy this secret now — we will not show it again.");
+    const posted = calls.filter((c) => c.path === SOURCES_PATH && c.method === "POST");
+    expect(posted).toHaveLength(1);
+    const body = JSON.parse(posted[0].body ?? "{}");
+    expect(body.mapping).toEqual({ phone: "phone_number" });
+    expect(body.app_secret).toBeUndefined();
+  });
+
+  it("shows the minted secret once, with its header and address", async () => {
+    const { container } = await renderPage({
+      [SOURCES_PATH]: sourceList(),
+      [CREATE_PATH]: CREATED,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add lead source" }));
+
+    await screen.findByText("Copy this secret now — we will not show it again.");
+    expect(container.textContent).toContain(CREATED.secret);
+    expect(container.textContent).toContain("X-Ingest-Secret");
+    expect(container.textContent).toContain(CREATED.ingest_path);
+
+    // Dismissed means gone: nothing on this screen can fetch it again.
+    fireEvent.click(screen.getByRole("button", { name: "I've saved it" }));
+    expect(container.textContent).not.toContain(CREATED.secret);
   });
 });

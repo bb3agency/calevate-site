@@ -1772,6 +1772,59 @@
         "title": "CreateEndpointOut",
         "type": "object"
       },
+      "CreateLeadSourceIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "app_secret": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Secret"
+          },
+          "mapping": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Mapping",
+            "type": "object"
+          },
+          "source": {
+            "enum": [
+              "meta_lead_ads",
+              "website_form",
+              "zoho",
+              "sheets",
+              "custom"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "CreateLeadSourceIn",
+        "type": "object"
+      },
       "CreateOrgIn": {
         "additionalProperties": false,
         "properties": {
@@ -4500,6 +4553,148 @@
         "title": "LeadOut",
         "type": "object"
       },
+      "LeadSourceCreatedOut": {
+        "additionalProperties": false,
+        "description": "The one moment a minted secret is ever returned.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "ingest_path": {
+            "title": "Ingest Path",
+            "type": "string"
+          },
+          "secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secret"
+          },
+          "secret_header": {
+            "title": "Secret Header",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "ingest_path",
+          "secret",
+          "secret_header"
+        ],
+        "title": "LeadSourceCreatedOut",
+        "type": "object"
+      },
+      "LeadSourceListOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LeadSourceOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "secret_header": {
+            "title": "Secret Header",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "secret_header"
+        ],
+        "title": "LeadSourceListOut",
+        "type": "object"
+      },
+      "LeadSourceOut": {
+        "additionalProperties": false,
+        "description": "A lead source as the config screen sees it \u2014 fingerprint only, never a value.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mapping": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Mapping",
+            "type": "object"
+          },
+          "previous_secret_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Secret Expires At"
+          },
+          "secret_fingerprint": {
+            "title": "Secret Fingerprint",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "agent_id",
+          "active",
+          "mapping",
+          "secret_fingerprint",
+          "previous_secret_expires_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "LeadSourceOut",
+        "type": "object"
+      },
       "LeadTimelineEventOut": {
         "additionalProperties": false,
         "description": "One line of a lead's history, PROJECTED \u2014 never `lead_events.payload` itself.\n\n`lead_events.payload` is JSONB written by six producers in three deployables\n(`crm.service.update_lead`, `ingest.service._timeline`, `workers.pipeline`,\n`workers.notifications`, and two paths in `workers.whatsapp`), with no schema\nbetween them and the column. Every one of them was read before this model was\nwritten, and today every one of them stores ids, authored rule/reason codes,\nbooleans and counters \u2014 no phone number, no transcript text, no extraction payload\n(`crm.service.lead_timeline` records the audit key by key).\n\nThat is a fact about today's writers, not a property of the column, and hard rules 5\nand 6 have to survive the seventh producer. So the read PROJECTS: the service builds\nevery field below from a whitelist of keys, and a key nothing here names cannot\nreach a browser however it got into the row. The blob is never serialized, which is\nalso why this model needs no `ACKNOWLEDGED_PASSTHROUGH` entry in\n`scripts/check_redaction_exposure.py` \u2014 there is no free-form dict to acknowledge.",
@@ -5935,6 +6130,78 @@
           "new_version"
         ],
         "title": "RollbackOut",
+        "type": "object"
+      },
+      "RotateSecretIn": {
+        "additionalProperties": false,
+        "properties": {
+          "app_secret": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Secret"
+          },
+          "grace_minutes": {
+            "default": 60,
+            "maximum": 1440.0,
+            "minimum": 0.0,
+            "title": "Grace Minutes",
+            "type": "integer"
+          }
+        },
+        "title": "RotateSecretIn",
+        "type": "object"
+      },
+      "RotateSecretOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "previous_secret_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Secret Expires At"
+          },
+          "secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secret"
+          },
+          "secret_header": {
+            "title": "Secret Header",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "secret",
+          "secret_header",
+          "previous_secret_expires_at"
+        ],
+        "title": "RotateSecretOut",
         "type": "object"
       },
       "ServiceItem": {
@@ -12122,6 +12389,72 @@
         "x-calevate-permission": "agents:read"
       }
     },
+    "/v1/lead-sources": {
+      "get": {
+        "description": "The list that made the ID box on the lead-sources screen unnecessary.\n\nTenant scoping is RLS and only RLS (hard rule 1) \u2014 there is no `WHERE tenant_id`\nhere, because a hand-written predicate beside the policy is a second, weaker\nboundary that the next query forgets.",
+        "operationId": "list_lead_sources_v1_lead_sources_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSourceListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every lead source on this account \u2014 fingerprints, never secrets (SURFACES \u00a72b)",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "description": "Create an endpoint your website form, CRM or ad account can post leads to. The response carries the secret to send in the `X-Ingest-Secret` header, and it is the only time that value is ever returned \u2014 the list endpoint shows a fingerprint. Meta Lead Ads sources are different: Meta signs with your own app's App Secret, so you supply it as `app_secret` and nothing is minted.",
+        "operationId": "create_lead_source_v1_lead_sources_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLeadSourceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSourceCreatedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Create a lead source \u2014 the ingest secret is shown once (SURFACES \u00a72b)",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/lead-sources/activity": {
       "get": {
         "description": "Reads the same durable inbox the dedupe writes, so this view costs nothing new.\n\n`duplicate_count` is the column that answers the classic support thread: the form\nvendor retried fifteen times, we rang the customer once, and the client wants to\nknow which of those two things happened.",
@@ -12165,6 +12498,74 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/lead-sources/{webhook_id}": {
+      "delete": {
+        "description": "Deactivate, and close any rotation window with it.\n\nIdempotent: disabling an already-disabled source is 204, not 404. The outbound\ntwin (`DELETE /v1/integrations/endpoints/{id}`) answers 404 to the second click\nbecause its CAS predicate and its existence check are the same statement; that is a\ndefect there rather than a convention worth copying, and it is not this slice's to\nfix. The audit row is written only for a real transition, so the ledger records\nchanges and not button presses.",
+        "operationId": "disable_lead_source_v1_lead_sources__webhook_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Disable \u2014 kept, not deleted, so the delivery history stays readable",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/lead-sources/{webhook_id}/enable": {
+      "post": {
+        "description": "The other half of disable, which the outbound surface never grew.\n\nWithout it a client who disabled a source to stop a misbehaving form has no way\nback except a support ticket \u2014 which is the same out-of-band provisioning this whole\nmodule exists to end. The secret is UNCHANGED by re-enabling: a source comes back\nexactly as it left, so a client who did not rotate does not have to re-paste.",
+        "operationId": "enable_lead_source_v1_lead_sources__webhook_id__enable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Re-enable a disabled lead source",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/lead-sources/{webhook_id}/meta/setup": {
       "post": {
         "description": "POST for a read, and `org:manage` rather than `org:read` \u2014 the two go together.\n\nThe response hands over a credential-shaped string, so it must not be reachable by\na read-only impersonating admin (D-22). But D-22 is enforced structurally: NO GET\nmay require a MUTATING permission, and `org:manage` is one \u2014 a GET here would fail\n`tests/impersonation_reads_test.py`, which walks the live route table precisely so\nthis cannot be argued case by case.\n\nBoth halves are satisfiable at once because the shape is wrong, not the permission.\nThis is the same resolution `/v1/dnc/check` reached from the other direction: it is\na POST because the IDENTIFIER is sensitive, and this is a POST because the RESPONSE\nis. Spending a D-22 exemption instead would buy one route a hole in the rule that\nfive near-misses in this repo say should stay unarguable.\n\nIt states the capability BEFORE the client wires anything up, rather than letting\nthem discover it from an activity view full of rejections \u2014 the same argument\n`payment_capability` makes about rendering a pay button for a deployment that\ncannot take payments.",
@@ -12200,6 +12601,57 @@
           }
         },
         "summary": "Callback URL + verify token for a Meta Lead Ads source (SURFACES \u00a72b)",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/lead-sources/{webhook_id}/rotate-secret": {
+      "post": {
+        "description": "Replace this source's secret. The new value is returned once. The previous secret keeps working for `grace_minutes` (default 60, max 1440) so leads submitted while you update your form vendor are not rejected \u2014 send `grace_minutes: 0` to revoke the old secret immediately, which is what a leaked secret needs. For a Meta source, supply the new App Secret as `app_secret`; nothing is minted and the response's `secret` is null.",
+        "operationId": "rotate_lead_source_secret_v1_lead_sources__webhook_id__rotate_secret_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateSecretIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotateSecretOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Issue a new secret, with the old one honoured for a stated window",
         "tags": [
           "lead-ingest"
         ],
