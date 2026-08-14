@@ -156,6 +156,25 @@ describe("the CSV export offers itself only to a session that may use it", () =>
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(false);
   });
+
+  it("says we could not CHECK — not that they are not allowed — when /v1/me fails", async () => {
+    // BUILD-LOG §52 on the smallest possible surface. The gate used to be
+    // `me.data?.permissions?.includes("calls:read_raw") ?? false`, and `me.data` is
+    // undefined on a FAILED read just as it is on a pending one — so an owner whose
+    // `/v1/me` 503'd was shown a disabled button reading "limited to the account
+    // owner": a refusal we never received, stated about a permission they hold.
+    await renderClientPage(
+      <LeadsPage />,
+      routes({ "/v1/me": problem(503, { title: "Service unavailable" }) }),
+    );
+
+    const button = (await screen.findByRole("button", {
+      name: /Export all as CSV/,
+    })) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toContain("could not check");
+    expect(button.title).not.toContain("account owner");
+  });
 });
 
 describe("what the screen says when it could not read the leads", () => {

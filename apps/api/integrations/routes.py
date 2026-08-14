@@ -128,6 +128,37 @@ class DeliveryOut(Strict):
     attempts: int
     first_at: datetime
     last_at: datetime
+    # Whether a copy of what we sent is still retained for this delivery. A BOOLEAN, not
+    # the key: the object-storage key names the subject's row id, and a client-facing
+    # list is not the place for it. False is a real answer with several honest causes —
+    # the body aged out on the tenant's own retention policy, an erasure destroyed it,
+    # object storage was down when the delivery ran, or the event carries no subject we
+    # could file it under (`service.body_subject`). The screen offers the link only when
+    # this is true, so nobody clicks through to a refusal.
+    payload_stored: bool
+
+
+class DeliveryPayloadOut(Strict):
+    """What we actually sent, byte for byte — the raw-PII surface of this module.
+
+    Same class of data as a raw transcript and gated the same way (hard rule 5):
+    `calls:read_raw` AND an `audit_log` row, never one of the two. `body` is the exact
+    string that went on the wire, so it carries the lead's name and their number in
+    whatever form the endpoint's own `include_raw_phone` choice produced — which is the
+    entire point, since "you sent us the wrong lead" cannot be answered with a redaction.
+    """
+
+    delivery_id: UUID
+    event_type: str | None
+    # The client's own field names when they configured a mapping, because that is what
+    # we sent them.
+    body: str
+    # Declared by the stored object, never inferred by comparing `len(body)` to today's
+    # cap: a reader has to be able to tell "this is all of it" from "this is the first
+    # 64 KiB of it", including for objects written when the cap was different.
+    truncated: bool
+    original_bytes: int
+    stored_at: str | None
 
 
 @router.get(
@@ -439,7 +470,11 @@ async def list_deliveries(
     rows = (
         await session.execute(
             text(
-                "SELECT d.id, d.event_type, d.status, d.attempts, d.first_at, d.last_at "
+                "SELECT d.id, d.event_type, d.status, d.attempts, d.first_at, d.last_at, "
+                # The presence of the key, never the key. `payload_ref` contains the
+                # subject's row id, and this endpoint is `org:read` — the raw body is
+                # two permissions further up.
+                "d.payload_ref IS NOT NULL "
                 "FROM webhook_deliveries d WHERE d.direction = 'out' "
                 "AND d.endpoint_id IN (SELECT id FROM outbound_webhooks) "
                 "ORDER BY d.last_at DESC LIMIT :limit"
@@ -455,9 +490,125 @@ async def list_deliveries(
             attempts=int(r[3] or 0),
             first_at=r[4],
             last_at=r[5],
+            payload_stored=bool(r[6]),
         )
         for r in rows
     ]
+
+
+@router.get(
+    "/deliveries/{delivery_id}/payload",
+    response_model=DeliveryPayloadOut,
+    openapi_extra=permission_meta("calls:read_raw"),
+    summary="What we actually sent — role-checked AND audit-logged on every read",
+    description=(
+        "The exact body we POSTed for one delivery, as your endpoint received it. This "
+        "is your customer's personal data in unredacted form, so it requires the same "
+        "permission as an unredacted transcript and every read is written to your audit "
+        "log. Bodies are kept for as long as your lead-retention policy allows and are "
+        "destroyed by an erasure request; `404 delivery_body_not_retained` means there "
+        "is no longer one to show."
+    ),
+)
+async def get_delivery_payload(
+    delivery_id: UUID,
+    session: Session,
+    request: Request,
+    # `calls:read_raw`, NOT `org:read` — the permission follows the DATA, not the screen
+    # it happens to be on. This body carries the lead's name and their number in exactly
+    # the form the endpoint's `include_raw_phone` choice produced, which is the same
+    # class of thing as `text` versus `text_redacted`, and hard rule 5 puts that behind
+    # a role check AND an audit row. `crm.routes.get_lead_contact` makes the identical
+    # call for the identical reason. It also settles the D-22 question in the right
+    # direction by construction: `operator` does not hold `calls:read_raw` at all, so an
+    # impersonating support user sees the delivery list — which is what they need to
+    # answer "did it arrive?" — and never the payload.
+    principal: Principal = Depends(requires("calls:read_raw")),
+) -> DeliveryPayloadOut:
+    """One retained delivery body. Absent, expired and unreachable are three answers.
+
+    A NULL `payload_ref` is 404 `delivery_body_not_retained`: the body aged out, an
+    erasure destroyed it, or none was ever kept. An object the store cannot produce is
+    503 `delivery_body_unavailable` — a fact about today, not about our retention — and
+    collapsing the two would tell a client their evidence is gone during an outage.
+    """
+    payload_ref, event_type = await service.delivery_body_ref(session, delivery_id)
+    if payload_ref is None:
+        raise ProblemError(
+            # `not_found` (404), not `business_rule` (422): the client asked for a thing
+            # and it is not there. 422 would say their REQUEST was wrong, which it was
+            # not — and the same code answers a delivery that never had a body, one that
+            # aged out and one an erasure destroyed, because those are one fact to them.
+            kind="not_found",
+            code="delivery_body_not_retained",
+            title="No copy of this delivery is kept",
+            detail=(
+                "We no longer hold a copy of what was sent for this delivery. Bodies are "
+                "kept for as long as your lead-retention policy allows, and an erasure "
+                "request destroys them."
+            ),
+            remediation=(
+                "The delivery record itself — event, result and attempts — is still on "
+                "your integrations screen."
+            ),
+        )
+
+    # The audit row is written in the SAME transaction as the read, so there is no window
+    # in which someone saw raw PII without it being recorded (hard rule 5). Written
+    # BEFORE the object is fetched for the same reason: a read that failed on our side
+    # was still an attempt to see this person's data.
+    await write_audit(
+        session,
+        action="webhook_delivery.read_payload",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="webhook_delivery",
+        object_id=str(delivery_id),
+        ip=request.client.host if request.client else None,
+    )
+
+    # Imported here, not at module scope, for the reason `crm.routes.get_recording`
+    # gives: boto3 belongs to the workers package and pulling it into every API import
+    # would slow cold starts for one route.
+    from apps.workers.storage import StorageUnavailableError, read_delivery_body
+
+    try:
+        document = read_delivery_body(payload_ref)
+    except StorageUnavailableError as exc:
+        raise ProblemError(
+            kind="dependency",
+            code="delivery_body_unavailable",
+            title="The stored copy could not be retrieved",
+            detail="The delivery body could not be read right now. It has not been deleted.",
+            remediation="Try again in a few minutes.",
+        ) from exc
+    if document is None:
+        # The reference outlived the object — an erasure or a sweep that cleared the
+        # bytes and lost the row update, which the next sweep tidies. Says the same
+        # thing to the client as a NULL ref, because it means the same thing to them.
+        raise ProblemError(
+            # `not_found` (404), not `business_rule` (422): the client asked for a thing
+            # and it is not there. 422 would say their REQUEST was wrong, which it was
+            # not — and the same code answers a delivery that never had a body, one that
+            # aged out and one an erasure destroyed, because those are one fact to them.
+            kind="not_found",
+            code="delivery_body_not_retained",
+            title="No copy of this delivery is kept",
+            detail="We no longer hold a copy of what was sent for this delivery.",
+            remediation=(
+                "The delivery record itself — event, result and attempts — is still on "
+                "your integrations screen."
+            ),
+        )
+
+    return DeliveryPayloadOut(
+        delivery_id=delivery_id,
+        event_type=event_type or None,
+        body=str(document.get("body") or ""),
+        truncated=bool(document.get("truncated")),
+        original_bytes=int(document.get("original_bytes") or 0),
+        stored_at=str(document["stored_at"]) if document.get("stored_at") else None,
+    )
 
 
 __all__ = ["router"]

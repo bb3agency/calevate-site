@@ -46,7 +46,7 @@ from uuid import uuid4
 
 import pytest
 from apps.workers.retention import RECORDING_FLOOR_DAYS
-from apps.workers.storage import payload_key, recording_key
+from apps.workers.storage import delivery_body_key, payload_key, recording_key
 from scripts.seed import DEFAULT_RETENTION_POLICIES
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -187,10 +187,19 @@ def test_rule_prefixes_match_the_keys_storage_actually_writes(policy: dict) -> N
     disagree the lifecycle rule matches nothing and reports itself healthy."""
     written_recording = recording_key(uuid4(), uuid4())
     written_payload = payload_key("bolna", "exec-1")
+    written_body = delivery_body_key(
+        tenant_id=uuid4(), subject_type="lead", subject_id=str(uuid4()), delivery_id=uuid4()
+    )
 
     prefixes = {rule.get("Filter", {}).get("Prefix", "") for rule in policy["Rules"]}
     assert applier.RECORDINGS_PREFIX in prefixes
     assert applier.PAYLOADS_PREFIX in prefixes
+    assert applier.BODIES_PREFIX in prefixes
+
+    assert written_body.startswith(applier.BODIES_PREFIX), (
+        f"delivery_body_key() now writes {written_body!r}, which no lifecycle rule "
+        "matches — an orphaned CRM payload would sit in the bucket forever"
+    )
 
     assert written_recording.startswith(applier.RECORDINGS_PREFIX), (
         f"recording_key() now writes {written_recording!r}, which no lifecycle rule "

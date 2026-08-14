@@ -102,6 +102,69 @@ class Plan(PKMixin, TimestampMixin, Base):
     effective_to: Mapped[datetime | None]
 
 
+class OneTimeCharge(PKMixin, Base):
+    """Charges that are billed ONCE and are not usage — today only `plans.setup_fee`.
+
+    Append-only (hard rule 4), and it is a LEDGER rather than a flag column for the
+    reason `credit_ledger` is: an invoice here is a DERIVED statement
+    (`billing/invoice.py`), so anything it prints has to be re-derivable, and "has this
+    tenant's setup fee been billed?" is a fact that must survive the invoice being
+    regenerated, the plan being re-priced and the tenant being re-onboarded. A boolean
+    on `plans` would move with the plan row; a row here is the tenant's own history.
+
+    **`ux_one_time_charges_tenant_kind_ref` is what makes ONCE provable.** The writer
+    (`billing/charges.py`) does an unconditional `INSERT … ON CONFLICT DO NOTHING` on
+    `(tenant_id, kind, ref)`; there is no `WHERE NOT EXISTS` read-then-write anywhere on
+    the path, so two invoice generations racing on the same tenant-month cannot both
+    append (BACKEND-PATTERNS §5 — the guard is IN the write). The loser blocks on the
+    index until the winner commits and then writes nothing.
+
+    `ref` is in the key, not just `kind`, so hard rule 4 keeps its escape hatch: a setup
+    fee that has to be undone is a NEW row (a negative amount under its own `ref`) which
+    the same invoice prints as a credit line, never an edit or a delete of this one.
+
+    `billing_month` is WHICH STATEMENT the charge belongs to, and it is not derivable
+    from `occurred_at`: the fee belongs to the tenant's onboarding month, while
+    `occurred_at` is the moment we recorded it — which is later, and possibly much later
+    if that month's invoice is first rendered in arrears. Same separation, and the same
+    reason, as `record_tier_correction` stamping the original call's month.
+
+    `amount` is the fee AS BILLED, copied from the plan at the moment of billing rather
+    than read back through the plan each time. `plans` rows are mutable, so a derived
+    amount would let an edit today change a statement a client already paid.
+    """
+
+    __tablename__ = "one_time_charges"
+    __table_args__ = (
+        CheckConstraint("kind IN ('setup_fee')", name="kind_enum"),
+        # ONCE, enforced by the database rather than by a reader's `if`.
+        Index("ux_one_time_charges_tenant_kind_ref", "tenant_id", "kind", "ref", unique=True),
+        # The invoice's read: this tenant's charges for one billing month.
+        Index("ix_one_time_charges_tenant_month", "tenant_id", "billing_month"),
+    )
+
+    # No `index=True`: the composite above leads with this column, so a single-column
+    # index would be a strict prefix that no query can use (the argument migration
+    # e7c3d10a9f52 records for `credit_ledger`), and this table is append-only too.
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    # The dedupe key WITHIN a kind. `'onboarding'` for the setup fee: one onboarding per
+    # tenant, so one setup charge per tenant.
+    ref: Mapped[str] = mapped_column(Text, nullable=False)
+    # What the invoice line says. Stored rather than derived from `kind` so a manually
+    # appended compensating row can explain itself on the client's statement.
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    # Signed like `credit_ledger.delta`: a charge is positive, a reversal negative.
+    amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    billing_month: Mapped[str] = mapped_column(Text, nullable=False)  # 'YYYY-MM' (IST)
+    # Which plan row quoted the amount — provenance for a client who asks why.
+    plan_id: Mapped[UUID | None] = mapped_column(ForeignKey("plans.id", ondelete="RESTRICT"))
+    occurred_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
 class SpendState(TimestampMixin, Base):
     """Per-tenant monthly counters; `capped` is the cap the compliance gate enforces.
 

@@ -10,13 +10,14 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
-import { useWriteAccess } from "@/lib/api/hooks";
+import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import {
   EVENT_LABELS,
   useCreateEndpoint,
   useDeactivateEndpoint,
   useDeliveries,
+  useDeliveryPayload,
   useEndpoints,
   type OutboundEvent,
 } from "@/lib/api/integrations";
@@ -34,6 +35,11 @@ import { lookup } from "@/lib/lookup";
  * 2. **Deliveries are shown, including the failures.** An integration that quietly
  *    stops is worse than one that visibly breaks — the client needs to see the 500s
  *    their own endpoint returned before they conclude we never sent anything.
+ * 3. **"What did you send?" is answerable, and answering it is a privileged act.** The
+ *    retained body is the customer's own details unredacted, so the link appears only
+ *    for an owner (`calls:read_raw`) and only where a copy still exists — opening it
+ *    writes an audit row, exactly like the raw transcript. Everyone else sees the
+ *    delivery record and no offer, rather than a button that 403s.
  */
 
 const ALL_EVENTS: OutboundEvent[] = [
@@ -73,6 +79,21 @@ export default function IntegrationsPage() {
   const [url, setUrl] = useState("");
   const [events, setEvents] = useState<OutboundEvent[]>(["lead.created"]);
   const [revealed, setRevealed] = useState<string | null>(null);
+
+  /**
+   * The delivery whose body the client asked to see, or null.
+   *
+   * `calls:read_raw` gates the offer, read off `/v1/me` — the SERVER's answer about this
+   * session — the same inline way the leads export does, and REFUSED while the answer is
+   * in flight so the screen never offers an action it is about to withdraw. The
+   * permission covers D-22 without a second condition: `operator` does not hold
+   * `calls:read_raw` at all (core/rbac.py), so an impersonating support user keeps the
+   * delivery log — which answers "did it arrive?" — and is never offered the payload.
+   */
+  const me = useMe(session);
+  const mayReadPayload = me.data?.permissions?.includes("calls:read_raw") ?? false;
+  const [openPayload, setOpenPayload] = useState<string | null>(null);
+  const payload = useDeliveryPayload(session, openPayload);
 
   return (
     <div className="space-y-5">
@@ -230,6 +251,9 @@ export default function IntegrationsPage() {
                 <th className="pb-2 font-medium">Result</th>
                 <th className="pb-2 font-medium">Tries</th>
                 <th className="pb-2 text-right font-medium">When</th>
+                {/* Only rendered for a reader who could use it. A permanently empty
+                    column is a promise the screen cannot keep. */}
+                {mayReadPayload && <th className="pb-2 text-right font-medium">Sent</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -253,6 +277,35 @@ export default function IntegrationsPage() {
                   <td className="py-2 text-right text-xs text-slate-500">
                     {formatIST(delivery.last_at)}
                   </td>
+                  {mayReadPayload && (
+                    <td className="py-2 text-right">
+                      {delivery.payload_stored ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenPayload((current) =>
+                              current === delivery.id ? null : delivery.id,
+                            )
+                          }
+                          title="Shows the exact data we sent, personal details included. The read is written to your audit log."
+                          className="rounded-md border border-slate-300 px-2 py-0.5 text-xs dark:border-slate-600"
+                        >
+                          {openPayload === delivery.id ? "Hide" : "View"}
+                        </button>
+                      ) : (
+                        // Not a blank cell and not a zero: a copy is kept only while the
+                        // lead-retention policy allows, an erasure destroys it, and the
+                        // events that name no customer never had one. "—" with the
+                        // reason on hover says which kind of nothing this is.
+                        <span
+                          className="text-xs text-slate-400"
+                          title="No copy is kept for this delivery — it has aged out under your retention policy, was erased, or the event carried no customer record."
+                        >
+                          —
+                        </span>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -263,6 +316,54 @@ export default function IntegrationsPage() {
             title="Nothing sent yet"
             hint="Deliveries appear here as they happen — including the ones your endpoint rejected."
           />
+        )}
+
+        {/* What we sent, for the one delivery someone opened.
+            §52: loading is a skeleton, failure is a refusal in the client's own words
+            (ProblemNotice renders the problem+json — including
+            `delivery_body_not_retained`, which is a real answer and not an empty
+            state), and neither is ever a number or a blank box. */}
+        {openPayload && (
+          <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-medium text-slate-900 dark:text-slate-50">
+                What we sent
+              </h3>
+              <button
+                type="button"
+                onClick={() => setOpenPayload(null)}
+                className="ml-auto rounded-md border border-slate-300 px-2 py-0.5 text-xs dark:border-slate-600"
+              >
+                Close
+              </button>
+            </div>
+            {payload.isPending ? (
+              <div className="mt-2">
+                <Skeleton rows={3} />
+              </div>
+            ) : payload.error ? (
+              <div className="mt-2">
+                <ProblemNotice error={payload.error} />
+              </div>
+            ) : payload.data ? (
+              <>
+                <p className="mt-1 text-xs text-slate-500">
+                  The exact request body your endpoint received. It contains your
+                  customer&apos;s details, and this view was written to your audit log.
+                </p>
+                {payload.data.truncated && (
+                  <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                    Only the first part of this body is kept — it was{" "}
+                    {payload.data.original_bytes.toLocaleString("en-IN")} bytes when we
+                    sent it, and what you see below is where our copy stops.
+                  </p>
+                )}
+                <pre className="mt-2 max-h-80 overflow-auto rounded-md bg-slate-100 p-3 font-mono text-xs whitespace-pre-wrap break-all dark:bg-slate-800">
+                  {payload.data.body}
+                </pre>
+              </>
+            ) : null}
+          </div>
         )}
       </Card>
     </div>

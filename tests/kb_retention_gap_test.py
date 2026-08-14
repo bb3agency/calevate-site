@@ -284,6 +284,11 @@ async def test_a_superseded_knowledge_version_survives_every_sweep_at_any_age() 
         "summaries",
         "leads",
         "extractions",
+        # Delivered webhook bodies (D-23), on the `lead` clock. Listed here for the same
+        # reason as the rest: this assertion is "every category the sweep counts, and no
+        # knowledge-base row among them", so a new arm has to be named rather than
+        # tolerated.
+        "delivery_bodies",
         "deferred",
     }, counts
 

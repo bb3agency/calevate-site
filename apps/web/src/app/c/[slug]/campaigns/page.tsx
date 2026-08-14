@@ -15,6 +15,7 @@ import {
   Play,
   Plus,
   Rocket,
+  CalendarClock,
   Users,
 } from "lucide-react";
 
@@ -47,6 +48,9 @@ import {
   useLaunchCampaign,
   useLaunchCheck,
   usePauseCampaign,
+  scheduleStartAt,
+  useScheduleCampaign,
+  useUnscheduleCampaign,
   type CampaignSummary,
   type Classification,
   type ConsentSource,
@@ -438,6 +442,16 @@ export default function CampaignsPage() {
   const launch = useLaunchCampaign(session, campaignId);
   const progress = useCampaignProgress(session, campaignId);
   const setStatus = usePauseCampaign(session, campaignId);
+  const schedule = useScheduleCampaign(session, campaignId);
+  const unschedule = useUnscheduleCampaign(session, campaignId);
+
+  // Two fields, not one datetime-local: a date picker and a time picker are what a
+  // phone renders usefully, and most of these clients are on one. Empty by default —
+  // there is no sensible default start, and a pre-filled "tomorrow 10am" is a date
+  // nobody chose sitting one click from dialling a list.
+  const [startDate, setStartDate] = useState("");
+  const [startTime, setStartTime] = useState("10:00");
+  const startIso = scheduleStartAt(startDate, startTime);
 
   const parsed = useMemo(() => parseContactCsv(csv), [csv]);
   // Both or neither, decided here so the two halves cannot be sent apart: the API
@@ -540,6 +554,11 @@ export default function CampaignsPage() {
       {addContacts.error && <ProblemNotice error={addContacts.error} />}
       {launch.error && <ProblemNotice error={launch.error} />}
       {setStatus.error && <ProblemNotice error={setStatus.error} />}
+      {/* A refused schedule is a refusal, never a silently unchanged form: the server
+          names the reason (a start in the past, one beyond the horizon, a campaign that
+          has already launched) and the client can only act on it if it is on screen. */}
+      {schedule.error && <ProblemNotice error={schedule.error} />}
+      {unschedule.error && <ProblemNotice error={unschedule.error} />}
 
       {/* A skeleton, not an empty list: "you have no campaigns" is a claim about this
           business, and the request had not answered yet. */}
@@ -968,8 +987,55 @@ export default function CampaignsPage() {
             </Card>
           )}
 
-          {status === "draft" && (
-            <Card title="Before you launch">
+          {status === "scheduled" && (
+            <Card title="Scheduled">
+              {/* §52: loading is a skeleton, failure is the notice above — neither is a
+                  date and neither is the word "scheduled" on its own. */}
+              {progress.isLoading ? (
+                <Skeleton rows={2} />
+              ) : (
+                <div className="space-y-3">
+                  <p className="flex items-center gap-2 text-sm font-medium text-ink">
+                    <CalendarClock aria-hidden className="h-4 w-4 shrink-0" />
+                    Starts {formatIST(progress.data?.scheduled_start_at)} IST
+                  </p>
+                  {/* The gate refused the last attempt to start it. Without this the
+                      campaign sits here saying "scheduled" for a day and then quietly
+                      becomes a draft again — a start that never happened and never said
+                      so. The rules are the launch gate's own names, so the list above
+                      already explains each one in the client's words. */}
+                  {(progress.data?.schedule_blocked_rules?.length ?? 0) > 0 && (
+                    <p className="flex gap-2.5 text-sm text-ink-muted">
+                      <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                      <span>
+                        We tried to start this campaign and could not. The reasons are
+                        listed below — fix them and it will start on the next attempt.
+                        If they are still outstanding a day after the start time, the
+                        campaign goes back to draft.
+                      </span>
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    title={refusal}
+                    disabled={!write.allowed || unschedule.isPending}
+                    onClick={() => unschedule.mutate()}
+                    className={SECONDARY_BUTTON}
+                  >
+                    {unschedule.isPending ? "Cancelling…" : "Cancel scheduled start"}
+                  </button>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* `scheduled` shares this card with `draft`: a campaign waiting for Monday
+              has not launched, its blockers are still the launch gate's, and the server
+              re-runs exactly this check when the schedule fires. Rendering it only for
+              `draft` would leave a scheduled campaign with no card at all — a status and
+              nothing else, which §52 says a screen may not stop at. */}
+          {(status === "draft" || status === "scheduled") && (
+            <Card title={status === "scheduled" ? "Before it starts" : "Before you launch"}>
               {check.isLoading ? (
                 <Skeleton rows={3} />
               ) : check.error ? (
@@ -992,6 +1058,48 @@ export default function CampaignsPage() {
                     <Rocket aria-hidden className="h-4 w-4" />
                     {launch.isPending ? "Launching…" : "Launch campaign"}
                   </button>
+
+                  {/* Schedule, in the SAME card as Launch, because it is the same
+                      action with a delay on it — and the gate that guards Launch runs
+                      again when this fires. The green tick above is about right now;
+                      the note below says plainly that it is not a promise about the
+                      start. */}
+                  {status === "draft" && (
+                    <div className="space-y-2 border-t border-line pt-3">
+                      <p className={FIELD_LABEL}>Or start it later</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="date"
+                          aria-label="Start date"
+                          value={startDate}
+                          onChange={(e) => setStartDate(e.target.value)}
+                          className={FIELD}
+                        />
+                        <input
+                          type="time"
+                          aria-label="Start time (IST)"
+                          value={startTime}
+                          onChange={(e) => setStartTime(e.target.value)}
+                          className={FIELD}
+                        />
+                        <button
+                          type="button"
+                          title={refusal}
+                          disabled={!write.allowed || !startIso || schedule.isPending}
+                          onClick={() => startIso && schedule.mutate(startIso)}
+                          className={SECONDARY_BUTTON}
+                        >
+                          <CalendarClock aria-hidden className="h-3.5 w-3.5" />
+                          {schedule.isPending ? "Scheduling…" : "Schedule start"}
+                        </button>
+                      </div>
+                      <p className={FIELD_HINT}>
+                        Times are IST. We check every one of these requirements again at
+                        the moment it starts — a campaign that stops being allowed to
+                        dial between now and then will not start.
+                      </p>
+                    </div>
+                  )}
                   {/* THE ONE PLACE THE TOP-OF-SCREEN RESTRICTION NOTE IS REPEATED, and
                       the exception is earned: this is the only branch where the sentence
                       immediately above a dead control says everything is fine. A `staff`

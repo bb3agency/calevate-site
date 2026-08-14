@@ -17,6 +17,15 @@ its `usage_events` with it (FK RESTRICT) and silently rewrite a billing period. 
 default action neutralizes the personal data and keeps the countable shell — the
 minutes still happened.
 
+DELIVERED WEBHOOK BODIES (D-23) are the first personal data this module expires OUTSIDE
+Postgres. `webhook_deliveries.payload_ref` names an object holding the CRM payload we
+POSTed to a client's endpoint, so both jobs gained an arm: the sweep expires them on the
+tenant's own `lead` policy (see `DERIVED_COPIES`), and the erasure deletes them by
+SUBJECT, enumerating the object store rather than trusting the reference column
+(`_erase_delivery_bodies` says why). Unlike recordings, these do not wait on a bucket
+lifecycle rule — nothing about them is under a statutory retention floor, so the tenant's
+own policy is the whole answer and this module executes it.
+
 Engine-side copies are the open edge, honestly marked: Bolna's deletion API is
 undocumented (pilot gate), so `engine_deletion` is recorded as `unconfirmed` in the
 proof rather than asserted. A proof that overclaims is worse than one that says what it
@@ -56,6 +65,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.workers import storage
 
 log = get_logger(__name__)
 
@@ -138,9 +148,16 @@ TENANT_ROW_BUDGET = 20_000
 # Conservative on both sides: nothing personal outlives its category, and no CRM field
 # is deleted earlier than the CRM category the client already agreed to. See the
 # module tests for the same statement in a compliance reviewer's words.
+#   lead       → webhook_deliveries  the CRM payload we POSTed to the client's own
+#                .payload_ref         endpoint (D-23) — the same fields as
+#                                     `call_extractions.data`, kept as an object so
+#                                     support can answer "what did you send us?". Same
+#                                     class of data, so the same clock; expiring it on
+#                                     any other would mean "leads are kept for N days"
+#                                     is true of a table and false of a bucket.
 DERIVED_COPIES: Mapping[str, tuple[str, ...]] = {
     "transcript": ("calls.summary",),
-    "lead": ("call_extractions.data",),
+    "lead": ("call_extractions.data", "webhook_deliveries.payload_ref"),
 }
 
 
@@ -183,6 +200,8 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     "summaries": 0,
     "leads": 0,
     "extractions": 0,
+    # Delivered webhook bodies (D-23): one object deleted and its `payload_ref` cleared.
+    "delivery_bodies": 0,
     "deferred": 0,
 }
 
@@ -297,6 +316,15 @@ SELECT r.data_category, r.ttl_days, r.action,
       SELECT 1 FROM call_extractions e
       WHERE e.updated_at < now() - make_interval(days => r.ttl_days)
         AND e.data <> '{{}}'::jsonb)
+      OR EXISTS (
+      -- Scoped THROUGH `outbound_webhooks`, never by RLS: `webhook_deliveries` has no
+      -- policy of its own (engine webhooks arrive before a tenant is resolved), so this
+      -- subquery is the whole of the tenant scoping here, exactly as on the client's own
+      -- delivery screen.
+      SELECT 1 FROM webhook_deliveries d
+      WHERE d.payload_ref IS NOT NULL AND d.direction = 'out'
+        AND d.endpoint_id IN (SELECT id FROM outbound_webhooks)
+        AND d.created_at < now() - make_interval(days => r.ttl_days))
     ELSE false
   END AS has_work
 FROM retention_policies r
@@ -434,6 +462,63 @@ WHERE id IN (
 """
 
 
+# DELIVERED WEBHOOK BODIES (D-23) — the one arm of this sweep whose data lives outside
+# Postgres, and therefore the one that cannot be a single UPDATE.
+#
+# Two statements with a storage call between them, in an order chosen so the failure mode
+# is a survivable one: SELECT the keys, DELETE the objects, and only then clear the
+# references. Clearing first would be one crash away from an ORPHAN — an object holding a
+# lead's name and number that no query, no erasure and no later sweep can ever name
+# again. The reverse residue (a reference to an object already deleted) is harmless: the
+# read path reports it as gone, and the next tick clears it.
+#
+# `created_at` is the clock, not `last_at`: the body is what we sent, and a retry three
+# days later does not make the payload younger.
+_DELIVERY_BODY_SELECT_SQL = """
+SELECT d.id, d.payload_ref FROM webhook_deliveries d
+WHERE d.payload_ref IS NOT NULL AND d.direction = 'out'
+  AND d.endpoint_id IN (SELECT id FROM outbound_webhooks)
+  AND d.created_at < :cutoff
+ORDER BY d.created_at LIMIT :batch
+"""
+
+_DELIVERY_BODY_CLEAR_SQL = """
+UPDATE webhook_deliveries SET payload_ref = NULL
+WHERE id = ANY(:ids) AND endpoint_id IN (SELECT id FROM outbound_webhooks)
+"""
+
+
+async def _sweep_delivery_bodies(session: AsyncSession, *, cutoff: datetime) -> tuple[int, bool]:
+    """Expire the retained delivery bodies past `cutoff`. Returns (rows, deferred).
+
+    A store that will not answer STOPS this arm rather than failing the tick: every other
+    category still expires, the references stay pointing at objects that still exist, and
+    the next tick starts from the same oldest rows. Reported as a warning with counts —
+    an alert per tick during an object-store outage would be an alarm nobody reads, and
+    the objects are not yet overdue by any amount that matters within one night.
+    """
+    done = 0
+    while done < TENANT_ROW_BUDGET:
+        batch = min(SWEEP_BATCH_ROWS, TENANT_ROW_BUDGET - done)
+        rows = (
+            await session.execute(
+                text(_DELIVERY_BODY_SELECT_SQL), {"cutoff": cutoff, "batch": batch}
+            )
+        ).all()
+        if not rows:
+            return done, False
+        try:
+            storage.delete_objects([str(row[1]) for row in rows])
+        except storage.StorageUnavailableError as exc:
+            log.warning("delivery_body_expiry_deferred", extra={"reason": str(exc)})
+            return done, True
+        await session.execute(text(_DELIVERY_BODY_CLEAR_SQL), {"ids": [row[0] for row in rows]})
+        done += len(rows)
+        if len(rows) < batch:
+            return done, False
+    return done, True
+
+
 async def _apply_one(
     session: AsyncSession, *, category: str, ttl_days: int, action: str
 ) -> dict[str, int]:
@@ -481,9 +566,70 @@ async def _apply_one(
             session, _EXTRACTION_SQL, {"cutoff": cutoff}
         )
         counts["deferred"] += int(deferred)
+        counts["delivery_bodies"], deferred = await _sweep_delivery_bodies(session, cutoff=cutoff)
+        counts["deferred"] += int(deferred)
         return counts
 
     return counts
+
+
+async def _erase_delivery_bodies(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    subjects: Iterable[tuple[str, str]],
+) -> int:
+    """Destroy every retained webhook body belonging to these subjects. Returns the count.
+
+    THE OBJECT STORE IS THE AUTHORITY HERE, not `webhook_deliveries.payload_ref`, and the
+    difference matters exactly once: the delivery worker writes the object BEFORE it
+    records the reference, so a worker that died in between left an object with no row
+    pointing at it. A DB-driven erasure would walk straight past that object — and an
+    object holding a data principal's name and number that no erasure can reach is the
+    breach this whole design exists to avoid. Listing by the key's subject prefix finds
+    it, because the subject is IN the key (`storage.delivery_body_key`).
+
+    RAISES `StorageUnavailableError` (an `arq.Retry`) when the store will not answer.
+    That aborts the erasure and rolls the transaction back, so `completed_at` stays NULL
+    and the idempotency guard lets the retry redo the whole thing. The alternative —
+    proceed and note it — writes a certificate that says "erased" over a copy we did not
+    look for, and a proof that overclaims is worse than one that has not been issued yet.
+    """
+    # A tenant with no outbound endpoint has never had a delivered body, so there is
+    # nothing to enumerate. Asked FIRST, and not as an optimisation: without it every
+    # erasure on the platform — including the overwhelming majority, for clients who have
+    # configured no CRM sync at all — would depend on the object store being up, and a
+    # storage outage would stop DPDP erasures that have nothing to do with storage.
+    #
+    # Sound in both directions. A body is only ever written by the delivery worker, which
+    # loads an endpoint row first; and endpoints are DEACTIVATED, never deleted
+    # (`integrations/routes.deactivate_endpoint` keeps the row precisely so the delivery
+    # history stays readable), so "had a delivery once" implies "has a row now".
+    has_endpoint = (await session.execute(text("SELECT 1 FROM outbound_webhooks LIMIT 1"))).first()
+    if has_endpoint is None:
+        return 0
+
+    keys: list[str] = []
+    for subject_type, subject_id in subjects:
+        keys += storage.delivery_body_keys_for(
+            storage.delivery_body_subject_prefix(
+                tenant_id=tenant_id, subject_type=subject_type, subject_id=subject_id
+            )
+        )
+    if not keys:
+        return 0
+    storage.delete_objects(keys)
+    # The reference goes in the same transaction as the rest of the erasure. Scoped
+    # through `outbound_webhooks` because this table has no RLS policy — the same reason
+    # every other query against it in this codebase carries that subquery.
+    await session.execute(
+        text(
+            "UPDATE webhook_deliveries SET payload_ref = NULL WHERE payload_ref = ANY(:keys) "
+            "AND endpoint_id IN (SELECT id FROM outbound_webhooks)"
+        ),
+        {"keys": keys},
+    )
+    return len(keys)
 
 
 async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -531,6 +677,36 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             )
             .scalars()
             .all()
+        )
+
+        # Every subject a retained delivery body could be filed under, for THIS request.
+        # The calls' own `lead_id` is unioned in as well as the phone-matched leads: a
+        # `lead.*` body is keyed by the lead, and a lead whose own number was already
+        # anonymized by an earlier sweep would not be in `leads` above even though its
+        # body is plainly this person's. Belt and braces on the erasure side costs one
+        # extra prefix listing; missing a copy costs a DPDP breach.
+        linked_leads = (
+            (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT DISTINCT lead_id FROM calls "
+                            "WHERE id = ANY(:ids) AND lead_id IS NOT NULL"
+                        ),
+                        {"ids": list(calls)},
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if calls
+            else []
+        )
+        bodies_erased = await _erase_delivery_bodies(
+            session,
+            tenant_id=tenant_id,
+            subjects=[("call", str(c)) for c in calls]
+            + [("lead", str(lead)) for lead in {*leads, *linked_leads}],
         )
 
         turns_erased = 0
@@ -609,6 +785,15 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 "transcript_turns": "text and text_redacted replaced",
                 "call_extractions": "extracted field payload cleared",
                 "leads": "phone anonymized, name and extracted fields cleared",
+                # Counted in the sentence rather than in `scope`, because the
+                # certificate renderer builds `scope` from a fixed field list
+                # (`compliance/deletion_proof.certificate`) and `actions` is the part
+                # that passes through verbatim. A number a client can read beats a
+                # number only this file knows.
+                "webhook_deliveries": (
+                    f"{bodies_erased} delivered CRM payload(s) deleted from object "
+                    "storage and their references cleared"
+                ),
                 "usage_events": "retained — append-only ledger, carries no personal data",
                 "consent_ledger": "retained — append-only proof that consent existed",
             },
@@ -646,7 +831,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
     )
     return (
         f"erased calls={len(calls)} leads={len(leads)} turns={turns_erased} "
-        f"floor_recordings={recordings_in_floor}"
+        f"bodies={bodies_erased} floor_recordings={recordings_in_floor}"
     )
 
 

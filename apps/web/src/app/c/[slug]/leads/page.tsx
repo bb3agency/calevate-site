@@ -141,11 +141,22 @@ export default function LeadsPage() {
   const mayAssign = useWriteAccess(session, "leads:write", "change who owns a lead");
 
   const me = useMe(session);
-  // The permission the CSV route requires, read off `/v1/me` rather than from a
-  // hardcoded role list — the server is the authority on what this session may do.
-  // While `/v1/me` is in flight this is false, so the control starts refused and
-  // relaxes, rather than offering an action it may be about to withdraw.
-  const mayExport = me.data?.permissions?.includes("calls:read_raw") ?? false;
+  /**
+   * May this session take the CSV out? — through the same helper every other gated
+   * control here uses, rather than reading the permission list inline.
+   *
+   * It used to be `me.data?.permissions?.includes("calls:read_raw") ?? false`, and that
+   * `?? false` is BUILD-LOG §52's defect in its original costume: `me.data` is undefined
+   * while `/v1/me` is in flight AND after it has failed, so a request that never landed
+   * disabled the button under the sentence "Exporting full phone numbers is limited to
+   * the account owner." An owner who holds the permission was told they do not — a
+   * refusal manufactured from our own ignorance, which is the one thing a failed read
+   * must never produce. `useWriteAccess` distinguishes the two: it answers "We could not
+   * check whether you can …" on `me.error`, and stays quiet (reason `null`) while the
+   * answer is still coming. tests/surfaceStatesGuard.test.ts keeps this shape out.
+   */
+  const exportAccess = useWriteAccess(session, "calls:read_raw", "export leads");
+  const mayExport = exportAccess.allowed;
   const agents = useAgents(session);
   const callLead = useCallLead(session);
   const [agentId, setAgentId] = useState("");
@@ -342,7 +353,11 @@ export default function LeadsPage() {
           title={
             mayExport
               ? "Downloads every lead in this account, with full phone numbers. Filters on this screen do not apply."
-              : "Exporting full phone numbers is limited to the account owner."
+              : // The refusal in the server's own terms — "Only an account owner can
+                // export leads." for a role that lacks it, and "We could not check…"
+                // when `/v1/me` failed. Those are different facts and the tooltip used
+                // to state the first for both.
+                (exportAccess.reason ?? "Checking whether you can export these leads…")
           }
           className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5"
         >

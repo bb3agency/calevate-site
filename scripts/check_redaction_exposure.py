@@ -78,6 +78,12 @@ ALLOWED_ROUTES: dict[str, str] = {
     "/v1/calls/{call_id}/transcript/raw": (
         "requires calls:read_raw AND writes audit_log in the same transaction"
     ),
+    "/v1/integrations/deliveries/{delivery_id}/payload": (
+        "the delivered CRM body, byte for byte — a lead's name and number in whatever "
+        "form the endpoint's own opt-in produced. Requires calls:read_raw AND writes "
+        "audit_log in the same transaction; a redacted copy could not answer the "
+        "question it exists for ('you sent us the wrong lead')"
+    ),
     "/v1/leads/export.csv": (
         "the client's own contact data, role-gated and audit-logged; a CSV of masked "
         "numbers cannot serve the follow-up call it exists for"

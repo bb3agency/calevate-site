@@ -21,11 +21,11 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.campaigns import service
+from apps.api.campaigns import scheduling, service
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
@@ -125,12 +125,48 @@ class LaunchOut(Strict):
     dnc_scrubbed: int
 
 
+class ScheduleIn(Strict):
+    """When a one-time start should happen.
+
+    `AwareDatetime`, not `datetime`: the wire type itself refuses a bare local string,
+    so the generated TypeScript client cannot send "2026-08-17T10:00" and have the
+    server decide which 10 o'clock it meant. A client picking 10am IST sends
+    `2026-08-17T10:00:00+05:30`; the service converts to UTC for storage, and the screen
+    renders IST again. Getting this wrong dials households at 15:30 or 02:30, so it is
+    pinned at the type level and re-checked in `scheduling.schedule_campaign` for
+    callers that are not HTTP requests.
+    """
+
+    start_at: AwareDatetime
+
+
+class ScheduleOut(Strict):
+    """The start we recorded, and when dialling can actually begin.
+
+    Both fields, always, because they differ whenever the client picks a time outside
+    the calling window — and that difference is the answer to the most natural
+    misreading of this feature. A 22:00 start is accepted (starting a campaign is not
+    dialling it) and `first_dial_not_before` says 09:00 the next morning, which is what
+    TRAI's window means for that choice.
+    """
+
+    start_at: datetime
+    first_dial_not_before: datetime
+
+
 class ProgressOut(Strict):
     status: str
     launched_at: datetime | None
     concurrency: int
     contacts: dict[str, int]
     total: int
+    # The pending start, echoed from `campaigns.schedule`, so a `scheduled` campaign can
+    # say WHEN rather than just that it is waiting. None for every other status.
+    scheduled_start_at: datetime | None = None
+    # The rules the gate refused this start with on its last attempt, if any. A
+    # scheduled campaign whose start keeps being blocked otherwise sits on screen saying
+    # "scheduled" until it silently returns to draft a day later.
+    schedule_blocked_rules: list[str] = Field(default_factory=list)
 
 
 class CampaignSummaryOut(Strict):
@@ -373,6 +409,83 @@ async def launch(
         summary={"dialable": result["dialable"], "dnc_scrubbed": result["dnc_scrubbed"]},
     )
     return LaunchOut.model_validate(result)
+
+
+@router.post(
+    "/{campaign_id}/schedule",
+    response_model=ScheduleOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Start this campaign later — the gate runs when it FIRES, not now",
+)
+async def schedule(
+    campaign_id: UUID,
+    payload: ScheduleIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> ScheduleOut:
+    """Record a one-time start.
+
+    `leads:dispatch`, the same permission as `POST /launch`, because this IS a launch —
+    one with a delay on it. Anything weaker would be a way to cause dialling without the
+    authority to dial.
+
+    **No compliance gate here, and that is the design, not an omission.** The gate runs
+    inside `launch_campaign` when the dispatch tick fires this schedule (hard rule 5,
+    `campaigns/scheduling.py` decision 2): a campaign scheduled on Friday and started on
+    Monday may have crossed a DNC addition, a spend cap, a KYC expiry or the platform
+    halt in between, so a gate at THIS moment would prove nothing about the moment that
+    matters. `GET /launch-check` remains available and answers "would it launch right
+    now" for a scheduled campaign exactly as for a draft.
+
+    Audited: "who told this campaign to start dialling, and when for" is the same
+    question `campaign.launched` exists to answer.
+    """
+    assert principal.tenant_id is not None
+    result = await scheduling.schedule_campaign(
+        session,
+        tenant_id=principal.tenant_id,
+        campaign_id=campaign_id,
+        start_at=payload.start_at,
+    )
+    await write_audit(
+        session,
+        action="campaign.scheduled",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="campaign",
+        object_id=str(campaign_id),
+        ip=request.client.host if request.client else None,
+        summary={"start_at": result.start_at.isoformat()},
+    )
+    return ScheduleOut(start_at=result.start_at, first_dial_not_before=result.first_dial_not_before)
+
+
+@router.delete(
+    "/{campaign_id}/schedule",
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Cancel a pending start — the campaign goes back to draft",
+)
+async def unschedule(
+    campaign_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> dict[str, str]:
+    assert principal.tenant_id is not None
+    await scheduling.unschedule_campaign(
+        session, tenant_id=principal.tenant_id, campaign_id=campaign_id
+    )
+    await write_audit(
+        session,
+        action="campaign.schedule_cancelled",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="campaign",
+        object_id=str(campaign_id),
+        ip=request.client.host if request.client else None,
+    )
+    return {"status": "draft"}
 
 
 @router.post(

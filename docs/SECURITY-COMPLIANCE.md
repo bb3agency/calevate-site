@@ -115,6 +115,35 @@ cite the same string:
 | Security safeguards | §5 below |
 | Cross-border | CAUTION (D-31): Bolna call recordings observed on S3 us-east-1; their Enterprise tier offers full India data-residency (audio, transcripts, logs, in-India inference) — residency posture must be pinned in the Bolna contract and disclosed in the client DPA until then. **Models are all-India BY DEFAULT since D-36** — Sarvam is sovereign and now serves STT, LLM *and* TTS, so no transcript text leaves India on the default stack. This inverts the earlier posture: "all-India" is no longer a client opt-in at a quality tradeoff, it is what ships. Gemini remains a *configurable fallback*; enabling it sends transcript text (never audio) to Google and therefore requires a DPA disclosure and an explicit per-tenant decision — treat switching an agent to Gemini as a residency change, not a config tweak. This is a live differentiator: Outpero's privacy policy admits "some providers may process data on servers located outside India" (evidence/outpero-teardown-aug2026.md §9b) |
 
+**Delivered CRM bodies (D-23) are personal data we now retain, and the terms are these.**
+`webhook_deliveries.payload_ref` holds the object-storage key of the body we POSTed to a
+client's own endpoint — the lead's name, their number in whatever form that endpoint's
+`include_raw_phone` choice produced, and every extracted field. Kept because the delivery
+log could otherwise prove only that a POST happened, so "you sent us the wrong lead" was
+answerable with a reconstruction rather than with evidence. What makes retaining it
+lawful rather than merely useful:
+
+- **Retention period**: the tenant's OWN `lead` policy — the same category and clock as
+  `call_extractions.data`, because it is the same class of data (see the retention row
+  above; the seed default is 1095 days and is subject to the open question below). The
+  nightly sweep deletes the objects and clears the references. This one does NOT depend
+  on the bucket lifecycle rule the recording arm relies on: nothing here sits under a
+  statutory floor, so the per-tenant mechanism is the whole answer and it exists.
+- **Erasure**: `execute_deletion_request` deletes them by SUBJECT. The subject is in the
+  object key (`webhook-bodies/{tenant}/{lead|call}-{id}/{delivery}.json`), so the erasure
+  enumerates the object store by prefix rather than trusting the reference column — which
+  is what reaches an object written by a worker that died before recording the reference.
+  A store that will not answer aborts the erasure and retries it; the certificate never
+  claims a deletion we could not perform. The count appears in the proof's `actions`.
+- **What is deliberately NOT retained**: any event we cannot attribute to an erasable
+  subject (today, `campaign.completed`). An object no data principal can be matched to is
+  precisely the breach this store is designed not to become, so it is not written.
+- **Access**: same class as a raw transcript and gated the same way — `calls:read_raw`
+  plus an `audit_log` row on every read (`GET /v1/integrations/deliveries/{id}/payload`).
+  `staff` and an impersonating operator see the delivery record and never the body.
+- **Bounded**: 64 KiB per delivery, truncation declared inside the stored object. Neither
+  the endpoint URL nor the signing secret is ever part of it.
+
 **OPEN DECISION — erasure vs. the 90-day recording floor.** Surfaced by the DPDP erasure
 producer (`apps/api/compliance/deletion.py`), stated here rather than resolved, because
 two adjacent rows of the table above point opposite ways for one concrete case: a call

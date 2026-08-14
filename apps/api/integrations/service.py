@@ -36,7 +36,7 @@ import hmac
 import json
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -106,6 +106,16 @@ class DeliveryResult:
     # because "no status" would otherwise read as a transport blip and a permanent
     # refusal would climb the ladder three times to reach the same no.
     transient: bool | None = None
+    # EXACTLY what went on the wire, for the delivery-body retention (D-23). Reported by
+    # the transport rather than rebuilt by the caller, because a body rebuilt from the
+    # same inputs is a body that agrees with the mapping and the serializer we HAPPEN to
+    # run today — and the whole value of the artifact is that it is what the client's
+    # endpoint actually received, mapping renames and all.
+    #
+    # `repr=False`: this field is personal data, and a dataclass repr is one careless
+    # `log.info(..., extra={"result": result})` away from a hard rule 6 violation.
+    # Nothing that formats a `DeliveryResult` can print it by accident.
+    sent_body: str | None = field(default=None, repr=False)
 
 
 def secret_fingerprint(secret: str) -> str:
@@ -312,6 +322,29 @@ async def delivery_status(session: AsyncSession, delivery_id: UUID) -> str | Non
     return str(row[0])
 
 
+async def delivery_body_ref(session: AsyncSession, delivery_id: UUID) -> tuple[str | None, str]:
+    """`(payload_ref, event_type)` for one of THIS tenant's deliveries.
+
+    Scoped THROUGH `outbound_webhooks` for the reason `delivery_status` is: this table
+    carries no RLS policy, so a bare `WHERE id = :id` would hand one tenant the object
+    key of another tenant's CRM payload — and that key is all a reader needs, because
+    the object behind it is the personal data. A delivery belonging to somebody else is
+    404, indistinguishable from one that never existed (hard rule 1).
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT payload_ref, event_type FROM webhook_deliveries WHERE id = :id "
+                "AND direction = 'out' AND endpoint_id IN (SELECT id FROM outbound_webhooks)"
+            ),
+            {"id": delivery_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Delivery")
+    return (str(row[0]) if row[0] else None), str(row[1] or "")
+
+
 def apply_mapping(data: dict[str, Any], mapping: dict[str, Any]) -> dict[str, Any]:
     """Rename our field names to the client's, if they asked us to.
 
@@ -328,6 +361,37 @@ def apply_mapping(data: dict[str, Any], mapping: dict[str, Any]) -> dict[str, An
     return renamed
 
 
+# WHOSE DATA A DELIVERED BODY IS — the question that decides whether we may keep it.
+#
+# A retained body is personal data with an erasure duty (SEC-COMP §4), and the DPDP
+# worker locates a subject through `calls` and `leads`. So the rule is: we retain a body
+# only when we can name a row the erasure will find. `call_id` first, because that is
+# how a `call.completed` body is located (the erasure matches calls on `from_e164` /
+# `to_e164`); `lead_id` otherwise, which is how a `lead.*` body is located.
+#
+# An event with NEITHER — `campaign.completed`, whose payload is campaign aggregates —
+# is not retained at all. That is not an oversight: an object nobody can enumerate for a
+# data principal is exactly the breach this store is designed not to become, and
+# refusing to write it is stronger than writing it and hoping. The cost is that the one
+# event carrying no person's data is also the one with no forensic body, which is the
+# right way round.
+BODY_SUBJECT_FIELDS: tuple[tuple[str, str], ...] = (("call", "call_id"), ("lead", "lead_id"))
+
+
+def body_subject(data: dict[str, Any]) -> tuple[str, str] | None:
+    """`(subject_type, subject_id)` for a delivered body, or None if we cannot name one.
+
+    Read from OUR field names, so it must run on the payload BEFORE `apply_mapping`
+    renames them to the client's — after the rename `lead_id` may be called `Lead Ref`
+    and the subject would silently become unnameable for every mapped endpoint.
+    """
+    for subject_type, key in BODY_SUBJECT_FIELDS:
+        value = data.get(key)
+        if value not in (None, ""):
+            return subject_type, str(value)
+    return None
+
+
 async def record_delivery(
     session: AsyncSession,
     *,
@@ -339,11 +403,22 @@ async def record_delivery(
     status_code: int | None,
     channel: str = "http",
     reason: str | None = None,
+    payload_ref: str | None = None,
 ) -> None:
     """Forensic log, upserted by delivery id so retries update one row (SEC-COMP §5).
 
-    No payload column and no payload ref: the body is reconstructible from the domain
-    row, and a table of un-redacted CRM payloads is a breach waiting for a query.
+    `payload_ref` is the object-storage key of the body we sent, and it is the only
+    personal data this row reaches — the table itself still holds none. It used to hold
+    no reference either, on the argument that the body is reconstructible from the
+    domain row; it is not. The domain row is what the lead looks like NOW, after the
+    mapping, the masking and any later edit, so "you sent us the wrong lead" was
+    answerable with a reconstruction rather than with evidence. The object it names
+    carries the retention clock and the erasure duty that come with saying so
+    (`workers/storage.delivery_body_key`).
+
+    `COALESCE` on the ref, not assignment: a retry whose body could not be stored must
+    not WIPE the reference an earlier attempt succeeded in writing. Best-effort storage
+    means the reference can only ever be gained by an attempt, never lost by one.
 
     `channel` is the transport (`http`, `sheets`). It is the only thing that differs
     between the two endpoint kinds here — ONE log, one row per delivery, one vocabulary
@@ -361,13 +436,15 @@ async def record_delivery(
     result = await session.execute(
         text(
             "UPDATE webhook_deliveries SET attempts = :attempts, status = :status, "
-            "source = :src, reason = :reason, last_at = now() WHERE id = :id"
+            "source = :src, reason = :reason, payload_ref = COALESCE(:ref, payload_ref), "
+            "last_at = now() WHERE id = :id"
         ),
         {
             "attempts": attempts,
             "status": status,
             "src": source,
             "reason": reason,
+            "ref": payload_ref,
             "id": delivery_id,
         },
     )
@@ -375,9 +452,9 @@ async def record_delivery(
         await session.execute(
             text(
                 "INSERT INTO webhook_deliveries (id, direction, source, event_type, status, "
-                "attempts, endpoint_id, reason, first_at, last_at, created_at) VALUES (:id, "
-                "'out', :src, :event, :status, :attempts, :endpoint, :reason, now(), now(), "
-                "now())"
+                "attempts, endpoint_id, reason, payload_ref, first_at, last_at, created_at) "
+                "VALUES (:id, 'out', :src, :event, :status, :attempts, :endpoint, :reason, "
+                ":ref, now(), now(), now())"
             ),
             {
                 "id": delivery_id,
@@ -387,6 +464,7 @@ async def record_delivery(
                 "attempts": attempts,
                 "endpoint": endpoint_id,
                 "reason": reason,
+                "ref": payload_ref,
             },
         )
 
@@ -428,10 +506,19 @@ async def deliver(
             delivered=ok,
             status_code=response.status_code,
             error=None if ok else f"HTTP {response.status_code}",
+            sent_body=body,
         )
     except httpx.HTTPError as exc:
         # The URL and the error TYPE are safe to log; the body never is.
-        return DeliveryResult(delivered=False, status_code=None, error=type(exc).__name__)
+        #
+        # `sent_body` is reported on the FAILURE path too. "You sent us the wrong lead"
+        # and "your POST never arrived" are asked about the same delivery, and a record
+        # that only exists when the receiver said 200 is missing on exactly the
+        # deliveries anybody investigates. The bytes were composed and handed to the
+        # socket either way.
+        return DeliveryResult(
+            delivered=False, status_code=None, error=type(exc).__name__, sent_body=body
+        )
     finally:
         if owns_client:
             await http.aclose()
@@ -591,6 +678,7 @@ def _disarm(rendered: str) -> str:
 
 
 __all__ = [
+    "BODY_SUBJECT_FIELDS",
     "DEFAULT_SHEET_COLUMNS",
     "DEFAULT_WORKSHEET",
     "DELIVERABLE_KINDS",
@@ -605,9 +693,11 @@ __all__ = [
     "WEBHOOK_KIND",
     "DeliveryResult",
     "apply_mapping",
+    "body_subject",
     "build_envelope",
     "deactivate_endpoint",
     "deliver",
+    "delivery_body_ref",
     "delivery_status",
     "enqueue_event",
     "lead_payload",

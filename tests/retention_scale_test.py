@@ -411,7 +411,12 @@ async def test_every_derived_copy_is_governed_by_a_category_a_tenant_actually_ha
 
     assert set(retention.DERIVED_COPIES) <= categories
     assert retention.DERIVED_COPIES["transcript"] == ("calls.summary",)
-    assert retention.DERIVED_COPIES["lead"] == ("call_extractions.data",)
+    assert retention.DERIVED_COPIES["lead"] == (
+        "call_extractions.data",
+        # The delivered webhook body (D-23): the client's CRM payload in object storage,
+        # governed by the `lead` policy the tenant already has.
+        "webhook_deliveries.payload_ref",
+    )
 
 
 async def test_a_longer_transcript_ttl_keeps_the_summary_for_exactly_as_long() -> None:

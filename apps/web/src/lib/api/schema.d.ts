@@ -1286,6 +1286,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start this campaign later — the gate runs when it FIRES, not now
+         * @description Record a one-time start.
+         *
+         *     `leads:dispatch`, the same permission as `POST /launch`, because this IS a launch —
+         *     one with a delay on it. Anything weaker would be a way to cause dialling without the
+         *     authority to dial.
+         *
+         *     **No compliance gate here, and that is the design, not an omission.** The gate runs
+         *     inside `launch_campaign` when the dispatch tick fires this schedule (hard rule 5,
+         *     `campaigns/scheduling.py` decision 2): a campaign scheduled on Friday and started on
+         *     Monday may have crossed a DNC addition, a spend cap, a KYC expiry or the platform
+         *     halt in between, so a gate at THIS moment would prove nothing about the moment that
+         *     matters. `GET /launch-check` remains available and answers "would it launch right
+         *     now" for a scheduled campaign exactly as for a draft.
+         *
+         *     Audited: "who told this campaign to start dialling, and when for" is the same
+         *     question `campaign.launched` exists to answer.
+         */
+        post: operations["schedule_v1_campaigns__campaign_id__schedule_post"];
+        /** Cancel a pending start — the campaign goes back to draft */
+        delete: operations["unschedule_v1_campaigns__campaign_id__schedule_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/compliance/deletion-requests": {
         parameters: {
             query?: never;
@@ -1534,6 +1570,26 @@ export interface paths {
         };
         /** Recent delivery attempts — 'did it reach my CRM?' answered without support */
         get: operations["list_deliveries_v1_integrations_deliveries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/deliveries/{delivery_id}/payload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What we actually sent — role-checked AND audit-logged on every read
+         * @description The exact body we POSTed for one delivery, as your endpoint received it. This is your customer's personal data in unredacted form, so it requires the same permission as an unredacted transcript and every read is written to your audit log. Bodies are kept for as long as your lead-retention policy allows and are destroyed by an erasure request; `404 delivery_body_not_retained` means there is no longer one to show.
+         */
+        get: operations["get_delivery_payload_v1_integrations_deliveries__delivery_id__payload_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3325,8 +3381,37 @@ export interface components {
              * Format: date-time
              */
             last_at: string;
+            /** Payload Stored */
+            payload_stored: boolean;
             /** Status */
             status: string | null;
+        };
+        /**
+         * DeliveryPayloadOut
+         * @description What we actually sent, byte for byte — the raw-PII surface of this module.
+         *
+         *     Same class of data as a raw transcript and gated the same way (hard rule 5):
+         *     `calls:read_raw` AND an `audit_log` row, never one of the two. `body` is the exact
+         *     string that went on the wire, so it carries the lead's name and their number in
+         *     whatever form the endpoint's own `include_raw_phone` choice produced — which is the
+         *     entire point, since "you sent us the wrong lead" cannot be answered with a redaction.
+         */
+        DeliveryPayloadOut: {
+            /** Body */
+            body: string;
+            /**
+             * Delivery Id
+             * Format: uuid
+             */
+            delivery_id: string;
+            /** Event Type */
+            event_type: string | null;
+            /** Original Bytes */
+            original_bytes: number;
+            /** Stored At */
+            stored_at: string | null;
+            /** Truncated */
+            truncated: boolean;
         };
         /**
          * DltRegistrationIn
@@ -4693,6 +4778,10 @@ export interface components {
             };
             /** Launched At */
             launched_at: string | null;
+            /** Schedule Blocked Rules */
+            schedule_blocked_rules?: string[];
+            /** Scheduled Start At */
+            scheduled_start_at?: string | null;
             /** Status */
             status: string;
             /** Total */
@@ -4825,6 +4914,47 @@ export interface components {
             secret: string | null;
             /** Secret Header */
             secret_header: string;
+        };
+        /**
+         * ScheduleIn
+         * @description When a one-time start should happen.
+         *
+         *     `AwareDatetime`, not `datetime`: the wire type itself refuses a bare local string,
+         *     so the generated TypeScript client cannot send "2026-08-17T10:00" and have the
+         *     server decide which 10 o'clock it meant. A client picking 10am IST sends
+         *     `2026-08-17T10:00:00+05:30`; the service converts to UTC for storage, and the screen
+         *     renders IST again. Getting this wrong dials households at 15:30 or 02:30, so it is
+         *     pinned at the type level and re-checked in `scheduling.schedule_campaign` for
+         *     callers that are not HTTP requests.
+         */
+        ScheduleIn: {
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
+        };
+        /**
+         * ScheduleOut
+         * @description The start we recorded, and when dialling can actually begin.
+         *
+         *     Both fields, always, because they differ whenever the client picks a time outside
+         *     the calling window — and that difference is the answer to the most natural
+         *     misreading of this feature. A 22:00 start is accepted (starting a campaign is not
+         *     dialling it) and `first_dial_not_before` says 09:00 the next morning, which is what
+         *     TRAI's window means for that choice.
+         */
+        ScheduleOut: {
+            /**
+             * First Dial Not Before
+             * Format: date-time
+             */
+            first_dial_not_before: string;
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
         };
         /**
          * ServiceItem
@@ -7920,6 +8050,74 @@ export interface operations {
             };
         };
     };
+    schedule_v1_campaigns__campaign_id__schedule_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    unschedule_v1_campaigns__campaign_id__schedule_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     request_erasure_v1_compliance_deletion_requests_post: {
         parameters: {
             query?: never;
@@ -8349,6 +8547,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeliveryOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_delivery_payload_v1_integrations_deliveries__delivery_id__payload_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryPayloadOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -57,6 +57,14 @@ RECORDING_FLOOR_DAYS = 90
 # which is a failure that looks exactly like success.
 RECORDINGS_PREFIX = "recordings/"
 PAYLOADS_PREFIX = "engine-payloads/"
+# Delivered CRM bodies (D-23). Unlike the two above, these ARE expired per tenant, by
+# `apps/workers/retention.py` on the tenant's own `lead` policy — so this rule is a
+# CEILING and an orphan backstop, not the retention mechanism. The orphan it backstops is
+# real and named: the delivery worker writes the object before it records the reference,
+# so a crash in between leaves bytes the DB cannot see. The DPDP erasure still reaches
+# those (it enumerates by subject prefix); this rule is what bounds one that no erasure
+# request ever names.
+BODIES_PREFIX = "webhook-bodies/"
 
 
 class PolicyError(Exception):

@@ -27,6 +27,13 @@ TWO GATES RUN HERE, and they answer different questions:
   and hard rule 5 says additions propagate before the next dispatch tick. This loop IS
   the dispatch tick.
 
+A THIRD thing happens here, before either gate: **scheduled campaigns start.** A client
+can set a one-time start (`campaigns.schedule`, `apps/api/campaigns/scheduling.py`) and
+this tick is what fires it — through `launch_campaign`, the same function the Launch
+button calls, so the full launch gate runs AT FIRE TIME rather than at the moment a
+human picked a date. Starting is not dialling: a campaign started at 22:00 becomes
+`running` and dials nothing until `calling_hours` and the per-dial gate agree.
+
 Claiming is CAS: `pending → dialing` by conditional UPDATE with SKIP LOCKED, so N
 dispatcher processes never double-dial a contact. The claim COMMITS before the first
 dial and each dial gets its own transaction — see `_dispatch_for_campaign` for why a
@@ -84,6 +91,7 @@ from sqlalchemy import text
 
 from apps.api.agents.service import dispatch_call
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
+from apps.api.campaigns.scheduling import due_schedules, fire_schedule
 from apps.api.campaigns.service import campaign_window_open, dispatch_blockers
 
 # Module import (not `from ... import ist_now`) so tests that pin the compliance
@@ -92,6 +100,7 @@ from apps.api.campaigns.service import campaign_window_open, dispatch_blockers
 from apps.api.compliance import service as compliance_service
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.alerting import alert, metrics_log, record_compliance_block
+from apps.api.core.errors import InvalidStatusTransitionError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
@@ -143,6 +152,12 @@ class TenantWork(NamedTuple):
     tenant_id: UUID
     active_outbound: int
     has_running_campaign: bool
+    # A scheduled campaign whose start time has ARRIVED. A coarse screen, deliberately:
+    # `scheduling.due_schedules()` stays the authority on what a schedule means (the
+    # `kind` guard, the offset requirement), and this is a proven superset of it — the
+    # same relationship `engine_agent_routes` has with the tick. Migration c7e4b19d3f52
+    # argues why a superset here and a subset never.
+    has_due_schedule: bool
 
 
 async def _tenants_with_work() -> list[TenantWork]:
@@ -189,13 +204,14 @@ async def _tenants_with_work() -> list[TenantWork]:
         rows = (
             await session.execute(
                 text(
-                    "SELECT scanned_tenant_id, active_outbound, has_running_campaign "
+                    "SELECT scanned_tenant_id, active_outbound, has_running_campaign, "
+                    "  has_due_schedule "
                     "FROM dispatch_scan(:statuses, :horizon)"
                 ),
                 {"statuses": list(ACTIVE_STATUSES), "horizon": ACTIVE_CALL_HORIZON},
             )
         ).all()
-    return [TenantWork(UUID(str(row[0])), int(row[1]), bool(row[2])) for row in rows]
+    return [TenantWork(UUID(str(row[0])), int(row[1]), bool(row[2]), bool(row[3])) for row in rows]
 
 
 @asynccontextmanager
@@ -360,10 +376,21 @@ async def _run_tick() -> str:
     total_active = sum(work.active_outbound for work in tenants)
 
     running: list[tuple[UUID, UUID, int, dict[str, Any]]] = []  # (tenant, campaign, slots, retry)
+    started = 0
     for work in tenants:
-        if not work.has_running_campaign:
+        if not (work.has_running_campaign or work.has_due_schedule):
             # Holding lines but nothing to dial. It has already been counted into
             # `total_active`; there is nothing a session could add.
+            continue
+        # Scheduled starts FIRST, so a campaign whose start time arrived this tick dials
+        # in this tick rather than the next one — the budget read below then sees it as
+        # `running` like any other. The 30 seconds saved are not the point; the point is
+        # that "starts at 10:00" and "first dial at 10:00:30" differ by a tick's worth of
+        # explaining. Placed after the big red switch check at the top of this function,
+        # which is what stops a schedule firing into a halted platform.
+        started_here = await _fire_due_schedules(work.tenant_id) if work.has_due_schedule else 0
+        started += started_here
+        if not (work.has_running_campaign or started_here):
             continue
         async with tenant_session(work.tenant_id) as session:
             row = (await session.execute(_TENANT_BUDGET_SQL, {"tid": work.tenant_id})).first()
@@ -410,7 +437,10 @@ async def _run_tick() -> str:
                     )
 
     if not running:
-        return "no_running_campaigns"
+        # `started` is always reported, even as 0: a ternary here would add a branch to
+        # the dial path whose only job is to make a log line shorter, and the ratchet
+        # would then be policing a cosmetic decision.
+        return f"no_running_campaigns started={started}"
 
     # Rule 1+2: what is left of the shared pool after everyone's active calls.
     global_budget = max(0, pool - total_active)
@@ -432,7 +462,49 @@ async def _run_tick() -> str:
         metrics_log.info(
             "metric", extra={"metric": "campaign_dials", "value": dialled, "blocked": blocked}
         )
-    return f"dialled={dialled} blocked={blocked} exhausted={exhausted}"
+    return f"dialled={dialled} blocked={blocked} exhausted={exhausted} started={started}"
+
+
+async def _fire_due_schedules(tenant_id: UUID) -> int:
+    """Start this tenant's campaigns whose scheduled time has arrived. Returns how many.
+
+    **ONE TRANSACTION PER CAMPAIGN, and that is the whole double-launch defence.**
+    `fire_schedule` runs the full launch gate and then CASes `scheduled → running`; the
+    CAS is what makes a schedule fire exactly once, and it can only do that job if the
+    loser has its own transaction to roll back. Two ticks racing (the tick lease fails
+    open on a Redis error — `_tick_lease`) both read the campaign as due, both run the
+    gate, and the second one's `UPDATE ... WHERE status IN ('draft','scheduled')` blocks
+    on the winner's row lock, re-reads `running`, and returns zero rows. Sharing one
+    transaction across the tenant's campaigns would roll the winner's own launch back
+    alongside the loser's scrub, and the campaign would fire again next tick.
+
+    `InvalidStatusTransitionError` is therefore the EXPECTED outcome of the loser, not a
+    failure: it is the invariant holding. Counted, logged at info, never alerted.
+
+    The clock is read ONCE for the whole tenant so every campaign in this tick is judged
+    against the same instant — a schedule due at 10:00:00.4 and one due at 10:00:00.6
+    should not depend on which of them we looked at first.
+    """
+    now = datetime.now(UTC)
+    async with tenant_session(tenant_id) as session:
+        due = await due_schedules(session, now=now)
+    if not due:
+        return 0
+
+    started = 0
+    for schedule in due:
+        try:
+            async with tenant_session(tenant_id) as session:
+                outcome = await fire_schedule(session, tenant_id=tenant_id, due=schedule, now=now)
+        except InvalidStatusTransitionError:
+            # Lost the CAS — somebody (another tick, or a client pressing Launch) started
+            # this campaign first. The transaction rolled back on the way out of the
+            # context manager, so nothing this branch did survives.
+            log.info("campaign_schedule_raced", extra={"campaign_id": str(schedule.campaign_id)})
+            continue
+        if outcome == "fired":
+            started += 1
+    return started
 
 
 async def _dispatch_for_campaign(

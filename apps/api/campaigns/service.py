@@ -474,15 +474,25 @@ async def add_contacts(
     contacts: list[dict[str, Any]],
 ) -> dict[str, int]:
     """CSV rows → contact rows. Dedupe inside the upload AND against the campaign
-    (UNIQUE(campaign_id, phone)); malformed numbers are counted, never guessed at."""
+    (UNIQUE(campaign_id, phone)); malformed numbers are counted, never guessed at.
+
+    `scheduled` is accepted alongside `draft` because both are PRE-LAUNCH states — a
+    campaign waiting for Monday has not dialled anyone, and refusing its contact upload
+    would leave the client's only route "cancel the schedule, upload, re-pick the date".
+    It is the same pairing `declare_consent_provenance` and `launch_blockers` already
+    use. What stays refused is everything from `running` on: contacts appearing under a
+    campaign mid-dial would move the "N people will be called" number the client
+    confirmed at launch.
+    """
     status = (
         await session.execute(
             text("SELECT status FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
         )
     ).scalar()
-    if status != "draft":
+    if status not in ("draft", "scheduled"):
         raise ProblemError.business_rule(
-            "campaign_not_draft", "Contacts can only be added to a draft campaign."
+            "campaign_not_draft",
+            "Contacts can only be added before a campaign is launched.",
         )
 
     added, malformed, duplicate = 0, 0, 0
@@ -938,6 +948,16 @@ async def list_campaigns(session: AsyncSession) -> list[dict[str, Any]]:
 
 
 async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[str, Any]:
+    """Live progress, plus the pending start if there is one.
+
+    The two schedule fields are read from `campaigns.schedule` here rather than through
+    a second endpoint, because a screen that shows "scheduled" without saying WHEN — or
+    without saying that the last attempt to start was refused — is a state, which §52
+    says a screen may not stop at. They are extracted in SQL by key rather than handing
+    the whole JSONB to the response model: `schedule` also carries `kind` and, in
+    future, whatever recurrence needs, and a response model is an output WHITELIST
+    (BACKEND-PATTERNS §1).
+    """
     rows = (
         await session.execute(
             text(
@@ -950,18 +970,31 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
     counts = {str(r[0]): int(r[1]) for r in rows}
     campaign = (
         await session.execute(
-            text("SELECT status, launched_at, concurrency FROM campaigns WHERE id = :cid"),
+            text(
+                "SELECT status, launched_at, concurrency, "
+                # Only while the campaign is still WAITING. `launch_campaign` leaves the
+                # column populated on the row it starts (it is the record of why that
+                # launch happened, and `_expire` is the only thing that clears it), so an
+                # unconditional read would have a running campaign still advertising a
+                # start time that has already been honoured.
+                "  CASE WHEN status = 'scheduled' THEN schedule->>'start_at' END, "
+                "  CASE WHEN status = 'scheduled' THEN schedule->'last_blocked'->'rules' END "
+                "FROM campaigns WHERE id = :cid"
+            ),
             {"cid": campaign_id},
         )
     ).first()
     if campaign is None:
         raise ProblemError.not_found("Campaign")
+    blocked_rules = campaign[4]
     return {
         "status": campaign[0],
         "launched_at": campaign[1],
         "concurrency": campaign[2],
         "contacts": counts,
         "total": sum(counts.values()),
+        "scheduled_start_at": campaign[3],
+        "schedule_blocked_rules": [str(rule) for rule in blocked_rules] if blocked_rules else [],
     }
 
 

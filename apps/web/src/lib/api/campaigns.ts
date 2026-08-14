@@ -182,10 +182,16 @@ export function useCampaignProgress(session: Session, campaignId: string | null)
     // Poll only while the campaign is actually dispatching, and no faster than the
     // dispatcher ticks (30s) — a completed campaign polled every 15s is pure noise on
     // a phone connection, which is what most of these clients are on.
-    refetchInterval: (query) =>
-      query.state.data?.status === "running" || query.state.data?.status === "paused"
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      // `scheduled` polls for the same reason `running` does: the thing the client is
+      // watching for is a change they did not cause. A scheduled campaign flips to
+      // running on a dispatch tick, and a screen that only learned that on a manual
+      // reload would show "Starts 10:00" at 10:05.
+      return status === "running" || status === "paused" || status === "scheduled"
         ? 15_000
-        : false,
+        : false;
+    },
   });
 }
 
@@ -246,5 +252,69 @@ export function parseContactCsv(text: string): { phone: string; name?: string }[
     const cells = line.split(",").map((c) => c.trim());
     const name = nameIdx >= 0 ? cells[nameIdx] : undefined;
     return { phone: cells[phoneIdx] ?? "", ...(name ? { name } : {}) };
+  });
+}
+
+/* ------------------------------------------------------------------ scheduling */
+
+export type ScheduledStart = Schemas["ScheduleOut"];
+
+/**
+ * A `<input type="date">` + `<input type="time">` pair → the offset-carrying
+ * `date-time` the API demands.
+ *
+ * **The +05:30 is written in, not taken from the browser.** `new Date("2026-08-17T10:00")`
+ * is parsed in the VIEWER's zone, so the same two fields would mean 10:00 IST for a
+ * client in Hyderabad and 10:00 GMT — 15:30 IST — for an operator viewing the account
+ * from London (D-22 impersonation makes that a real session, not a hypothetical). The
+ * campaign screen's every other time is rendered in IST (`formatIST`), the calling
+ * window is IST law, and the client picking the time is in India: the input means IST,
+ * so it is sent as IST.
+ *
+ * Returns null for an incomplete or unparseable pair rather than a guess — the server
+ * refuses a start with no offset outright (`campaign_schedule_timezone_missing`), and
+ * inventing one here is exactly what that refusal exists to prevent.
+ */
+export function scheduleStartAt(date: string, time: string): string | null {
+  if (!date || !time) return null;
+  const candidate = `${date}T${time.length === 5 ? `${time}:00` : time}+05:30`;
+  const parsed = new Date(candidate);
+  return Number.isNaN(parsed.getTime()) ? null : candidate;
+}
+
+/**
+ * Set a one-time start. The launch check is invalidated because a scheduled campaign is
+ * still answerable by it — the server runs the SAME gate when the schedule fires, so
+ * "would this launch right now" stays the question worth showing.
+ */
+export function useScheduleCampaign(session: Session, campaignId: string | null) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (startAt: string) =>
+      apiRequest<ScheduledStart>(session, `/v1/campaigns/${campaignId}/schedule`, {
+        method: "POST",
+        body: { start_at: startAt },
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["campaign", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign-check", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
+    },
+  });
+}
+
+/** Cancel a pending start; the campaign returns to draft. */
+export function useUnscheduleCampaign(session: Session, campaignId: string | null) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<{ status: string }>(session, `/v1/campaigns/${campaignId}/schedule`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["campaign", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign-check", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
+    },
   });
 }

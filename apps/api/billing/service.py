@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Literal, NamedTuple
 from uuid import UUID
@@ -45,6 +45,7 @@ from apps.api.billing.caps import (
     read_spend_counters,
 )
 from apps.api.billing.plans import (
+    ist_billing_month,
     month_pricing_instant,
     parse_billing_month,
     plan_in_effect_sql,
@@ -326,7 +327,10 @@ _IST_MONTH = "to_char(occurred_at + interval '5 hours 30 minutes', 'YYYY-MM')"
 
 
 def current_billing_month() -> str:
-    return (datetime.now(UTC) + timedelta(hours=5, minutes=30)).strftime("%Y-%m")
+    """Now, as an IST billing month. The offset lives in `plans.ist_billing_month` so
+    that the tenant's onboarding month (`billing/charges.py`) and this one cannot be
+    computed two different ways."""
+    return ist_billing_month(datetime.now(UTC))
 
 
 def split_overage(

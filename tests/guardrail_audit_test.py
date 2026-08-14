@@ -469,6 +469,10 @@ class TestRedactionExposure:
         assert set(check_redaction_exposure.ALLOWED_ROUTES) == {
             "/v1/calls/{call_id}/transcript/raw",
             "/v1/leads/export.csv",
+            # The retained delivery body (D-23): the CRM payload we POSTed, byte for
+            # byte. `calls:read_raw` + an audit row, which `check_allowlist` verifies
+            # against the live app rather than taking from this comment.
+            "/v1/integrations/deliveries/{delivery_id}/payload",
         }
         assert set(check_redaction_exposure.KNOWN_SAFE_FIELDS) == {
             "TranscriptTurnOut.text",

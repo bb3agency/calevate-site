@@ -78,7 +78,37 @@ const eslintConfig = [
       "tests/fixtures/**",
     ],
   },
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
+  ...compat.extends("next/core-web-vitals", "next/typescript", "plugin:jsx-a11y/recommended"),
+  {
+    /**
+     * The STATIC half of the accessibility gate; `tests/a11y.test.tsx` is the runtime half.
+     *
+     * Not a second way of doing one thing — the two see different defects, the way
+     * `no-restricted-syntax` and `tests/wireLookupGuard.test.ts` split the `in`/lookup
+     * rule above. axe walks a RENDERED tree, so it can only judge what the accessibility
+     * tree ended up looking like; it cannot see that a `<div onClick>` is a control at
+     * all, because a div with a click handler renders as a div. jsx-a11y reads the JSX
+     * and catches exactly that class at author time: interactive handlers on static
+     * elements, a positive `tabIndex`, an `<a>` with no `href`, invalid ARIA before it
+     * ever renders.
+     *
+     * `eslint-plugin-jsx-a11y` costs NO new dependency: `eslint-config-next` already
+     * ships it, and `next/core-web-vitals` already enables six of its rules — so this
+     * turns on the rest of a plugin that was being paid for and half-used.
+     *
+     * It fires on ZERO existing sites bar the two configured below, which is the
+     * evidence that the 26 files reaching for `aria-*`/`role=` were doing real work.
+     */
+    files: ["src/**/*.tsx"],
+    rules: {
+      // Default `depth: 2`. Our radio rows are `<label><input><span><span>text`, so the
+      // label's text sits one level deeper than the rule looks and it reports a label
+      // with no accessible text — which is false: the control is implicitly associated by
+      // wrapping, and axe computes the name correctly (tests/a11y.test.tsx scans this
+      // screen). Raising the depth fixes the rule's reach rather than silencing it.
+      "jsx-a11y/label-has-associated-control": ["error", { depth: 3 }],
+    },
+  },
   {
     // Application AND tests: a test that reaches for `in` on a wire value is asserting
     // the wrong thing, and tests/harness.tsx already routes its own table lookups

@@ -2437,6 +2437,10 @@
             "title": "Last At",
             "type": "string"
           },
+          "payload_stored": {
+            "title": "Payload Stored",
+            "type": "boolean"
+          },
           "status": {
             "anyOf": [
               {
@@ -2455,9 +2459,65 @@
           "status",
           "attempts",
           "first_at",
-          "last_at"
+          "last_at",
+          "payload_stored"
         ],
         "title": "DeliveryOut",
+        "type": "object"
+      },
+      "DeliveryPayloadOut": {
+        "additionalProperties": false,
+        "description": "What we actually sent, byte for byte \u2014 the raw-PII surface of this module.\n\nSame class of data as a raw transcript and gated the same way (hard rule 5):\n`calls:read_raw` AND an `audit_log` row, never one of the two. `body` is the exact\nstring that went on the wire, so it carries the lead's name and their number in\nwhatever form the endpoint's own `include_raw_phone` choice produced \u2014 which is the\nentire point, since \"you sent us the wrong lead\" cannot be answered with a redaction.",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "delivery_id": {
+            "format": "uuid",
+            "title": "Delivery Id",
+            "type": "string"
+          },
+          "event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
+          },
+          "original_bytes": {
+            "title": "Original Bytes",
+            "type": "integer"
+          },
+          "stored_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stored At"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "delivery_id",
+          "event_type",
+          "body",
+          "truncated",
+          "original_bytes",
+          "stored_at"
+        ],
+        "title": "DeliveryPayloadOut",
         "type": "object"
       },
       "DltRegistrationIn": {
@@ -5795,6 +5855,25 @@
             ],
             "title": "Launched At"
           },
+          "schedule_blocked_rules": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Schedule Blocked Rules",
+            "type": "array"
+          },
+          "scheduled_start_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled Start At"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -6202,6 +6281,44 @@
           "previous_secret_expires_at"
         ],
         "title": "RotateSecretOut",
+        "type": "object"
+      },
+      "ScheduleIn": {
+        "additionalProperties": false,
+        "description": "When a one-time start should happen.\n\n`AwareDatetime`, not `datetime`: the wire type itself refuses a bare local string,\nso the generated TypeScript client cannot send \"2026-08-17T10:00\" and have the\nserver decide which 10 o'clock it meant. A client picking 10am IST sends\n`2026-08-17T10:00:00+05:30`; the service converts to UTC for storage, and the screen\nrenders IST again. Getting this wrong dials households at 15:30 or 02:30, so it is\npinned at the type level and re-checked in `scheduling.schedule_campaign` for\ncallers that are not HTTP requests.",
+        "properties": {
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_at"
+        ],
+        "title": "ScheduleIn",
+        "type": "object"
+      },
+      "ScheduleOut": {
+        "additionalProperties": false,
+        "description": "The start we recorded, and when dialling can actually begin.\n\nBoth fields, always, because they differ whenever the client picks a time outside\nthe calling window \u2014 and that difference is the answer to the most natural\nmisreading of this feature. A 22:00 start is accepted (starting a campaign is not\ndialling it) and `first_dial_not_before` says 09:00 the next morning, which is what\nTRAI's window means for that choice.",
+        "properties": {
+          "first_dial_not_before": {
+            "format": "date-time",
+            "title": "First Dial Not Before",
+            "type": "string"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_at",
+          "first_dial_not_before"
+        ],
+        "title": "ScheduleOut",
         "type": "object"
       },
       "ServiceItem": {
@@ -11420,6 +11537,99 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/schedule": {
+      "delete": {
+        "operationId": "unschedule_v1_campaigns__campaign_id__schedule_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Unschedule V1 Campaigns  Campaign Id  Schedule Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Cancel a pending start \u2014 the campaign goes back to draft",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      },
+      "post": {
+        "description": "Record a one-time start.\n\n`leads:dispatch`, the same permission as `POST /launch`, because this IS a launch \u2014\none with a delay on it. Anything weaker would be a way to cause dialling without the\nauthority to dial.\n\n**No compliance gate here, and that is the design, not an omission.** The gate runs\ninside `launch_campaign` when the dispatch tick fires this schedule (hard rule 5,\n`campaigns/scheduling.py` decision 2): a campaign scheduled on Friday and started on\nMonday may have crossed a DNC addition, a spend cap, a KYC expiry or the platform\nhalt in between, so a gate at THIS moment would prove nothing about the moment that\nmatters. `GET /launch-check` remains available and answers \"would it launch right\nnow\" for a scheduled campaign exactly as for a draft.\n\nAudited: \"who told this campaign to start dialling, and when for\" is the same\nquestion `campaign.launched` exists to answer.",
+        "operationId": "schedule_v1_campaigns__campaign_id__schedule_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Start this campaign later \u2014 the gate runs when it FIRES, not now",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/compliance/deletion-requests": {
       "post": {
         "description": "Write the request, queue the erasure, record that it was asked for.\n\nA number we hold nothing about is accepted just the same, and produces an\nempty-but-valid certificate. The client cannot know in advance whether they hold\nanything, and \"we found nothing\" is a complete answer to an erasure request that\nthey are entitled to be able to give in writing.",
@@ -11941,6 +12151,47 @@
           "integrations"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/integrations/deliveries/{delivery_id}/payload": {
+      "get": {
+        "description": "The exact body we POSTed for one delivery, as your endpoint received it. This is your customer's personal data in unredacted form, so it requires the same permission as an unredacted transcript and every read is written to your audit log. Bodies are kept for as long as your lead-retention policy allows and are destroyed by an erasure request; `404 delivery_body_not_retained` means there is no longer one to show.",
+        "operationId": "get_delivery_payload_v1_integrations_deliveries__delivery_id__payload_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "delivery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Delivery Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryPayloadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What we actually sent \u2014 role-checked AND audit-logged on every read",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "calls:read_raw"
       }
     },
     "/v1/integrations/endpoints": {

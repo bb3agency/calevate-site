@@ -56,6 +56,9 @@ TENANT_TABLES = [
     "usage_events",
     "plans",
     "credit_ledger",
+    # One-time charges (the onboarding setup fee, migration c7e1a4b90d63). Tenant money:
+    # what this client was billed once, read by the invoice.
+    "one_time_charges",
     "spend_state",
     "consent_ledger",
     # dnc_list is listed but its policy is HAND-WRITTEN (asymmetric read/write): the
@@ -107,4 +110,10 @@ RLS_EXEMPT_TENANT_COLUMNS = {
 }
 
 # INSERT-only ledgers (hard rule 4): immutability triggers in the migration.
-APPEND_ONLY_TABLES = ["usage_events", "consent_ledger", "audit_log", "credit_ledger"]
+APPEND_ONLY_TABLES = [
+    "usage_events",
+    "consent_ledger",
+    "audit_log",
+    "credit_ledger",
+    "one_time_charges",
+]
