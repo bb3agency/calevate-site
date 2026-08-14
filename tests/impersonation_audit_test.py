@@ -8,11 +8,18 @@ that MINTS NOTHING and that nothing forces an operator through. An admin who sen
 transcripts and left no trace whatsoever, while four docstrings and the build log said
 every page view was recorded.
 
-The assertions here are therefore about the READ PATH, not the start endpoint: the
-guarantee has to hold for the operator who never announced anything, or it is not a
-guarantee. And it has to hold for a route nobody has written yet, which is why the
-write lives in `_load_admin_principal` — the one function that can produce an
-impersonating principal — rather than in a dependency each route must remember.
+The assertions here are about the READ PATH. It has to hold for a route nobody has
+written yet, which is why the write lives in `_load_admin_principal` — the one function
+that can produce an impersonating principal — rather than in a dependency each route
+must remember.
+
+**Entry now also requires a GRANT** (`tests/impersonation_grant_test.py`), so the
+original defect — an operator who sends the header and announces nothing — is no longer
+reachable at all. That does not make this file redundant: the grant answers "was this
+operator authorised to enter", and these rows answer "were they actually in there, and
+when". The suites are deliberately separate, one per question. Every request below
+therefore carries a real grant, minted once per test, because a bare header would now
+be refused before any of this ran.
 
 Concurrency: this repo's tests share one Postgres. Everything below is scoped to a
 run-unique tenant, and nothing asserts a global row count.
@@ -33,6 +40,7 @@ from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.impersonation_grant_test import view_as_headers
 
 
 def _client() -> AsyncClient:
@@ -96,12 +104,12 @@ async def _forget_the_window(admin_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
 # ------------------------------------------------------ the guarantee, on any route
 
 
-async def test_an_impersonated_read_that_never_announced_itself_is_still_recorded() -> None:
-    """The defect, stated as the test that failed before the fix.
+async def test_one_impersonated_read_leaves_one_row() -> None:
+    """The guarantee, on the plainest possible request.
 
-    No call to `POST /v1/admin/tenants/{id}/impersonate` anywhere in this test: just an
-    admin token and the header, which is exactly how the console enters a tenant
-    (`apps/web/src/lib/api/admin.ts` sends the slug and never calls the start endpoint).
+    ONE read, ONE row, carrying exactly the four fields SEC-COMP §5 names. The row is
+    written by the auth layer, so it does not depend on `/v1/agents` remembering
+    anything.
     """
     admin_id, token = await _make_admin()
     org = await _make_org()
@@ -109,8 +117,7 @@ async def test_an_impersonated_read_that_never_announced_itself_is_still_recorde
 
     async with _client() as http:
         response = await http.get(
-            "/v1/agents",
-            headers={"Authorization": f"Bearer {token}", "X-Impersonate-Org": str(org["slug"])},
+            "/v1/agents", headers=await view_as_headers(http, token, str(org["slug"]))
         )
     assert response.status_code == 200, response.text
 
@@ -143,10 +150,10 @@ async def test_the_audit_is_not_something_a_new_route_can_forget() -> None:
     admin_id, token = await _make_admin()
     org = await _make_org()
     tenant_id = uuid.UUID(str(org["id"]))
-    headers = {"Authorization": f"Bearer {token}", "X-Impersonate-Org": str(org["slug"])}
 
     surfaces = ("/v1/agents", "/v1/leads", "/v1/calls")
     async with _client() as http:
+        headers = await view_as_headers(http, token, str(org["slug"]))
         for path in surfaces:
             await _forget_the_window(admin_id, tenant_id)
             response = await http.get(path, headers=headers)
@@ -202,9 +209,9 @@ async def test_a_polling_dashboard_does_not_write_a_row_per_request() -> None:
     _admin_id, token = await _make_admin()
     org = await _make_org()
     tenant_id = uuid.UUID(str(org["id"]))
-    headers = {"Authorization": f"Bearer {token}", "X-Impersonate-Org": str(org["slug"])}
 
     async with _client() as http:
+        headers = await view_as_headers(http, token, str(org["slug"]))
         for _ in range(10):
             assert (await http.get("/v1/agents", headers=headers)).status_code == 200
 
@@ -222,9 +229,9 @@ async def test_the_first_read_after_the_window_always_records() -> None:
     admin_id, token = await _make_admin()
     org = await _make_org()
     tenant_id = uuid.UUID(str(org["id"]))
-    headers = {"Authorization": f"Bearer {token}", "X-Impersonate-Org": str(org["slug"])}
 
     async with _client() as http:
+        headers = await view_as_headers(http, token, str(org["slug"]))
         assert (await http.get("/v1/agents", headers=headers)).status_code == 200
         await _forget_the_window(admin_id, tenant_id)
         assert (await http.get("/v1/agents", headers=headers)).status_code == 200
@@ -253,11 +260,7 @@ async def test_two_operators_in_one_tenant_are_two_trails() -> None:
     async with _client() as http:
         for token in (first_token, second_token):
             response = await http.get(
-                "/v1/agents",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "X-Impersonate-Org": str(org["slug"]),
-                },
+                "/v1/agents", headers=await view_as_headers(http, token, str(org["slug"]))
             )
             assert response.status_code == 200, response.text
 
@@ -288,8 +291,11 @@ async def test_the_dedupe_fails_towards_recording_when_redis_is_down(
     _admin_id, token = await _make_admin()
     org = await _make_org()
     tenant_id = uuid.UUID(str(org["id"]))
-    headers = {"Authorization": f"Bearer {token}", "X-Impersonate-Org": str(org["slug"])}
 
+    async with _client() as http:
+        # Minted BEFORE Redis goes away: the mint is not what this test is about, and a
+        # grant obtained under a broken dependency would confuse the two failures.
+        headers = await view_as_headers(http, token, str(org["slug"]))
     monkeypatch.setattr(auth_module, "get_redis", lambda: _Down())
     async with _client() as http:
         for _ in range(3):
@@ -371,7 +377,7 @@ async def test_the_ledger_row_names_no_screen_and_no_query_string() -> None:
     async with _client() as http:
         response = await http.get(
             "/v1/leads?q=%2B919876500001",
-            headers={"Authorization": f"Bearer {token}", "X-Impersonate-Org": str(org["slug"])},
+            headers=await view_as_headers(http, token, str(org["slug"])),
         )
     assert response.status_code == 200, response.text
     del admin_id

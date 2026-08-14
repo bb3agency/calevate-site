@@ -23,6 +23,7 @@ def test_authorization_and_tenant_headers_never_leave_the_process() -> None:
                 "Authorization": "Bearer super-secret-token",
                 "X-Org-Slug": "sunrise-clinic",
                 "X-Impersonate-Org": "sunrise-clinic",
+                "X-Impersonation-Grant": "eyJhbGciOiJIUzI1NiJ9.signed.grant",
                 "User-Agent": "Mozilla/5.0",
             }
         }
@@ -32,6 +33,10 @@ def test_authorization_and_tenant_headers_never_leave_the_process() -> None:
     headers = scrubbed["request"]["headers"]
     assert headers["Authorization"] == "[redacted]"
     assert headers["X-Org-Slug"] == "[redacted]"
+    assert headers["X-Impersonate-Org"] == "[redacted]"
+    # The strongest reason on the list: paired with an operator's admin session this
+    # token opens a client's account, and a crash report is where one would be captured.
+    assert headers["X-Impersonation-Grant"] == "[redacted]"
     # Harmless headers survive — an unusable report is its own failure mode.
     assert headers["User-Agent"] == "Mozilla/5.0"
 

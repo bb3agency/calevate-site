@@ -99,6 +99,17 @@ export class AuthProblem extends ApiProblem {
 export type TokenSource = () => string | Promise<string>;
 
 /**
+ * How `apiRequest` obtains the D-22 view-as grant for ONE call.
+ *
+ * The same shape as `TokenSource`, and for the same reason rather than by imitation: a
+ * grant is short-lived (`core/impersonation.py::GRANT_TTL`), so a string captured when
+ * the session object was built would be stale on a console tab left open — which is the
+ * normal case here, not an edge. Asked per request, the grant module can hand back the
+ * cached one and silently re-mint when it is close to expiring.
+ */
+export type GrantSource = () => string | Promise<string>;
+
+/**
  * Session context the API needs on every call.
  *
  * `token` resolves to a Clerk session token in a Clerk deployment and to
@@ -110,8 +121,21 @@ export type TokenSource = () => string | Promise<string>;
 export interface Session {
   token: TokenSource;
   orgSlug: string;
-  /** Admin realm only (D-22): read-only "view as client". */
+  /**
+   * Admin realm only (D-22): WHICH tenant this read-only "view as client" session is
+   * for. Addressing, not authority — `impersonationGrant` is the authority, and the API
+   * refuses the pair when only this half is present.
+   */
   impersonateOrg?: string;
+  /**
+   * Admin realm only (D-22): the signed grant authorising `impersonateOrg`.
+   *
+   * Required whenever `impersonateOrg` is set. It is a separate field rather than being
+   * folded into `token` because it is not a credential: it never replaces the operator's
+   * own admin-realm token, it only says which tenant that token may enter. Built by
+   * `lib/api/admin.ts::viewAsSession`, which is the only place either field is set.
+   */
+  impersonationGrant?: GrantSource;
 }
 
 /**
@@ -189,7 +213,27 @@ export async function apiRequest<T>(
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (confirmAction) headers["X-Confirm-Action"] = confirmAction;
-  if (session.impersonateOrg) headers["X-Impersonate-Org"] = session.impersonateOrg;
+  if (session.impersonateOrg) {
+    // FAIL CLOSED ON THIS SIDE TOO. The API refuses `X-Impersonate-Org` without a grant
+    // (`core/auth.py::_load_admin_principal`), so sending the org header alone can only
+    // produce a 403 — and a 403 with no local explanation is how a broken seam gets
+    // diagnosed as "the API is down". A session built without a grant source is a
+    // programming error in this app, so it says so, in the shape every screen already
+    // renders (`ProblemNotice`), before anything reaches the network.
+    if (!session.impersonationGrant) {
+      throw new AuthProblem(
+        "impersonation_grant_missing",
+        "This screen tried to view a client account without a view-as grant.",
+        "Build the session with viewAsSession() (lib/api/admin.ts), which mints one.",
+      );
+    }
+    headers["X-Impersonate-Org"] = session.impersonateOrg;
+    // Resolved HERE, per call, like the bearer token above and for the same reason: a
+    // grant expires in minutes and the module that hands it over re-mints transparently.
+    const requestedGrant = session.impersonationGrant();
+    headers["X-Impersonation-Grant"] =
+      typeof requestedGrant === "string" ? requestedGrant : await requestedGrant;
+  }
 
   const response = await fetch(`${API_BASE}${path}`, {
     method,

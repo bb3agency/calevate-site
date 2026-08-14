@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Sparkles,
   Users,
+  Wallet,
 } from "lucide-react";
 
 import {
@@ -170,6 +171,16 @@ export default function TenantDetailPage({
             icon={<IndianRupee className="h-4 w-4" />}
           >
             Commercials
+          </NavLink>
+          {/* The wallet the commercial terms are drawn down against, and the ONLY path
+              money takes INTO an account. Its own screen because the ledger has to be
+              visible before the write — a blind form over an append-only ledger is how a
+              double credit happens — and because nothing on it can be undone. */}
+          <NavLink
+            href={`/admin/tenants/${tenantId}/credits`}
+            icon={<Wallet className="h-4 w-4" />}
+          >
+            Credits
           </NavLink>
           {/* Beta features and debug views, per client (SURFACES §1). Its own screen
               rather than a panel here because each flag needs three facts beside it — the

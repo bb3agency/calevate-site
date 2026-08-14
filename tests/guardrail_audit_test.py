@@ -500,6 +500,39 @@ class TestRedactionExposure:
         assert any("SubjectExportOut" in o and "phone_e164" in o for o in offenders)
         assert any("SubjectExportLeadOut" in o and "phone_e164" in o for o in offenders)
 
+    def test_catches_a_phone_added_to_the_lead_source_dry_run(
+        self, live_spec: dict[str, Any]
+    ) -> None:
+        """The dry run is INSPECTED now, and this is the proof rather than the claim.
+
+        `POST /v1/lead-sources/{id}/test` answered `dict[str, Any]` while holding a
+        normalized caller number in scope two lines above its `return` — so it was not a
+        response this check judged safe, it was one the check could not see, exactly like
+        D-71's subject export. Adding a phone-shaped field to the step model must now be
+        reported; if this test stops failing, the route has gone back to a bare dict or
+        the model has stopped being reachable from the response.
+        """
+        spec = copy.deepcopy(live_spec)
+        spec["components"]["schemas"]["LeadSourceDryRunStepOut"]["properties"]["phone_e164"] = {
+            "type": "string"
+        }
+        offenders = check_redaction_exposure.check(spec)
+        assert any(
+            "/v1/lead-sources/{webhook_id}/test" in o and "phone_e164" in o for o in offenders
+        )
+
+    def test_catches_a_phone_added_to_the_intake_receipt(self, live_spec: dict[str, Any]) -> None:
+        """The same proof for the machine-facing half. `POST /hooks/v1/ingest/{id}` has
+        the sender's ENTIRE payload in scope of its `return`, and the guardrail walks
+        `/hooks` paths exactly like `/v1` ones — asserted, because a check that silently
+        skipped the unauthenticated-by-session surface would be blind where it matters."""
+        spec = copy.deepcopy(live_spec)
+        spec["components"]["schemas"]["IngestAckOut"]["properties"]["caller_e164"] = {
+            "type": "string"
+        }
+        offenders = check_redaction_exposure.check(spec)
+        assert any("/hooks/v1/ingest/{webhook_id}" in o and "caller_e164" in o for o in offenders)
+
     def test_exemption_registries_are_pinned(self) -> None:
         """Every raw-PII exemption costs a diff here as well as in the script."""
         assert set(check_redaction_exposure.ALLOWED_ROUTES) == {

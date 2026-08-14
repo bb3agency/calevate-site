@@ -154,6 +154,28 @@ class ScheduleOut(Strict):
     first_dial_not_before: datetime
 
 
+class ScheduleCancelledOut(Strict):
+    """What was stopped, and what the campaign is NOW.
+
+    Two facts, and the caller can derive neither from the request it sent. `cancelled`
+    because ONE button stops both kinds of promise: "I stopped the weekly repeat" and "I
+    cancelled Monday's start" are different answers, and the screen that rendered the
+    button is guessing which one it got. `status` because stopping a repeat on a RUNNING
+    campaign leaves it running — this route once answered the constant "draft" for every
+    cancellation, which reported a state the campaign was not in.
+
+    `status` stays `str`, matching `ProgressOut.status` and `CampaignSummaryOut.status`:
+    one spelling of campaign status across the API, and adding a member to
+    `campaigns.models.CAMPAIGN_STATUSES` must not turn a cancel that already committed
+    into a 500 out of response validation (D-75's lesson, in the direction that costs
+    least). `cancelled` is a Literal because its two values are written by
+    `campaigns/scheduling.py` and by nothing else.
+    """
+
+    cancelled: Literal["one_time", "recurring"]
+    status: str
+
+
 class RecurrenceIn(Strict):
     """A standing instruction: which weekdays, at what IST time, until when.
 
@@ -357,6 +379,7 @@ async def create_campaign(
 
 @router.post(
     "/{campaign_id}/consent-provenance",
+    status_code=204,
     openapi_extra=permission_meta("leads:dispatch"),
     summary="Where this list's consent came from (SEC-COMP §3) — draft campaigns only",
 )
@@ -366,13 +389,23 @@ async def declare_consent_provenance(
     session: Session,
     request: Request,
     principal: Principal = Depends(requires("leads:dispatch")),
-) -> dict[str, str]:
+) -> None:
     """The answer path for a draft created before the provenance columns existed.
 
     Audited: a client's assertion about where five thousand phone numbers came from is
     exactly the kind of statement that has to be attributable later — it is the record
     §3's "refused, in writing" refers to. `leads:dispatch`, not a read permission,
     because declaring provenance is what unlocks dialling.
+
+    **204, and the alternative considered was a body naming the resulting blocker.** The
+    interesting half of this answer is that `purchased_list` is recorded and then refused
+    (`consent_source_refused`), and a client deserves to see that — but `GET
+    /launch-check` is the one authority on what blocks a launch, and the screen re-reads
+    it the moment this returns. A second copy of that verdict here would be a second
+    thing to keep in step with the gate, which is how the list and the check come to
+    disagree. `{"status": "recorded"}` was the third option and the worst of them: a
+    constant the caller already knows, shaped like a model, invisible to the generated
+    client and to the redaction guardrail alike.
     """
     assert principal.tenant_id is not None
     await service.declare_consent_provenance(
@@ -392,7 +425,6 @@ async def declare_consent_provenance(
         ip=request.client.host if request.client else None,
         summary={"source": payload.source, "collected_at": payload.collected_at.isoformat()},
     )
-    return {"status": "recorded"}
 
 
 @router.post(
@@ -580,6 +612,7 @@ async def set_recurrence(
 
 @router.delete(
     "/{campaign_id}/schedule",
+    response_model=ScheduleCancelledOut,
     openapi_extra=permission_meta("leads:dispatch"),
     summary="Cancel a pending start or stop a repeat — one button for both",
 )
@@ -588,16 +621,19 @@ async def unschedule(
     session: Session,
     request: Request,
     principal: Principal = Depends(requires("leads:dispatch")),
-) -> dict[str, str]:
+) -> ScheduleCancelledOut:
     """One stop for one column, whichever kind of promise it held.
 
     The response is the status the campaign is ACTUALLY in afterwards, not the constant
     "draft" this used to return: a campaign that was waiting goes back to draft, and a
     campaign that is dialling keeps dialling — stopping a repeat means "do not start this
     again", never "abandon the calls going out now" (`scheduling.unschedule_campaign`).
+
+    This one keeps a body where its neighbours became 204, and the two facts it carries
+    are why: both are answers the caller cannot derive from the request it sent.
     """
     assert principal.tenant_id is not None
-    cancelled = await scheduling.unschedule_campaign(
+    stopped = await scheduling.unschedule_campaign(
         session, tenant_id=principal.tenant_id, campaign_id=campaign_id
     )
     await write_audit(
@@ -608,18 +644,26 @@ async def unschedule(
         object_type="campaign",
         object_id=str(campaign_id),
         ip=request.client.host if request.client else None,
-        summary={"kind": cancelled.kind},
+        summary={"kind": stopped.kind},
     )
-    return {"status": cancelled.status}
+    return ScheduleCancelledOut(
+        # The stored vocabulary becomes the wire vocabulary here, the same shape
+        # `IngestActivityItemOut.outcome` uses. Anything that is not the recurrence
+        # marker is a one-time start — which is the call `unschedule_campaign` has
+        # already made for a NULL `kind`, kept in one direction rather than two.
+        cancelled="recurring" if stopped.kind == scheduling.RECURRING else "one_time",
+        status=stopped.status,
+    )
 
 
 @router.post(
     "/{campaign_id}/pause",
+    status_code=204,
     openapi_extra=permission_meta("leads:dispatch"),
     summary="Stop dialling now — idempotent, so a panicked double-click is not an error",
     description=(
         "Pause a running campaign. Idempotent: pausing a campaign that is already "
-        "paused returns 200, so a second click and the retry of a request whose "
+        "paused returns 204, so a second click and the retry of a request whose "
         "response was lost are both safe. 409 means the campaign is in some other "
         "state (cancelled, or still a draft) and the response names it. 404 means no "
         "campaign of yours has that id."
@@ -630,11 +674,22 @@ async def pause(
     session: Session,
     request: Request,
     principal: Principal = Depends(requires("leads:dispatch")),
-) -> dict[str, str]:
+) -> None:
     """Stated on the decorator as well as here because `/docs` is public and this is a
     contract a client cannot guess: pause is the button someone presses when calls are
     going out that should not be, and answering the second press with an error is how
     an operator comes to believe the first one did not work.
+
+    **204, not `{"status": "paused"}`.** That body was a constant — the same string on
+    the press that stopped the calls and on the second press that found them already
+    stopped — so it told a caller only what the URL it had just posted to already said.
+    Reporting WHICH of the two happened was the alternative and it is deliberately not
+    taken: `set_campaign_status` returning `True` is what the audit row is written from,
+    and publishing it as well would invite a screen to render "already paused" as
+    something the client must act on. The state afterwards is one field of
+    `GET /v1/campaigns/{id}`, which this screen re-reads anyway. An empty 204 is also
+    the shape `DELETE /v1/integrations/endpoints/{id}` and `DELETE /v1/lead-sources/{id}`
+    already use for exactly this: an idempotent transition with nothing to say.
 
     **Audited, and ONLY on a real transition.** "Who stopped the calls, and when" is a
     question that gets asked after a complaint, and until now the answer was nowhere —
@@ -657,16 +712,16 @@ async def pause(
             object_id=str(campaign_id),
             ip=request.client.host if request.client else None,
         )
-    return {"status": "paused"}
 
 
 @router.post(
     "/{campaign_id}/resume",
+    status_code=204,
     openapi_extra=permission_meta("leads:dispatch"),
     summary="Dial again from where it stopped — the compliance re-check is at dial time",
     description=(
         "Resume a paused campaign. Idempotent: resuming a campaign that is already "
-        "running returns 200. 409 means the campaign is in some other state and the "
+        "running returns 204. 409 means the campaign is in some other state and the "
         "response names it. 404 means no campaign of yours has that id. Resuming does "
         "not re-run the launch gate — the per-dial compliance check does, on every "
         "contact, which is what catches paperwork that lapsed while it was paused."
@@ -677,7 +732,7 @@ async def resume(
     session: Session,
     request: Request,
     principal: Principal = Depends(requires("leads:dispatch")),
-) -> dict[str, str]:
+) -> None:
     """NO GATE HERE, and that is the design (`service.dispatch_blockers` argues it in
     full): a campaign can sit paused for a week, so a gate at the moment of resuming
     proves nothing about the moment it dials. The dial-time check is the enforcement.
@@ -685,6 +740,10 @@ async def resume(
     Audited on a real transition only, exactly like `pause` above — and this is the half
     of the pair that matters most after an incident: "calls started going out again at
     16:40, and this is who pressed it".
+
+    204 for `pause`'s reason, and the pair must answer alike: two idempotent transitions
+    on the same screen that differed in shape would be a difference the next reader has
+    to explain.
     """
     assert principal.tenant_id is not None
     if await service.set_campaign_status(
@@ -699,7 +758,6 @@ async def resume(
             object_id=str(campaign_id),
             ip=request.client.host if request.client else None,
         )
-    return {"status": "running"}
 
 
 @router.get(

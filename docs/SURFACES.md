@@ -229,6 +229,19 @@ Client realm (`/c/<slug>/…`)
   **`/usage`** (usage panel + the §2b client cap editor).
 
 Admin realm (`/admin/…`)
+- **Begin a view-as session** (`POST /v1/admin/impersonation-grants`,
+  `admin:impersonate`, admin realm) — takes a tenant SLUG and returns the short-lived
+  signed grant every impersonated request must carry as `X-Impersonation-Grant` beside
+  `X-Impersonate-Org`. It replaced `POST /v1/admin/tenants/{tenant_id}/impersonate`,
+  which minted nothing and which the console never called — so D-22's "session start
+  audit-logged" row was absent for every session that ever happened. The grant is bound
+  to this operator AND this tenant and is refused against any other; minting is what
+  writes `admin.impersonation_started`, so that row can no longer be skipped. Addressed
+  by slug because every place view-as is initiated holds one (including
+  `/c/<slug>?view=admin`, where no tenant id is in scope), and bound to the id because
+  that is what RLS keys off. See SECURITY-COMPLIANCE §5 and `apps/api/core/
+  impersonation.py`. Read-only is unchanged: `requires()` still refuses every mutating
+  permission to an impersonating principal, grant or no grant.
 - **Who this operator is** (`GET /v1/admin/me`, `org:read`, admin realm) — the console's
   own identity read: the `admin_users` id, the role and the role's permission set, with no
   tenant touched and no impersonation header accepted as a substitute. It exists because

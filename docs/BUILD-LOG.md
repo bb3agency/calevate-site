@@ -2901,6 +2901,59 @@ while the blind spot it illustrates remains real.
 SEC-COMP §3 vocabulary and the rate-zone table — it cannot see BUILD-LOG PROSE. The section
 every future session reads first is the one section with no guard on it.
 
+## §63 — the wave that made the money paths real, and found the invoice was not one
+
+The survey at §62 said the code was not the blocker and then named three things that
+would embarrass us first. All three are closed here, and two of them were worse than the
+survey could see from the outside.
+
+**The invoice was not merely missing fields — its arithmetic was structurally
+unclaimable (D-83).** It charged a flat 18% GST, and CGST, SGST and IGST are three
+SEPARATE credit ledgers: tax charged without naming the head cannot be claimed at all. The
+old shape also could not express a Union Territory without a legislature (CGST+UTGST) in
+any form. And the refusal we asked for turned out to be a legal position rather than a
+style choice — **CGST s.32 prohibits an unregistered person from collecting tax**, so with
+no GSTIN there is no tax invoice to issue.
+
+The judgement call worth keeping: **zeroing the tax when unregistered was rejected**,
+despite being the literal reading of s.32, because one forgotten environment variable would
+then silently under-bill every client by 18%. A missing config key changes what a document
+CLAIMS, never what a client OWES.
+
+It also declined to fake a fix: the invoice serial is 19 characters against Rule 46(b)'s
+16-character cap and is deterministic rather than consecutive. Those requirements genuinely
+conflict with D-46's derived statement, truncating would trade a length breach for a
+collision, and a test now fails the day somebody changes the scheme.
+
+**Money now reaches a wallet through a screen (D-82)**, and the confirmation is the payment
+reference itself rather than a fixed word — different every time so it cannot become muscle
+memory, and doubling as the double-keying check on the one field where the error is
+unrecoverable. Its duplicate warning is deliberately ONE-DIRECTIONAL: a match warns, an
+absence never reassures, because the screen holds fifty entries and the server checks the
+whole ledger. Found on the way: SURFACES promises credit adjustments and nothing implements
+them, so a credit to the wrong tenant or the wrong amount still has NO tool.
+
+**Impersonation now mints a delegation grant (D-85)**, and the spec reading is the good
+part: RFC 8693's `act` claim carries DELEGATION semantics while a token without it carries
+IMPERSONATION semantics — which is D-22's own rule written by someone else first, since
+D-22 forbids acting-as precisely to avoid dual attribution. So the feature called
+impersonation deliberately gets a delegation-shaped credential. The design follows from one
+sentence: **the grant is not a credential.** It never travels in `Authorization` and does
+nothing alone, so revocation lag is one request rather than one token lifetime, and no
+denylist or grants table is needed.
+
+**The untyped-2xx sweep ran a third time (D-84)** and its best decisions were refusals:
+four acks returning a constant became 204 rather than models, because modelling a constant
+satisfies both tools and teaches the next reader nothing; `/v1/numbers/purchase` became
+`NoReturn` so that the day provisioning lands, mypy forces the author to declare a real
+contract instead of inheriting a shape for a body that cannot exist.
+
+**Two findings carried, both reported rather than quietly fixed:** there is no
+compensating-adjustment endpoint, so `POST .../credits` refuses a negative amount with a
+remediation pointing at a tool that does not exist; and `audit_chain_secret` falls back to
+the guessable constant `local-dev:{app_env}` in EVERY environment including prod, so a
+deploy that forgot it has an unverifiable audit chain.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and

@@ -41,9 +41,9 @@ import {
   useSetLeadSourceActive,
   useTestWebhook,
   type LeadSource,
+  type LeadSourceDryRun,
   type MetaSetup,
   type NewLeadSource,
-  type TestWebhookResult,
 } from "@/lib/api/leadSources";
 import { lookup } from "@/lib/lookup";
 
@@ -186,7 +186,7 @@ export default function LeadSourcesPage() {
   const [metaSourceId, setMetaSourceId] = useState("");
   const [payloadText, setPayloadText] = useState(SAMPLE_PAYLOAD);
   const [jsonError, setJsonError] = useState<string | null>(null);
-  const [result, setResult] = useState<TestWebhookResult | null>(null);
+  const [result, setResult] = useState<LeadSourceDryRun | null>(null);
 
   const runTest = () => {
     setJsonError(null);

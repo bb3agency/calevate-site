@@ -16,6 +16,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
+from tests.impersonation_grant_test import view_as_headers
 
 
 async def _make_admin(role: str = "superadmin") -> str:
@@ -317,23 +318,15 @@ async def test_view_as_client_actually_resolves_the_tenant(monkeypatch: pytest.M
     slug = created["slug"]
 
     async with _client() as http:
-        seen = await http.get(
-            "/v1/agents",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "X-Org-Slug": slug,
-                "X-Impersonate-Org": slug,
-            },
-        )
+        # A real grant, so the 403 below is D-22's read-only rule and not the grant
+        # check refusing before that rule is reached (tests/impersonation_grant_test).
+        headers = await view_as_headers(http, token, slug, **{"X-Org-Slug": slug})
+        seen = await http.get("/v1/agents", headers=headers)
         # D-22 still holds: read-only. A mutation through the impersonated session is
         # refused, which is the other half of the same feature.
         blocked = await http.post(
             "/v1/kb/sources",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "X-Org-Slug": slug,
-                "X-Impersonate-Org": slug,
-            },
+            headers=headers,
             json={
                 "agent_id": str(created["agent_id"]),
                 "name": "Hours",
@@ -341,6 +334,8 @@ async def test_view_as_client_actually_resolves_the_tenant(monkeypatch: pytest.M
                 "kind": "text",
             },
         )
+        # No grant here, and none is possible: the slug lookup runs first, so a tenant
+        # that does not exist is a 404 before there is anything for a grant to name.
         unknown = await http.get(
             "/v1/agents",
             headers={
@@ -352,4 +347,5 @@ async def test_view_as_client_actually_resolves_the_tenant(monkeypatch: pytest.M
 
     assert seen.status_code == 200, seen.text
     assert blocked.status_code == 403, "impersonation is read-only (D-22)"
+    assert "read-only" in blocked.json()["detail"].lower(), blocked.text
     assert unknown.status_code == 404, "a slug that does not exist is still a 404"

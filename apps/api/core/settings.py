@@ -133,6 +133,12 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
             missing.append("CLERK_CLIENT_SECRET_KEY")
         if not cfg.clerk_admin_secret_key:
             missing.append("CLERK_ADMIN_SECRET_KEY")
+        # D-22 view-as signs its grants with this and REFUSES to mint or verify without
+        # it outside `local` (`core/impersonation.py::_signing_key`). Reported here so a
+        # deploy that forgot it is a red readiness probe, not an operator discovering
+        # that "view as client" 502s on the day a client's dashboard looks wrong.
+        if not cfg.impersonation_grant_secret:
+            missing.append("IMPERSONATION_GRANT_SECRET")
     return missing
 
 

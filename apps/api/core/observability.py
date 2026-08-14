@@ -59,9 +59,19 @@ from apps.api.core.settings import get_settings
 log = get_logger(__name__)
 
 # Request headers that must never reach an error tracker, in addition to the value
-# scrubbing below.
+# scrubbing below. `x-impersonation-grant` is here for the strongest reason on the list:
+# it is a signed token that, paired with an operator's admin session, opens a client's
+# account. A crash report is exactly where one would otherwise be captured verbatim.
 DROP_HEADERS = frozenset(
-    {"authorization", "cookie", "set-cookie", "x-org-slug", "x-impersonate-org", "svix-signature"}
+    {
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "x-org-slug",
+        "x-impersonate-org",
+        "x-impersonation-grant",
+        "svix-signature",
+    }
 )
 
 

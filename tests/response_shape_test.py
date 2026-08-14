@@ -47,7 +47,7 @@ from apps.api.crm.performance import performance
 from apps.api.crm.schemas import AttentionOut, PerformanceOut, UsagePanelOut
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.ingest.routes import IngestActivityOut
+from apps.api.ingest.routes import IngestActivityOut, LeadSourceDryRunOut
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -58,6 +58,7 @@ USAGE = "/v1/usage"
 PERFORMANCE = "/v1/performance"
 ATTENTION = "/v1/attention"
 ACTIVITY = "/v1/lead-sources/activity"
+DRY_RUN = "/v1/lead-sources/{webhook_id}/test"
 
 
 def _client() -> AsyncClient:
@@ -100,6 +101,34 @@ async def _owner_tenant(prefix: str) -> tuple[uuid.UUID, uuid.UUID, dict[str, st
         )
     headers = {"Authorization": f"Bearer dev:client:{clerk_id}", "X-Org-Slug": str(slug)}
     return tenant_id, agent_id, headers
+
+
+async def _staff_headers(tenant_id: uuid.UUID, owner_headers: dict[str, str]) -> dict[str, str]:
+    """A second member of the SAME tenant, with the `staff` role.
+
+    `staff` holds `org:read` and not `org:manage` (SEC-COMP §5), which is the boundary
+    the lead-source dry run sits on: the delivery feed is a view of the client's data and
+    the dry run is an action taken on their behalf.
+    """
+    user_id = uuid.uuid4()
+    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
+                "VALUES (:id, :cid, :email, now(), now())"
+            ),
+            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com"},
+        )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
+                "VALUES (:id, :tid, :uid, 'staff', now(), now())"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id},
+        )
+    return {**owner_headers, "Authorization": f"Bearer dev:client:{clerk_id}"}
 
 
 async def _admin_headers() -> dict[str, str]:
@@ -511,6 +540,160 @@ async def test_the_delivery_feed_is_empty_not_broken_before_any_source_exists() 
 
 
 # ============================================================================
+# POST /v1/lead-sources/{webhook_id}/test — the dry run
+#
+# The one in this file that holds PII while it answers. `test_webhook` normalizes the
+# sample's phone number to decide whether it is dialable and to ask the compliance gate
+# about it, and it used to answer `dict[str, Any]` — so this was not a response the
+# redaction guardrail judged safe, it was a response the guardrail could not see (D-71's
+# defect, on a handler with a caller's number two lines above the `return`).
+# ============================================================================
+
+
+async def _lead_source(tenant_id: uuid.UUID, agent_id: uuid.UUID | None) -> uuid.UUID:
+    """One website-form source, mapping the two field names the receiver looks for."""
+    webhook_id = uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO inbound_webhooks (id, tenant_id, agent_id, source, secret_ref, "
+                "mapping, active, created_at, updated_at) VALUES (:i, :t, :a, 'website_form', "
+                "'secret://dry-run', CAST(:m AS jsonb), true, now(), now())"
+            ),
+            {
+                "i": webhook_id,
+                "t": tenant_id,
+                "a": agent_id,
+                "m": '{"phone_number": "phone_number", "full_name": "full_name"}',
+            },
+        )
+    return webhook_id
+
+
+async def test_the_dry_run_answers_a_declared_model_step_by_step() -> None:
+    tenant_id, agent_id, headers = await _owner_tenant("dry")
+    webhook_id = await _lead_source(tenant_id, agent_id)
+
+    async with _client() as http:
+        response = await http.post(
+            f"/v1/lead-sources/{webhook_id}/test",
+            headers=headers,
+            json={"payload": {"phone_number": "9876512345", "full_name": "Priya"}},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert set(body) == set(LeadSourceDryRunOut.model_fields)
+    verdict = LeadSourceDryRunOut.model_validate(body)
+
+    # Every step the real path would take, in order, each one a declared member of the
+    # Literal — an unlisted step name would have failed response validation, not shipped.
+    assert [step.step for step in verdict.steps] == [
+        "field_mapping",
+        "phone_number",
+        "compliance_gate",
+    ]
+    mapping_step, phone_step, gate_step = verdict.steps
+    assert mapping_step.mapped_fields == ["full_name", "phone_number"], "KEYS, never values"
+    assert phone_step.ok is True and phone_step.mapped_fields is None
+    # A freshly created org's agent is not published, so the gate refuses and NAMES the
+    # rule — which is the branch that fills in `rule`, null on every other step. The
+    # point is that the gate was CONSULTED (same function, same live DNC read) and its
+    # verdict reported rather than acted on.
+    assert verdict.would_call is False
+    assert gate_step.ok is False and gate_step.rule == "agent_not_live"
+
+
+async def test_the_dry_run_never_puts_the_sample_number_in_its_answer() -> None:
+    """The half a schema walk cannot judge, so it is asserted against the bytes.
+
+    The model makes a phone FIELD impossible without the guardrail reporting it
+    (`tests/guardrail_audit_test.py` proves that half). Nothing structural stops a
+    `detail` string from being rewritten to interpolate the number it just normalized —
+    "No dialable number in +9198…" is one helpful-sounding edit away — so the whole
+    response body is searched for the digits that went in, in every form they could
+    come back out.
+    """
+    tenant_id, agent_id, headers = await _owner_tenant("dryp")
+    webhook_id = await _lead_source(tenant_id, agent_id)
+    local = "9876512346"
+
+    async with _client() as http:
+        response = await http.post(
+            f"/v1/lead-sources/{webhook_id}/test",
+            headers=headers,
+            json={"payload": {"phone_number": local, "full_name": "Ravi Kumar"}},
+        )
+
+    assert response.status_code == 200, response.text
+    for form in (local, f"+91{local}", f"91{local}"):
+        assert form not in response.text, "the dry run reports verdicts, never the number"
+    # The NAME is the sample's other personal datum and is equally absent: `mapped_fields`
+    # is the keys of the mapping, and "full_name" is a key while "Ravi Kumar" is a value.
+    assert "Ravi Kumar" not in response.text
+    assert "full_name" in response.text
+
+
+async def test_the_dry_run_reports_a_missing_agent_and_an_undialable_number() -> None:
+    """The branch with no compliance step at all: `extra="forbid"` plus a Literal means
+    a shape that only appears when the source is half-configured is validated too."""
+    tenant_id, _agent_id, headers = await _owner_tenant("dryn")
+    webhook_id = await _lead_source(tenant_id, None)
+
+    async with _client() as http:
+        response = await http.post(
+            f"/v1/lead-sources/{webhook_id}/test",
+            headers=headers,
+            json={"payload": {"phone_number": "12345"}},
+        )
+
+    assert response.status_code == 200, response.text
+    verdict = LeadSourceDryRunOut.model_validate(response.json())
+    assert verdict.would_call is False
+    steps = {step.step: step for step in verdict.steps}
+    assert set(steps) == {"field_mapping", "phone_number", "agent"}
+    assert steps["phone_number"].ok is False and steps["agent"].ok is False
+    assert steps["field_mapping"].mapped_fields == ["phone_number"]
+
+
+async def test_another_tenants_lead_source_is_not_dry_runnable() -> None:
+    """RLS, through the route that reads the source: the id is a UUID we minted, and
+    knowing one must not make another account's mapping testable."""
+    tenant_id, agent_id, _headers = await _owner_tenant("drya")
+    webhook_id = await _lead_source(tenant_id, agent_id)
+    _other_id, _other_agent, other_headers = await _owner_tenant("dryb")
+
+    async with _client() as http:
+        response = await http.post(
+            f"/v1/lead-sources/{webhook_id}/test",
+            headers=other_headers,
+            json={"payload": {"phone_number": "9876512347"}},
+        )
+
+    assert response.status_code == 404, "another tenant's source is indistinguishable from none"
+
+
+async def test_the_dry_run_is_refused_to_a_reader_without_org_manage() -> None:
+    """`org:manage`, not `org:read` — the server's deliberate call (ingest/routes.py): a
+    dry run is an action taken on the client's behalf, so a `staff` member (and, by D-22,
+    an impersonating operator) is refused it while the activity view stays readable."""
+    tenant_id, agent_id, headers = await _owner_tenant("drys")
+    webhook_id = await _lead_source(tenant_id, agent_id)
+    staff_headers = await _staff_headers(tenant_id, headers)
+
+    async with _client() as http:
+        refused = await http.post(
+            f"/v1/lead-sources/{webhook_id}/test",
+            headers=staff_headers,
+            json={"payload": {"phone_number": "9876512348"}},
+        )
+        readable = await http.get(ACTIVITY, headers=staff_headers)
+
+    assert refused.status_code == 403, refused.text
+    assert readable.status_code == 200, "the read next door stays on org:read"
+
+
+# ============================================================================
 # Admin realm: margin, invoice, prompt history
 # ============================================================================
 
@@ -685,9 +868,11 @@ async def test_the_prompt_history_answers_a_declared_model_with_versions() -> No
 # ============================================================================
 
 
-def _response_schema(spec: dict[str, Any], path: str, method: str) -> dict[str, Any]:
+def _response_schema(
+    spec: dict[str, Any], path: str, method: str, status: str = "200"
+) -> dict[str, Any]:
     operation = spec["paths"][path][method]
-    content = operation["responses"]["200"]["content"]["application/json"]
+    content = operation["responses"][status]["content"]["application/json"]
     schema: dict[str, Any] = content["schema"]
     return schema
 
@@ -706,16 +891,26 @@ def test_the_openapi_response_schemas_are_inspectable() -> None:
     spec = app.openapi()
     schemas = spec["components"]["schemas"]
     operations = [
-        (USAGE, "get"),
-        (PERFORMANCE, "get"),
-        (ATTENTION, "get"),
-        (ACTIVITY, "get"),
-        ("/v1/admin/tenants/{tenant_id}/margin", "get"),
-        ("/v1/admin/tenants/{tenant_id}/invoice", "get"),
-        ("/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt", "get"),
+        (USAGE, "get", "200"),
+        (PERFORMANCE, "get", "200"),
+        (ATTENTION, "get", "200"),
+        (ACTIVITY, "get", "200"),
+        ("/v1/admin/tenants/{tenant_id}/margin", "get", "200"),
+        ("/v1/admin/tenants/{tenant_id}/invoice", "get", "200"),
+        ("/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt", "get", "200"),
+        # The dry run: the one on this list that holds a normalized caller number while
+        # it builds its answer, which is why it was the worst one to be invisible.
+        (DRY_RUN, "post", "200"),
+        # The two intake receivers. Machine-facing, and that is the argument FOR
+        # declaring them rather than against: the sender's whole payload is in scope of
+        # the `return`, and nobody is reading these responses on a screen where an
+        # echoed lead would be noticed.
+        ("/hooks/v1/ingest/{webhook_id}", "post", "202"),
+        ("/hooks/v1/ingest/meta/{webhook_id}", "post", "200"),
+        ("/v1/campaigns/{campaign_id}/schedule", "delete", "200"),
     ]
-    for path, method in operations:
-        schema = _response_schema(spec, path, method)
+    for path, method, status in operations:
+        schema = _response_schema(spec, path, method, status)
         assert not _is_freeform_object(schema), f"{method.upper()} {path} is still a free-form dict"
         models = reachable_models(schema, schemas)
         assert models, f"{method.upper()} {path} references no response model to inspect"
@@ -730,3 +925,28 @@ def test_the_openapi_response_schemas_are_inspectable() -> None:
                     f"{name}.{field} is a free-form dict — whatever the query selected "
                     "would be serialized verbatim"
                 )
+
+
+def test_the_acks_with_nothing_to_say_answer_204_rather_than_a_constant() -> None:
+    """The other half of the same sweep, and the reason it is not "wrap every dict".
+
+    Four routes answered a CONSTANT — `{"status": "paused"}`, `{"status": "running"}`,
+    `{"status": "recorded"}`, `{"status": "removed"}` — which told a caller only what the
+    URL it had just posted to already said, in a shape neither the generated TypeScript
+    client nor the redaction guardrail can describe. Modelling a constant would have
+    satisfied both tools and taught the next reader nothing, so these say nothing
+    properly: 204, no content, no schema to keep honest.
+
+    Asserted against the live spec so a body cannot creep back onto them unnoticed.
+    """
+    spec = app.openapi()
+    for path, method in (
+        ("/v1/campaigns/{campaign_id}/pause", "post"),
+        ("/v1/campaigns/{campaign_id}/resume", "post"),
+        ("/v1/campaigns/{campaign_id}/consent-provenance", "post"),
+        ("/v1/dnc/{entry_id}", "delete"),
+    ):
+        responses = spec["paths"][path][method]["responses"]
+        success = {code: body for code, body in responses.items() if code.startswith("2")}
+        assert set(success) == {"204"}, f"{method.upper()} {path} still advertises a 2xx body"
+        assert "content" not in success["204"], f"{method.upper()} {path} 204 carries a schema"

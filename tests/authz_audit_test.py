@@ -42,6 +42,7 @@ from apps.api.main import app
 from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import text
+from tests.impersonation_grant_test import view_as_headers
 
 # Dependency aliases for the throwaway apps the registry tests build below. At module
 # level because both alternatives inside a function body are lint errors (B008 on the
@@ -222,13 +223,18 @@ async def test_an_unreachable_identity_provider_is_not_reported_as_a_bad_session
 async def test_entering_a_tenant_requires_the_impersonate_permission(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`admin:impersonate` is checked on `POST /v1/admin/tenants/{id}/impersonate`,
-    which mints nothing — the actual entry is the `X-Impersonate-Org` header, and
-    calling the start endpoint first was never enforced. So the permission that names
-    the act did not gate the act: any `admin_users` row could view any tenant.
+    """The permission is checked where the ACT happens, not only where it is announced.
 
-    Both shipped admin roles hold `admin:impersonate`, so nothing is exploitable today.
-    The gap is that the check does not exist, which is one new role away from mattering.
+    It used to be checked only on the start endpoint, which minted nothing and which
+    nothing forced a caller through — so the permission named after the act did not gate
+    the act, and any `admin_users` row could view any tenant. It is now checked in
+    `_load_admin_principal`, FIRST: before the slug lookup (so 404-vs-403 cannot be used
+    to probe which client slugs exist) and before the grant (so an operator whose role
+    has just lost the permission is refused even while holding a grant that has not yet
+    expired — which is this design's whole revocation story).
+
+    No grant is sent here, deliberately: the refusal must be the PERMISSION one, and the
+    assertion below pins which of the two 403s this is.
     """
     token = await _make_admin(role="operator")
     org = await _make_org()
@@ -246,20 +252,24 @@ async def test_entering_a_tenant_requires_the_impersonate_permission(
         )
     assert response.status_code == 403, response.text
     assert response.json()["kind"] == "permission"
+    assert response.json()["type"].endswith("/forbidden"), (
+        "the permission refusal must run before the grant check, or a revoked operator "
+        "would be told to start a new session instead of being refused"
+    )
 
 
 async def test_impersonation_still_works_for_a_role_that_holds_the_permission() -> None:
-    """The other half of the check above: the shipped roles are unaffected (D-22)."""
+    """The other half of the check above: the shipped roles are unaffected (D-22).
+
+    With a grant, because the header alone no longer opens a tenant — see
+    `tests/impersonation_grant_test.py` for that refusal and its siblings.
+    """
     token = await _make_admin(role="operator")
     org = await _make_org()
 
     async with _client() as http:
         response = await http.get(
-            "/v1/agents",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "X-Impersonate-Org": str(org["slug"]),
-            },
+            "/v1/agents", headers=await view_as_headers(http, token, str(org["slug"]))
         )
     assert response.status_code == 200, response.text
 
@@ -350,8 +360,11 @@ async def test_every_mutating_route_is_gated_by_a_mutating_permission() -> None:
         # the mirror of `/v1/dnc/check` being POST because the REQUEST is — and it is
         # what lets the route keep `org:manage` without a D-22 exemption.
         "/v1/lead-sources/{webhook_id}/meta/setup",
-        # Records the INTENT to view a tenant; writes an audit row and nothing else.
-        "/v1/admin/tenants/{tenant_id}/impersonate",
+        # Mints the short-lived, read-only D-22 view-as grant and records that
+        # authority was issued. It creates no tenant data, and `admin:impersonate` must
+        # STAY non-mutating: D-22 forbids gating a read on a mutating permission, and
+        # every read an operator makes inside a client account is gated on this one.
+        "/v1/admin/impersonation-grants",
     }
     offenders = []
     for route in iter_api_routes(app):
@@ -616,9 +629,10 @@ async def test_an_admin_can_publish_an_agent() -> None:
 
     async with _client() as http:
         plain = await http.post(path, headers={"Authorization": f"Bearer {token}"})
+        # A REAL grant, so the 403 below is D-22's read-only rule rather than the
+        # grant check refusing before that rule is reached.
         viewing = await http.post(
-            path,
-            headers={"Authorization": f"Bearer {token}", "X-Impersonate-Org": str(org["slug"])},
+            path, headers=await view_as_headers(http, token, str(org["slug"]))
         )
     assert plain.status_code == 200, plain.text
     assert plain.json()["agent_id"] == str(org["agent_id"])

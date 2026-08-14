@@ -9,10 +9,12 @@
  * on it — see apps/api/ingest/routes.py `test_webhook` for why that is not a
  * gate bypass.
  *
- * The ACTIVITY shapes are aliased from the generated schema. The DRY-RUN shapes
- * below still are not: `POST /v1/lead-sources/{id}/test` returns a plain dict, so
- * there is nothing generated to alias yet — swap them the day it grows a response
- * model, the way the activity types just were.
+ * The ACTIVITY shapes are aliased from the generated schema. The DRY-RUN shapes below
+ * are hand-written for one more regeneration only: `POST /v1/lead-sources/{id}/test`
+ * NOW answers `LeadSourceDryRunOut` — it used to return a plain dict, which is why they
+ * were written by hand in the first place — so they become
+ * `Schemas["LeadSourceDryRunOut"]` and `Schemas["LeadSourceDryRunStepOut"]` at the next
+ * `pnpm gen:api`, exactly as the activity types did. Mirrored field for field until then.
  */
 
 import {
@@ -45,20 +47,28 @@ export type IngestActivityItem = Schemas["IngestActivityItemOut"];
 
 export type IngestActivity = Schemas["IngestActivityOut"];
 
-/** One decision the real ingest path would have made, reported instead of acted on. */
-export interface TestWebhookStep {
-  step: string;
+/**
+ * One decision the real ingest path would have made, reported instead of acted on.
+ *
+ * `step` is the server's closed set, so a screen can switch on it exhaustively. Nothing
+ * here carries the sample's own values: `mapped_fields` is the client's configured field
+ * NAMES, and the number the dry run normalized to answer the question never leaves the
+ * server (apps/api/ingest/routes.py).
+ */
+export interface LeadSourceDryRunStep {
+  step: "field_mapping" | "phone_number" | "agent" | "form_consent" | "compliance_gate";
   ok: boolean;
   detail: string;
-  /** Present on the compliance_gate step: which rule allowed/refused the dial. */
+  /** The compliance gate's rule on the gate step; null on every other. */
   rule?: string | null;
-  /** Present on the field_mapping step: which configured fields the sample hit. */
-  mapped_fields?: string[];
+  /** Which configured fields the sample filled in — null where the question does not
+   *  apply, `[]` when the mapping matched nothing in this sample. */
+  mapped_fields?: string[] | null;
 }
 
-export interface TestWebhookResult {
+export interface LeadSourceDryRun {
   would_call: boolean;
-  steps: TestWebhookStep[];
+  steps: LeadSourceDryRunStep[];
 }
 
 export function useIngestActivity(session: Session): UseQueryResult<IngestActivity> {
@@ -206,7 +216,7 @@ export function useTestWebhook(session: Session) {
     // No cache invalidation on success: the dry-run writes nothing server-side
     // (no lead row, no inbox row), so there is nothing stale to refetch.
     mutationFn: ({ webhookId, payload }: { webhookId: string; payload: object }) =>
-      apiRequest<TestWebhookResult>(session, `/v1/lead-sources/${webhookId}/test`, {
+      apiRequest<LeadSourceDryRun>(session, `/v1/lead-sources/${webhookId}/test`, {
         method: "POST",
         body: { payload },
       }),

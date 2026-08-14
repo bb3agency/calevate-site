@@ -51,12 +51,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.compliance.audit import write_audit
 from apps.api.core.context import (
     IMPERSONATE_HEADER,
+    IMPERSONATION_GRANT_HEADER,
     ORG_HEADER,
     Principal,
     Realm,
     principal_var,
 )
 from apps.api.core.errors import ProblemError
+from apps.api.core.impersonation import ImpersonationGrant, verify_grant
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import MUTATING_PERMISSIONS, Permission, role_has
 from apps.api.core.redis import get_redis
@@ -439,14 +441,33 @@ async def _load_client_principal(verified: VerifiedToken, org_slug: str | None) 
     )
 
 
-# --- D-22 / SEC-COMP §5: the impersonated read is audited ---------------------
+# --- D-22 / SEC-COMP §5: BOTH halves of the trail, and what each one means -----
 #
 # The spec is "session start + every page view audit-logged (actor=admin_user, tenant,
-# at, ip)". Only the first half existed: `POST /v1/admin/tenants/{id}/impersonate`
-# writes `admin.impersonation_started` — and MINTS NOTHING, so nothing ever forced an
-# operator through it. The entry to a tenant is the `X-Impersonate-Org` header, and an
-# admin who sent that header and skipped the announcement left no trace at all, while
-# four docstrings across this repo asserted that every page view was recorded.
+# at, ip)", and for a long time neither half was what it looked like. The start row was
+# written by an endpoint that MINTED NOTHING and that the console never called, so it
+# was absent for every real session; the page-view row did not exist at all, so an admin
+# who sent `X-Impersonate-Org` read a client's leads, calls and transcripts and left no
+# trace, while four docstrings asserted otherwise.
+#
+# BOTH ROWS NOW EXIST AND THEY ANSWER DIFFERENT QUESTIONS. Keep them distinct:
+#
+#   `admin.impersonation_started` — ONE PER GRANT, written by the mint route
+#     (`admin/routes.py`). It means AUTHORITY WAS ISSUED: operator X was granted the
+#     ability to view tenant Y at time T from address I, expiring at E. It is no longer
+#     skippable, because `_load_admin_principal` below refuses every impersonated
+#     request that does not carry a grant, and a grant cannot exist without this row.
+#     It is written even if the operator then reads nothing — "asked to go in" is its
+#     own fact.
+#
+#   `admin.impersonation_read` — AT MOST ONE PER (ADMIN, TENANT) PER WINDOW, written
+#     here. It means DATA WAS ACTUALLY REACHED, and at what times. It carries the
+#     `grant_id` of the session it belongs to, so a start row and its reads join
+#     exactly rather than by guessing from a timestamp.
+#
+# Neither implies the other and that is the point: a start row with no reads is an
+# operator who opened a session and looked at nothing, and reads with no start row are
+# now impossible. Together they bound a session at both ends.
 #
 # WHERE THIS LIVES, AND WHY NOT THE THREE OBVIOUS PLACES.
 # `_load_admin_principal` is the ONLY function that can produce a principal with
@@ -483,17 +504,12 @@ async def _load_client_principal(verified: VerifiedToken, org_slug: str | None) 
 # is deliberately NOT the ledger's job: that lives in the request log, which already
 # carries route + correlation id for every request and costs nothing to keep.
 #
-# THE BYPASS IS NARROWED, NOT CLOSED, AND IT IS NAMED HERE. The start endpoint still
-# mints no credential, so an operator can still enter a tenant with the header alone
-# and never announce it. What changes is that doing so is no longer INVISIBLE — the
-# read path records it whether or not the announcement happened. Making the header
-# useless without a minted, short-lived, signed grant is the real fix, and it is out of
-# scope for this change because it needs `apps/web` to call the start endpoint and hold
-# the grant (that code sends the slug directly today — `apps/web/src/lib/api/admin.ts`)
-# plus a decision-log entry for the credential's shape, lifetime and revocation. Until
-# then the ledger's answer to "did an operator go in the front door" is
-# `admin.impersonation_started`, and its answer to "was an operator in there at all" is
-# the action below — which is the one that cannot be skipped.
+# THE BYPASS IS NOW CLOSED, and this is where it closes. The header alone no longer
+# reaches a tenant: `_load_admin_principal` requires a grant that names this operator
+# and this tenant (`core/impersonation.py`), so "entered without announcing" is not a
+# state the system has. The read row below is still the one that cannot be skipped —
+# it records presence whether or not anything was successfully read — but it is no
+# longer the ONLY thing standing between an operator and a client's data.
 IMPERSONATION_READ_ACTION = "admin.impersonation_read"
 IMPERSONATION_AUDIT_WINDOW_S = 60
 
@@ -505,6 +521,7 @@ async def _record_impersonated_read(
     tenant_id: UUID,
     ip: str | None,
     route: str,
+    grant_id: UUID,
 ) -> None:
     """Append the page-view row, coalesced per the window above.
 
@@ -543,7 +560,18 @@ async def _record_impersonated_read(
         # identifier at all. It rides in `summary`, which goes to the log stream keyed
         # by the entry id — the ledger row itself carries exactly what SEC-COMP §5 asks
         # for (actor, tenant, at, ip).
-        summary={"route": route, "window_s": IMPERSONATION_AUDIT_WINDOW_S},
+        #
+        # `grant_id` joins this read to the ONE `admin.impersonation_started` row that
+        # authorised it. Without it an investigator matches a start row to its reads by
+        # timestamp proximity, which stops working the moment two operators are in one
+        # tenant — the case `test_two_operators_in_one_tenant_are_two_trails` already
+        # cares about. It is a uuid, so it is not PII and the coalescing rule above is
+        # untouched by its presence.
+        summary={
+            "route": route,
+            "window_s": IMPERSONATION_AUDIT_WINDOW_S,
+            "grant_id": str(grant_id),
+        },
     )
 
 
@@ -551,6 +579,7 @@ async def _load_admin_principal(
     verified: VerifiedToken,
     impersonate_slug: str | None,
     *,
+    impersonation_grant: str | None = None,
     ip: str | None = None,
     route: str = "",
 ) -> Principal:
@@ -573,13 +602,15 @@ async def _load_admin_principal(
         admin_id, role = row[0], row[1]
 
         tenant_id: UUID | None = None
+        grant: ImpersonationGrant | None = None
         if impersonate_slug:
-            # `admin:impersonate` gates the ACT of entering a tenant, not just the
-            # `/v1/admin/tenants/{id}/impersonate` call that announces it — that
-            # endpoint mints no credential, so nothing forced a caller through it and
-            # the permission named after the act did not gate the act. Checked before
-            # the slug lookup so an admin without it cannot use 404-vs-403 to probe
-            # which client slugs exist.
+            # `admin:impersonate` gates the ACT of entering a tenant, not just the mint
+            # call that announces it. Checked FIRST, before the slug lookup and before
+            # the grant, so an admin without it cannot use 404-vs-403 to probe which
+            # client slugs exist — and so that a role that lost the permission is
+            # refused even while holding a grant that has not yet expired. That last
+            # property is this repo's whole revocation story: authority is re-read from
+            # `admin_users` on every request, so a grant outlives nothing.
             if not role_has(role, "admin:impersonate"):
                 raise ProblemError.forbidden("This account may not view client accounts.")
             org = (
@@ -591,6 +622,14 @@ async def _load_admin_principal(
             if org is None:
                 raise ProblemError.not_found("Organization")
             tenant_id = org[0]
+            # THE GRANT IS CHECKED AGAINST THE TENANT THIS REQUEST NAMED, which is why
+            # it is checked here and not at the top: the header carries a slug and the
+            # grant carries an id, so there is nothing to compare until the slug has
+            # been resolved. `verify_grant` takes both bindings in one call so the
+            # tenant check cannot be the line somebody forgets — see its docstring.
+            grant = verify_grant(
+                impersonation_grant, admin_id=UUID(str(admin_id)), tenant_id=UUID(str(tenant_id))
+            )
 
         principal = Principal(
             realm="admin",
@@ -601,14 +640,22 @@ async def _load_admin_principal(
             # D-22: "view as client" is READ-ONLY and every page view is audit-logged.
             impersonating=impersonate_slug is not None,
         )
-        if tenant_id is not None:
+        if tenant_id is not None and grant is not None:
             # Recorded HERE, before the route's own permission check runs, so an
             # operator who enters a tenant and is then refused by the endpoint is still
             # in the ledger. That is deliberate: "tried to look" is the same question an
             # investigator is asking, and the alternative (audit only successful reads)
             # would let a probe of a client's surface leave nothing behind.
+            #
+            # `grant is not None` is a type narrowing, not a condition: the two are set
+            # in the same branch and `verify_grant` raises rather than returning None.
             await _record_impersonated_read(
-                session, principal=principal, tenant_id=tenant_id, ip=ip, route=route
+                session,
+                principal=principal,
+                tenant_id=tenant_id,
+                ip=ip,
+                route=route,
+                grant_id=grant.grant_id,
             )
 
     return principal
@@ -676,10 +723,27 @@ def _route_template(request: Request) -> str:
 
 
 async def current_admin(request: Request) -> Principal:
+    """A verified admin principal, and — when it is entering a tenant — a granted one.
+
+    D-68's MFA gate runs first, inside `verify_token`, and the ORDER matters: the grant
+    is never an alternative route in. It cannot be, because it is not a credential —
+    every request that presents one also presents the operator's own admin-realm token,
+    which has already had to pass the second-factor check. So a grant is strictly
+    NARROWER than the session carrying it, and there is no way to combine "a grant" with
+    "a token that skipped MFA" into an entry, because the second one never becomes a
+    principal at all.
+
+    A grant sent WITHOUT `X-Impersonate-Org` is inert rather than a refusal, and that is
+    deliberate: it names a tenant this request is not asking for, so it authorises
+    nothing and widens nothing — the caller gets the plain admin session their token was
+    always good for. Refusing it would be a rule with no threat behind it, breaking any
+    caller that attaches the header uniformly.
+    """
     verified = await verify_token(_bearer(request), "admin")
     principal = await _load_admin_principal(
         verified,
         request.headers.get(IMPERSONATE_HEADER),
+        impersonation_grant=request.headers.get(IMPERSONATION_GRANT_HEADER),
         ip=_request_ip(request),
         route=_route_template(request),
     )
@@ -750,7 +814,10 @@ async def tenant_of(principal: Principal = Depends(current_any)) -> UUID:
             code="org_required",
             title="Account not specified",
             detail="This endpoint is tenant-scoped and no account was resolved.",
-            remediation=f"Send the {ORG_HEADER} header (client) or {IMPERSONATE_HEADER} (admin).",
+            remediation=(
+                f"Send the {ORG_HEADER} header (client), or {IMPERSONATE_HEADER} plus "
+                f"{IMPERSONATION_GRANT_HEADER} (admin view-as)."
+            ),
         )
     return principal.tenant_id
 
@@ -759,6 +826,7 @@ __all__ = [
     "DEV_TOKEN_NO_MFA_SUFFIX",
     "IMPERSONATE_HEADER",
     "IMPERSONATION_AUDIT_WINDOW_S",
+    "IMPERSONATION_GRANT_HEADER",
     "IMPERSONATION_READ_ACTION",
     "MFA_REQUIRED_REALMS",
     "ORG_HEADER",

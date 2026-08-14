@@ -146,16 +146,21 @@ export function useAddContacts(session: Session, campaignId: string | null) {
  * The launch check is invalidated on success because the answer is precisely what
  * changes it — including the answer that makes it WORSE (`purchased_list` swaps
  * `consent_provenance_missing` for `consent_source_refused`). The client must see that.
+ *
+ * **204, and the invalidation above is why that is enough.** The endpoint used to answer
+ * `{"status": "recorded"}` — a constant, in a shape the generated client could only
+ * describe as an index signature. Whether the answer unblocks dialling is `/launch-check`'s
+ * to state, and this hook re-reads it; a copy of that verdict in the declaration's own
+ * response would be a second thing to keep in step with the gate.
  */
 export function useDeclareConsentProvenance(session: Session, campaignId: string | null) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (provenance: ConsentProvenance) =>
-      apiRequest<{ [key: string]: string }>(
-        session,
-        `/v1/campaigns/${campaignId}/consent-provenance`,
-        { method: "POST", body: provenance },
-      ),
+      apiRequest<void>(session, `/v1/campaigns/${campaignId}/consent-provenance`, {
+        method: "POST",
+        body: provenance,
+      }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["campaign-check", campaignId] });
       void client.invalidateQueries({ queryKey: ["campaign", campaignId] });
@@ -208,11 +213,17 @@ export function useLaunchCampaign(session: Session, campaignId: string | null) {
   });
 }
 
+/**
+ * Stop or restart the dialling. **204 on both**, so there is nothing to read back — the
+ * screen re-reads progress, which is where the campaign's state has always come from.
+ * The constant `{"status": "paused"}` this used to return said only what the URL it was
+ * posted to already said.
+ */
 export function usePauseCampaign(session: Session, campaignId: string | null) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (action: "pause" | "resume") =>
-      apiRequest<{ status: string }>(session, `/v1/campaigns/${campaignId}/${action}`, {
+      apiRequest<void>(session, `/v1/campaigns/${campaignId}/${action}`, {
         method: "POST",
       }),
     onSuccess: () => {
@@ -304,6 +315,21 @@ export function useScheduleCampaign(session: Session, campaignId: string | null)
 }
 
 /**
+ * What one stop button actually stopped, and what the campaign is now.
+ *
+ * HAND-WRITTEN, and marked: `ScheduleCancelledOut` exists on the server now, so this
+ * becomes `Schemas["ScheduleCancelledOut"]` at the next `pnpm gen:api` — the same swap
+ * the activity types went through. Mirrored exactly in the meantime, because a mirror
+ * that drifts is the defect this convention exists to prevent.
+ */
+export interface CancelledSchedule {
+  /** Which promise was held: a one-time start, or a weekly repeat. */
+  cancelled: "one_time" | "recurring";
+  /** The campaign's status AFTER the cancellation — see the hook below. */
+  status: string;
+}
+
+/**
  * Cancel a pending start OR stop a repeat — one button, because it is one column.
  *
  * The response carries the status the campaign is ACTUALLY in afterwards: a campaign
@@ -315,7 +341,7 @@ export function useUnscheduleCampaign(session: Session, campaignId: string | nul
   const client = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiRequest<{ status: string }>(session, `/v1/campaigns/${campaignId}/schedule`, {
+      apiRequest<CancelledSchedule>(session, `/v1/campaigns/${campaignId}/schedule`, {
         method: "DELETE",
       }),
     onSuccess: () => {

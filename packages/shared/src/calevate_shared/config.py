@@ -175,6 +175,14 @@ class Settings(BaseSettings):
     # inject it — rotating it starts a new chain, so it is rotated with a drill.
     audit_chain_secret: str | None = None
 
+    # HMAC material for D-22 view-as grants (`apps/api/core/impersonation.py`). ITS OWN
+    # SECRET, not a subkey of the one above, so that rotating it — which costs at most
+    # one grant lifetime of re-minting — is not coupled to the audit chain's rotation
+    # drill. Unset is a derived constant under APP_ENV=local ONLY; anywhere else an
+    # absent value refuses to mint or verify, because a guessable key here is forgeable
+    # access to a client's data rather than an unverifiable ledger.
+    impersonation_grant_secret: str | None = None
+
     # Email transport for hot-lead alerts (ROADMAP M1: email first, WhatsApp next).
     # Any SMTP provider works, which keeps the provider a deployment decision rather
     # than a code dependency. Unset in a non-local env = notifications report FAILURE
@@ -357,6 +365,38 @@ class Settings(BaseSettings):
     # receiver FAILS CLOSED — an unverifiable payment feed credits wallets on
     # anyone's say-so, which is worse than no feed at all.
     razorpay_webhook_secret: str | None = None
+
+    # WHO CALEVATE IS ON AN INVOICE (SLICE AL). Rule 46 of the CGST Rules makes the
+    # supplier's legal name, registered address and GSTIN mandatory particulars of a tax
+    # invoice, and Rule 46(g) makes the HSN/SAC of the supply one too. All four are a
+    # FOUNDER DECISION that has not been taken — ROADMAP M0 has no legal entity and
+    # therefore no GST registration — so they are config with NO DEFAULT and no
+    # placeholder. A hardcoded specimen GSTIN would be the worst possible outcome: an
+    # official-looking document that fails validation in the recipient's return months
+    # later, and CGST s.32 prohibits an unregistered person from collecting tax at all.
+    #
+    # NOT SECRETS, and deliberately not treated as such: a GSTIN and a registered address
+    # are printed on every invoice we will ever issue and are published on the GST
+    # portal. They are here rather than in the database because they describe the
+    # DEPLOYMENT's own legal identity, not a tenant's — one entity issues every invoice —
+    # and because changing them is a corporate event that should move with the deploy
+    # that ships the new letterhead, not a row somebody can edit in a console.
+    #
+    # UNSET IS A SUPPORTED STATE and is what every environment is in today:
+    # `billing/gst.py::SupplierIdentity.is_registered` is False, the document renders as
+    # a PROFORMA that names the missing keys, and it refuses the "Tax Invoice" heading
+    # rather than printing an invalid one. It does NOT change what the client owes —
+    # `invoice.py` argues why a forgotten variable must never silently move money.
+    gst_supplier_legal_name: str | None = None
+    gst_supplier_address: str | None = None
+    # 15 characters. Its first two digits are the supplier's State and are what decides
+    # CGST+SGST vs IGST, so this field is the single source of our place of supply —
+    # there is deliberately no separate state setting to drift from it.
+    gst_supplier_gstin: str | None = None
+    # The Service Accounting Code our supply is classified under. 4 digits up to ₹5
+    # crore aggregate turnover, 6 above it (Notification 78/2020-CT). WHICH code an AI
+    # voice-agent subscription falls under is the accountant's call, not this repo's.
+    gst_supply_sac: str | None = None
 
 
 def bolna_source_ips(settings: Settings) -> frozenset[str]:

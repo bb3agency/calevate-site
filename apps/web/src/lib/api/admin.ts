@@ -14,7 +14,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { adminRealmSession } from "@/lib/auth/adminRealm";
 
 import type { CampaignSummary } from "./campaigns";
-import { apiRequest, type Session } from "./client";
+import { apiRequest, type GrantSource, type Session } from "./client";
 // Types, the endpoint path and the request shaper only — never a client-realm session.
 // The two realms share vocabulary so an operator and a client name the same document
 // the same way; they share no session logic (TRD §11), which is why the session each
@@ -62,9 +62,141 @@ export function adminSession(orgSlug = ""): Session {
   return adminRealmSession(orgSlug);
 }
 
-/** Impersonation is READ-ONLY (D-22): this adds the header, it mints no credential. */
+/* --- D-22 view-as: the grant, and where it comes from ------------------------------
+ *
+ * This file used to build an impersonating session by setting one header and nothing
+ * else, and the server used to accept exactly that. The consequence was that
+ * `admin.impersonation_started` — the "session start audit-logged" half of D-22 — was
+ * absent for every real session: nothing forced an operator through the endpoint that
+ * wrote it, and this console never called it.
+ *
+ * Now the API refuses `X-Impersonate-Org` unless it is accompanied by a short-lived
+ * grant naming this operator and this tenant, and minting that grant IS what writes the
+ * row. So the two sides moved together: a console that only set the header would now be
+ * refused on every read, and a server that only required the grant would be a console
+ * with no client screens.
+ *
+ * WHAT LIVES HERE AND WHY IT IS NOT A HOOK. `viewAsSession(slug)` is called from ~15
+ * places, several of them outside React's render path (`lib/api/publishing.ts` builds
+ * query options; `lib/api/session.tsx` builds a session inside a `useMemo`), and it must
+ * stay synchronous — making it a hook would mean rewriting every caller and would still
+ * not help `session.tsx`, which has only a slug and no tenant id. So the grant is
+ * resolved the way the bearer token already is: a function on the session, asked once
+ * per request (`client.ts::GrantSource`). The cache below is what keeps that from being
+ * a mint per request.
+ */
+
+/** The mint endpoint. A POST because the RESPONSE is credential-shaped. */
+export const IMPERSONATION_GRANT_PATH = "/v1/admin/impersonation-grants";
+
+/**
+ * Re-mint this long before the grant expires.
+ *
+ * Not zero, because "expired" would then be discovered as a failed read in front of an
+ * operator, and a clock a few seconds off would make it happen at random. Sixty seconds
+ * is comfortably more than any clock skew the API tolerates
+ * (`core/impersonation.py::GRANT_CLOCK_SKEW_S`, 5s) and small enough that a fifteen
+ * minute grant is still ~4 mints an hour — the ledger-volume budget the TTL was chosen
+ * against.
+ */
+const GRANT_REFRESH_MARGIN_MS = 60_000;
+
+interface MintedGrant {
+  grant: string;
+  expiresAtMs: number;
+}
+
+interface CachedGrant {
+  pending: Promise<MintedGrant>;
+  /**
+   * Readable SYNCHRONOUSLY, and `Infinity` while the mint is still in flight.
+   *
+   * That is what makes the freshness decision race-free. If staleness could only be
+   * learned by awaiting the promise, every concurrent caller would await the same stale
+   * entry, all conclude "stale" at once, and all re-mint — six audit rows for one
+   * refresh, which is precisely the ledger volume the TTL was chosen to bound. Reading
+   * it synchronously means the first caller replaces the entry before any other observes
+   * it, and the rest queue on the replacement.
+   */
+  expiresAtMs: number;
+}
+
+/**
+ * One in-flight-or-settled mint per slug.
+ *
+ * The PROMISE is cached, not the result, so the six queries a screen opens at once
+ * produce ONE mint and therefore ONE `admin.impersonation_started` row rather than six.
+ * A failed mint drops out of the cache so the next read retries instead of replaying a
+ * rejection forever.
+ */
+const grantCache = new Map<string, CachedGrant>();
+
+/** Drop every cached grant. For tests, and for a sign-out that changes who "we" are. */
+export function clearImpersonationGrants(): void {
+  grantCache.clear();
+}
+
+/**
+ * What the mint returns, from the generated schema.
+ *
+ * `grant` is a short-lived delegation token bound to this tenant and this operator; it is
+ * NOT a credential on its own and never travels in `Authorization`. That is what makes
+ * revocation lag one request rather than one token lifetime — the operator's own admin
+ * row and role are re-read on every request beside it.
+ */
+type MintResponse = Schemas["ImpersonationGrantOut"];
+
+async function mint(slug: string): Promise<MintedGrant> {
+  // `adminSession()`, never `viewAsSession()`: minting is an admin-realm act, and the
+  // API refuses a mint made from inside another account's session (no chained
+  // delegation). Passing the impersonating session here would be an infinite regress
+  // as well as a refusal.
+  const minted = await apiRequest<MintResponse>(adminSession(), IMPERSONATION_GRANT_PATH, {
+    method: "POST",
+    body: { slug },
+  });
+  return { grant: minted.grant, expiresAtMs: Date.parse(minted.expires_at) };
+}
+
+function impersonationGrant(slug: string): GrantSource {
+  return async () => {
+    const cached = grantCache.get(slug);
+    if (cached && cached.expiresAtMs - Date.now() > GRANT_REFRESH_MARGIN_MS) {
+      return (await cached.pending).grant;
+    }
+    // Installed BEFORE the first await, so concurrent callers see this entry rather
+    // than the stale one they would each have replaced.
+    const entry: CachedGrant = { pending: mint(slug), expiresAtMs: Number.POSITIVE_INFINITY };
+    grantCache.set(slug, entry);
+    try {
+      const minted = await entry.pending;
+      entry.expiresAtMs = minted.expiresAtMs;
+      return minted.grant;
+    } catch (error) {
+      // A rejected promise left in the cache would turn one failed mint into a
+      // permanently broken account page. Guarded on identity so a retry that has
+      // already installed its own entry is not evicted by this one's failure.
+      if (grantCache.get(slug) === entry) grantCache.delete(slug);
+      throw error;
+    }
+  };
+}
+
+/**
+ * A READ-ONLY "view as client" session (D-22) — addressed by slug, authorised by grant.
+ *
+ * Read-only is enforced SERVER-side whatever this file does: `requires()` refuses every
+ * mutating permission to an impersonating principal. The grant does not change that and
+ * is not meant to — it closes the other half, which is that entering a tenant used to
+ * leave no record of anyone having been let in.
+ */
 export function viewAsSession(slug: string): Session {
-  return { ...adminSession(slug), orgSlug: slug, impersonateOrg: slug };
+  return {
+    ...adminSession(slug),
+    orgSlug: slug,
+    impersonateOrg: slug,
+    impersonationGrant: impersonationGrant(slug),
+  };
 }
 
 export function useTenants(): UseQueryResult<TenantSummary[]> {

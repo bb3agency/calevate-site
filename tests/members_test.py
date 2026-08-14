@@ -28,6 +28,7 @@ import httpx
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
+from tests.impersonation_grant_test import view_as_headers
 
 
 def _client() -> httpx.AsyncClient:
@@ -392,8 +393,11 @@ async def test_an_impersonating_operator_can_see_the_team_and_cannot_change_it()
     colleague, _ = await _colleague(tenant_id, role="staff")
     admin_token = await _make_operator()
 
-    headers = {"Authorization": f"Bearer {admin_token}", "X-Impersonate-Org": slug}
     async with _client() as http:
+        # A real D-22 grant: without one every call below would be refused before
+        # `requires()` ran, and the three refusals this test exists to pin would be
+        # green for the wrong reason.
+        headers = await view_as_headers(http, admin_token, slug)
         listed = await http.get("/v1/members", headers=headers)
         invites = await http.get("/v1/invitations", headers=headers)
         promote = await http.patch(

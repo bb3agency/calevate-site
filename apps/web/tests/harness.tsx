@@ -3,6 +3,7 @@ import { act, render, type RenderResult } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { expect, vi } from "vitest";
 
+import { clearImpersonationGrants } from "@/lib/api/admin";
 import { API_BASE } from "@/lib/api/client";
 import { ClientRealmProvider } from "@/lib/api/session";
 
@@ -57,7 +58,41 @@ export interface ApiCall {
   headers: Record<string, string>;
 }
 
+/**
+ * The D-22 view-as grant mint — answered by DEFAULT when a route table does not.
+ *
+ * `viewAsSession()` now mints a short-lived grant before it can read anything from a
+ * client surface (lib/api/admin.ts), so every admin screen that reads through
+ * impersonation makes this call. Answering it here rather than in ~10 route tables is
+ * the same judgement `setup.ts` makes about `next/navigation`: it is infrastructure the
+ * screen under test did not ask for, and repeating it would bury each test's actual
+ * premise. A test that cares about the grant flow itself puts its own entry in the
+ * table and that entry wins — `adminImpersonationGrant.test.tsx` does exactly that.
+ *
+ * A FALLBACK, NOT A MERGE, and the difference is not stylistic: `{ ...routes, ... }`
+ * would have been the obvious way to seed it, and it EVALUATES GETTERS. Several suites
+ * define a route as `get "PATCH /v1/leads/lead-1001"()` so one endpoint can answer
+ * differently on a retry, and spreading froze the first answer forever — a test asserting
+ * a recovery path silently stopped being able to recover. So the table is never copied.
+ *
+ * The expiry is far enough out that no test races the console's refresh margin.
+ */
+const GRANT_ROUTE = "POST /v1/admin/impersonation-grants";
+
+function defaultGrant(): Record<string, unknown> {
+  return {
+    slug: "stub",
+    grant: "stub-view-as-grant",
+    expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+  };
+}
+
 export function stubApi(routes: Routes): ApiCall[] {
+  // Grants are cached per slug in a module-level map, so without this a grant minted by
+  // one test would be reused by the next — silently changing how many requests the next
+  // test's screen makes, depending on file order. Cleared where the network is replaced,
+  // because that is what the cache is a cache of.
+  clearImpersonationGrants();
   const calls: ApiCall[] = [];
   vi.stubGlobal(
     "fetch",
@@ -82,6 +117,7 @@ export function stubApi(routes: Routes): ApiCall[] {
       // request it was never given. The same defect this suite exists to catch.
       const key = Object.hasOwn(routes, scoped) ? scoped : path;
       if (!Object.hasOwn(routes, key)) {
+        if (scoped === GRANT_ROUTE) return jsonResponse(defaultGrant());
         throw new Error(
           `test stub has no route for ${scoped} — add it to the routes table, ` +
             `or the screen under test is calling an endpoint nobody expected`,
@@ -94,13 +130,17 @@ export function stubApi(routes: Routes): ApiCall[] {
           headers: { "content-type": "application/problem+json" },
         });
       }
-      return new Response(JSON.stringify(answer), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return jsonResponse(answer);
     }),
   );
   return calls;
+}
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 export interface ClientPageRender extends RenderResult {

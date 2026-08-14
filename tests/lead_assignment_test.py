@@ -30,6 +30,7 @@ import httpx
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
+from tests.impersonation_grant_test import view_as_headers
 
 
 def _client() -> httpx.AsyncClient:
@@ -381,11 +382,9 @@ async def test_a_read_only_impersonating_admin_cannot_assign(monkeypatch) -> Non
     async with _client() as http:
         response = await http.patch(
             f"/v1/leads/{lead_id}",
-            headers={
-                "Authorization": f"Bearer dev:admin:{admin_clerk}",
-                "X-Org-Slug": slug,
-                "X-Impersonate-Org": slug,
-            },
+            headers=await view_as_headers(
+                http, f"dev:admin:{admin_clerk}", slug, **{"X-Org-Slug": slug}
+            ),
             json={"assigned_to": str(member)},
         )
     assert response.status_code == 403

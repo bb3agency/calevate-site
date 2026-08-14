@@ -288,7 +288,10 @@ async def test_a_client_can_undo_its_own_typo_but_not_a_consumers_opt_out() -> N
         undone = await http.delete(f"/v1/dnc/{ids['manual']}", headers=_headers(token, slug))
         refused = await http.delete(f"/v1/dnc/{ids['call_optout']}", headers=_headers(token, slug))
 
-    assert undone.status_code == 200 and undone.json() == {"status": "removed"}
+    # 204 with no body: the row that was just deleted holds a phone number, and the
+    # answer to "please forget this" is the one response that must not repeat it. The
+    # `{"status": "removed"}` this replaced said nothing a 2xx on a DELETE did not.
+    assert undone.status_code == 204 and undone.content == b""
     assert refused.status_code == 422
     assert _code(refused) == "dnc_consumer_optout"
 

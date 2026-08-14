@@ -314,14 +314,17 @@ async def test_the_dry_run_reports_every_decision_and_does_nothing() -> None:
         leads = (await session.execute(text("SELECT count(*) FROM leads"))).scalar()
         calls = (await session.execute(text("SELECT count(*) FROM calls"))).scalar()
 
-    assert blocked["would_call"] is False
-    gate_step = next(s for s in blocked["steps"] if s["step"] == "compliance_gate")
-    assert gate_step["rule"] == "dnc", "the dry run consulted the LIVE DNC list"
+    # Attribute access, not subscripts: the handler answers `LeadSourceDryRunOut` now
+    # rather than a bare dict — see `tests/response_shape_test.py` for why that matters
+    # on a handler that holds a normalized caller number in scope.
+    assert blocked.would_call is False
+    gate_step = next(s for s in blocked.steps if s.step == "compliance_gate")
+    assert gate_step.rule == "dnc", "the dry run consulted the LIVE DNC list"
 
-    assert clean["would_call"] is True
-    assert malformed["would_call"] is False
-    phone_step = next(s for s in malformed["steps"] if s["step"] == "phone_number")
-    assert phone_step["ok"] is False
+    assert clean.would_call is True
+    assert malformed.would_call is False
+    phone_step = next(s for s in malformed.steps if s.step == "phone_number")
+    assert phone_step.ok is False
 
     assert leads == 0, "a dry run writes nothing"
     assert calls == 0, "and dials nobody"

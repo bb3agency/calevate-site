@@ -212,6 +212,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/impersonation-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint the short-lived grant a READ-ONLY view-as session needs (D-22)
+         * @description Begins a read-only 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant, expires in minutes, and never authorises a mutation — an impersonating session is read-only, and writes go through the admin surfaces with the tenant in the path.
+         */
+        post: operations["mint_impersonation_grant_v1_admin_impersonation_grants_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/me": {
         parameters: {
             query?: never;
@@ -748,23 +768,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/tenants/{tenant_id}/impersonate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Begin a READ-ONLY view-as session (D-22) — audited, never acting-as */
-        post: operations["start_impersonation_v1_admin_tenants__tenant_id__impersonate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/tenants/{tenant_id}/invitations": {
         parameters: {
             query?: never;
@@ -1172,6 +1175,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/billing/invoice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This account's own invoice statement for an IST billing month
+         * @description The same statement the Calevate team sees for this account, recomputed from the usage ledger on every request — there is no stored invoice row to go stale. Requires `billing:read`, which account owners hold and staff do not. The document states whether it is a tax invoice or a proforma; it is a proforma until Calevate's GST registration is recorded, because an unregistered supplier may not collect tax (CGST s.32).
+         */
+        get: operations["my_invoice_v1_billing_invoice_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/billing/topups/intent": {
         parameters: {
             query?: never;
@@ -1379,6 +1402,16 @@ export interface paths {
          *     exactly the kind of statement that has to be attributable later — it is the record
          *     §3's "refused, in writing" refers to. `leads:dispatch`, not a read permission,
          *     because declaring provenance is what unlocks dialling.
+         *
+         *     **204, and the alternative considered was a body naming the resulting blocker.** The
+         *     interesting half of this answer is that `purchased_list` is recorded and then refused
+         *     (`consent_source_refused`), and a client deserves to see that — but `GET
+         *     /launch-check` is the one authority on what blocks a launch, and the screen re-reads
+         *     it the moment this returns. A second copy of that verdict here would be a second
+         *     thing to keep in step with the gate, which is how the list and the check come to
+         *     disagree. `{"status": "recorded"}` was the third option and the worst of them: a
+         *     constant the caller already knows, shaped like a model, invisible to the generated
+         *     client and to the redaction guardrail alike.
          */
         post: operations["declare_consent_provenance_v1_campaigns__campaign_id__consent_provenance_post"];
         delete?: never;
@@ -1449,7 +1482,7 @@ export interface paths {
         put?: never;
         /**
          * Stop dialling now — idempotent, so a panicked double-click is not an error
-         * @description Pause a running campaign. Idempotent: pausing a campaign that is already paused returns 200, so a second click and the retry of a request whose response was lost are both safe. 409 means the campaign is in some other state (cancelled, or still a draft) and the response names it. 404 means no campaign of yours has that id.
+         * @description Pause a running campaign. Idempotent: pausing a campaign that is already paused returns 204, so a second click and the retry of a request whose response was lost are both safe. 409 means the campaign is in some other state (cancelled, or still a draft) and the response names it. 404 means no campaign of yours has that id.
          */
         post: operations["pause_v1_campaigns__campaign_id__pause_post"];
         delete?: never;
@@ -1502,7 +1535,7 @@ export interface paths {
         put?: never;
         /**
          * Dial again from where it stopped — the compliance re-check is at dial time
-         * @description Resume a paused campaign. Idempotent: resuming a campaign that is already running returns 200. 409 means the campaign is in some other state and the response names it. 404 means no campaign of yours has that id. Resuming does not re-run the launch gate — the per-dial compliance check does, on every contact, which is what catches paperwork that lapsed while it was paused.
+         * @description Resume a paused campaign. Idempotent: resuming a campaign that is already running returns 204. 409 means the campaign is in some other state and the response names it. 404 means no campaign of yours has that id. Resuming does not re-run the launch gate — the per-dial compliance check does, on every contact, which is what catches paperwork that lapsed while it was paused.
          */
         post: operations["resume_v1_campaigns__campaign_id__resume_post"];
         delete?: never;
@@ -1548,6 +1581,9 @@ export interface paths {
          *     "draft" this used to return: a campaign that was waiting goes back to draft, and a
          *     campaign that is dialling keeps dialling — stopping a repeat means "do not start this
          *     again", never "abandon the calls going out now" (`scheduling.unschedule_campaign`).
+         *
+         *     This one keeps a body where its neighbours became 204, and the two facts it carries
+         *     are why: both are answers the caller cannot derive from the request it sent.
          */
         delete: operations["unschedule_v1_campaigns__campaign_id__schedule_delete"];
         options?: never;
@@ -1819,7 +1855,21 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Undo a hand-added suppression — never a consumer opt-out, always audited */
+        /**
+         * Undo a hand-added suppression — never a consumer opt-out, always audited
+         * @description 204, and the two alternatives were both worse.
+         *
+         *     `{"status": "removed"}` said nothing a 200 on a DELETE did not already say, in a
+         *     shape the generated TypeScript client cannot describe and the redaction guardrail
+         *     cannot inspect — the whole class of defect D-71 and D-75 fixed elsewhere. Echoing
+         *     the entry back was the other option and is the one to avoid hardest: the row we
+         *     just deleted holds a phone number, and the response to "please forget this" is not
+         *     the place to repeat it. The `source` this reads is for the AUDIT row, which is
+         *     where "who un-suppressed what, and what kind of entry it was" belongs.
+         *
+         *     Same shape as `DELETE /v1/lead-sources/{id}` and `DELETE /v1/leads/views/{id}`,
+         *     which is the answer this repo already gives for a delete with nothing to report.
+         */
         delete: operations["remove_v1_dnc__entry_id__delete"];
         options?: never;
         head?: never;
@@ -2234,6 +2284,10 @@ export interface paths {
          *     same function, same live DNC read — and its verdict is reported instead of acted
          *     on. The difference between this and a bypass is the direction of the arrow: a
          *     bypass dials without asking; this asks without dialling.
+         *
+         *     The number the sample carries is normalized here and never leaves: every step
+         *     reports a verdict, `mapped_fields` reports KEYS, and the model above is what makes
+         *     that a rule the guardrail enforces rather than a habit this function has.
          */
         post: operations["test_webhook_v1_lead_sources__webhook_id__test_post"];
         delete?: never;
@@ -4469,6 +4523,53 @@ export interface components {
              */
             tenant_id: string;
         };
+        /** ImpersonationGrantIn */
+        ImpersonationGrantIn: {
+            /** Slug */
+            slug: string;
+        };
+        /** ImpersonationGrantOut */
+        ImpersonationGrantOut: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Grant */
+            grant: string;
+            /** Slug */
+            slug: string;
+        };
+        /**
+         * IngestAckOut
+         * @description What the SENDER is told about one delivery: ids and verdicts, never the lead.
+         *
+         *     Declared rather than `dict[str, Any]`, and this is the response on this router where
+         *     that matters most: the handler holds the sender's ENTIRE payload in scope, and an
+         *     untyped return is one `**payload` away from echoing a customer's name and number back
+         *     over a channel authenticated by a secret that gets pasted into form vendors. An
+         *     untyped return is not a shape `scripts/check_redaction_exposure.py` judges safe — it
+         *     inspects response MODELS, so it is a shape the guardrail cannot see at all (D-71).
+         *
+         *     **On a `duplicate` every other field is null**, because THIS delivery decided
+         *     nothing. The first one made the lead and the dial; re-deriving what it did from an
+         *     inbox row that does not record it would be a claim we cannot back, and `dispatched:
+         *     false` next to `status: duplicate` reads as "nobody was called", which is the one
+         *     thing it must not be allowed to mean.
+         */
+        IngestAckOut: {
+            /** Blocked */
+            blocked?: string | null;
+            /** Dispatched */
+            dispatched?: boolean | null;
+            /** Lead Id */
+            lead_id?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "duplicate";
+        };
         /**
          * IngestActivityItemOut
          * @description One inbound source's rolled-up delivery record from the durable inbox.
@@ -4732,6 +4833,8 @@ export interface components {
             description: string;
             /** Qty */
             qty: string;
+            /** Sac */
+            sac: string | null;
             /** Unit Inr */
             unit_inr: string;
         };
@@ -4739,21 +4842,33 @@ export interface components {
         InvoiceOrganizationOut: {
             /** Billing Email */
             billing_email: string | null;
+            /** Gstin */
+            gstin: string | null;
             /** Id */
             id: string;
             /** Name */
             name: string;
+            /** State Name */
+            state_name: string | null;
         };
         /**
          * InvoiceOut
-         * @description The structured statement a future PDF/UI renders (billing/invoice.py).
+         * @description The structured statement a PDF/UI renders (billing/invoice.py).
          *
          *     Money is a string throughout for the reason hard rule 7 exists: these are exact
          *     NUMERIC rupee amounts, and a JSON float cannot hold them. `qty * unit_inr` must
          *     still reproduce `amount_inr` when a client checks it by hand, which is why the
          *     overage rate is published at its true precision rather than rounded like a rupee.
+         *
+         *     ONE model for both realms. The client and the operator receive byte-identical
+         *     documents for the same tenant-month (`generated_at` aside), which is asserted in
+         *     `tests/invoice_gst_test.py` and is the property that makes this feature trustworthy.
          */
         InvoiceOut: {
+            /** Document Blockers */
+            document_blockers: string[];
+            /** Document Type */
+            document_type: string;
             /** Generated At */
             generated_at: string;
             /** Gst Inr */
@@ -4767,11 +4882,70 @@ export interface components {
             /** Month */
             month: string;
             organization: components["schemas"]["InvoiceOrganizationOut"];
+            place_of_supply: components["schemas"]["InvoicePlaceOfSupplyOut"];
             /** Subtotal Inr */
             subtotal_inr: string;
+            supplier: components["schemas"]["InvoiceSupplierOut"];
+            /** Tax Components */
+            tax_components: components["schemas"]["InvoiceTaxComponentOut"][];
             /** Total Inr */
             total_inr: string;
             usage: components["schemas"]["InvoiceUsageOut"];
+        };
+        /**
+         * InvoicePlaceOfSupplyOut
+         * @description Rule 46(n) — and the field that decides which taxes were charged.
+         *
+         *     `basis` is published rather than kept in the server's head because place of supply is
+         *     the particular most likely to be questioned, and the question is always "why this
+         *     one". IGST Act s.12(2) in one sentence beats a support ticket.
+         */
+        InvoicePlaceOfSupplyOut: {
+            /** Basis */
+            basis: string;
+            /** State Code */
+            state_code: string | null;
+            /** State Name */
+            state_name: string | null;
+            /** Supply Type */
+            supply_type: string;
+        };
+        /**
+         * InvoiceSupplierOut
+         * @description Who issued this document (Rule 46(a)-(b), CGST Rules 2017).
+         *
+         *     EVERY FIELD IS NULLABLE and today every one of them is null: the legal entity has not
+         *     been chosen, so there is no GSTIN to print (ROADMAP M0). That is not a gap in this
+         *     schema, it is the state the schema exists to represent honestly — see
+         *     `document_type`.
+         */
+        InvoiceSupplierOut: {
+            /** Address */
+            address: string | null;
+            /** Gstin */
+            gstin: string | null;
+            /** Legal Name */
+            legal_name: string | null;
+            /** Sac */
+            sac: string | null;
+            /** State Name */
+            state_name: string | null;
+        };
+        /**
+         * InvoiceTaxComponentOut
+         * @description One head of tax, itemised as Rule 46(l)-(m) requires.
+         *
+         *     The flat "GST @ 18%" this replaces was not merely terse: CGST, SGST/UTGST and IGST
+         *     are three different ledgers on the recipient's side, and tax charged without saying
+         *     which one cannot be claimed. The components always sum to `gst_inr` exactly.
+         */
+        InvoiceTaxComponentOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Label */
+            label: string;
+            /** Rate Pct */
+            rate_pct: string;
         };
         /** InvoiceUsageOut */
         InvoiceUsageOut: {
@@ -5097,6 +5271,52 @@ export interface components {
             /** Source */
             source: string;
         };
+        /**
+         * LeadSourceDryRunOut
+         * @description Would a submission like this get a call right now, and every decision behind it.
+         *
+         *     `would_call` is present tense on purpose: the gate reads the DNC list and the calling
+         *     window live, so this is what would happen NOW rather than a property of the source.
+         */
+        LeadSourceDryRunOut: {
+            /** Steps */
+            steps: components["schemas"]["LeadSourceDryRunStepOut"][];
+            /** Would Call */
+            would_call: boolean;
+        };
+        /**
+         * LeadSourceDryRunStepOut
+         * @description One decision the real ingest path would have made, reported instead of acted on.
+         *
+         *     **A caller's phone number is in scope where these are built, and it is not on this
+         *     model.** The dry run normalizes the sample's number to decide whether it is dialable
+         *     and to ask the compliance gate about it; what it reports is the VERDICT. Declaring
+         *     the shape is what makes that structural rather than merely careful — `extra="forbid"`
+         *     means a number can only ship from here if somebody ADDS a field, and
+         *     `scripts/check_redaction_exposure.py` reports that field the moment they do.
+         *
+         *     Until this model existed it could not: the guardrail inspects response MODELS, and
+         *     this route answered `dict[str, Any]`, so it was not a route the check judged safe —
+         *     it was a route the check could not see (the same defect as D-71's subject export and
+         *     D-75's event catalogue). The half a schema walk still cannot judge is whether a
+         *     STRING carries a number; `tests/response_shape_test.py` asserts the sample's own
+         *     digits appear nowhere in the body.
+         */
+        LeadSourceDryRunStepOut: {
+            /** Detail */
+            detail: string;
+            /** Mapped Fields */
+            mapped_fields?: string[] | null;
+            /** Ok */
+            ok: boolean;
+            /** Rule */
+            rule?: string | null;
+            /**
+             * Step
+             * @enum {string}
+             */
+            step: "field_mapping" | "phone_number" | "agent" | "form_consent" | "compliance_gate";
+        };
         /** LeadSourceListOut */
         LeadSourceListOut: {
             /** Items */
@@ -5380,6 +5600,26 @@ export interface components {
             source: string | null;
             /** Status */
             status: string;
+        };
+        /**
+         * MetaLeadgenAckOut
+         * @description One verified Meta delivery, accounted for four ways.
+         *
+         *     Meta itself reads only the status code; these counts are for US — they are what the
+         *     delivery log and an operator tailing the response see, and `received != accepted +
+         *     duplicate + refused` is the arithmetic that says a notification went missing.
+         *     Declared for `IngestAckOut`'s reason: a counts-only response is safe by construction
+         *     today and invisible to the redaction guardrail while it stays a bare dict.
+         */
+        MetaLeadgenAckOut: {
+            /** Accepted */
+            accepted: number;
+            /** Duplicate */
+            duplicate: number;
+            /** Received */
+            received: number;
+            /** Refused */
+            refused: number;
         };
         /**
          * MetaSetupOut
@@ -6144,6 +6384,33 @@ export interface components {
             meaning: string;
             /** Scenario */
             scenario: number;
+        };
+        /**
+         * ScheduleCancelledOut
+         * @description What was stopped, and what the campaign is NOW.
+         *
+         *     Two facts, and the caller can derive neither from the request it sent. `cancelled`
+         *     because ONE button stops both kinds of promise: "I stopped the weekly repeat" and "I
+         *     cancelled Monday's start" are different answers, and the screen that rendered the
+         *     button is guessing which one it got. `status` because stopping a repeat on a RUNNING
+         *     campaign leaves it running — this route once answered the constant "draft" for every
+         *     cancellation, which reported a state the campaign was not in.
+         *
+         *     `status` stays `str`, matching `ProgressOut.status` and `CampaignSummaryOut.status`:
+         *     one spelling of campaign status across the API, and adding a member to
+         *     `campaigns.models.CAMPAIGN_STATUSES` must not turn a cancel that already committed
+         *     into a 500 out of response validation (D-75's lesson, in the direction that costs
+         *     least). `cancelled` is a Literal because its two values are written by
+         *     `campaigns/scheduling.py` and by nothing else.
+         */
+        ScheduleCancelledOut: {
+            /**
+             * Cancelled
+             * @enum {string}
+             */
+            cancelled: "one_time" | "recurring";
+            /** Status */
+            status: string;
         };
         /**
          * ScheduleIn
@@ -7269,9 +7536,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: number;
-                    };
+                    "application/json": components["schemas"]["MetaLeadgenAckOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -7302,9 +7567,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["IngestAckOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -7392,6 +7655,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HeldTenantOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    mint_impersonation_grant_v1_admin_impersonation_grants_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImpersonationGrantIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImpersonationGrantOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -8419,39 +8715,6 @@ export interface operations {
             };
         };
     };
-    start_impersonation_v1_admin_tenants__tenant_id__impersonate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     invite_member_v1_admin_tenants__tenant_id__invitations_post: {
         parameters: {
             query?: never;
@@ -9141,6 +9404,37 @@ export interface operations {
             };
         };
     };
+    my_invoice_v1_billing_invoice_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     create_topup_intent_v1_billing_topups_intent_post: {
         parameters: {
             query?: never;
@@ -9530,15 +9824,11 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -9660,15 +9950,11 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -9728,15 +10014,11 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -9801,9 +10083,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["ScheduleCancelledOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -10236,15 +10516,11 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -10931,9 +11207,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["LeadSourceDryRunOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -11503,9 +11777,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": unknown;
                 };
             };
             /** @description RFC-9457 problem+json */

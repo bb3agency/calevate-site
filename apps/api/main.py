@@ -35,6 +35,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.credit_routes import router as credits_admin_router
     from apps.api.billing.payment_routes import router as topups_router
     from apps.api.billing.payment_routes import webhook_router as razorpay_router
+    from apps.api.billing.routes import client_router as billing_invoice_router
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
@@ -124,6 +125,11 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(caps_router)
     application.include_router(topups_router)
     application.include_router(razorpay_router)
+    # The client's own invoice — the same `build_invoice` the admin route serves, in the
+    # realm of the persona BRD §51 says pays it. Literal `/v1/billing/invoice`, declared
+    # beside the other two `/v1/billing/*` routers for the same reason they are ordered
+    # this way: a future `/v1/billing/{something}` router added below cannot swallow it.
+    application.include_router(billing_invoice_router)
     # The client's monthly QA report (SURFACES §2 trust surfaces) and OUR weekly 5%
     # spot-check queue (SURFACES §1). Two realms, one control: the report is the claim
     # we make to the client, the queue is the evidence we collect for it.
