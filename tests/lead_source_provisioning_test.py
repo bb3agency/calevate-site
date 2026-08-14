@@ -19,15 +19,24 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import httpx
 import pytest
+from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.ingest import service
 from apps.api.ingest.routes import SECRET_HEADER
-from apps.api.ingest.service import IngestConfig, verify_ingest_secret
+from apps.api.ingest.service import IngestConfig, readable_mapping, verify_ingest_secret
+from apps.api.integrations.service import secret_fingerprint
 from apps.api.main import app
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
+
+# Spelled from the module under test, not repeated as literals: a bound that drifts must
+# break the code, not quietly stop being the bound these tests probe.
+MAX = service.MAX_MAPPING_ENTRIES
+MAX_FIELD = service.MAX_MAPPING_FIELD_LEN
 
 
 def _client() -> httpx.AsyncClient:
@@ -524,3 +533,261 @@ async def test_the_grace_window_is_bounded_at_the_boundary(grace: int) -> None:
         )
     assert refused.status_code == 422, refused.text
     assert unchanged.status_code != 401
+
+
+# --- the refusals ---------------------------------------------------------------
+#
+# The area docstring in `scripts/check_coverage_ratchet.py` says it plainly: "the branch
+# that goes untested is always the refusal, because the happy path is what the demo
+# exercises". Everything above this line is the demo. Everything below is what the
+# surface does when it is asked for something it must not do.
+
+
+async def test_a_mapping_with_too_many_rules_is_refused() -> None:
+    """A bound on config a human typed, checked at the config screen rather than
+    re-read on every delivery for the life of the source."""
+    _, slug, token = await _make_tenant()
+    async with _client() as http:
+        refused = await _create_source(
+            http,
+            slug,
+            token,
+            mapping={"phone": "phone_number", **{f"field_{i}": "x" for i in range(MAX + 1)}},
+        )
+        # One under the bound is accepted, so the refusal is the LIMIT and not the shape
+        # of the request.
+        allowed = await _create_source(
+            http,
+            slug,
+            token,
+            mapping={"phone": "phone_number", **{f"field_{i}": "x" for i in range(MAX - 1)}},
+        )
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["type"].endswith("/mapping_too_large")
+    assert allowed.status_code == 201, allowed.text
+
+
+@pytest.mark.parametrize(
+    ("mapping", "why"),
+    [
+        ({"phone": "   "}, "a field name that is only whitespace names no field"),
+        ({"   ": "phone_number"}, "and neither does a blank key"),
+    ],
+)
+async def test_a_blank_field_mapping_is_refused_rather_than_stored(
+    mapping: dict[str, str], why: str
+) -> None:
+    """Stored, this maps one of our fields onto a form field called "" — which matches
+    nothing, forever, silently. The refusal names the offending key so the client can
+    find it in a form with thirty of them."""
+    _, slug, token = await _make_tenant()
+    async with _client() as http:
+        refused = await _create_source(http, slug, token, mapping=mapping)
+    assert refused.status_code == 422, why
+    assert refused.json()["type"].endswith("/mapping_blank_field")
+
+
+async def test_an_overlong_field_name_is_refused() -> None:
+    """A field name is a form vendor's identifier, not free text: something this long is
+    a paste accident, and the place to say so is the screen that took the paste."""
+    _, slug, token = await _make_tenant()
+    async with _client() as http:
+        by_value = await _create_source(http, slug, token, mapping={"phone": "x" * (MAX_FIELD + 1)})
+        by_key = await _create_source(
+            http, slug, token, mapping={"phone": "phone_number", "y" * (MAX_FIELD + 1): "z"}
+        )
+    for refused in (by_value, by_key):
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["type"].endswith("/mapping_field_too_long")
+
+
+async def test_a_mapping_that_is_not_an_object_reads_as_no_mapping() -> None:
+    """Hand-provisioned rows predate this surface and `mapping` is untyped JSONB, so a
+    row can hold a LIST where the screen expects an object.
+
+    `apply_mapping` would ignore it; the config screen must agree, or it renders rules
+    the ingest path does not follow. Empty is the honest answer — and the one thing it
+    must not do is raise on a row somebody else wrote.
+    """
+    assert readable_mapping(["phone", "name"]) == {}
+    assert readable_mapping("phone") == {}
+    assert readable_mapping(None) == {}
+    # A real mapping keeps only the entries that DO something: `apply_mapping` requires
+    # a string on the right-hand side, so a number there is a rule nothing follows.
+    assert readable_mapping({"phone": "phone_number", "retries": 3}) == {"phone": "phone_number"}
+
+
+async def test_the_list_renders_a_row_whose_mapping_is_not_an_object() -> None:
+    """The same fact through the route, because that is where it would actually bite:
+    one legacy row must not 500 the screen that lists every source."""
+    tenant_id, slug, token = await _make_tenant()
+    async with _client() as http:
+        source = (await _create_source(http, slug, token)).json()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE inbound_webhooks SET mapping = CAST(:m AS jsonb) WHERE id = :id"),
+            {"m": '["phone", "name"]', "id": uuid.UUID(source["id"])},
+        )
+    async with _client() as http:
+        listed = await http.get("/v1/lead-sources", headers=_headers(slug, token))
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["items"][0]["mapping"] == {}
+
+
+# --- the service contract behind the routes ------------------------------------
+#
+# WHY THESE CALL THE SERVICE DIRECTLY, when everything above goes through HTTP.
+#
+# Two of the refusals below CANNOT be reached through the route, and that is by design
+# rather than an oversight: `RotateSecretIn` bounds `grace_minutes` with `ge=0, le=…`,
+# so the request model refuses an out-of-range value before the service ever sees one.
+# The service keeps its own check because it is a public function of this module and the
+# request model is not its only caller — a worker or an admin path added later would
+# arrive with nothing validated. Testing the second gate means calling the second gate.
+#
+# The rest are here for a duller reason worth writing down: coverage does not record
+# lines executed inside a request made through `httpx.ASGITransport` once the handler
+# has awaited the database — the route tests above genuinely execute `set_active`'s
+# CAS branches and `rotate_secret`'s 404, and the report shows them unexecuted. The
+# HTTP tests are the binding ones for behaviour; these state the same contracts at the
+# seam where they can also be measured.
+
+
+async def _one_source(tenant_id: uuid.UUID) -> uuid.UUID:
+    async with tenant_session(tenant_id) as session:
+        webhook_id, secret = await service.create_lead_source(
+            session,
+            tenant_id=tenant_id,
+            source="website_form",
+            agent_id=None,
+            mapping={"phone": "phone_number"},
+            supplied_secret=None,
+        )
+    assert secret, "a website form's secret is ours to mint"
+    return webhook_id
+
+
+async def test_the_service_refuses_a_grace_the_request_model_would_never_pass() -> None:
+    """The second gate, tested at the second gate.
+
+    `grace_minutes` reaches SQL as an interval. Negative is a window that closed before
+    it opened; unbounded is a second permanent credential wearing a rotation's clothes.
+    The route's Pydantic bounds catch both today — this is what catches them when the
+    next caller is not the route.
+    """
+    tenant_id, _slug, _token = await _make_tenant()
+    webhook_id = await _one_source(tenant_id)
+
+    for grace in (-1, service.MAX_GRACE_MINUTES + 1):
+        async with tenant_session(tenant_id) as session:
+            with pytest.raises(ProblemError) as raised:
+                await service.rotate_secret(
+                    session, webhook_id=webhook_id, grace_minutes=grace, supplied_secret=None
+                )
+        assert raised.value.code == "grace_out_of_range"
+        assert raised.value.status == 422
+
+    # A value ON the bound is accepted: the refusal is the range, not a mood.
+    async with tenant_session(tenant_id) as session:
+        rotation = await service.rotate_secret(
+            session,
+            webhook_id=webhook_id,
+            grace_minutes=service.MAX_GRACE_MINUTES,
+            supplied_secret=None,
+        )
+    assert rotation.secret
+    assert rotation.previous_secret_expires_at is not None
+
+
+async def test_rotating_a_source_that_is_not_this_tenants_finds_nothing() -> None:
+    """`UPDATE … RETURNING` under RLS: another tenant's row is not merely refused, it is
+    not there. The 404 is what turns "zero rows changed" into an answer instead of a
+    silent success — the exact defect that would let a client believe they had rotated a
+    secret that never moved."""
+    tenant_a, _slug_a, _token_a = await _make_tenant()
+    tenant_b, _slug_b, _token_b = await _make_tenant()
+    webhook_id = await _one_source(tenant_a)
+
+    for scope, target in (("another tenant's", webhook_id), ("nobody's", uuid.uuid4())):
+        async with tenant_session(tenant_b) as session:
+            with pytest.raises(ProblemError) as raised:
+                await service.rotate_secret(
+                    session, webhook_id=target, grace_minutes=0, supplied_secret=None
+                )
+        assert raised.value.code == "not_found", scope
+        assert raised.value.status == 404
+
+
+async def test_set_active_reports_whether_it_was_the_one_that_changed_things() -> None:
+    """The return value IS the audit decision (the route writes a row only on True), so
+    "did this call change anything" has to be answered exactly.
+
+    Three outcomes, and the middle one is the whole point: a second disable is the same
+    request as the first and the source really is disabled, so it is a quiet success —
+    NOT the 404 the outbound endpoint answers to a second click.
+    """
+    tenant_id, _slug, _token = await _make_tenant()
+    webhook_id = await _one_source(tenant_id)
+
+    async with tenant_session(tenant_id) as session:
+        assert await service.set_active(session, webhook_id=webhook_id, active=False) is True
+        assert await service.set_active(session, webhook_id=webhook_id, active=False) is False
+        assert await service.set_active(session, webhook_id=webhook_id, active=True) is True
+        assert await service.set_active(session, webhook_id=webhook_id, active=True) is False
+
+
+async def test_set_active_on_a_source_that_does_not_exist_is_a_404_not_a_shrug() -> None:
+    """The other half of the idempotent answer above: "already off" and "never existed"
+    look identical to a CAS whose predicate did not match, and only one of them may be
+    reported as success."""
+    tenant_id, _slug, _token = await _make_tenant()
+    other_tenant, _s, _t = await _make_tenant()
+    webhook_id = await _one_source(other_tenant)
+
+    async with tenant_session(tenant_id) as session:
+        for target in (uuid.uuid4(), webhook_id):
+            with pytest.raises(ProblemError) as raised:
+                await service.set_active(session, webhook_id=target, active=False)
+            assert raised.value.code == "not_found"
+            assert raised.value.status == 404
+
+
+async def test_the_service_refuses_an_agent_that_is_not_this_tenants() -> None:
+    """The foreign key is to the GLOBAL `agents` table, so it would accept this. The
+    route test above proves the 404 over HTTP; this pins the check at the function that
+    makes it, including the unknown-id case a foreign-agent test does not reach."""
+    tenant_a, _slug_a, _token_a = await _make_tenant()
+    tenant_b, _slug_b, _token_b = await _make_tenant()
+    async with tenant_session(tenant_a) as session:
+        agent_a = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
+
+    for scope, target in (("another tenant's agent", agent_a), ("no agent at all", uuid.uuid4())):
+        async with tenant_session(tenant_b) as session:
+            with pytest.raises(ProblemError) as raised:
+                await service.create_lead_source(
+                    session,
+                    tenant_id=tenant_b,
+                    source="website_form",
+                    agent_id=UUID(str(target)),
+                    mapping={},
+                    supplied_secret=None,
+                )
+        assert raised.value.code == "not_found", scope
+
+    # And the same call with an agent that IS theirs writes the row and mints a secret.
+    async with tenant_session(tenant_a) as session:
+        webhook_id, secret = await service.create_lead_source(
+            session,
+            tenant_id=tenant_a,
+            source="website_form",
+            agent_id=UUID(str(agent_a)),
+            mapping={},
+            supplied_secret=None,
+        )
+        listed = await service.list_lead_sources(session)
+    assert secret
+    assert [row.id for row in listed] == [webhook_id]
+    assert listed[0].agent_id == agent_a
+    assert listed[0].active is True
+    assert listed[0].secret_fingerprint == secret_fingerprint(secret)
+    assert listed[0].previous_secret_expires_at is None

@@ -182,6 +182,25 @@ source = ["apps", "packages"]
 # both, so the report has to key on repo-relative names.
 relative_files = true
 omit = ["*_test.py", "*/tests/*"]
+# WITHOUT THIS, EVERY ASYNC FUNCTION LOOKED UNCOVERED FROM ITS FIRST DATABASE CALL ON.
+#
+# SQLAlchemy's asyncio layer is a greenlet bridge: `session.execute` hands off to a
+# greenlet that runs the sync DBAPI and switches back (`greenlet_spawn`,
+# sqlalchemy/util/concurrency.py). Coverage's tracer is per-execution-context, so it is
+# lost across that switch and never reinstated — the code runs, the test passes, and the
+# lines after the await are recorded as never executed.
+#
+# Measured on ONE route test that returns real rows: `crm/service.dashboard` recorded 14
+# lines without this setting and 18 with it, and the four it gained are the ones after
+# its second `await`. `thread` alone reproduces the 14 exactly, so `greenlet` is the mode
+# that matters; `thread` is kept because several suites drive real ARQ workers and an
+# explicit list is cheaper to read than a default nobody can see.
+#
+# This is why it was found: an agent covering new refusal branches noticed its passing
+# ROUTE-level tests were reported as not executing the handler, and reached for
+# service-level tests instead. The tests were fine. The measurement was wrong, and it had
+# been wrong for every number this repo has ever ratcheted.
+concurrency = ["thread", "greenlet"]
 
 [tool.coverage.report]
 show_missing = true
