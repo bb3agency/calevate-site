@@ -105,20 +105,33 @@ What the harness found before any credentials existed, and what it therefore can
   dangling-`rag_id` question (D-41) cannot be answered through the adapter.
 - gate 1's edge half (nginx rejecting a non-allowlisted source) needs an HTTP POST from
   another host against the deployed receiver; the harness exercises the in-app half only.
-- gate 7's **currency** criterion cannot be answered from our own snapshot:
-  `BolnaEngine._cost` sets `source_currency="USD"` as a literal and divides `total_cost`
-  by 100, so the cents assumption is unfalsifiable from inside. The harness corroborates
-  against the vendor's own reported total instead — a ratio of exactly 100 is the
-  signature of the assumption being wrong, and every INR row inherits the factor.
-- gate 7's **transcript** criterion can only see a TOTAL parse failure.
-  `bolna.parse_transcript` returns `[]` for a shape it does not recognise and folds an
-  unprefixed line into the previous turn, and `ExecutionSnapshot` has no rejected-turn
-  count, so a partial loss is invisible; the harness scores zero turns on a `completed`
-  call that carried audio, plus per-turn structural defects.
-- gate 7's **time-to-`completed`** has no post-hoc route: nothing in the contract records
-  when an execution became `completed`, so it is polled live from an operator-supplied
-  disconnect instant or it is absent. `now - ended_at` is deliberately not used — it is a
-  bound that grows with how long the operator took to run the harness.
+- gate 7's **currency** criterion is now answerable in part from our own snapshot.
+  `BolnaEngine._cost` reads the currency the payload states and records
+  `CostBreakdown.currency_stated` — True = the vendor said so, False = we fell back to
+  the house assumption (`_ASSUMED_CURRENCY = "USD"` cents, read off docs.bolna.ai and
+  never confirmed on a live account). A currency the adapter cannot convert is REFUSED
+  rather than converted at the dollar rate, so a wrong cost basis cannot ship silently.
+  The independent check remains the vendor's own reported total, supplied by the
+  operator: a ratio of exactly 100 is the signature of the cents assumption being wrong,
+  and every INR row inherits the factor. **What the pilot still has to settle is the
+  `currency_stated=False` case** — if Bolna never names a currency, the assumption stays
+  load-bearing and only the dashboard figure can falsify it.
+- gate 7's **transcript** criterion now sees PARTIAL loss.
+  `bolna.parse_transcript` returns `(turns, unparsed)` and the snapshot carries
+  `transcript_lines_unparsed`, so a line the parser could not place — an unprefixed line
+  before any turn exists, a prefix with an empty body — is counted rather than dropped.
+  The harness scores any non-zero count, in addition to the total-failure signature (zero
+  turns on a `completed` call that carried audio) and the per-turn structural defects. A
+  COUNT, not the lines: transcript text does not cross the engine boundary except as a
+  `TranscriptTurn` (hard rule 6).
+- gate 7's **time-to-`completed`** has a post-hoc route, and it is an UPPER BOUND.
+  `ExecutionSnapshot.billable_ready_at` carries the vendor's `completed_at` where the
+  payload has one, otherwise the instant we OBSERVED the execution already complete —
+  which is bounded by the poller's tick and by how long after the call anything looked,
+  so it can only over-state. The harness therefore still prefers a LIVE poll from an
+  operator-supplied disconnect instant when one is given. `now - ended_at` remains
+  deliberately unused: it is a bound that grows with how long the operator took to run
+  the harness.
 
 **Which gates the harness can execute, precisely.** Nine of the thirteen are registered
 in `scripts/pilot/`, in two classes, and the difference between them is what an operator
@@ -130,8 +143,9 @@ has to bring:
 - **4, 7, 8, 13 — plus one JSON inputs file each**, because their inputs are OBSERVED by
   a person rather than measurable from our side: gate 4's stopwatch samples and the
   pasted `latency_data`; gate 7's observed disconnect instant and the vendor's own cost
-  figure off the dashboard (our snapshot cannot answer the currency question — the
-  adapter hard-codes USD cents, so reading it back is the harness agreeing with itself);
+  figure off the dashboard (the dashboard figure is the only INDEPENDENT check on the
+  currency: the adapter records whether the payload stated one, but where it did not,
+  reading our own assumption back is the harness agreeing with itself);
   gate 8's Telugu retrieval scores, tool-call latencies, per-turn token counts and batch
   outcomes. Each reads `docs/evidence/gate<n>-inputs.json` (gate 4:
   `gate4-observations.json`), overridable with `CALEVATE_PILOT_GATE<n>_INPUTS`. **An

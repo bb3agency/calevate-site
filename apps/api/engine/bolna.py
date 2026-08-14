@@ -177,6 +177,15 @@ _SPEAKER_MAP = {
 
 _PAISE = Decimal("0.0001")
 
+# What the adapter treats a cost as when the payload does not say. Read off docs.bolna.ai
+# and NOT confirmed against a live account — pilot gate 7 (OPERATIONS §2) is where it
+# stops being an assumption. `CostBreakdown.currency_stated` carries the difference into
+# every row, so a wrong guess is discoverable rather than baked in.
+_ASSUMED_CURRENCY = "USD"
+# Currencies this adapter can turn into INR. Anything else is refused rather than
+# converted at the wrong rate — see `_cost`.
+_CONVERTIBLE_CURRENCIES = frozenset({"USD", "INR"})
+
 
 def _to_inr(usd_cents: Any, fx_rate: Decimal) -> Decimal | None:
     """USD cents → INR, quantized to the ledger's NUMERIC(12,4). Floats never touch
@@ -202,12 +211,32 @@ def _parse_dt(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def parse_transcript(raw: str | None, call_id: str) -> list[TranscriptTurn]:
-    """Prefix-tagged text → typed turns. A continuation line with no prefix is
-    appended to the previous turn rather than dropped — long agent answers wrap."""
+def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn], int]:
+    """Prefix-tagged text -> typed turns, AND how many lines were lost. `(turns, lost)`.
+
+    A continuation line with no prefix is appended to the previous turn rather than
+    dropped — long agent answers wrap. Two lines genuinely cannot be placed, and both
+    used to vanish without trace:
+
+    * an unprefixed line arriving BEFORE any turn exists — there is no previous turn to
+      append it to, and inventing a speaker for it would put words in someone's mouth;
+    * a recognised prefix with an empty body.
+
+    THE COUNT IS THE POINT. This returned a bare list, so a shape it does not recognise
+    at all came back as `[]` — identical to a call where nobody spoke. Pilot gate 7's
+    transcript criterion could therefore only ever detect a TOTAL parse failure, and a
+    prefix-format change that cost us a third of every transcript would have looked like
+    quiet callers (OPERATIONS §2). The count travels to `ExecutionSnapshot
+    .transcript_lines_unparsed` and the gate scores it.
+
+    A COUNT, not the lines. Hard rule 6: transcript text never leaves the engine
+    boundary except as a `TranscriptTurn`, so what could not become one is measured and
+    discarded rather than logged for later inspection.
+    """
     if not raw:
-        return []
+        return [], 0
     turns: list[TranscriptTurn] = []
+    lost = 0
     for line in raw.splitlines():
         if not line.strip():
             continue
@@ -218,10 +247,13 @@ def parse_transcript(raw: str | None, call_id: str) -> list[TranscriptTurn]:
                 turns[-1] = previous.model_copy(
                     update={"text": f"{previous.text} {line.strip()}".strip()}
                 )
+            else:
+                lost += 1
             continue
         speaker = _SPEAKER_MAP.get(match.group(1).lower(), "caller")
         text_value = match.group(2).strip()
         if not text_value:
+            lost += 1
             continue
         turns.append(
             TranscriptTurn(
@@ -231,7 +263,7 @@ def parse_transcript(raw: str | None, call_id: str) -> list[TranscriptTurn]:
                 text=text_value,
             )
         )
-    return turns
+    return turns, lost
 
 
 class BolnaEngine:
@@ -510,6 +542,7 @@ class BolnaEngine:
         status = _STATUS_MAP.get(raw_status, "failed")
         call_id = str(payload.get("id") or payload.get("execution_id") or "")
         cost = self._cost(payload)
+        turns, unparsed = parse_transcript(payload.get("transcript"), call_id)
         started = _parse_dt(payload.get("created_at") or payload.get("started_at"))
         ended = _parse_dt(payload.get("ended_at") or payload.get("updated_at"))
         duration = payload.get("conversation_duration") or payload.get("duration")
@@ -531,30 +564,78 @@ class BolnaEngine:
             from_e164=telephony.get("from_number") or payload.get("from_number"),
             to_e164=telephony.get("to_number") or payload.get("to_number"),
             recording_url=telephony.get("recording_url") or payload.get("recording_url"),
-            transcript=parse_transcript(payload.get("transcript"), call_id),
+            transcript=turns,
+            transcript_lines_unparsed=unparsed,
             cost=cost,
+            # Their `completed` timestamp where they give one, else the instant we
+            # OBSERVED it — which is what the poller's tick resolution actually buys and
+            # is honest about being a ceiling. Absent until the execution is billable,
+            # so it never reads as "ready at" for a call that is not.
+            billable_ready_at=(
+                _parse_dt(payload.get("completed_at")) or datetime.now(UTC)
+                if raw_status == "completed"
+                else None
+            ),
             engine_extracted=payload.get("extracted_data") or {},
             engine="bolna",
         )
 
     def _cost(self, payload: dict[str, Any]) -> CostBreakdown | None:
+        """USD cents -> INR, and an honest account of whether "USD cents" is a FACT.
+
+        Bolna publishes no OpenAPI spec, so "costs arrive in USD cents" is a claim read
+        off their docs, not a guarantee — and it is worth 83x. This used to write
+        `source_currency="USD"` as a literal, which made the assumption unfalsifiable
+        from inside: pilot gate 7's currency criterion read our own guess back and
+        agreed with it (OPERATIONS §2). Three behaviours now, in order:
+
+        * the payload NAMES a currency we can convert -> use it, `currency_stated=True`,
+          and the gate has a fact to score;
+        * the payload names a currency we have no rate for -> refuse. Returning a number
+          converted at the USD rate would be a fabricated cost basis flowing into the
+          margin panel and every invoice. An absent cost is a visible gap; a wrong one
+          is not;
+        * the payload names nothing -> convert on the house assumption, exactly as
+          before, but stamp `currency_stated=False` so the row says which it is.
+
+        The refusal logs at WARNING with the currency and the execution id — ids only,
+        never the payload (hard rule 6).
+        """
         total = payload.get("total_cost")
         if total is None:
             return None
+
+        stated = payload.get("currency") or payload.get("cost_currency")
+        currency = str(stated).strip().upper() if stated else _ASSUMED_CURRENCY
+        if currency not in _CONVERTIBLE_CURRENCIES:
+            log.warning(
+                "engine_cost_currency_unsupported",
+                extra={
+                    "engine": "bolna",
+                    "currency": currency,
+                    "engine_call_id": str(payload.get("id") or payload.get("execution_id") or ""),
+                },
+            )
+            return None
+
+        # INR needs no conversion, and multiplying it by the USD rate is precisely the
+        # 83x error this branch exists to prevent.
+        rate = Decimal(1) if currency == "INR" else self._fx_rate
         breakdown = payload.get("cost_breakdown") or {}
-        total_inr = _to_inr(total, self._fx_rate)
+        total_inr = _to_inr(total, rate)
         if total_inr is None:
             return None
         return CostBreakdown(
             total_inr=total_inr,
-            platform_inr=_to_inr(breakdown.get("platform"), self._fx_rate),
-            network_inr=_to_inr(breakdown.get("network"), self._fx_rate),
-            llm_inr=_to_inr(breakdown.get("llm"), self._fx_rate),
-            tts_inr=_to_inr(breakdown.get("synthesizer"), self._fx_rate),
-            stt_inr=_to_inr(breakdown.get("transcriber"), self._fx_rate),
-            source_currency="USD",
+            platform_inr=_to_inr(breakdown.get("platform"), rate),
+            network_inr=_to_inr(breakdown.get("network"), rate),
+            llm_inr=_to_inr(breakdown.get("llm"), rate),
+            tts_inr=_to_inr(breakdown.get("synthesizer"), rate),
+            stt_inr=_to_inr(breakdown.get("transcriber"), rate),
+            source_currency=currency,
+            currency_stated=stated is not None,
             source_amount=Decimal(str(total)) / Decimal(100),
-            fx_rate=self._fx_rate,
+            fx_rate=rate,
         )
 
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:

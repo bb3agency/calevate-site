@@ -124,31 +124,42 @@ DEFAULT_POLL_TIMEOUT_S = 300.0
 # --- findings this gate reports on every run ----------------------------------
 
 CURRENCY_FINDING = (
-    "ADAPTER GAP — THE CURRENCY IS AN ASSUMPTION, NOT A READING. `BolnaEngine._cost` "
-    "hard-codes `source_currency='USD'` and computes `source_amount = total_cost / 100`, "
-    "so no snapshot can disagree with the cents assumption and reading it back proves "
-    "nothing. Gate 7 therefore corroborates against the vendor's own figure for the same "
-    "execution, supplied by the operator. If the assumption is wrong every INR row in "
-    "usage_events is wrong by that factor (hard rule 7)."
+    "THE CURRENCY IS STILL AN ASSUMPTION UNTIL A PAYLOAD STATES IT. `CostBreakdown"
+    ".currency_stated` now separates the two cases: True means the execution payload "
+    "named the currency and the adapter converted on a FACT; False means it named "
+    "nothing and the adapter fell back to `_ASSUMED_CURRENCY` ('USD cents', read off "
+    "docs.bolna.ai, never confirmed on a live account). This gate corroborates against "
+    "the vendor's own figure for the same execution either way, because that is the only "
+    "independent check — but a `currency_stated=False` run is the one that leaves the "
+    "assumption load-bearing, and if it is wrong every INR row in usage_events is wrong "
+    "by the exchange rate (hard rule 7). A currency the adapter cannot convert is now "
+    "REFUSED rather than converted at the USD rate, so a wrong cost basis cannot ship "
+    "silently; the cost is simply absent and this gate reports it as missing."
 )
 
 TRANSCRIPT_PARSE_FINDING = (
-    "ADAPTER GAP — A PARTIAL TRANSCRIPT PARSE IS INVISIBLE. `bolna.parse_transcript` "
-    "reads a prefix-tagged STRING: an unrecognised shape yields [] and a line without a "
-    "prefix is folded into the previous turn, so turns can be lost with no error and no "
-    "count. `ExecutionSnapshot` has no rejected-turn accounting, so gate 7 can only "
-    "detect the TOTAL-failure signature (zero turns on a completed call that carried "
-    "audio) and the per-turn structural defects below. A turns-parsed/turns-seen counter "
-    "on the snapshot would make the partial case measurable."
+    "A PARTIAL TRANSCRIPT PARSE IS NOW MEASURABLE, AND THIS GATE MEASURES IT. "
+    "`bolna.parse_transcript` reads a prefix-tagged STRING, and the lines it cannot "
+    "place — an unprefixed line before any turn exists, a recognised prefix with an "
+    "empty body — used to vanish, so a format change costing a third of every transcript "
+    "looked like quiet callers. It now returns a count alongside the turns and the "
+    "snapshot carries it as `transcript_lines_unparsed`. Any non-zero value is scored "
+    "below, in ADDITION to the total-failure signature (zero turns on a completed call "
+    "that carried audio) and the per-turn structural defects. A count rather than the "
+    "lines themselves: transcript text does not leave the engine boundary except as a "
+    "`TranscriptTurn` (hard rule 6)."
 )
 
 COMPLETED_AT_FINDING = (
-    "CONTRACT GAP — NOTHING RECORDS WHEN AN EXECUTION BECAME `completed`. "
-    "`ExecutionSnapshot` carries `started_at`/`ended_at` (the call's instants) and no "
-    "instant for when cost, recording and transcript landed, so time-to-completed cannot "
-    "be reconstructed from a snapshot that is already complete — it must be POLLED live "
-    "from an observed disconnect. Until the poller records the transition, this SLO leg "
-    "is measurable only during a pilot session."
+    "`billable_ready_at` IS AN UPPER BOUND, NOT THE TRANSITION. `ExecutionSnapshot` now "
+    "carries an instant for when cost, recording and transcript landed — the vendor's "
+    "own `completed_at` where the payload has one, otherwise the moment WE observed the "
+    "execution already complete. The second form is bounded by the poller's tick and by "
+    "how long after the call anything looked, so it can only ever over-state "
+    "time-to-completed. This gate therefore still prefers a LIVE poll from an operator-"
+    "supplied disconnect instant when one is given, and falls back to the recorded "
+    "instant with the bound stated. `now - ended_at` remains deliberately unused: it "
+    "grows with how long the operator took to run the harness."
 )
 
 
@@ -293,6 +304,22 @@ def transcript_defects(snapshot: ExecutionSnapshot) -> tuple[TranscriptDefect, .
     """
     defects: list[TranscriptDefect] = []
     turns = snapshot.transcript
+
+    # The PARTIAL case, which used to be invisible and is the reason the adapter counts.
+    # Checked before the empty case and independently of it: a transcript can parse into
+    # plenty of turns and still have lost lines, which is the shape that survives every
+    # "did we get a transcript" check ever written.
+    if snapshot.transcript_lines_unparsed:
+        defects.append(
+            TranscriptDefect(
+                field="transcript",
+                reason=(
+                    f"{snapshot.transcript_lines_unparsed} line(s) could not be placed as "
+                    "a turn — the parser recognised the shape well enough to return "
+                    "something, so this loss is silent everywhere except here"
+                ),
+            )
+        )
 
     if not turns:
         if snapshot.billable_ready and (snapshot.duration_s or 0) > 0:
