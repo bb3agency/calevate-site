@@ -95,7 +95,7 @@ async def test_the_environment_beats_the_store() -> None:
     take control back from the console with a `.env` edit and a restart."""
     # `object_store_bucket` IS declared in this repo's `.env`, so the store must not be
     # able to move it.
-    stored = pc._resolve(  # noqa: SLF001 - the resolution IS the unit under test
+    stored = pc._resolve(
         {"object_store_bucket": "hijacked"},
         {"OBJECT_STORE_BUCKET": "real-bucket"},
     )
@@ -103,7 +103,7 @@ async def test_the_environment_beats_the_store() -> None:
 
 
 async def test_a_key_absent_from_the_environment_resolves_from_the_store() -> None:
-    assert pc._resolve({DEMO_KEY: "9.50"}, {}) == {DEMO_KEY: Decimal("9.50")}  # noqa: SLF001
+    assert pc._resolve({DEMO_KEY: "9.50"}, {}) == {DEMO_KEY: Decimal("9.50")}
 
 
 async def test_the_console_reports_an_env_sourced_key_as_read_only_with_the_env_var() -> None:
@@ -124,14 +124,14 @@ async def test_the_bootstrap_six_are_never_managed_and_never_appliable() -> None
     if something offers it anyway."""
     managed = set(pc.managed_fields())
     assert not (managed & ENV_ONLY_KEYS)
-    assert ENV_ONLY_KEYS == {
+    assert {
         "app_env",
         "database_url",
         "alembic_database_url",
         "platform_kek",
         "platform_kek_retired",
         "redis_url",
-    }
+    } == ENV_ONLY_KEYS
 
     before = get_settings().app_env
     apply_platform_overrides({"app_env": "local", DEMO_KEY: Decimal("1.00")})
@@ -167,14 +167,14 @@ async def test_a_credential_shaped_key_is_not_managed() -> None:
 async def test_a_row_for_an_unknown_key_is_dropped_rather_than_applied() -> None:
     """A field this build has never had — a rename, or a hand-inserted row. It must not
     reach `model_copy`, which does not validate and would happily attach it."""
-    assert pc._resolve({"no_such_setting": 1}, {}) == {}  # noqa: SLF001
+    assert pc._resolve({"no_such_setting": 1}, {}) == {}
 
 
 async def test_one_bad_row_does_not_stop_the_good_ones() -> None:
     """This resolution runs in every process on a background refresh. A single row
     written by an older build against a field that has since narrowed must not be able
     to freeze a fleet's configuration."""
-    resolved = pc._resolve({DEMO_KEY: "not a number", "webhook_base_url": "https://x"}, {})  # noqa: SLF001
+    resolved = pc._resolve({DEMO_KEY: "not a number", "webhook_base_url": "https://x"}, {})
     assert resolved == {"webhook_base_url": "https://x"}
 
 
@@ -208,7 +208,7 @@ def test_money_is_stored_as_a_string_never_as_a_json_float() -> None:
     a rate stamped into `usage_events.meta` has to be reproducible a year later."""
     stored = pc.validate_value("usd_inr_rate", "88.50")
     assert stored == "88.50" and isinstance(stored, str)
-    assert pc._typed("usd_inr_rate", stored) == Decimal("88.50")  # noqa: SLF001
+    assert pc._typed("usd_inr_rate", stored) == Decimal("88.50")
 
 
 def test_no_second_field_list_exists() -> None:
@@ -264,7 +264,7 @@ async def test_a_write_that_publishes_through_is_seen_by_the_next_poll() -> None
     await pc.refresh(force=True)
     first = pc.snapshot()
     await _write_row(DEMO_KEY, '"11.00"')
-    await pc.publish_version(await pc._read_version())  # noqa: SLF001 - what the route does
+    await pc.publish_version(await pc._read_version())
 
     # NOT `force=True`: the poll must decide for itself that something changed.
     second = await pc.refresh()
@@ -288,7 +288,7 @@ async def test_a_row_changed_out_of_band_is_picked_up_when_the_cached_sentinel_e
     await pc.refresh(force=True)
     first = pc.snapshot()
     await _write_row(DEMO_KEY, '"11.00"')
-    await get_redis().delete(pc._SENTINEL_KEY)  # noqa: SLF001 - stands in for the TTL
+    await get_redis().delete(pc._SENTINEL_KEY)
 
     second = await pc.refresh()
     assert second.version > first.version
@@ -345,9 +345,9 @@ async def test_a_cold_start_with_no_store_serves_env_and_defaults(
     assert snap.degraded is True
     assert snap.overrides == {}
     # The code default, unchanged, and the process is serving.
-    assert get_settings().self_serve_inr_per_min == Settings.model_fields[
-        DEMO_KEY
-    ].get_default(call_default_factory=True)
+    assert get_settings().self_serve_inr_per_min == Settings.model_fields[DEMO_KEY].get_default(
+        call_default_factory=True
+    )
 
 
 async def test_the_read_path_does_no_io() -> None:
