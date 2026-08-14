@@ -15,12 +15,17 @@ from decimal import Decimal
 
 import pytest
 from calevate_shared.engine import (
+    WEBHOOK_AUTH_BY_ENGINE,
     AgentConfig,
     CallContext,
     CostBreakdown,
+    EngineCapabilities,
     ExecutionSnapshot,
     KBSourceRef,
     ModelConfig,
+    NumberSeries,
+    NumberSpec,
+    ProvisionedNumber,
     VoiceEngine,
 )
 from calevate_shared.events import TERMINAL_STATUSES, CallStatus
@@ -28,6 +33,9 @@ from calevate_shared.events import TERMINAL_STATUSES, CallStatus
 pytestmark = [pytest.mark.conformance]
 
 VALID_STATUSES: frozenset[str] = frozenset(CallStatus.__args__)  # type: ignore[attr-defined]
+#: Derived from the type, never retyped: a series added to `NumberSeries` is one the
+#: campaign launch gate can meet, so the capability clauses must probe it automatically.
+NUMBER_SERIES_VALUES: tuple[NumberSeries, ...] = NumberSeries.__args__  # type: ignore[attr-defined]
 
 # Bolna's documented static egress address (D-31) — the positive case for an adapter
 # whose authenticity control is a source-IP allowlist.
@@ -37,7 +45,28 @@ ALLOWLISTED_SOURCE_IP = "13.203.39.153"
 UNKNOWN_SOURCE_IP = "203.0.113.9"
 
 
+def _byok_models(engine: VoiceEngine) -> ModelConfig:
+    """Our canonical D-36 stack, reduced to the legs THIS engine lets us choose.
+
+    A leg the engine dictates is left None deliberately, and that is not the suite
+    tiptoeing around an adapter: `require_speech_leg` refuses a value for a dictated leg
+    on purpose (silently dropping it is what produces a picker offering a voice the
+    caller will never hear), so a fixture that always sent all five fields could only
+    ever build agents on a BYOK engine. Every clause below would then be untestable
+    against the shape this contract most needs to survive.
+    """
+    caps = engine.capabilities
+    return ModelConfig(
+        stt_provider="sarvam" if caps.is_ours("stt") else None,
+        stt_model="saaras:v3" if caps.is_ours("stt") else None,
+        llm_model="sarvam-105b" if caps.is_ours("llm") else None,
+        tts_provider="sarvam" if caps.is_ours("tts") else None,
+        tts_voice="bulbul:v3" if caps.is_ours("tts") else None,
+    )
+
+
 def _agent_config(
+    engine: VoiceEngine,
     *,
     name: str = "Sunrise Clinic receptionist",
     agent_id: str = "0199a0b0-0000-7000-8000-000000000002",
@@ -51,13 +80,7 @@ def _agent_config(
         language_primary="te-IN",
         system_prompt=system_prompt,
         disclosure_line="Idi AI assistant. Ee call record avutundi.",
-        models=ModelConfig(
-            stt_provider="sarvam",
-            stt_model="saaras:v3",
-            llm_model="sarvam-105b",
-            tts_provider="sarvam",
-            tts_voice="bulbul:v3",
-        ),
+        models=_byok_models(engine),
         webhook_url="https://hooks.calevate.tech/v1/engine/bolna",
     )
 
@@ -93,7 +116,7 @@ async def test_adapter_satisfies_the_protocol(engine: VoiceEngine) -> None:
 async def test_create_and_update_agent_returns_a_stable_ref(engine: VoiceEngine) -> None:
     """`engine_agent_ref` is the join key between their world and ours; if it were not
     stable, webhook→tenant resolution would break for every existing agent."""
-    cfg = _agent_config()
+    cfg = _agent_config(engine)
     ref = await engine.create_agent(cfg)
     assert isinstance(ref, str) and ref
     assert await engine.create_agent(cfg) == ref
@@ -124,11 +147,13 @@ async def test_agent_read_back_reports_the_agent_it_was_asked_about(
     update. `AgentSnapshot.carries_prompt_marker` is the contract's answer to that.
     """
     first = _agent_config(
+        engine,
         name="Sunrise Clinic receptionist",
         agent_id="0199a0b0-0000-7000-8000-00000000000a",
         system_prompt="Receptionist. marker-alpha",
     )
     second = _agent_config(
+        engine,
         name="Sunrise Clinic outbound",
         agent_id="0199a0b0-0000-7000-8000-00000000000b",
         system_prompt="Outbound caller. marker-beta",
@@ -206,7 +231,12 @@ async def test_agent_read_back_answers_or_declines_the_kb_reference_question(
     What is forbidden is the third answer: an empty list presented as knowledge, which
     would close D-41 with "nothing dangles" on no evidence at all.
     """
-    ref = await engine.create_agent(_agent_config())
+    if not engine.capabilities.knowledge_base:
+        # D-41 is a question about an engine-side knowledge base. On an engine that has
+        # none there is no dangling handle to ask about, and the clause that DOES apply
+        # is `test_an_engine_without_a_knowledge_base_refuses_all_three_kb_methods`.
+        return
+    ref = await engine.create_agent(_agent_config(engine))
     handle = await engine.attach_kb(
         ref, KBSourceRef(kb_id="kb_readback", title="Fees", text="A consultation costs 500.")
     )
@@ -233,7 +263,7 @@ async def test_agent_read_back_answers_or_declines_the_kb_reference_question(
 
 
 async def test_outbound_call_returns_a_handle(engine: VoiceEngine) -> None:
-    ref = await engine.create_agent(_agent_config())
+    ref = await engine.create_agent(_agent_config(engine))
     handle = await engine.start_outbound_call(
         ref,
         "+919876543210",
@@ -245,7 +275,7 @@ async def test_outbound_call_returns_a_handle(engine: VoiceEngine) -> None:
 async def test_execution_snapshot_is_fully_normalized(engine: VoiceEngine) -> None:
     """The isolation boundary (hard rule 2): whatever the vendor sends, what comes out
     is OUR shape, OUR status vocabulary and OUR currency."""
-    ref = await engine.create_agent(_agent_config())
+    ref = await engine.create_agent(_agent_config(engine))
     handle = await engine.start_outbound_call(ref, "+919876543210", CallContext())
     snapshot = await engine.get_execution(handle)
 
@@ -266,7 +296,7 @@ async def test_billable_ready_implies_terminal(engine: VoiceEngine) -> None:
     """The trap this closes: Bolna's cost/recording/transcript are null until
     `completed` (~2-3 min after disconnect). A pipeline that triggered on 'terminal'
     would meter zeros. `billable_ready` must never be true before `terminal`."""
-    ref = await engine.create_agent(_agent_config())
+    ref = await engine.create_agent(_agent_config(engine))
     handle = await engine.start_outbound_call(ref, "+919876543210", CallContext())
     snapshot = await engine.get_execution(handle)
     if snapshot.billable_ready:
@@ -277,7 +307,7 @@ async def test_billable_ready_implies_terminal(engine: VoiceEngine) -> None:
 async def test_transcript_turns_are_ordered_and_speaker_tagged(engine: VoiceEngine) -> None:
     """Extraction, redaction and the call-detail view all index by `idx` and switch on
     `speaker`; a gap or a vendor speaker label leaking through breaks all three."""
-    ref = await engine.create_agent(_agent_config())
+    ref = await engine.create_agent(_agent_config(engine))
     handle = await engine.start_outbound_call(ref, "+919876543210", CallContext())
     snapshot = await engine.get_execution(handle)
     turns = snapshot.transcript
@@ -297,7 +327,7 @@ async def test_transcript_turns_are_ordered_and_speaker_tagged(engine: VoiceEngi
 async def test_list_executions_backs_the_reconciliation_poller(engine: VoiceEngine) -> None:
     """D-31 promotes the poller from safety net to guarantee of record — so this
     method is not optional, and it must return the same normalized shape."""
-    ref = await engine.create_agent(_agent_config())
+    ref = await engine.create_agent(_agent_config(engine))
     await engine.start_outbound_call(ref, "+919876543210", CallContext())
     listing = await engine.list_executions(since=datetime.now(UTC) - timedelta(hours=1))
     rows = listing.snapshots
@@ -430,7 +460,9 @@ async def test_attach_kb_accepts_our_source_ref_and_returns_a_handle(
     an adapter that pushes text and returns nothing has attached something that can
     never be taken back, and "publish v2" becomes "add v2 next to v1".
     """
-    ref = await engine.create_agent(_agent_config())
+    if not engine.capabilities.knowledge_base:
+        return  # covered instead by the refusal clause for KB-less engines
+    ref = await engine.create_agent(_agent_config(engine))
     handle = await engine.attach_kb(
         ref,
         KBSourceRef(kb_id="kb_1", title="Clinic hours", text="Mon-Sat 9am-8pm", language="te-IN"),
@@ -458,7 +490,9 @@ async def test_detach_kb_actually_removes_exactly_the_source_it_names(
     itself on every publish is the same outage as a KB that never shrinks, arriving
     from the other side.
     """
-    ref = await engine.create_agent(_agent_config())
+    if not engine.capabilities.knowledge_base:
+        return  # covered instead by the refusal clause for KB-less engines
+    ref = await engine.create_agent(_agent_config(engine))
     superseded = await engine.attach_kb(
         ref, KBSourceRef(kb_id="kb_detach_v1", title="Fees", text="A consultation costs 500.")
     )
@@ -496,7 +530,9 @@ async def test_a_detach_that_did_not_happen_is_reported_rather_than_swallowed(
     back before or after (Bolna documents `GET /knowledgebase/{rag_id}` for exactly
     that) — the contract asks for evidence, not for a particular status code.
     """
-    ref = await engine.create_agent(_agent_config())
+    if not engine.capabilities.knowledge_base:
+        return  # covered instead by the refusal clause for KB-less engines
+    ref = await engine.create_agent(_agent_config(engine))
     reported: Exception | None = None
     try:
         await engine.detach_kb(ref, "kb_this_engine_never_issued")
@@ -505,4 +541,308 @@ async def test_a_detach_that_did_not_happen_is_reported_rather_than_swallowed(
     assert reported is not None, (
         "detaching a handle this engine never issued was reported as a success — "
         "the caller cannot distinguish a removal from a silent no-op"
+    )
+
+
+# =============================================================================
+# The capability descriptor (D-93)
+#
+# Everything above this line tests behaviour the contract requires of EVERY adapter.
+# Everything below tests the adapter's own DECLARATION about itself — because a
+# descriptor an adapter can lie in is worse than no descriptor at all. Without these
+# clauses a wrong `EngineCapabilities` converts a runtime failure ("the call failed")
+# into a confident wrong answer ("the platform supports this"), and a confident wrong
+# answer is what a screen renders a button from.
+#
+# The rule each clause below implements: a capability that is CLAIMED is exercised, and
+# a capability that is DENIED must produce a refusal rather than a success.
+# =============================================================================
+
+
+async def test_the_adapter_declares_a_complete_capability_descriptor(
+    engine: VoiceEngine,
+) -> None:
+    """Every adapter answers every question — there is no "unset".
+
+    `EngineCapabilities` deliberately gives no field a default, so this cannot fail by
+    omission at construction time. What it CAN still fail is an adapter that never
+    declares one at all, or declares it on the class while the Protocol says instance —
+    both of which end with a caller reading capabilities off the wrong object.
+    """
+    caps = engine.capabilities
+    assert isinstance(caps, EngineCapabilities)
+    for leg in ("stt", "llm", "tts"):
+        assert caps.speech_control(leg) in ("ours", "engine")
+    assert caps.number_series <= set(NUMBER_SERIES_VALUES), (
+        "a number class outside our own vocabulary would never match the campaign "
+        "launch gate, which compares against exactly these three"
+    )
+
+
+async def test_the_declared_webhook_method_is_the_one_actually_reported(
+    engine: VoiceEngine,
+) -> None:
+    """`capabilities.webhook_auth` and `verify_webhook().method` are one fact.
+
+    They are read by different services. The adapter's verdict is what the WORKER acts
+    on; the declaration is what the RECEIVER acts on, via `WEBHOOK_AUTH_BY_ENGINE` —
+    `apps/voice-runtime` cannot import an adapter (hard rule 3 forbids the heavy import
+    on the ack path), so it reads the table instead. If those two answers can differ,
+    the receiver authenticates a delivery one way while the adapter reports another, and
+    the disagreement surfaces as calls silently rejected at the edge — the one failure
+    mode an at-most-once, unsigned vendor gives you no second chance to notice.
+    """
+    declared = engine.capabilities.webhook_auth
+    reported = engine.verify_webhook({}, b"{}", ALLOWLISTED_SOURCE_IP).method
+    assert declared == reported, (
+        f"this adapter declares `{declared}` webhook authentication and reports "
+        f"`{reported}` — the receiver and the worker would disagree about the same event"
+    )
+    assert WEBHOOK_AUTH_BY_ENGINE.get(engine.name) == declared, (
+        f"`WEBHOOK_AUTH_BY_ENGINE[{engine.name!r}]` disagrees with the adapter's own "
+        "declaration, and the voice-runtime receiver reads the table, not the adapter"
+    )
+
+
+async def test_a_byok_speech_leg_is_accepted_and_a_dictated_one_is_refused_by_name(
+    engine: VoiceEngine,
+) -> None:
+    """THE CLAUSE THE TTS QUESTION RESTS ON.
+
+    An engine that supplies its own voices implements exactly the same Protocol as one
+    that speaks ours. The difference shows up only in what happens to
+    `ModelConfig.tts_voice`, and there are two possible answers:
+
+    * it reaches the engine and the caller hears it — `ours`; or
+    * it is DROPPED, the publish succeeds, and the caller hears the engine's own voice
+      while every screen keeps reporting the voice that was chosen.
+
+    The second is not a lesser version of the first, it is the failure this descriptor
+    exists to remove, and it is undetectable from above: nothing 500s, nothing logs, the
+    row saves. So a dictated leg must REFUSE the value, by a name an operator can act
+    on, and this clause is what stops an adapter declaring `engine` and quietly
+    accepting anyway.
+    """
+    caps = engine.capabilities
+    for leg, field, value in (
+        ("stt", "stt_model", "saaras:v3"),
+        ("llm", "llm_model", "sarvam-105b"),
+        ("tts", "tts_voice", "bulbul:v3"),
+    ):
+        cfg = _agent_config(
+            engine,
+            name=f"Capability probe {leg}",
+            agent_id=f"0199a0b0-0000-7000-8000-0000000000c{'stl'.index(leg[0])}",
+        )
+        probed = cfg.model_copy(update={"models": cfg.models.model_copy(update={field: value})})
+        if caps.is_ours(leg):  # type: ignore[arg-type]
+            # Claimed ours: the adapter must take it. An adapter that refuses a leg it
+            # advertises is the same defect from the other side — a control the console
+            # correctly offers and the route rejects.
+            await engine.create_agent(probed)
+            continue
+        refusal: Exception | None = None
+        try:
+            await engine.create_agent(probed)
+        except Exception as exc:  # adapters raise our ProblemError; the type is theirs
+            refusal = exc
+        assert refusal is not None, (
+            f"this adapter declares that the ENGINE dictates `{leg}` and accepted our "
+            f"`{field}` anyway — the selection is silently dropped, so an operator picks "
+            "a voice, the publish succeeds, and the caller hears something else"
+        )
+        assert getattr(refusal, "capability", None) == leg, (
+            f"the refusal for `{leg}` does not name the capability it refused, so an "
+            "operator reading it cannot tell which control to stop offering"
+        )
+
+
+async def test_a_byok_leg_that_can_be_read_back_holds_what_we_sent(
+    engine: VoiceEngine,
+) -> None:
+    """The BYOK claim, checked against the engine's own state where that is possible.
+
+    The clause above proves the value was ACCEPTED. This one asks the harder question —
+    is the engine RUNNING it? — and it is the same ACCEPTED-versus-APPLIED distinction
+    `test_agent_read_back_reports_the_agent_it_was_asked_about` makes for the prompt,
+    applied to the setting that decides what a caller actually hears.
+
+    `models_readable=False` is conformant and is NOT a loophole: an adapter that cannot
+    locate the vendor's synthesizer block must say so rather than guess, exactly as with
+    `knowledge_base_refs_readable`. What the tri-state forbids is the confident wrong
+    answer — claiming to have read the selections and reporting one we never sent.
+    """
+    cfg = _agent_config(
+        engine, name="Speech read-back", agent_id="0199a0b0-0000-7000-8000-0000000000d0"
+    )
+    ref = await engine.create_agent(cfg)
+    snapshot = await engine.get_agent(ref)
+
+    if not snapshot.models_readable:
+        assert snapshot.holds_speech("tts") is None, (
+            "the adapter declares it could not read the selections back and handed some "
+            "over anyway — a caller cannot tell which claim to believe"
+        )
+        return
+
+    for leg, sent in (
+        ("stt", cfg.models.stt_model),
+        ("llm", cfg.models.llm_model),
+        ("tts", cfg.models.tts_voice),
+    ):
+        held = snapshot.holds_speech(leg)  # type: ignore[arg-type]
+        if not engine.capabilities.is_ours(leg):  # type: ignore[arg-type]
+            assert held is None, (
+                f"`{leg}` is the engine's to dictate, so there is no selection of ours "
+                "to report — reporting one would read exactly like an applied choice"
+            )
+            continue
+        assert held == sent, (
+            f"we configured `{leg}` as {sent!r} and the engine holds {held!r} — the "
+            "write was accepted and not applied, and nothing downstream could see it"
+        )
+
+
+async def test_an_engine_without_a_knowledge_base_refuses_all_three_kb_methods(
+    engine: VoiceEngine,
+) -> None:
+    """`knowledge_base=False` must mean a refusal, never an empty success.
+
+    `list_kb` is the dangerous one and the reason this clause names all three. An empty
+    list is a POSITIVE claim that the agent holds no documents, and
+    `kb/service._reconcile_engine_state` reads exactly that claim to decide whether the
+    engine is serving text our rows cannot account for. An engine with no knowledge base
+    answering `[]` is therefore not merely unhelpful — it tells the publish path that
+    everything is accounted for, every single time, which is the strongest possible
+    "carry on" from a component that was never asked the question.
+    """
+    if engine.capabilities.knowledge_base:
+        return
+    ref = await engine.create_agent(_agent_config(engine))
+    source = KBSourceRef(kb_id="kb_absent", title="Fees", text="A consultation costs 500.")
+    for label, call in (
+        ("attach_kb", lambda: engine.attach_kb(ref, source)),
+        ("detach_kb", lambda: engine.detach_kb(ref, "kb_anything")),
+        ("list_kb", lambda: engine.list_kb(ref)),
+    ):
+        refusal: Exception | None = None
+        try:
+            await call()
+        except Exception as exc:
+            refusal = exc
+        assert refusal is not None, (
+            f"`{label}` succeeded on an engine that declares no knowledge base — the "
+            "publish path would record knowledge as live that no engine is serving"
+        )
+        assert getattr(refusal, "capability", None) == "knowledge_base", (
+            f"`{label}` refused without naming the capability, so an operator cannot "
+            "tell an absent knowledge base from a knowledge base that is down"
+        )
+
+
+async def test_transfer_matches_the_declaration_either_way(engine: VoiceEngine) -> None:
+    """A transfer that silently does nothing is a caller left on hold forever.
+
+    Both directions are asserted because both have been wrong here at once: the `fake`
+    adapter used to record a successful transfer while the Bolna adapter raised, so the
+    two shipped adapters disagreed about whether the platform can transfer a call and
+    nothing in the suite could see it. That is the single clearest piece of evidence
+    that declarations needed to be checkable.
+    """
+    ref = await engine.create_agent(_agent_config(engine))
+    handle = await engine.start_outbound_call(ref, "+919876543210", CallContext())
+    refusal: Exception | None = None
+    try:
+        await engine.transfer(handle, "+919000000000", warm=False)
+    except Exception as exc:
+        refusal = exc
+
+    if engine.capabilities.transfer:
+        assert refusal is None, (
+            "this adapter advertises engine-side transfer and refused one — an escalation "
+            f"path the console offers is not there: {refusal!r}"
+        )
+        # THE OTHER HALF, without which the claim is unfalsifiable. `transfer` returns
+        # nothing and the Protocol offers no read-back, so "it worked" and "it did
+        # nothing at all" are the same observation — and the second leaves a caller in
+        # silence while the console reports an escalation. An adapter that can really
+        # transfer can therefore be required to FAIL one: a call this engine does not
+        # hold. Exactly the shape `test_a_claimed_verification_method_actually_rejects_
+        # somebody` uses for webhook methods, and the reason `detach_kb` may not swallow
+        # an unknown handle.
+        unknown: Exception | None = None
+        try:
+            await engine.transfer("call_this_engine_never_placed", "+919000000000", warm=False)
+        except Exception as exc:
+            unknown = exc
+        assert unknown is not None, (
+            "this adapter accepted a transfer for a call the engine does not hold, so "
+            "nothing it does on this method can be distinguished from doing nothing"
+        )
+        return
+    assert refusal is not None, (
+        "this adapter declares no engine-side transfer and accepted one anyway; the "
+        "caller is transferred nowhere and nothing reports it"
+    )
+    assert getattr(refusal, "capability", None) == "transfer", (
+        "the refusal does not name `transfer`, so the console cannot tell it apart from "
+        "a transient engine failure and will offer the control again"
+    )
+
+
+async def test_number_provisioning_matches_the_declared_series(engine: VoiceEngine) -> None:
+    """Per SERIES, because the campaign launch gate matches on the series.
+
+    140 and 160 are Indian DLT classes (promotional versus service). An engine that can
+    sell an ordinary number and has no Indian telephony path can satisfy a `numbers`
+    boolean and still be unable to provide the only two classes an outbound campaign is
+    allowed to dial from — so a single boolean here would let a launch gate pass on a
+    number that does not exist.
+    """
+    caps = engine.capabilities
+    for series in NUMBER_SERIES_VALUES:
+        outcome: Exception | ProvisionedNumber
+        try:
+            outcome = await engine.provision_number(NumberSpec(series=series, purpose="probe"))
+        except Exception as exc:
+            outcome = exc
+        if caps.provisions(series):
+            assert isinstance(outcome, ProvisionedNumber), (
+                f"this adapter advertises the {series} series and could not provide one"
+            )
+            assert outcome.series == series, (
+                f"asked for a {series} number and got a {outcome.series} one — the "
+                "campaign launch gate compares this field against the campaign's class"
+            )
+            assert outcome.e164.startswith("+"), "E.164 only"
+            continue
+        assert isinstance(outcome, Exception), (
+            f"this adapter declares it cannot provision the {series} series and returned "
+            "a number anyway, which would be recorded as dialable"
+        )
+
+
+async def test_an_engine_side_campaign_object_is_not_claimable_yet(
+    engine: VoiceEngine,
+) -> None:
+    """The one capability with NO method behind it, and therefore no way to lie safely.
+
+    Every other field in the descriptor is checkable because the Protocol has a method
+    that must behave accordingly. `campaigns` has none: our campaigns are dispatched
+    entirely by `apps/api/campaigns` and `apps/workers`, through the compliance gate, and
+    nothing in this system asks an engine to hold a campaign object. So a `True` here
+    could never be contradicted by any behaviour — it would be exactly the unfalsifiable
+    claim this section exists to prevent, sitting in the same object as six claims that
+    are enforced, borrowing their credibility.
+
+    The clause therefore refuses the claim outright rather than pretending to test it.
+    The day an engine's campaign objects are actually used, this stops being a lie
+    detector and becomes a TODO with a name: the Protocol grows the campaign methods
+    first, and this clause is rewritten to exercise them. Failing here is the intended
+    way to find that out.
+    """
+    assert engine.capabilities.campaigns is False, (
+        "this adapter claims engine-side campaign objects, but `VoiceEngine` has no "
+        "campaign method for the suite to check the claim against — add the methods to "
+        "the Protocol and rewrite this clause before declaring the capability"
     )

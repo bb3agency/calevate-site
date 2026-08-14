@@ -1127,10 +1127,12 @@ const ADMIN_SCREENS: Screen[] = [
   {
     // A wallet that is LOW and has both a credit and a debit on it: the low-balance
     // notice, both movement signs and the ledger table are four separate pieces of
-    // markup, and a fresh, empty, healthy wallet would scan none of them. Both forms'
-    // inputs render on every branch of a successful read, and one entry is left FULLY
-    // corrected so the correction panel's select renders with an option missing rather
-    // than with everything on the ledger.
+    // markup, and a fresh, empty, healthy wallet would scan none of them. All three
+    // forms' inputs render on every branch of a successful read, and one entry is left
+    // FULLY corrected so the correction panel's select renders with an option missing
+    // rather than with everything on the ledger. `payments` is the SAME wallet grouped
+    // by bank transfer (D-89) and is what the restatement panel and the payments table
+    // render from — a page-level fixture without it renders neither.
     file: "admin/tenants/[tenantId]/credits/page.tsx",
     realm: "admin",
     element: () => <TenantCreditsPage params={tenant} />,
@@ -1159,6 +1161,14 @@ const ADMIN_SCREENS: Screen[] = [
             balance_after_inr: "2500.00",
             occurred_at: "2026-08-12T05:30:00Z",
             reversible_inr: "2500.00",
+          },
+        ],
+        payments: [
+          {
+            payment_ref: "UTR-902311",
+            credited_inr: "2500.00",
+            entries: 1,
+            first_at: "2026-08-12T05:30:00Z",
           },
         ],
       },

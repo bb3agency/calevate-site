@@ -52,11 +52,13 @@ from calevate_shared.engine import (
     CallHandle,
     CostBreakdown,
     EngineAgentRef,
+    EngineCapabilities,
     EngineKBRef,
     ExecutionListing,
     ExecutionSnapshot,
     KBSourceRef,
     ListingIncompleteReason,
+    ModelConfig,
     NumberSpec,
     ProvisionedNumber,
     WebhookVerdict,
@@ -66,6 +68,7 @@ from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.api.engine.capabilities import require_capability, require_speech_leg
 
 log = get_logger(__name__)
 
@@ -354,6 +357,55 @@ def _agent_system_prompt(agent: dict[str, Any]) -> str | None:
     return prompt if isinstance(prompt, str) and prompt else None
 
 
+def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
+    """`(selections, readable)` — the BYOK choices the agent is RUNNING, in our terms.
+
+    The read half of the `EngineCapabilities` BYOK claim (D-93). `update_agent` sends
+    `llm_agent.model`, `synthesizer.provider`/`provider_config.voice` and
+    `transcriber.provider`/`model`; without a way to read them back, "the engine is using
+    Bulbul v3" was a claim resting on a 2xx — the same ACCEPTED-versus-APPLIED gap
+    `AgentSnapshot.system_prompt` was introduced to close, for the setting that decides
+    what a client's caller actually HEARS.
+
+    `readable=False` when the tools block cannot be located at all, for the third time
+    for the reason `_agent_kb_refs` gives: "we could not find the synthesizer" and "this
+    agent has no voice configured" are different facts with opposite next actions, and
+    reporting the first as the second would let a publish that never applied read as an
+    agent deliberately left on the engine's default.
+
+    SAME STANDING AS `_agent_system_prompt`: hand-maintained from the shape we POST,
+    because Bolna publishes no OpenAPI spec. If their read path names these fields
+    differently the honest outcome is `readable=False`, not a wrong answer.
+    """
+    config = agent.get("agent_config")
+    tasks = config.get("tasks") if isinstance(config, dict) else None
+    if not isinstance(tasks, list) or not tasks:
+        return None, False
+    first = tasks[0]
+    tools = first.get("tools_config") if isinstance(first, dict) else None
+    if not isinstance(tools, dict):
+        return None, False
+
+    def leaf(block: str, *path: str) -> str | None:
+        node: Any = tools.get(block)
+        for key in path:
+            if not isinstance(node, dict):
+                return None
+            node = node.get(key)
+        return node if isinstance(node, str) and node else None
+
+    return (
+        ModelConfig(
+            stt_provider=leaf("transcriber", "provider"),
+            stt_model=leaf("transcriber", "model"),
+            llm_model=leaf("llm_agent", "model"),
+            tts_provider=leaf("synthesizer", "provider"),
+            tts_voice=leaf("synthesizer", "provider_config", "voice"),
+        ),
+        True,
+    )
+
+
 def _agent_kb_refs(agent: dict[str, Any]) -> tuple[list[EngineKBRef], bool]:
     """`(handles, readable)` — the agent's own knowledge references, and whether we
     actually found the field that would hold them.
@@ -443,10 +495,49 @@ def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn
     return turns, lost
 
 
+# Bolna's answers (D-93). Every one of these was already true and was previously
+# expressed only as a `raise` inside the method that hit it — discoverable by calling and
+# failing, which is why screens could offer controls this engine refuses.
+#
+# WHAT IS GROUNDED: BYOK on all three legs is D-31/D-36 and is what `_agent_body` above
+# actually sends (`llm_agent.model`, `synthesizer.provider`, `transcriber.provider` all
+# carry OUR strings). The built-in knowledge base is the `rag_id` CRUD API this adapter
+# calls. `webhook_auth="source_ip"` is D-31's finding that Bolna signs nothing.
+#
+# WHAT IS A DELIBERATE *NO* RATHER THAN AN UNKNOWN:
+# * `campaigns=False`. Bolna HAS campaign objects; TRD §5 records them and CLAUDE.md
+#   prefers configuring engine built-ins over rebuilding them. We do not use them — every
+#   campaign in this system is dispatched by `apps/api/campaigns` + `apps/workers`,
+#   through the compliance gate, which is not something an engine-side campaign object
+#   can be trusted to run (hard rule 5 forbids a bypass). So the honest value of this
+#   field, whose meaning is "is there an engine-side campaign object OUR code depends
+#   on", is False. If that ever changes it is a decision-log entry, not a flag flip.
+# * `number_series=frozenset()`. Numbers come from the telephony vendor directly (D-05:
+#   Exotel, Vobiz for the 140-series) — `campaigns/provisioning.py` is that seam. This
+#   adapter's `provision_number` has always raised; now it says so before being called.
+# * `transfer=False`. Bolna may well support it; nobody has run the pilot gate, and an
+#   unverified vendor behaviour is not a capability (D-31/D-32). False is therefore the
+#   only answer we can stand behind, and the pilot gate is what changes it. `transfer`
+#   below now raises the ONE capability refusal rather than its own private
+#   `engine_capability_unverified` — a method whose refusal code disagreed with the
+#   descriptor is the drift this descriptor exists to remove.
+BOLNA_CAPABILITIES = EngineCapabilities(
+    stt="ours",
+    tts="ours",
+    llm="ours",
+    campaigns=False,
+    knowledge_base=True,
+    number_series=frozenset(),
+    transfer=False,
+    webhook_auth="source_ip",
+)
+
+
 class BolnaEngine:
     """Implements `VoiceEngine`. Constructed per process; the httpx client is reused."""
 
     name = "bolna"
+    capabilities = BOLNA_CAPABILITIES
 
     def __init__(
         self,
@@ -537,7 +628,19 @@ class BolnaEngine:
 
     def _agent_body(self, cfg: AgentConfig) -> dict[str, Any]:
         """Our AgentConfig → their agent object. The disclosure line is PREPENDED to
-        the prompt, not appended: hard rule 5 wants it spoken first, always."""
+        the prompt, not appended: hard rule 5 wants it spoken first, always.
+
+        The speech guards below never fire for THIS engine — Bolna is BYOK on all three
+        legs — and they are here anyway, in the one place both `create_agent` and
+        `update_agent` pass through. What they buy is that the descriptor is the
+        AUTHORITY rather than a description: narrowing `BOLNA_CAPABILITIES` (a vendor
+        withdrawing a BYOK leg is exactly the kind of thing that gets announced in a
+        changelog) changes what this adapter accepts, instead of leaving a field that
+        says one thing and a request body that does another.
+        """
+        require_speech_leg("stt", engine=self, value=cfg.models.stt_model)
+        require_speech_leg("llm", engine=self, value=cfg.models.llm_model)
+        require_speech_leg("tts", engine=self, value=cfg.models.tts_voice)
         prompt = f"{cfg.disclosure_line}\n\n{cfg.system_prompt}"
         return {
             "agent_config": {
@@ -630,6 +733,7 @@ class BolnaEngine:
         agent = _agent_object(payload)
         prompt = _agent_system_prompt(agent)
         kb_refs, kb_readable = _agent_kb_refs(agent)
+        models, models_readable = _agent_models(agent)
         returned_id = agent.get("agent_id") or agent.get("id") or payload.get("agent_id")
         return AgentSnapshot(
             # Their id when they state one, so a vendor answering about a DIFFERENT agent
@@ -640,6 +744,8 @@ class BolnaEngine:
             system_prompt_readable=prompt is not None,
             knowledge_base_refs=kb_refs,
             knowledge_base_refs_readable=kb_readable,
+            models=models,
+            models_readable=models_readable,
             engine="bolna",
         )
 
@@ -674,17 +780,21 @@ class BolnaEngine:
         await self._request("POST", f"/executions/{call_id}/stop")
 
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None:
-        # UNVERIFIED on Bolna (pilot item). Until the pilot confirms the mechanics,
-        # failing loudly beats pretending a transfer happened.
-        raise ProblemError(
-            kind="dependency",
-            code="engine_capability_unverified",
-            title="Transfer is not available yet",
-            detail="Call transfer has not been verified on the current voice platform.",
-            remediation="Use the escalation phone number configured on the agent.",
-        )
+        # UNVERIFIED on Bolna (pilot item), which `BOLNA_CAPABILITIES.transfer=False`
+        # already declares. Failing loudly beats pretending a transfer happened — and it
+        # now fails with the SAME code a caller could have asked the descriptor for
+        # BEFORE calling, so a screen and this method cannot disagree.
+        require_capability("transfer", engine=self)
 
     async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:
+        # Numbers come from the telephony vendor directly (D-05), which is the seam in
+        # `campaigns/provisioning.py`. `BOLNA_CAPABILITIES.number_series` is empty, so
+        # this refuses every series rather than only the DLT ones.
+        require_capability("numbers", engine=self)
+        # Unreachable while `number_series` is empty. Kept as a real refusal rather than
+        # an `assert`, because the way this line gets reached is somebody widening the
+        # descriptor without writing the client — and that must fail loudly here rather
+        # than fall off the end of the function returning None.
         raise ProblemError(
             kind="dependency",
             code="engine_capability_unverified",
@@ -724,6 +834,7 @@ class BolnaEngine:
         a response we cannot read a handle out of is a failure, not a success: treating
         it as one would attach text nobody can retract.
         """
+        require_capability("knowledge_base", engine=self)
         data = await self._request(
             "POST",
             "/knowledgebase",
@@ -745,9 +856,11 @@ class BolnaEngine:
         No swallowing of the vendor's 404: an id we cannot delete is an id we cannot
         prove is gone, and the caller's next act is to publish a replacement.
         """
+        require_capability("knowledge_base", engine=self)
         await self._request("DELETE", f"/knowledgebase/{kb}")
 
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
+        require_capability("knowledge_base", engine=self)
         data = await self._request("GET", "/knowledgebase/all")
         rows = data.get("data")
         if not isinstance(rows, list):

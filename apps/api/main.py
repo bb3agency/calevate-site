@@ -49,6 +49,10 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.compliance.first_campaign_routes import router as first_campaign_router
     from apps.api.compliance.kyc_routes import router as kyc_router
     from apps.api.compliance.registration_routes import router as dlt_registration_router
+    from apps.api.compliance.whatsapp_optin_routes import (
+        admin_router as whatsapp_optin_admin_router,
+    )
+    from apps.api.compliance.whatsapp_optin_routes import router as whatsapp_optin_router
     from apps.api.crm.routes import router as crm_router
     from apps.api.flags.routes import router as feature_flags_router
     from apps.api.ingest.routes import router as ingest_router
@@ -112,6 +116,14 @@ def _mount_routers(application: FastAPI) -> None:
     # package owns its admin publishing routes.
     application.include_router(first_campaign_router)
     application.include_router(first_campaign_admin_router)
+    # The CLIENT's own WhatsApp alert opt-in (FLOWS §6, migration e6b2d94f31a7) and the
+    # operator's record of one given during onboarding. Two realms, one ledger: the
+    # client half is the owner speaking for themselves, the admin half is an operator
+    # recording that they did, with the document to show for it. Same package/prefix
+    # split as the first-campaign pair above, for the same reason — the compliance
+    # package owns the table.
+    application.include_router(whatsapp_optin_router)
+    application.include_router(whatsapp_optin_admin_router)
     # Per-tenant feature flags (SURFACES §1). Its own
     # `/v1/admin/tenants/{tenant_id}/feature-flags` prefix, like every other per-tenant
     # admin surface that owns its own table — the flags package owns `tenant_feature_flags`

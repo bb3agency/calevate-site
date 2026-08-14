@@ -9,9 +9,13 @@ import {
   adjustmentsPath,
   creditAdjustmentConfirmation,
   creditsPath,
+  restatementsPath,
+  topupRestatementConfirmation,
   type AdjustmentResult,
   type Credits,
   type LedgerEntry,
+  type Payment,
+  type RestatementResult,
   type TopUpResult,
 } from "@/lib/api/credits";
 
@@ -48,6 +52,7 @@ const TENANT_PATH = `/v1/admin/tenants/${TENANT}`;
 const CREDITS_PATH = creditsPath(TENANT);
 const CREDITS_READ = `${CREDITS_PATH}?limit=${LEDGER_LIMIT}`;
 const ADJUST_PATH = adjustmentsPath(TENANT);
+const RESTATE_PATH = restatementsPath(TENANT);
 const REF = "UTR-902311";
 const ENTRY = "0192f0aa-5555-7000-8000-0000000000b1";
 
@@ -104,6 +109,36 @@ function correction(over: Partial<AdjustmentResult> = {}): AdjustmentResult {
   };
 }
 
+/**
+ * ONE BANK TRANSFER, as the server groups it — the anchor row plus any restatement of
+ * it, summed. `entries: 1` is a payment that has never been restated, which is every
+ * payment until somebody records one for too little.
+ */
+function payment(over: Partial<Payment> = {}): Payment {
+  return {
+    payment_ref: REF,
+    credited_inr: "2500.00",
+    entries: 1,
+    first_at: "2026-08-12T05:30:00Z",
+    ...over,
+  };
+}
+
+function restatement(over: Partial<RestatementResult> = {}): RestatementResult {
+  return {
+    tenant_id: TENANT,
+    entry_id: "0192f0aa-5555-7000-8000-0000000000d1",
+    payment_ref: REF,
+    ref: `restated:${REF}:50000.00`,
+    added_inr: "47500.00",
+    credited_inr: "50000.00",
+    balance_inr: "50000.00",
+    is_low: false,
+    recorded: true,
+    ...over,
+  };
+}
+
 function credits(over: Partial<Credits> = {}): Credits {
   return {
     tenant_id: TENANT,
@@ -111,6 +146,7 @@ function credits(over: Partial<Credits> = {}): Credits {
     is_low: false,
     low_balance_threshold_inr: "200.00",
     entries: [entry()],
+    payments: [payment()],
     ...over,
   };
 }
@@ -167,6 +203,29 @@ async function fillCorrection(entryId: string, amount: string, why = "wrong clie
 function correctButton(): HTMLButtonElement {
   return screen.getByRole("button", {
     name: /^(Take .* back off|Put .* back on|Correct this entry|Correcting)/,
+  }) as HTMLButtonElement;
+}
+
+/** Fill the restatement the way an operator does: payment, total, total again, why. */
+async function fillRestatement(
+  paymentRef: string,
+  total: string,
+  why = "statement shows 50,000; the 2,500 was a transposition",
+) {
+  const select = (await screen.findByLabelText("Payment to restate")) as HTMLSelectElement;
+  fireEvent.change(select, { target: { value: paymentRef } });
+  fireEvent.change(screen.getByLabelText("Total the bank moved (₹)"), {
+    target: { value: total },
+  });
+  fireEvent.change(screen.getByLabelText("Type the total again"), { target: { value: total } });
+  fireEvent.change(screen.getByLabelText("Why this was under-recorded (required)"), {
+    target: { value: why },
+  });
+}
+
+function restateButton(): HTMLButtonElement {
+  return screen.getByRole("button", {
+    name: /^(Restate |Restating)/,
   }) as HTMLButtonElement;
 }
 
@@ -379,6 +438,7 @@ describe("the credits screen", () => {
     const { container } = await render({
       [`POST ${CREDITS_PATH}`]: result({ recorded: false }),
       [`POST ${ADJUST_PATH}`]: correction({ balance_inr: "-500.00", stops_dialling: true }),
+      [`POST ${RESTATE_PATH}`]: restatement(),
     });
 
     await fillTopUp(REF, "2500.00");
@@ -391,6 +451,11 @@ describe("the credits screen", () => {
     await screen.findByText(
       "Sri Traders cannot place outbound calls until this wallet is topped up",
     );
+    // …and the restatement panel's, which has a chosen-payment notice and an outcome of
+    // its own. Three forms, three sets of markup that first paint never sees.
+    await fillRestatement(REF, "50000.00");
+    fireEvent.click(restateButton());
+    await screen.findByText("Restated — ₹47,500.00 credited to Sri Traders");
 
     await expectNoA11yViolations(container, "admin/tenants/[tenantId]/credits (filled)");
   });
@@ -642,5 +707,242 @@ describe("correcting a wrong entry", () => {
 
     await screen.findByText("We could not read this wallet, so nothing can be credited to it here");
     expect(screen.queryByLabelText("Entry to correct")).toBeNull();
+  });
+});
+
+/**
+ * Restating an under-recorded payment (D-89) — the control whose absence had a
+ * workaround worse than the gap.
+ *
+ * `POST .../credits` refuses a second amount under one reference, correctly: that
+ * refusal is what stops one bank transfer being credited twice. The documented remedy
+ * was a second top-up under an invented reference (`UTR-123-part2`), which puts a string
+ * on the ledger the bank never printed and quietly ends reconciliation. These pin the
+ * six properties that make the replacement safe, worst first:
+ *
+ * 1. **The operator sends the TOTAL the bank moved, never the difference.** The
+ *    difference is a well-formed number no validator can tell from a correct one, so the
+ *    guards are the word "total" on every control and the figure the payment credits
+ *    TODAY on screen beside the field. If a future edit lets a difference reach the wire
+ *    as a total, this is the test that has to fail.
+ * 2. **The confirmation goes on the wire for EVERY restatement and carries the AMOUNT.**
+ *    Unlike the adjustment, which gates one direction and binds to an entry id. Sending
+ *    it never would make every repair a 403; sending it without the amount would let a
+ *    confirmation for ₹50,000 travel with a request for ₹500,000.
+ * 3. **A repeat must read as "already restated", never as a second credit.** Both
+ *    outcomes are 200 and differ only by `recorded`.
+ * 4. **The payment reads as ONE bank transfer afterwards.** `credited_inr` is the figure
+ *    compared against a statement, and the payments table is where that comparison
+ *    happens — the ledger below shows rows, this shows transfers.
+ * 5. **The total is double-keyed and the reason is required**, the same two guards the
+ *    correction panel uses, on the field that decides how much money appears.
+ * 6. **A refusal is a refusal.** The server's problem+json renders and the draft
+ *    survives it, so the operator fixes the number rather than retyping everything.
+ */
+describe("restating an under-recorded payment", () => {
+  it("sends the TOTAL as a string, with the confirmation that carries the amount", async () => {
+    const { calls, container } = await render({ [`POST ${RESTATE_PATH}`]: restatement() });
+
+    await fillRestatement(REF, "50000.00");
+    fireEvent.click(restateButton());
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.method === "POST" && call.path === RESTATE_PATH)).toBe(
+        true,
+      );
+    });
+    const post = calls.find((call) => call.method === "POST" && call.path === RESTATE_PATH);
+    const body = JSON.parse(post?.body ?? "{}");
+    // The TOTAL the bank moved, as a STRING (hard rule 7 — the route refuses a JSON
+    // number). Emphatically NOT "47500.00", which is the difference and is what an
+    // operator reaches for when a control is worded even slightly loosely.
+    expect(typeof body.corrected_amount_inr).toBe("string");
+    expect(body.corrected_amount_inr).toBe("50000.00");
+    expect(body.payment_ref).toBe(REF);
+    expect(body.reason).toBe("statement shows 50,000; the 2,500 was a transposition");
+    // Every call, and bound to the exact figure — a confirmation captured for one total
+    // must not be able to travel with a request for another.
+    expect(post?.headers["X-Confirm-Action"]).toBe(topupRestatementConfirmation(REF, "50000.00"));
+    // The admin session with the tenant in the path, never an impersonating one (D-22).
+    expect(post?.headers["X-Impersonate-Org"]).toBeUndefined();
+
+    await screen.findByText("Restated — ₹47,500.00 credited to Sri Traders");
+    // The assertion the whole slice exists for, in the sentence an operator reads.
+    expect(container.textContent).toContain("now credits ₹50,000.00");
+    expect(container.textContent).toContain("one bank transfer");
+  });
+
+  it("shows what the payment credits TODAY, so the total is not mistaken for the difference", async () => {
+    const { container } = await render();
+
+    const select = (await screen.findByLabelText("Payment to restate")) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: REF } });
+
+    // The figure this restatement will be measured against, computed by the SERVER and
+    // shown beside the field — the guard against typing the difference, which no
+    // validator can distinguish from a correct total.
+    await screen.findByText(`${REF} credits ₹2,500.00 today`);
+    // Said on the notice, on the field label, on its hint and on the outstanding-step
+    // line. Collapsed whitespace, because the sentence wraps across JSX nodes and a
+    // literal match would pin the indentation rather than the words.
+    const said = container.textContent?.replace(/\s+/g, " ") ?? "";
+    expect(said).toContain("total the bank moved, not the difference");
+    expect(said).toContain("Total the bank moved (₹)");
+    expect(said).toContain("not the 45000.00 that is missing");
+  });
+
+  it("reads a repeated restatement as ALREADY RESTATED, not as a second credit", async () => {
+    const { container } = await render({
+      [`POST ${RESTATE_PATH}`]: restatement({ recorded: false }),
+    });
+
+    await fillRestatement(REF, "50000.00");
+    fireEvent.click(restateButton());
+
+    await screen.findByText("Already restated — nothing was credited");
+    expect(container.textContent).toContain("no second entry was written");
+    expect(container.textContent).toContain("has not been credited twice");
+    // NOT a failure, and NOT a fresh credit — the belief that causes the damage.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(container.textContent).not.toContain("Restated — ₹");
+  });
+
+  it("keeps the button dead until the payment, both totals and the reason are in", async () => {
+    await render();
+
+    // The consequences are stated before anything is chosen, not revealed by filling in.
+    expect(await screen.findByText(/This one cannot be undone either/)).toBeDefined();
+    expect(restateButton().disabled).toBe(true);
+    expect(screen.getByText(/Pick the payment that was under-recorded/)).toBeDefined();
+
+    fireEvent.change(screen.getByLabelText("Payment to restate"), { target: { value: REF } });
+    expect(restateButton().disabled).toBe(true);
+    expect(screen.getByText(/Enter the TOTAL the bank moved, not the difference/)).toBeDefined();
+
+    fireEvent.change(screen.getByLabelText("Total the bank moved (₹)"), {
+      target: { value: "50000.00" },
+    });
+    expect(restateButton().disabled).toBe(true);
+    expect(screen.getByText(/Type the total a second time/)).toBeDefined();
+
+    // A near miss — a dropped zero, which on this field is ₹45,000 of real money.
+    fireEvent.change(screen.getByLabelText("Type the total again"), {
+      target: { value: "5000.00" },
+    });
+    expect(restateButton().disabled).toBe(true);
+    expect(screen.getByText(/These two do not match/)).toBeDefined();
+
+    fireEvent.change(screen.getByLabelText("Type the total again"), {
+      target: { value: "50000.00" },
+    });
+    expect(restateButton().disabled).toBe(true);
+    expect(screen.getByText(/Say why\. It is stored on the entry/)).toBeDefined();
+
+    fireEvent.change(screen.getByLabelText("Why this was under-recorded (required)"), {
+      target: { value: "the statement shows more" },
+    });
+    expect(restateButton().disabled).toBe(false);
+  });
+
+  it("refuses a malformed total before the click, without parsing it", async () => {
+    await render();
+
+    await fillRestatement(REF, "₹50,000");
+    expect(screen.getByText(/The total the bank moved — not the difference/)).toBeDefined();
+    expect(restateButton().disabled).toBe(true);
+  });
+
+  it("renders the server's refusal and keeps the draft", async () => {
+    // The refusal an operator who typed the DIFFERENCE actually meets, once the payment
+    // has been restated once. The message has to be legible and the values have to
+    // survive it, because the fix is one field.
+    const { container } = await render({
+      [`POST ${RESTATE_PATH}`]: problem(422, {
+        type: "https://calevate.tech/problems/restatement_not_an_increase",
+        title: "Request rejected by a business rule",
+        detail: "That reference already credits ₹50000.00, and this restates it to ₹47500.00.",
+        kind: "business_rule",
+        remediation:
+          "Send the TOTAL the bank moved, not the difference — the amount to credit is worked out here.",
+      }),
+    });
+
+    await fillRestatement(REF, "47500.00");
+    fireEvent.click(restateButton());
+
+    await screen.findByText(/That reference already credits ₹50000.00/);
+    expect(container.textContent).toContain("not the difference");
+    expect(
+      (screen.getByLabelText("Total the bank moved (₹)") as HTMLInputElement).value,
+    ).toBe("47500.00");
+  });
+
+  it("says so plainly when there is no payment to restate", async () => {
+    // A restatement repairs a payment we already recorded; it never invents one, which
+    // is one of the two things standing in for a numeric ceiling on this route.
+    const { container } = await render({
+      [CREDITS_READ]: credits({ balance_inr: "0.00", is_low: true, entries: [], payments: [] }),
+    });
+
+    await screen.findByText(/No payment has been recorded on this wallet/);
+    expect(screen.queryByLabelText("Payment to restate")).toBeNull();
+    expect(container.textContent).toContain("it never creates one");
+  });
+
+  it("disables the restatement, with its own reason, for a session that may not make it", async () => {
+    await render({ [ADMIN_ME_PATH]: { ...ME, permissions: ["org:read", "billing:read"] } });
+
+    await screen.findByLabelText("Payment to restate");
+    expect(restateButton().disabled).toBe(true);
+    expect((screen.getByLabelText("Payment to restate") as HTMLSelectElement).disabled).toBe(true);
+    // One sentence PER control, so it is never ambiguous which button is explained.
+    expect(screen.getByText(/restate a payment on this client's wallet/)).toBeDefined();
+  });
+
+  it("withholds the restatement with the other forms when the ledger could not be read", async () => {
+    await render({
+      [CREDITS_READ]: problem(503, { title: "Upstream unavailable", retryable: true }),
+    });
+
+    await screen.findByText("We could not read this wallet, so nothing can be credited to it here");
+    expect(screen.queryByLabelText("Payment to restate")).toBeNull();
+  });
+
+  it("shows one line per bank transfer, and marks the one that took two rows", async () => {
+    // The property the annotated-reference workaround destroyed: a restated payment is
+    // two ledger rows and ONE line here, which is what keeps the reference usable as the
+    // thing a reconciliation keys on.
+    const restated = entry({
+      id: "0192f0aa-5555-7000-8000-0000000000d2",
+      delta_inr: "47500.00",
+      ref: `restated:${REF}:50000.00`,
+      balance_after_inr: "50000.00",
+      reversible_inr: "47500.00",
+    });
+    const { container } = await render({
+      [CREDITS_READ]: credits({
+        balance_inr: "50000.00",
+        entries: [restated, entry()],
+        payments: [payment({ credited_inr: "50000.00", entries: 2 })],
+      }),
+    });
+
+    await screen.findByText("Payments — one line per bank transfer");
+    expect(container.textContent).toContain("2 — restated");
+    expect(container.textContent).toContain("₹50,000.00");
+    // Two rows on the ledger, one line on the payments table.
+    expect(screen.getAllByText(`restated:${REF}:50000.00`).length).toBe(1);
+  });
+
+  it("routes an under-credit to this panel and refuses the annotated reference by name", async () => {
+    const { container } = await render();
+
+    await screen.findByText("If a credit was wrong");
+    expect(container.textContent).toContain("TOO LITTLE was credited");
+    expect(container.textContent).toContain("A payment was for more than we recorded");
+    // The workaround is named and refused, because "do not do X" only works when X is
+    // spelled out — an operator who has not read this invents exactly that string.
+    expect(container.textContent).toContain("UTR-123-part2");
+    expect(container.textContent).toContain("two payments where the bank shows one");
   });
 });

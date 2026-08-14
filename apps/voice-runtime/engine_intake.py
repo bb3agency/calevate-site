@@ -20,6 +20,7 @@ from typing import Any, Literal, get_args
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from calevate_shared.config import bolna_source_ips
+from calevate_shared.engine import WEBHOOK_AUTH_BY_ENGINE
 
 log = get_logger(__name__)
 
@@ -175,8 +176,21 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
     `CF-Connecting-IP` line in `calevate-proxy.conf` is gone, or something is reaching the
     container without going through nginx). Two very different runbook entries, and an
     unsigned engine cannot afford them to look alike.
+
+    WHICH METHOD APPLIES IS LOOKED UP, NOT HARD-CODED (D-93). This function used to open
+    `if engine == "bolna":` — a vendor name compiled into the latency-critical receiver,
+    so adopting an engine that SIGNS its webhooks meant editing this service and
+    redeploying it in lockstep with the adapter, which hard rule 3's last clause exists to
+    prevent. `WEBHOOK_AUTH_BY_ENGINE` is the one table both readers share (the adapters'
+    own declarations are asserted equal to it by the conformance suite), and reading it
+    costs one dict lookup on a path that must ack in under 500ms.
+
+    It stays a TABLE rather than an import of the adapter's descriptor because hard rule 3
+    forbids the heavy import here: reaching `EngineCapabilities` through
+    `apps.api.engine` would pull httpx and the vendor client into the ack path.
     """
-    if engine == "bolna":
+    method = WEBHOOK_AUTH_BY_ENGINE.get(engine)
+    if method == "source_ip":
         if source_ip is not None and source_ip in bolna_source_ips(get_settings()):
             # `source_ip`, not `hmac`: the caller must keep treating this as a hint.
             return IntakeVerdict(ok=True, method="source_ip")
@@ -186,6 +200,20 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
             reason="source ip not allowlisted"
             if source_ip is not None
             else "client ip not established",
+        )
+    if method == "hmac":
+        # DECLARED BY AN ADAPTER, NOT IMPLEMENTED HERE — and refused rather than waved
+        # through, which is the only safe direction. Writing a signature verifier for an
+        # engine we have not adopted would mean inventing the header, the canonical string
+        # and the digest, and an unverified vendor contract is exactly what D-31/D-32
+        # forbid; getting any of the three wrong would produce a receiver that rejects
+        # every real delivery and accepts nothing but our own test vectors.
+        #
+        # The refusal is not a gap that can be reached today: no signing engine is
+        # selectable as `ENGINE=` (`config.EngineName`). It becomes reachable on the day
+        # one is added, and on that day this is the line that says what is left to do.
+        return IntakeVerdict(
+            ok=False, method="hmac", reason="signature verification not implemented"
         )
     if engine == "fake":
         # The fake engine verifies NOTHING by design — that is how the whole pipeline

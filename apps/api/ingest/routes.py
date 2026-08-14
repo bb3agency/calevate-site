@@ -257,11 +257,20 @@ async def meta_leadgen(webhook_id: UUID, request: Request) -> MetaLeadgenAckOut:
     2. verify the signature over those RAW bytes, before any parse;
     3. only then parse, normalize, and do work.
 
-    The answer is always 200 once the signature holds, including for the deliveries we
-    refuse. Meta retries a non-2xx with backoff for hours and eventually unsubscribes
-    the Page — and our refusal is permanent (no retriever), so retrying could only
-    delay the verdict and end with the client's integration switched off. The refusal
-    is recorded instead, against the `leadgen_id`, where the client can see it.
+    The answer is 200 once the signature holds, including for the deliveries we REFUSE.
+    Meta retries a non-2xx with backoff for hours and eventually unsubscribes the Page,
+    and a refusal here is a verdict — an unreadable lead, a number we cannot dial, an
+    agent nobody published — so retrying could only delay it and end with the client's
+    integration switched off. The refusal is recorded instead, against the `leadgen_id`,
+    where the client can see it.
+
+    THE ONE EXCEPTION IS A TRANSIENT FAILURE, and it is 503 on purpose. A Graph timeout
+    or a 5xx is not a verdict about the lead; it is us being unable to ask. Acking it
+    200 would silently drop the enquiry the whole product exists to catch, and Meta's
+    at-least-once ladder is a retry mechanism we already have — so we use it rather than
+    building a second one. Redelivery is free because the `leadgen_id` claim absorbs the
+    siblings that already committed: a batch of three with one deferred comes back as
+    two duplicates and one fresh attempt.
     """
     received_at = time.time()
     config = await _meta_config(webhook_id)
@@ -323,9 +332,37 @@ async def meta_leadgen(webhook_id: UUID, request: Request) -> MetaLeadgenAckOut:
     )
     log.info(
         "meta_leadgen_received",
-        extra={"webhook_id": str(webhook_id), **ack.model_dump()},
+        extra={
+            "webhook_id": str(webhook_id),
+            **ack.model_dump(),
+            # Not on the ack model, and not because it is unimportant: a deferred count
+            # never travels in a 200 body, since the whole point of the 503 below is
+            # that this delivery is NOT accounted for yet.
+            "deferred": outcomes[_DEFERRED],
+        },
     )
+    if outcomes[_DEFERRED]:
+        # Reached only when a lead could not be read for a reason that trying again can
+        # fix. Everything that DID land above is committed and claimed, so Meta's
+        # redelivery re-does exactly the part that failed.
+        raise ProblemError(
+            kind="transient",
+            code="meta_lead_retrieval_deferred",
+            title="Lead answers could not be fetched",
+            # 503 is the one status allowed to keep a detailed message
+            # (BACKEND-PATTERNS §3) and Meta reads only the code, so this sentence is
+            # for the operator tailing the response. It names no lead and no reason
+            # code: the reason is on the inbox row, where it belongs.
+            detail="Fetching this lead's answers failed for a reason a retry can fix.",
+            remediation="Meta will redeliver this notification; no action is needed.",
+        )
     return ack
+
+
+# The fourth outcome, spelled once. It is deliberately NOT a field of
+# `MetaLeadgenAckOut`: a deferred delivery never travels in a 200 body, because the 503
+# it produces is the statement that this delivery has not been accounted for yet.
+_DEFERRED: Literal["deferred"] = "deferred"
 
 
 async def _absorb_leadgen(
@@ -334,7 +371,7 @@ async def _absorb_leadgen(
     config: IngestConfig,
     notification: meta.LeadNotification,
     received_at: float,
-) -> Literal["accepted", "duplicate", "refused"]:
+) -> Literal["accepted", "duplicate", "refused", "deferred"]:
     """One lead, one transaction — the unit of work Meta actually delivers.
 
     One transaction PER NOTIFICATION rather than per delivery: Meta batches, and one
@@ -371,22 +408,44 @@ async def _absorb_leadgen(
         if claim.state == "duplicate":
             return "duplicate"
 
-    retriever = meta.get_lead_retriever()
-    if retriever is None:
-        # THE HONEST HOLE (meta.py's docstring). We hold the notification and not the
-        # answers, so there is no lead to write — and writing one out of metadata we
-        # cannot read would be inventing it. Recorded as failed with OUR reason code,
-        # which the activity view renders as `rejected`, and re-claimable by CAS the
-        # day a retriever exists.
+    # ONE lookup for "may we read this client's leads" and "with what" — the capability
+    # carries the retriever precisely so a second read cannot disagree with the first.
+    # The question is per LEAD SOURCE, not per deployment: an adapter that holds no
+    # token for this client is unavailable to this client, and says which.
+    capability = meta.lead_retrieval_capability(source_id=webhook_id)
+    if capability.retriever is None:
+        # We hold the notification and not the answers, so there is no lead to write —
+        # and writing one out of metadata we cannot read would be inventing it. Recorded
+        # as failed with OUR reason code, which the activity view renders as `rejected`,
+        # and re-claimable by CAS the moment a credential is attached.
         return await _record_refusal(
             config,
             claim.row_id,
             webhook_id=webhook_id,
-            reason=meta.lead_retrieval_capability().reason or "",
+            reason=capability.reason or meta.NO_RETRIEVER_REASON,
         )
 
-    answers = meta.flatten_field_data(await retriever.fetch_field_data(notification.leadgen_id))
+    retrieved = await capability.retriever.fetch_answers(
+        source_id=webhook_id, leadgen_id=notification.leadgen_id
+    )
+    if retrieved.status is meta.RetrievalStatus.TRANSIENT:
+        # Mark the claim failed — which is what makes it RE-CLAIMABLE by CAS — and defer.
+        # Not `mark_inbox_processed`: a row recorded as done is a lead nobody will ever
+        # look at again, and this one is coming back.
+        await _record_refusal(
+            config, claim.row_id, webhook_id=webhook_id, reason=retrieved.reason or ""
+        )
+        return _DEFERRED
+    if retrieved.status is meta.RetrievalStatus.PERMANENT:
+        return await _record_refusal(
+            config, claim.row_id, webhook_id=webhook_id, reason=retrieved.reason or ""
+        )
+
+    answers = retrieved.answers
     if not answers:
+        # A lead with no answers at all is not a lead: there is no number to dial and
+        # nothing to put in a row. Distinct from a Graph refusal, because the fix is
+        # different — this one is about the client's form.
         return await _record_refusal(
             config, claim.row_id, webhook_id=webhook_id, reason=meta.NO_ANSWERS_REASON
         )
@@ -739,7 +798,10 @@ async def meta_setup(
     config = await load_config(session, webhook_id)
     if config is None or config.source != META_SOURCE:
         raise ProblemError.not_found("Lead source")
-    capability = meta.lead_retrieval_capability()
+    # PER LEAD SOURCE, not per deployment. A deployment with the Graph adapter selected
+    # and no token attached for THIS source can no more fetch this client's answers than
+    # one with no adapter at all, and the reason code says which of the two it is.
+    capability = meta.lead_retrieval_capability(source_id=webhook_id)
     return MetaSetupOut(
         callback_path=f"/hooks/v1/ingest/meta/{webhook_id}",
         verify_token=meta.verify_token_for(webhook_id=webhook_id, app_secret=config.secret_ref),

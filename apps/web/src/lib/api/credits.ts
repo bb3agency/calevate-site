@@ -24,14 +24,17 @@
  *   quietly rounding, because `2500.10` through a binary float and back is how a
  *   paise-level dispute starts. `TopUpDraft.amountInr` is therefore a `string` all the
  *   way to `fetch`, and nothing in this file or its screen calls `Number()` on it.
- * - **The TOP-UP takes no `X-Confirm-Action`; the ADJUSTMENT takes one in exactly one
- *   direction.** `useRecordTopUp` sends none, because the route accepts none — a header
- *   the API ignores is a confirmation of nothing. `useRecordAdjustment` sends one when
- *   the correction takes credit AWAY, and none when it puts credit back, mirroring the
- *   route's own rule (bound to the dangerous direction, not to the endpoint). Both
- *   consoles' human confirmations are argued on the screen. Admin-realm MFA is enforced
- *   for every admin token in `core/auth.py::verify_token` (D-68), so this surface is
- *   already behind a second factor either way.
+ * - **Three writes, three different confirmation rules, each copied from its own route.**
+ *   `useRecordTopUp` sends no `X-Confirm-Action`, because the route accepts none — a
+ *   header the API ignores is a confirmation of nothing. `useRecordAdjustment` sends one
+ *   when the correction takes credit AWAY and none when it puts credit back, mirroring
+ *   the route's rule (bound to the dangerous direction, not to the endpoint).
+ *   `useRecordRestatement` sends one ALWAYS, and it echoes the amount: that route has
+ *   one direction, no ceiling above it, and it credits the client. Guessing any of the
+ *   three would produce a request the API refuses or a ceremony that protects nobody.
+ *   Both consoles' human confirmations are argued on the screen. Admin-realm MFA is
+ *   enforced for every admin token in `core/auth.py::verify_token` (D-68), so this
+ *   surface is already behind a second factor either way.
  *
  * Types come from `schema.d.ts` (`pnpm gen:api`), never hand-mirrored. The ONE exception
  * is `CreditReason`: FastAPI serializes the ledger's `reason` as a bare `string`, so the
@@ -50,6 +53,61 @@ import type { components } from "./schema";
 
 type Schemas = components["schemas"];
 
+/* ==========================================================================
+ * TEMPORARY HAND-WRITTEN TYPES — DELETE THIS ENTIRE BLOCK AFTER `pnpm gen:api`
+ * ==========================================================================
+ *
+ * D-89 added `POST /v1/admin/tenants/{tenant_id}/credits/restatements` and one field to
+ * `CreditsOut`. `schema.d.ts` is regenerated centrally, so until that lands these mirror
+ * `apps/api/billing/credit_routes.py` FIELD FOR FIELD.
+ *
+ * AFTER REGENERATION, restore exactly this — nothing else in this file changes:
+ *
+ *   export type Payment = Schemas["PaymentOut"];
+ *   export type Credits = Schemas["CreditsOut"];
+ *   export type RestatementIn = Schemas["RestatementIn"];
+ *   export type RestatementResult = Schemas["RestatementOut"];
+ *
+ * …then delete `PaymentShape`, `RestatementInShape` and `RestatementOutShape` below.
+ *
+ * OPTIONALITY IS THE TRAP THIS BLOCK HAS TO GET RIGHT: a Pydantic field WITH A DEFAULT
+ * generates an OPTIONAL TypeScript property, so a hand-written `required` breaks on the
+ * swap. Every field mirrored here is declared on the Python model with no default —
+ * deliberately, the rule `ChainVerifyOut` follows — so every one is required, and
+ * `corrected_amount_inr` is `number | string` because that is what the generator emits
+ * for a `Decimal` (Pydantic accepts both; the route REFUSES the number — see the header).
+ */
+
+/** Mirrors `credit_routes.PaymentOut`. */
+interface PaymentShape {
+  payment_ref: string;
+  credited_inr: string;
+  entries: number;
+  first_at: string;
+}
+
+/** Mirrors `credit_routes.RestatementIn`. */
+interface RestatementInShape {
+  payment_ref: string;
+  corrected_amount_inr: number | string;
+  reason: string;
+}
+
+/** Mirrors `credit_routes.RestatementOut`. */
+interface RestatementOutShape {
+  tenant_id: string;
+  entry_id: string;
+  payment_ref: string;
+  ref: string;
+  added_inr: string;
+  credited_inr: string;
+  balance_inr: string;
+  is_low: boolean;
+  recorded: boolean;
+}
+
+/* ===================== end of the hand-written block ===================== */
+
 /**
  * One line of `credit_ledger`. Every amount is exact digits — never a number.
  *
@@ -61,8 +119,26 @@ type Schemas = components["schemas"];
  */
 export type LedgerEntry = Schemas["LedgerEntryOut"];
 
-/** The wallet: balance, the server's low-balance verdict, and the recent entries. */
-export type Credits = Schemas["CreditsOut"];
+/**
+ * ONE BANK TRANSFER, whatever it took on the ledger to record it.
+ *
+ * `credited_inr` is everything that reference has credited — the original entry plus
+ * every restatement of it — summed by the SERVER across all of that payment's rows,
+ * including any that have scrolled off the page. It is the figure a person holding a
+ * bank statement compares against, and the console could not compute it even if it
+ * wanted to (hard rule 7 reaches the browser: no decimal arithmetic here).
+ *
+ * `entries > 1` means the payment has been restated. That is the only place a
+ * restatement is visible AS one, which is the point — reconciliation must see one bank
+ * transfer, not two references invented to fit around an append-only ledger.
+ */
+export type Payment = PaymentShape;
+
+/**
+ * The wallet: balance, the server's low-balance verdict, the recent entries — and the
+ * bank transfers behind them.
+ */
+export type Credits = Schemas["CreditsOut"] & { payments: Payment[] };
 
 /**
  * The adjustment request body. `amount_inr` is a POSITIVE magnitude, and it is sent as
@@ -406,6 +482,118 @@ export function useRecordAdjustment(session: Session, tenantId: string) {
     // Three things moved: the balance, the ledger, and every entry's `reversible_inr`.
     // The third is why a replay must re-read too — the figure the next correction is
     // offered against is derived from rows this screen cannot recompute.
+    onSuccess: () => void client.invalidateQueries({ queryKey: creditsKey(tenantId) }),
+  });
+}
+
+/* --------------------------------------------------------------------------
+ * Restatements (D-89) — the repair for a payment recorded for TOO LITTLE.
+ *
+ * The mirror image of the adjustment above, and deliberately NOT the same control. An
+ * adjustment names a ledger ENTRY and takes credit away, bounded by what that entry
+ * moved. A restatement names a PAYMENT and says what the bank actually transferred; the
+ * server credits the difference against the same reference, so the wallet keeps showing
+ * one bank transfer instead of the `UTR-123-part2` invention this replaces.
+ * ----------------------------------------------------------------------- */
+
+export function restatementsPath(tenantId: string): string {
+  return `${creditsPath(tenantId)}/restatements`;
+}
+
+/** The request body. `corrected_amount_inr` is sent as a STRING; see the header. */
+export type RestatementIn = RestatementInShape;
+
+/** The answer. `recorded: false` means this restatement was already made. */
+export type RestatementResult = RestatementOutShape;
+
+/**
+ * The step-up string, copied from the route VERBATIM
+ * (`credit_routes.topup_restatement_confirmation`).
+ *
+ * It carries the AMOUNT as well as the reference, which
+ * `creditAdjustmentConfirmation` deliberately does not — and the difference is worth
+ * repeating where the header is built. The adjustment's danger is "which row"; this
+ * route's is "how much", because a restatement has no ceiling but the statement the
+ * operator is reading. So a confirmation captured for ₹50,000 cannot travel with a
+ * request for ₹500,000, and changing the figure means confirming the new one.
+ *
+ * The amount is passed through as the operator's DIGITS, never parsed. The server
+ * quantizes both this string and the ledger key with the same function, so `50000.0`
+ * and `50000.00` agree on the wire — but a `Number()` here would be the one place
+ * hard rule 7 broke, on the field that decides how much money appears.
+ */
+export function topupRestatementConfirmation(paymentRef: string, correctedAmountInr: string): string {
+  return `restate_topup:${paymentRef}:${correctedAmountInr.trim()}`;
+}
+
+/**
+ * The same shape check as the other two money fields, said for a RESTATEMENT.
+ *
+ * The message is the whole reason this is a third function rather than a third caller of
+ * `rupeeProblem`: the mistake this field admits is not a malformed number, it is a
+ * CORRECTLY FORMED one that means the wrong thing — the difference typed where the total
+ * belongs. So every sentence here says "total", and the field's own label and hint say
+ * it again beside the figure the reference already credits.
+ */
+export function restatementAmountProblem(raw: string): string | null {
+  switch (rupeeFault(raw)) {
+    case "missing":
+      return "Enter the TOTAL the bank moved, exactly as the statement shows it.";
+    case "shape":
+      return `${DIGITS_ONLY} The total the bank moved — not the difference.`;
+    case "zero":
+      return "A payment has to be more than zero. Enter the total the statement shows.";
+    default:
+      return null;
+  }
+}
+
+/** What the operator submits to restate one payment. Strings, because the money one is. */
+export interface RestatementDraft {
+  /** The payment being restated — chosen from the wallet's own list, never typed. */
+  payment: Payment;
+  /** THE TOTAL THE BANK MOVED, as DIGITS (hard rule 7). Never the difference. */
+  correctedAmountInr: string;
+  /** Required. Reaches the entry's `meta` and the audit record verbatim. */
+  reason: string;
+}
+
+/**
+ * Credit the difference on an under-recorded payment.
+ *
+ * `admin:tenants`, the same permission and the same argument as the other two writes.
+ * The ADMIN session with the tenant in the path, never an impersonating one — it is in
+ * `MUTATING_PERMISSIONS` and D-22 would correctly refuse it.
+ *
+ * **The step-up header goes on EVERY call**, unlike `useRecordAdjustment`, which sends
+ * one only in the dangerous direction. That is the route's own rule and not this
+ * screen's opinion: this correction has exactly one direction, it is unbounded, and it
+ * moves money towards the party who will never report an error in their favour.
+ *
+ * No optimistic update and no `recorded` guess. Both outcomes are 200 and the flag is
+ * the only thing separating "we have just put ₹45,000 on this client" from "that
+ * restatement was already made".
+ */
+export function useRecordRestatement(session: Session, tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ payment, correctedAmountInr, reason }: RestatementDraft) => {
+      const amount = correctedAmountInr.trim();
+      const body: RestatementIn = {
+        payment_ref: payment.payment_ref,
+        // A string, always — the route REFUSES the JSON number (hard rule 7).
+        corrected_amount_inr: amount,
+        reason: reason.trim(),
+      };
+      return apiRequest<RestatementResult>(session, restatementsPath(tenantId), {
+        method: "POST",
+        body,
+        confirmAction: topupRestatementConfirmation(payment.payment_ref, amount),
+      });
+    },
+    // The balance, the ledger and the payment's own total all moved — and the third is
+    // what the NEXT restatement of this payment would be measured against, so a stale
+    // one on screen is how somebody restates from a figure that is no longer true.
     onSuccess: () => void client.invalidateQueries({ queryKey: creditsKey(tenantId) }),
   });
 }

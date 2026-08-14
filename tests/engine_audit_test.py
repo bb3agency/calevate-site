@@ -41,7 +41,7 @@ from apps.api.db.session import get_engine as get_db_engine
 from apps.api.db.session import untenanted_session
 from apps.api.engine import bolna
 from apps.api.engine.bolna import BolnaEngine
-from apps.api.engine.fake import FakeEngine
+from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, FakeEngine
 from calevate_shared.config import (
     DEFAULT_BOLNA_SOURCE_IPS,
     Settings,
@@ -54,6 +54,8 @@ from calevate_shared.engine import (
     CostBreakdown,
     ExecutionListing,
     ExecutionSnapshot,
+    NumberSpec,
+    ProvisionedNumber,
     VoiceEngine,
     WebhookVerdict,
 )
@@ -266,6 +268,133 @@ class _ClaimsToReadKbRefsAndReadsNone(FakeEngine):
         return snapshot.model_copy(update={"knowledge_base_refs": []})
 
 
+# --- saboteurs that lie in the CAPABILITY DESCRIPTOR (D-93) -------------------
+#
+# Every saboteur above breaks a BEHAVIOUR. These break a DECLARATION, which is the more
+# dangerous half: a wrong behaviour surfaces as a failed call, while a wrong declaration
+# surfaces as a screen confidently offering a control that cannot work. The descriptor is
+# only worth having if the suite can catch an adapter lying in it — otherwise it converts
+# a runtime failure into a confident wrong answer, which is strictly worse than nothing.
+
+
+def _with_capabilities(**changes: object) -> Callable[[], VoiceEngine]:
+    """A `fake` adapter whose DESCRIPTOR is altered and whose behaviour is not.
+
+    That combination is the whole point: each of these adapters does exactly what the
+    shipped `fake` adapter does, and only its claims about itself are wrong. A saboteur
+    that also changed behaviour could be caught by a behavioural clause and tell us
+    nothing about whether the declaration is checked.
+    """
+
+    def build() -> VoiceEngine:
+        return FakeEngine(
+            capabilities=DEFAULT_FAKE_CAPABILITIES.model_copy(update=changes),
+            # Sabotaged descriptors keep the shipped name so `WEBHOOK_AUTH_BY_ENGINE`
+            # still has an entry to be contradicted — a saboteur under an unknown name
+            # would fail the table clause for the wrong reason and prove nothing.
+            name="fake",
+        )
+
+    return build
+
+
+class _AcceptsAVoiceItSaysItCannotSpeak(FakeEngine):
+    """Declares that the ENGINE dictates TTS, then accepts our voice anyway.
+
+    THE headline failure this slice exists to remove, staged. Nothing errors: the
+    operator picks Bulbul v3, the row saves, the publish returns 200, and the caller
+    hears the engine's own voice forever. Every screen goes on reporting the voice that
+    was chosen, because from our side nothing ever said otherwise.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault(
+            "capabilities", DEFAULT_FAKE_CAPABILITIES.model_copy(update={"tts": "engine"})
+        )
+        super().__init__(**kwargs)
+
+    def _assert_speech_is_ours(self, cfg: AgentConfig) -> None:
+        return  # the silent drop
+
+
+class _SubstitutesItsOwnVoice(FakeEngine):
+    """Claims BYOK TTS and reports a DIFFERENT voice than the one configured.
+
+    The vendor accepted the write and is running something else — accepted, not applied,
+    for the one setting a client can hear. Distinct from the saboteur above because this
+    adapter refuses nothing and hides nothing at write time; the divergence is only ever
+    visible in the read-back, which is why `AgentSnapshot.models` had to exist.
+    """
+
+    async def get_agent(self, ref: str) -> AgentSnapshot:
+        snapshot = await super().get_agent(ref)
+        assert snapshot.models is not None
+        return snapshot.model_copy(
+            update={"models": snapshot.models.model_copy(update={"tts_voice": "sonic-3.5"})}
+        )
+
+
+class _ProvisionsANumberItDenies(FakeEngine):
+    """Declares it provisions no number class and hands one back regardless.
+
+    Not hypothetical — this was the SHIPPED behaviour of the `fake` adapter while the
+    Bolna adapter raised, so the two adapters disagreed about whether the platform can
+    buy a number and nothing could see it. A number returned here is recorded as dialable
+    and matched against a campaign's 140/160 classification by the launch gate.
+    """
+
+    async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:
+        return ProvisionedNumber(
+            e164="+911140000000", provider="nobody", engine_number_ref="n_1", series=spec.series
+        )
+
+
+class _AnswersKbQuestionsItHasNoKbFor(FakeEngine):
+    """Declares no knowledge base and answers `list_kb` with a cheerful empty list.
+
+    The quietest one here and the worst. `[]` is a POSITIVE claim that the agent holds no
+    documents, and `kb/service._reconcile_engine_state` reads exactly that claim to decide
+    whether the engine is serving text our rows cannot account for — so this adapter tells
+    the publish path "everything is accounted for" every single time, about a question it
+    was never able to answer.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault(
+            "capabilities",
+            DEFAULT_FAKE_CAPABILITIES.model_copy(update={"knowledge_base": False}),
+        )
+        super().__init__(**kwargs)
+
+    async def list_kb(self, ref: str) -> list[str]:
+        return []
+
+
+class _ClaimsATransferItCannotPerform(FakeEngine):
+    """Advertises engine-side transfer and does nothing at all.
+
+    The hardest declaration to check and the one that found a hole in the clause meant to
+    check it. `transfer` returns None and the Protocol has no read-back, so "transferred"
+    and "did nothing" are the same observation from above — this saboteur passed a first
+    version of the transfer clause that only asserted no exception was raised. What
+    catches it is the one thing an adapter that can really transfer must still be able to
+    do: FAIL a transfer for a call the engine does not hold.
+
+    The stake: the escalation path is what a caller reaches when the agent cannot help
+    them, so a transfer that silently does nothing leaves a real person in silence while
+    the console reports an escalation that never happened.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault(
+            "capabilities", DEFAULT_FAKE_CAPABILITIES.model_copy(update={"transfer": True})
+        )
+        super().__init__(**kwargs)
+
+    async def transfer(self, call_id: str, to: str, warm: bool) -> None:
+        return
+
+
 SABOTEURS: dict[str, Callable[[], VoiceEngine]] = {
     "agent-read-back-echoes-the-last-write": _EchoesTheLastWrite,
     "claims-to-read-kb-refs-and-reads-none": _ClaimsToReadKbRefsAndReadsNone,
@@ -275,6 +404,20 @@ SABOTEURS: dict[str, Callable[[], VoiceEngine]] = {
     "lies-about-direction": _DirectionLiar,
     "transcript-of-another-call": _ForeignTranscript,
     "forgets-raw-status": _ForgetsRawStatus,
+    # Descriptor lies. See the block comment above.
+    "accepts-a-voice-it-says-it-cannot-speak": _AcceptsAVoiceItSaysItCannotSpeak,
+    "substitutes-its-own-voice": _SubstitutesItsOwnVoice,
+    "provisions-a-number-it-denies": _ProvisionsANumberItDenies,
+    "answers-kb-questions-it-has-no-kb-for": _AnswersKbQuestionsItHasNoKbFor,
+    # Declares a webhook method it does not use. The receiver reads the DECLARATION
+    # (through `WEBHOOK_AUTH_BY_ENGINE`) while the worker reads the adapter's verdict, so
+    # a mismatch means the two services authenticate the same delivery differently.
+    "declares-a-webhook-method-it-does-not-use": _with_capabilities(webhook_auth="source_ip"),
+    # Claims an engine-side capability the Protocol has no method for, and which our
+    # dispatch does not use. Unfalsifiable by construction, which is why the suite
+    # refuses the claim outright rather than pretending to test it.
+    "claims-engine-side-campaigns": _with_capabilities(campaigns=True),
+    "claims-a-transfer-it-cannot-perform": _ClaimsATransferItCannotPerform,
 }
 
 

@@ -435,6 +435,165 @@ async def read_correctable_entry(
     )
 
 
+# --- restating an UNDER-credited payment (D-89) --------------------------------
+#
+# The adjustment above answers ONE of the two ways a recorded payment can be wrong. It
+# takes credit back off a NAMED ENTRY, bounded by what that entry moved — so it closes
+# over-crediting and cannot touch the opposite mistake: ₹5,000 recorded against a UTR
+# the bank actually moved ₹50,000 on. Re-posting the reference with the right amount is
+# a 409 (deliberately — that refusal is the only thing stopping one bank transfer being
+# credited twice), and there is nothing on the ledger to take back.
+#
+# The repair is a SECOND `topup` row for the SAME bank transfer, and the whole design
+# turns on the pair still reading as one payment:
+#
+#     ref  = restated:<payment_ref>:<the corrected TOTAL>
+#     meta = {"kind": "topup_restatement", "payment_ref": <payment_ref>, …}
+#
+# The workaround this replaces was a second top-up under an ANNOTATED reference
+# (`UTR-123-part2`). That is not a smaller version of the same thing: it puts a string
+# on the ledger that the bank never printed, so the wallet carries two payment
+# references for one transfer and a reconciliation keyed on the reference — the entire
+# reason the reference is the idempotency key — silently stops balancing. Here the
+# reference is never re-invented; the second row NAMES it.
+
+# WHICH BANK TRANSFER a ledger row belongs to, as SQL. NULL for every row that is not a
+# payment: `ref` is three namespaces sharing one column (a call id on `usage`, a key we
+# derive on `adjustment`, whatever the bank printed on `topup` — migration f9c2b41a8e57
+# argues this at length), so a grouping that dropped the reason would fold a call id in
+# beside a UTR.
+#
+# `COALESCE(meta->>'payment_ref', ref)` rather than a column of its own, and that is a
+# decision rather than a shortcut. The ANCHOR row's `ref` IS the payment reference —
+# `find_topup` and `ux_credit_ledger_tenant_reason_ref` both depend on that and neither
+# may change — so a restatement CANNOT reuse it and carries the reference in `meta`
+# instead. Reading both makes the pairing true for every row ever written, including the
+# Razorpay receiver's and everything that predates this feature, with no backfill and no
+# migration. Adding `payment_ref` to the anchor row as well was rejected: it would create
+# two columns that must agree for ever on the hottest path in this module, with nothing
+# able to bring them back into step once they did not.
+PAYMENT_REF_SQL: Final = "CASE WHEN reason = 'topup' THEN COALESCE(meta->>'payment_ref', ref) END"
+
+RESTATEMENT_REF_PREFIX: Final = "restated"
+
+# The `meta.kind` every restating entry carries, for the reason `ADJUSTMENT_META_KIND`
+# exists: `reason` is constrained to four values by `ck_credit_ledger_reason_enum`, and
+# this row's reason is `topup` because the money genuinely IS a top-up — it is part of a
+# bank transfer that arrived. Filing it as an `adjustment` would understate "payments
+# received this month" by the difference and overstate corrections by the same figure,
+# and `runbooks/topup-payments.md` §5 — whose first query is `WHERE reason = 'topup'` —
+# would stop showing the row that answers "the payment went through and the wallet did
+# not move".
+RESTATEMENT_META_KIND: Final = "topup_restatement"
+
+
+def restatement_ref(*, payment_ref: str, credited_total_inr: Decimal) -> str:
+    """The restating entry's own reference — THE idempotency key, enforced by
+    `ux_credit_ledger_tenant_reason_ref` rather than by a reader's `if` (D-63).
+
+    Content-addressed like `adjustment_ref`, and over the CORRECTED TOTAL rather than
+    over the difference it happens to credit. That single choice is what makes this key
+    strictly better than the adjustment's, and it is worth spelling out because the
+    adjustment had to state a real cost:
+
+    - `adjustment_ref` keys on a MAGNITUDE TO MOVE. Two genuinely distinct partial
+      corrections of the same size against one entry therefore collapse onto one key,
+      and the second is reported as an already-recorded replay — a real act lost, in the
+      safe direction.
+    - This keys on a STATE TO REACH. Two assertions that this UTR moved ₹50,000 are not
+      two acts colliding; they are one assertion made twice, and the second time it is
+      already true. There is no distinct act left to lose, so the collision has no cost
+      at all.
+
+    It is also why a second click is safe with no reader involved: the key is a function
+    of what the operator asserts, never of when they asserted it. A double submission
+    derives one ref, the index refuses the second insert, and the route hands back the
+    row the first click wrote. A caller-minted key was rejected for the same failure
+    D-87 rejected it for — a second click mints a second key.
+
+    It names the payment it restates, so a reader who finds this row on the ledger can
+    pair it with the bank transfer without opening `meta`. Quantized through `to_paise`,
+    so `50000.0` and `50000.00` are one key and not two.
+    """
+    return f"{RESTATEMENT_REF_PREFIX}:{payment_ref}:{to_paise(credited_total_inr)}"
+
+
+@dataclass(frozen=True, slots=True)
+class RecordedPayment:
+    """One bank transfer, as this wallet holds it — however many rows that took."""
+
+    payment_ref: str
+    #: EVERYTHING this reference has credited: the anchor entry plus every restatement of
+    #: it. Deliberately NOT reduced by adjustments — an adjustment is a separate,
+    #: explained layer with its own row and its own reason, and this figure answers "what
+    #: have we credited against this UTR", which is the question a bank statement asks.
+    credited_inr: Decimal
+    #: How many ledger rows make up the payment. 1 = it has never been restated.
+    rows: int
+    #: When the payment first landed on the ledger. The anchor's instant, not the newest
+    #: restatement's — a payment is dated by when it arrived.
+    first_at: datetime
+
+
+async def recorded_payments(
+    session: AsyncSession, *, tenant_id: UUID, payment_refs: Sequence[str]
+) -> dict[str, RecordedPayment]:
+    """What each of these bank transfers has credited, in ONE grouped read.
+
+    Bounded by the references asked about rather than scanning a wallet's whole history
+    — the shape `reversed_amounts` uses, for the same reason. But each total is summed
+    over ALL of that payment's rows, on or off the page that asked: a figure that
+    silently omitted an older row would be a lie about money, which costs more than a
+    slower query ever does.
+
+    The empty case returns without touching the database, for the reason
+    `reversed_amounts` does: a wallet with no payments is the first thing every new
+    tenant has, and `= ANY('{}')` is a degenerate predicate to build on the commonest
+    path in the product.
+    """
+    if not payment_refs:
+        return {}
+    rows = (
+        await session.execute(
+            text(
+                # `reason = 'topup'` is in the predicate as well as inside PAYMENT_REF_SQL
+                # because it is what keeps this an index-eligible scan of one tenant's
+                # payments rather than an evaluation of the CASE over every row they own.
+                f"SELECT {PAYMENT_REF_SQL} AS payment_ref, COALESCE(SUM(delta), 0), "
+                "COUNT(*), MIN(occurred_at) FROM credit_ledger "
+                "WHERE tenant_id = :tid AND reason = 'topup' "
+                f"AND {PAYMENT_REF_SQL} = ANY(CAST(:refs AS text[])) "
+                "GROUP BY 1"
+            ),
+            {"tid": tenant_id, "refs": list(payment_refs)},
+        )
+    ).all()
+    return {
+        str(row[0]): RecordedPayment(
+            payment_ref=str(row[0]),
+            credited_inr=Decimal(str(row[1])),
+            rows=int(row[2]),
+            first_at=row[3],
+        )
+        for row in rows
+    }
+
+
+async def read_recorded_payment(
+    session: AsyncSession, *, tenant_id: UUID, payment_ref: str
+) -> RecordedPayment | None:
+    """This one bank transfer, or None when nothing on this wallet carries the reference.
+
+    MUST be called with `lock_tenant_credits` held when a write depends on it: the
+    credited total is the check half of a check-then-write, exactly as
+    `read_correctable_entry`'s remaining-reversible figure is. Two operators restating
+    one payment at the same moment would otherwise both read the same starting total and
+    both credit the difference.
+    """
+    found = await recorded_payments(session, tenant_id=tenant_id, payment_refs=[payment_ref])
+    return found.get(payment_ref)
+
+
 async def charge_for_call(
     session: AsyncSession, *, tenant_id: UUID, call_id: UUID, amount_inr: Decimal
 ) -> None:
@@ -1022,11 +1181,15 @@ __all__ = [
     "ADJUSTMENT_REF_PREFIX",
     "LOW_BALANCE_INR",
     "PAISE",
+    "PAYMENT_REF_SQL",
+    "RESTATEMENT_META_KIND",
+    "RESTATEMENT_REF_PREFIX",
     "ROUNDING",
     "Balance",
     "CorrectableEntry",
     "CreditReason",
     "LedgerEntryRef",
+    "RecordedPayment",
     "adjustment_ref",
     "charge_for_call",
     "current_billing_month",
@@ -1038,8 +1201,11 @@ __all__ = [
     "plan_tier_of",
     "rate_to_display",
     "read_correctable_entry",
+    "read_recorded_payment",
     "record_entry",
     "record_tier_correction",
+    "recorded_payments",
+    "restatement_ref",
     "reversed_amounts",
     "split_overage",
     "tier_usage",

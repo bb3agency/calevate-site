@@ -36,14 +36,18 @@ import {
   normalizeReference,
   referenceCaution,
   referenceProblem,
+  restatementAmountProblem,
   rupeeProblem,
   takesCreditAway,
   useCredits,
   useRecordAdjustment,
+  useRecordRestatement,
   useRecordTopUp,
   type AdjustmentResult,
   type Credits,
   type LedgerEntry,
+  type Payment,
+  type RestatementResult,
   type TopUpResult,
 } from "@/lib/api/credits";
 
@@ -132,6 +136,32 @@ import { useAdminAccess } from "@/app/admin/access";
  * coming: a correction may leave the balance BELOW zero, and for a self-serve or trial
  * client that stops outbound dialling. The server answers whether it did — `stops_dialling`
  * is the dial gate's own predicate — and the outcome panel says so in those words.
+ *
+ * ## AND THE OPPOSITE MISTAKE HAS ITS OWN CONTROL — `RestatementPanel` (D-89)
+ *
+ * `CorrectionPanel` can only take credit AWAY. A payment recorded for TOO LITTLE —
+ * ₹5,000 typed for a UTR the bank moved ₹50,000 on — had no control at all: re-recording
+ * the reference is refused as a conflict (which is right; that refusal is what stops one
+ * transfer being credited twice) and the workaround was a second top-up under an invented
+ * reference like `UTR-123-part2`. That invention is what breaks reconciliation, because
+ * the wallet then shows two payments where the bank shows one.
+ *
+ * The panel therefore looks NOTHING like the correction panel above it, and each
+ * difference is the point:
+ *
+ * - **It picks a PAYMENT, not a ledger entry.** `wallet.payments` is the server's
+ *   reconciliation view — one line per bank transfer, with everything that transfer has
+ *   credited. Choosing there is what makes the act "this bank transfer was bigger than
+ *   we thought" rather than "this row was wrong".
+ * - **The operator types the TOTAL THE BANK MOVED, never the difference**, and the
+ *   figure the reference already credits is on screen beside the field. A difference is
+ *   a subtraction a human does at 2am with a statement open, and a subtraction done
+ *   wrong lands as a real credit that reads correct for ever. A total is transcribed.
+ *   The label, the hint and the outstanding-step line all say "total" for that reason.
+ * - **The confirmation goes on the wire for EVERY restatement, and it carries the
+ *   amount** — the route's rule, argued there: this correction has one direction, no
+ *   ceiling above it, and it credits the client. The amount is double-keyed here too, on
+ *   the field that decides how much appears.
  */
 export default function CreditsPage({
   params,
@@ -147,6 +177,7 @@ export default function CreditsPage({
   // confirmation at the moment the write landed (`/commercials` records the same trap).
   const save = useRecordTopUp(adminSession(), tenantId);
   const correct = useRecordAdjustment(adminSession(), tenantId);
+  const restate = useRecordRestatement(adminSession(), tenantId);
   // `POST .../credits` is `admin:tenants` (`credit_routes.py` argues why recording a
   // received payment is that permission and not a `billing:write` that does not exist).
   // The admin realm's own identity read answers it — see `@/app/admin/access` for why the
@@ -156,6 +187,10 @@ export default function CreditsPage({
   // restriction note has to name the control it sits under — two identical explanations
   // on one screen leave an operator unsure which button either of them is about.
   const amend = useAdminAccess("admin:tenants", "correct an entry on this client's wallet");
+  // Third control, third sentence. Same permission again — a restriction note has to name
+  // the control it sits under, and three identical explanations on one screen would leave
+  // an operator unsure which button any of them is about.
+  const uprate = useAdminAccess("admin:tenants", "restate a payment on this client's wallet");
 
   if (tenantQuery.isLoading) return <Skeleton rows={6} />;
   // A 403, a 500 or a dropped connection is not "no such client".
@@ -208,6 +243,16 @@ export default function CreditsPage({
             correct={correct}
             write={amend}
           />
+          {/* Withheld with the two forms above and for the same reason, one step
+              stronger: a restatement is measured against what a payment ALREADY
+              credits, so a wallet nobody can read is a figure nobody can measure from. */}
+          <RestatementPanel
+            clientName={tenant.name}
+            wallet={state.wallet}
+            restate={restate}
+            write={uprate}
+          />
+          <PaymentsTable wallet={state.wallet} />
           <LedgerTable wallet={state.wallet} />
         </>
       )}
@@ -1020,6 +1065,400 @@ function CorrectionOutcome({
   );
 }
 
+/** The restatement draft. Strings throughout — the money one because hard rule 7. */
+interface Restatement {
+  paymentRef: string;
+  /** THE TOTAL THE BANK MOVED. Never the difference; the server works that out. */
+  total: string;
+  /** Typed a second time. Double keying, on the field that decides how much appears. */
+  confirm: string;
+  reason: string;
+}
+
+const NO_RESTATEMENT: Restatement = { paymentRef: "", total: "", confirm: "", reason: "" };
+
+/**
+ * Put right a payment we recorded for LESS than the bank moved.
+ *
+ * The control that did not exist, and whose absence had a documented workaround that was
+ * worse than the gap: a second top-up under an annotated reference. The file header
+ * argues the shape; what is worth reading here is the ONE thing every control in this
+ * panel is arranged around — the operator must type the TOTAL, and the commonest way to
+ * get this wrong is to type the difference, which is a well-formed number that no
+ * validator can distinguish from a correct one.
+ *
+ * So the total is stated four times before the click: in the field label, in its hint,
+ * in the notice that names what the payment credits TODAY, and in the outstanding-step
+ * line under the button. And it is typed twice, and it travels in the confirmation
+ * header, so the figure the operator confirmed is the figure the server acts on.
+ */
+function RestatementPanel({
+  clientName,
+  wallet,
+  restate,
+  write,
+}: {
+  clientName: string;
+  wallet: Credits;
+  restate: ReturnType<typeof useRecordRestatement>;
+  write: ReturnType<typeof useAdminAccess>;
+}) {
+  const [draft, setDraft] = useState<Restatement>(NO_RESTATEMENT);
+  const set = (key: keyof Restatement, value: string) => {
+    setDraft((prev) => ({ ...prev, [key]: value }));
+    // The last result described a restatement that is no longer the one in the form.
+    restate.reset();
+  };
+
+  const payment = wallet.payments.find((p) => p.payment_ref === draft.paymentRef) ?? null;
+  const total = draft.total.trim();
+  const totalProblem = total === "" ? null : restatementAmountProblem(draft.total);
+  const totalReady = total !== "" && totalProblem === null;
+  const confirmed = totalReady && draft.confirm.trim() === total;
+  const reason = draft.reason.trim();
+  const reasonReady = reason.length >= 3;
+  const ready =
+    write.allowed && payment !== null && confirmed && reasonReady && !restate.isPending;
+
+  if (wallet.payments.length === 0) {
+    // Not a disabled form: there is genuinely no payment on this wallet to restate, and
+    // a form over none reads as "a restatement is a thing you make up". A restatement
+    // always names a payment we have already recorded — it cannot create one.
+    return (
+      <Card title="A payment was for more than we recorded">
+        <p className="text-sm text-ink-muted">
+          No payment has been recorded on this wallet, so there is none to restate. This
+          repairs a payment we entered for too little; it never creates one.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card title="A payment was for more than we recorded">
+      <p className="-mt-2 text-xs text-ink-muted">
+        For a bank transfer entered for less than it actually moved — ₹5,000 typed for a
+        ₹50,000 UTR. The difference is credited against the SAME reference, so the wallet
+        still shows one payment and the ledger still matches the statement.
+      </p>
+
+      <form
+        className="mt-4 space-y-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (payment === null) return;
+          restate.mutate(
+            { payment, correctedAmountInr: total, reason },
+            // Cleared on success only, and the result panel carries what was sent: a
+            // form still holding the restatement the server has answered for invites a
+            // second click that can only be a replay.
+            { onSuccess: () => setDraft(NO_RESTATEMENT) },
+          );
+        }}
+      >
+        <Field
+          label="Payment to restate"
+          id="restate-payment"
+          hint="One line per bank transfer, with what it has credited so far. Chosen from the wallet, never typed — this repairs a payment we already recorded and cannot invent one."
+          error={null}
+        >
+          <select
+            id="restate-payment"
+            value={draft.paymentRef}
+            disabled={!write.allowed}
+            onChange={(event) => set("paymentRef", event.target.value)}
+            aria-describedby={describedBy("restate-payment", false)}
+            className={FIELD}
+          >
+            <option value="">Choose the payment that was under-recorded…</option>
+            {wallet.payments.map((option) => (
+              <option key={option.payment_ref} value={option.payment_ref}>
+                {`${option.payment_ref} · ${formatINR(option.credited_inr)} credited · ${formatIST(
+                  option.first_at,
+                )}`}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        {payment && (
+          <NoticeBox
+            tone="neutral"
+            icon={<Info aria-hidden className="h-5 w-5" />}
+            title={`${payment.payment_ref} credits ${formatINR(payment.credited_inr)} today`}
+          >
+            <p className="mt-1 text-xs">
+              Enter the <span className="font-semibold">total the bank moved</span>, not
+              the difference — the amount to credit is worked out on the server, from
+              this figure. Recorded on {formatIST(payment.first_at)}
+              {payment.entries > 1 ? (
+                <>
+                  {" "}
+                  across <span className="font-semibold">{payment.entries} ledger
+                  entries</span>, because it has been restated before
+                </>
+              ) : null}
+              .
+            </p>
+          </NoticeBox>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Total the bank moved (₹)"
+            id="restate-total"
+            hint="The whole amount on the statement line — 50000.00, not the 45000.00 that is missing. Digits only; it reaches the API as the exact string you type."
+            error={totalProblem}
+          >
+            <input
+              id="restate-total"
+              value={draft.total}
+              disabled={!write.allowed}
+              onChange={(event) => set("total", event.target.value)}
+              inputMode="decimal"
+              autoComplete="off"
+              aria-describedby={describedBy("restate-total", totalProblem !== null)}
+              aria-invalid={totalProblem !== null}
+              className={FIELD}
+            />
+          </Field>
+
+          <Field
+            label="Type the total again"
+            id="restate-total-confirm"
+            hint="Typed twice because this figure decides how much money appears on the client's wallet, and it also travels in the confirmation the API demands."
+            error={
+              draft.confirm.trim() !== "" && totalReady && !confirmed
+                ? "These two do not match. Read the total off the statement rather than pasting one into the other."
+                : null
+            }
+          >
+            <input
+              id="restate-total-confirm"
+              value={draft.confirm}
+              disabled={!write.allowed}
+              onChange={(event) => set("confirm", event.target.value)}
+              inputMode="decimal"
+              autoComplete="off"
+              aria-describedby={describedBy(
+                "restate-total-confirm",
+                draft.confirm.trim() !== "" && totalReady && !confirmed,
+              )}
+              className={FIELD}
+            />
+          </Field>
+        </div>
+
+        <Field
+          label="Why this was under-recorded (required)"
+          id="restate-reason"
+          hint="Stored on the entry and on the audit record, in your words. A credit that appears on a client's wallet with no explanation is the one nobody ever complains about — write the sentence that answers it months later."
+          error={
+            draft.reason.trim() !== "" && !reasonReady
+              ? "Say why in at least a few words."
+              : null
+          }
+        >
+          <input
+            id="restate-reason"
+            value={draft.reason}
+            disabled={!write.allowed}
+            onChange={(event) => set("reason", event.target.value)}
+            maxLength={500}
+            aria-describedby={describedBy(
+              "restate-reason",
+              draft.reason.trim() !== "" && !reasonReady,
+            )}
+            aria-invalid={draft.reason.trim() !== "" && !reasonReady}
+            className={FIELD}
+          />
+        </Field>
+
+        {/* WHAT THE BUTTON DOES, ABOVE THE BUTTON — the ops order again: the act, then
+            that it cannot be undone, then the mistake this control admits and how it is
+            recovered, then that it is recorded. */}
+        <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
+          <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <div className="min-w-0">
+            <p className="font-semibold text-ink">
+              {payment && totalReady
+                ? `This makes ${payment.payment_ref} credit ${formatINR(total)} on ${clientName}'s wallet`
+                : `This puts more real money on ${clientName}'s wallet`}
+            </p>
+            <p className="mt-1 text-ink-muted">
+              The difference between the total you type and what the payment credits today
+              is credited as a second entry against the same reference. It is spendable on
+              their very next call.
+            </p>
+            <p className="mt-1 text-ink-muted">
+              <span className="font-semibold">This one cannot be undone either.</span> If
+              you type the DIFFERENCE instead of the total, or overshoot, the ledger keeps
+              the entry — the repair is to take the excess back with “Correct a wrong
+              entry” above, which is bounded by what this entry put in.
+            </p>
+            <p className="mt-1 text-xs text-ink-faint">
+              Recorded in the audit log against your admin account with the reason you type
+              above, in the same transaction as the money. The confirmation the route
+              demands carries the exact total, so it cannot be reused for a different one.
+            </p>
+          </div>
+        </div>
+
+        {restate.error != null && <ProblemNotice error={restate.error} />}
+        {restate.data && <RestatementOutcome result={restate.data} clientName={clientName} />}
+
+        <button
+          type="submit"
+          title={write.reason ?? undefined}
+          disabled={!ready}
+          className={PRIMARY_BUTTON}
+        >
+          {restate.isPending
+            ? "Restating…"
+            : payment && totalReady
+              ? `Restate ${payment.payment_ref} to ${formatINR(total)}`
+              : "Restate this payment"}
+        </button>
+
+        <RestrictionNote reason={write.reason} />
+
+        {write.allowed && (
+          <p className="flex items-start gap-2 text-xs text-ink-muted">
+            <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            {!payment
+              ? "Pick the payment that was under-recorded — a restatement always names one bank transfer."
+              : !totalReady
+                ? "Enter the TOTAL the bank moved, not the difference."
+                : !confirmed
+                  ? "Type the total a second time to confirm. The two have to match exactly."
+                  : !reasonReady
+                    ? "Say why. It is stored on the entry and on the audit record."
+                    : "Ready. This cannot be taken back once it is written."}
+          </p>
+        )}
+      </form>
+    </Card>
+  );
+}
+
+/**
+ * What the restatement did — and the number that proves the ledger still matches a bank
+ * statement.
+ *
+ * `credited_inr` is the assertion this whole control exists to make true: ONE reference,
+ * ONE figure, comparable by eye against the statement line. `added_inr` is what moved,
+ * and the two together are what an operator checks before closing the ticket.
+ */
+function RestatementOutcome({
+  result,
+  clientName,
+}: {
+  result: RestatementResult;
+  clientName: string;
+}) {
+  if (!result.recorded) {
+    return (
+      <NoticeBox
+        tone="neutral"
+        icon={<Info aria-hidden className="h-5 w-5" />}
+        title="Already restated — nothing was credited"
+      >
+        <p className="mt-1 text-xs">
+          <span className="font-mono">{result.payment_ref}</span> was already restated to{" "}
+          {formatINR(result.credited_inr)}, so no second entry was written and the balance
+          did not move. It stands at {formatINR(result.balance_inr)}.{" "}
+          <span className="font-semibold">
+            This client has not been credited twice — this is the restatement&apos;s own
+            reference doing its job.
+          </span>
+        </p>
+        <p className="mt-2 text-xs">
+          The entry that already existed:{" "}
+          <span className="font-mono">{result.entry_id}</span>. If the statement shows
+          MORE again, restate it to that higher total; the amounts never add up twice.
+        </p>
+      </NoticeBox>
+    );
+  }
+  return (
+    <NoticeBox
+      tone="ok"
+      icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
+      title={`Restated — ${formatINR(result.added_inr)} credited to ${clientName}`}
+    >
+      <p className="mt-1 text-xs">
+        <span className="font-mono">{result.payment_ref}</span> now credits{" "}
+        {formatINR(result.credited_inr)} — one bank transfer, whatever it took on the
+        ledger to record it. The wallet holds {formatINR(result.balance_inr)}
+        {result.is_low ? ", which is still under the low-balance line." : "."}
+      </p>
+      <p className="mt-2 text-xs">
+        The second entry is <span className="font-mono">{result.entry_id}</span>, on the
+        ledger below as <span className="font-mono">{result.ref}</span> and there
+        permanently. The entry it completes is still there too.
+      </p>
+    </NoticeBox>
+  );
+}
+
+/**
+ * The bank transfers behind the ledger, one line each — the panel a person reconciles
+ * against a statement.
+ *
+ * The ledger below shows ROWS and this shows PAYMENTS, and the difference is the whole
+ * point of D-89: a restated payment is two rows and one transfer. Without this table an
+ * operator comparing the ledger to a statement would find two lines for a transfer the
+ * bank shows once and have to add them up by hand — which is decimal arithmetic on money
+ * done by a human, the failure mode this console refuses everywhere else.
+ */
+function PaymentsTable({ wallet }: { wallet: Credits }) {
+  if (wallet.payments.length === 0) return null;
+  return (
+    <Card title="Payments — one line per bank transfer">
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead className="text-ink-muted">
+            <tr>
+              <th scope="col" className="py-1 pr-3 font-medium">
+                Reference
+              </th>
+              <th scope="col" className="py-1 pr-3 font-medium">
+                First recorded
+              </th>
+              <th scope="col" className="py-1 pr-3 text-right font-medium">
+                Credited
+              </th>
+              <th scope="col" className="py-1 pr-3 text-right font-medium">
+                Ledger entries
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {wallet.payments.map((payment: Payment) => (
+              <tr key={payment.payment_ref} className="border-t border-line">
+                <td className="py-1.5 pr-3 font-mono">{payment.payment_ref}</td>
+                <td className="py-1.5 pr-3">{formatIST(payment.first_at)}</td>
+                <td className="py-1.5 pr-3 text-right tabular-nums">
+                  {formatINR(payment.credited_inr)}
+                </td>
+                <td className="py-1.5 pr-3 text-right tabular-nums text-ink-muted">
+                  {payment.entries === 1 ? "1" : `${payment.entries} — restated`}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-xs text-ink-muted">
+        Compare <span className="font-semibold">Credited</span> against the statement, one
+        line to one line. A payment restated after being entered for too little occupies
+        more than one row on the ledger below and still exactly one line here — that is
+        what keeps the reference usable as the thing reconciliation keys on.
+      </p>
+    </Card>
+  );
+}
+
 function LedgerTable({ wallet }: { wallet: Credits }) {
   if (wallet.entries.length === 0) {
     return (
@@ -1137,13 +1576,28 @@ function CorrectionCard() {
       <ul className="mt-3 space-y-3 text-sm text-ink-muted">
         <li>
           <span className="font-semibold text-ink">
-            The wrong client, or the wrong amount.
+            TOO MUCH was credited — the wrong client, or more than arrived.
           </span>{" "}
           Use <span className="font-semibold">Correct a wrong entry</span> above. It
           names the entry it cancels, takes back at most what that entry put in, derives
           the direction from it, and is keyed so that clicking twice corrects once. The
           balance may end below zero — for a self-serve or trial client that stops their
           dialling, and the result says so.
+        </li>
+        <li>
+          <span className="font-semibold text-ink">
+            TOO LITTLE was credited — ₹5,000 recorded for a ₹50,000 UTR.
+          </span>{" "}
+          Use <span className="font-semibold">
+            A payment was for more than we recorded
+          </span>{" "}
+          above. Re-recording the reference is refused as a conflict, and that refusal is
+          doing its job — it is what stops one bank transfer being credited twice. Never
+          work around it by recording the difference under an invented reference like{" "}
+          <span className="font-mono">UTR-123-part2</span>: the wallet would then show two
+          payments where the bank shows one, and the reference is the thing reconciliation
+          keys on. Type the TOTAL the bank moved; the difference is worked out for you and
+          credited against the same reference.
         </li>
         <li>
           <span className="font-semibold text-ink">

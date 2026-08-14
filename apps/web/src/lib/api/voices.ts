@@ -59,6 +59,26 @@ type Schemas = components["schemas"];
 /** One catalogue entry: the id we send the engine, plus what an operator needs to choose. */
 export type Voice = Schemas["Voice"];
 export type VoiceTier = Voice["tier"];
+
+/**
+ * The catalogue AND whether it may be chosen from (D-93).
+ *
+ * HAND-WRITTEN, TEMPORARILY. `pnpm gen:api` is not run in this workstream, so this
+ * restates `VoiceCatalogueOut` from `agents/voice_routes.py`. Every field is REQUIRED on
+ * the wire — none has a Pydantic default — and that is deliberate: an optional
+ * `selectable` would arrive `undefined`, read as falsy, and hide the picker on a
+ * perfectly capable engine. Delete this block when the schema is regenerated and switch
+ * to `Schemas["VoiceCatalogueOut"]`.
+ */
+export type VoiceCatalogue = {
+  /** Who chooses the TTS leg on this deployment's engine. */
+  control: string;
+  /** True when a voice may be set here. False ⇒ `voices` is empty BY DESIGN, not by failure. */
+  selectable: boolean;
+  voices: Voice[];
+  /** One sentence to print verbatim, in both states. */
+  note: string;
+};
 export type SetVoiceIn = Schemas["SetVoiceIn"];
 export type SetVoiceOut = Schemas["SetVoiceOut"];
 
@@ -70,19 +90,20 @@ export const voiceKeys = { catalogue: ["agent-voices"] as const };
 function catalogueOptions(session: Session) {
   return {
     queryKey: voiceKeys.catalogue,
-    queryFn: () => apiRequest<Voice[]>(session, VOICES_PATH),
-    // Static per deployment — `list_voices` touches no database and no engine.
+    queryFn: () => apiRequest<VoiceCatalogue>(session, VOICES_PATH),
+    // Static per deployment — `list_voices` touches no database and makes no network
+    // call; the capability it reads is a declared attribute of the selected adapter.
     staleTime: 30 * 60_000,
   };
 }
 
 /** The catalogue, client realm. */
-export function useVoiceCatalogue(session: Session): UseQueryResult<Voice[]> {
+export function useVoiceCatalogue(session: Session): UseQueryResult<VoiceCatalogue> {
   return useQuery(catalogueOptions(session));
 }
 
 /** The same catalogue from the console, through the impersonation session (see above). */
-export function useTenantVoiceCatalogue(slug: string): UseQueryResult<Voice[]> {
+export function useTenantVoiceCatalogue(slug: string): UseQueryResult<VoiceCatalogue> {
   return useQuery({ ...catalogueOptions(viewAsSession(slug)), enabled: Boolean(slug) });
 }
 

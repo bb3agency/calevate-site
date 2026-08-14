@@ -2,20 +2,49 @@
 WhatsApp alerts"; FLOWS §6 "status hot OR urgency=emergency ⇒ WhatsApp+email to owner
 within 2 min").
 
-**This module is a transport and a job. It is deliberately NOT a vendor integration.**
+**This module is the transport, the jobs and the seam. The vendor half lives next door
+in `apps/workers/whatsapp_cloud.py` and is UNTESTED AGAINST A REAL WABA — see below.**
 
-The docs have not picked a WhatsApp Business Solution Provider. The only names in the
-blueprint — Interakt / AiSensy / Meta Cloud API (BRD §4.2, evidence/outpero-teardown
-§9a "[ADOPT integration list]") — are (a) a competitor's *in-call action* integrations,
-which run engine-side, not here, and (b) an adoption *intent* recorded in an evidence
-file, not a Decision-Log entry. ROADMAP §6 is the binding decision log and it contains
-no D-entry choosing a BSP. So there is no adapter here: an adapter written against an
-imagined API is worse than none, because it looks finished. What ships is the seam —
-`WhatsAppTransport`, a console dev sink, the delivery record, and the retry ladder —
-so the day a BSP is decided the vendor work is one class implementing one method.
+This module used to ship no adapter at all, on the stated grounds that "an adapter
+written against an imagined API is worse than none, because it looks finished", because
+ROADMAP §6 carried no D-entry choosing a WhatsApp Business Solution Provider. **D-91
+chooses one: Meta Cloud API DIRECTLY, no BSP.** The argument, in the order that decides
+it for a two-person pre-revenue company:
 
-Shape mirrors `workers/transport.py` on purpose: a Protocol, a dev sink that needs no
-credentials and no network, and the real provider chosen by config.
+  * **Self-serve, no sales process.** A WABA is created and a number onboarded through
+    the Meta Developer Console without talking to anyone; Business Verification (2-4
+    business days) is needed only to raise messaging limits, not to send. Gupshup's
+    India pricing is negotiated case-by-case, which is a sales process by another name
+    and disqualifying at our size.
+  * **The monthly floor dominates, exactly as D-32 said it would for LiveKit.** Cloud
+    API has no platform fee — Meta hosts it and charges per delivered message. Every
+    BSP in the Indian market charges a floor first: AiSensy and Interakt from
+    ₹1,499/agent/mo, WATI Growth ₹2,199/mo, all before a single message. Our OWN
+    message spend at launch volume is smaller than any of those floors (worked in
+    `whatsapp_cloud.py`), so a BSP would roughly triple the cost of this feature to
+    supply an inbox and a campaign builder — which is the product we are building.
+  * **Residency, the D-36 argument applied here.** Cloud API Local Storage lists IN as
+    a supported region, so message payloads can be pinned to India after processing. A
+    BSP inserts its own store in front of that, and its residency is then the BSP's
+    claim rather than a control we hold.
+  * **Template approval is Meta's loop either way.** Every BSP submits into the same
+    review; none shortens it (machine review in minutes, human review up to ~48h). A
+    BSP inserts itself into that loop without improving it.
+
+What ships behind the seam is one class with one method, exactly as this docstring
+promised. Shape mirrors `workers/transport.py` and `workers/google_sheets.py`: a
+Protocol, a dev sink that needs no credentials and no network, an `Unconfigured` sink
+that refuses loudly, and the real provider chosen by config.
+
+**WHAT WE CANNOT PROVE, SAID PLAINLY.** There is no WABA, no phone number id and no
+access token in this repository, and `graph.facebook.com` / `developers.facebook.com`
+are both blocked by this build environment's egress proxy. So `whatsapp_cloud.py` is
+written from documentation (marked source by source, the way `apps/api/ingest/meta.py`
+marks its Meta sources) and has **never exchanged a byte with Meta**. It carries a
+greppable `CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA = False` and a named operational gate,
+for the same reason `billing/payments.py::PROVIDER_CREATES_ORDERS` and
+`ingest/meta.py::LEAD_RETRIEVAL_IMPLEMENTED` do: a vendor half nobody has run is a
+claim, and the honest place to record a claim is beside the code making it.
 
 **Template gate, encoded rather than described.** A business-initiated WhatsApp message
 must use a pre-approved template; free text is only allowed inside a 24-hour customer
@@ -36,11 +65,16 @@ keyed to a call). What does bite:
     the WhatsApp message is a NUDGE, the dashboard is where the data lives. That also
     makes the template trivial to get approved and survives a forwarded screenshot.
 
-**The opt-in cannot be recorded today.** There is no column for it — see
-`resolve_destination` for the exact migration this needs. Until it exists the gate
-below refuses every send, which is the honest behaviour: an un-recorded opt-in is a
-policy violation, not a formality. `whatsapp_enabled` defaults to False so that refusal
-is silent rather than an alert per lead.
+**The opt-in has a home now** — `whatsapp_alert_optin_ledger`, migration
+`e6b2d94f31a7`, read through `compliance.whatsapp_optin`. It is a LEDGER rather than
+columns on `organizations`, and it belongs to a PERSON rather than to an org; the
+migration argues both, and `resolve_destination` says what each key buys. The gate below
+still refuses by name (`recipient_not_opted_in`) when no live grant exists, which is the
+default of the world and stays the honest behaviour: an un-recorded opt-in is a policy
+violation, not a formality. What changed is that the refusal is now fixable by the owner
+saying yes, on their own settings screen, at `POST /v1/compliance/whatsapp-alerts`.
+`whatsapp_enabled` still defaults to False so that refusal is silent rather than an
+alert per lead until the switch-on checklist is done.
 
 Retry doctrine is the one that landed for the email path (`workers/notifications.py`,
 FLOWS §6): a worker earns a retry ONLY by raising `arq.Retry` — under arq 0.28 a plain
@@ -99,6 +133,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.consent import read_messaging_consent
 from apps.api.compliance.service import check_dispatch
+from apps.api.compliance.whatsapp_optin import read_alert_optin
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -182,7 +217,14 @@ class SendResult:
 class WhatsAppTransport(Protocol):
     name: str
 
-    def send(self, message: WhatsAppMessage) -> SendResult: ...
+    # ASYNC, unlike `transport.Transport.send` next door, and the difference is not
+    # taste. That one is a blocking SMTP client on purpose — `core/alerting.py` calls it
+    # from its own daemon thread, which is what lets the alarm path touch no event loop.
+    # This one talks HTTP to a vendor from inside an arq worker that is already async,
+    # so a blocking implementation would park the loop for the length of a round trip to
+    # Meta and stall every other job on the same worker. Same shape as
+    # `sheets_sync.SheetsTransport.append`, which made this call before us.
+    async def send(self, message: WhatsAppMessage) -> SendResult: ...
 
 
 # --- transports ----------------------------------------------------------------
@@ -197,7 +239,7 @@ class ConsoleWhatsAppTransport:
 
     name = "console"
 
-    def send(self, message: WhatsAppMessage) -> SendResult:
+    async def send(self, message: WhatsAppMessage) -> SendResult:
         log.info(
             "whatsapp_console",
             extra={
@@ -223,32 +265,174 @@ class UnconfiguredWhatsAppTransport:
     def __init__(self, reason: str) -> None:
         self._reason = reason
 
-    def send(self, message: WhatsAppMessage) -> SendResult:
+    @property
+    def reason(self) -> str:
+        """Read by `whatsapp_delivery_status()` so the settings screen can say WHICH
+        thing is missing rather than a bare "unavailable"."""
+        return self._reason
+
+    async def send(self, message: WhatsAppMessage) -> SendResult:
         log.warning("whatsapp_no_transport", extra={"reason": self._reason})
         return SendResult(SendStatus.REJECTED, reason=self._reason)
 
 
-def get_whatsapp_transport() -> WhatsAppTransport:
-    """Selected by config, exactly like `transport.get_transport()`.
+# The provider name that selects the Meta Cloud API adapter (D-91). Declared HERE rather
+# than in the adapter so the selector below needs no import to decide it is not wanted —
+# the seam depends on nothing, the adapter depends on the seam (the rule
+# `sheets_sync.get_sheets_transport` states).
+CLOUD_API_PROVIDER = "meta_cloud_api"
+CONSOLE_PROVIDER = "console"
 
-    `whatsapp_provider` is the seam where a decided BSP lands. Any name other than the
-    dev sink resolves to `provider_not_implemented`, on purpose: setting
-    `WHATSAPP_PROVIDER=gupshup` today must fail loudly rather than look configured.
+# Authored refusal codes for the states a DEPLOYMENT can be in. Each one names the single
+# thing an operator has to go and do, because "unavailable" is not an instruction.
+NO_PROVIDER_REASON = "no_provider_configured"
+NO_TOKEN_REASON = "cloud_api_access_token_missing"
+NO_PHONE_ID_REASON = "cloud_api_phone_number_id_missing"
+DEV_SINK_OUTSIDE_LOCAL_REASON = "dev_sink_refused_outside_local"
+PROVIDER_NOT_IMPLEMENTED_REASON = "provider_not_implemented"
+
+# The Graph API version to call when the deployment does not pin one. Meta versions the
+# Graph API and unversioned calls are not a supported form, so a default is required
+# rather than optional — and a STALE pinned version fails loudly at the vendor, which is
+# better than a floating one changing behaviour under us on Meta's release schedule.
+DEFAULT_GRAPH_VERSION = "v22.0"
+
+
+# ---------------------------------------------------------------------------------
+# TEMPORARY SHIM — DELETE THE `getattr`s WHEN THE SETTINGS KEYS LAND.
+#
+# `Settings` is `extra="forbid"` (packages/shared/.../config.py), so these three keys
+# must be DECLARED there before they can be read at all — and this slice is not the
+# owner of that file. Until they are declared, this reads them defensively so the module
+# typechecks and behaves correctly (absent key == absent credential == a named refusal),
+# which is exactly what a deployment without them should do anyway.
+#
+# The keys to declare, verbatim:
+#     whatsapp_cloud_access_token: str | None = None
+#     whatsapp_cloud_phone_number_id: str | None = None
+#     whatsapp_cloud_graph_version: str = "v22.0"
+#
+# When they exist, each `getattr(settings, "x", None)` below becomes `settings.x` and
+# this comment goes with them. Nothing else in this module changes.
+# ---------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class _CloudApiConfig:
+    access_token: str
+    phone_number_id: str
+    graph_version: str
+
+
+def _cloud_api_config() -> _CloudApiConfig:
+    settings = get_settings()
+    return _CloudApiConfig(
+        access_token=str(getattr(settings, "whatsapp_cloud_access_token", "") or "").strip(),
+        phone_number_id=str(getattr(settings, "whatsapp_cloud_phone_number_id", "") or "").strip(),
+        graph_version=str(
+            getattr(settings, "whatsapp_cloud_graph_version", "") or DEFAULT_GRAPH_VERSION
+        ).strip(),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class DeliveryStatus:
+    """Can THIS deployment send a WhatsApp message at all, and if not, which thing is
+    missing?"""
+
+    available: bool
+    # An authored code (`cloud_api_access_token_missing`), or None when available.
+    reason: str | None
+
+
+def whatsapp_delivery_status() -> DeliveryStatus:
+    """THE selection decision, made once, in one place.
+
+    Both callers below are downstream of this: `get_whatsapp_transport()` turns the
+    verdict into an object that can send (or refuse), and the opt-in surface renders the
+    same verdict as a sentence so a client is never offered a channel this deployment
+    cannot deliver on. That is the rule `sheets_delivery_available()` states — a screen
+    that decided for itself whether WhatsApp works would eventually disagree with the
+    worker, and the disagreement reads as "the screen says on and no message ever
+    arrives".
+
+    It is factored as the DECISION rather than as "call the factory and look at what came
+    back", which is how the sheets pair does it, and the difference is deliberate:
+    `scripts/check_compliance_invariants.py` treats every call of
+    `get_whatsapp_transport` as a send site that must first consult
+    `Destination.opt_in_at`. That is a rule worth keeping true — a function holding a
+    live transport IS one line away from sending — so the capability read shares the
+    decision instead of borrowing the factory, and the guardrail keeps its teeth.
+
+    Note what it does NOT claim. It answers for the TRANSPORT — a provider is named and
+    its credentials are present. Whether those credentials authenticate, whether the
+    template is approved, and whether the WABA exists are facts only a live send can
+    establish, and `CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA` records that none of them has
+    been. `whatsapp_enabled` is a separate switch and stays off until they have.
     """
     settings = get_settings()
     provider = (settings.whatsapp_provider or "").strip().lower()
 
-    if provider == "console":
+    if provider == CLOUD_API_PROVIDER:
+        config = _cloud_api_config()
+        # Two separate reasons rather than one "not configured": they are two different
+        # errands (mint a system-user token vs copy the number id out of the console),
+        # and an operator reading a log line deserves to be told which one is left.
+        if not config.access_token:
+            return DeliveryStatus(available=False, reason=NO_TOKEN_REASON)
+        if not config.phone_number_id:
+            return DeliveryStatus(available=False, reason=NO_PHONE_ID_REASON)
+        return DeliveryStatus(available=True, reason=None)
+
+    if provider == CONSOLE_PROVIDER:
         if settings.app_env != "local":
             # An explicit dev sink outside local is operator error, and it is the kind
             # that reports success forever. Refuse it rather than swallow leads.
-            return UnconfiguredWhatsAppTransport("dev_sink_refused_outside_local")
-        return ConsoleWhatsAppTransport()
+            return DeliveryStatus(available=False, reason=DEV_SINK_OUTSIDE_LOCAL_REASON)
+        return DeliveryStatus(available=True, reason=None)
     if provider:
-        return UnconfiguredWhatsAppTransport(f"provider_not_implemented:{provider}")
+        return DeliveryStatus(
+            available=False, reason=f"{PROVIDER_NOT_IMPLEMENTED_REASON}:{provider}"
+        )
     if settings.app_env == "local":
-        return ConsoleWhatsAppTransport()
-    return UnconfiguredWhatsAppTransport("no_provider_configured")
+        return DeliveryStatus(available=True, reason=None)
+    return DeliveryStatus(available=False, reason=NO_PROVIDER_REASON)
+
+
+def get_whatsapp_transport() -> WhatsAppTransport:
+    """The thing that can send, built from the verdict above.
+
+    `whatsapp_provider` is the seam D-91 lands in. `meta_cloud_api` selects the real
+    adapter; any OTHER name still resolves to `provider_not_implemented`, on purpose:
+    setting `WHATSAPP_PROVIDER=gupshup` must fail loudly rather than look configured,
+    because we have not written that adapter and a BSP is not a drop-in for Cloud API.
+
+    **A named provider with missing credentials is a REFUSAL, not a fallback.** It would
+    be easy to fall back to the console sink or to "no provider" here; both would report
+    a channel that cannot send. The refusal carries the reason `whatsapp_delivery_status`
+    already computed, so the string an operator reads in a log and the string a client
+    reads on their settings screen are the same string.
+    """
+    status = whatsapp_delivery_status()
+    if status.reason is not None:
+        return UnconfiguredWhatsAppTransport(status.reason)
+
+    settings = get_settings()
+    provider = (settings.whatsapp_provider or "").strip().lower()
+    if provider == CLOUD_API_PROVIDER:
+        # Imported HERE, not at module scope: `apps.workers.whatsapp_cloud` imports this
+        # module for the message type and the result vocabulary, so a top-level import
+        # would be a cycle — the same resolution `sheets_sync` uses for its adapter.
+        from apps.workers.whatsapp_cloud import CloudApiWhatsAppTransport
+
+        config = _cloud_api_config()
+        return CloudApiWhatsAppTransport(
+            access_token=config.access_token,
+            phone_number_id=config.phone_number_id,
+            graph_version=config.graph_version,
+        )
+    # Available and not the cloud adapter leaves exactly one case: the dev sink, either
+    # named explicitly under `local` or fallen back to under `local`. Anything else was
+    # already returned as a refusal above.
+    return ConsoleWhatsAppTransport()
 
 
 # --- who receives it -----------------------------------------------------------
@@ -263,30 +447,31 @@ class Destination:
 
 
 async def resolve_destination(session: AsyncSession, tenant_id: UUID) -> Destination | None:
-    """The client's owner, from data that exists today.
+    """The client's owner, and whether we can EVIDENCE their opt-in.
 
     Number: the owner-role member's `users.phone` (E.164, Clerk-mirrored). Deactivated
     users are excluded — a removed owner must not keep receiving the business's leads.
 
-    Opt-in: **not storable yet, and that is the blocker for this feature.** There is no
-    column for it, and `consent_ledger` is the wrong home even now that it carries a
-    `messaging` purpose: every row in it is a CONSUMER's statement, keyed to the number
-    a client's caller rang from. This opt-in is our CLIENT's, about a WABA relationship
-    with us — a different party, a different fiduciary, a different table. The migration
-    this needs, reported rather than written because this milestone ships none:
+    Opt-in: `whatsapp_alert_optin_ledger`, through `compliance.whatsapp_optin` — the one
+    implementation of "may we alert this person", shared with the settings screen and
+    the admin surface that capture it, so the worker and the console can never disagree.
+    Migration `e6b2d94f31a7` created it; that migration and
+    `compliance/whatsapp_optin.py` carry the argument for the shape, and in particular
+    for why this is a LEDGER and not the three columns this docstring used to ask for
+    (a state column makes revocation an UPDATE that destroys the evidence of the opt-in
+    that was live when last month's alerts went out).
 
-        ALTER TABLE organizations
-            ADD COLUMN notify_whatsapp_e164 text,
-            ADD COLUMN whatsapp_opt_in_at   timestamptz,
-            ADD COLUMN whatsapp_opt_in_source text;
-
-    ...plus the onboarding-wizard step that captures it. When those land, this function
-    reads them and nothing else in this module changes.
+    **The read is keyed to (tenant, THIS user, THIS number), and all three legs matter.**
+    They are what lets that ledger carry no expiry column: an owner handover finds no row
+    for the new person, a changed number finds no row for the new number, and a
+    deactivated owner is excluded by the query above — each fails closed on a fact we
+    observe at send time rather than on a clock that would switch a client's hot-lead
+    alerts off on a day nobody is watching.
     """
     row = (
         await session.execute(
             text(
-                "SELECT u.phone FROM memberships m JOIN users u ON u.id = m.user_id "
+                "SELECT u.id, u.phone FROM memberships m JOIN users u ON u.id = m.user_id "
                 "WHERE m.tenant_id = :tid AND m.role = 'owner' "
                 "AND u.deactivated_at IS NULL AND u.phone IS NOT NULL "
                 "ORDER BY m.created_at LIMIT 1"
@@ -294,11 +479,18 @@ async def resolve_destination(session: AsyncSession, tenant_id: UUID) -> Destina
             {"tid": tenant_id},
         )
     ).first()
-    if row is None or not row[0]:
+    if row is None or not row[1]:
         return None
-    # opt_in_at stays None until the columns above exist: an opt-in we cannot evidence
-    # is not an opt-in.
-    return Destination(to_e164=str(row[0]), opt_in_at=None)
+    user_id, phone_e164 = UUID(str(row[0])), str(row[1])
+    state = await read_alert_optin(
+        session, tenant_id=tenant_id, user_id=user_id, phone_e164=phone_e164
+    )
+    # `messageable`, not `status == "granted"`: the property is where "what counts as a
+    # live opt-in" is defined, and the two must not be able to disagree — the same rule
+    # `resolve_escalation_destination` follows for the consumer ledger.
+    return Destination(
+        to_e164=phone_e164, opt_in_at=state.captured_at if state.messageable else None
+    )
 
 
 # --- the job -------------------------------------------------------------------
@@ -353,7 +545,7 @@ async def notify_hot_lead_whatsapp(ctx: dict[str, Any], payload: dict[str, Any])
             # will be just as un-opted-in in two minutes.
             result = SendResult(SendStatus.REJECTED, reason="recipient_not_opted_in")
         else:
-            result = get_whatsapp_transport().send(
+            result = await get_whatsapp_transport().send(
                 WhatsAppMessage(
                     to_e164=destination.to_e164,
                     template=settings.whatsapp_template_hot_lead,
@@ -746,13 +938,21 @@ async def escalate_campaign_contact(ctx: dict[str, Any], payload: dict[str, Any]
 
 
 # The refusals a HUMAN has to clear. Everything else — `blocked_dnc`, `blocked_dnc`'s
-# siblings from the dispatch gate, `recipient_not_opted_in`, `whatsapp_disabled` — is a
-# lawful outcome that would page an operator once per contact for no possible action.
+# siblings from the dispatch gate, `recipient_not_opted_in`, `recipient_unreachable`,
+# `whatsapp_disabled` — is a lawful outcome, or a fact about one person, that would page
+# an operator once per contact for no possible action.
+#
+# `cloud_api_` covers the adapter's own operator errands — a missing or rejected token, a
+# sending number that was never registered. Every REJECTED reason `whatsapp_cloud.py`
+# produces under that prefix is one an operator must clear; its transient ones
+# (`cloud_api_rate_limited`, `cloud_api_unavailable`, `cloud_api_response_malformed`) are
+# TRANSPORT_FAILED and never reach this function, which is only consulted for a verdict.
 _OPERATIONAL_REFUSALS = (
     "no_provider_configured",
     "provider_not_implemented",
     "template_",
     "dev_sink_",
+    "cloud_api_",
 )
 
 
@@ -791,7 +991,7 @@ async def _send_escalation(
         # were allowed to.
         return SendResult(SendStatus.REJECTED, reason="recipient_not_opted_in")
 
-    return get_whatsapp_transport().send(
+    return await get_whatsapp_transport().send(
         WhatsAppMessage(
             to_e164=destination.to_e164,
             template=TEMPLATE_MISSED_CALL,
@@ -975,11 +1175,19 @@ def _json(value: Any) -> str:
 
 __all__ = [
     "CHANNEL",
+    "CLOUD_API_PROVIDER",
+    "CONSOLE_PROVIDER",
+    "DEV_SINK_OUTSIDE_LOCAL_REASON",
     "ESCALATION_JOB_NAME",
     "ESCALATION_KIND",
     "JOB_NAME",
+    "NO_PHONE_ID_REASON",
+    "NO_PROVIDER_REASON",
+    "NO_TOKEN_REASON",
+    "PROVIDER_NOT_IMPLEMENTED_REASON",
     "TEMPLATE_MISSED_CALL",
     "ConsoleWhatsAppTransport",
+    "DeliveryStatus",
     "Destination",
     "SendResult",
     "SendStatus",
@@ -993,4 +1201,5 @@ __all__ = [
     "notify_hot_lead_whatsapp",
     "resolve_destination",
     "resolve_escalation_destination",
+    "whatsapp_delivery_status",
 ]

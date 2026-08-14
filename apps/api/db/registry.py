@@ -70,6 +70,11 @@ TENANT_TABLES = [
     "one_time_charges",
     "spend_state",
     "consent_ledger",
+    # The CLIENT-side WhatsApp opt-in (migration e6b2d94f31a7): our own customer's owner
+    # agreeing to receive hot-lead alerts from the Calevate WABA. Tenant data — it names
+    # a person at one client and the number they opted in on — and the read that decides
+    # whether `notify_hot_lead_whatsapp` may send runs inside `tenant_session`.
+    "whatsapp_alert_optin_ledger",
     # dnc_list is listed but its policy is HAND-WRITTEN (asymmetric read/write): the
     # standard tenant_id = GUC form would hide global entries from every tenant, and a
     # nationally suppressed number would keep getting dialled.
@@ -136,4 +141,8 @@ APPEND_ONLY_TABLES = [
     "audit_log",
     "credit_ledger",
     "one_time_charges",
+    # A withdrawn WhatsApp alert opt-in is a NEW row, never an edit of the grant it
+    # supersedes: DPDP §6(6) requires withdrawal to be as easy as consent, not that it
+    # erase the evidence of the consent that was live when we sent last month's alerts.
+    "whatsapp_alert_optin_ledger",
 ]

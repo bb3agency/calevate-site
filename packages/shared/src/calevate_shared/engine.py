@@ -17,7 +17,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from calevate_shared.events import CallDirection, CallEvent, CallStatus, TranscriptTurn
 
@@ -32,6 +32,175 @@ CallHandle = str
 EngineKBRef = str
 
 NumberSeries = Literal["140", "160", "standard"]
+
+#: How a webhook from this engine is proved authentic. Shared with `WebhookVerdict.method`
+#: on purpose: what an adapter DECLARES and what it REPORTS are the same vocabulary, so
+#: the conformance suite can compare them (an adapter that claims `hmac` and answers
+#: `none` is caught by a `==`, not by a reviewer).
+WebhookAuthMethod = Literal["hmac", "source_ip", "none"]
+
+#: Who chooses one speech/model leg.
+#:
+#: ``ours`` — BYOK. Our provider and model strings reach the vendor and run on OUR key,
+#: so `ModelConfig` is meaningful and a catalogue of ours is a real choice set.
+#:
+#: ``engine`` — the engine DICTATES the provider. Its own speech product is the only one
+#: available, and our `ModelConfig` value for that leg addresses nothing. The adapter
+#: must REFUSE such a value rather than drop it: dropping it silently is what produces a
+#: picker offering a voice the caller will never hear, which is worse than a 422 because
+#: nothing downstream can detect it. (A choice may still exist on the engine's side —
+#: its own voice ids — but that is the engine's catalogue, and we do not hold it. Ours
+#: is not offered.)
+SpeechControl = Literal["ours", "engine"]
+
+#: Every capability an adapter answers for, as a closed set — because each value is a
+#: refusal reason an operator reads, a metric label, and the argument to
+#: `EngineCapabilities.speech_control`. A free-form string here would let a typo become
+#: a capability that is silently always absent.
+EngineCapabilityName = Literal[
+    "stt",
+    "tts",
+    "llm",
+    "campaigns",
+    "knowledge_base",
+    "numbers",
+    "transfer",
+]
+
+#: The speech legs, in the order a call uses them. Derived from the type so a leg added
+#: to `SpeechLeg` cannot be forgotten by the conformance suite.
+SpeechLeg = Literal["stt", "llm", "tts"]
+
+
+class EngineCapabilities(BaseModel):
+    """What ONE engine can actually do, declared by its adapter (D-93).
+
+    WHY THIS EXISTS. "Switching engines is a config change" was true of the METHODS —
+    every adapter implements the same Protocol — and false of the ANSWERS. Bolna is BYOK
+    on all three speech legs, owns campaign objects and a built-in knowledge base, signs
+    nothing, and fronts Indian telephony. An engine that dictates its own TTS, has no
+    knowledge base and signs its webhooks implements exactly the same Protocol and
+    disagrees with almost every one of those. Until this type existed those differences
+    were expressed as `raise` inside individual adapter methods — discoverable only by
+    calling and failing, which means a screen could offer a control the engine will
+    refuse, and did.
+
+    So each adapter DECLARES, and every site that used to hard-code Bolna's answer asks
+    instead. Two rules make the declaration worth trusting:
+
+    * **An absent capability produces a named refusal, not a crash and not a silent
+      no-op.** `apps/api/engine/capabilities.py` holds the one selector and the one
+      refusal, in the shape `payment_capability`/`lead_retrieval_capability`/
+      `get_sheets_transport` already established.
+    * **A claimed capability is exercised by the conformance suite.** A descriptor an
+      adapter can lie in is worse than none, because it turns a runtime failure into a
+      confident wrong answer — the same defect `CostBreakdown.currency_stated` and
+      `AgentSnapshot.*_readable` were introduced to kill.
+
+    NO DEFAULTS, deliberately. Every field is required, so a new adapter must answer
+    every question in writing rather than inherit today's engine's answers by omission —
+    which is exactly how a Bolna-shaped assumption got everywhere in the first place.
+    Frozen because a capability that can be mutated at runtime is a capability two
+    callers can disagree about.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    #: Speech-to-text: ours to choose (BYOK) or the engine's to dictate.
+    stt: SpeechControl
+    #: Text-to-speech. THE field the voice catalogue asks: under `engine` our Sarvam
+    #: Bulbul catalogue is not a choice set, it is a list of voices that engine cannot
+    #: speak, and offering it is a screen that lies.
+    tts: SpeechControl
+    #: The LLM. `ours` wherever the engine takes `model=` + `api_key=`.
+    llm: SpeechControl
+    #: Does the engine hold CAMPAIGN objects of its own? False does not mean campaigns
+    #: are impossible — ours are dispatched entirely from `apps/api/campaigns` and
+    #: `apps/workers` — it means there is nothing engine-side to configure or reconcile.
+    #: The Protocol has no campaign method, so a True here is currently unfalsifiable and
+    #: the conformance suite refuses it outright; see the clause for what has to land
+    #: with the day it becomes True.
+    campaigns: bool
+    #: Does the engine have a BUILT-IN knowledge base — `attach_kb`/`detach_kb`/`list_kb`
+    #: addressing real engine-side documents (Bolna: `rag_id`)? Under False all three
+    #: must refuse by name, and the T3 retrieval tier has no engine behind it.
+    knowledge_base: bool
+    #: The number classes this engine can PROVISION. Empty = it provisions none, which is
+    #: Bolna's answer today (numbers come from the telephony vendor directly). The
+    #: 140/160 series are Indian DLT classes; an engine with no Indian telephony path
+    #: cannot offer them even if it can sell a number somewhere else.
+    number_series: frozenset[NumberSeries]
+    #: Is call transfer the ENGINE's to perform (`transfer`), or ours to arrange out of
+    #: band? False ⇒ `transfer` must refuse by name.
+    transfer: bool
+    #: How this engine's webhooks are proved authentic. Must equal what `verify_webhook`
+    #: actually reports, and must equal `WEBHOOK_AUTH_BY_ENGINE[name]` — the receiver in
+    #: `apps/voice-runtime` reads that table rather than importing an adapter (hard rule
+    #: 3 forbids the heavy import), so the two must be provably the same answer.
+    webhook_auth: WebhookAuthMethod
+
+    def speech_control(self, leg: SpeechLeg) -> SpeechControl:
+        """Who chooses `leg`. One accessor so no caller re-derives it from three fields
+        and gets the mapping subtly wrong on the one leg it uses least."""
+        return {"stt": self.stt, "llm": self.llm, "tts": self.tts}[leg]
+
+    def is_ours(self, leg: SpeechLeg) -> bool:
+        """Is `leg` BYOK — i.e. is our `ModelConfig` value for it meaningful at all?"""
+        return self.speech_control(leg) == "ours"
+
+    def provisions(self, series: NumberSeries) -> bool:
+        """Can this engine provision a number in `series`? Asked per SERIES rather than
+        as one boolean because "can buy a number" and "can buy a 140-series number" are
+        different facts, and the campaign launch gate matches on the series."""
+        return series in self.number_series
+
+    def has(self, name: EngineCapabilityName) -> bool:
+        """The generic ask, for callers that hold a capability NAME rather than a field.
+
+        Speech legs answer True when they are OURS: "does this engine have STT" is never
+        the question — every voice engine has STT — the question is always whether it is
+        ours to configure, and a caller that gets a bare True for a dictated leg would
+        go on to send a provider string the engine refuses.
+        """
+        if name in ("stt", "llm", "tts"):
+            return self.is_ours(name)
+        if name == "campaigns":
+            return self.campaigns
+        if name == "knowledge_base":
+            return self.knowledge_base
+        if name == "numbers":
+            return bool(self.number_series)
+        return self.transfer
+
+
+#: The webhook authenticity method of each engine we ship, as DATA — one definition, two
+#: readers, exactly the doctrine `calevate_shared.config.bolna_source_ips` established
+#: for the allowlist ("ONE ALLOWLIST, TWO READERS").
+#:
+#: The second reader is `apps/voice-runtime/engine_intake.py`, which must decide how to
+#: authenticate a delivery WITHOUT importing an adapter: hard rule 3 forbids the heavy
+#: import on the ack path, and the receiver runs as its own deployable. It used to answer
+#: with `if engine == "bolna"` — a vendor name hard-coded into the receiver, so a signed
+#: engine meant editing the latency-critical service.
+#:
+#: The conformance suite asserts `adapter.capabilities.webhook_auth == this[adapter.name]`
+#: for every adapter, so the table cannot drift from the adapters it describes.
+WEBHOOK_AUTH_BY_ENGINE: dict[str, WebhookAuthMethod] = {
+    # Bolna signs nothing (D-31, TRD §5): a source-IP allowlist plus execution-id dedupe,
+    # payloads as hints, the List-Executions poller as truth.
+    "bolna": "source_ip",
+    # The fake engine verifies NOTHING by design, which is how the pipeline runs offline.
+    # `method="none"` is what stops a caller mistaking it for evidence.
+    "fake": "none",
+    # The capability-restricted fixture (`fake.DICTATED_SPEECH_CAPABILITIES`): the same
+    # adapter run with an engine-dictates-speech, no-knowledge-base, SIGNED-webhook set of
+    # answers. It is listed here for one reason worth the line — it is the only engine in
+    # this codebase that authenticates with a signature, so without it the `hmac` branch
+    # of this table, of `WebhookVerdict` and of the receiver is code no test has ever
+    # executed. It is never selectable as `ENGINE=` (`config.EngineName` does not include
+    # it), so it can reach no deployment.
+    "fake-restricted": "hmac",
+}
 
 
 class ModelConfig(BaseModel):
@@ -111,6 +280,23 @@ class AgentSnapshot(BaseModel):
     #: True only when the adapter positively located the agent's KB reference field.
     #: False means "we do not know what this agent references", not "it references none".
     knowledge_base_refs_readable: bool = False
+    #: The speech/model selections THE ENGINE HOLDS, in our own `ModelConfig` vocabulary —
+    #: the read half of the BYOK claim in `EngineCapabilities`. Same type going in and
+    #: coming out on purpose: a separate "snapshot of models" shape would be a second way
+    #: to say one thing, and the two would drift on the leg nobody reads.
+    #:
+    #: Only legs the descriptor calls `ours` are expected here. A leg the ENGINE dictates
+    #: has no value of ours to report and stays None — reporting the engine's own product
+    #: name would smuggle a vendor string across the boundary (hard rule 2) and would
+    #: read, to every caller above, exactly like a BYOK selection that had been applied.
+    models: ModelConfig | None = None
+    #: True only when the adapter positively read the selections out of the engine's
+    #: answer — the third instance of the `*_readable` tri-state, for the third time for
+    #: the same reason. False means "we could not find them", never "none are set": an
+    #: adapter that could not locate the synthesizer block must not report the same thing
+    #: as an agent genuinely carrying no voice, because the first is a reason to go
+    #: looking and the second is a reason to publish.
+    models_readable: bool = False
     engine: str = "fake"
 
     def carries_prompt_marker(self, marker: str) -> bool | None:
@@ -137,6 +323,23 @@ class AgentSnapshot(BaseModel):
         if not self.knowledge_base_refs_readable:
             return None
         return kb in self.knowledge_base_refs
+
+    def holds_speech(self, leg: SpeechLeg) -> str | None:
+        """What the engine holds for one BYOK leg, or None when it could not be read.
+
+        `stt`/`llm` answer with the MODEL, `tts` with the VOICE — those are the fields an
+        operator picks and the ones a catalogue is written in. The provider is not the
+        interesting half: it is implied by the model string in every catalogue we ship,
+        and a leg whose provider matched while its model did not is the failure this
+        accessor exists to expose.
+        """
+        if not self.models_readable or self.models is None:
+            return None
+        return {
+            "stt": self.models.stt_model,
+            "llm": self.models.llm_model,
+            "tts": self.models.tts_voice,
+        }[leg]
 
 
 class CallContext(BaseModel):
@@ -320,6 +523,13 @@ class WebhookVerdict(BaseModel):
 class VoiceEngine(Protocol):
     name: str
 
+    #: What this engine can do (D-93). An ATTRIBUTE rather than a method because it is a
+    #: fact about the adapter, not a question it goes and asks: every caller — including
+    #: a screen deciding whether to render a control — must be able to read it without an
+    #: await and without a network round trip. Business code reaches it through
+    #: `apps.api.engine.engine_capabilities()`, never by touching an adapter.
+    capabilities: EngineCapabilities
+
     async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef: ...
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None: ...
@@ -432,12 +642,15 @@ class VoiceEngine(Protocol):
 
 __all__ = [
     "E164",
+    "WEBHOOK_AUTH_BY_ENGINE",
     "AgentConfig",
     "AgentSnapshot",
     "CallContext",
     "CallHandle",
     "CostBreakdown",
     "EngineAgentRef",
+    "EngineCapabilities",
+    "EngineCapabilityName",
     "EngineKBRef",
     "ExecutionListing",
     "ExecutionSnapshot",
@@ -447,6 +660,9 @@ __all__ = [
     "NumberSeries",
     "NumberSpec",
     "ProvisionedNumber",
+    "SpeechControl",
+    "SpeechLeg",
     "VoiceEngine",
+    "WebhookAuthMethod",
     "WebhookVerdict",
 ]

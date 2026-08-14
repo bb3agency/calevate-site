@@ -65,16 +65,38 @@ Cartesia" ladder and D-35/D-36 keep Cartesia as a second TTS candidate — a hed
 an adoption. D-36 locks Sarvam, so listing Cartesia would advertise a vendor we have
 no key for. It joins this file when a decision-log entry adds it, not before.
 
+WHETHER THIS CATALOGUE IS OFFERABLE AT ALL IS A SEPARATE QUESTION (D-93)
+------------------------------------------------------------------------
+Everything above assumes the engine lets us choose a voice. That is Bolna's answer, not
+every engine's: an orchestrator whose TTS is its own product takes its voice id and its
+own model, with no provider field to put `sarvam` in, and our `tts_voice` addresses
+nothing on it. Against such an engine this catalogue is not a shortened list — it is a
+list of voices the caller will never hear, and rendering it is a screen that lies.
+
+So the catalogue is DATA, and `voice_selection_capability()` below is the one selector
+that says whether it may be offered. It asks the engine's own `EngineCapabilities`
+descriptor rather than a settings flag, for the reason `lead_retrieval_capability` gives:
+a capability DERIVED from the thing that implements it cannot disagree with it, while two
+independent reads of the same settings eventually do. The picker, the write endpoint and
+the publish path all ask this one function.
+
+`SpeechControl` is deliberately carried on the answer rather than reduced to a boolean.
+"You may not choose a voice because this engine supplies its own" and "you may not choose
+a voice because something is broken" have the same shape and opposite meanings, and only
+the first is a sentence a client should be shown calmly.
+
 Engine isolation (hard rule 2) note: these strings are engine-FACING config, but they
-are not a vendor payload shape. They already live in our schema as config strings, and
-this module imports nothing from `apps.api.engine` — the adapter still owns the only
-knowledge of where the string is pasted into the vendor's JSON.
+are not a vendor payload shape. This module reaches `apps.api.engine` only through the
+factory and the capability selector — never an adapter — so the adapter still owns the
+only knowledge of where the string is pasted into the vendor's JSON.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from dataclasses import dataclass
+from typing import Final, Literal
 
+from calevate_shared.engine import SpeechControl, VoiceEngine
 from pydantic import BaseModel, ConfigDict
 
 # The languages the PRODUCT sells today (`CreateOrgIn.language`), Telugu first — we are
@@ -191,15 +213,80 @@ def default_voice() -> Voice:
     return next(voice for voice in CATALOG if voice.is_default)
 
 
+# --- the capability seam (D-93) -------------------------------------------------
+#
+# Authored reason codes, never vendor prose: they name OUR state and are stable enough to
+# be alert labels and UI branches.
+
+#: The engine supplies its own voices, so ours are not a choice set on it. This is a
+#: PRODUCT FACT, not a fault — nothing is broken and nothing needs fixing.
+ENGINE_DICTATES_TTS_REASON: Final = "engine_dictates_tts"
+
+
+@dataclass(frozen=True, slots=True)
+class VoiceSelectionCapability:
+    """Whether a voice may be chosen here, and what may be chosen, as ONE answer.
+
+    `voices` is carried on the same object rather than fetched separately — the argument
+    `PaymentCapability.creates_orders` and `RetrievalCapability.retriever` both make: two
+    facts, one lookup, one object. A caller that read "selection is available" from here
+    and the list from `CATALOG` could render a picker on an engine that dictates its
+    voices, which is the precise failure this seam exists to prevent.
+
+    `reason` is non-None exactly when `available` is False.
+    """
+
+    available: bool
+    #: Who chooses the TTS leg on the engine actually selected. Carried so a surface can
+    #: say WHY calmly ("this platform supplies its own voices") instead of rendering an
+    #: error, and so the two unavailable-for-different-reasons cases stay distinguishable.
+    control: SpeechControl
+    reason: str | None = None
+    voices: tuple[Voice, ...] = ()
+
+
+def voice_selection_capability(engine: VoiceEngine | None = None) -> VoiceSelectionCapability:
+    """THE selector. The catalogue endpoint, the write endpoint and the publish path all
+    ask this; nothing decides for itself whether a voice is choosable.
+
+    Derived from the engine's own descriptor rather than asserted by config, so "we offer
+    a voice picker" and "the engine will accept a voice" cannot disagree. When they did,
+    the disagreement was invisible: the picker saved a row, the publish sent it, the
+    engine ignored it, and the only place the truth appeared was a caller's handset.
+    """
+    # Imported here rather than at module scope: this module is imported by
+    # `agents/publishing.py` and the route layer, and pulling the engine factory (and
+    # through it httpx) in at import time would put a vendor client on the import path of
+    # every agents module. The seam depends on nothing; the callers depend on the seam.
+    from apps.api.engine import engine_capabilities
+
+    control = engine_capabilities(engine).speech_control("tts")
+    if control != "ours":
+        return VoiceSelectionCapability(
+            available=False, control=control, reason=ENGINE_DICTATES_TTS_REASON
+        )
+    return VoiceSelectionCapability(available=True, control=control, voices=CATALOG)
+
+
+def voice_selection_available() -> bool:
+    """The boolean a screen wants — the SAME selector the route uses, so a screen that
+    offers the picker and a route that refuses it cannot disagree."""
+    return voice_selection_capability().available
+
+
 __all__ = [
     "CATALOG",
+    "ENGINE_DICTATES_TTS_REASON",
     "Gender",
     "Language",
     "TtsModel",
     "Voice",
+    "VoiceSelectionCapability",
     "VoiceTier",
     "default_voice",
     "get_voice",
     "is_supported_voice",
     "voice_ids",
+    "voice_selection_available",
+    "voice_selection_capability",
 ]

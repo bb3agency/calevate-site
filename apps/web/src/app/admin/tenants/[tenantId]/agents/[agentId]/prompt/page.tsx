@@ -662,6 +662,22 @@ function VoicePanel({
             }
             onRetry={() => void catalogue.refetch()}
           />
+        ) : !catalogue.data.selectable ? (
+          /* THE ENGINE SUPPLIES ITS OWN VOICES (D-93), which is a product fact and not a
+             fault — so it is stated, in the server's own words, and NOT rendered through
+             `ProblemNotice`. An error card here would send an operator to a runbook for
+             a deployment that is working exactly as intended.
+
+             The picker is not rendered at all rather than rendered-and-disabled: a
+             disabled dropdown full of Bulbul entries still tells the reader those are the
+             voices this agent might speak, and they are not. `voices` is empty from the
+             server for the same reason. What IS still shown is `VoiceInForce`, because
+             "what do callers hear right now" remains a fair question — the answer is just
+             not ours to change here. */
+          <>
+            <VoiceInForce state={state} published={pending?.published} />
+            <p className="text-xs text-ink-muted">{catalogue.data.note}</p>
+          </>
         ) : (
           <>
             <VoiceInForce state={state} published={pending?.published} />
@@ -682,7 +698,7 @@ function VoicePanel({
                   className={FIELD}
                 >
                   <option value="">Choose a voice</option>
-                  {catalogue.data.map((voice) => (
+                  {catalogue.data.voices.map((voice) => (
                     <option key={voice.id} value={voice.id}>
                       {voiceReading(voice)}
                     </option>
@@ -698,7 +714,7 @@ function VoicePanel({
               </button>
             </form>
 
-            <VoiceDetail voice={catalogue.data.find((entry) => entry.id === selected)} />
+            <VoiceDetail voice={catalogue.data.voices.find((entry) => entry.id === selected)} />
           </>
         )}
 

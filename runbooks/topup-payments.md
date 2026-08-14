@@ -102,11 +102,31 @@ The honest answer, in this order:
    entry and credits nothing; the same UTR with a different amount is a conflict, not a
    second payment.
    **If you recorded the wrong amount or the wrong client**, do not ask anyone to edit the
-   row — the ledger is append-only. Use the correction control on the same screen
-   (`POST .../credits/adjustments`, D-87), which appends a compensating entry naming the
-   entry it corrects. Taking credit away asks for a typed confirmation; putting it back
-   does not. The balance MAY go negative if the wrong credit was already partly spent,
-   and the screen will tell you when that has stopped the client's outbound dialling.
+   row — the ledger is append-only. Two controls on the same screen, and which one you
+   want depends on the DIRECTION:
+
+   | What went wrong | Control | Route |
+   |---|---|---|
+   | We credited TOO MUCH — wrong client, or more than arrived | "Correct a wrong entry" | `POST .../credits/adjustments` (D-87) |
+   | We credited TOO LITTLE — ₹5,000 typed for a ₹50,000 UTR | "A payment was for more than we recorded" | `POST .../credits/restatements` (D-89) |
+
+   - **The adjustment** appends a compensating entry naming the entry it corrects, and can
+     never take back more than that entry put in. Taking credit away asks for a typed
+     confirmation; putting it back does not. The balance MAY go negative if the wrong
+     credit was already partly spent, and the screen will tell you when that has stopped
+     the client's outbound dialling.
+   - **The restatement** credits the difference against the SAME reference, so the wallet
+     still shows one bank transfer. **You type the TOTAL the bank moved, never the
+     difference** — the amount to credit is worked out on the server, from the figure the
+     reference credits today (which the screen shows you beside the field). Every
+     restatement needs the confirmation header, and it carries the amount, so one captured
+     for ₹50,000 cannot be sent with a request for ₹500,000. Doing it twice credits once;
+     restating again to a HIGHER total credits only the new difference.
+
+   Re-recording a reference for a different amount is a `topup_reference_conflict` (409)
+   either way, and that refusal is doing its job — it is the only thing stopping one bank
+   transfer being credited twice. Its remediation names whichever of the two routes matches
+   the direction you are out by.
 3. Give them a realistic turnaround, because the recording is a human action, not a
    callback.
 
@@ -176,6 +196,29 @@ LIMIT 20;
 `ref` is the provider's payment id for an online top-up and the bank's UTR for a manual
 one. `meta` carries `{"source": "razorpay", ...}` for the former.
 
+**A payment may be more than one row.** A restated payment (D-89) has a second `topup`
+row whose `ref` is `restated:<payment_ref>:<corrected total>` and whose
+`meta.payment_ref` names the transfer. "What has this reference credited" is therefore a
+SUM, and this is the one expression that answers it — the same one
+`billing.service.PAYMENT_REF_SQL` uses, so an answer got here and an answer got from the
+console cannot differ:
+
+```sql
+-- Tenant-scoped session. One line per bank transfer, comparable to a statement.
+SELECT COALESCE(meta->>'payment_ref', ref) AS payment_ref,
+       SUM(delta) AS credited_inr, count(*) AS rows, MIN(occurred_at) AS first_at
+FROM credit_ledger
+WHERE reason = 'topup'
+GROUP BY 1
+ORDER BY first_at DESC
+LIMIT 20;
+```
+
+The same view is on the credits screen ("Payments — one line per bank transfer"), so
+this query is for a session where the console is not available. Note it does NOT subtract
+adjustments: it answers what we credited against the reference, which is the question a
+bank statement asks. The BALANCE is `balance_after` on the newest row, as always.
+
 ```sql
 -- Did the delivery arrive at all?
 -- `status` is one of processing / enqueued / processed / failed; UNIQUE (provider, event_key).
@@ -203,6 +246,19 @@ LIMIT 20;
   `reason = 'adjustment'`; `scripts/reconcile_credit_ledger.py` is the tool that does it
   idempotently, under the per-tenant credit lock, and `--apply` is the only flag that
   writes.
+- **Never record a shortfall under an ANNOTATED reference** — `UTR-123-part2`,
+  `UTR-123 (balance)`, `UTR-123/2`. This was the documented workaround until D-89 and it
+  was the wrong answer: the ledger then carries two payment references for one bank
+  transfer, so the reference stops being usable as the thing reconciliation keys on, and
+  nothing afterwards can tell the pair apart from two genuine payments that happened to
+  look alike. Restate the payment instead (§3) — it credits the difference against the
+  reference the bank actually printed.
+- **Never type the DIFFERENCE into a restatement.** The field is the total the bank moved.
+  A difference is a well-formed rupee amount and no validator can tell it from a correct
+  total, so the guards are the figure shown beside the field, the double keying, and the
+  confirmation header that carries the number. If you send one by mistake the ledger keeps
+  the entry: take the excess back with an adjustment against it, which is bounded by what
+  that entry put in.
 - **Never hand-INSERT a ledger row.** `record_entry` owns the balance arithmetic, the
   ordering and the advisory lock; a second writer is how the duplicate residue this
   system already carries got there.

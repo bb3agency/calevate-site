@@ -316,6 +316,48 @@ class Settings(BaseSettings):
     # can reach — it can only ever reach documents someone chose to share with it.
     google_sheets_service_account_json: str | None = None
 
+    # Meta Lead Ads answer retrieval (SURFACES §2b). Same seam as the two above and for
+    # the same reason: `graph` is the only name with an adapter behind it
+    # (`apps/api/ingest/graph.py`), any other name resolves to
+    # `provider_not_implemented` and refuses to read rather than pretending, and unset
+    # means this deployment does not fetch lead answers at all — the receiver still
+    # verifies and records every delivery, and says so on the client's own setup card.
+    #
+    # A STATEMENT ABOUT THE CAPABILITY, never a credential: the tokens below are
+    # separate and each lead source still needs its own.
+    meta_lead_retriever: str | None = None
+
+    # The Page access tokens the `graph` retriever reads with: a JSON object keyed by
+    # LEAD SOURCE id (`inbound_webhooks.id`), `{"<uuid>": "<page-access-token>"}`,
+    # injected from the secrets manager at deploy time like every other vendor key
+    # (DEV-SETUP §4). Unset with the retriever selected is not a half-configuration: no
+    # source holds a credential, so every source reports
+    # `meta_page_token_not_configured` and no lead is invented out of metadata.
+    #
+    # WHY KEYED BY LEAD SOURCE AND NOT BY PAGE ID, which is the obvious choice and the
+    # wrong one. A Page id arrives INSIDE a notification, and a notification is signed
+    # with the app secret of the tenant it was sent to — so a tenant who names another
+    # tenant's Page would have their lead read with the other tenant's token and written
+    # into their own CRM. Keying on the lead source id makes that unexpressible: the id
+    # is in the callback URL, we minted it, and it already resolves to exactly one
+    # tenant. The credential is then also the boundary AT THE VENDOR — a token that
+    # cannot read another Page's leads cannot leak them, whatever we ask Meta for. Same
+    # shape as the Sheets argument above, one level in.
+    #
+    # NO KEY MATERIAL IN THE DATABASE (hard rule, SEC-COMP §5) and no reference column
+    # either, because there is nothing for one to disambiguate: the reference IS the
+    # lead source's own id, which the row already is. A stored copy of a value derived
+    # from the primary key is a second thing that can drift — the same argument
+    # `ingest/meta.py::verify_token_for` makes for deriving the verify token rather than
+    # storing a second secret beside the first.
+    #
+    # ROTATION AND REVOCATION are operator actions on this one secret, with no database
+    # write and no release: replace an entry to rotate, drop it to revoke. A long-lived
+    # Page token has no expiry date but IS invalidated by a password change, a revoked
+    # permission or an app-review downgrade, so `meta_page_token_invalid` is a refusal
+    # the adapter must be able to name — it is not a hypothetical.
+    meta_page_access_tokens: str | None = None
+
     # NO LANGFUSE OR POSTHOG KEYS HERE, DELIBERATELY. Both existed as settings with no
     # client anywhere in the tree: they would have been no-ops WITH real credentials,
     # and a settings field that looks like a credential is a claim that something is

@@ -21,10 +21,29 @@ from typing import Any
 import httpx
 import pytest
 from apps.api.engine.bolna import BolnaEngine
-from apps.api.engine.fake import FakeEngine
+from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
 from calevate_shared.engine import VoiceEngine
 
-ENGINE_IDS = ["fake", "bolna"]
+#: THE THIRD SUBJECT, and the one this suite gained the most from (D-93).
+#:
+#: `fake-restricted` is the same `FakeEngine` class running a DIFFERENT capability
+#: descriptor: an engine that dictates its own STT and TTS, has no built-in knowledge
+#: base, no campaign objects, provisions no number class, and SIGNS its webhooks. That
+#: is a real alternative orchestrator's shape, and not one line of it is an imagined
+#: vendor API — every difference is an ANSWER, not an endpoint, so it needs no vendor
+#: contract to express and cannot rot when a vendor's contract changes.
+#:
+#: Why not a speculative adapter for the actual alternative: this repo's doctrine is that
+#: a seam is only proven by a second implementation AND that an adapter written against
+#: an imagined API is worse than none, because it looks finished. Running the honest
+#: adapter with the alternative's answers satisfies both. What it catches is precisely
+#: what a speculative adapter would have hidden — code that only works because today's
+#: engine says yes to everything.
+#:
+#: It also makes two contract branches executable for the first time: `hmac` webhook
+#: verification (no adapter had ever claimed it) and every refusal path in the
+#: capability descriptor.
+ENGINE_IDS = ["fake", "fake-restricted", "bolna"]
 
 # A completed execution as Bolna documents it: USD-cent costs with a per-leg
 # breakdown, prefix-tagged transcript text, recording on their S3.
@@ -157,6 +176,15 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
 def make_engine(engine_id: str, *, listing_rows: int = 1) -> VoiceEngine:
     if engine_id == "fake":
         return FakeEngine(listing_page_size=FULL_LISTING_PAGE)
+    if engine_id == "fake-restricted":
+        return FakeEngine(
+            listing_page_size=FULL_LISTING_PAGE,
+            capabilities=DICTATED_SPEECH_CAPABILITIES,
+            # Its own name, not "fake": `WEBHOOK_AUTH_BY_ENGINE` is keyed by name and
+            # this instance authenticates differently, so sharing a name would make that
+            # table ambiguous — and the table is what the voice-runtime receiver reads.
+            name="fake-restricted",
+        )
     return BolnaEngine(
         api_key="test-key",
         fx_rate=Decimal("88.00"),
@@ -190,7 +218,16 @@ def saturated(engine: VoiceEngine) -> VoiceEngine:
         # A FRESH instance of the same adapter class, never the one passed in: seeding
         # eleven calls into a shared engine would change what every other clause sees,
         # and a suite whose clauses interfere is one that fails in definition order.
-        saturated_fake = type(engine)(listing_page_size=FULL_LISTING_PAGE)
+        #
+        # It carries the ORIGINAL's capabilities and name. Rebuilding with the defaults
+        # would silently hand the truncation clause a fully-capable engine while the
+        # parameter id still said `fake-restricted` — a saboteur could then hide in the
+        # one clause whose subject is constructed rather than passed in.
+        saturated_fake = type(engine)(
+            listing_page_size=FULL_LISTING_PAGE,
+            capabilities=engine.capabilities,
+            name=engine.name,
+        )
         for i in range(FULL_LISTING_PAGE + 1):
             saturated_fake.seed_inbound_call(
                 call_id=f"exec_seed_{i}",

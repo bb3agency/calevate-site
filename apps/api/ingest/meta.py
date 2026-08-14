@@ -43,20 +43,27 @@ confirmation still owed is a real delivery from a real Meta app (OPERATIONS §2 
   are expected and ordering is not guaranteed. Continued failure gets the app
   unsubscribed from the Page with a "Webhooks Disabled" alert — which is why a
   PERMANENT refusal here is acked rather than 5xx'd (WEBHOOKS §1.5 makes the same
-  argument in the other direction: retrying a verdict only delays it).
+  argument in the other direction: retrying a verdict only delays it). A TRANSIENT
+  failure is the opposite case and gets the 503 it deserves: that ~36-hour ladder is
+  the retry, and the `leadgen_id` claim is what makes redelivery free.
   <https://developers.facebook.com/community/threads/1838783773155149/>
 
-WHAT THIS DEPLOYMENT CANNOT DO, SAID PLAINLY
---------------------------------------------
-There is no Meta app, no Page access token and no OAuth flow in this repository, so
-the Graph read that carries the answers cannot be made. `LEAD_RETRIEVER` is therefore
-`None` and `LEAD_RETRIEVAL_IMPLEMENTED` is a greppable `False` — the same device
-`billing/payments.py::PROVIDER_CREATES_ORDERS` and `workers/sheets_sync.py` use for
-the vendor halves they cannot do either. **No Graph API client is written here and no
-request or response shape is invented**: `fetch_field_data` is a Protocol with no
-implementation, and the day a token exists it is one class.
+THE GRAPH READ EXISTS NOW, AND WHAT IS STILL OWED
+-------------------------------------------------
+`apps/api/ingest/graph.py` is the adapter and holds every claim about Graph's request
+shape, its version pin and its error codes, with its own sourcing block. This module
+keeps the SEAM: the Protocol, the capability selector, the reason vocabulary and the
+`field_data` → flat-map normalization. `LEAD_RETRIEVAL_IMPLEMENTED` is now `True`
+because an adapter is written — it says a thing about the CODE, not about a deployment,
+which is why nothing reads it to decide whether a lead can actually be fetched. That
+question is `lead_retrieval_capability(source_id=…)`, and it is asked per lead source.
 
-What that leaves is not nothing, and it is the part that had to be right anyway:
+Still owed, and not pretended: **no live delivery from a real Meta app has ever been
+read.** `developers.facebook.com` and `graph.facebook.com` are both egress-blocked here,
+so the Graph half is documentation- and first-party-SDK-sourced throughout, in the same
+state TRD §5 puts an unverified Bolna surface in. OPERATIONS §2b is the gate.
+
+What was already right and is unchanged:
 
 - the signature check, the handshake, and the refusals (an attacker only ever
   exercises these);
@@ -64,11 +71,46 @@ What that leaves is not nothing, and it is the part that had to be right anyway:
   HTTP body. D-40 is the cautionary tale: an inbox keyed on the wrong unit silently
   never ran. Keying on the body would break the moment Meta batches two leads into
   one delivery or re-batches a retry, and one poison lead would block its siblings;
-- the field mapping, which is the second half of the SURFACES claim and runs the
-  instant a retriever exists;
+- the field mapping, which is the second half of the SURFACES claim;
 - a refusal that is **recorded against the leadgen_id and visible in the client's
   activity view**, and that `claim_inbox_event` can re-claim by CAS — so a lead we
   could not read is a claim nobody completed, not a lead nobody will ever see again.
+
+WHERE THE PAGE ACCESS TOKEN LIVES (SEC-COMP §5, and hard rule 1)
+----------------------------------------------------------------
+A Page access token is per-tenant, per-Page, and it arrives during a client's onboarding
+rather than at deploy time — which is what makes it a harder question than the Sheets
+key next door. The answer this repo takes:
+
+- **The token is not in the database and there is no reference column either.** It lives
+  in `META_PAGE_ACCESS_TOKENS`, one secrets-manager entry injected into the process
+  environment like every other vendor credential, as a JSON object keyed by LEAD SOURCE
+  ID (`inbound_webhooks.id`). There is nowhere else for key material to live: this
+  deployment has no runtime secret-fetching client and inventing one for this would be a
+  second way to hold a secret (`calevate_shared/config.py` argues that for Sheets).
+- **The reference is DERIVED, not stored** — it is the lead source's own primary key.
+  A `page_token_ref` column would be a stored copy of a value computed from the row's id,
+  i.e. a second thing that can drift, and the same reasoning `verify_token_for` gives for
+  deriving the hub verify token rather than storing a second secret beside the first.
+  So there is no migration in this slice, and the tenant row holds exactly what it held.
+- **Keyed by lead source, never by Meta Page id.** The Page id arrives INSIDE a
+  notification, and a notification is signed with the app secret of the tenant it was
+  sent to. Honouring a Page id from the payload would let tenant A — who legitimately
+  holds their own app secret — sign a notification naming tenant B's Page, have B's token
+  read B's lead, and receive it in A's CRM. Keying on the lead source id makes that
+  unexpressible: the id is in the callback URL, we minted it, and it already resolves to
+  one tenant under RLS. The credential is then ALSO the boundary at the vendor — a token
+  that cannot read another Page's leads cannot leak them however we ask.
+- **Who can write it: nobody in the application.** No route accepts a token and none
+  accepts a secrets-manager path — `ingest/routes.py` says in as many words that the
+  `sm://` credential attachment is the admin realm's and "no client may ever name" it.
+  Attaching one is an operator step against the secrets manager (OPERATIONS §2b).
+- **Expiry.** A long-lived Page token carries no expiry date, but it IS invalidated by
+  the admin's password change, by the app's permissions being revoked, and by app-review
+  or Page-role changes — reported consistently by independent integrators; Meta's own
+  page is blocked here. So "it expired" is a real state and it has a name:
+  `meta_page_token_invalid`, which alerts and refuses rather than retrying into a wall.
+  Rotation is an edit to that one secret — no database write, no release.
 
 TENANCY (hard rule 1)
 ---------------------
@@ -92,12 +134,14 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from dataclasses import asdict, dataclass
-from typing import Any, Final, Protocol
+from dataclasses import asdict, dataclass, field
+from enum import StrEnum
+from typing import Any, Final, Protocol, runtime_checkable
 from uuid import UUID
 
 from fastapi import Request
 
+from apps.api.core.settings import get_settings
 from apps.api.ingest.service import NO_CONSENT_FIELD_RULE as _NO_CONSENT_FIELD_RULE
 
 # --- the wire contract ---------------------------------------------------------
@@ -135,13 +179,38 @@ MAX_CHALLENGE_LEN: Final = 1024
 # never vendor prose (a provider's error string is untrusted text that may quote the
 # lead we just refused, and these land in an alert and in a client-visible field).
 
-# The Graph API adapter that would fetch the answers. NOT WRITTEN — there are no Meta
-# credentials in this repository. A constant rather than a comment so the claim is
-# greppable and testable: flipping it is not a config change, it means someone wrote
-# the adapter and wired it into `LEAD_RETRIEVER`.
-LEAD_RETRIEVAL_IMPLEMENTED: Final = False
+# Is there a Graph adapter in this repository at all? YES — `apps/api/ingest/graph.py`.
+#
+# A constant rather than a comment so the claim stays greppable and testable, and it
+# says exactly one thing: someone wrote the adapter. It is NOT a statement that any
+# deployment can fetch a lead, and nothing reads it to decide that — a client with no
+# Page access token attached is unavailable no matter what this says, which is the
+# distinction `payments.PROVIDER_CREATES_ORDERS` draws between having credentials and
+# having code. `tests/meta_graph_test.py` fails the moment this and the adapter
+# disagree in either direction.
+LEAD_RETRIEVAL_IMPLEMENTED: Final = True
 
+#: The provider name that selects the Graph adapter (`META_LEAD_RETRIEVER=graph`).
+#: Defined in the SEAM and imported by the adapter, so a rename cannot leave the
+#: selector looking for a provider that nothing answers to.
+GRAPH_PROVIDER: Final = "graph"
+#: The fixture adapter (`apps/api/ingest/recorded.py`), refused outside `local`.
+RECORDED_PROVIDER: Final = "recorded"
+
+#: This deployment has no lead-retrieval adapter selected at all. Unchanged spelling on
+#: purpose: it is what an unconfigured deployment reported before the adapter existed,
+#: it is what one reports now, and SURFACES/WEBHOOKS/the client's setup card all quote
+#: it. What it no longer means is "nobody has written this".
 NO_RETRIEVER_REASON: Final = "meta_lead_retrieval_unavailable"
+#: A retriever exists, and THIS lead source has no Page access token attached. The
+#: per-tenant half of the seam: one client being unconfigured says nothing about another.
+NO_TOKEN_REASON: Final = "meta_page_token_not_configured"
+#: `META_LEAD_RETRIEVER` names something with nothing behind it — loudly, rather than a
+#: deployment that looks configured and refuses after the client has wired up an app.
+PROVIDER_NOT_IMPLEMENTED_REASON: Final = "provider_not_implemented"
+#: The fixture adapter, asked for outside `local`. See `recorded.py`: it would fabricate
+#: a person and hand them to the compliance gate, which has no way to doubt they exist.
+RECORDED_OUTSIDE_LOCAL_REASON: Final = "meta_recorded_retriever_refused"
 NO_ANSWERS_REASON: Final = "meta_lead_had_no_answers"
 
 # Re-exported, not redefined: the rule belongs to the ingest flow that raises it
@@ -150,50 +219,126 @@ NO_ANSWERS_REASON: Final = "meta_lead_had_no_answers"
 NO_CONSENT_FIELD_RULE: Final = _NO_CONSENT_FIELD_RULE
 
 
-class LeadRetriever(Protocol):
-    """`GET /{leadgen_id}?fields=field_data` — the half we cannot do.
+class RetrievalStatus(StrEnum):
+    """Three answers, because two would force a lie.
 
-    Returns Meta's documented `field_data` list as-is; normalizing it is
-    `flatten_field_data`'s job, so an adapter has exactly one responsibility and the
-    mapping is testable without a network.
+    The missing third is what the honest-hole version could not express: "ask again".
+    Collapsing a Graph timeout into the same bucket as a deleted lead would either lose
+    the lead (acked, never retried) or retry a verdict for 36 hours and end with Meta
+    unsubscribing the client's Page. `routes.meta_leadgen` maps them to a 200 and a 503
+    respectively, and the 503 is not an error page — it is us using Meta's own
+    at-least-once ladder as the retry it already is.
     """
 
-    async def fetch_field_data(self, leadgen_id: str) -> list[dict[str, Any]]: ...
+    RETRIEVED = "retrieved"
+    #: This lead will not become readable by trying again. Record the refusal, ack.
+    PERMANENT = "permanent"
+    #: The moment was wrong, not the request. Leave the claim re-claimable, ask Meta to
+    #: redeliver.
+    TRANSIENT = "transient"
 
 
-# The wired retriever, or None. There is no setter and no config name that resolves to
-# one: an adapter would assign this at import time. Tests substitute it, which is the
-# same role the `fake` voice-engine adapter plays for `VoiceEngine` (TRD §5) — a seam
-# is only proven by a second implementation.
-LEAD_RETRIEVER: LeadRetriever | None = None
+@dataclass(frozen=True, slots=True)
+class RetrievedLead:
+    """What an adapter hands back: OUR status, OUR reason, OUR flat answers.
+
+    Deliberately NOT Meta's `field_data`. An earlier draft of this Protocol returned the
+    vendor list and left normalization to the caller, which read well until there was a
+    second thing to report — a `field_data` list has nowhere to put "the token is dead".
+    Now `flatten_field_data` runs inside the adapters (both of them), and nothing outside
+    `graph.py`/`recorded.py` has ever seen a vendor shape, which is hard rule 2's rule
+    applied to a vendor that is just as replaceable as the voice engine.
+
+    `reason` is non-None exactly when `status` is not `RETRIEVED`, and it is an AUTHORED
+    code every time.
+    """
+
+    status: RetrievalStatus
+    answers: dict[str, str] = field(default_factory=dict)
+    reason: str | None = None
+
+
+@runtime_checkable
+class LeadRetriever(Protocol):
+    """`GET /{leadgen_id}?fields=field_data`, per lead source.
+
+    `source_id` is `inbound_webhooks.id` — the lead source in the callback URL, which is
+    also the key its Page access token is held under. It is a PARAMETER rather than
+    constructor state because one process serves every tenant, and an adapter that
+    closed over one client's credential would need one instance per client and a cache
+    to go with it.
+    """
+
+    #: The provider name that selected this adapter. Logged, never a decision input.
+    name: str
+
+    def holds_credential_for(self, source_id: UUID) -> bool: ...
+
+    async def fetch_answers(self, *, source_id: UUID, leadgen_id: str) -> RetrievedLead: ...
 
 
 @dataclass(frozen=True, slots=True)
 class RetrievalCapability:
-    """What this deployment can actually do about a lead's answers, as one answer.
+    """What this deployment can do about ONE lead source's answers, as one answer.
 
     `reason` is non-None exactly when `available` is False, and it is OUR code.
+    `retriever` is non-None exactly when it is True — carried HERE rather than fetched
+    separately so that a caller cannot conclude "retrieval is available" from one read
+    and then obtain a retriever from another. That is the same argument
+    `PaymentCapability.creates_orders` makes: two facts, one lookup, one object.
     """
 
     available: bool
     reason: str | None = None
+    retriever: LeadRetriever | None = None
 
 
-def lead_retrieval_capability() -> RetrievalCapability:
+def lead_retrieval_capability(*, source_id: UUID) -> RetrievalCapability:
     """THE selector. Every surface asks this; nothing decides for itself.
 
-    Derived from the retriever itself rather than from a settings flag, so "we are
-    configured for lead retrieval" and "we can retrieve a lead" cannot disagree — the
-    disagreement is what makes a client wire up an integration that silently never
-    delivers (the defect `workers/sheets_sync.py` was written to remove).
+    `source_id` is REQUIRED, and that is the whole design. A deployment-level answer
+    ("we have an adapter") is not a question any surface should be able to ask, because
+    the answer a client needs is about THEIR lead source: an adapter with no token for
+    them is unavailable to them, and a setup card that said otherwise would send someone
+    into the Meta App Dashboard for twenty minutes to configure something that will
+    refuse every delivery. The capability is still DERIVED from the retriever itself
+    rather than asserted by a settings flag — `holds_credential_for` is the retriever
+    answering about its own credentials — so "we are configured" and "we can retrieve"
+    cannot disagree.
+
+    Settings are re-read on every call rather than cached, exactly like
+    `get_sheets_transport`: rotating a token is then an edit to one secret plus a
+    restart-free redeploy, and the cost is one `json.loads` of a small map against a
+    call that is about to make an HTTPS round trip.
     """
-    if LEAD_RETRIEVER is None:
+    settings = get_settings()
+    provider = (settings.meta_lead_retriever or "").strip().lower()
+    if not provider:
         return RetrievalCapability(available=False, reason=NO_RETRIEVER_REASON)
-    return RetrievalCapability(available=True)
 
+    retriever: LeadRetriever
+    if provider == GRAPH_PROVIDER:
+        # Imported HERE, not at module scope: a deployment that has not selected the
+        # Graph adapter never imports httpx for it, and `graph.py` imports this module
+        # for the Protocol and the reason vocabulary — a top-level import would be a
+        # cycle. The seam depends on nothing; the adapter depends on the seam.
+        from apps.api.ingest.graph import GraphLeadRetriever
 
-def get_lead_retriever() -> LeadRetriever | None:
-    return LEAD_RETRIEVER
+        retriever = GraphLeadRetriever(settings.meta_page_access_tokens or "")
+    elif provider == RECORDED_PROVIDER:
+        if settings.app_env != "local":
+            return RetrievalCapability(available=False, reason=RECORDED_OUTSIDE_LOCAL_REASON)
+        from apps.api.ingest.recorded import RecordedLeadRetriever
+
+        retriever = RecordedLeadRetriever()
+    else:
+        return RetrievalCapability(
+            available=False, reason=f"{PROVIDER_NOT_IMPLEMENTED_REASON}:{provider}"
+        )
+
+    if not retriever.holds_credential_for(source_id):
+        return RetrievalCapability(available=False, reason=NO_TOKEN_REASON)
+    return RetrievalCapability(available=True, retriever=retriever)
 
 
 # --- authenticity --------------------------------------------------------------
@@ -417,24 +562,29 @@ def inbox_provider(webhook_id: UUID) -> str:
 
 
 __all__ = [
+    "GRAPH_PROVIDER",
     "HUB_MODE_SUBSCRIBE",
     "LEADGEN_FIELD",
     "LEAD_RETRIEVAL_IMPLEMENTED",
-    "LEAD_RETRIEVER",
     "MAX_BODY_BYTES",
     "MAX_CHALLENGE_LEN",
     "NO_ANSWERS_REASON",
     "NO_CONSENT_FIELD_RULE",
     "NO_RETRIEVER_REASON",
+    "NO_TOKEN_REASON",
     "PAGE_OBJECT",
+    "PROVIDER_NOT_IMPLEMENTED_REASON",
+    "RECORDED_OUTSIDE_LOCAL_REASON",
+    "RECORDED_PROVIDER",
     "SIGNATURE_HEADER",
     "SIGNATURE_PREFIX",
     "LeadNotification",
     "LeadRetriever",
     "RetrievalCapability",
+    "RetrievalStatus",
+    "RetrievedLead",
     "extract_lead_notifications",
     "flatten_field_data",
-    "get_lead_retriever",
     "handshake_matches",
     "inbox_provider",
     "lead_retrieval_capability",

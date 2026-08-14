@@ -7,14 +7,28 @@ is a change in this directory and nowhere else. The import-linter contract in
 
 Selection is per-environment config (`ENGINE=fake|bolna`), never a code branch in a
 business module.
+
+WHAT AN ENGINE CAN DO is a second question, and it is answered here too (D-93). Every
+adapter declares an `EngineCapabilities` descriptor, and `engine_capabilities()` is THE
+selector business code asks — because implementing the same Protocol never meant giving
+the same ANSWERS. `capabilities.py` holds the selector, the one refusal, and the argument
+for both; this module re-exports them so a caller needs exactly one import to reach an
+engine and to ask what it can do.
 """
 
 from __future__ import annotations
 
 from calevate_shared.config import Settings
-from calevate_shared.engine import VoiceEngine
+from calevate_shared.engine import EngineCapabilities, VoiceEngine
 
 from apps.api.core.settings import get_settings
+from apps.api.engine.capabilities import (
+    EngineCapabilityAbsentError,
+    engine_capabilities,
+    engine_lacks,
+    require_capability,
+    require_speech_leg,
+)
 
 _instances: dict[str, VoiceEngine] = {}
 
@@ -40,4 +54,13 @@ def reset_engine_cache() -> None:
     _instances.clear()
 
 
-__all__ = ["get_engine", "reset_engine_cache"]
+__all__ = [
+    "EngineCapabilities",
+    "EngineCapabilityAbsentError",
+    "engine_capabilities",
+    "engine_lacks",
+    "get_engine",
+    "require_capability",
+    "require_speech_leg",
+    "reset_engine_cache",
+]
