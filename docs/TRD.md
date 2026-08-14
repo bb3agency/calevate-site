@@ -59,10 +59,8 @@ crm, analytics, billing, kb, integrations, compliance, audit.
   PostHog configuration was REMOVED rather than wired** (D-49): `LANGFUSE_PUBLIC_KEY`,
   `LANGFUSE_SECRET_KEY` and `POSTHOG_KEY` were settings with no client — no-ops even WITH
   credentials, which is worse than absent, because the next reader assumes traces are
-  being recorded. What survives is `redact_trace_payload`, kept as the hard-rule-6 hook
-  shape with a docstring that says plainly nothing calls it, so **per-call token cost and
-  the latency breakdown named above are NOT being recorded and are not one config value
-  away**: restoring Langfuse needs a project nobody holds plus a decision-log entry
+  being recorded. **Per-call token cost and the latency breakdown named above are NOT
+  being recorded and are not one config value away**: restoring Langfuse needs a project nobody holds plus a decision-log entry
   choosing a second tracing pipeline beside the OTel one already shipped, and PostHog
   restores as `NEXT_PUBLIC_POSTHOG_KEY` in `apps/web`, where browser analytics belongs.
   The restore steps sit in `calevate_shared/config.py` beside `SENTRY_DSN`, and a test

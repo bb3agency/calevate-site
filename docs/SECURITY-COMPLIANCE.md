@@ -292,9 +292,11 @@ SDLC & ops
   promotion is an explicit audited action.
 - Logging: no PII in application logs; call ids only. The redaction pair (`redact_text` /
   `redact_mapping`) backs the JSON formatter, the Sentry `scrub_event` hook and every
-  operator alert body; `redact_trace_payload` remains the pre-agreed hook for LLM traces
-  and nothing calls it, because that integration's configuration was removed rather than
-  faked (D-49). Backups encrypted; restore drill quarterly — **the mechanism exists in
+  operator alert body. Tracing is redacted at the EXPORTER (`_RedactingSpanExporter`), not
+  at each call site: exception events and status descriptions are written by the OTel SDK
+  itself and never reached the attribute allowlist, so they were exporting transcripts
+  verbatim (D-61). Sentry breadcrumbs go through `scrub_breadcrumb` for the same reason —
+  the logging integration builds them from the raw message before our formatter runs. Backups encrypted; restore drill quarterly — **the mechanism exists in
   `infra/backup/` and has been applied to nothing and never run** (D-50), so treat
   "backups" as a design until the drill passes once.
 - Per-tenant rate/spend caps double as abuse protection; global circuit breaker halts all

@@ -2404,6 +2404,97 @@ DELTAS against `audit_log`, never a globally clean chain. The database carries p
 historical damage, so a test demanding a clean log is green in CI and red on every
 developer's machine for a reason that is not theirs.
 
+## §56 — four slices that needed no vendor, and the instrument that had been lying to all of them
+
+Four agents, one whole slice each, chosen on the criterion §54 set: **nothing blocked on
+the Bolna pilot or on a founder decision.** Three of the four turned out to be guards that
+existed and did not guard, which is now this repo's confirmed signature (§55). The fourth
+found something worse: **the instrument we grade ourselves with has been wrong since it was
+built.**
+
+**The coverage ratchet has been blind to async database code.** SQLAlchemy's asyncio layer
+is a greenlet bridge — `session.execute` hands off to a greenlet that runs the sync DBAPI
+and switches back — and coverage's tracer is per-execution-context, so it is lost across
+that switch and never reinstated. The code runs, the test passes, and every line after the
+await is recorded as never executed. `[tool.coverage.run]` had no `concurrency` setting, so
+this was true of every number this repo has ever ratcheted. Isolated on one route test:
+`crm/service.dashboard` recorded 14 lines with no setting, 14 with `concurrency=thread`
+(so threads were never the issue), and 18 with `greenlet` — the four gained being exactly
+the lines after `await session.execute`. Locking it in moved four of six areas at once:
+compliance-gate 63→37, dial-path 123→97, ledgers-and-money 49→32, voice-runtime-ack 22→20.
+`redaction` and `tenancy-session` did not move, which is the sanity check — both are
+synchronous primitives that never touch the bridge.
+
+**Two things follow, and the second is the uncomfortable one.** The gate was never wrong in
+the direction that matters: it over-reported uncovered units, so it never called something
+covered that was not. But it had been pointing sessions at "gaps" that were tested all
+along — which is how a guardrail spends other people's time — and `dial-path`, the hard
+rule 5 surface, was reading 27% worse than the truth on precisely the code most likely to
+be exercised through a route.
+
+**How it was found is the part worth keeping.** Nobody went looking. The ratchet failed a
+slice fairly (+21 uncovered units, all of them refusal branches in new provisioning code —
+the area's own docstring predicts exactly that, because the happy path is what the demo
+exercises). The agent sent back to cover them noticed its PASSING route-level tests were
+reported as never executing the handler, and reached for service-level tests instead. Its
+diagnosis named the wrong mechanism — it blamed `httpx.ASGITransport` — but the observation
+was sound, and checking the mechanism rather than accepting the conclusion is what turned a
+local workaround into a repo-wide correction. **An agent's evidence can be right while its
+explanation is wrong; the evidence is the part to verify.**
+
+**The tracing hook that hard rule 6 names had no caller — and the audit found a live leak.**
+`redact_trace_payload` existed and, by its own docstring, nothing called it; D-49 had
+deliberately KEPT it as a shape. Every call site in the repo was already clean, which is
+why this survived: the PII came from three fields the OTel SDK writes ITSELF.
+`record_exception=True` and `set_status_on_exception=True` are defaults, so any exception
+escaping any span writes `exception.message`, `exception.stacktrace` — a span EVENT, which
+the attribute allowlist never inspects — and a `Status.description`. A transcript went out
+in full against the live exporter, and the production vector is ordinary: `str(IntegrityError)`
+embeds its bind parameters, and a duplicate-lead insert reaches it. Fixed at the exporter,
+not the call sites, because `record_exception=False` at four sites fails at the fifth
+(D-61). Two Sentry gaps came with it, including `traces_sample_rate` running a second
+UNFILTERED pipeline whose transaction events `before_send` never sees.
+
+**Two allowlists decided one security question, and only one of them was the network's.**
+Bolna signs nothing, so the source-IP allowlist IS the authenticity mechanism; the adapter
+checked a hardcoded constant while the receiver read the configurable setting. The argument
+that settles which wins is structural rather than aesthetic: **the enforcing half is
+voice-runtime, which is forbidden from importing `apps.api.engine` at all**, so the
+adapter's constant could never have been what the network is judged against. It also
+explains why no test caught it — seven suites patched the receiver's module global, i.e.
+they moved one of the two halves.
+
+**Inbound A/B attribution: the ROADMAP's own phrasing was the trap.** "An assignment lookup
+at inbound call creation" implies `assign()`, which DRAWS A BUCKET — and a bucket drawn for
+an inbound call names an arm nobody spoke, then reports a real conversion under it. Refused,
+and attributed on a fact instead: each arm is published as its own engine agent, so
+`engine_agent_ref` says which script object actually answered. A live outbound defect fell
+out of the same lookup — `dispatch_call` recorded the assignment only when its own INSERT
+won the race, so a fast webhook left arm-dialled calls carrying no arm at all, silently
+under-counting one side of a running comparison.
+
+**`inbound_webhooks` finally has a writer.** Every client's ingest endpoint was an operator
+running SQL. The substance is that rotation is a CUTOVER, not an instant: the secret lives
+in someone's Meta app or form-vendor settings screen, and 401-ing during the paste loses
+enquiries — the one thing the ingest path exists not to do. So the retiring secret keeps
+verifying for a bounded grace window, bounded by DATA rather than by an operator's memory.
+Hashing the stored secret was rejected structurally, not lazily: a Meta source's
+`secret_ref` IS the App Secret and must stay in the clear to compute `X-Hub-Signature-256`,
+so hashing only the rows where it works would put two schemes in one column.
+
+**What this wave adds to the method.** §53 asked what a pixel claims when the server does
+not answer; §54 asked whether two paths carrying one value are really the same; §55 asked
+whether a guard fires. This one: **check the instrument.** Three of these slices were
+verified by sabotage against a coverage report that was systematically under-counting, and
+none of them was wrong because of it — but the one number that decides whether a hard-rule
+surface is losing its tests had been wrong for the entire life of the guardrail, and it was
+only ever going to be found by someone who refused to believe a passing test was uncovered.
+
+**Two sabotages passed this wave and both became tests rather than statistics** — slice A's
+window filter made an assertion vacuous, and slice B's "a lapsed rotation window reads as no
+window" was simply untested. That is the ratio worth watching: a wave with no failed
+sabotages is a wave whose sabotages were too easy.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and
@@ -2453,8 +2544,9 @@ is honest at the surface rather than silent in a worker:
   endpoint creation while no service account exists.
 - **Meta Lead Ads field retrieval.** Intake is native; the Graph read that carries the form
   answers needs a Page token this deployment does not hold.
-- **`redact_trace_payload`.** The hard-rule-6 hook shape, kept, with a docstring saying
-  plainly that nothing calls it.
+- ~~**`redact_trace_payload`.**~~ No longer inert and no longer present: it was DELETED
+  (D-61) once the audit found that hard rule 6 was being broken on the tracing path by the
+  OTel SDK's own exception events. Redaction is now automatic in `_RedactingSpanExporter`.
 - **`kb_retrieval_logs`.** No producer, and cannot have one until the engine reports a
   retrieval — three of its columns are the dated deferrals in `UNWIRED_BASELINE`.
 - **`inbound_webhooks` rows**, still provisioned out of band because nothing writes them.
