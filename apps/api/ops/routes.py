@@ -240,12 +240,66 @@ class ReplayOut(BaseModel):
     job: str | None
 
 
-class ChainVerifyOut(BaseModel):
+class ChainBreakOut(BaseModel):
+    """One broken link, dated, and told apart from the other kind.
+
+    `content` = the entry no longer hashes to its own recorded hash, i.e. its fields
+    were edited. `link` = the entry is intact but names the wrong predecessor, i.e.
+    something was deleted or reordered. The operator's next move is different for each,
+    so the verdict carries which one it is rather than making them go and look.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
+    entry_id: str
+    at: datetime
+    kind: Literal["link", "content"]
+
+
+class ChainVerifyOut(BaseModel):
+    """The verdict, the scope it is a verdict over, and EVERY break rather than one.
+
+    `ok` alone is not an answer. The walk used to stop at the oldest 1,000 entries and
+    still report a bare `ok: true`, so on any log longer than that the green box said
+    nothing about recent activity while reading exactly like a full audit — the console
+    could only compensate by hard-coding the limit in its own copy. The scope now
+    travels with the verdict: how many entries were recomputed, the `at` range they
+    span, and whether the walk reached the end of the log.
+
+    It also used to stop AT the first break and report only that one. `audit_log` is
+    append-only, so a break can never be repaired — meaning a single historical break
+    would have pinned this endpoint to `ok: false` forever while leaving every entry
+    after it unexamined, which is both a permanently red light nobody reads and a way
+    for an attacker to switch off verification of the window they actually care about.
+    The walk now re-anchors and continues; `breaks` names them all.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # NONE of the scope fields carry a default, so every one of them is REQUIRED on the
+    # wire. That is the point: a default makes the field optional in the OpenAPI schema,
+    # the generated client types it `| undefined`, and a console that has to write
+    # `entries_checked ?? 0` is one keystroke from rendering an unknown scope as a
+    # confident zero. The scope is not a footnote on the verdict, so it is not optional
+    # on the verdict either. Nullable is different from absent and is used where the
+    # answer genuinely has no value: no breaks means no first bad entry, an empty log
+    # means no `at` range.
     ok: bool
-    first_bad_entry_id: str | None = None
+    #: The FIRST break, kept as its own field because it is what the console names as
+    #: evidence. Null when `ok`.
+    first_bad_entry_id: str | None
     checked: Literal["audit_log"] = "audit_log"
+    #: Every break found, oldest first. Capped, so read `breaks_found` for the total.
+    breaks: list[ChainBreakOut]
+    #: Total breaks; >= len(breaks) once the cap bites.
+    breaks_found: int
+    #: Entries recomputed. A break no longer truncates this.
+    entries_checked: int
+    #: True only when the walk covered the WHOLE log. False means the answer is about a
+    #: subset, because the walk was bounded.
+    complete: bool
+    oldest_checked_at: datetime | None
+    newest_checked_at: datetime | None
 
 
 class SpendCapRecomputeOut(BaseModel):
@@ -759,14 +813,28 @@ async def replay_outbox(
     "/audit/verify",
     response_model=ChainVerifyOut,
     openapi_extra=permission_meta("ops:manage"),
-    summary="Recompute the audit hash chain and report the first broken link",
+    summary="Recompute the audit hash chain and report every broken link",
 )
 async def verify_audit_chain(
     session: GlobalSession,
     _: Principal = Depends(requires("ops:manage", realm="admin")),
 ) -> ChainVerifyOut:
-    ok, bad = await verify_chain(session)
-    return ChainVerifyOut(ok=ok, first_bad_entry_id=bad)
+    # No bound. An operator runs this because they need to know whether the ledger is
+    # the one we wrote, and a bounded walk answers a smaller question while looking
+    # identical (see `ChainVerifyOut`). The cost is one HMAC per entry — tens of
+    # milliseconds per 10k — and this route is admin-only (`ops:manage`), so the walk
+    # is not reachable by anyone who could turn it into load.
+    result = await verify_chain(session)
+    return ChainVerifyOut(
+        ok=result.ok,
+        first_bad_entry_id=result.first_bad_entry_id,
+        breaks=[ChainBreakOut(entry_id=b.entry_id, at=b.at, kind=b.kind) for b in result.breaks],
+        breaks_found=result.breaks_found,
+        entries_checked=result.entries_checked,
+        complete=result.complete,
+        oldest_checked_at=result.oldest_checked_at,
+        newest_checked_at=result.newest_checked_at,
+    )
 
 
 __all__ = [

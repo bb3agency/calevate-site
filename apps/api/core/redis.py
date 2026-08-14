@@ -1,8 +1,14 @@
 """One lazily-built async Redis client per process.
 
 Redis is used for: the health PING, the load-shed mode cache, the webhook fast-path
-dedupe (SETNX), the audit chain-head lock, and ARQ's queue. It is never a system of
-record — every durable truth is in Postgres (BACKEND-PATTERNS §4).
+dedupe (SETNX), and ARQ's queue. It is never a system of record — every durable truth
+is in Postgres (BACKEND-PATTERNS §4).
+
+It is explicitly NOT used to serialize the audit chain or to cache its head; that used
+to be listed here and the listing outlived the code. A lease with a TTL cannot bound a
+database transaction, and a cached head is erased by the ROLLBACK that erases the row it
+names — so both live in Postgres now, as `pg_advisory_xact_lock` and as the last row of
+`audit_log`. See `apps/api/compliance/audit.py` and D-59.
 """
 
 from __future__ import annotations

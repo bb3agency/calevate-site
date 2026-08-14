@@ -89,8 +89,9 @@ coverage-ratchet-accept:  ## Lock in an improvement: rewrite the baseline (shrin
 	# START FROM EMPTY STORES: `make db-reset` AND a Redis with nothing in it
 	# (`make down && make up`, or `redis-cli -n <db> flushdb`). What those two HOLD
 	# changes which branches the suite executes — leftover tenants send the dispatch
-	# tick down another path, and a warm audit-head cache deletes `_current_head`'s
-	# Postgres fallback from the measurement entirely — and this gate is an equality, so
+	# tick down another path, and a warm cache deletes a read-through fallback from the
+	# measurement entirely (`loadshed.get_platform_status` queries Postgres only on a
+	# MISS) — and this gate is an equality, so
 	# the difference lands as a failure on somebody else's PR. That is not hypothetical:
 	# it happened twice, both times "fixed" by copying CI's number back into the fixture.
 	#

@@ -7,7 +7,12 @@ Requires the local Postgres (docker compose up -d) with migrations applied.
 import uuid
 
 import pytest
-from apps.api.db.session import tenant_session, untenanted_session, user_session
+from apps.api.db.session import (
+    session_tenant,
+    tenant_session,
+    untenanted_session,
+    user_session,
+)
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
@@ -77,6 +82,35 @@ async def test_missing_guc_yields_zero_rows_never_all() -> None:
         orgs = (await s.execute(text("SELECT count(*) FROM organizations"))).scalar()
     assert leads == 0, "no GUC ⇒ zero lead rows (fail closed)"
     assert orgs == 0, "no GUC ⇒ zero organization rows (fail closed)"
+
+
+async def test_the_session_reports_the_tenant_it_is_actually_scoped_to() -> None:
+    """`session_tenant` is the ONE reader of the GUC outside the writer beside it.
+
+    Services take a tenant-scoped session and no tenant id — that is what makes RLS the
+    isolation rather than a convention — so a shared reader that needs the id (spend
+    counters, on the CRM dashboard) has to ask the session. Asking the GUC means the id
+    can only ever be the one every policy on this connection is already enforcing, so it
+    is incapable of widening anything; asking the request principal would not be.
+    """
+    org = await _make_org("Tenant GUC")
+    async with tenant_session(org) as s:
+        assert await session_tenant(s) == org
+
+
+async def test_an_untenanted_session_refuses_rather_than_answering_zero() -> None:
+    """The branch that decides whether a missing scope becomes a number.
+
+    An unset GUC means the caller is outside a tenant session, where every tenant-scoped
+    read above this point has already returned nothing (see the test above this pair).
+    Returning a zero, or a nil UUID, would render "we are not scoped to anyone" as a
+    confident "this client used nothing" on a client-facing dashboard tile — the exact
+    class of defect the after-hours basis field exists to prevent one screen over. So it
+    raises, loudly, in the caller's own transaction.
+    """
+    async with untenanted_session() as s:
+        with pytest.raises(RuntimeError, match="tenant-scoped session"):
+            await session_tenant(s)
 
 
 async def test_wrong_tenant_guc_cannot_write_into_other_tenant() -> None:

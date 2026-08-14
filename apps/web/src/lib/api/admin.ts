@@ -528,6 +528,8 @@ export function useReplayOutbox() {
  * a read would be friction that teaches operators to type past confirmations.
  */
 export type AuditChainVerdict = Schemas["ChainVerifyOut"];
+/** One broken link inside a verdict — `link` (wrong neighbour) or `content` (edited). */
+export type ChainBreak = Schemas["ChainBreakOut"];
 
 export function useVerifyAuditChain() {
   return useMutation({

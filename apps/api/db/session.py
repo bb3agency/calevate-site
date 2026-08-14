@@ -143,6 +143,39 @@ async def tenant_session(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
         yield session
 
 
+async def session_tenant(session: AsyncSession) -> UUID:
+    """Which tenant this session is scoped to, read back from the GUC RLS keys on.
+
+    Lives HERE, beside `tenant_session` which sets it, because one module spelling
+    `app.tenant_id` is the whole design: the GUC is hard rule 1's machinery, and a
+    second module that names the string is a second place to get the string wrong and a
+    second hard-rule surface for the coverage ratchet to have to guard. This started life
+    inside `crm/service.py`, and `check_coverage_ratchet.unguarded_surfaces()` refused it
+    on exactly that ground — correctly.
+
+    Service modules take a tenant-scoped session and no tenant id (that is what makes RLS
+    the isolation rather than a convention), so a shared reader that genuinely needs the
+    id — `billing.caps.read_spend_counters` — has to get it from somewhere.
+    `current_setting` is the honest source: it is the value every policy on this
+    connection is already evaluating, so a `WHERE tenant_id = ...` built from it can only
+    ever name a row RLS would have allowed anyway. It cannot widen anything.
+
+    Rejected: `core.context.principal_var`. That is set by the auth dependency, so a
+    service function would answer for the wrong tenant — or crash — in every caller that
+    is not an HTTP request, and `crm.service.dashboard` is called directly by four test
+    modules and could be called by a worker tomorrow. A session's scope is a property of
+    the session, not of the request that happened to open it.
+
+    Raises rather than defaulting: an unset GUC means the caller is not in a tenant
+    session, where every tenant-scoped read has already returned nothing. A zero here
+    would render that as a confident "no usage".
+    """
+    raw = (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar()
+    if not raw:
+        raise RuntimeError("a tenant-scoped session is required (app.tenant_id is unset)")
+    return UUID(str(raw))
+
+
 @asynccontextmanager
 async def user_session(user_id: UUID) -> AsyncIterator[AsyncSession]:
     """A session that can answer 'which tenants may this user enter?' and nothing more.

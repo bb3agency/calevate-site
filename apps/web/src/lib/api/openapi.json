@@ -1186,14 +1186,64 @@
         "title": "CapsOut",
         "type": "object"
       },
+      "ChainBreakOut": {
+        "additionalProperties": false,
+        "description": "One broken link, dated, and told apart from the other kind.\n\n`content` = the entry no longer hashes to its own recorded hash, i.e. its fields\nwere edited. `link` = the entry is intact but names the wrong predecessor, i.e.\nsomething was deleted or reordered. The operator's next move is different for each,\nso the verdict carries which one it is rather than making them go and look.",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "entry_id": {
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "link",
+              "content"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_id",
+          "at",
+          "kind"
+        ],
+        "title": "ChainBreakOut",
+        "type": "object"
+      },
       "ChainVerifyOut": {
         "additionalProperties": false,
+        "description": "The verdict, the scope it is a verdict over, and EVERY break rather than one.\n\n`ok` alone is not an answer. The walk used to stop at the oldest 1,000 entries and\nstill report a bare `ok: true`, so on any log longer than that the green box said\nnothing about recent activity while reading exactly like a full audit \u2014 the console\ncould only compensate by hard-coding the limit in its own copy. The scope now\ntravels with the verdict: how many entries were recomputed, the `at` range they\nspan, and whether the walk reached the end of the log.\n\nIt also used to stop AT the first break and report only that one. `audit_log` is\nappend-only, so a break can never be repaired \u2014 meaning a single historical break\nwould have pinned this endpoint to `ok: false` forever while leaving every entry\nafter it unexamined, which is both a permanently red light nobody reads and a way\nfor an attacker to switch off verification of the window they actually care about.\nThe walk now re-anchors and continues; `breaks` names them all.",
         "properties": {
+          "breaks": {
+            "items": {
+              "$ref": "#/components/schemas/ChainBreakOut"
+            },
+            "title": "Breaks",
+            "type": "array"
+          },
+          "breaks_found": {
+            "title": "Breaks Found",
+            "type": "integer"
+          },
           "checked": {
             "const": "audit_log",
             "default": "audit_log",
             "title": "Checked",
             "type": "string"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "entries_checked": {
+            "title": "Entries Checked",
+            "type": "integer"
           },
           "first_bad_entry_id": {
             "anyOf": [
@@ -1206,13 +1256,44 @@
             ],
             "title": "First Bad Entry Id"
           },
+          "newest_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newest Checked At"
+          },
           "ok": {
             "title": "Ok",
             "type": "boolean"
+          },
+          "oldest_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Checked At"
           }
         },
         "required": [
-          "ok"
+          "ok",
+          "first_bad_entry_id",
+          "breaks",
+          "breaks_found",
+          "entries_checked",
+          "complete",
+          "oldest_checked_at",
+          "newest_checked_at"
         ],
         "title": "ChainVerifyOut",
         "type": "object"
@@ -1967,16 +2048,9 @@
             "type": "integer"
           },
           "minutes_used_month": {
-            "anyOf": [
-              {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Minutes Used Month"
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Minutes Used Month",
+            "type": "string"
           },
           "outcome_split": {
             "additionalProperties": {
@@ -1998,6 +2072,7 @@
           "calls_7d",
           "leads_new_7d",
           "hot_leads_open",
+          "minutes_used_month",
           "daily_7d"
         ],
         "title": "DashboardOut",
@@ -12811,7 +12886,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Recompute the audit hash chain and report the first broken link",
+        "summary": "Recompute the audit hash chain and report every broken link",
         "tags": [
           "ops"
         ],

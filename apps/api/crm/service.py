@@ -39,6 +39,7 @@ from apps.api.crm.schemas import (
 )
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
+from apps.api.db.session import session_tenant
 
 # The SAME pass that produced `text_redacted` — see `redacted_summary`. Imported at
 # module scope unlike `apps.workers.storage` in routes.py: `redaction` is pure regex
@@ -1131,32 +1132,6 @@ ORDER BY d.ist_date
 """
 
 
-async def _session_tenant(session: AsyncSession) -> UUID:
-    """Which tenant this session is scoped to, read from the GUC RLS itself keys on.
-
-    This module takes a tenant-scoped session and no tenant id, on purpose (see the
-    module docstring), so a shared reader that needs the id — `billing.caps
-    .read_spend_counters` — has to get it from somewhere. `current_setting` is the
-    honest source: it is the value every policy on this connection is already
-    evaluating, so the reader's `WHERE tenant_id` can only ever name the row RLS would
-    have allowed anyway. It cannot widen anything.
-
-    Rejected: `core.context.principal_var`. It is set by the auth dependency, so a
-    service function would silently answer for the wrong tenant — or crash — in every
-    caller that is not an HTTP request, and `dashboard()` is called directly by four
-    test modules and could be called by a worker tomorrow. A session's scope is a
-    property of the session, not of the request that happened to open it.
-
-    Raises rather than defaulting: an unset GUC means this ran outside a tenant session,
-    where every tenant-scoped read above it has already returned nothing. A zero here
-    would render that as a real, confident "no usage".
-    """
-    raw = (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar()
-    if not raw:
-        raise RuntimeError("crm.service requires a tenant-scoped session (app.tenant_id unset)")
-    return UUID(str(raw))
-
-
 async def dashboard(session: AsyncSession) -> DashboardOut:
     """One round trip per tile would be four round trips; these are cheap aggregates
     over an already tenant-scoped view, and the dashboard polls (D-24).
@@ -1250,7 +1225,7 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
     # stale or absent row reads as zero there rather than as null: "we have no counter"
     # and "the counter says nothing was used" are the same fact to a client, and this
     # field has always been a number when a row existed.
-    counters = await read_spend_counters(session, tenant_id=await _session_tenant(session))
+    counters = await read_spend_counters(session, tenant_id=await session_tenant(session))
 
     # One cheap existence check decides which definition the tile is entitled to. It is
     # asked of `agents` rather than inferred from the count above, because "no agent has

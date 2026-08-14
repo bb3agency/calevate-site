@@ -6,9 +6,10 @@ Produces `text_redacted`, which is what EVERY API response returns by default
 Design points that matter more than the regexes:
 
 - **Validators, not just patterns.** A 12-digit run is not an Aadhaar; Aadhaar carries
-  a Verhoeff check digit, PAN has a fixed letter/digit shape, cards carry Luhn. Running
-  the validator kills the false positives that would otherwise redact appointment
-  reference numbers and prices out of every Telugu transcript.
+  a Verhoeff check digit, PAN has a fixed letter/digit shape, cards carry Luhn, and a
+  phone number has to satisfy the national numbering plan. Running the validator kills
+  the false positives that would otherwise redact appointment reference numbers and
+  prices out of every Telugu transcript.
 - **Spoken-out digits are the hard case.** Indian callers routinely say numbers as
   words, code-mixed ("nine eight seven six", "tommidi enimidi"). A pure regex cannot
   see those, so `spoken_digit_runs` normalizes English AND Telugu digit words before
@@ -31,16 +32,56 @@ from dataclasses import dataclass, field
 _AADHAAR_RE = re.compile(r"\b(\d{4})[ -]?(\d{4})[ -]?(\d{4})\b")
 _PAN_RE = re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b", re.IGNORECASE)
 _CARD_RE = re.compile(r"\b(?:\d[ -]?){13,19}\b")
-# The `\b` after an optional `+91` CANNOT MATCH when the prefix is present with no
-# separator: `1` and `9` are both word characters, so there is no boundary between
-# them. That made the country-code branch dead code for exactly the format this
-# product stores — `phone_e164`, per CLAUDE.md's "Phone: E.164 strings" — and
-# `+919876543210` travelled through `redact()` unmasked into hot-lead notification
-# email, under a docstring promising it was masked. Digit lookarounds instead of `\b`:
-# they anchor on "not part of a longer run of digits", which is the property actually
-# wanted, and they hold whether or not a `+91` precedes. Group 1 is still the ten
-# national digits, so the `last2` tail is unchanged.
-_PHONE_RE = re.compile(r"(?<![0-9])\+?(?:91[ -]?)?([6-9]\d{9})(?![0-9])")
+
+# --- Phones -------------------------------------------------------------------
+#
+# A phone number is matched in TWO STAGES, the way Aadhaar and cards already are here:
+# a loose pattern finds a candidate, and a validator built on the numbering plan decides.
+# A single regex cannot do it, because the shapes that must match and the shapes that
+# must NOT are separated by arithmetic (how many digits, after which prefix), not by
+# characters.
+#
+# THE NUMBERING PLAN, because guessing it is how a client's order ids get destroyed.
+# DoT's National Numbering Plan 2003 (last updated 2015) is a uniform 10-digit CLOSED
+# scheme: country code 91, trunk prefix 0, and a national number of exactly 10 digits
+# either way it is reached.
+#   - Mobile: 10 digits, leading 6/7/8/9 (a 4-digit operator prefix starting 6-9 plus a
+#     6-digit subscriber number), geographically unbound.
+#   - Landline: STD code + subscriber number = 10 digits total; STD codes are 2-4 digits
+#     (the eight 2-digit ones are 11, 20, 22, 33, 40, 44, 79, 80) with 6-8 digit
+#     subscriber numbers. Leading digit 1-8 — level 9 is mobile, and level 1 is special
+#     services except Delhi's 11.
+# Sources: DoT NNP 2003 as summarised at https://ozonetel.com/indian-phone-number-system/
+# and https://www.sent.dm/en/resources/phone-number-standards/in (checked Aug 2026).
+#
+# WHAT THAT BUYS, AND WHAT IT COSTS. A bare 10-digit run leading 6-9 is a mobile number
+# and nothing else, so it is masked on sight. A bare 10-digit run leading 1-5 is a
+# landline OR an order id OR an invoice reference, and the plan gives no way to tell —
+# `1234567890` is pinned untouched by `redaction_test` for exactly that reason. So a
+# landline is masked only when the text SAYS it is a phone: a `+` country code or the
+# trunk `0` (`04023456789`, `+914023456789`). A bare `4023456789` therefore still passes
+# through, deliberately: masking it would mean masking every ten-digit reference number
+# a clinic reads back to a caller. The digit sweep in `scripts/pilot/redact.py` is the
+# right answer for contexts where that trade goes the other way.
+#
+# History: the `\b` after an optional `+91` CANNOT MATCH when the prefix is present with
+# no separator (`1` and `9` are both word characters), which made the country-code branch
+# dead code for exactly the format this product stores — `phone_e164`, per CLAUDE.md's
+# "Phone: E.164 strings" — and `+919876543210` reached hot-lead notification email
+# unmasked. Digit lookarounds fixed that, and hid the rest: with only ONE contiguous run
+# permitted, every separator-grouped spelling of the same number stayed unmasked
+# (`98765 43210`, `+91 98765 43210`, `9876-543-210`), the trunk form was unmasked
+# (`09876543210`), and no landline was covered at all. One number, several spellings,
+# one masked — which is not a masked number.
+_PHONE_SPAN_RE = re.compile(r"(?<![0-9])(\+?)(\d+(?:[ -]\d+)*)(?![0-9])")
+#: Digit groups a phone may be written in. Real display groupings are 5+5, 4+3+3, 3+3+4,
+#: 2+4+4 and the like, optionally behind a `91`; none isolates a single digit and none
+#: ENDS in a two-digit group. Those two facts are load-bearing, not tidiness: without
+#: them a span of unrelated numbers separated only by spaces ("9500 3000 25", "6 7 8 9 10
+#: 11 12 13") merges into ten digits leading 6-9 and gets masked as a phone.
+_MIN_GROUP_DIGITS = 2
+_MIN_LAST_GROUP_DIGITS = 3
+_MAX_GROUPS = 4  # a country code plus at most three national groups
 _OTP_RE = re.compile(
     r"\b(?:otp|o\.?t\.?p|code|pin|password)\b[^0-9]{0,20}(\d{4,8})\b", re.IGNORECASE
 )
@@ -124,6 +165,34 @@ def is_valid_aadhaar(digits: str) -> bool:
     for i, digit in enumerate(reversed(digits)):
         checksum = _VERHOEFF_D[checksum][_VERHOEFF_P[i % 8][int(digit)]]
     return checksum == 0
+
+
+def national_phone_digits(digits: str, *, explicit: bool = False) -> str | None:
+    """The ten national digits of an Indian phone number, or None if this is not one.
+
+    `digits` is one run of digits with separators already stripped; `explicit` says the
+    text marked it as a phone with a leading `+` (the trunk `0` marks it just as well and
+    is detected here).
+
+    The order of the two strips matters: `+91 040 2345 6789` carries BOTH a country code
+    and a trunk prefix, and the country code is the outer one.
+    """
+    # Country code. Length-gated rather than matched greedily, because "91" is also just
+    # two digits: a 12-digit reference number starting 91 must not become a phone unless
+    # what remains is itself a valid national number.
+    if digits.startswith("91") and len(digits) in (12, 13):
+        digits = digits[2:]
+    if digits.startswith("0") and len(digits) == 11:
+        # Trunk prefix. Nothing but a phone number is written as 0 followed by exactly
+        # ten digits, so this counts as the text saying "phone" — see `_PHONE_SPAN_RE`.
+        digits, explicit = digits[1:], True
+    if len(digits) != 10:
+        return None
+    if digits[0] in "6789":
+        return digits  # mobile — nationally unique, unambiguous on its own
+    if explicit and digits[0] in "12345678":
+        return digits  # landline STD code + subscriber (6-8 overlap with the line above)
+    return None
 
 
 def is_valid_luhn(digits: str) -> bool:
@@ -222,10 +291,53 @@ def redact(text: str) -> RedactionResult:
     out = _UPI_RE.sub(_upi, out)
 
     def _phone(match: re.Match[str]) -> str:
-        _note("phone")
-        return PHONE_MASK.format(last2=match.group(1)[-2:])
+        """Mask every phone number inside one run of digits-and-separators.
 
-    out = _PHONE_RE.sub(_phone, out)
+        Windows of adjacent digit GROUPS are tried longest-first from each starting
+        group, and a window that fails the numbering plan does not consume anything —
+        that retry is the whole reason this is a loop rather than one regex. A date
+        beside a number (`15-08 9876543210`) is one span to the pattern; a greedy match
+        would swallow both, fail on fourteen digits, and leave the phone in the clear.
+        """
+        plus = bool(match.group(1))
+        body = match.group(2)
+        groups = [(m.start(), m.end(), m.group(0)) for m in re.finditer(r"\d+", body)]
+        pieces: list[str] = []
+        cursor = 0
+        start_group = 0
+        swallowed_plus = False
+        while start_group < len(groups):
+            for end_group in range(min(start_group + _MAX_GROUPS, len(groups)), start_group, -1):
+                window = groups[start_group:end_group]
+                if any(len(g[2]) < _MIN_GROUP_DIGITS for g in window):
+                    continue
+                if len(window[-1][2]) < _MIN_LAST_GROUP_DIGITS:
+                    continue
+                national = national_phone_digits(
+                    "".join(g[2] for g in window),
+                    # The `+` belongs to the front of the span, so it only marks a
+                    # number that starts there.
+                    explicit=plus and start_group == 0,
+                )
+                if national is None:
+                    continue
+                pieces.append(body[cursor : window[0][0]])
+                # Lossy on purpose: the last two digits stay so staff can recognise the
+                # caller they are looking at (module docstring).
+                pieces.append(PHONE_MASK.format(last2=national[-2:]))
+                cursor = window[-1][1]
+                swallowed_plus = swallowed_plus or (plus and start_group == 0)
+                start_group = end_group
+                break
+            else:
+                start_group += 1
+        if not pieces:
+            return match.group(0)
+        _note("phone")
+        pieces.append(body[cursor:])
+        return ("" if swallowed_plus or not plus else "+") + "".join(pieces)
+
+    out = _PHONE_SPAN_RE.sub(_phone, out)
 
     # Spoken runs last: they operate on word offsets, so they must not be invalidated
     # by earlier substitutions in the same pass — apply right-to-left.
@@ -243,6 +355,7 @@ __all__ = [
     "RedactionResult",
     "is_valid_aadhaar",
     "is_valid_luhn",
+    "national_phone_digits",
     "redact",
     "spoken_digit_runs",
 ]

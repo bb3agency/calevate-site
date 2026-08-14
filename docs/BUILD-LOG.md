@@ -65,10 +65,14 @@ Reproduce with: `scripts/dev_bootstrap.sh` (added this session).
   `assert_policy_registry_complete(app)` which fails the **boot** if a mounted route
   declares no permission.
 - `core/deps.py` — `db` (tenant-scoped session, RLS does the isolation) and `global_db`.
-- `compliance/audit.py` — audit writer with the HMAC hash chain, Redis chain head under
-  a compare-and-delete lock, `verify_chain()`. Writes in the CALLER's transaction so an
-  audited read and its record commit together. Summaries go to the log stream, not the
-  hashed payload (no summary column ⇒ hashing it would make the chain unverifiable).
+- `compliance/audit.py` — audit writer with the HMAC hash chain, serialized by
+  `pg_advisory_xact_lock('audit:chain')` on the caller's transaction; the head is the
+  last row of `audit_log` and is cached nowhere (D-59 — a lease cannot bound a
+  transaction, and a cached head is erased by the ROLLBACK that erases the row it names).
+  `verify_chain()` walks the whole log by default and reports how far it got. Writes in
+  the CALLER's transaction so an audited read and its record commit together. Summaries
+  go to the log stream, not the hashed payload (no summary column ⇒ hashing it would
+  make the chain unverifiable).
 
 **3. Reliability triad — `reliability/service.py`** (BACKEND-PATTERNS §4/§5)
 
