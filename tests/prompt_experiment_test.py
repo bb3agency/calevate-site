@@ -19,6 +19,12 @@ What is pinned here, and why each one is worth a test:
 6. **An experiment can be ENDED**, with or without a winner, and cannot be started twice.
 7. **The fast lane still reaches a running experiment**: a call-cap change republishes
    the arms, so the cost-runaway guard does not silently stop guarding mid-test.
+8. **Inbound is attributed by FACT or not at all.** A call the engine says was answered
+   by the agent's own line carries no arm — nobody split that caller's traffic, and
+   crediting a script they may never have heard is the one error this feature cannot
+   survive. A call the engine says was answered by an ARM's own line carries that arm,
+   because that is not an inference. `attributed_directions` is read off those rows, so
+   it cannot drift from what the pipeline does.
 
 The statistical half — the refusal to declare a winner below the minimum — is in
 `tests/experiment_stats_test.py`, over hand-written counts.
@@ -39,6 +45,8 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import FakeEngine
+from apps.workers.pipeline import ingest_engine_event
+from calevate_shared.engine import CallContext
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -112,8 +120,10 @@ async def _challenger(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> int:
         )
 
 
-async def _running(split_bp: int = 5000) -> tuple[uuid.UUID, uuid.UUID, FakeEngine, uuid.UUID]:
-    tenant_id, agent_id, engine = await _agent()
+async def _running(
+    split_bp: int = 5000, direction: str = "outbound"
+) -> tuple[uuid.UUID, uuid.UUID, FakeEngine, uuid.UUID]:
+    tenant_id, agent_id, engine = await _agent(direction)
     await _challenger(tenant_id, agent_id)
     started = await experiments.start(
         tenant_id=tenant_id,
@@ -452,21 +462,199 @@ async def test_an_inbound_only_agent_is_refused_rather_than_measured_forever() -
 
 
 async def test_a_two_way_agent_says_which_half_it_is_measuring() -> None:
-    tenant_id, agent_id, _ = await _agent(direction="both")
-    await _challenger(tenant_id, agent_id)
-    await experiments.start(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        name="Two-way greeting",
-        control_version=1,
-        challenger_version=2,
-        split_bp=5000,
-        conversion_metric="call_outcome_resolved",
+    """Nothing dialled yet, so nothing is attributed — and the field says so rather than
+    promising an outbound coverage no row has yet earned."""
+    tenant_id, agent_id, _, _ = await _running(direction="both")
+    results = await experiments.results_for(tenant_id=tenant_id, agent_id=agent_id)
+    assert results is not None
+    assert results.attributed_directions == ()
+    assert results.unattributed_inbound == 0
+    assert experiments.INBOUND_NOT_SPLIT_NOTE in results.coverage_note
+
+
+# --- 8. inbound: the fact the engine reports, and nothing more ----------------
+
+
+async def _agent_ref(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
+    async with tenant_session(tenant_id) as session:
+        return str(
+            (
+                await session.execute(
+                    text("SELECT engine_agent_ref FROM agents WHERE id = :a"), {"a": agent_id}
+                )
+            ).scalar_one()
+        )
+
+
+async def _arm_ref(tenant_id: uuid.UUID, experiment_id: uuid.UUID, label: str) -> str:
+    async with tenant_session(tenant_id) as session:
+        return str(
+            (
+                await session.execute(
+                    text(
+                        "SELECT engine_agent_ref FROM prompt_experiment_variants "
+                        "WHERE experiment_id = :e AND label = :l"
+                    ),
+                    {"e": experiment_id, "l": label},
+                )
+            ).scalar_one()
+        )
+
+
+async def _backdate(tenant_id: uuid.UUID, experiment_id: uuid.UUID) -> None:
+    """Make the experiment an hour old.
+
+    The fake engine stages a call that STARTED `duration_s` ago, so against an
+    experiment created microseconds earlier every seeded call falls outside the window
+    and any assertion about the window is vacuously true. An hour-old experiment is also
+    the realistic case: calls arrive during a test, not before it.
+    """
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE prompt_experiments SET started_at = now() - interval '1 hour' WHERE id = :e"
+            ),
+            {"e": experiment_id},
+        )
+
+
+async def _ingest_inbound(engine: FakeEngine, agent_ref: str, caller: str) -> None:
+    """One completed inbound call, discovered the way production discovers one: staged
+    on the engine, then read back by the ingest job. No shortcut through the call row —
+    the point of these tests is what `pipeline.py` does with the engine's answer."""
+    execution_id = f"exec_{uuid.uuid4().hex[:12]}"
+    engine.seed_inbound_call(
+        call_id=execution_id, agent_ref=agent_ref, from_e164=caller, to_e164="+911140000000"
     )
+    outcome = await ingest_engine_event(
+        {}, {"engine": "fake", "execution_id": execution_id, "engine_agent_ref": agent_ref}
+    )
+    assert outcome == "pipeline_enqueued", outcome
+
+
+async def _arms_of_calls(tenant_id: uuid.UUID) -> list[tuple[str, str]]:
+    """[(direction, label)] for every call that carries an arm."""
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT c.direction, v.label FROM call_variant_assignments a "
+                    "JOIN calls c ON c.id = a.call_id "
+                    "JOIN prompt_experiment_variants v ON v.id = a.variant_id "
+                    "ORDER BY c.direction, v.label"
+                )
+            )
+        ).all()
+    return [(str(r[0]), str(r[1])) for r in rows]
+
+
+async def test_an_inbound_call_to_the_agents_own_line_is_credited_to_no_arm() -> None:
+    """THE refusal this feature is built on.
+
+    The caller dialled the client's number, which answers with the AGENT — so the script
+    they heard was whatever was live, and it is not one of the two arms in any sense a
+    conversion rate may use. Drawing a bucket for them at call creation would put a real
+    conversion under a script nobody spoke, with nothing in the data to show it. So the
+    call is counted in NEITHER arm, and the size of that exclusion is reported.
+    """
+    tenant_id, agent_id, engine, experiment_id = await _running(direction="both")
+    await _backdate(tenant_id, experiment_id)
+    agent_ref = await _agent_ref(tenant_id, agent_id)
+    await _dial(tenant_id, agent_id, "+919000000404")
+    await _ingest_inbound(engine, agent_ref, "+919000000405")
+
+    assert [d for d, _ in await _arms_of_calls(tenant_id)] == ["outbound"]
+
+    # A call the agent took BEFORE the test began belongs to no window of it, and must
+    # not inflate the exclusion any more than it would inflate an arm.
+    await _ingest_inbound(engine, agent_ref, "+919000000409")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET started_at = now() - interval '2 days' "
+                "WHERE from_e164 = '+919000000409'"
+            )
+        )
+
     results = await experiments.results_for(tenant_id=tenant_id, agent_id=agent_id)
     assert results is not None
     assert results.attributed_directions == ("outbound",)
-    assert "Only outbound calls" in results.coverage_note
+    assert results.unattributed_inbound == 1
+    assert "1 completed inbound call in this window is in neither arm." in results.coverage_note
+    assert experiments.INBOUND_ON_AN_ARM_NOTE not in results.coverage_note
+
+
+async def test_an_inbound_call_answered_by_an_arms_own_line_carries_that_arm() -> None:
+    """The one inbound attribution that is a FACT rather than a draw.
+
+    Each arm is published as its own engine agent with its own ref, so when the engine
+    reports that ref it has told us which script ran — no inference, no bucket. A client
+    whose telephony account answers a DID with an arm gets that call attributed, and the
+    coverage note says inbound is in the numbers so nobody reads the comparison as a
+    clean split.
+    """
+    tenant_id, agent_id, engine, experiment_id = await _running(direction="both")
+    await _backdate(tenant_id, experiment_id)
+    await _ingest_inbound(engine, await _arm_ref(tenant_id, experiment_id, "B"), "+919000000406")
+
+    assert await _arms_of_calls(tenant_id) == [("inbound", "B")]
+
+    results = await experiments.results_for(tenant_id=tenant_id, agent_id=agent_id)
+    assert results is not None
+    assert results.attributed_directions == ("inbound",)
+    # It carried an arm, so it is NOT in the unattributed count — the two must never
+    # double-count the same call.
+    assert results.unattributed_inbound == 0
+    assert experiments.INBOUND_ON_AN_ARM_NOTE in results.coverage_note
+    by_label = {v.label: v for v in results.variants}
+    assert (by_label["B"].dialled, by_label["B"].attributed) == (1, 1)
+    assert by_label["A"].dialled == 0
+
+
+async def test_a_webhook_that_beats_the_dispatch_write_does_not_lose_the_arm() -> None:
+    """The outbound gap the same lookup closes.
+
+    `dispatch_call` records the arm only when its own INSERT wins the `engine_call_id`
+    conflict. The engine can fire a webhook for a call it has already started before our
+    transaction commits, and then the pipeline creates the row first — leaving a call
+    that demonstrably ran arm A carrying no arm at all, and under-counting one side of
+    the comparison for a reason no operator could ever see.
+
+    Staged exactly that way: the engine call is started against the arm's ref (which is
+    what `dispatch_call` does first) and the pipeline sees it before any row of ours
+    exists.
+    """
+    tenant_id, agent_id, engine, experiment_id = await _running()
+    ref_a = await _arm_ref(tenant_id, experiment_id, "A")
+    handle = await engine.start_outbound_call(ref_a, "+919000000407", CallContext())
+
+    outcome = await ingest_engine_event(
+        {}, {"engine": "fake", "execution_id": handle, "engine_agent_ref": ref_a}
+    )
+    assert outcome == "pipeline_enqueued"
+    assert await _arms_of_calls(tenant_id) == [("outbound", "A")]
+
+    results = await experiments.results_for(tenant_id=tenant_id, agent_id=agent_id)
+    assert results is not None
+    assert results.attributed_directions == ("outbound",)
+    assert {v.label: v.dialled for v in results.variants} == {"A": 1, "B": 0}
+
+
+async def test_a_second_event_for_the_same_call_cannot_move_it_between_arms() -> None:
+    """Every webhook re-runs the lookup, so the guarantee that a call keeps its first
+    arm has to survive the repeat. It is the `ON CONFLICT (call_id) DO NOTHING` that
+    keeps it, and this is the test that would notice an upsert."""
+    tenant_id, _agent_id, engine, experiment_id = await _running(direction="both")
+    ref_b = await _arm_ref(tenant_id, experiment_id, "B")
+    execution_id = f"exec_{uuid.uuid4().hex[:12]}"
+    engine.seed_inbound_call(
+        call_id=execution_id, agent_ref=ref_b, from_e164="+919000000408", to_e164="+911140000000"
+    )
+    for _ in range(3):
+        await ingest_engine_event(
+            {}, {"engine": "fake", "execution_id": execution_id, "engine_agent_ref": ref_b}
+        )
+    assert await _arms_of_calls(tenant_id) == [("inbound", "B")]
 
 
 # --- 7. the fast lane keeps working during a test -----------------------------

@@ -35,7 +35,6 @@ from apps.api.core.observability import (
     current_trace_id,
     dropped_attribute_keys,
     init_tracing,
-    redact_trace_payload,
     reset_tracing,
     span,
     traced_job,
@@ -48,6 +47,7 @@ from apps.workers.pipeline import ingest_engine_event, run_post_call_pipeline
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 # The same two values `tracing_test.py` and `observability_security_test.py` are pinned
 # against — one definition of what a leak looks like, deliberately. `PHONE` is also the
@@ -290,12 +290,18 @@ async def test_the_leak_detector_bites(spans: Any) -> None:
     `sanitize_attributes` once — the exact regression a future call site would cause by
     reaching a vendor SDK directly — and assert the same detector finds the transcript.
     The bypass is undone by the fixture's `monkeypatch`, so it cannot outlive this test.
+
+    The flush happens INSIDE the bypass because attributes are now filtered twice, once
+    where they are set and once in `_RedactingSpanExporter` — which is the point of the
+    export filter, and which means a plant that is not exported while the bypass is up
+    gets cleaned on its way out and proves nothing.
     """
     monkey = pytest.MonkeyPatch()
     try:
         monkey.setattr(observability, "sanitize_attributes", lambda attributes: dict(attributes))
         with span("pipeline.extract", transcript_text=TRANSCRIPT, caller_phone=E164):
             pass
+        observability._provider.force_flush()
     finally:
         monkey.undo()
 
@@ -423,35 +429,168 @@ def test_the_added_instrumentation_costs_microseconds_when_tracing_is_off() -> N
     )
 
 
-# --- Langfuse correlation -----------------------------------------------------
+# --- Exception redaction (hard rule 6 on the trace path) ----------------------
+#
+# The attribute allowlist guards what our call sites SET. These pin the three fields the
+# OTel SDK writes by itself when an exception escapes a span — `exception.message`,
+# `exception.stacktrace` and the status description — which no allowlist ever saw.
 
 
-def test_the_langfuse_payload_carries_the_otel_trace_id(spans: Any) -> None:
-    """One click from a slow `pipeline.extract` span to the LLM trace that explains it.
+def test_a_transcript_in_an_exception_never_reaches_the_exporter(spans: Any) -> None:
+    """The leak this filter was built for.
 
-    Stamped on the redaction hook because that is the one seam every Langfuse trace
-    already passes through — there is no second place to forget it — and stamped AFTER
-    redaction so the correlation never depends on a detail of the logger's regex.
+    `start_as_current_span` defaults to `record_exception=True`, so before the export
+    filter existed this exported the transcript verbatim three times over: as an event
+    attribute, as a stacktrace, and as the span status description.
     """
-    with span("pipeline.extract", call_id="019f0000-0000-7000-8000-000000000006"):
-        payload = redact_trace_payload(
-            {"model": "sarvam-m", "prompt": TRANSCRIPT, "extraction": {"name": "Ravi"}}
-        )
+    with (
+        pytest.raises(ValueError, match="extraction failed"),
+        span("pipeline.extract", call_id="019f0000-0000-7000-8000-000000000006"),
+    ):
+        raise ValueError(f"extraction failed for {{'transcript': {TRANSCRIPT!r}}}")
+
+    exported = dump(spans)
+    assert exported, "nothing was exported — this test would pass vacuously"
+    for forbidden in (PHONE, E164, TRANSCRIPT, "Ravi", "naa peru"):
+        assert forbidden not in exported, f"{forbidden!r} reached the trace backend"
+
+    # Positively: the span, its id, the error status and the exception TYPE all survive.
+    # A filter that dropped the signal along with the payload would be its own outage.
+    extract = by_name(spans, "pipeline.extract")[0]
+    assert extract.attributes["call_id"] == "019f0000-0000-7000-8000-000000000006"
+    assert extract.status.status_code.name == "ERROR"
+    assert extract.status.description == "ValueError"
+    event = next(e for e in extract.events if e.name == "exception")
+    assert event.attributes["exception.type"] == "ValueError"
+    assert "exception.message" not in event.attributes
+    assert "exception.stacktrace" not in event.attributes
+
+    # And say the drop happened positively, not by failing to find the text.
+    dropped = dropped_attribute_keys()
+    for key in ("exception.message", "exception.stacktrace", "status.description"):
+        assert key in dropped, f"{key} was neither exported nor recorded as dropped"
+
+
+def test_a_db_error_does_not_export_its_bind_parameters(spans: Any) -> None:
+    """The production spelling of the test above.
+
+    A contrived ValueError proves the mechanism; this proves the mechanism matters.
+    `str(IntegrityError)` embeds `[SQL: …] [parameters: …]`, and the parameter is the
+    caller's phone number — a duplicate-lead insert inside `pipeline.lead_upsert` is an
+    ordinary Tuesday, not an exotic failure.
+    """
+    error = IntegrityError(
+        "INSERT INTO leads (phone_e164) VALUES (%(p)s)",
+        {"p": E164},
+        Exception("duplicate key value violates unique constraint"),
+    )
+    assert E164 in str(error), "the fixture must actually contain the number it guards"
+
+    with (
+        pytest.raises(IntegrityError),
+        span("pipeline.lead_upsert", call_id="019f0000-0000-7000-8000-000000000007"),
+    ):
+        raise error
+
+    exported = dump(spans)
+    assert exported, "nothing was exported — this test would pass vacuously"
+    for forbidden in (PHONE, E164, "phone_e164"):
+        assert forbidden not in exported, f"{forbidden!r} reached the trace backend"
+    # The type name survives whole — an operator still knows it was a constraint
+    # violation, which is the half of the message that was ours to keep.
+    assert by_name(spans, "pipeline.lead_upsert")[0].status.description.endswith("IntegrityError")
+
+
+def test_the_exception_leak_detector_bites(spans: Any) -> None:
+    """Proof the two assertions above are not vacuous.
+
+    Same doctrine as `test_the_leak_detector_bites`: bypass the filter once — the exact
+    regression a future change to `init_tracing` would cause by handing the batch
+    processor the raw exporter — and assert the same `dump()` scan finds the transcript.
+    """
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(observability, "_redact_span", lambda readable: readable)
+        with pytest.raises(ValueError, match="extraction failed"), span("pipeline.extract"):
+            raise ValueError(f"extraction failed for {{'transcript': {TRANSCRIPT!r}}}")
+        # Flushed INSIDE the bypass: the batch processor exports on its own thread, so
+        # undoing in `finally` would race the export this test is about.
+        observability._provider.force_flush()
+    finally:
+        monkey.undo()
+
+    exported = dump(spans)
+    assert PHONE in exported and "Ravi" in exported, (
+        "the detector cannot see an exception message — the tests above prove nothing"
+    )
+
+
+def test_a_span_the_filter_cannot_scrub_is_dropped_not_exported(spans: Any) -> None:
+    """Fail CLOSED. If `_redact_span` ever raises, the alternative to dropping the span
+    is exporting the unfiltered original — the exact outcome the filter exists to
+    prevent."""
+
+    def explode(readable: Any) -> Any:
+        raise RuntimeError("scrubber bug")
+
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(observability, "_redact_span", explode)
+        with span("pipeline.extract", call_id="019f0000-0000-7000-8000-000000000008"):
+            pass
+        observability.shutdown_tracing()
+    finally:
+        monkey.undo()
+
+    assert not by_name(spans, "pipeline.extract"), "an unscrubbable span was exported"
+    assert "span.redaction_failed" in dropped_attribute_keys()
+
+
+def test_a_sentry_event_carries_the_otel_trace_id(spans: Any) -> None:
+    """The join between the two systems we actually run.
+
+    Sentry says WHAT broke; the trace says where the request had been when it did.
+    Stamped in `before_send` because that is the one seam every event passes through,
+    and after the scrubbing so no scrubber can eat it.
+    """
+    with span("pipeline.extract", call_id="019f0000-0000-7000-8000-00000000000a"):
+        event = observability.scrub_event({"message": f"extraction failed for +91{PHONE}"})
         expected = current_trace_id()
 
+    assert event is not None
     assert expected is not None and len(expected) == 32
-    assert payload["metadata"]["otel_trace_id"] == expected
-    # The hook's original job is untouched: redaction still comes first.
-    serialized = json.dumps(payload)
-    assert PHONE not in serialized
-    assert payload["model"] == "sarvam-m", "non-PII metadata must survive to be useful"
+    assert event["tags"]["otel_trace_id"] == expected
+    assert PHONE not in json.dumps(event), "the scrubbing still runs first"
 
 
-def test_the_langfuse_payload_is_unchanged_when_tracing_is_off() -> None:
-    """No collector means no trace id, and a payload that gains a `metadata.otel_trace_id`
-    pointing at nothing is worse than no correlation at all."""
+def test_a_sentry_event_gains_no_trace_tag_when_tracing_is_off() -> None:
+    """A tag pointing at a trace that was never recorded is worse than no tag."""
     reset_tracing()
     assert tracing_enabled() is False
-    payload = redact_trace_payload({"model": "sarvam-m", "prompt": TRANSCRIPT})
-    assert "metadata" not in payload
+    event = observability.scrub_event({"message": "extraction failed"})
+    assert event is not None and "tags" not in event
     assert current_trace_id() is None
+
+
+def test_the_export_filter_is_off_the_latency_path(spans: Any) -> None:
+    """Hard rule 3. The filter runs on `BatchSpanProcessor`'s export thread, so its cost
+    to the 500ms ack budget is zero by construction — but the number belongs in the test
+    output rather than a commit message, because "zero by construction" is a claim about
+    where it runs, not about what it costs the batch."""
+    with (
+        pytest.raises(ValueError, match="boom"),
+        span("pipeline.extract", call_id="019f0000-0000-7000-8000-000000000009"),
+    ):
+        raise ValueError(f"boom {TRANSCRIPT}")
+    readable = by_name(spans, "pipeline.extract")[0]
+
+    iterations = 2000
+    started = time.perf_counter()
+    for _ in range(iterations):
+        observability._redact_span(readable)
+    per_span_us = (time.perf_counter() - started) / iterations * 1_000_000
+
+    print(f"\nexport-time span redaction: {per_span_us:.2f}us/span (export thread)")
+    assert per_span_us < 200.0, (
+        f"{per_span_us:.1f}us per span is too much even for a background thread"
+    )

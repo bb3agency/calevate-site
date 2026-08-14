@@ -12,10 +12,13 @@ hard rule 3's promise that nothing else happens on this path.
 
 Notes for whoever reads this next:
 
-- **The allowlist is a module constant, not a setting.** `engine_intake.BOLNA_SOURCE_IPS`
-  is a hard-coded `frozenset`, so these tests monkeypatch the module attribute rather
-  than an env var. If it ever moves into `Settings`, this fixture is the one thing to
-  rewrite.
+- **The allowlist is a SETTING, and it is the only one.** `BOLNA_WEBHOOK_SOURCE_IPS`
+  is what both `engine_intake.verify_source` and `BolnaEngine.verify_webhook` resolve
+  through (`calevate_shared.config.bolna_source_ips`), so the `source_ip_allowlist`
+  fixture in `conftest.py` sets the environment variable. It used to patch a module
+  constant here while the adapter matched a different hardcoded one — two allowlists
+  answering one question, agreeing only until an operator used the documented recovery
+  path. `engine_audit_test.py` §2e is what holds them together now.
 - **The peer IP is `scope["client"]`**, which `httpx.ASGITransport` lets us set. That is
   exactly the TCP peer nginx or Cloudflare would present, so `_client(ip)` below is a
   faithful stand-in for "who actually opened the socket".
@@ -25,9 +28,9 @@ from __future__ import annotations
 
 import secrets
 import uuid
+from collections.abc import Callable
 from typing import Any
 
-import engine_intake
 import pytest
 import webhook_routes
 from apps.api.core.errors import ProblemError
@@ -49,14 +52,14 @@ HOOK = "/hooks/v1/engine/bolna"
 
 
 @pytest.fixture(autouse=True)
-def _allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
     """Point the allowlist at a documentation IP for the duration of each test.
 
-    `verify_source` reads the module global at call time, so patching the attribute is
-    enough — and it keeps these tests from encoding a vendor's current egress IP, which
-    is a value that changes without our permission.
+    Through the SETTING, which is what `verify_source` resolves at call time — and it
+    keeps these tests from encoding a vendor's current egress IP, a value that changes
+    without our permission.
     """
-    monkeypatch.setattr(engine_intake, "BOLNA_SOURCE_IPS", frozenset({ENGINE_EGRESS_IP}))
+    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _client(peer_ip: str, *, tolerate_crash: bool = False) -> AsyncClient:

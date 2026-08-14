@@ -1,4 +1,4 @@
-"""Observability init — Sentry, OTel tracing, and the Langfuse redaction hook.
+"""Observability init — Sentry, OTel tracing, and the hard-rule-6 redaction hooks.
 
 Bootstrap step 3 says "tracing init before the app exists", and this is that step.
 Everything here is config-gated and a no-op without keys, so a local run stays quiet
@@ -12,15 +12,15 @@ the pipeline. So `scrub_event` runs on every event before it leaves the process,
 reuses the SAME redaction functions the logger uses rather than a second, drifting
 copy.
 
-Langfuse (LLM traces) gets the same treatment — except that **THERE IS NO LANGFUSE
-CLIENT IN THIS DEPLOYMENT AND NOTHING CALLS `redact_trace_payload` IN PRODUCTION
-CODE.** It is a pure function with tests, kept because it is the pre-agreed shape of
-the hook hard rule 6 names ("Langfuse traces go through the redaction hook") and
-because it is the one seam every LLM trace would pass through. The two config keys
-that made it LOOK wired (`LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`) are gone; what
-restoring the integration takes is written down in `calevate_shared/config.py`. Read
-this as: per-call token cost and the latency breakdown TRD §2 lists are NOT being
-recorded today.
+Hard rule 6 names "the redaction hook" in terms of Langfuse, and there is still no
+Langfuse client here (the keys were removed by D-49 and restoring them needs its own
+decision-log entry — per-call token cost and the latency breakdown TRD §2 lists are
+still NOT being recorded). What changed is that the rule now has a REAL enforcement
+point on the trace path instead of a named function nobody called: `_redact_span`,
+applied by `_RedactingSpanExporter` to every span leaving this process. The old
+`redact_trace_payload` was deleted rather than kept as a shape — a second, hand-called
+redaction entry point beside an automatic one is two ways to do one thing, and the
+hand-called one is the one that gets forgotten.
 
 The tracing half (TRD §2 "OpenTelemetry traces") exists to answer ONE question: when
 "lead visible within 2 minutes of hangup" (OPERATIONS §5) is missed, WHERE did the time
@@ -35,6 +35,11 @@ before anyone reads the diff. An allowlist fails closed: an unlisted attribute i
 silently dropped and counted, and making it visible is a reviewable change to THIS
 file. On top of that every value must be id-shaped, judged by `redact_text` — the
 logger's own verdict, so the two cannot drift.
+
+That allowlist guards what OUR call sites set. It does not guard what the SDK writes
+by itself — the exception message, the exception stacktrace and the span status
+description — which is where a transcript actually reached the exporter. The export
+filter below closes that, for every span, including ones this module did not create.
 """
 
 from __future__ import annotations
@@ -45,6 +50,7 @@ import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from apps.api.core.alerting import configure_alerts
 from apps.api.core.logging import REDACT_KEYS, get_logger, redact_mapping, redact_text
@@ -92,7 +98,56 @@ def scrub_event(
 
     if isinstance(event.get("message"), str):
         event["message"] = redact_text(event["message"])
+
+    # The join key between the two systems we actually run. Sentry says WHAT broke;
+    # the OTel trace says where the request had been when it did, and without the id
+    # written on both, going from one to the other is a hunt through timestamps.
+    # Stamped here rather than at each `capture_exception` because `before_send` is the
+    # one seam every event passes through — there is no second place to forget it — and
+    # AFTER the scrubbing above so a scrubber can never eat it. Tag, not context: a
+    # `contexts.trace` would claim this event belongs to a SENTRY transaction, and
+    # Sentry performance tracing is deliberately off (see `init_observability`).
+    trace_id = current_trace_id()
+    if trace_id is not None:
+        tags = event.get("tags")
+        if not isinstance(tags, dict):
+            tags = {}
+            event["tags"] = tags
+        tags["otel_trace_id"] = trace_id
     return event
+
+
+def scrub_breadcrumb(
+    crumb: dict[str, Any], _hint: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Sentry `before_breadcrumb`. The other half of `scrub_event`, and it was missing.
+
+    `before_send` sees the EVENT; breadcrumbs are attached to it, and `scrub_event`
+    never walked them. They are not incidental on this codebase: the logging
+    integration builds one from every log record — reading `record.getMessage()`
+    directly, so our JsonFormatter's redaction never runs on it — and the stdlib/httpx
+    integrations add one per outbound request carrying the full URL, which is a client
+    webhook endpoint with a token in its query string (see `configure_logging`'s note
+    on the same hazard).
+
+    Scrubbed at CAPTURE rather than inside `scrub_event`, because a breadcrumb that was
+    never taken cannot be forgotten by a later hook — and because `before_breadcrumb`
+    is the hook Sentry provides for exactly this.
+    """
+    if isinstance(crumb.get("message"), str):
+        crumb["message"] = redact_text(crumb["message"])
+    data = crumb.get("data")
+    if isinstance(data, dict):
+        clean = redact_mapping(data)
+        # `redact_mapping` masks phone-shaped runs, which is not what makes an outbound
+        # URL dangerous: `?token=…` is neither a phone nor a redacted key. Same verdict
+        # as `_instrument_httpx` — scheme, host and path, never the query.
+        url = clean.get("url")
+        if isinstance(url, str):
+            split = urlsplit(url)
+            clean["url"] = urlunsplit((split.scheme, split.netloc, split.path, "", ""))
+        crumb["data"] = clean
+    return crumb
 
 
 def _iter_stacktraces(event: dict[str, Any]) -> list[dict[str, Any]]:
@@ -105,46 +160,6 @@ def _iter_stacktraces(event: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(stacktrace, dict):
                 frames.extend(f for f in stacktrace.get("frames", []) or [] if isinstance(f, dict))
     return frames
-
-
-def redact_trace_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """The Langfuse hook (CLAUDE.md hard rule 6: "Langfuse traces go through the
-    redaction hook").
-
-    **NO PRODUCTION CALLER TODAY — this is a seam, and saying so is the point.** There
-    is no Langfuse client, no credentials and no Decision-Log entry choosing Langfuse
-    over exporting the existing OTel spans to it; `apps/workers/extraction.py` is the
-    only module that talks to an LLM and it emits no trace. The function stays (pure,
-    tested, and the single place the correlation below can live) but nothing here
-    should be read as "LLM traces are being recorded".
-
-    An LLM trace is the single richest PII object we produce — it contains the prompt,
-    which contains the transcript. Same redaction primitives as the logger so the two
-    cannot drift apart.
-
-    It also CORRELATES the two trace systems. Langfuse holds "this extraction cost 4.2s
-    and 900 tokens"; OTel holds "the pipeline's extract stage took 4.3s" — and until the
-    trace id is written on both, going from one to the other is a manual hunt through
-    timestamps. Stamping `metadata.otel_trace_id` here rather than at each Langfuse call
-    site is deliberate: this function is the one seam every LLM trace already passes
-    through, so there is no second place to forget.
-
-    Stamped AFTER redaction, never before: `redact_mapping` walks values and a 32-char
-    hex id is exactly the shape the logger holds back from its phone pass — but relying
-    on that would make the correlation depend on a detail of an unrelated regex. And
-    when tracing is off (local dev, tests, no collector) there is no id, so the payload
-    is returned byte-for-byte as it is today.
-    """
-    clean = redact_mapping(payload)
-    trace_id = current_trace_id()
-    if trace_id is None:
-        return clean
-    metadata = clean.get("metadata")
-    if not isinstance(metadata, dict):
-        metadata = {}
-        clean["metadata"] = metadata
-    metadata["otel_trace_id"] = trace_id
-    return clean
 
 
 # --- Distributed tracing (OpenTelemetry) --------------------------------------
@@ -234,6 +249,10 @@ _propagator: Any = None
 _dropped_attributes: dict[str, int] = {}
 
 
+def _note_dropped(key: str) -> None:
+    _dropped_attributes[key] = _dropped_attributes.get(key, 0) + 1
+
+
 def _attribute_key_allowed(key: str) -> bool:
     # The logger's denylist first: it is the house standard and it is a superset of
     # anything the allowlist could accidentally admit (`phone_id`, `body_count`, ...).
@@ -266,11 +285,11 @@ def sanitize_attributes(attributes: dict[str, object]) -> dict[str, Any]:
     clean: dict[str, Any] = {}
     for key, value in attributes.items():
         if not _attribute_key_allowed(key):
-            _dropped_attributes[key] = _dropped_attributes.get(key, 0) + 1
+            _note_dropped(key)
             continue
         safe = _safe_attribute_value(value)
         if safe is None:
-            _dropped_attributes[key] = _dropped_attributes.get(key, 0) + 1
+            _note_dropped(key)
             continue
         clean[key] = safe
     return clean
@@ -283,6 +302,153 @@ def dropped_attribute_keys() -> dict[str, int]:
     make positively, rather than by failing to find it.
     """
     return dict(_dropped_attributes)
+
+
+# --- Export-time redaction (hard rule 6's enforcement point on the trace path) -
+#
+# THE LEAK THIS EXISTS FOR. `sanitize_attributes` guards the attributes our call sites
+# set. It does not guard the three fields the SDK writes by ITSELF:
+# `start_as_current_span` defaults to `record_exception=True` and
+# `set_status_on_exception=True`, so ANY exception escaping ANY span writes
+# `exception.message`, `exception.stacktrace` (a span EVENT, not an attribute) and
+# `Status.description` — none of which the allowlist ever sees. Measured on this repo
+# before this filter existed, a `ValueError` raised inside `span("pipeline.extract")`
+# exported the transcript verbatim in all three. The production spelling is not a
+# contrived ValueError: `str(sqlalchemy.exc.IntegrityError)` is
+# `"… [SQL: INSERT INTO leads (phone_e164) …] [parameters: {'p': '+919876543210'}]"`,
+# and a duplicate-lead insert inside `pipeline.lead_upsert` is an ordinary Tuesday.
+#
+# WHY HERE AND NOT AT THE CALL SITES. `record_exception=False` on each
+# `start_as_current_span` would work today (four sites) and fail at the fifth one
+# somebody adds next month — D-29's own words, a guard you have to remember is a guard
+# that fails when the codebase grows fastest. The exporter is the last point EVERY span
+# passes through, ours and any future instrumentation library's alike.
+#
+# LATENCY (hard rule 3). This runs inside `BatchSpanProcessor`'s own export thread, off
+# the request and ack path entirely — the cost to voice-runtime's 500ms budget is zero
+# by construction, not by being small. Measured anyway at ~9us per span for a span with
+# an exception event (measured by `tracing_stages_test.py`), against a batch that leaves
+# the process every 5s.
+#
+# WHY THE MESSAGE IS DROPPED RATHER THAN `redact_text`-ed. `redact_text` masks
+# phone-shaped digit runs and caps length; it does not and cannot recognise a caller's
+# NAME or a Telugu sentence. An exception message is free prose authored upstream, so
+# there is no way to prove it is not a transcript — which is exactly the case the
+# allowlist doctrine above answers by failing closed. What survives is the half we
+# authored: the exception TYPE, which is a class name. The detail is not lost, it moves
+# to the log line and the Sentry event, both scrubbed, both joined to this span by
+# `correlation_id`.
+
+# Exception-event attributes that are safe by SHAPE: a class name and a bool.
+_EXCEPTION_EVENT_NAME = "exception"
+_EXCEPTION_KEEP_KEYS = ("exception.type", "exception.escaped")
+_EXCEPTION_DROP_KEYS = ("exception.message", "exception.stacktrace")
+_STATUS_DESCRIPTION_KEY = "status.description"
+
+
+def _redacted_events(events: Any) -> tuple[list[Any], str | None]:
+    """Scrubbed span events, plus the exception type worth keeping on the status."""
+    from opentelemetry.sdk.trace import Event
+
+    clean: list[Any] = []
+    exception_type: str | None = None
+    for event in events or ():
+        attributes = dict(event.attributes or {})
+        if event.name == _EXCEPTION_EVENT_NAME:
+            for key in _EXCEPTION_DROP_KEYS:
+                if key in attributes:
+                    _note_dropped(key)
+            kept = {key: attributes[key] for key in _EXCEPTION_KEEP_KEYS if key in attributes}
+            candidate = kept.get("exception.type")
+            if isinstance(candidate, str):
+                exception_type = candidate
+            clean.append(Event(event.name, kept, event.timestamp))
+            continue
+        # A non-exception event is somebody's `add_event`, and its attributes get the
+        # same allowlist as a span's — there is no reason for the two to differ.
+        clean.append(
+            Event(redact_text(event.name), sanitize_attributes(attributes), event.timestamp)
+        )
+    return clean, exception_type
+
+
+def _redacted_status(status: Any, exception_type: str | None) -> Any:
+    """Keep the status CODE, replace its description with the exception type.
+
+    The SDK writes `"<type>: <message>"`. Splitting that string to keep the head would
+    be guessing at a format; the type is already on the exception event, so it is read
+    from there instead.
+    """
+    if status is None or not getattr(status, "description", None):
+        return status
+    from opentelemetry.trace.status import Status
+
+    _note_dropped(_STATUS_DESCRIPTION_KEY)
+    return Status(status.status_code, description=exception_type)
+
+
+def _redact_span(readable: Any) -> Any:
+    """A copy of `readable` with nothing hard rule 6 forbids left in it."""
+    from opentelemetry.sdk.trace import ReadableSpan
+
+    original = dict(readable.attributes or {})
+    attributes = sanitize_attributes(original)
+    events, exception_type = _redacted_events(readable.events)
+    status = _redacted_status(readable.status, exception_type)
+    # `redact_text` on the NAME because a span name is a format string somebody may one
+    # day interpolate an id — or worse — into. Names are code-authored and low
+    # cardinality by design, so this is a backstop, not the guard.
+    name = redact_text(readable.name)
+    if (
+        name == readable.name
+        and attributes == original
+        and not events
+        and status is readable.status
+    ):
+        return readable  # the common case: nothing to change, nothing to allocate
+    return ReadableSpan(
+        name=name,
+        context=readable.context,
+        parent=readable.parent,
+        resource=readable.resource,
+        attributes=attributes,
+        events=events,
+        links=readable.links,
+        kind=readable.kind,
+        instrumentation_scope=readable.instrumentation_scope,
+        status=status,
+        start_time=readable.start_time,
+        end_time=readable.end_time,
+    )
+
+
+class _RedactingSpanExporter:
+    """Wraps the real exporter so no span reaches a vendor unscrubbed.
+
+    Duck-typed rather than subclassing `SpanExporter`, so this module keeps its
+    no-opentelemetry-import-at-module-scope property (hard rule 3).
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def export(self, spans: Any) -> Any:
+        safe: list[Any] = []
+        for readable in spans:
+            try:
+                safe.append(_redact_span(readable))
+            except Exception:
+                # FAIL CLOSED. A span we could not scrub is a span we do not send: the
+                # alternative is exporting the unfiltered original, which is the exact
+                # outcome this class exists to prevent. The counter says it happened.
+                _note_dropped("span.redaction_failed")
+        return self._inner.export(safe)
+
+    def shutdown(self) -> None:
+        self._inner.shutdown()
+
+    def force_flush(self, timeout_millis: int = 30_000) -> bool:
+        return bool(self._inner.force_flush(timeout_millis))
 
 
 def tracing_enabled() -> bool:
@@ -683,7 +849,15 @@ def init_tracing(service: str, *, span_exporter: Any = None) -> bool:
     # Batched, never synchronous: the export must not be able to add latency to a
     # webhook ack. A full queue drops spans, which is the correct trade — losing
     # telemetry beats missing the 500ms budget (hard rule 3).
-    provider.add_span_processor(BatchSpanProcessor(span_exporter))
+    #
+    # The scrub wraps the exporter INSIDE the batch processor, so it runs on the export
+    # thread rather than the caller's, and it wraps an injected `span_exporter` too:
+    # a test that could see an unfiltered span would be testing a pipeline production
+    # does not have.
+    # `Any` because the wrapper is duck-typed rather than a `SpanExporter` subclass —
+    # that is what keeps opentelemetry out of this module's import scope (hard rule 3).
+    redacting_exporter: Any = _RedactingSpanExporter(span_exporter)
+    provider.add_span_processor(BatchSpanProcessor(redacting_exporter))
     otel_trace.set_tracer_provider(provider)
 
     _provider = provider
@@ -751,7 +925,15 @@ def init_observability(service: str) -> str:
                 send_default_pii=False,
                 max_request_body_size="never",
                 before_send=scrub_event,
-                traces_sample_rate=0.1 if settings.app_env == "prod" else 1.0,
+                before_breadcrumb=scrub_breadcrumb,
+                # NO `traces_sample_rate`. It used to be 0.1/1.0, which turned on
+                # Sentry's own performance tracing — a SECOND tracing pipeline beside
+                # the OTel one, carrying SQL descriptions and full outbound URLs, and
+                # `before_send` DOES NOT RUN ON TRANSACTION EVENTS (Sentry's docs:
+                # transactions need `before_send_transaction`; that gap is why the hook
+                # exists at all — getsentry/sentry-python#1226). So it shipped spans
+                # this module's scrubber never saw. One tracing pipeline per problem,
+                # and the one we keep is the one whose exporter is filtered.
             )
             sentry_sdk.set_tag("service", service)
             enabled.append("sentry")
@@ -781,9 +963,9 @@ __all__ = [
     "dropped_attribute_keys",
     "init_observability",
     "init_tracing",
-    "redact_trace_payload",
     "reset_tracing",
     "sanitize_attributes",
+    "scrub_breadcrumb",
     "scrub_event",
     "set_span_attributes",
     "shutdown_tracing",

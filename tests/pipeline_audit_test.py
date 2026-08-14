@@ -21,8 +21,11 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from apps.api.core.errors import ProblemError
+from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
+from apps.workers import pipeline
 from apps.workers.extraction import extract_call
 from apps.workers.pipeline import (
     _meter,
@@ -31,8 +34,14 @@ from apps.workers.pipeline import (
     run_post_call_pipeline,
 )
 from apps.workers.retention import _apply_one, apply_retention, execute_deletion_request
+from arq import Retry
 from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from sqlalchemy import text
+
+# The real-arq-worker harness, imported rather than copied: it is the only way to count
+# the attempts arq ACTUALLY made, and a second copy of it would be a second thing to get
+# subtly wrong (see its own docstring).
+from tests.ingest_ordering_test import _run_to_exhaustion
 from tests.retention_test import _tenant_with_old_call
 from tests.smoke_pipeline_test import _seed_tenant
 
@@ -570,3 +579,221 @@ async def test_erasure_also_clears_the_extracted_copy_of_the_person() -> None:
     document = proof if isinstance(proof, dict) else json.loads(proof)
     assert phone not in json.dumps(document)
     assert "call_extractions" in document["actions"], "the proof states what it did"
+
+
+# --- the pipeline is retried, and a retry cannot bill twice ---------------------
+#
+# `run_post_call_pipeline` raised plain exceptions everywhere except the recording copy,
+# and arq 0.28 finishes a job after ONE attempt on anything that is not `Retry`,
+# `RetryJob` or `CancelledError` (`arq/worker.py::run_job`, read at 0.28.0; the same
+# sentence is in `WorkerSettings.max_tries`). So one database blip or one engine timeout
+# dropped extraction, the lead upsert, metering and the hot-lead alert to manual replay —
+# and the reconciliation poller could not recover it, because `ingest_engine_event` had
+# already written `status = 'completed'` and `_already_completed` skips on exactly that.
+#
+# ATTEMPT COUNTS COME FROM A REAL WORKER. A test that writes `ctx["job_try"]` itself can
+# only prove that an `if` compares two integers — it cannot notice that arq never calls
+# the branch, which is precisely how this survived in the ingest job (`ingest_ordering_test`
+# says the same thing, and its harness is reused here rather than copied).
+
+
+@pytest.fixture
+def _fast_ladder(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """The real ladder is 30s then 120s; its SHAPE is what these tests are about, not its
+    pace. Returns the alerts fired, because the terminal branch is part of the contract:
+    a call abandoned in silence is indistinguishable from a call that never happened."""
+    fired: list[tuple[str, str]] = []
+    monkeypatch.setattr(pipeline, "RETRY_BACKOFF_S", (0.02, 0.02))
+    monkeypatch.setattr(
+        pipeline, "alert", lambda stage, code, **kw: fired.append((str(stage), str(code)))
+    )
+    return fired
+
+
+class _RefusingEngine:
+    """An engine whose authenticated read always fails the same way."""
+
+    name = "fake"
+
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    async def get_execution(self, call_id: str) -> Any:
+        raise self._exc
+
+
+async def test_an_engine_blip_gets_the_whole_retry_ladder_on_a_real_worker(
+    monkeypatch: pytest.MonkeyPatch, _fast_ladder: list[tuple[str, str]]
+) -> None:
+    """The fetch at the top of the pipeline was bare. A transport failure there is the
+    case that costs a lead: the engine was never asked, so nothing is wrong with the call
+    — and without a ladder the whole pipeline is gone for that call."""
+    tenant_id, execution_id, call_id = await _completed_call("ladder")
+    unreachable = ProblemError(
+        kind="dependency",
+        code="engine_unreachable",
+        title="Voice engine unreachable",
+        detail="The voice platform did not respond.",
+    )
+    monkeypatch.setattr(pipeline, "get_engine", lambda: _RefusingEngine(unreachable))
+
+    attempts = await _run_to_exhaustion(
+        pipeline.run_post_call_pipeline,
+        {
+            "tenant_id": str(tenant_id),
+            "call_id": str(call_id),
+            "engine": "fake",
+            "execution_id": execution_id,
+        },
+    )
+
+    assert attempts == WORKER_MAX_TRIES, (
+        f"an engine that never answered must get the ladder; the worker ran it {attempts} time(s)"
+    )
+    assert ("WORKER_TERMINAL", "post_call_abandoned") in _fast_ladder, (
+        "the end of the ladder is still a lost lead and has to say so"
+    )
+
+
+async def test_an_execution_the_engine_rejects_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch, _fast_ladder: list[tuple[str, str]]
+) -> None:
+    """The other half of a retry policy: knowing what not to retry. `engine_rejected` is
+    the engine ANSWERING — for a re-fetch, overwhelmingly a 404 for an execution it does
+    not hold. The same GET fails identically two minutes later, and the ladder buys
+    nothing but a later alert and three times the load on a platform already saying no.
+
+    Same split as `ingest_engine_event`, from the same `_is_transient`, because two retry
+    policies for one engine is how the two would come to disagree."""
+    tenant_id, execution_id, call_id = await _completed_call("verdict")
+    rejected = ProblemError(
+        kind="dependency",
+        code="engine_rejected",
+        title="Voice engine rejected the request",
+        detail="The voice platform could not complete this operation.",
+    )
+    monkeypatch.setattr(pipeline, "get_engine", lambda: _RefusingEngine(rejected))
+
+    attempts = await _run_to_exhaustion(
+        pipeline.run_post_call_pipeline,
+        {
+            "tenant_id": str(tenant_id),
+            "call_id": str(call_id),
+            "engine": "fake",
+            "execution_id": execution_id,
+        },
+    )
+
+    assert attempts == 1, f"a verdict is not a blip; the worker ran it {attempts} time(s)"
+    assert ("WORKER_TERMINAL", "post_call_abandoned") in _fast_ladder
+
+
+async def test_a_malformed_job_payload_is_not_retried(
+    _fast_ladder: list[tuple[str, str]],
+) -> None:
+    """A payload is fixed for the life of the job: three parses of the same dict fail
+    three identical times. It is reported as a `validation` ProblemError so the ONE
+    transient/permanent split classifies it, rather than the job growing a second one."""
+    attempts = await _run_to_exhaustion(
+        pipeline.run_post_call_pipeline, {"engine": "fake", "call_id": "not-a-uuid"}
+    )
+
+    assert attempts == 1, f"a broken payload was retried {attempts} times"
+    assert ("WORKER_TERMINAL", "post_call_abandoned") in _fast_ladder
+
+
+async def test_a_retry_after_a_partial_run_does_not_bill_the_call_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE PROOF THE RETRY LADDER RESTS ON, and the reason it is a test and not a claim.
+
+    `usage_events` and `credit_ledger` are INSERT-only (hard rule 4), so a second run
+    that meters again cannot be undone — only compensated. This drives the exact shape
+    the ladder now creates: a run that gets PAST metering and then fails, followed by a
+    retry that completes. If the ledger were not idempotent, this is the test that would
+    be red, and the ladder would have to be a poller-side redrive instead.
+
+    The tenant is `self_serve` so the credit debit runs too — a managed tenant is
+    invoiced against a retainer and never touches `credit_ledger`, which would have made
+    this test prove half of what it says.
+    """
+    tenant_id, execution_id, call_id = await _completed_call("nodouble")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET plan_tier = 'self_serve' WHERE id = :t"),
+            {"t": tenant_id},
+        )
+
+    # Step 6 — AFTER metering, which is what makes this a partial run rather than a
+    # no-op. The first attempt dies there; the second is allowed through.
+    real_notify = pipeline._maybe_notify_hot_lead
+    calls = {"n": 0}
+
+    async def _fail_once(*args: Any, **kwargs: Any) -> str:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("a database blip after the ledger was written")
+        return await real_notify(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "_maybe_notify_hot_lead", _fail_once)
+    monkeypatch.setattr(pipeline, "alert", lambda *a, **k: None)
+
+    payload = {
+        "tenant_id": str(tenant_id),
+        "call_id": str(call_id),
+        "engine": "fake",
+        "execution_id": execution_id,
+    }
+    # Attempt 1: a transient failure asks arq for a retry rather than finishing the job.
+    with pytest.raises(Retry):
+        await pipeline.run_post_call_pipeline({"job_try": 1}, payload)
+    metered_once = await _ledger_state(tenant_id, call_id)
+    assert metered_once["usage_rows"] > 0, "the partial run must really have metered"
+
+    # Attempt 2: the retry arq would make, completing the job.
+    assert await pipeline.run_post_call_pipeline({"job_try": 2}, payload) == "ok"
+
+    assert await _ledger_state(tenant_id, call_id) == metered_once, (
+        "the retry billed the call a second time — usage_events and credit_ledger are "
+        "INSERT-only, so this is a charge that can only be compensated, never removed"
+    )
+    assert calls["n"] == 2, "the second attempt really did re-run the stage that failed"
+
+
+async def _ledger_state(tenant_id: UUID, call_id: UUID) -> dict[str, Any]:
+    """Everything a double-run would move: the usage rows, the money on them, the credit
+    debit, and the spend counter the cap is enforced against."""
+    async with tenant_session(tenant_id) as session:
+        usage = (
+            await session.execute(
+                text(
+                    "SELECT count(*), COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)), 0) "
+                    "FROM usage_events WHERE call_id = :c AND tenant_id = :t"
+                ),
+                {"c": call_id, "t": tenant_id},
+            )
+        ).first()
+        debits = (
+            await session.execute(
+                text(
+                    "SELECT count(*), COALESCE(SUM(delta), 0) FROM credit_ledger "
+                    "WHERE ref = :r AND reason = 'usage' AND tenant_id = :t"
+                ),
+                {"r": str(call_id), "t": tenant_id},
+            )
+        ).first()
+        spend = (
+            await session.execute(
+                text("SELECT minutes_used, spend_used FROM spend_state WHERE tenant_id = :t"),
+                {"t": tenant_id},
+            )
+        ).first()
+    assert usage is not None and debits is not None
+    return {
+        "usage_rows": int(usage[0]),
+        "usage_cost": Decimal(str(usage[1])),
+        "credit_rows": int(debits[0]),
+        "credit_delta": Decimal(str(debits[1])),
+        "minutes_used": Decimal(str(spend[0])) if spend else None,
+        "spend_used": Decimal(str(spend[1])) if spend else None,
+    }

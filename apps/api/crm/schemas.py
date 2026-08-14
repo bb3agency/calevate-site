@@ -311,7 +311,16 @@ class DashboardOut(Strict):
     # it is holding, and prompt for the intake that turns the guess into the fact.
     after_hours_basis: Literal["business_hours", "default_window"] = "default_window"
     # Client-facing spend is INR NUMERIC, never a float (hard rule 7).
-    minutes_used_month: Decimal | None = None
+    #
+    # NOT nullable, and no default. It was `Decimal | None = None` while the dashboard
+    # read `spend_state` directly and a tenant with no row that month produced nothing
+    # to send. `read_spend_counters` closed that: an absent OR month-stale row answers
+    # `NO_SPEND_THIS_MONTH` — a real, correct zero — so the null arm became a state the
+    # server can no longer be in, and a nullable field the server never nulls is a
+    # branch every consumer must write and no test can ever reach. Zero minutes and
+    # "we could not say" are different facts; this field now only ever carries the
+    # first, and the second would have to be modelled deliberately if it returns.
+    minutes_used_month: Decimal
     # The stacked bar chart: the last 7 IST calendar days, OLDEST FIRST, ending today.
     #
     # ALWAYS exactly 7 entries. A day with no calls answers zero rather than going

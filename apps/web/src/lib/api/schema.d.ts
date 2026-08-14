@@ -2043,7 +2043,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Recompute the audit hash chain and report the first broken link */
+        /** Recompute the audit hash chain and report every broken link */
         get: operations["verify_audit_chain_v1_ops_audit_verify_get"];
         put?: never;
         post?: never;
@@ -2655,18 +2655,70 @@ export interface components {
             /** Spend Used Inr */
             spend_used_inr: string;
         };
-        /** ChainVerifyOut */
+        /**
+         * ChainBreakOut
+         * @description One broken link, dated, and told apart from the other kind.
+         *
+         *     `content` = the entry no longer hashes to its own recorded hash, i.e. its fields
+         *     were edited. `link` = the entry is intact but names the wrong predecessor, i.e.
+         *     something was deleted or reordered. The operator's next move is different for each,
+         *     so the verdict carries which one it is rather than making them go and look.
+         */
+        ChainBreakOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Entry Id */
+            entry_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "link" | "content";
+        };
+        /**
+         * ChainVerifyOut
+         * @description The verdict, the scope it is a verdict over, and EVERY break rather than one.
+         *
+         *     `ok` alone is not an answer. The walk used to stop at the oldest 1,000 entries and
+         *     still report a bare `ok: true`, so on any log longer than that the green box said
+         *     nothing about recent activity while reading exactly like a full audit — the console
+         *     could only compensate by hard-coding the limit in its own copy. The scope now
+         *     travels with the verdict: how many entries were recomputed, the `at` range they
+         *     span, and whether the walk reached the end of the log.
+         *
+         *     It also used to stop AT the first break and report only that one. `audit_log` is
+         *     append-only, so a break can never be repaired — meaning a single historical break
+         *     would have pinned this endpoint to `ok: false` forever while leaving every entry
+         *     after it unexamined, which is both a permanently red light nobody reads and a way
+         *     for an attacker to switch off verification of the window they actually care about.
+         *     The walk now re-anchors and continues; `breaks` names them all.
+         */
         ChainVerifyOut: {
+            /** Breaks */
+            breaks: components["schemas"]["ChainBreakOut"][];
+            /** Breaks Found */
+            breaks_found: number;
             /**
              * Checked
              * @default audit_log
              * @constant
              */
             checked: "audit_log";
+            /** Complete */
+            complete: boolean;
+            /** Entries Checked */
+            entries_checked: number;
             /** First Bad Entry Id */
-            first_bad_entry_id?: string | null;
+            first_bad_entry_id: string | null;
+            /** Newest Checked At */
+            newest_checked_at: string | null;
             /** Ok */
             ok: boolean;
+            /** Oldest Checked At */
+            oldest_checked_at: string | null;
         };
         /** CheckIn */
         CheckIn: {
@@ -2991,7 +3043,7 @@ export interface components {
             /** Leads New 7D */
             leads_new_7d: number;
             /** Minutes Used Month */
-            minutes_used_month?: string | null;
+            minutes_used_month: string;
             /** Outcome Split */
             outcome_split?: {
                 [key: string]: number;

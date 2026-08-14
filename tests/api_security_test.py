@@ -104,6 +104,55 @@ async def test_unauthenticated_request_gets_problem_json_not_a_stack_trace() -> 
     assert "trace_id" in body
 
 
+async def test_the_dashboard_route_answers_over_http_for_the_session_tenant() -> None:
+    """The route body, not just the service function underneath it.
+
+    Five test modules exercise `crm.service.dashboard` directly and none of them went
+    through the router, so `crm/routes.py:get_dashboard` was an uncovered line on a
+    hard-rule-5 surface — the coverage ratchet's `dial-path` area named it and this is
+    the answer. The gap matters beyond the count: the service takes a tenant-scoped
+    session and derives the tenant from `app.tenant_id` (`db.session.session_tenant`),
+    so everything about whether the RIGHT tenant is answered for lives in the dependency
+    chain this test is the only thing to run — a direct call passes its own session and
+    proves nothing about it.
+
+    Two tenants, because "answers" and "answers about the caller" are different claims
+    and one tenant cannot tell them apart.
+    """
+    tenant_a, slug_a, token_a = await _make_tenant()
+    _, slug_b, token_b = await _make_tenant()
+
+    async with _client() as http:
+        a = await http.get(
+            "/v1/dashboard",
+            headers={"Authorization": f"Bearer {token_a}", "X-Org-Slug": slug_a},
+        )
+        b = await http.get(
+            "/v1/dashboard",
+            headers={"Authorization": f"Bearer {token_b}", "X-Org-Slug": slug_b},
+        )
+
+    assert a.status_code == 200, a.text
+    assert b.status_code == 200, b.text
+    body = a.json()
+    # `_make_tenant` inserts one lead and no calls, so the numbers are decidable rather
+    # than merely present — a test that only asserted the keys would pass on a handler
+    # returning a zeroed model for the wrong tenant.
+    assert body["leads_new_7d"] == 1
+    assert body["calls_today"] == 0
+    assert len(body["daily_7d"]) == 7, "the server zero-fills the week (crm/schemas.py)"
+    # Required on the wire now, not defaulted: this field lost its `| None` when
+    # `read_spend_counters` made "no row this month" a real zero, and a nullable field
+    # the server never nulls is a branch every consumer writes and no test can reach.
+    assert body["minutes_used_month"] == "0"
+    # Hard rule 6: the dashboard is aggregate counts. No phone number may ride along.
+    assert "+91" not in a.text
+
+    # Tenant B's own answer, from the same handler, scoped by its own session.
+    assert b.json()["leads_new_7d"] == 1
+    assert tenant_a is not None
+
+
 async def test_each_tenant_sees_only_its_own_leads_through_the_api() -> None:
     """The RLS test proves the database isolates; this proves the API does not undo it."""
     _, slug_a, token_a = await _make_tenant()

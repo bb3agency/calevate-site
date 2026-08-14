@@ -168,9 +168,16 @@ def _csv_phones(body: str) -> set[str]:
     The lesson is worth the four lines: a test that parses the format under test loosely
     goes red for reasons that are not its subject, and the next reader has to decide
     whether the product or the assertion is wrong.
+
+    THE TAB IS PART OF THE FORMAT, not noise to be tolerated. Every scalar column goes
+    through `disarm_for_csv` now, and E.164 begins with `+` — a formula leader Excel
+    would otherwise evaluate, eating the country-code marker — so every phone cell is
+    tab-prefixed. Stripping it here is this reader's job; `redteam_extraction_poisoning_test`
+    is where the prefix itself is asserted, and these tests are about which ROWS the
+    export contains.
     """
     rows = list(csv.reader(io.StringIO(body.strip())))
-    return {row[0] for row in rows[1:] if row}
+    return {row[0].removeprefix("\t") for row in rows[1:] if row}
 
 
 # --------------------------------------------------------------- 1. export filters

@@ -466,6 +466,19 @@ export default function CampaignsPage() {
   // screen whenever there IS a choice, defaulted to the first.
   const agentOptions = agents.data ?? [];
   const selectedAgentId = agentId || agentOptions[0]?.id || "";
+  /**
+   * This account has no agent — as a FACT FROM THE SERVER, not as "the list is empty
+   * right now". `agentOptions` is also empty while `/v1/agents` is in flight and after
+   * it has FAILED, and the sentence below it used to gate ("your account manager builds
+   * one before campaigns can run") is a claim about this business's setup, on the screen
+   * where an owner decides whether their campaigns can run at all. Rendered over a 503
+   * it sends them to their account manager for an agent they already have.
+   *
+   * `!agents.isLoading` was not enough: a settled-and-failed query is not loading.
+   * Same spelling as `hasNoAgents` two screens away in `/c/<slug>/knowledge` — the
+   * repo already solved this and a fourth spelling is where the drift starts.
+   */
+  const hasNoAgents = Boolean(agents.data) && agentOptions.length === 0;
   // Null, not "draft", until the server says: defaulting to draft renders the
   // contact-upload and launch cards over a campaign that is already running.
   const status = progress.data?.status ?? null;
@@ -507,6 +520,21 @@ export default function CampaignsPage() {
 
       {campaigns.error && (
         <ProblemNotice error={campaigns.error} onRetry={() => campaigns.refetch()} />
+      )}
+      {/* THE THREE READS THAT FAILED IN SILENCE.
+          `campaigns`, `progress`, `check`, `create` all surfaced their refusals; the
+          three lists the create form is BUILT FROM did not, so each failure degraded
+          into something the screen stated as fact. Agents: the empty-state sentence
+          above (see `hasNoAgents`). Numbers and templates: two `<select>`s holding
+          nothing but "Choose a number…" / "Choose a template…", a client concluding
+          their account has neither, and no refusal anywhere on the page to contradict
+          it. A picker that cannot be filled is a dead form, and a dead form needs the
+          reason next to it — the same argument `/c/<slug>/knowledge` makes for its own
+          agents notice. Retryable, because all three are plain GETs. */}
+      {agents.error && <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />}
+      {numbers.error && <ProblemNotice error={numbers.error} onRetry={() => numbers.refetch()} />}
+      {templates.error && (
+        <ProblemNotice error={templates.error} onRetry={() => templates.refetch()} />
       )}
       {progress.error && <ProblemNotice error={progress.error} onRetry={() => progress.refetch()} />}
       {addContacts.error && <ProblemNotice error={addContacts.error} />}
@@ -838,7 +866,7 @@ export default function CampaignsPage() {
                   can&apos;t be launched.
                 </p>
               )}
-              {!agents.isLoading && agentOptions.length === 0 && (
+              {hasNoAgents && (
                 <p className="text-xs text-ink-faint">
                   No agent is set up yet — your account manager builds one before
                   campaigns can run.

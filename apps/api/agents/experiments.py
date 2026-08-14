@@ -19,23 +19,48 @@ It is deliberately a THIN layer over what exists:
   parallel publishing path with none of §2b's guarantees.
 * **Assignment rides the one outbound entry point** (`service.dispatch_call`), so the
   campaign dispatcher, the leads button and the callback path are all covered without
-  any of them importing this module.
+  any of them importing this module. The post-call pipeline is the only other writer,
+  and it records only what the engine has already told us — see the next section.
 
-WHAT IT CANNOT DO, SAID PLAINLY RATHER THAN HIDDEN
----------------------------------------------------
-**Inbound calls are not attributed.** An inbound call row is created by
-`apps/workers/pipeline.py` from the engine's webhook, and nothing in that path consults
-an experiment. Two consequences, both enforced here rather than left to a reader:
+INBOUND: WHAT WE CAN HONESTLY SAY, AND WHAT WE REFUSE TO SAY
+--------------------------------------------------------------
+An A/B test needs two things: two scripts, and traffic SPLIT between them. Outbound has
+both, because we choose to dial and can therefore choose an arm first. Inbound has only
+the first, and the reason is not a missing lookup — it is the shape of a phone call:
 
-* `start` REFUSES an agent whose `direction` is `inbound` — an experiment that could
-  never attribute a single call is not a feature, it is a screen that says "not enough
-  data" forever.
-* For a `both` agent the results carry `attributed_directions = ("outbound",)` and the
-  UI prints it. The inbound calls are not in the denominator, are not silently in the
-  numerator, and the reader is told which half they are looking at.
+* The caller dials the client's number. FLOWS §3: that number answers with the agent, so
+  the script they hear was fixed by the agent's live prompt pointer before the phone
+  rang. Nothing about that call is a draw of ours, and none of it is undone by noticing
+  the call afterwards.
+* Drawing a bucket when the call row is created would therefore name an arm the caller
+  never heard, on a screen that reports it as a measured conversion rate. That is the
+  one failure this feature cannot survive, and it is refused in
+  `workers/pipeline.py::_record_arm_the_engine_ran` rather than merely avoided.
+* The agent's live prompt version may happen to EQUAL an arm's version — usually the
+  control's. Attributing inbound to that arm on those grounds is worse than useless: it
+  is 100% of inbound landing in one arm by construction, so the arm that never gets any
+  is being compared against a different population. Newcombe's interval assumes two
+  randomised binomials and would silently describe the direction mix instead of the
+  script.
 
-Closing that gap needs an assignment lookup at inbound call creation, in a file this
-wave does not own. It is a seam, and it is named here rather than half-wired.
+What IS honest is a fact the engine reports. Every arm is published as its OWN engine
+agent with its own ref (`service.publish_variant`), so `ExecutionSnapshot.
+engine_agent_ref` answers "which script object ran this call?" without any inference.
+The pipeline records an arm when — and only when — that ref names one. In today's
+provisioning (one number set per client, attached to the agent) an inbound call names
+the agent, so it carries no arm; if a client's telephony account is ever wired to answer
+a DID with an arm, those calls ARE that arm's and are recorded as such.
+
+Consequences, all of them enforced here rather than left to a reader:
+
+* `start` still REFUSES an `inbound`-only agent: none of its calls would be split, so
+  the screen would say "not enough data" forever.
+* `attributed_directions` is READ FROM THE ASSIGNED CALLS, never asserted. It was the
+  literal `("outbound",)` and that was a claim about code, not a measurement; the
+  moment the two disagreed, the screen would have been the last thing to find out.
+* A `both` agent's coverage note prints the number of completed inbound calls in the
+  experiment's window that are in NEITHER arm, so the size of the excluded traffic is
+  visible rather than merely admitted.
 
 COMPLIANCE (hard rule 5) — WHAT AN EXPERIMENT MUST NOT WEAKEN
 --------------------------------------------------------------
@@ -93,9 +118,17 @@ PEEKING_CAVEAT = (
     "the interval, not on the first day it looks good."
 )
 
-ONLY_OUTBOUND_NOTE = (
-    "Only outbound calls are assigned to an arm. Inbound calls to this agent are "
-    "counted in neither variant, so this comparison describes the outbound motion only."
+# The coverage sentences. Assembled by `_coverage_note` from what the DATA says, so the
+# screen cannot promise a coverage the assignment rows do not have.
+INBOUND_NOT_SPLIT_NOTE = (
+    "Only outbound calls are split between the arms: an inbound caller reaches the "
+    "number's own agent, so the script they hear was decided before they dialled and we "
+    "never choose an arm for them."
+)
+INBOUND_ON_AN_ARM_NOTE = (
+    "Some inbound calls were answered by an arm's own line and are counted in it. "
+    "Inbound traffic is not split between the arms, so those calls all land in one of "
+    "them — read the comparison with that in mind."
 )
 
 
@@ -147,7 +180,12 @@ class ExperimentResults:
     difference_high: float | None
     headline: str
     caveat: str
+    # The directions of the calls that actually carry an arm — measured, not assumed,
+    # and empty until the first call is attributed.
     attributed_directions: tuple[str, ...]
+    # Completed inbound calls in this experiment's window that carry no arm. The size of
+    # what the comparison leaves out, which "outbound only" states without quantifying.
+    unattributed_inbound: int
     coverage_note: str
 
 
@@ -229,7 +267,8 @@ async def start(
 
     - **not live / not published** — an arm is an engine agent; there is nothing to
       publish it beside.
-    - **inbound-only agent** — nothing would ever be assigned (module docstring).
+    - **inbound-only agent** — none of its traffic can be split between the arms, so the
+      screen would read "not enough data" for ever (module docstring).
     - **the same version twice** — an A/A test measures the noise floor, which is a
       genuinely useful thing to run, but not through a surface that will report "no
       difference" as if it were a finding about two scripts.
@@ -274,12 +313,14 @@ async def start(
             raise ProblemError.business_rule(
                 "experiment_needs_outbound",
                 (
-                    "Script tests are assigned when a call is placed, and this agent only "
-                    "receives calls."
+                    "A script test splits traffic between two arms when a call is placed, "
+                    "and this agent only receives calls."
                 ),
                 remediation=(
-                    "Inbound attribution is not built yet. Run the test on an outbound or "
-                    "two-way agent."
+                    "An inbound caller reaches the agent's own line, so there is no point "
+                    "at which we could send them to one arm rather than the other — and "
+                    "deciding afterwards would credit a script they never heard. Run the "
+                    "test on an outbound or two-way agent."
                 ),
             )
 
@@ -415,6 +456,46 @@ _LATEST_SQL = (
     "WHERE e.agent_id = :aid ORDER BY (e.status = 'running') DESC, e.started_at DESC LIMIT 1"
 )
 
+# What the numbers on the screen actually cover, asked of the rows rather than asserted
+# by the module that writes them. `call_variant_assignments` carries the experiment id,
+# so this needs no join to the variants.
+_DIRECTIONS_SQL = (
+    "SELECT DISTINCT c.direction FROM call_variant_assignments a "
+    "JOIN calls c ON c.id = a.call_id WHERE a.experiment_id = :eid ORDER BY 1"
+)
+
+# The traffic the comparison leaves out: completed inbound calls to this agent, inside
+# the experiment's window, that no arm claims. `started_at` is null on a row the engine
+# has not reported a start for, so the window falls back to when we created it — the
+# alternative, dropping those rows, would UNDERCOUNT exactly the calls that went wrong.
+_UNATTRIBUTED_INBOUND_SQL = (
+    "SELECT count(*) FROM calls c WHERE c.agent_id = :aid AND c.direction = 'inbound' "
+    "AND c.status = 'completed' AND COALESCE(c.started_at, c.created_at) >= :started "
+    "AND (CAST(:concluded AS timestamptz) IS NULL "
+    "     OR COALESCE(c.started_at, c.created_at) <= CAST(:concluded AS timestamptz)) "
+    "AND NOT EXISTS (SELECT 1 FROM call_variant_assignments a WHERE a.call_id = c.id)"
+)
+
+
+def _coverage_note(
+    *, agent_direction: str, directions: tuple[str, ...], unattributed_inbound: int
+) -> str:
+    """The sentence under the headline. Empty for an outbound-only agent, which has no
+    coverage question to answer."""
+    parts: list[str] = []
+    if agent_direction != "outbound":
+        parts.append(INBOUND_NOT_SPLIT_NOTE)
+        if unattributed_inbound:
+            parts.append(
+                f"{unattributed_inbound} completed inbound call"
+                f"{'' if unattributed_inbound == 1 else 's'} in this window "
+                f"{'is' if unattributed_inbound == 1 else 'are'} in neither arm."
+            )
+    if "inbound" in directions:
+        parts.append(INBOUND_ON_AN_ARM_NOTE)
+    return " ".join(parts)
+
+
 METRIC_LABELS = {
     "call_outcome_resolved": "calls the agent resolved",
     "lead_won": "leads eventually won",
@@ -528,6 +609,12 @@ async def results_for(*, tenant_id: UUID, agent_id: UUID) -> ExperimentResults |
     A pure READ, gated on `agents:read` by its route (D-22): it is the screen somebody
     opens to find out whether a test can be stopped, and a support person looking at the
     client's console must be able to see the same thing.
+
+    Three queries and all three are counts of rows: the arms' tallies, the DIRECTIONS
+    those tallied calls actually ran in, and the inbound traffic no arm claims. The
+    second and third exist because the coverage of a comparison has to be measured from
+    the same rows the comparison is made of — a coverage stated as a constant is right
+    only until the day the writers change, and wrong silently thereafter.
     """
     async with tenant_session(tenant_id) as session:
         agent = await _agent(session, agent_id)
@@ -541,6 +628,18 @@ async def results_for(*, tenant_id: UUID, agent_id: UUID) -> ExperimentResults |
                 text(_counts_sql(CONVERSION_METRICS[metric])), {"eid": experiment_id}
             )
         ).all()
+        directions = tuple(
+            str(r[0])
+            for r in (await session.execute(text(_DIRECTIONS_SQL), {"eid": experiment_id})).all()
+        )
+        unattributed_inbound = int(
+            (
+                await session.execute(
+                    text(_UNATTRIBUTED_INBOUND_SQL),
+                    {"aid": agent_id, "started": header[4], "concluded": header[5]},
+                )
+            ).scalar_one()
+        )
 
     variants = [_variant_result(tuple(r)) for r in rows]
     basis, verdict, leader, winner, headline = judge(variants)
@@ -575,8 +674,13 @@ async def results_for(*, tenant_id: UUID, agent_id: UUID) -> ExperimentResults |
         difference_high=difference.high if difference else None,
         headline=headline,
         caveat=PEEKING_CAVEAT,
-        attributed_directions=("outbound",),
-        coverage_note=ONLY_OUTBOUND_NOTE if agent.direction != "outbound" else "",
+        attributed_directions=directions,
+        unattributed_inbound=unattributed_inbound,
+        coverage_note=_coverage_note(
+            agent_direction=agent.direction,
+            directions=directions,
+            unattributed_inbound=unattributed_inbound,
+        ),
     )
 
 
@@ -722,8 +826,9 @@ async def conclude(
 
 
 __all__ = [
+    "INBOUND_NOT_SPLIT_NOTE",
+    "INBOUND_ON_AN_ARM_NOTE",
     "METRIC_LABELS",
-    "ONLY_OUTBOUND_NOTE",
     "PEEKING_CAVEAT",
     "ConcludeResult",
     "ExperimentResults",

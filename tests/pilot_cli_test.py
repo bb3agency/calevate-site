@@ -179,6 +179,18 @@ async def test_a_gate_contributed_by_a_sibling_module_is_picked_up() -> None:
     # the test above pins.
 
 
+async def test_human_gates_name_which_kind_of_human() -> None:
+    """3 and 5 are LISTENING gates and 9-12 are written answers. Both kinds must report a
+    reason that says so, rather than the generic 'belongs to another slice' — which
+    promises an implementation that is never coming and leaves a reader waiting for it."""
+    ctx = GateContext(engine=None, settings=_settings())  # type: ignore[arg-type]
+    results, _skipped = await runner.run_gates([3, 5], ctx)
+    assert [r.status for r in results] == ["not_run", "not_run"]
+    assert "by ear" in (results[0].blocked or "")
+    assert "by ear" in (results[1].blocked or "")
+    assert all("another slice" not in (r.blocked or "") for r in results)
+
+
 async def test_human_only_gates_say_why_they_are_human_only() -> None:
     ctx = GateContext(engine=None, settings=_settings())  # type: ignore[arg-type]
     results, _skipped = await runner.run_gates([12], ctx)
@@ -189,6 +201,15 @@ async def test_human_only_gates_say_why_they_are_human_only() -> None:
 def test_the_registry_carries_the_three_gates_this_slice_owns() -> None:
     runners, _ = runner.gate_registry()
     assert {1, 2, 6} <= set(runners)
+
+
+def test_every_module_that_ships_a_gate_is_actually_registered() -> None:
+    """The defect this assertion exists for: gate 8 shipped 1,100 lines of probes and no
+    `GATES` mapping, so the runner reported it as belonging to another slice. A module
+    listed in OPTIONAL_GATE_MODULES that contributes nothing is a gate nobody can run."""
+    runners, unavailable = runner.gate_registry()
+    assert not unavailable, unavailable
+    assert {4, 7, 8, 13} <= set(runners)
 
 
 # --- exit codes ---------------------------------------------------------------
@@ -282,9 +303,27 @@ def test_gate_numbers_must_be_numbers() -> None:
 
 def test_the_default_gate_set_is_this_slice() -> None:
     args = runner.build_parser().parse_args(["run"])
-    assert args.gates == "1,2,6"
+    assert args.gates is None
+    assert runner._requested_gates(args.gates) == [1, 2, 6]
     assert args.place_calls is False
     assert args.max_calls is None
+
+
+def test_repeating_the_gates_flag_accumulates_rather_than_overwriting() -> None:
+    """`--gates 7 --gates 8` must run BOTH. argparse's default for a value option is
+    last-one-wins, which would silently drop gate 7 — an omission the operator cannot see
+    in a command they typed themselves, which is the class of quiet loss this harness
+    exists to prevent."""
+    args = runner.build_parser().parse_args(["run", "--gates", "7", "--gates", "8"])
+    assert runner._requested_gates(args.gates) == [7, 8]
+    mixed = runner.build_parser().parse_args(["run", "--gates", "1,2", "--gates", "6"])
+    assert runner._requested_gates(mixed.gates) == [1, 2, 6]
+
+
+def test_a_gate_named_twice_runs_once() -> None:
+    """A gate appearing twice in the output is a gate a reader has to reconcile with
+    itself, and the duplicate's result is the one a dict-keyed reader would keep."""
+    assert runner._requested_gates(["2", "1,2"]) == [2, 1]
 
 
 def test_the_opt_in_flag_is_spelled_out_in_the_parser() -> None:

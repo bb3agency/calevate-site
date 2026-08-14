@@ -21,6 +21,7 @@ import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { Providers } from "@/app/providers";
 import { NOTICE_TONES } from "@/components/ui";
 import { useHeldTenants } from "@/lib/api/admin";
+import { AdminRealmClerkProvider } from "@/lib/auth/adminRealm";
 
 /**
  * Admin realm shell — `admin.calevate.tech`.
@@ -456,20 +457,63 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
   );
 }
 
+/**
+ * The console, behind the ADMIN Clerk application.
+ *
+ * This is the edit `app/(auth)/admin/sign-in/…/page.tsx` names as "the one remaining
+ * one": mounting the admin application on the sign-in page let an operator sign IN, but
+ * nothing put that session on the rest of `/admin/**`. Against a real Clerk deployment
+ * every screen here called `/v1/admin/*` with a credential `adminRealmToken` could not
+ * produce, so the whole surface was a wall of `AuthProblem` refusals — correct, in that
+ * it never fell back to anything, and useless, in that the sign-in page that would have
+ * fixed it was one nobody was sent to.
+ *
+ * `protect` is what sends them: `<Show when="signed-in" fallback={<RedirectToSignIn/>}>`
+ * inside `AdminRealmClerkProvider`, which redirects to `ADMIN_SIGN_IN_PATH` and renders
+ * null (not the fallback) while clerk-js is still deciding — so a signed-in operator
+ * never flashes a redirect on the way in.
+ *
+ * Three things this deliberately does NOT do:
+ *
+ * 1. **It does not share a line of session logic with the client realm.** The import is
+ *    `lib/auth/adminRealm`, whose twin `clientRealm` it never touches — two Clerk
+ *    applications, two publishable keys, two cookies (CLAUDE.md conventions, TRD §11,
+ *    D-37). `lib/api/session.tsx` mounts the client realm's provider the same way for
+ *    `/c/<slug>`; that this file reads like that one is the shape of the rule, not a
+ *    shared helper waiting to be extracted — a `realm` parameter on one provider is one
+ *    bad conditional away from presenting an admin credential on a client surface.
+ * 2. **It does not wrap the sign-in page.** `/admin/sign-in` lives in `app/(auth)/`, off
+ *    this layout's filesystem chain, precisely so this `protect` cannot redirect a
+ *    signed-out operator into a page it would itself protect — an infinite redirect.
+ *    That file's own docstring is the other half of this comment.
+ * 3. **It changes nothing about a local run.** `AdminRealmClerkProvider` returns
+ *    `children` untouched when `AUTH_MODE === "dev"` (lib/auth/mode.ts: unset variable
+ *    outside a production build), so with no Clerk keys configured the console renders
+ *    exactly the tree it rendered before and keeps speaking `dev:admin:` — no provider,
+ *    no clerk-js, no network. `tests/adminAuth.test.tsx` pins that, because "the console
+ *    still works locally" is the property this edit could most easily have broken.
+ *
+ * The provider sits OUTSIDE `Providers` on purpose. Everything below it makes
+ * authenticated calls the moment it mounts — `useAdminMe` and `useHeldTenants` fire from
+ * the shell itself — and a QueryClient mounted above the auth gate would start those
+ * queries for someone on their way to the sign-in page.
+ */
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   return (
-    <Providers>
-      <div className="fixed inset-0 flex overflow-hidden bg-app font-sans">
-        <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <TopHeader onMenuToggle={() => setIsMobileOpen(true)} />
-          <main className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
-            <div className="mx-auto max-w-[1280px]">{children}</div>
-          </main>
+    <AdminRealmClerkProvider protect>
+      <Providers>
+        <div className="fixed inset-0 flex overflow-hidden bg-app font-sans">
+          <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <TopHeader onMenuToggle={() => setIsMobileOpen(true)} />
+            <main className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
+              <div className="mx-auto max-w-[1280px]">{children}</div>
+            </main>
+          </div>
         </div>
-      </div>
-    </Providers>
+      </Providers>
+    </AdminRealmClerkProvider>
   );
 }

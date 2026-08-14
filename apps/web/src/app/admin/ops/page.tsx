@@ -1384,11 +1384,13 @@ function OutboxReplayPanel({
  *    row was edited, deleted or reordered — evidence of tampering, or of a writer that
  *    bypassed `write_audit`. That does not belong in a toast that fades: it stays on
  *    screen, in the stop palette, naming the entry.
- * 3. **What it does NOT prove is on screen too.** `verify_chain` walks `ORDER BY at ASC
- *    LIMIT 1000` — the OLDEST thousand entries. On a log longer than that, an intact
- *    verdict says nothing whatsoever about last night, which is the half an operator
- *    would otherwise assume. The route publishes no way to ask for a window, so the
- *    honest move is to state the limit rather than let a green box imply a full audit.
+ * 3. **What it does NOT prove is on screen too.** The verdict now travels with its
+ *    SCOPE — `entries_checked`, the `at` range, and `complete`, which is true only when
+ *    the walk reached the end of the log. This copy used to hard-code "the oldest 1,000
+ *    entries" because the route walked a fixed limit and published no scope, so the
+ *    console had to compensate in prose. That prose outlived the limit and became false
+ *    in the other direction, which is the argument for rendering the server's own
+ *    numbers rather than a sentence about them: a fixed string cannot track a fix.
  *
  * The verdict is stamped with the moment it was asked for, because a verification carries
  * an implicit "as of", and one left on screen while an operator works elsewhere is
@@ -1403,8 +1405,9 @@ function AuditChainPanel({ access }: { access: OpsAccess }) {
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
           Recomputes the hash chain over <span className="font-mono">audit_log</span> and
-          reports the first broken link. It is the check behind the quarterly compliance
-          drill (OPERATIONS §6) and the one to run when a client disputes a record.
+          reports every broken link, not just the first. It is the check behind the
+          quarterly compliance drill (OPERATIONS §6) and the one to run when a client
+          disputes a record.
         </p>
 
         {verify.error && <ProblemNotice error={verify.error} />}
@@ -1418,20 +1421,59 @@ function AuditChainPanel({ access }: { access: OpsAccess }) {
             title="AUDIT CHAIN VERIFICATION FAILED"
           >
             <p className="mt-1">
-              The recomputed hash does not match at{" "}
-              <span className="font-mono font-semibold">
-                {verify.data.first_bad_entry_id ?? "an entry the server did not name"}
-              </span>
-              . Every entry after it is unverifiable until this is explained.
+              {verify.data.breaks_found === 1
+                ? "The recomputation disagrees with the table in one place."
+                : `The recomputation disagrees with the table in ${formatCount(verify.data.breaks_found)} places.`}{" "}
+              The walk did not stop at the first — it re-anchored and carried on, so what
+              follows covers the whole log, not the part before the earliest break.
             </p>
+            {/* Every break, dated and typed. A single line naming only the first is how a
+                historical break — which an append-only ledger can never repair — hides
+                tonight's, and how an attacker buys silence on the recent past by damaging
+                something old. `at` is what lets an operator tell those two apart. */}
+            {verify.data.breaks.length > 0 ? (
+              <ul className="mt-2 space-y-1">
+                {verify.data.breaks.map((entry) => (
+                  <li key={entry.entry_id} className="text-sm">
+                    <span className="font-mono font-semibold">{entry.entry_id}</span>
+                    {" — "}
+                    {entry.kind === "content"
+                      ? "its own fields no longer hash to its recorded hash (edited)"
+                      : "it names the wrong predecessor (deleted or reordered)"}
+                    {", "}
+                    {formatIST(entry.at)}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2">
+                The server reported a break at{" "}
+                <span className="font-mono font-semibold">
+                  {verify.data.first_bad_entry_id ?? "an entry it did not name"}
+                </span>{" "}
+                without listing it.
+              </p>
+            )}
+            {verify.data.breaks_found > verify.data.breaks.length && (
+              <p className="mt-2">
+                Only the first {formatCount(verify.data.breaks.length)} are listed;{" "}
+                {formatCount(verify.data.breaks_found - verify.data.breaks.length)} more
+                were found. At this scale the count matters more than the rows — query{" "}
+                <span className="font-mono">audit_log</span> directly.
+              </p>
+            )}
             <p className="mt-2">
               <span className="font-semibold">Treat this as an incident.</span> The ledger
               is INSERT-only, so a break means an entry was edited, deleted or reordered
               in the database, or something wrote to it without going through write_audit.
-              Do not re-run and move on: capture the entry id above, and do not let anyone
-              &quot;repair&quot; the row — the break is the evidence.
+              Do not re-run and move on: capture the entry ids above, and do not let anyone
+              &quot;repair&quot; the rows — the break is the evidence.
             </p>
-            <p className="mt-2 text-xs">Checked at {asOf}.</p>
+            <p className="mt-2 text-xs">
+              {verify.data.complete
+                ? `Whole log checked — ${formatCount(verify.data.entries_checked)} entries. Checked at ${asOf}.`
+                : `Covers ${formatCount(verify.data.entries_checked)} entries only, so there may be more beyond them. Checked at ${asOf}.`}
+            </p>
           </NoticeBox>
         )}
 
@@ -1445,12 +1487,14 @@ function AuditChainPanel({ access }: { access: OpsAccess }) {
               Every link recomputed cleanly, so nothing in that range was edited, deleted
               or reordered.
             </p>
-            {/* The limit, beside the green box rather than in a tooltip: this is the
-                sentence that stops "verified" being read as "the whole log is verified". */}
+            {/* The scope, beside the green box rather than in a tooltip: this is what
+                stops "verified" being read as "the whole log is verified". It is the
+                server's own count and range — an incomplete walk must never be allowed
+                to read like a full audit. */}
             <p className="mt-2">
-              This covers the OLDEST 1,000 entries only (verify_chain walks the log
-              forwards with a limit). On a longer log it says nothing about recent
-              activity.
+              {verify.data.complete
+                ? `Whole log checked — ${formatCount(verify.data.entries_checked)} entries, from the first row to the last.`
+                : `This covers ${formatCount(verify.data.entries_checked)} entries only, so it says nothing about the rest of the log.`}
             </p>
             <p className="mt-2 text-xs">Checked at {asOf}.</p>
           </NoticeBox>

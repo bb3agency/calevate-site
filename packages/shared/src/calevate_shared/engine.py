@@ -106,6 +106,15 @@ class CostBreakdown(BaseModel):
 
     Vendors quote in their own currency (Bolna: USD cents); the ADAPTER converts at
     capture and stamps the rate it used, so a ledger row can always be re-derived.
+
+    `currency_stated` is what separates a fact from a house assumption, and it exists
+    because the two were indistinguishable. `source_currency` was defaulted to `"USD"`
+    and Bolna's adapter set the same literal, so a reader — including pilot gate 7,
+    whose whole job is to check the currency — could only ever read our own guess back
+    and agree with it (OPERATIONS §2). Now `source_currency` still says which currency
+    the conversion ASSUMED, and `currency_stated` says whether the vendor said so:
+    False means nobody has confirmed it, and if the guess is wrong every INR row is out
+    by the exchange rate, in the direction that flatters our margin.
     """
 
     total_inr: Decimal
@@ -114,7 +123,10 @@ class CostBreakdown(BaseModel):
     llm_inr: Decimal | None = None
     tts_inr: Decimal | None = None
     stt_inr: Decimal | None = None
+    #: The currency the conversion treated the vendor's number as.
     source_currency: str = "USD"
+    #: True only when the PAYLOAD named that currency. False = house assumption.
+    currency_stated: bool = False
     source_amount: Decimal | None = None
     fx_rate: Decimal | None = None
 
@@ -143,7 +155,20 @@ class ExecutionSnapshot(BaseModel):
     to_e164: str | None = None
     recording_url: str | None = None
     transcript: list[TranscriptTurn] = Field(default_factory=list)
+    #: Transcript lines the adapter could NOT turn into a turn. Zero is the normal
+    #: answer and the only one that means anything: a parser that silently drops what it
+    #: does not recognise reports an empty transcript and a healthy call identically, so
+    #: gate 7 could only ever see a TOTAL parse failure. Counted rather than kept —
+    #: transcript TEXT is hard rule 6, and a count is not text.
+    transcript_lines_unparsed: int = 0
     cost: CostBreakdown | None = None
+    #: When the engine says the execution reached its billable-ready state. Bolna
+    #: populates cost, recording and extracted data only at `completed`, ~2-3 min after
+    #: disconnect, and NOTHING recorded that instant — so gate 7's time-to-`completed`
+    #: had no post-hoc route and the 2-minute lead SLO was un-auditable after the fact.
+    #: `now - ended_at` is deliberately not a substitute: it grows with how long the
+    #: operator took to look.
+    billable_ready_at: datetime | None = None
     engine_extracted: dict[str, Any] = Field(default_factory=dict)
     engine: str = "fake"
 

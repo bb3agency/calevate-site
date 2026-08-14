@@ -19,52 +19,23 @@ from typing import Any, Literal, get_args
 
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from calevate_shared.config import bolna_source_ips
 
 log = get_logger(__name__)
 
-# Bolna's static egress IP — their ONLY webhook authenticity control (D-31, TRD §5).
-# Enforced at nginx AND here: nginx config drifts, this does not.
+# Bolna's static egress IP is their ONLY webhook authenticity control (D-31, TRD §5),
+# and it is enforced at nginx AND here: nginx config drifts, this does not.
 #
-# This is the DEFAULT, not the source of truth. The address belongs to the vendor and
-# they can change it without telling us; while it is wrong every webhook 401s and every
-# call falls back to the 10-minute poller. Recovering from that must not require a code
-# change and a deploy of the one service that is deliberately never redeployed
-# casually (main.py) — so the effective set comes from `BOLNA_WEBHOOK_SOURCE_IPS`.
-DEFAULT_BOLNA_SOURCE_IPS: frozenset[str] = frozenset({"13.203.39.153"})
-
-
-def source_ips_from_settings(configured: str) -> frozenset[str]:
-    """Parse the configured allowlist. Fails SAFE, never open.
-
-    Three deliberate properties, because this string is the whole authenticity control
-    for an unsigned engine:
-
-    - entries must parse as literal IP addresses. A CIDR, a hostname or a `*` is not a
-      supported entry, so nobody can turn the allowlist into a wildcard by typing one
-      — and a typo cannot quietly widen trust;
-    - unusable entries are dropped with a log line, not silently accepted;
-    - if NOTHING usable remains, the built-in default stands. An empty allowlist would
-      reject the engine itself, which is a total outage; an operator who wants to stop
-      accepting webhooks stops the service, they do not blank a variable.
-    """
-    entries: set[str] = set()
-    for part in configured.split(","):
-        candidate = part.strip()
-        if not candidate:
-            continue
-        try:
-            ipaddress.ip_address(candidate)
-        except ValueError:
-            log.warning("webhook_allowlist_entry_ignored", extra={"reason": "not an ip address"})
-            continue
-        entries.add(candidate)
-    return frozenset(entries) or DEFAULT_BOLNA_SOURCE_IPS
-
-
-# Resolved once at import. `verify_source` reads this module global at call time, so
-# tests patch the attribute and operators set the environment variable; neither has to
-# edit code.
-BOLNA_SOURCE_IPS: frozenset[str] = source_ips_from_settings(get_settings().bolna_webhook_source_ips)
+# THE SET ITSELF IS NOT DEFINED HERE. It comes from `BOLNA_WEBHOOK_SOURCE_IPS` via
+# `calevate_shared.config.bolna_source_ips`, which is the ONE resolver — the adapter's
+# `verify_webhook` reads the same function, so an operator who rotates the variable
+# during a vendor renumber (the documented recovery path, and the whole reason the
+# setting exists) moves the receiver's answer and the adapter's verdict together. This
+# module used to resolve the value once at import into a `BOLNA_SOURCE_IPS` global while
+# the adapter matched a hardcoded constant; that pair agreed only until the recovery
+# path was used, which is exactly when nobody is re-reading two files.
+#
+# Resolution stays O(1) per delivery: `get_settings` and the parse are both cached.
 
 # Edge networks whose forwarded-for header we trust. Everything else is spoofable, so
 # the immediate peer must be one of these before we believe a header (DEPLOYMENT §5).
@@ -123,7 +94,7 @@ def client_ip(peer_ip: str | None, headers: dict[str, str]) -> str:
 
 def verify_source(engine: str, source_ip: str) -> IntakeVerdict:
     if engine == "bolna":
-        if source_ip in BOLNA_SOURCE_IPS:
+        if source_ip in bolna_source_ips(get_settings()):
             # `source_ip`, not `hmac`: the caller must keep treating this as a hint.
             return IntakeVerdict(ok=True, method="source_ip")
         return IntakeVerdict(ok=False, method="source_ip", reason="source ip not allowlisted")
@@ -216,8 +187,6 @@ def extract(payload: dict[str, Any]) -> IntakeEvent | None:
 
 
 __all__ = [
-    "BOLNA_SOURCE_IPS",
-    "DEFAULT_BOLNA_SOURCE_IPS",
     "KNOWN_ENGINES",
     "TRUSTED_PROXY_CIDRS",
     "EngineName",
@@ -227,6 +196,5 @@ __all__ = [
     "execution_key",
     "extract",
     "is_trusted_peer",
-    "source_ips_from_settings",
     "verify_source",
 ]

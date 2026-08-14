@@ -42,11 +42,10 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-import engine_intake
 import pytest
 import webhook_routes
 from apps.api.core.redis import get_redis
@@ -67,8 +66,8 @@ HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
 
 
 @pytest.fixture(autouse=True)
-def _allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(engine_intake, "BOLNA_SOURCE_IPS", frozenset({ENGINE_EGRESS_IP}))
+def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
+    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _client(peer_ip: str = EDGE_PROXY_IP, *, tolerate_crash: bool = False) -> AsyncClient:

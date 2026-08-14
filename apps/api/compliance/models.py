@@ -462,7 +462,17 @@ class AuditLogEntry(PKMixin, Base):
     itself. INSERT-only. Includes recording/raw-transcript reads (hard rule 5)."""
 
     __tablename__ = "audit_log"
-    __table_args__ = (CheckConstraint(f"actor_type IN {ACTOR_TYPES!r}", name="actor_enum"),)
+    __table_args__ = (
+        CheckConstraint(f"actor_type IN {ACTOR_TYPES!r}", name="actor_enum"),
+        # The CHAIN ORDER, indexed. `(at, id)` is the total order every hash link is
+        # computed in, so both chain operations are index-only walks over it: the head
+        # read on the write path (`ORDER BY at DESC, id DESC LIMIT 1`, a backward
+        # descent to the rightmost leaf) and `verify_chain`'s keyset pages
+        # (`WHERE (at, id) > (...) ORDER BY at ASC, id ASC`, which needs the ASC
+        # declaration for the row comparison to be an index qual rather than a filter).
+        # Declared ASC for that reason; a LIMIT 1 costs the same in either direction.
+        Index("ix_audit_log_chain", "at", "id"),
+    )
 
     actor_type: Mapped[str] = mapped_column(String, nullable=False)
     actor_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))

@@ -14,13 +14,13 @@ a `Bearer dev:<realm>:<clerk_user_id>` token is accepted. A deployment that decl
 itself `staging` or `prod` can never reach this path, whatever else is misconfigured
 (asserted in `tests/authz_audit_test.py`).
 
-⚠ It is `app_env` that carries that weight, and `Settings.app_env` DEFAULTS to
-`"local"` (packages/shared/config.py). A deployment that simply never sets `APP_ENV`
-therefore accepts dev tokens — and cannot be caught by `runtime_config_missing_keys`,
-which skips its Clerk-key checks under the same `app_env == "local"` branch, so
-`/healthz/ready` reports healthy. The two guards fail together on one missing
-variable. The fix is to drop the default so the environment must be stated; that
-belongs to the Settings type, not here.
+`app_env` carries that whole weight, so it has NO DEFAULT: `Settings.app_env` is a
+required field and `APP_ENV` is in `BOOTSTRAP_REQUIRED`, because the previous default
+of `"local"` meant a deployment that simply never set the variable accepted dev tokens
+AND reported itself healthy (`runtime_config_missing_keys` skipped its Clerk checks
+under the same branch). Two guards, one missing variable, both off. The environment is
+now stated or the process does not start — see `core/settings.py::BOOTSTRAP_REQUIRED`
+and `tests/app_env_required_test.py`.
 """
 
 from __future__ import annotations
@@ -39,7 +39,9 @@ from fastapi import Depends, Request
 from jwt import PyJWKClient
 from jwt.exceptions import PyJWKClientConnectionError
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.audit import write_audit
 from apps.api.core.context import (
     IMPERSONATE_HEADER,
     ORG_HEADER,
@@ -50,6 +52,7 @@ from apps.api.core.context import (
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import MUTATING_PERMISSIONS, Permission, role_has
+from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, untenanted_session, user_session
 
@@ -281,7 +284,121 @@ async def _load_client_principal(verified: VerifiedToken, org_slug: str | None) 
     )
 
 
-async def _load_admin_principal(verified: VerifiedToken, impersonate_slug: str | None) -> Principal:
+# --- D-22 / SEC-COMP §5: the impersonated read is audited ---------------------
+#
+# The spec is "session start + every page view audit-logged (actor=admin_user, tenant,
+# at, ip)". Only the first half existed: `POST /v1/admin/tenants/{id}/impersonate`
+# writes `admin.impersonation_started` — and MINTS NOTHING, so nothing ever forced an
+# operator through it. The entry to a tenant is the `X-Impersonate-Org` header, and an
+# admin who sent that header and skipped the announcement left no trace at all, while
+# four docstrings across this repo asserted that every page view was recorded.
+#
+# WHERE THIS LIVES, AND WHY NOT THE THREE OBVIOUS PLACES.
+# `_load_admin_principal` is the ONLY function that can produce a principal with
+# `impersonating=True`; `current_admin`, `current_any`, `requires(...)` and
+# `core/deps.admin_db` all funnel through it, and a route has no other way to obtain a
+# tenant-scoped admin session. So a route written tomorrow is covered by having been
+# written at all — its author does nothing, and cannot opt out without opting out of
+# authentication. Rejected:
+#   - MIDDLEWARE: runs before the auth dependency, so it has no principal and no tenant
+#     to name; reading `principal_var` on the way out means auditing AFTER the response
+#     is composed, from outside the request's transaction, with no way to refuse.
+#   - A ROUTE DEPENDENCY: correct once, forgotten on route 200. That is the exact
+#     failure this defect is (a permission named after an act that did not gate the act).
+#   - THE TENANCY CONTEXT (`db/session.tenant_session`): reached by client requests too,
+#     which are not impersonation and must not pay for a write; it also has no principal.
+#
+# WHAT A "PAGE VIEW" IS FOR AN API, AND THE VOLUME ARGUMENT.
+# A browser page is many requests: this console's dashboard opens ~6 TanStack Query
+# subscriptions and refetches them on an interval, so "one audit row per request" is
+# ~1400 rows/hour per operator sitting on one screen doing nothing. On an INSERT-ONLY
+# table that is not a table that gets vacuumed — it is permanent, and each row also
+# costs a Redis lock round trip plus a `SELECT ... ORDER BY at DESC LIMIT 1` because
+# every entry links into the tamper-evident hash chain (BACKEND-PATTERNS §7). Worse
+# than the cost: it buries the rows that matter. An investigator asking "who was inside
+# this client's data on the 14th" wants a readable trail, and 1400 identical rows an
+# hour is how a control becomes something nobody reads.
+#
+# So: A READ IS RECORDED AT MOST ONCE PER (ADMIN, TENANT) PER `IMPERSONATION_AUDIT_
+# WINDOW_S`, AND THE FIRST READ AFTER EACH WINDOW ALWAYS RECORDS. That is the rule, it
+# is testable (tests/impersonation_audit_test.py exercises both halves), and at 60
+# seconds it bounds the ledger to <=60 rows/hour per operator-tenant while keeping
+# minute-resolution presence — enough to answer "when did they enter, how long were
+# they in there, from what IP", which is the DPDP question. WHICH SCREEN they were on
+# is deliberately NOT the ledger's job: that lives in the request log, which already
+# carries route + correlation id for every request and costs nothing to keep.
+#
+# THE BYPASS IS NARROWED, NOT CLOSED, AND IT IS NAMED HERE. The start endpoint still
+# mints no credential, so an operator can still enter a tenant with the header alone
+# and never announce it. What changes is that doing so is no longer INVISIBLE — the
+# read path records it whether or not the announcement happened. Making the header
+# useless without a minted, short-lived, signed grant is the real fix, and it is out of
+# scope for this change because it needs `apps/web` to call the start endpoint and hold
+# the grant (that code sends the slug directly today — `apps/web/src/lib/api/admin.ts`)
+# plus a decision-log entry for the credential's shape, lifetime and revocation. Until
+# then the ledger's answer to "did an operator go in the front door" is
+# `admin.impersonation_started`, and its answer to "was an operator in there at all" is
+# the action below — which is the one that cannot be skipped.
+IMPERSONATION_READ_ACTION = "admin.impersonation_read"
+IMPERSONATION_AUDIT_WINDOW_S = 60
+
+
+async def _record_impersonated_read(
+    session: AsyncSession,
+    *,
+    principal: Principal,
+    tenant_id: UUID,
+    ip: str | None,
+    route: str,
+) -> None:
+    """Append the page-view row, coalesced per the window above.
+
+    The dedupe marker is a Redis SETNX with a TTL — the same primitive the webhook
+    receiver dedupes execution ids with, rather than a second mechanism. It is a CACHE
+    of "already recorded", never a source of truth, so IT FAILS TOWARDS RECORDING: if
+    Redis cannot answer, we write the row. An audit control degrades into noise, never
+    into silence, and the cost of that direction is bounded (a Redis outage is minutes,
+    and the rows are still correct).
+
+    The write goes into the CALLER'S transaction — the same `admin_session` that just
+    read the tenant directory to authorise this view — so the row and the authorisation
+    commit together. If it cannot be written the request fails: a read we cannot record
+    is a read D-22 does not permit.
+    """
+    marker = f"calevate:imp:seen:{principal.user_id}:{tenant_id}"
+    try:
+        first_in_window = bool(
+            await get_redis().set(marker, "1", nx=True, ex=IMPERSONATION_AUDIT_WINDOW_S)
+        )
+    except Exception:
+        log.warning("impersonation_audit_dedupe_unavailable")
+        first_in_window = True
+    if not first_in_window:
+        return
+    await write_audit(
+        session,
+        action=IMPERSONATION_READ_ACTION,
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="organization",
+        object_id=str(tenant_id),
+        ip=ip,
+        # The ROUTE TEMPLATE, never the resolved path and never the query string: a
+        # filter can carry a phone number (hard rule 6), and a template cannot carry an
+        # identifier at all. It rides in `summary`, which goes to the log stream keyed
+        # by the entry id — the ledger row itself carries exactly what SEC-COMP §5 asks
+        # for (actor, tenant, at, ip).
+        summary={"route": route, "window_s": IMPERSONATION_AUDIT_WINDOW_S},
+    )
+
+
+async def _load_admin_principal(
+    verified: VerifiedToken,
+    impersonate_slug: str | None,
+    *,
+    ip: str | None = None,
+    route: str = "",
+) -> Principal:
     # `admin_session`, not `untenanted_session`: resolving an impersonation slug is a
     # read of the tenant DIRECTORY, and `organizations` is RLS'd on `app.tenant_id` or
     # a membership — an operator has neither. Under the untenanted session the lookup
@@ -320,15 +437,26 @@ async def _load_admin_principal(verified: VerifiedToken, impersonate_slug: str |
                 raise ProblemError.not_found("Organization")
             tenant_id = org[0]
 
-    return Principal(
-        realm="admin",
-        user_id=admin_id,
-        clerk_user_id=verified.clerk_user_id,
-        tenant_id=tenant_id,
-        role=role,
-        # D-22: "view as client" is READ-ONLY and every page view is audit-logged.
-        impersonating=impersonate_slug is not None,
-    )
+        principal = Principal(
+            realm="admin",
+            user_id=admin_id,
+            clerk_user_id=verified.clerk_user_id,
+            tenant_id=tenant_id,
+            role=role,
+            # D-22: "view as client" is READ-ONLY and every page view is audit-logged.
+            impersonating=impersonate_slug is not None,
+        )
+        if tenant_id is not None:
+            # Recorded HERE, before the route's own permission check runs, so an
+            # operator who enters a tenant and is then refused by the endpoint is still
+            # in the ledger. That is deliberate: "tried to look" is the same question an
+            # investigator is asking, and the alternative (audit only successful reads)
+            # would let a probe of a client's surface leave nothing behind.
+            await _record_impersonated_read(
+                session, principal=principal, tenant_id=tenant_id, ip=ip, route=route
+            )
+
+    return principal
 
 
 async def current_identity(request: Request) -> tuple[UUID, str]:
@@ -363,9 +491,43 @@ async def current_principal(request: Request) -> Principal:
     return principal
 
 
+def _request_ip(request: Request) -> str | None:
+    """The peer address, which is what SEC-COMP §5 wants stamped on the audit row.
+
+    Deliberately the SOCKET peer and not a forwarded header: a header is whatever the
+    caller typed unless the immediate peer is a trusted edge, and this process has no
+    trusted-proxy predicate of its own (voice-runtime's `client_ip` has one because it
+    authenticates an unsigned engine by source IP — a different problem with a
+    different threat model). Behind Cloudflare + nginx this is the edge's address until
+    DEPLOYMENT §5's real-ip restoration is in front of the API, at which point it
+    becomes the operator's. An honest "the request came from our edge" beats a
+    spoofable "it came from 1.2.3.4" in a tamper-evident ledger. Same source
+    `admin/routes.py` already stamps on `admin.impersonation_started`, so both halves
+    of one session's trail agree.
+    """
+    return request.client.host if request.client else None
+
+
+def _route_template(request: Request) -> str:
+    """`/v1/leads/{lead_id}`, not `/v1/leads/018f...?phone=+9198...`.
+
+    The template is available on the scope once Starlette has matched the route, which
+    it has by the time a dependency runs. Falling back to the concrete path would be a
+    hard-rule-6 hazard for one line of convenience, so the fallback is a marker instead.
+    """
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    return path if isinstance(path, str) else "unmatched"
+
+
 async def current_admin(request: Request) -> Principal:
     verified = await verify_token(_bearer(request), "admin")
-    principal = await _load_admin_principal(verified, request.headers.get(IMPERSONATE_HEADER))
+    principal = await _load_admin_principal(
+        verified,
+        request.headers.get(IMPERSONATE_HEADER),
+        ip=_request_ip(request),
+        route=_route_template(request),
+    )
     principal_var.set(principal)
     return principal
 
@@ -440,6 +602,8 @@ async def tenant_of(principal: Principal = Depends(current_any)) -> UUID:
 
 __all__ = [
     "IMPERSONATE_HEADER",
+    "IMPERSONATION_AUDIT_WINDOW_S",
+    "IMPERSONATION_READ_ACTION",
     "ORG_HEADER",
     "PermissionDependency",
     "VerifiedToken",

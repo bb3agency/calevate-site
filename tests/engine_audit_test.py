@@ -42,6 +42,11 @@ from apps.api.db.session import untenanted_session
 from apps.api.engine import bolna
 from apps.api.engine.bolna import BolnaEngine
 from apps.api.engine.fake import FakeEngine
+from calevate_shared.config import (
+    DEFAULT_BOLNA_SOURCE_IPS,
+    Settings,
+    parse_source_ip_allowlist,
+)
 from calevate_shared.engine import (
     CallContext,
     CostBreakdown,
@@ -240,10 +245,10 @@ async def test_the_shipped_adapters_still_pass_the_suite() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+def _allowlist(source_ip_allowlist: Callable[..., None]) -> None:
     """Point the allowlist at a documentation IP, exactly as the security suite does —
     these tests must never encode a vendor's current egress address."""
-    monkeypatch.setattr(engine_intake, "BOLNA_SOURCE_IPS", frozenset({ENGINE_EGRESS_IP}))
+    source_ip_allowlist(ENGINE_EGRESS_IP)
 
 
 def _client(peer_ip: str = EDGE_PROXY_IP) -> AsyncClient:
@@ -523,20 +528,121 @@ async def test_the_source_ip_allowlist_comes_from_configuration() -> None:
     documented address, entries must parse as IP addresses, and an empty or unusable
     setting falls back to the built-in default rather than to 'allow everything'.
     """
-    assert hasattr(engine_intake, "source_ips_from_settings"), (
-        "the allowlist is a hard-coded module constant; rotating the vendor's egress IP "
-        "needs a code change and a deploy"
-    )
-
-    parse = engine_intake.source_ips_from_settings
+    parse = parse_source_ip_allowlist
     assert parse("198.51.100.7") == frozenset({"198.51.100.7"})
     assert parse(" 198.51.100.7 , 203.0.113.9 ") == frozenset({"198.51.100.7", "203.0.113.9"})
     # Fail SAFE, not open: nonsense must not empty the allowlist, and a CIDR is not an
     # entry format this check understands — it must not silently become a wildcard.
-    assert parse("") == engine_intake.DEFAULT_BOLNA_SOURCE_IPS
-    assert parse("0.0.0.0/0") == engine_intake.DEFAULT_BOLNA_SOURCE_IPS
-    assert parse("*") == engine_intake.DEFAULT_BOLNA_SOURCE_IPS
+    assert parse("") == DEFAULT_BOLNA_SOURCE_IPS
+    assert parse("0.0.0.0/0") == DEFAULT_BOLNA_SOURCE_IPS
+    assert parse("*") == DEFAULT_BOLNA_SOURCE_IPS
     assert parse("not-an-ip, 198.51.100.7") == frozenset({"198.51.100.7"})
+    # The default and the field default are the same statement, not two.
+    assert (
+        parse(Settings.model_fields["bolna_webhook_source_ips"].default) == DEFAULT_BOLNA_SOURCE_IPS
+    )
+
+
+def _bolna_adapter() -> BolnaEngine:
+    """An adapter instance with no HTTP identity — `verify_webhook` needs none."""
+    return BolnaEngine(api_key=None, fx_rate=Decimal("88.00"))
+
+
+def test_the_adapter_and_the_receiver_read_one_allowlist(
+    source_ip_allowlist: Callable[..., None],
+) -> None:
+    """THE BUG THIS SECTION EXISTS FOR. `BolnaEngine.verify_webhook` used to match a
+    module constant while the receiver matched `BOLNA_WEBHOOK_SOURCE_IPS`. They agreed
+    while the setting held its default and diverged the moment anyone used the recovery
+    path the setting exists for — a vendor renumber, rotate the variable, restart — so
+    the adapter's `WebhookVerdict` would keep blessing an address the door rejects, or
+    reject one the door admits. Neither direction announces itself.
+
+    So this asserts the two agree under a WIDENED allowlist and under a NARROWED one,
+    not merely under the shipped default: a test of the default is exactly the test that
+    could never fail while the bug was present.
+    """
+    adapter = _bolna_adapter()
+    rotated = "203.0.113.77"  # RFC 5737 TEST-NET-3: the "vendor renumbered" address
+
+    # 1. WIDENED — an operator adds the new egress beside the old one.
+    source_ip_allowlist(ENGINE_EGRESS_IP, rotated)
+    assert adapter.verify_webhook({}, b"{}", rotated).ok, (
+        "the adapter still refuses an address the operator allowlisted — it is reading "
+        "a second allowlist"
+    )
+    assert engine_intake.verify_source("bolna", rotated).ok
+    assert adapter.verify_webhook({}, b"{}", ENGINE_EGRESS_IP).ok
+    assert engine_intake.verify_source("bolna", ENGINE_EGRESS_IP).ok
+
+    # 2. NARROWED — the old address is retired. Divergence in THIS direction is the
+    #    dangerous one: the adapter would keep calling a retired address authentic.
+    source_ip_allowlist(rotated)
+    assert not adapter.verify_webhook({}, b"{}", ENGINE_EGRESS_IP).ok, (
+        "the adapter still accepts an address the operator removed — a retired egress "
+        "stays trusted for as long as nobody redeploys"
+    )
+    assert not engine_intake.verify_source("bolna", ENGINE_EGRESS_IP).ok
+    assert adapter.verify_webhook({}, b"{}", rotated).ok
+    assert engine_intake.verify_source("bolna", rotated).ok
+
+    # 3. The verdict still says what it is: an IP check, never dressed up as a signature.
+    assert adapter.verify_webhook({}, b"{}", rotated).method == "source_ip"
+    assert adapter.verify_webhook({}, b"{}", ENGINE_EGRESS_IP).method == "source_ip"
+
+
+def test_no_second_source_ip_allowlist_has_grown_back(
+    source_ip_allowlist: Callable[..., None],
+) -> None:
+    """A guard against the shape of the defect, not just this instance of it.
+
+    The vendor's documented egress may be WRITTEN in several places — docs, `.env.example`,
+    `scripts/pilot/gates_api.py` (deliberately, so the gate is not tautological) — but no
+    runtime path may DECIDE with a copy of it. The check: with the setting pointed at
+    documentation addresses only, nothing that answers the authenticity question may
+    still accept the shipped default.
+    """
+    documented = next(iter(DEFAULT_BOLNA_SOURCE_IPS))
+    source_ip_allowlist(ENGINE_EGRESS_IP)
+
+    assert not engine_intake.verify_source("bolna", documented).ok, (
+        "the receiver accepts the built-in default while the setting names another "
+        "address — something is still deciding from a hardcoded copy"
+    )
+    assert not _bolna_adapter().verify_webhook({}, b"{}", documented).ok, (
+        "the adapter accepts the built-in default while the setting names another "
+        "address — the module constant is back"
+    )
+
+    # And no runtime module carries the literal as CODE. Comments and docstrings may
+    # name it — `client_ip`'s docstring uses it in its worked example of a spoofed
+    # forwarded header, and a rule that forbade explaining the value would be a rule
+    # against writing down why it matters. Parsed rather than grepped for exactly that
+    # reason: the question is "does anything compare against a copy", and only a string
+    # the interpreter evaluates can.
+    for path in (Path("apps/api/engine/bolna.py"), Path("apps/voice-runtime/engine_intake.py")):
+        tree = ast.parse((REPO_ROOT / path).read_text(encoding="utf-8"))
+        docstrings = {
+            id(node.body[0].value)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+            and node.body
+            and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+        }
+        offending = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and documented in node.value
+            and id(node) not in docstrings
+        ]
+        assert not offending, (
+            f"{path} carries the vendor's egress address as a code literal at line(s) "
+            f"{offending}. It belongs to `calevate_shared.config.DEFAULT_BOLNA_SOURCE_IPS` "
+            "and to the `BOLNA_WEBHOOK_SOURCE_IPS` setting, nowhere else."
+        )
 
 
 async def test_a_rejected_caller_is_named_in_the_alert(caplog: pytest.LogCaptureFixture) -> None:

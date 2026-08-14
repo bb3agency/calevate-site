@@ -65,10 +65,14 @@ Reproduce with: `scripts/dev_bootstrap.sh` (added this session).
   `assert_policy_registry_complete(app)` which fails the **boot** if a mounted route
   declares no permission.
 - `core/deps.py` — `db` (tenant-scoped session, RLS does the isolation) and `global_db`.
-- `compliance/audit.py` — audit writer with the HMAC hash chain, Redis chain head under
-  a compare-and-delete lock, `verify_chain()`. Writes in the CALLER's transaction so an
-  audited read and its record commit together. Summaries go to the log stream, not the
-  hashed payload (no summary column ⇒ hashing it would make the chain unverifiable).
+- `compliance/audit.py` — audit writer with the HMAC hash chain, serialized by
+  `pg_advisory_xact_lock('audit:chain')` on the caller's transaction; the head is the
+  last row of `audit_log` and is cached nowhere (D-59 — a lease cannot bound a
+  transaction, and a cached head is erased by the ROLLBACK that erases the row it names).
+  `verify_chain()` walks the whole log by default and reports how far it got. Writes in
+  the CALLER's transaction so an audited read and its record commit together. Summaries
+  go to the log stream, not the hashed payload (no summary column ⇒ hashing it would
+  make the chain unverifiable).
 
 **3. Reliability triad — `reliability/service.py`** (BACKEND-PATTERNS §4/§5)
 
@@ -2297,6 +2301,109 @@ emit-check, the derived bucket and the stored one, the draft and the submission 
 defect above is two things that looked alike being treated as one, or two things that
 looked different being treated as separate.
 
+## §55 — the wave that asked whether the guards were guarding anything
+
+§54 asked whether two paths carrying one value were really the same. This one asks the
+question a level down: **the guard exists, the docstring describes it — does it fire?**
+Six of the ten defects fixed here were guards that ran and did nothing, and in five of
+them a comment or docstring asserted precisely the property that was false. That is now
+this repo's confirmed signature failure mode, and it is why the audit that opened this
+wave trusted only executable evidence.
+
+**The chain lock was never consulted.** `write_audit` took `redis.set(nx=True)` into a
+variable read only by the `finally` that decided whether to release it — a writer that
+LOST the race proceeded anyway. Two writers read head H0, both wrote `prev_hash = H0`,
+and `verify_chain` reported the second as tampered: a tamper-evidence feature
+manufacturing its own tamper evidence, under a docstring reading "behind a short lock so
+concurrent writers cannot interleave". Nothing in the suite exercised contention, which
+is exactly why it survived — every existing audit assertion writes one entry at a time,
+and one writer never races anybody.
+
+**Repairing the ignoring would not have been enough, and that is the more useful
+lesson.** The entry commits in the CALLER's transaction, so correctness requires that no
+second writer read the head between our read and our COMMIT — a window of unbounded
+length. No TTL lease covers it: a 4s commit outlives a 3s lease. The Redis-cached head
+had the same defect one level down, and worse, because its failure is DURABLE: published
+inside the transaction, a ROLLBACK erased the row and left the cache naming it, so the
+next writer chained onto a hash no row carried, in a ledger that is append-only and
+cannot be repaired. **When a critical section IS a database transaction, the lock should
+be the transaction** — `pg_advisory_xact_lock`, released by COMMIT or ROLLBACK, the two
+events that decide whether the row exists. `credit_ledger` already worked this way; D-59
+records the reasoning and BACKEND-PATTERNS §5/§7 are amended in place rather than
+carrying an exception.
+
+**The verification answered a smaller question in the same words.** `limit=1000` over
+`ORDER BY at ASC` checked the OLDEST thousand — on any real log, the entries nobody was
+worried about — and the console rendered the result as an unqualified green tick. The
+walk is unbounded now and reports `entries_checked` / `complete` / the `at` range beside
+the verdict.
+
+**And it no longer stops at the first break, which was the hardest call in the wave.**
+Stopping reads as obvious — everything after a break is unverifiable — and it is wrong
+twice. It is a DENIAL OF VERIFICATION: one damaged link from six months ago makes the
+whole remainder unexamined, so the cheapest way to hide last night's edit is to break
+something old. And the remainder was never unverifiable: a break destroys the proof that
+later entries descend from GENESIS, not the proof that they descend from each other. The
+walk re-anchors and continues, the log reads as SEGMENTS, and `breaks` names every
+boundary with its date and its KIND — `content` (the row no longer hashes to its own
+hash: edited) versus `link` (intact row, wrong neighbour: deleted or reordered). Those
+are different incidents with different next moves, and telling them apart required
+recomputing against the row's OWN `prev_hash` rather than the expected one.
+
+**This is also what makes the panel readable at all.** `audit_log` is append-only, so a
+real historical break is permanent — and this database carries one, from the era when the
+lock was decorative. A verifier reporting only that break forever is a red light nobody
+reads.
+
+**Three vendor assumptions that the adapter stated as facts.** Each made pilot gate 7
+unable to do its job, and OPERATIONS §2 had named all three:
+
+- `_cost` wrote `source_currency="USD"` as a literal, so the gate read our own guess back
+  and agreed with it. Bolna publishes no OpenAPI spec; if their India accounts quote INR
+  paise, every `usage_events` row is out by the exchange rate, upward, in the direction
+  that flatters the margin panel. The payload's stated currency is now used where it
+  exists, `currency_stated` records whether it was a reading, INR is not multiplied by
+  the dollar rate, and a currency we cannot convert is REFUSED — an absent cost is a
+  visible gap, a fabricated one reaches an invoice.
+- `parse_transcript` returned a bare list, so an unrecognised shape came back as `[]`:
+  the same answer as a call where nobody spoke. It returns `(turns, unparsed)` now.
+- Nothing recorded when an execution became `completed`, so the leg that decides whether
+  the 2-minute lead SLO holds could only be measured live. `billable_ready_at` records
+  it, and is honest that the fallback form is an upper bound.
+
+**Two lessons about measurement, both learned the hard way in this wave.**
+
+First: **write the migration's rationale AFTER measuring it, not before.** The
+`ix_audit_log_chain` migration was drafted claiming that a `(at DESC, id DESC)`
+declaration would demote the keyset row comparison to a filter. Measured, PG16 serves it
+as an `Index Cond` either way, at identical buffers. The draft's reasoning was plausible
+and wrong; the migration now records the refutation, because the next reader inherits the
+evidence rather than the conclusion. The numbers that survived are worth having: the head
+read — which runs on EVERY audit write, INSIDE the lock — went from a parallel sequential
+scan claiming two workers (22,957 buffers, 62.6ms) to an index descent (4 buffers,
+0.06ms), and the whole-log walk from 77.6s to 16.1s at 400k entries.
+
+Second: **the coverage ratchet's refusal earned its keep.** It refused to score three
+runs in a row for leftover Postgres rows and a warm Redis, which is exactly what it was
+built for — and one of its own refusal messages cited `_current_head`'s Redis fallback as
+the example, a fallback this wave deleted. The example was updated, not the rule. When it
+did score, it caught a genuinely uncovered unit on a hard-rule-5 surface: `GET
+/v1/dashboard` had five test modules calling the SERVICE and none calling the ROUTE, so
+nothing exercised the dependency chain that decides which tenant is answered for.
+
+**What this wave adds to the method.** §53 asked what a pixel claims when the server does
+not answer; §54 asked whether two paths carrying one value are really the same. This one:
+**a guard is a claim, and a claim with no adversarial test is decoration.** Every fix here
+was verified by sabotage — break the fix, watch the test go red — and one of them (the
+segmented walk) is verified by a sabotage that had to be rolled back, because writing a
+corrupt row into an append-only ledger to prove a point leaves a scar every future run
+inherits.
+
+**A note the next session should not have to rediscover:** tests in this repo assert
+DELTAS against `audit_log`, never a globally clean chain. The database carries permanent
+historical damage, so a test demanding a clean log is green in CI and red on every
+developer's machine for a reason that is not theirs.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and
@@ -2439,14 +2546,20 @@ scheme and payload paths.
 5. **The local database cannot reach head** and that is expected — see
    `runbooks/stale-dev-database.md`. Use a scratch DB; do not stamp past the credit-ledger
    index.
-6. **One frontend item was MID-FLIGHT while this entry was written, so confirm it rather
-   than trusting it.** As committed, `apps/web/src/lib/api/kyc.ts` cited a
-   `tests/kyc.test.ts` that does not exist — a comment claiming coverage that was never
-   written, the same defect class §48 named. An uncommitted working tree was at that moment
-   centralising the six remaining `Record`-with-fallback lookups into a `lib/lookup.ts`
-   with its own test, which appears to remove that reference. Check both before acting:
-   whether the prototype-chain guard is now ONE helper rather than six spellings, and
-   whether any comment still points at a test file that is not there.
-7. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q`, `uv run mypy apps packages`,
-   `make guardrails` and `make web-check` (typecheck + lint + the 40-test vitest suite)
-   before changing anything.
+6. **The frontend item this list once flagged as mid-flight has LANDED** — confirmed at
+   §55, not assumed. `apps/web/src/lib/lookup.ts` is the one prototype-chain guard, with
+   `tests/wireLookup.test.tsx` and `tests/wireLookupGuard.test.ts` behind it, and no
+   source file cites the `tests/kyc.test.ts` that never existed. Nothing to check here
+   any more; the entry stays as the record that a comment claiming coverage is a defect
+   class this repo has produced twice.
+7. **`audit_log` on any long-lived database carries PERMANENT breaks** from the era when
+   the chain lock was decorative (§55), and an append-only ledger cannot be repaired. So
+   `GET /v1/ops/audit/verify` legitimately answers `ok: false` on a developer database,
+   and every test in this repo asserts a DELTA — "these writers added no break" — never a
+   globally clean chain. A test written the other way is green in CI and red on every
+   developer's machine for a reason that is not theirs.
+8. Run `bash scripts/dev_bootstrap.sh`, then `uv run pytest -q`, `uv run mypy apps packages`,
+   `make guardrails` and `make web-check` (typecheck + lint + the vitest suite) before
+   changing anything. `make coverage-ratchet` additionally needs BOTH stores empty — a
+   freshly migrated and seeded database and a flushed Redis — and refuses to score
+   otherwise rather than reporting a number it cannot vouch for.

@@ -264,3 +264,114 @@ describe("the campaign list", () => {
     expect(container.querySelector("h1")).toBeNull();
   });
 });
+
+describe("the three reads the create form is built from", () => {
+  /**
+   * §52, on the screen where a client decides whether their campaigns can run.
+   *
+   * `campaigns`, `progress`, `check` and `create` all surfaced their refusals from the
+   * start. The three lists BEHIND the create form did not, and each failure then
+   * degraded into something the screen stated as a fact about this business:
+   *
+   *  - `/v1/agents` failing left `agentOptions` empty, which is the exact shape of
+   *    "this account has no agent" — and the sentence gated on it sends an owner to
+   *    their account manager to have one built. They have one. The request failed.
+   *  - `/v1/campaigns/numbers` and `/v1/campaigns/templates` failing left two pickers
+   *    holding only their placeholder, with no refusal anywhere on the page: a dead
+   *    form and no explanation.
+   *
+   * The fix is the spelling `/c/<slug>/knowledge` already uses — `Boolean(agents.data)`
+   * for the empty state, `ProblemNotice` for the failure — rather than a fourth one.
+   */
+
+  /** A 503 in the shape `apiRequest` turns into a retryable `ApiProblem`. */
+  const OUTAGE = problem(503, {
+    type: "urn:calevate:internal/upstream_unavailable",
+    kind: "internal",
+    title: "Upstream unavailable",
+    detail: "We could not read that just now.",
+    retryable: true,
+  });
+
+  /** The claim that must never be made on the strength of a request that failed. */
+  const NO_AGENT_CLAIM = "No agent is set up yet";
+
+  it("does not tell a client they have no agent when /v1/agents failed", async () => {
+    const { container } = await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([], { "/v1/agents": OUTAGE }),
+    );
+
+    // The refusal is on screen, once, with the server's own sentence.
+    await screen.findByRole("alert");
+    expect(container.textContent).toContain("We could not read that just now.");
+    // …and the empty-state claim is NOT, because nothing answered the question it
+    // purports to answer. `!agents.isLoading` was true here — a settled-and-failed
+    // query is not loading — which is exactly why the old gate let this through.
+    expect(container.textContent).not.toContain(NO_AGENT_CLAIM);
+  });
+
+  it("still makes that claim when the server actually answered with no agents", async () => {
+    // The other direction, so the fix cannot be "delete the sentence": a client with a
+    // genuinely empty agent list needs to know why the form will not submit.
+    const { container } = await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([], { "/v1/agents": [] }),
+    );
+
+    await screen.findByText("New campaign");
+    expect(container.textContent).toContain(NO_AGENT_CLAIM);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("makes no claim while /v1/agents is still in flight", async () => {
+    // The third state §52 names, and the one an empty list is most convincing in. The
+    // frame is reached by asserting immediately after the render, before the stubbed
+    // fetch resolves — the same technique the progress-tile test above uses.
+    const { container } = await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([], { "/v1/agents": [] }),
+    );
+
+    // A premise check: the form really is on screen, so the absence below is the gate
+    // holding and not simply an unrendered card.
+    expect(container.textContent).toContain("New campaign");
+    expect(container.textContent).not.toContain(NO_AGENT_CLAIM);
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    // …and once the empty list lands, the sentence appears — so the guard is not simply
+    // suppressing it for good.
+    await screen.findByText(new RegExp(NO_AGENT_CLAIM));
+  });
+
+  it("says so when the number and template lists could not be read", async () => {
+    /**
+     * Two `<select>`s that can never be filled, and — before this — nothing on the page
+     * admitting it. A client reading "Choose a number…" over an empty list concludes
+     * their account has no numbers, which on this screen is a conclusion about whether
+     * they can dial at all.
+     */
+    const { container } = await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([], { "/v1/campaigns/numbers": OUTAGE, "/v1/campaigns/templates": OUTAGE }),
+    );
+
+    await screen.findByText("New campaign");
+    // One refusal per failed read: two failures, two notices.
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts).toHaveLength(2);
+    // And neither failure is dressed as an empty list — those hints are the answer to
+    // "the server said you have none", which the server did not say.
+    expect(container.textContent).not.toContain("No numbers yet");
+    expect(container.textContent).not.toContain("None registered yet");
+  });
+
+  it("keeps the empty-list hints for lists the server really answered as empty", async () => {
+    const { container } = await renderClientPage(<CampaignsPage />, landingRoutes([]));
+
+    await screen.findByText("New campaign");
+    expect(container.textContent).toContain("No numbers yet");
+    expect(container.textContent).toContain("None registered yet");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});

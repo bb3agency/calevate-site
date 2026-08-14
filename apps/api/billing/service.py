@@ -39,7 +39,11 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.caps import EFFECTIVE_CAP_MIN_SQL, EFFECTIVE_CAP_SPEND_SQL
+from apps.api.billing.caps import (
+    EFFECTIVE_CAP_MIN_SQL,
+    EFFECTIVE_CAP_SPEND_SQL,
+    read_spend_counters,
+)
 from apps.api.billing.plans import (
     month_pricing_instant,
     parse_billing_month,
@@ -481,7 +485,7 @@ async def usage_summary(
     # `overage_rate`) and "the value rung is free" are different plans.
     value_rate = Decimal(str(plan[5])) if plan and plan[5] is not None else None
     overage_min = max(Decimal("0"), minutes - included)
-    tier_minutes, _ = await _tier_totals(session, tenant_id=tenant_id, month=period)
+    tier_minutes, tier_cost = await _tier_totals(session, tenant_id=tenant_id, month=period)
     overage_premium, overage_value = split_overage(
         overage_min=overage_min,
         billable_premium=tier_minutes["premium"],
@@ -499,21 +503,23 @@ async def usage_summary(
         overage_premium * overage_rate + overage_value * (value_rate or overage_rate)
     )
 
-    spend = (
-        await session.execute(
-            text(
-                "SELECT minutes_used, spend_used, capped, month FROM spend_state "
-                "WHERE tenant_id = :tid"
-            ),
-            {"tid": tenant_id},
-        )
-    ).first()
-    # The month is part of the answer, for the same reason it is in
-    # `compliance.service.spend_capped`: the flag is only written when a call completes,
-    # so a capped tenant's row can sit at last month's cap indefinitely. Reporting that
-    # as a live cap would show "capped, 0 minutes left" to a client the gate is now
-    # letting dial — the panel contradicting the system.
-    capped = bool(spend[2]) and str(spend[3]) == current_billing_month() if spend else False
+    # THE LIVE COUNTERS, through the one month-aware reader (`billing/caps.py`) that the
+    # compliance gate, the admin directory and the health panel already read. The month
+    # is part of the answer, for the same reason it is in `compliance.service
+    # .spend_capped`: the flag is only written when a call completes, so a capped
+    # tenant's row can sit at last month's cap indefinitely. Reporting that as a live cap
+    # would show "capped, 0 minutes left" to a client the gate is now letting dial — the
+    # panel contradicting the system.
+    #
+    # This function used to check the month for `capped` and then read `spend_used` out
+    # of the same row WITHOUT it — one predicate, applied to one of the two columns it
+    # was written for. That is why the shared reader exists rather than a shared
+    # `if`: it returns the counters TOGETHER, so a caller cannot take half the check.
+    counters = await read_spend_counters(session, tenant_id=tenant_id)
+    # Deliberately the LIVE flag even when an older `?month=` is being viewed: "outgoing
+    # calls are paused" is a fact about the account right now, not about the month on
+    # screen, and it is what `minutes_left` below has to respect.
+    capped = counters.capped
 
     # Runway framing (teardown adopt #8): "about N minutes left" is what an owner can
     # actually plan around; a rupee balance makes them do the division at the counter.
@@ -574,8 +580,38 @@ async def usage_summary(
         "cap_minutes": int(plan[3]) if plan and plan[3] is not None else None,
         "minutes_left": minutes_left,
         "capped": capped,
-        "spend_used_inr": (to_paise(Decimal(str(spend[1]))) if spend else Decimal("0.00")),
+        "spend_used_inr": to_paise(_spend_used(period, counters.spend_used, tier_cost)),
     }
+
+
+def _spend_used(period: str, live: Decimal, tier_cost: dict[str, Decimal]) -> Decimal:
+    """What this tenant spent in `period` — from the counter while it is live, from the
+    ledger once it is not.
+
+    `spend_state` is ONE row per tenant (PK `tenant_id`), stamped with the month it is
+    counting and reset by the meter on rollover. It has no history whatsoever, so it can
+    only answer for the current billing month — and `usage_summary` is reachable with
+    `?month=2026-07`, where it was reporting the live row's rupees on a closed month's
+    statement, beside a `minutes` figure correctly read from `usage_events` for the month
+    actually asked about. Two numbers, two months, one panel.
+
+    OPEN month → the live counter, because that is the exact column the cap is enforced
+    against (`caps.over_cap_sql` compares it), so the panel and the gate can never tell a
+    client two different stories about the same rupees.
+
+    CLOSED month → `_tier_totals`' cost for that month: the ledger, summed by the query
+    this function has already run, so there is no second definition of spend and no
+    second round trip. The two sources agree by construction — both are the per-call
+    `cost.total_inr` the pipeline metered, one accumulated live and one re-summed from
+    the `usage_events` rows written in the same transaction. The known exception is the
+    ledger's own arithmetic: a leg whose `qty` is zero is priced whole (`_unit_price`)
+    and contributes nothing to `qty * unit_cost_paid`, so a zero-duration call reads a
+    few paise lighter here. That is the same arithmetic the invoice and the margin panel
+    are built on, which is the right thing for a closed month to agree with.
+    """
+    if period == current_billing_month():
+        return live
+    return sum(tier_cost.values(), Decimal("0"))
 
 
 # --- the TTS tier ladder (SURFACES §2b, D-36) ----------------------------------

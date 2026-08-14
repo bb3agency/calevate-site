@@ -41,6 +41,16 @@ dialled and any process that tried to explain it. A cryptographic digest is over
 uniformity and exactly right for reproducibility. It is NOT a security boundary and is
 not treated as one.
 
+TWO WAYS A CALL LEARNS ITS ARM, AND ONLY ONE OF THEM DRAWS A BUCKET
+--------------------------------------------------------------------
+`assign` is the dial path: we are choosing to call, so we draw. `arm_of_engine_ref` is
+the observation path: the engine has told us which agent object ran a call, and an arm
+is its own agent object, so the arm is simply read off. Both write through `record`, so
+both produce the same kind of row — a fact, written with the `calls` row.
+
+There is deliberately no third way, and in particular nothing draws a bucket AFTER a
+call. See `arm_of_engine_ref` for why that would be a fabrication rather than a feature.
+
 PII: the destination number is hashed, never stored here and never logged (hard rule 6).
 The assignment row carries ids only.
 """
@@ -138,6 +148,52 @@ async def running_arms(
     ]
 
 
+_ARM_BY_REF_SQL = (
+    "SELECT e.id, v.id, v.label, v.weight_bp, v.engine_agent_ref "
+    "FROM prompt_experiment_variants v "
+    "JOIN prompt_experiments e ON e.id = v.experiment_id "
+    "WHERE v.engine_agent_ref = :ref AND e.status = 'running'"
+)
+
+
+async def arm_of_engine_ref(session: AsyncSession, *, engine_agent_ref: str) -> Assignment | None:
+    """The arm whose OWN engine agent ran this call, as reported by the engine.
+
+    This is the other half of `assign`, and the difference between them is the whole of
+    inbound attribution.
+
+    `assign` DECIDES: we are about to dial, so we draw the bucket and then dial the arm
+    we drew. Nothing decides an inbound call — the caller dialled a number, the engine
+    answered it with whatever agent object that number is attached to, and the script
+    was fixed before the phone rang. The only honest question left is a question of
+    fact: WHICH engine agent answered? The engine tells us, in
+    `ExecutionSnapshot.engine_agent_ref`, and `publish_variant` gave every arm its own
+    ref precisely so that answer is unambiguous.
+
+    So a call is attributed here if and only if the engine says an arm's own agent ran
+    it. An inbound call answered by the AGENT's ref ran neither arm and gets nothing —
+    drawing a bucket for it at post-call time would invent an arm the caller never
+    heard, which is the one failure mode this feature cannot survive.
+
+    Same stored-fact property as the dial path: the caller writes the row in the same
+    transaction as the `calls` row, and `record`'s ON CONFLICT keeps the first write.
+    `status = 'running'` scopes it, so a late webhook naming a RETIRED arm attributes
+    nothing to a concluded experiment.
+    """
+    row = (await session.execute(text(_ARM_BY_REF_SQL), {"ref": engine_agent_ref})).first()
+    if row is None:
+        return None
+    return Assignment(
+        experiment_id=UUID(str(row[0])),
+        arm=VariantArm(
+            variant_id=UUID(str(row[1])),
+            label=str(row[2]),
+            weight_bp=int(row[3]),
+            engine_agent_ref=row[4],
+        ),
+    )
+
+
 async def assign(session: AsyncSession, *, agent_id: UUID, unit_key: str) -> Assignment | None:
     """Decide the arm for a call about to be placed, or None when nothing is running."""
     running = await running_arms(session, agent_id)
@@ -183,6 +239,7 @@ __all__ = [
     "BUCKETS",
     "Assignment",
     "VariantArm",
+    "arm_of_engine_ref",
     "assign",
     "bucket_of",
     "pick_arm",

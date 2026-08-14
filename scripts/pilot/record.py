@@ -87,6 +87,35 @@ PLACEHOLDER_RECORDING: Final = "https://recordings.invalid/redacted.wav"
 PLACEHOLDER_URL: Final = "https://redacted.invalid/"
 PLACEHOLDER_VALUE: Final = "[redacted]"
 
+#: Every literal this module SUBSTITUTES IN. `residual_pii` strips them before judging a
+#: string, because "residual" means PII that SURVIVED the scrub — and the scrub's own
+#: output is not that. Without this the verification eats itself: the shared redactor was
+#: widened to mask any `+91` followed by ten digits (grouped, trunk-prefixed or landline),
+#: which correctly includes the deliberately-unroutable level-5 placeholder above, so
+#: `record_fixture` refused to write ANY fixture and the recorder became unusable.
+#:
+#: Exempting a closed set of LITERALS is not a hole: a real number would have to be
+#: byte-identical to a placeholder to be skipped, and every placeholder here is
+#: unroutable, reserved or a fixed synthetic line by construction (see the contract
+#: above). The alternative — picking a placeholder the redactor cannot claim — was
+#: rejected: it would mean choosing a shape our own PII detector does not recognise,
+#: which is a worse property for a fixture to have than this exemption is.
+_SUBSTITUTED: Final = (
+    PLACEHOLDER_NUMBER,
+    PLACEHOLDER_CALLEE,
+    PLACEHOLDER_RECORDING,
+    PLACEHOLDER_URL,
+    PLACEHOLDER_VALUE,
+)
+
+
+def _without_placeholders(value: str) -> str:
+    """The string minus anything this module put there itself."""
+    for placeholder in _SUBSTITUTED:
+        value = value.replace(placeholder, " ")
+    return value
+
+
 # Keys that carry a phone number in some vendor payload we have seen or expect. Being
 # wrong in the generous direction costs a fixture a realistic-looking number; being wrong
 # in the stingy direction costs a caller their privacy — and pass 2 catches the misses.
@@ -262,6 +291,8 @@ def residual_pii(payload: Any, *, path: str = "$") -> dict[str, list[str]]:
             findings |= residual_pii(value, path=f"{path}[{idx}]")
         return findings
     if isinstance(payload, str):
+        # Judge what is LEFT after our own substitutions — see `_SUBSTITUTED`.
+        payload = _without_placeholders(payload)
         kinds = list(redact(payload).kinds)
         lowered = payload.lower()
         if any(suffix in lowered for suffix in _AUDIO_SUFFIXES) and "invalid" not in lowered:

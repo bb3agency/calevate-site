@@ -7,6 +7,7 @@ import {
   OUTBOX_REPLAY_CONFIRMATION,
   platformConfirmation,
   type AuditChainVerdict,
+  type ChainBreak,
   type OutboxReplayResult,
   type PlatformState,
 } from "@/lib/api/admin";
@@ -893,6 +894,23 @@ describe("the audit chain verification", () => {
     ok: true,
     first_bad_entry_id: null,
     checked: "audit_log",
+    // The SCOPE travels with the verdict now. A fixture that omitted it would let the
+    // panel render "whole log checked" off a default, which is the shape this test exists
+    // to catch — `complete` is the server's claim, never the client's assumption.
+    entries_checked: 4210,
+    complete: true,
+    oldest_checked_at: "2026-08-11T04:30:00Z",
+    newest_checked_at: "2026-08-13T09:15:00Z",
+    breaks: [],
+    breaks_found: 0,
+    ...over,
+  });
+
+  /** A break, spelled the way the server spells one. */
+  const chainBreak = (over: Partial<ChainBreak> = {}): ChainBreak => ({
+    entry_id: "0192f0aa-7777-7000-8000-00000000dead",
+    at: "2026-08-13T09:15:00Z",
+    kind: "link",
     ...over,
   });
 
@@ -920,7 +938,12 @@ describe("the audit chain verification", () => {
     const { container } = renderAdminPage(
       <OpsPage />,
       routes(platform(), SUPERADMIN, {
-        [VERIFY]: verdict({ ok: false, first_bad_entry_id: "0192f0aa-7777-7000-8000-00000000dead" }),
+        [VERIFY]: verdict({
+          ok: false,
+          first_bad_entry_id: "0192f0aa-7777-7000-8000-00000000dead",
+          breaks: [chainBreak()],
+          breaks_found: 1,
+        }),
       }),
     );
 
@@ -933,19 +956,87 @@ describe("the audit chain verification", () => {
     expect(screen.queryByText("Chain intact for the entries checked")).toBeNull();
   });
 
+  it("names EVERY break, not just the first, and dates them", async () => {
+    /* The reason the verdict grew a list. `audit_log` is append-only, so a break can
+       never be repaired — which means a real historical one is permanent, and a panel
+       that showed only the earliest would show that same scar every quarter while a
+       fresh break behind it stayed invisible. Worse as an attack: damage something from
+       six months ago and verification of last night switches itself off. The dates are
+       what let an operator say "two of these are the known March incident and this one
+       is from Tuesday". */
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [VERIFY]: verdict({
+          ok: false,
+          first_bad_entry_id: "0192f0aa-1111-7000-8000-000000000001",
+          breaks: [
+            chainBreak({ entry_id: "0192f0aa-1111-7000-8000-000000000001", kind: "link" }),
+            chainBreak({
+              entry_id: "0192f0aa-2222-7000-8000-000000000002",
+              kind: "content",
+              at: "2026-08-13T11:45:00Z",
+            }),
+          ],
+          breaks_found: 2,
+        }),
+      }),
+    );
+
+    fireEvent.click(await armVerify());
+    await screen.findByText("AUDIT CHAIN VERIFICATION FAILED");
+
+    // BOTH ids, because the second one is the whole point of the change.
+    expect(container.textContent).toContain("0192f0aa-1111-7000-8000-000000000001");
+    expect(container.textContent).toContain("0192f0aa-2222-7000-8000-000000000002");
+    // And the two KINDS are distinguished — "edited" and "reordered" are different
+    // incidents with different next moves.
+    expect(container.textContent).toContain("no longer hash");
+    expect(container.textContent).toContain("wrong predecessor");
+    // The scope still travels with the verdict on the failure path, which is where it
+    // was previously dropped: a break used to truncate the walk, so a red box said
+    // nothing about how much of the log had been looked at.
+    expect(container.textContent).toContain("Whole log checked");
+  });
+
+  it("says how many breaks it did NOT list once the cap bites", async () => {
+    // A capped list rendered as a complete one is the same defect as a bounded walk
+    // rendered as a full audit, one level down: the operator counts the rows on screen
+    // and reports that number.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [VERIFY]: verdict({
+          ok: false,
+          first_bad_entry_id: "0192f0aa-1111-7000-8000-000000000001",
+          breaks: [chainBreak({ entry_id: "0192f0aa-1111-7000-8000-000000000001" })],
+          breaks_found: 47,
+        }),
+      }),
+    );
+
+    fireEvent.click(await armVerify());
+    await screen.findByText("AUDIT CHAIN VERIFICATION FAILED");
+
+    expect(container.textContent).toContain("47 places");
+    expect(container.textContent).toContain("46 more");
+  });
+
   it("says a failure it could not localise rather than printing nothing", async () => {
     // `first_bad_entry_id` is nullable on the wire. A template that interpolated it raw
     // would render "The recomputed hash does not match at ." — a sentence that reads like
     // a rendering bug at the moment an operator most needs to trust the screen.
     const { container } = renderAdminPage(
       <OpsPage />,
-      routes(platform(), SUPERADMIN, { [VERIFY]: verdict({ ok: false, first_bad_entry_id: null }) }),
+      routes(platform(), SUPERADMIN, {
+        [VERIFY]: verdict({ ok: false, first_bad_entry_id: null, breaks: [], breaks_found: 1 }),
+      }),
     );
 
     fireEvent.click(await armVerify());
 
     await screen.findByText("AUDIT CHAIN VERIFICATION FAILED");
-    expect(container.textContent).toContain("an entry the server did not name");
+    expect(container.textContent).toContain("an entry it did not name");
   });
 
   it("does not report a verdict when the verification request itself failed", async () => {
@@ -964,9 +1055,10 @@ describe("the audit chain verification", () => {
   });
 
   it("does not let an intact verdict read as 'the whole log is verified'", async () => {
-    // `verify_chain` walks `ORDER BY at ASC LIMIT 1000` — the OLDEST thousand. On a longer
-    // log a green box says nothing about last night, which is the half an operator would
-    // otherwise assume, and assuming it is how a tampered recent entry goes unlooked-at.
+    // The scope belongs to the SERVER now: `verify_chain` reports how many links it
+    // recomputed and whether it reached the end, and this panel renders those two facts
+    // rather than a sentence about a limit. A green box that silently covered only part
+    // of the log is how a tampered recent entry goes unlooked-at.
     const { container } = renderAdminPage(
       <OpsPage />,
       routes(platform(), SUPERADMIN, { [VERIFY]: verdict() }),
@@ -975,7 +1067,28 @@ describe("the audit chain verification", () => {
     fireEvent.click(await armVerify());
 
     await screen.findByText("Chain intact for the entries checked");
-    expect(container.textContent).toContain("OLDEST 1,000 entries only");
+    // The SERVER's scope, not a sentence about a limit the route no longer has.
+    expect(container.textContent).toContain("Whole log checked");
+  });
+
+  it("never lets a PARTIAL walk read like a full audit", async () => {
+    /* The dangerous shape, and the reason the console renders the server's numbers
+       rather than a sentence about them. `ok: true` with `complete: false` means every
+       link the walk reached recomputed cleanly AND the walk did not reach the end — a
+       green box on its own would invite exactly the reading the scope exists to refuse.
+       This panel's copy was hard-coded to "the oldest 1,000 entries" for precisely this
+       reason, and that string outlived the limit it described. */
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [VERIFY]: verdict({ ok: true, complete: false, entries_checked: 1000 }),
+      }),
+    );
+    fireEvent.click(await armVerify());
+    await screen.findByText(/1,000 entries only/);
+
+    expect(container.textContent).not.toContain("Whole log checked");
+    expect(container.textContent).toContain("says nothing about the rest of the log");
   });
 
   it("asks for no typed confirmation, because it writes nothing", async () => {

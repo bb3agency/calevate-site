@@ -90,8 +90,17 @@ guard into the WHERE clause, treat `rowcount == 0` as "lost the race" → 409 or
 Used for: outbox claims, inbox claims, idempotency retries, status transitions
 (campaign draft→launched, lead status), invitation burn. State machines get a central
 transition table + `INVALID_STATUS_TRANSITION` error (campaigns, calls, leads) with
-explicit compensation jobs. Distributed mutex (Redis SET NX PX + compare-and-del Lua)
-only where a chain needs strict ordering — our analog is the audit chain (§7).
+explicit compensation jobs.
+
+**Serialization where a chain needs strict ordering** (audit chain §7, `credit_ledger`):
+`pg_advisory_xact_lock(hashtextextended('<key>', 0))`, NOT a Redis mutex. Both chains
+append INSIDE the caller's transaction, and correctness requires that no second writer
+read the head between our read and our COMMIT — a window of unknown length, which a
+TTL-bounded lease cannot cover and a `SET NX PX` lease will silently outlive. An
+advisory xact lock is released by COMMIT *or* ROLLBACK, i.e. by exactly the events that
+decide whether the row exists, so there is no TTL to tune and no second system whose
+outage forks the chain. Reach for a Redis mutex only where the critical section is NOT
+a database transaction. See D-59 and `apps/api/compliance/audit.py`.
 
 ## 6. Health & readiness (ADOPTED)
 
@@ -119,10 +128,23 @@ boot** (endpoint→permission map asserted at startup, not discovered at first u
 pairs with our route-discipline guardrail.
 
 **Audit hash chain** (ADOPTED for `audit_log`): each entry's hash =
-HMAC(secret, previous_hash + entry) under a short Redis lock; head in Redis, JSONL
-artifact appended per entry. Makes tampering detectable — strong DPDP/dispute
-evidence at trivial cost. Summary sanitizer: depth-capped, length-capped,
-key-pattern-redacted before persisting.
+HMAC(secret, previous_hash + entry), written under `pg_advisory_xact_lock('audit:chain')`
+held on the caller's transaction (§5). **The head has exactly one home: the last row of
+`audit_log`.** It is deliberately NOT cached in Redis — a head published inside the
+caller's transaction is erased by a ROLLBACK, and one published after COMMIT is lost by
+a process that dies in the gap; either way the next writer forks the chain off a head
+that is not there, which is a durable break in the artefact whose whole purpose is
+being unbreakable. Validating the cache against the table is the query the cache
+existed to avoid, so there is no cache. `(at, id)` is indexed (`ix_audit_log_chain`)
+because both the head read and the verification walk are ordered by it. The per-entry
+JSONL artifact is the structured log stream (`audit.write` events), which is shipped off
+the box and is therefore the second copy the chain is compared against. Makes tampering
+detectable — strong DPDP/dispute evidence at trivial cost. Summary sanitizer:
+depth-capped, length-capped, key-pattern-redacted before persisting.
+
+`GET /v1/ops/audit/verify` walks the WHOLE log by default and reports
+`entries_checked` / `complete` alongside the verdict: a bounded walk that renders as a
+plain green tick is a verification of the part nobody was worried about.
 
 ## 8. Alerting & metrics taxonomy (ADOPTED)
 

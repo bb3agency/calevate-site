@@ -84,11 +84,14 @@ which is itself the argument for refusing rather than guessing:
 
 1. **Postgres state.** A dev database carrying 31,527 accumulated test organizations sends
    the campaign dispatch tick down a different path from a freshly seeded one.
-2. **Redis state**, which nobody had suspected and `make db-reset` does not touch.
-   `compliance/audit.py:_current_head` reads the audit-chain head from Redis and queries
-   Postgres only on a MISS; on a laptop whose Redis holds 71,984 keys from previous runs
-   the fallback never runs, and on CI's fresh container it always does. Two units of
-   `compliance-gate`, decided by the age of a cache.
+2. **Redis state**, which nobody had suspected and `make db-reset` does not touch. Any
+   read-through cache does it: `core/loadshed.py:get_platform_status` serves the halt
+   state from a Redis hash and queries Postgres only on a MISS, so on a laptop whose
+   Redis holds 71,984 keys from previous runs the fallback never runs, and on CI's fresh
+   container it always does. Units of a hard-rule surface, decided by the age of a cache.
+   (The example originally cited here was the audit chain head, which was Redis-cached
+   until D-59 moved it into the table. The failure MODE outlived the example — which is
+   why this list is about the shape and not about one module.)
 3. **Machine speed**, which is NOT detectable from inside the process — see below.
 
 A freshly migrated and seeded database on this machine still measured 70 and 24, i.e. the
@@ -1387,12 +1390,12 @@ def _probe_redis() -> tuple[dict[str, Any], dict[str, Any]]:
     """Is Redis up, and was it EMPTY when the suite started? `(service, state)`.
 
     The second half is not decoration, and it is the half that took a measurement to
-    find. `compliance/audit.py:_current_head` reads the audit-chain head from Redis and
-    falls back to a Postgres query only on a MISS — so on a laptop whose Redis has served
-    fifty previous suites the fallback never executes, while on CI's fresh container it
-    always does on the first write. That is units of `compliance-gate` moving with nothing
-    but the age of a cache, and no amount of `make db-reset` reaches it: Redis outlives
-    the database.
+    find. `core/loadshed.py:get_platform_status` serves the platform halt state from a
+    Redis hash and falls back to a Postgres read only on a MISS — so on a laptop whose
+    Redis has served fifty previous suites the fallback never executes, while on CI's
+    fresh container it always does on the first read. That is units of a hard-rule
+    surface moving with nothing but the age of a cache, and no amount of `make db-reset`
+    reaches it: Redis outlives the database.
 
     `DBSIZE` on the URL's own database index, so a developer keeping something else on
     another index is not judged for it.
@@ -1408,8 +1411,8 @@ def _probe_redis() -> tuple[dict[str, Any], dict[str, Any]]:
         "probed": False,
         "why": (
             "A warm cache DELETES fallbacks from the measurement: "
-            "`compliance/audit.py:_current_head` queries Postgres only on a MISS, so on a "
-            "Redis that has served earlier suites that query never runs at all"
+            "`core/loadshed.py:get_platform_status` queries Postgres only on a MISS, so "
+            "on a Redis that has served earlier suites that query never runs at all"
         ),
         "remedy": "`make down && make up` (or `redis-cli -n <db> flushdb`) empties it",
         "detail": "",

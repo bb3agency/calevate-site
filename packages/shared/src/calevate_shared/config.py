@@ -4,7 +4,10 @@ Any new environment variable is added here AND to `.env.example` (DEV-SETUP.md �
 Secrets are never defaulted — a missing secret must raise at startup.
 """
 
+import ipaddress
+import logging
 from decimal import Decimal
+from functools import lru_cache
 from typing import Literal
 
 from pydantic import Field
@@ -14,11 +17,77 @@ Environment = Literal["local", "staging", "prod"]
 # ThinnestAI was retired by D-31 before any adapter existed — do not re-add it.
 EngineName = Literal["fake", "bolna"]
 
+# Stdlib logger, not `apps.api.core.logging.get_logger`: `calevate_shared` is imported by
+# every deployable and must not depend on `apps`. `get_logger` is `logging.getLogger`
+# anyway, and `configure_logging` installs its JSON handler on the ROOT logger, so these
+# records come out in the same format as everything else.
+_log = logging.getLogger(__name__)
+
+# Bolna's documented egress address (D-31, TRD §5). THE only copy of this literal on any
+# runtime path — `Settings.bolna_webhook_source_ips` defaults to it, and both the
+# receiver (`apps/voice-runtime/engine_intake.py`) and the adapter
+# (`apps/api/engine/bolna.py`) resolve their effective allowlist through
+# `bolna_source_ips()` below. `scripts/pilot/gates_api.DOCUMENTED_EGRESS_IP` restates it
+# ON PURPOSE and argues why: a gate that imported the value it tests would be asking the
+# code whether it agrees with itself.
+DEFAULT_BOLNA_SOURCE_IPS: frozenset[str] = frozenset({"13.203.39.153"})
+
+
+@lru_cache(maxsize=8)
+def parse_source_ip_allowlist(configured: str) -> frozenset[str]:
+    """Parse a configured webhook source-IP allowlist. Fails SAFE, never open.
+
+    Three deliberate properties, because for an unsigned engine this string is the whole
+    authenticity control (D-31: no signature, no retry, at-most-once):
+
+    - entries must parse as literal IP addresses. A CIDR, a hostname or a `*` is not a
+      supported entry, so nobody can turn the allowlist into a wildcard by typing one
+      — and a typo cannot quietly widen trust;
+    - unusable entries are dropped with a log line, not silently accepted;
+    - if NOTHING usable remains, the built-in default stands. An empty allowlist would
+      reject the engine itself, which is a total outage; an operator who wants to stop
+      accepting webhooks stops the service, they do not blank a variable.
+
+    Cached on the string because the receiver calls it per delivery inside a 500ms ack
+    budget (hard rule 3) and the answer is a pure function of the input. The cache also
+    means the "entry ignored" warning is emitted once per distinct value rather than
+    once per webhook, which is the difference between a signal and a flood.
+    """
+    entries: set[str] = set()
+    for part in configured.split(","):
+        candidate = part.strip()
+        if not candidate:
+            continue
+        try:
+            ipaddress.ip_address(candidate)
+        except ValueError:
+            _log.warning("webhook_allowlist_entry_ignored", extra={"reason": "not an ip address"})
+            continue
+        entries.add(candidate)
+    return frozenset(entries) or DEFAULT_BOLNA_SOURCE_IPS
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="forbid")
 
-    app_env: Environment = "local"
+    # NO DEFAULT, ON PURPOSE. The environment is STATED, never inferred.
+    #
+    # This field used to default to `"local"`, and `"local"` is the single value under
+    # which `apps/api/core/auth.py::_verify_dev_token` accepts `dev:<realm>:<clerk_id>`
+    # — a credential whose SUBJECT THE CALLER CHOOSES. `runtime_config_missing_keys`
+    # skips its Clerk-key checks under the same branch, so `/healthz/ready` reported a
+    # healthy service while doing it. One forgotten variable therefore switched off
+    # both the authentication and the alarm, and a deploy that never set APP_ENV looked
+    # exactly like one that did.
+    #
+    # A default that is safe locally and catastrophic in production is not a default;
+    # it is a trap with an ergonomics argument attached. Removing it costs one line in
+    # `.env.example` (already there) and one line in every deployment's env file, and
+    # buys: no configuration can be `local` without someone having typed `local`.
+    # `APP_ENV` is in `BOOTSTRAP_REQUIRED` too, so the failure an operator meets is a
+    # sentence naming the variable and its allowed values rather than a Pydantic
+    # traceback listing every optional model key (BACKEND-PATTERNS §2 step 1).
+    app_env: Environment
 
     # App role (NOSUPERUSER NOBYPASSRLS — RLS depends on it). Migrations use
     # alembic_database_url (owner role) and are the only thing that does.
@@ -64,9 +133,18 @@ class Settings(BaseSettings):
     # 401s and every call waits for the 10-minute poller. It lives here so rotating it
     # is an environment change and a restart, not a code change and a deploy of the
     # latency-critical service. Not a secret — an allowlist. Parsing fails safe: junk
-    # entries are dropped and an empty result falls back to the documented default
-    # (apps/voice-runtime/engine_intake.py), because an empty allowlist is an outage.
-    bolna_webhook_source_ips: str = "13.203.39.153"
+    # entries are dropped and an empty result falls back to `DEFAULT_BOLNA_SOURCE_IPS`
+    # (`parse_source_ip_allowlist` above), because an empty allowlist is an outage.
+    #
+    # THIS FIELD IS THE SINGLE SOURCE OF TRUTH for who may deliver a Bolna webhook.
+    # `apps/api/engine/bolna.py::verify_webhook` used to answer the same question from a
+    # module constant of its own, which agreed with this field only until an operator
+    # followed the documented recovery path (rotate the env var, restart) — after which
+    # the adapter's `WebhookVerdict` and the receiver's verdict disagreed silently, in
+    # the one direction nobody re-checks. Both now read this through `bolna_source_ips`.
+    # The default is spelled from the same frozenset the fallback uses so the two cannot
+    # drift either.
+    bolna_webhook_source_ips: str = ",".join(sorted(DEFAULT_BOLNA_SOURCE_IPS))
     # Bolna quotes cost in USD cents; the adapter converts at capture and STAMPS this
     # rate into usage_events.meta so any ledger row can be re-derived (hard rule 7).
     # A config row, not a live FX call: metering must be reproducible, not current.
@@ -204,8 +282,14 @@ class Settings(BaseSettings):
     # ships, so the decision is (a) a Langfuse project + keys, (b) a Decision-Log entry
     # choosing it over exporting the existing OTel spans to a Langfuse OTLP endpoint,
     # and (c) a call site — `apps/workers/extraction.py` is the only place that talks to
-    # an LLM, and its payload must go through `observability.redact_trace_payload`
-    # (hard rule 6) before it leaves the process.
+    # an LLM, and its payload must be redacted (hard rule 6) before it leaves the
+    # process. That last clause used to name `observability.redact_trace_payload`, a
+    # hand-called hook which has since been DELETED: the redaction now happens
+    # automatically in `_RedactingSpanExporter`, on every span leaving the process,
+    # because a hook each call site must remember is the one that gets forgotten. So a
+    # Langfuse restoration inherits the guarantee only if it exports through that same
+    # pipeline; a direct Langfuse SDK client would be a second, UNFILTERED path, which is
+    # the exact defect `traces_sample_rate` turned out to be. Weigh that in (b).
     #
     # TO RESTORE POSTHOG: product analytics is a BROWSER concern and never belonged in
     # backend Settings. It restores as `NEXT_PUBLIC_POSTHOG_KEY` in `apps/web`, with a
@@ -275,4 +359,28 @@ class Settings(BaseSettings):
     razorpay_webhook_secret: str | None = None
 
 
-__all__ = ["EngineName", "Environment", "Settings"]
+def bolna_source_ips(settings: Settings) -> frozenset[str]:
+    """The addresses this deployment accepts Bolna webhooks from. ONE resolver.
+
+    Both halves of the authenticity decision call THIS — the receiver that answers the
+    delivery (`apps/voice-runtime/engine_intake.verify_source`) and the adapter that
+    reports the verdict (`apps/api/engine/bolna.BolnaEngine.verify_webhook`) — so a
+    widened or narrowed `BOLNA_WEBHOOK_SOURCE_IPS` moves both together or neither.
+
+    Resolved per call rather than snapshotted at construction: `get_engine()` caches one
+    adapter instance per process, so a construction-time snapshot would be a second
+    thing that can go stale relative to the receiver. Per call is O(1) — `get_settings`
+    is `lru_cache`d and so is the parse — which is what keeps it legal on the
+    latency-critical path (hard rule 3).
+    """
+    return parse_source_ip_allowlist(settings.bolna_webhook_source_ips)
+
+
+__all__ = [
+    "DEFAULT_BOLNA_SOURCE_IPS",
+    "EngineName",
+    "Environment",
+    "Settings",
+    "bolna_source_ips",
+    "parse_source_ip_allowlist",
+]

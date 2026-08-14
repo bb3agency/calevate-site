@@ -55,6 +55,10 @@ from scripts.pilot.safety import LIVE_CALL_FLAG, PilotRefusedError
 
 GateRunner = Callable[[GateContext], Awaitable[GateRun]]
 
+#: The gates this harness runs when the operator names none: the three that need only an
+#: API key and a tunnel. Everything else needs a number, credit, or a file of observations.
+DEFAULT_GATES = "1,2,6"
+
 #: Sibling modules that may contribute gates. Imported OPTIONALLY: `scripts/pilot/` is
 #: written by several slices in parallel, and a runner that crashes because a colleague's
 #: module is mid-edit is a runner nobody can use on the day. A module that fails to
@@ -64,12 +68,23 @@ OPTIONAL_GATE_MODULES: tuple[str, ...] = (
     "scripts.pilot.latency",
     "scripts.pilot.concurrency",
     "scripts.pilot.knowledge",
+    "scripts.pilot.fidelity",
 )
 
 #: Gates that no harness can execute, with the reason. Listing them is the point: an
 #: operator reading the output must be able to tell "nobody has built this yet" from
 #: "this is a conversation with a human being and always will be".
 HUMAN_ONLY: dict[int, str] = {
+    # 3 and 5 are the LISTENING gates: both are judgements about what a Telugu speaker
+    # hears on a live PSTN call (was the name recognised; did it cut the caller off), and
+    # no measurement we can take from this side observes either. They are listed here
+    # rather than left to the generic "belongs to another slice" reason, which would
+    # promise an implementation that is never coming. `scorecard.GATES` classifies both
+    # as `human listening`, and the two statements must not drift apart.
+    3: "Telugu STT/TTS quality on real PSTN — a Telugu speaker scoring a 10-utterance "
+    "script by ear (scorecard evidence: human listening)",
+    5: "Telugu turn-taking: barge-in and end-of-utterance on hesitant speech — an "
+    "orchestration property judged by ear, not by a timer (scorecard: human listening)",
     9: "compute region + India data-residency terms — a written answer from the vendor",
     10: "agency model / sub-accounts tier — a written answer from the vendor",
     11: "support responsiveness — two support threads and a stopwatch",
@@ -176,8 +191,12 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="Execute gates and record structured results")
     run.add_argument(
         "--gates",
-        default="1,2,6",
-        help="Comma-separated gate numbers as OPERATIONS §2 numbers them (default: 1,2,6)",
+        action="append",
+        default=None,
+        help="Gate numbers as OPERATIONS §2 numbers them: comma-separated, REPEATABLE, or "
+        f"both (default: {DEFAULT_GATES}). Repeatable because argparse's default for a "
+        "value option is last-one-wins, and `--gates 7 --gates 8` silently dropping gate 7 "
+        "is precisely the class of quiet omission this harness exists to prevent.",
     )
     run.add_argument(
         "--to",
@@ -227,18 +246,27 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _requested_gates(spec: str) -> list[int]:
-    numbers: list[int] = []
-    for part in spec.split(","):
-        token = part.strip()
-        if not token:
-            continue
-        if not token.isdigit():
-            raise PilotRefusedError(f"--gates: {token!r} is not a gate number")
-        numbers.append(int(token))
+def _requested_gates(spec: str | Sequence[str] | None) -> list[int]:
+    """Every gate the operator named, once each, in the order they named them.
+
+    Accepts one comma-separated string, a repeated flag, or a mix of the two. Duplicates
+    collapse rather than running a gate twice: a gate that appears twice in the output is
+    a gate a reader has to reconcile with itself, and the second run's result would
+    silently be the one a `dict`-keyed reader kept.
+    """
+    specs = [spec] if isinstance(spec, str) else list(spec or [DEFAULT_GATES])
+    numbers: dict[int, None] = {}
+    for one in specs:
+        for part in one.split(","):
+            token = part.strip()
+            if not token:
+                continue
+            if not token.isdigit():
+                raise PilotRefusedError(f"--gates: {token!r} is not a gate number")
+            numbers.setdefault(int(token), None)
     if not numbers:
         raise PilotRefusedError("--gates named no gates")
-    return numbers
+    return list(numbers)
 
 
 def _minutes(raw: str) -> Decimal:
@@ -409,6 +437,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 __all__ = [
+    "DEFAULT_GATES",
     "HUMAN_ONLY",
     "OPTIONAL_GATE_MODULES",
     "build_parser",

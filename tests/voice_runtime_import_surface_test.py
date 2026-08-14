@@ -22,6 +22,7 @@ calls. But a wall-clock assertion on a CI box is flaky, and flaky latency assert
 deleted. What is NOT flaky is the set of modules the process holds: an LLM SDK, an
 engine adapter or the ORM model registry cannot appear in it by accident, and each one
 arrives with a matching pile of work someone intended to do on this path. Catching the
+from collections.abc import Callable
 import catches the intent before the millisecond.
 
 Measured as the REAL import graph — a fresh interpreter that imports the app exactly as
@@ -40,10 +41,10 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import engine_intake
 import pytest
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app
@@ -326,7 +327,7 @@ async def _drive(http: AsyncClient, tag: str) -> None:
 
 
 async def test_no_module_is_imported_while_serving_a_request(
-    monkeypatch: pytest.MonkeyPatch,
+    source_ip_allowlist: Callable[..., None],
 ) -> None:
     """A module imported lazily INSIDE the handler is a heavy import that hid from the
     boot graph — and it is worse than one paid at startup, because the first request
@@ -341,7 +342,7 @@ async def test_no_module_is_imported_while_serving_a_request(
     lives. This test runs with tracing off, i.e. the deployment shape it is asserting
     about — so if that import ever escapes its `tracing_enabled()` guard, this fails.
     """
-    monkeypatch.setattr(engine_intake, "BOLNA_SOURCE_IPS", frozenset({ENGINE_EGRESS_IP}))
+    source_ip_allowlist(ENGINE_EGRESS_IP)
 
     async with _client(EDGE_PROXY_IP) as http:
         await _drive(http, uuid.uuid4().hex[:12])  # warm-up

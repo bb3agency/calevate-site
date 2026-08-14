@@ -48,6 +48,37 @@ def test_indian_mobile_keeps_only_last_two_digits() -> None:
     assert "••10" in result.text
 
 
+def test_a_grouped_number_is_still_one_number() -> None:
+    """The mask survives the widening: separators change the spelling, not the tail.
+
+    `PHONE_MASK` keeps the last two NATIONAL digits, and the widened matcher has to
+    recover those from a number whose digits are split across groups — `9876-543-210`
+    ends in a group of three, so a naive "last two characters of the match" would print
+    `••10` only by luck and `••89` for a landline written `040-23456789` not at all.
+    """
+    assert redact("Naa number 98765 43210 andi").text == "Naa number [phone ••10] andi"
+    assert redact("9876-543-210 ki call cheyandi").text == "[phone ••10] ki call cheyandi"
+    assert redact("clinic 040-23456789").text == "clinic [phone ••89]"
+
+
+def test_the_earlier_validated_patterns_still_win_over_the_wider_phone_rule() -> None:
+    """Order of the pass is load-bearing and the widening did not disturb it.
+
+    Aadhaar and card substitution run BEFORE phone precisely so a 12- or 16-digit number
+    is classified by its checksum rather than by its shape. Both are written in groups in
+    real life, which is exactly the spelling the phone rule now also accepts, so this
+    pins that the checksummed rules still get there first — an Aadhaar redacted as a
+    phone would leak its last two digits.
+    """
+    aadhaar = redact("aadhaar 2341 2341 2346 andi")
+    assert VALID_AADHAAR[-2:] not in aadhaar.text
+    assert aadhaar.kinds == ["aadhaar"], aadhaar.kinds
+
+    card = redact("card 4111 1111 1111 1111")
+    assert card.kinds == ["card"], card.kinds
+    assert "••11" not in card.text
+
+
 def test_otp_is_redacted_even_though_it_is_short() -> None:
     result = redact("Mee OTP 458213 chepandi")
     assert "458213" not in result.text
