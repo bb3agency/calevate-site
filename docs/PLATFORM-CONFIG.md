@@ -80,6 +80,17 @@ Rules, each with the reason it exists:
    lock and the key, and encryption would be theatre.
 3. **KEK rotation re-wraps DEKs only** — cheap, because the secrets themselves are not
    re-encrypted. This is why the envelope exists.
+3a. **The KEK label is a FINGERPRINT of the key material, never an operator-maintained
+   counter (D-96, amending §5's first draft).** A counter is only correct while somebody
+   remembers to bump it on every rotation; forget once and new rows are stamped with the
+   OLD generation, the rewrap job then skips exactly the rows that need it, and the
+   following rotation renders them permanently unreadable — silent, unrecoverable data
+   loss gated on human memory. A fingerprint derived from the key cannot disagree with
+   reality. It is a LABEL, not a security control: unwrap performs trial decryption over
+   the ring, which is sound because GCM's tag is a 128-bit MAC, so a mislabelled row
+   still opens. **The rewrap job must therefore never use the fingerprint to decide which
+   rows to process** — every row is unwrapped and re-wrapped, or the counter's failure
+   mode returns wearing a hash.
 4. **`PLATFORM_KEK_RETIRED` unwraps but never wraps**, exactly as
    `AUDIT_CHAIN_SECRET_RETIRED` verifies but never signs (D-86). One way per problem: the
    rotation story is already written, so it is reused rather than reinvented.
@@ -143,7 +154,7 @@ CREATE TABLE platform_secrets (
     nonce          bytea       NOT NULL,
     dek_wrapped    bytea       NOT NULL,          -- AES-256-GCM(DEK, KEK)
     dek_nonce      bytea       NOT NULL,
-    kek_version    integer     NOT NULL,          -- which KEK wrapped this DEK
+    kek_id         integer     NOT NULL,          -- FINGERPRINT of the wrapping KEK, not a counter (D-96)
     last_four      text        NOT NULL,          -- the ONLY plaintext fragment stored
     created_at     timestamptz NOT NULL DEFAULT now(),
     created_by     uuid        NOT NULL REFERENCES admin_users(id),

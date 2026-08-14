@@ -10,14 +10,37 @@ The bootstrap order is locked in `core/bootstrap.py` (BACKEND-PATTERNS §2) — 
 file only declares WHICH routers the monolith mounts.
 """
 
+from collections.abc import AsyncIterator
+
 from fastapi import FastAPI
 
 from apps.api.core.bootstrap import create_app
 from apps.api.core.errors import install_error_handlers
+from apps.api.core.platform_config import start_config_refresher
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.flags.registry import assert_flag_registry_wellformed
 
-app: FastAPI = create_app(service="api", title="Calevate API", version="0.1.0")
+
+async def _startup() -> AsyncIterator[None]:
+    """Begin polling `platform_config_version` (PLATFORM-CONFIG §6).
+
+    ONE LINE, and it is the whole adoption surface: from here on, a value changed in the
+    ops console — or in psql at 3am — reaches this process within a few seconds with no
+    restart, through the `get_settings()` every handler already calls. A deployable that
+    does NOT call this runs on `os.environ` plus code defaults, exactly as it did before
+    this feature existed, which is what makes the adoption per-service and reversible.
+
+    It is started here rather than inside `create_app` deliberately. `create_app` is
+    shared with voice-runtime, and putting a background poll into every service by
+    default would decide hard rule 3's question — what may run beside the webhook path —
+    on that service's behalf, in a file its owner does not read. `start_config_refresher`
+    is idempotent, so adopting it there later is the same single line.
+    """
+    start_config_refresher()
+    yield
+
+
+app: FastAPI = create_app(service="api", title="Calevate API", version="0.1.0", on_startup=_startup)
 install_error_handlers(app)
 
 
@@ -59,6 +82,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ingest.routes import sources_router as lead_sources_router
     from apps.api.integrations.routes import router as integrations_router
     from apps.api.kb.routes import router as kb_router
+    from apps.api.ops.config_routes import router as ops_config_router
     from apps.api.ops.routes import router as ops_router
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
@@ -148,6 +172,10 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(quality_router)
     application.include_router(qa_sampling_router)
     application.include_router(ops_router)
+    # Platform configuration (PLATFORM-CONFIG §7). Its own router beside the ops
+    # switchboard, and its own permission: `ops:manage` is the incident surface, this is
+    # change management, and the two are held by different people on purpose.
+    application.include_router(ops_config_router)
 
 
 _mount_routers(app)

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { useAdminAccess, type AdminAccess } from "@/app/admin/access";
+import { ConfigPanel } from "@/app/admin/ops/ConfigPanel";
 import {
   Card,
   DANGER_BUTTON,
@@ -350,6 +351,10 @@ export default function OpsPage() {
   // letter queue. `useAdminMe` shares one query key, so this is a second verdict on one
   // request, not a second request.
   const mayRecover = useAdminAccess("ops:manage", "run the platform recovery tools");
+  // A DIFFERENT permission from the three panels above (`platform:config`, not
+  // `ops:manage`). The config panel reads no platform-row state, so it is gated on the
+  // permission alone — the same rule the replay and the audit-chain panels follow.
+  const mayConfigure = useAdminAccess("platform:config", "change platform configuration");
   const access = opsAccess(mayManage, state);
 
   return (
@@ -384,6 +389,13 @@ export default function OpsPage() {
           disable themselves, with the reason, for a session that lacks `ops:manage`. */}
       <OutboxReplayPanel access={mayRecover} queue={deadLetterState(state)} />
       <AuditChainPanel access={mayRecover} />
+
+      {/* Gated on `platform:config`, NOT on `ops:manage`, and that is the point of the
+          separate permission: the incident levers above are held by whoever is on call,
+          and changing what engine the platform dials on is change management. The panel
+          lives here because §8 puts it beside the other ops panels, and it disables
+          itself with its own reason for a session that lacks its own permission. */}
+      <ConfigPanel access={mayConfigure} />
 
       <Card title="What is never shed">
         <ul className="space-y-1.5 text-sm text-ink-muted">

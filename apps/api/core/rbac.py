@@ -37,6 +37,23 @@ Permission = Literal[
     "admin:tenants",
     "admin:impersonate",
     "ops:manage",
+    # Reading and changing PLATFORM configuration — the engine selection, the calling
+    # windows, the rate limits (PLATFORM-CONFIG §7).
+    #
+    # A NEW PERMISSION RATHER THAN A REUSE OF `admin:tenants`, and the spec argues why:
+    # the blast radii are not comparable. `admin:tenants` is "act on one client";
+    # this is "change what every client's platform does at the same instant" — switch
+    # the voice engine, move a calling window outside TRAI's permitted hours, raise a
+    # rate limit. An operator who onboards clients does not need it, and the whole
+    # point of a separate name is that it can be held by fewer people.
+    #
+    # It is deliberately NOT `ops:manage` either, even though both are superadmin-only
+    # today and both live under `/v1/ops`. `ops:manage` is the INCIDENT surface — the
+    # big red switch, the DLQ replay, the audit-chain check — and its holders are
+    # whoever is on call. Config is a change-management surface. Merging them would mean
+    # the next person given the pager could also switch the engine, which is exactly the
+    # separation §7 asks for and the one phase 4's `platform:secrets` deepens.
+    "platform:config",
 ]
 
 ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
@@ -94,6 +111,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             "admin:tenants",
             "admin:impersonate",
             "ops:manage",
+            "platform:config",
         }
     ),
 }
@@ -109,6 +127,14 @@ MUTATING_PERMISSIONS: frozenset[Permission] = frozenset(
         "kb:write",
         "ops:manage",
         "admin:tenants",
+        # An impersonating admin (D-22, read-only "view as client") is refused this even
+        # though `superadmin` grants it. A view-as session exists to SEE a client's
+        # screens; nothing about that job needs to change what engine the platform dials
+        # on. `GET /v1/ops/config` therefore also becomes invisible under impersonation,
+        # which is correct and is why it is listed in `ADMIN_CONSOLE_GETS`
+        # (tests/impersonation_reads_test.py): it is an admin-console read that
+        # impersonation never reaches, not a view a client's screen depends on.
+        "platform:config",
     }
 )
 

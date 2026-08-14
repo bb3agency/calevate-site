@@ -24,7 +24,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Text, func
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, LargeBinary, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -84,4 +84,44 @@ class PlatformConfigVersion(Base):
     bumped_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 
-__all__ = ["PlatformConfigVersion", "PlatformSetting"]
+class PlatformSecret(Base):
+    """One VERSION of one platform credential. Ciphertext only, INSERT-only (§5).
+
+    Append-only for the reason the money ledgers are: "which key was live when this call
+    was billed?" has to be answerable a year later, and an UPDATE would erase the
+    evidence rather than record the change. A rotation is a NEW ROW; the old row is
+    retired, never edited and never deleted. The immutability trigger ships in the same
+    migration and `check_ledger_immutability` picks it up from `APPEND_ONLY_TABLES`.
+
+    Column names are `core/envelope.Envelope`'s field names on purpose, so the INSERT is
+    a transcription rather than a translation. `kek_version` holds `Envelope.kek_id` — a
+    FINGERPRINT of the key rather than an operator-maintained counter (D-96;
+    `core/envelope.Kek` carries the argument). It is a REPORTING field: nothing filters
+    on it, and `secret_service.rewrap_all` says at length why it must never become a
+    filter.
+    """
+
+    __tablename__ = "platform_secrets"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    dek_wrapped: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    dek_nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    kek_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: The ONLY plaintext fragment that touches disk, and it exists so the console can
+    #: show WHICH key is installed without being able to show the key
+    #: (`core/envelope.last_four`, which masks anything too short to have four).
+    last_four: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=False
+    )
+    #: Set when a newer version supersedes this one, and when a rewrap replaces its
+    #: wrapping. NEVER deleted. These are the ONLY columns an UPDATE may touch, and the
+    #: immutability trigger allows exactly that and nothing else — see the migration.
+    retired_at: Mapped[datetime | None] = mapped_column()
+
+
+__all__ = ["PlatformConfigVersion", "PlatformSecret", "PlatformSetting"]

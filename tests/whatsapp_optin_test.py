@@ -182,9 +182,7 @@ async def test_another_tenant_can_neither_read_nor_write_an_alert_optin_row() ->
     async with tenant_session(bob) as session:
         leaked = (
             await session.execute(
-                text(
-                    "SELECT count(*) FROM whatsapp_alert_optin_ledger WHERE phone_e164 = :p"
-                ),
+                text("SELECT count(*) FROM whatsapp_alert_optin_ledger WHERE phone_e164 = :p"),
                 {"p": OWNER_E164},
             )
         ).scalar()

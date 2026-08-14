@@ -341,6 +341,55 @@ const PLATFORM = {
 };
 
 /**
+ * The platform-configuration panel's read (PLATFORM-CONFIG §8 panel 2).
+ *
+ * Two fields rather than one, and not for volume: an EDITABLE row and an `env`-pinned
+ * READ-ONLY row are different markup — one renders a button, the other renders the
+ * refusal sentence with the variable name in it — so a one-row fixture would scan half
+ * the panel.
+ */
+const OPS_CONFIG = {
+  fields: [
+    {
+      key: "self_serve_inr_per_min",
+      env_var: "SELF_SERVE_INR_PER_MIN",
+      value: "6.00",
+      source: "db",
+      default: "6.00",
+      has_default: true,
+      kind: "decimal",
+      options: [],
+      editable: true,
+      applies: "live",
+      caveat: null,
+      updated_by: "Ops",
+      updated_at: "2026-08-12T09:00:00Z",
+      note: "Q3 price change",
+    },
+    {
+      key: "object_store_bucket",
+      env_var: "OBJECT_STORE_BUCKET",
+      value: "calevate-prod",
+      source: "env",
+      default: null,
+      has_default: false,
+      kind: "string",
+      options: [],
+      editable: false,
+      applies: "live",
+      caveat: null,
+      updated_by: null,
+      updated_at: null,
+      note: null,
+    },
+  ],
+  config_version: 42,
+  stale: false,
+  never_loaded: false,
+  config_changed_at: "2026-08-12T09:00:00Z",
+};
+
+/**
  * The identity record, shared by the client screen that submits it and the admin screen
  * that decides it — they read the SAME endpoint (`/v1/compliance/kyc`), the admin one
  * through a view-as session, which is why one fixture serves both.
@@ -1098,7 +1147,11 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/ops/page.tsx",
     realm: "admin",
     element: () => <OpsPage />,
-    routes: { "/v1/admin/me": ADMIN_ME, "/v1/ops/platform": PLATFORM },
+    routes: {
+      "/v1/admin/me": ADMIN_ME,
+      "/v1/ops/platform": PLATFORM,
+      "/v1/ops/config": OPS_CONFIG,
+    },
   },
   {
     file: "admin/tenants/[tenantId]/page.tsx",

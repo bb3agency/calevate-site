@@ -359,6 +359,32 @@ def _typed(field: str, stored: Any) -> Any:
         return None
 
 
+def typed_value(field: str, stored: Any) -> Any:
+    """The public spelling of `_typed`, for a caller that has just validated a write.
+
+    Same function, exported because the write path needs to project its own change onto
+    a `Settings` copy before its transaction commits, and reaching into a private name
+    from another module is how two definitions of "what does this jsonb mean" appear.
+    """
+    return _typed(field, stored)
+
+
+def project(overrides: Mapping[str, Any]) -> tuple[Settings, ConfigSnapshot]:
+    """What this process WOULD be running with exactly these overrides in force.
+
+    Exists for one caller and one moment: a config write renders its response BEFORE the
+    request's transaction commits, so re-reading the snapshot would report the value the
+    operator has just replaced. Projecting is honest — this is the configuration one
+    commit from now — and it keeps the write path from having to reproduce `describe`'s
+    source logic in a second place.
+
+    It changes NO module state. The real snapshot moves when the refresh does.
+    """
+    base = Settings()
+    effective = base.model_copy(update=dict(overrides)) if overrides else base
+    return effective, replace(snapshot(), overrides=dict(overrides))
+
+
 def _kind_of(field: str) -> tuple[ValueKind, tuple[str, ...]]:
     """How the console should render this field, from its annotation.
 
@@ -656,11 +682,13 @@ __all__ = [
     "describe",
     "is_secret_key",
     "managed_fields",
+    "project",
     "publish_version",
     "refresh",
     "reset_for_test",
     "snapshot",
     "start_config_refresher",
     "stop_config_refresher",
+    "typed_value",
     "validate_value",
 ]

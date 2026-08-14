@@ -12,6 +12,14 @@ import {
   type PlatformState,
 } from "@/lib/api/admin";
 
+import {
+  OPS_CONFIG_PATH,
+  configConfirmation,
+  revertConfirmation,
+  type ConfigField,
+  type ConfigList,
+} from "@/lib/api/opsConfig";
+
 import { problem, renderAdminPage, type Routes } from "./harness";
 
 /**
@@ -74,7 +82,7 @@ function me(permissions: string[]): AdminMe {
   } as AdminMe;
 }
 
-const SUPERADMIN = me(["org:read", "admin:tenants", "ops:manage"]);
+const SUPERADMIN = me(["org:read", "admin:tenants", "ops:manage", "platform:config"]);
 const OPERATOR = me(["org:read", "admin:tenants"]);
 
 /**
@@ -89,7 +97,60 @@ function routes(
   identity: unknown = SUPERADMIN,
   extra: Routes = {},
 ): Routes {
-  return { [PLATFORM]: platformAnswer, [ADMIN_ME_PATH]: identity, ...extra };
+  // The config panel rides this screen, so its read is part of every case's premise —
+  // the harness THROWS on an unrouted request rather than 404ing, which is right: an
+  // unstubbed endpoint is a hole in the premise. Overridable through `extra`, which the
+  // config cases use to make the read fail or to change one field.
+  return {
+    [PLATFORM]: platformAnswer,
+    [ADMIN_ME_PATH]: identity,
+    [OPS_CONFIG_PATH]: configList(),
+    ...extra,
+  };
+}
+
+/** One managed setting, as `GET /v1/ops/config` returns it. */
+function configField(over: Partial<ConfigField> = {}): ConfigField {
+  return {
+    key: "self_serve_inr_per_min",
+    env_var: "SELF_SERVE_INR_PER_MIN",
+    value: "6.00",
+    source: "default",
+    default: "6.00",
+    has_default: true,
+    kind: "decimal",
+    options: [],
+    editable: true,
+    applies: "live",
+    caveat: null,
+    updated_by: null,
+    updated_at: null,
+    note: null,
+    ...over,
+  };
+}
+
+function configList(over: Partial<ConfigList> = {}): ConfigList {
+  return {
+    fields: [
+      configField(),
+      configField({
+        key: "object_store_bucket",
+        env_var: "OBJECT_STORE_BUCKET",
+        value: "calevate-prod",
+        source: "env",
+        editable: false,
+        kind: "string",
+        default: null,
+        has_default: false,
+      }),
+    ],
+    config_version: 42,
+    stale: false,
+    never_loaded: false,
+    config_changed_at: "2026-08-12T09:00:00Z",
+    ...over,
+  };
 }
 
 /**
@@ -1204,5 +1265,208 @@ describe("our own telemarketer registration", () => {
     // The panel needs the read to render at all, so the refused session gets no form —
     // which is the strongest form of "disabled with its reason" available here.
     expect(screen.queryByRole("button", { name: /Record registration/ })).toBeNull();
+  });
+});
+
+/**
+ * The platform-configuration panel (PLATFORM-CONFIG §8 panel 2).
+ *
+ * Ranked by what each failure costs, worst first — the same ordering the rest of this
+ * file uses, because it is the same screen and the same operator:
+ *
+ * 1. **A read we could not make must never render as a table of values.** Every other
+ *    panel here can lie about one fact; this one would lie about thirty-six at once, each
+ *    of them a plausible-looking default an operator would then act on. §52's rule, at
+ *    its highest stake on this screen.
+ * 2. **A key the ENVIRONMENT pins is read-only WITH the reason.** The store cannot win
+ *    against `os.environ` (§4), so an editable box for such a key would be a control
+ *    whose only outcome is a refusal — "a field that silently does nothing is worse than
+ *    no field" (§8). The screen must show the value, refuse the edit, and name the
+ *    variable to change instead.
+ * 3. **A write is not one click, and its confirmation is bound to the KEY.** The header
+ *    on the wire is what the API checks, so a test that only asserted the button worked
+ *    would pass with the binding removed — and a confirmation captured while raising a
+ *    pool size would switch the voice engine.
+ * 4. **Staleness is stated.** A process that has never read the store is running on its
+ *    environment and its defaults, and a change made on this screen may not be reflected
+ *    by it. That is a sentence, not a silence.
+ */
+describe("the platform configuration panel", () => {
+  it("refuses to show values it did not receive", async () => {
+    renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [OPS_CONFIG_PATH]: problem(503, {
+          title: "Service unavailable",
+          detail: "The database is not reachable.",
+        }),
+      }),
+    );
+
+    await screen.findByText("We could not read the platform configuration");
+    // Not a table of defaults, and not an empty state that reads as "nothing is managed".
+    expect(screen.queryByText("self_serve_inr_per_min")).toBeNull();
+  });
+
+  it("renders an env-pinned key read-only, with the variable that pins it", async () => {
+    const { container } = renderAdminPage(<OpsPage />, routes(platform()));
+
+    await screen.findByText("object_store_bucket");
+    // The value is SHOWN — hiding it would leave an operator hunting for a setting they
+    // can see in .env.
+    expect(screen.getByText("calevate-prod")).toBeTruthy();
+    // …and the refusal names the variable, so they know where to go instead.
+    expect(container.textContent).toContain("OBJECT_STORE_BUCKET");
+    expect(container.textContent).toContain("The environment always wins over the console");
+  });
+
+  it("sends the confirmation bound to the key it is changing", async () => {
+    const { calls } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [`PUT ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
+          key: "self_serve_inr_per_min",
+          previous: null,
+          field: configField({ value: "7.25", source: "db" }),
+          config_version: 43,
+        },
+      }),
+    );
+
+    await screen.findByText("self_serve_inr_per_min");
+    fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
+
+    const [valueInput] = screen.getAllByDisplayValue("6.00");
+    fireEvent.change(valueInput, { target: { value: "7.25" } });
+    fireEvent.change(screen.getByPlaceholderText(/Q3 price change/), {
+      target: { value: "Q3 self-serve price change" },
+    });
+
+    const save = screen.getByRole("button", { name: /^Save$/ });
+    // Dead until the key itself has been typed — the same shape as the switches above.
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(screen.getByPlaceholderText("SELF_SERVE_INR_PER_MIN"), {
+      target: { value: "SELF_SERVE_INR_PER_MIN" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    await waitFor(() => {
+      expect(calls.some((c) => c.method === "PUT")).toBe(true);
+    });
+    const write = calls.find((c) => c.method === "PUT");
+    expect(write?.path).toBe(`${OPS_CONFIG_PATH}/self_serve_inr_per_min`);
+    // THE BINDING, on the wire. The API refuses a header that names another key.
+    expect(write?.headers["X-Confirm-Action"]).toBe(
+      configConfirmation("self_serve_inr_per_min"),
+    );
+    // Money leaves as a STRING. A `number` input would have handed us a float, and
+    // `usd_inr_rate` is stamped into usage_events.meta (hard rule 7).
+    expect(JSON.parse(write?.body ?? "{}")).toEqual({
+      value: "7.25",
+      reason: "Q3 self-serve price change",
+    });
+  });
+
+  it("uses a DIFFERENT confirmation string to revert", async () => {
+    const { calls } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({
+          fields: [configField({ value: "7.25", source: "db", updated_by: "Ops" })],
+        }),
+        [`DELETE ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
+          key: "self_serve_inr_per_min",
+          previous: "7.25",
+          field: configField(),
+          config_version: 44,
+        },
+      }),
+    );
+
+    await screen.findByText("self_serve_inr_per_min");
+    fireEvent.click(screen.getByRole("button", { name: /Change/ }));
+    fireEvent.change(screen.getByPlaceholderText("SELF_SERVE_INR_PER_MIN"), {
+      target: { value: "SELF_SERVE_INR_PER_MIN" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Revert to default/ }));
+
+    await waitFor(() => {
+      expect(calls.some((c) => c.method === "DELETE")).toBe(true);
+    });
+    const revert = calls.find((c) => c.method === "DELETE");
+    expect(revert?.headers["X-Confirm-Action"]).toBe(
+      revertConfirmation("self_serve_inr_per_min"),
+    );
+    // Not the same string as a set: reverting puts a value nobody has looked at in
+    // months back into force, and a header captured for either must not authorise the
+    // other.
+    expect(revert?.headers["X-Confirm-Action"]).not.toBe(
+      configConfirmation("self_serve_inr_per_min"),
+    );
+  });
+
+  it("says so when the serving process has never read the store", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({ never_loaded: true, config_version: 0 }),
+      }),
+    );
+
+    await screen.findByText("This process has never read the configuration store");
+    expect(container.textContent).toContain(
+      "nothing set from this console is in force here",
+    );
+  });
+
+  it("distinguishes a stale refresh from a process that never loaded", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({ stale: true }),
+      }),
+    );
+
+    await screen.findByText("The last refresh of the configuration failed");
+    // The values are REAL, just possibly behind — the opposite reading from `never_loaded`,
+    // and the operator's next move differs.
+    expect(container.textContent).toContain("last ones read successfully");
+    expect(screen.queryByText("This process has never read the configuration store")).toBeNull();
+  });
+
+  it("warns on a setting that will not take effect until a restart", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({
+          fields: [
+            configField({
+              key: "db_pool_size",
+              env_var: "DB_POOL_SIZE",
+              value: 16,
+              default: 16,
+              kind: "integer",
+              applies: "on_restart",
+              caveat: "the SQLAlchemy engine is built once per process",
+            }),
+          ],
+        }),
+      }),
+    );
+
+    await screen.findByText("db_pool_size");
+    // A field that quietly does nothing for six hours is §8's defect wearing a delay.
+    expect(container.textContent).toContain("Needs a restart to take effect");
+  });
+
+  it("keeps the controls dead for a session without platform:config", async () => {
+    renderAdminPage(<OpsPage />, routes(platform(), OPERATOR));
+
+    await screen.findByText("self_serve_inr_per_min");
+    const change = screen.getAllByRole("button", { name: /Change/ })[0] as HTMLButtonElement;
+    // The permission is NOT ops:manage — an operator who may run the recovery tools
+    // still has no business switching the platform's voice engine (§7).
+    expect(change.disabled).toBe(true);
   });
 });

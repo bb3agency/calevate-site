@@ -36,6 +36,11 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": "prompt history, admin only",
     "/v1/ops/platform": "the platform switches — superadmin surface",
     "/v1/ops/audit/verify": "the audit chain check — superadmin surface",
+    "/v1/ops/config": (
+        "platform configuration — superadmin surface, and the one thing a view-as "
+        "session has no business seeing: it is OUR deployment's settings, not the "
+        "client's. Nothing on a client screen depends on it"
+    ),
 }
 
 
