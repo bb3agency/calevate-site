@@ -40,15 +40,22 @@ from uuid import UUID
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.compliance import whatsapp_optin
-from apps.api.compliance.models import ALERT_OPTIN_CHANNELS, ALERT_OPTIN_STATUSES
+from apps.api.compliance import whatsapp_optin, whatsapp_optin_routes
+from apps.api.compliance.models import (
+    ALERT_OPTIN_CHANNELS,
+    ALERT_OPTIN_OPERATOR,
+    ALERT_OPTIN_SELF_SERVE,
+    ALERT_OPTIN_STATUSES,
+)
 from apps.api.compliance.whatsapp_optin_routes import AlertOptInStatus
+from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import JsonFormatter
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from apps.workers import whatsapp
+from fastapi import Request
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -540,8 +547,9 @@ async def _seed_lead(tenant_id: UUID, lead_id: UUID) -> None:
         agent_id = uuid7()
         await session.execute(
             text(
-                "INSERT INTO agents (id, tenant_id, name, direction, language_primary, disclosure_line, "
-                "status, created_at, updated_at) VALUES (:id, :t, 'Alerts', 'inbound', 'te-IN', "
+                "INSERT INTO agents (id, tenant_id, name, direction, language_primary, "
+                "disclosure_line, status, created_at, updated_at) "
+                "VALUES (:id, :t, 'Alerts', 'inbound', 'te-IN', "
                 "'This is an AI assistant.', 'draft', now(), now())"
             ),
             {"id": agent_id, "t": tenant_id},
@@ -655,3 +663,300 @@ async def test_no_number_reaches_a_log_line(caplog: pytest.LogCaptureFixture) ->
     assert OWNER_E164 not in rendered
     assert OWNER_E164.lstrip("+") not in rendered
     assert "whatsapp_alert_optin_recorded" in rendered
+
+
+# --------------------------------------------------------------------------------
+# 8. Every refusal the writer makes, as a code a caller can act on
+#
+# The happy path above is what a demo exercises. These are the branches that decide
+# whether an unevidenced, misattributed or ownerless row can enter an append-only
+# consent ledger — and a row in that ledger is the whole of what we could produce if
+# Meta or a Data Principal challenged a message we sent.
+
+
+async def _make_admin(role: str = "operator") -> str:
+    """A dev bearer token for an admin-realm operator, the way ops signs in."""
+    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
+                "VALUES (:id, :cid, 'Ops', :role, now(), now())"
+            ),
+            {"id": uuid.uuid4(), "cid": clerk_id, "role": role},
+        )
+    return f"dev:admin:{clerk_id}"
+
+
+async def _record(tenant_id: UUID, **overrides: Any) -> whatsapp_optin.AlertOptIn:
+    """`record_alert_optin` with a valid self-serve grant as the baseline, so each test
+    below changes exactly ONE thing and the refusal it gets names that one thing."""
+    user_id = overrides.pop("user_id", uuid7())
+    kwargs: dict[str, Any] = {
+        "tenant_id": tenant_id,
+        "user_id": user_id,
+        "phone_e164": OWNER_E164,
+        "status": "granted",
+        "channel": ALERT_OPTIN_SELF_SERVE,
+        "recorded_by_user_id": user_id,
+    }
+    kwargs.update(overrides)
+    async with tenant_session(tenant_id) as session:
+        return await whatsapp_optin.record_alert_optin(session, **kwargs)
+
+
+async def test_a_status_nobody_can_say_is_refused_by_name_and_lists_the_ones_that_exist() -> None:
+    """A status outside `("granted", "withdrawn")` must be refused with a code and a
+    remediation, not written and not turned into an IntegrityError.
+
+    The ledger has no `declined` and no `pending`: absence IS the "never asked" state.
+    A caller that invents one is a bug, and a 500 from a CHECK tells whoever hit it
+    nothing about which value to send instead.
+    """
+    tenant_id, _, _, _ = await _tenant("bad-status")
+    with pytest.raises(ProblemError) as caught:
+        await _record(tenant_id, status="declined")
+
+    assert caught.value.code == "alert_optin_unknown_status"
+    assert caught.value.status == 422
+    # The remediation has to name the admissible values, or the caller guesses again.
+    assert "granted" in str(caught.value.remediation)
+    assert "withdrawn" in str(caught.value.remediation)
+    assert await _rows(tenant_id) == [], "a refused status must leave no row behind"
+
+
+async def test_a_channel_nobody_captured_it_on_is_refused_rather_than_recorded() -> None:
+    """`channel` is one of the three things Meta expects a business to produce when a
+    number is challenged (the source). A row whose channel is a string nobody defined
+    evidences nothing, so the writer refuses it by name before the CHECK does.
+    """
+    tenant_id, _, _, _ = await _tenant("bad-channel")
+    with pytest.raises(ProblemError) as caught:
+        await _record(tenant_id, channel="sms_reply")
+
+    assert caught.value.code == "alert_optin_unknown_channel"
+    assert caught.value.status == 422
+    assert "self_serve_console" in str(caught.value.remediation)
+    assert await _rows(tenant_id) == []
+
+
+async def test_an_opt_in_with_no_number_behind_it_is_refused_before_it_is_written() -> None:
+    """An opt-in is permission to message A NUMBER. With no number there is nothing the
+    permission attaches to, so the row would look like protection and grant nothing.
+
+    Reachable for real: an owner whose Clerk profile carries no mobile. The person gets
+    a sentence they can act on rather than a NOT NULL violation nobody can read.
+    """
+    tenant_id, _, _, _ = await _tenant("service-no-phone", phone=None)
+    with pytest.raises(ProblemError) as caught:
+        await _record(tenant_id, phone_e164="")
+
+    assert caught.value.code == "alert_optin_needs_a_number"
+    assert caught.value.status == 422
+    assert "number" in caught.value.detail.lower()
+    assert await _rows(tenant_id) == []
+
+
+@pytest.mark.parametrize(
+    ("recorders", "why"),
+    [
+        ({"recorded_by_user_id": None, "recorded_by_admin_id": None}, "nobody"),
+        ({"recorded_by_admin_id": uuid7()}, "both a client user and an operator"),
+    ],
+    ids=["neither", "both"],
+)
+async def test_a_row_that_names_no_single_recorder_is_refused(
+    recorders: dict[str, Any], why: str
+) -> None:
+    """Exactly one recorder, always. A consent row whose author is unknown — or is two
+    people at once — cannot answer "who took this down and on whose authority", which
+    is the question an audit of a challenged message opens with.
+
+    The database CHECK (`ck_..._names_one_recorder`) says the same thing to a writer who
+    never came through this function; this refusal is the half a caller can act on.
+    """
+    tenant_id, _, _, user_id = await _tenant(f"recorder-{len(recorders)}")
+    with pytest.raises(ProblemError) as caught:
+        await _record(tenant_id, user_id=user_id, status="withdrawn", **recorders)
+
+    assert caught.value.code == "alert_optin_needs_one_recorder", why
+    assert caught.value.status == 422
+    assert await _rows(tenant_id) == []
+
+
+async def test_a_self_serve_grant_recorded_by_anyone_but_its_subject_is_refused() -> None:
+    """A `self_serve_console` grant claims "the account holder authenticated and ticked
+    the box". Recorded by a different user it claims that about somebody who did not,
+    which is precisely the "assumed opt-in" Meta's policy forbids and DPDP §6 calls
+    neither free nor unambiguous.
+
+    The remediation has to offer the legitimate route (record it as an operator, with
+    the document), or the person who hit this wall has nowhere to go.
+    """
+    tenant_id, _, _, subject_id = await _tenant("self-serve-third-party")
+    with pytest.raises(ProblemError) as caught:
+        await _record(tenant_id, user_id=subject_id, recorded_by_user_id=uuid7())
+
+    assert caught.value.code == "alert_optin_self_serve_is_first_person"
+    assert caught.value.status == 422
+    assert "operator" in str(caught.value.remediation)
+    assert await _rows(tenant_id) == []
+
+
+async def test_an_operator_grant_that_names_no_operator_is_refused() -> None:
+    """An operator's grant is a claim ABOUT SOMEBODY ELSE, so it is only worth anything
+    if it says who made the claim. Unattributed, it is indistinguishable from a row
+    somebody added to make an alert start working.
+    """
+    tenant_id, _, _, subject_id = await _tenant("operator-anon")
+    with pytest.raises(ProblemError) as caught:
+        await _record(
+            tenant_id,
+            user_id=subject_id,
+            channel=ALERT_OPTIN_OPERATOR,
+            recorded_by_user_id=subject_id,
+            recorded_by_admin_id=None,
+            evidence=EVIDENCE,
+        )
+
+    assert caught.value.code == "alert_optin_operator_grant_needs_operator"
+    assert caught.value.status == 422
+    assert await _rows(tenant_id) == []
+
+
+# --------------------------------------------------------------------------------
+# 9. The operator surface: onboarding opt-ins reach the person the worker sends to
+
+
+ADMIN_ENDPOINT = "/v1/admin/tenants/{tenant_id}/whatsapp-alerts"
+
+
+async def test_an_operator_records_the_owners_opt_in_against_the_owner_not_themselves() -> None:
+    """The row an operator writes must name the CLIENT'S OWNER as its subject and the
+    operator as its recorder — never the operator as both.
+
+    If the subject were the operator, `resolve_destination` (which asks about the owner)
+    would still find no opt-in, and the alert would stay silently refused while the
+    console showed a green tick. If the recorder were the owner, the row would claim a
+    self-serve act that never happened.
+    """
+    tenant_id, _, _, owner_id = await _tenant("operator-records")
+    admin_token = await _make_admin()
+
+    async with _client() as client:
+        response = await client.post(
+            ADMIN_ENDPOINT.format(tenant_id=tenant_id),
+            json={"status": "granted", "evidence": EVIDENCE},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["messageable"] is True
+    assert OWNER_E164 not in response.text, "the operator surface must not echo the number"
+
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT user_id, phone_e164, channel, recorded_by_admin_id, "
+                    "recorded_by_user_id, evidence FROM whatsapp_alert_optin_ledger "
+                    "WHERE tenant_id = :t"
+                ),
+                {"t": tenant_id},
+            )
+        ).all()
+    assert len(row) == 1, row
+    subject, phone, channel, by_admin, by_user, evidence = row[0]
+    assert UUID(str(subject)) == owner_id, "the subject is the owner, not the operator"
+    assert str(phone) == OWNER_E164, "recorded against the number the alert is sent to"
+    assert str(channel) == ALERT_OPTIN_OPERATOR
+    assert by_admin is not None and by_user is None, "one recorder, and it is the operator"
+    assert evidence == EVIDENCE, "the document the client agreed in is what makes it evidence"
+
+
+async def test_an_operator_cannot_record_an_opt_in_for_an_account_with_no_reachable_owner() -> None:
+    """No active owner with a mobile number means there is nobody to have agreed.
+
+    Defaulting to "some member" here would file one human's consent against another
+    human's phone — the exact drift between the consent key and the delivery key that
+    makes a consent record worse than none. The refusal names the missing thing so an
+    operator knows to fix the profile rather than retry.
+    """
+    tenant_id, _, _, _ = await _tenant("no-owner-number", phone=None)
+    admin_token = await _make_admin()
+
+    async with _client() as client:
+        response = await client.post(
+            ADMIN_ENDPOINT.format(tenant_id=tenant_id),
+            json={"status": "granted", "evidence": EVIDENCE},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+    assert response.status_code == 422, response.text
+    assert _code(response) == "alert_optin_no_owner_with_a_number"
+    assert await _rows(tenant_id) == [], "a refused operator grant leaves no row"
+
+
+# --------------------------------------------------------------------------------
+# 10. A session with no person in it
+
+
+async def test_a_session_with_no_user_of_its_own_reads_no_subject_state() -> None:
+    """An admin viewing a client dashboard has no `users` row, so there is no subject
+    whose opt-in could be read.
+
+    Both other answers are wrong and one of them is a breach: reporting `none` asserts
+    something about a person who does not exist in this session, and reporting the
+    OWNER's state hands one human's consent record to another. The route must report
+    the channel's readiness and no subject state.
+    """
+    tenant_id, _, _, owner_id = await _tenant("no-subject")
+    await _grant(tenant_id, owner_id)  # the owner HAS opted in — it must not leak.
+
+    viewer = Principal(
+        realm="admin",
+        user_id=None,
+        clerk_user_id=None,
+        tenant_id=tenant_id,
+        role="operator",
+        impersonating=True,
+    )
+    async with tenant_session(tenant_id) as session:
+        answer = await whatsapp_optin_routes.read(session, viewer)
+
+    assert answer.status == "none", "no subject in this session, so no subject state"
+    assert answer.messageable is False
+    assert answer.channel is None and answer.captured_at is None
+    # The part that is still true and still useful: what the deployment can deliver.
+    assert answer.current_notice_version == whatsapp_optin.ALERT_NOTICE_VERSION
+
+
+async def test_an_opt_in_that_cannot_name_the_person_giving_it_is_forbidden() -> None:
+    """A subject-less principal reaching the write path is refused, not written.
+
+    `requires(..., realm="client")` resolves a membership, so this should be
+    unreachable over HTTP — which is exactly why it is asserted here instead. The type
+    still says `UUID | None`, and a row in this ledger attributed to nobody is the one
+    thing it must never contain: it would evidence an agreement with no human on the
+    other end of it.
+    """
+    tenant_id, _, _, _ = await _tenant("no-recorder")
+    nobody = Principal(
+        realm="client",
+        user_id=None,
+        clerk_user_id=None,
+        tenant_id=tenant_id,
+        role="owner",
+    )
+    payload = whatsapp_optin_routes.RecordAlertOptInIn(
+        status="granted", notice_version=whatsapp_optin.ALERT_NOTICE_VERSION
+    )
+    request = Request({"type": "http", "headers": [], "client": None})
+
+    with pytest.raises(ProblemError) as caught:
+        async with tenant_session(tenant_id) as session:
+            await whatsapp_optin_routes.record(payload, session, request, nobody)
+
+    assert caught.value.status == 403
+    assert "person giving it" in caught.value.detail
+    assert await _rows(tenant_id) == []

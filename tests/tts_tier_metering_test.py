@@ -23,6 +23,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+import pytest
 from apps.api.billing import rates
 from apps.api.billing import service as billing
 from apps.api.db.base import uuid7
@@ -71,6 +72,27 @@ def test_the_value_tier_costs_exactly_half_of_the_premium_tier() -> None:
     assert value == Decimal("15.0000")
     assert value * 2 == premium
     assert isinstance(value, Decimal)
+
+
+def test_a_negative_character_count_is_refused_rather_than_priced() -> None:
+    """A negative count would price to a NEGATIVE cost, and a negative cost recorded as
+    a usage event is a credit issued by an arithmetic accident.
+
+    `unit_cost_paid` is what the margin report and the invoice both read, so a sign
+    error there does not announce itself — it just makes a client's month cheaper and
+    our margin wrong, in a row that looks exactly like every other row. The count comes
+    from a vendor usage export (`record_tier_correction`'s only source today), which is
+    precisely the kind of input that arrives negative after a reconciliation.
+
+    Zero is NOT an error, and the distinction is deliberate: a call that synthesized
+    nothing costs nothing, and refusing it would fail a legitimate correction.
+    """
+    with pytest.raises(ValueError, match="negative"):
+        rates.tts_cost_inr("premium", -1)
+    with pytest.raises(ValueError):
+        rates.tts_cost_inr("value", -10_000)
+
+    assert rates.tts_cost_inr("premium", 0) == Decimal("0.0000")
 
 
 # --- the honesty rule: unproven is billed as value -----------------------------
@@ -423,6 +445,92 @@ async def test_a_self_serve_wallet_is_refunded_when_the_tier_was_wrong() -> None
             .all()
         )
     assert reasons == ["adjustment"]
+
+
+async def test_one_correction_reference_credits_the_wallet_exactly_once() -> None:
+    """The wallet half of a tier correction is keyed on the ops REFERENCE
+    (`tier-correction:{ref}`), and that key is the whole idempotency story for real
+    money moving back to a client.
+
+    The replay this defends against is the ordinary one: an ops script that corrects a
+    batch of mis-tiered calls, dies halfway, and is re-run. The cost-ledger half is
+    keyed per (call, ref) and so is already safe; without the wallet's own check, the
+    re-run would refund a self-serve client a second time — and hard rule 4 means that
+    second refund can never be deleted, only compensated by taking money back off a
+    client who did nothing wrong.
+
+    CONSEQUENCE WORTH KNOWING, and asserted here rather than left to be discovered: the
+    unit of the wallet credit is the REFERENCE, not the call. Two different calls filed
+    under one reference produce two cost-ledger corrections and ONE wallet credit. So an
+    ops runbook must mint a reference per call; a per-batch reference silently
+    under-refunds every call after the first.
+    """
+    tenant_id, first_call = await _tenant_with_call("refonce", voice="bulbul:v3")
+    second_call = uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET plan_tier = 'self_serve' WHERE id = :t"),
+            {"t": tenant_id},
+        )
+        agent_id = (
+            await session.execute(
+                text("SELECT agent_id FROM calls WHERE id = :c"), {"c": first_call}
+            )
+        ).scalar_one()
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                "to_e164, status, created_at, updated_at) VALUES (:i, :t, :a, :e, 'outbound', "
+                "'+919876500001', 'completed', now(), now())"
+            ),
+            {"i": second_call, "t": tenant_id, "a": agent_id, "e": f"exec_{uuid.uuid4().hex[:12]}"},
+        )
+        await billing.record_entry(
+            session, tenant_id=tenant_id, delta=Decimal("500.00"), reason="topup", ref="rzp_refonce"
+        )
+    await _meter(tenant_id, first_call, _snapshot())
+    await _meter(tenant_id, second_call, _snapshot())
+
+    async with tenant_session(tenant_id) as session:
+        before = (await billing.get_balance(session, tenant_id=tenant_id)).amount_inr
+        for call_id in (first_call, second_call):
+            await billing.record_tier_correction(
+                session,
+                tenant_id=tenant_id,
+                call_id=call_id,
+                chars=10_000,
+                billed_tier="premium",
+                actual_tier="value",
+                ref="ops-batch-9",
+            )
+        after = (await billing.get_balance(session, tenant_id=tenant_id)).amount_inr
+
+    # ₹30 premium vs ₹15 value on 10k chars: one refund of ₹15, not two.
+    assert str(after - before) == "15.0000"
+
+    async with tenant_session(tenant_id) as session:
+        wallet_rows = (
+            (
+                await session.execute(
+                    text("SELECT delta FROM credit_ledger WHERE tenant_id = :t AND ref = :r"),
+                    {"t": tenant_id, "r": "tier-correction:ops-batch-9"},
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert [str(delta) for delta in wallet_rows] == ["15.0000"], (
+        "one reference, one wallet entry — a re-run must never refund twice"
+    )
+    # The cost ledger, which is keyed per call, DID record both corrections: the two
+    # halves disagree on purpose and this is where that is visible.
+    corrections = [
+        r
+        for call_id in (first_call, second_call)
+        for r in await _usage_rows(tenant_id, call_id)
+        if r["meta"].get("kind") == "tts_tier_correction"
+    ]
+    assert len(corrections) == 2
 
 
 async def test_a_managed_client_wallet_is_untouched_by_a_correction() -> None:

@@ -519,6 +519,31 @@ async def test_a_reason_is_required_and_whitespace_is_not_one() -> None:
     assert len(await _ledger(tenant_id)) == 1
 
 
+async def test_a_reference_that_strips_to_nothing_is_refused_not_looked_up() -> None:
+    """`_trimmed`'s floor, on the restatement side.
+
+    A blank reference here cannot credit a payment twice — it can do the mirror-image
+    damage: `_restate` keys the compensating row on `restated:{ref}:{total}`, so a
+    reference that strips to nothing would put an unattributable restatement key on an
+    append-only ledger, and the operator's next real restatement of a different payment
+    for the same total would be answered "already done" and credit nothing.
+
+    Refused as a field error on `payment_ref`, which is also the honest message: the
+    lookup that would otherwise 404 would send the operator hunting for a payment that
+    is on their screen, when what is wrong is the box they typed it into.
+    """
+    token = await _make_admin()
+    tenant_id = await _tenant()
+    await _credit(token, tenant_id, "300.00", "UTR-BLANKREF")
+
+    for ref in ("   ", " x "):
+        response = await _restate(token, tenant_id, ref, "900.00")
+        assert response.status_code == 422, f"{ref!r}: {response.text}"
+        assert response.json()["fields"][0]["field"] == "payment_ref", ref
+
+    assert len(await _ledger(tenant_id)) == 1, "the wallet is untouched by a refused reference"
+
+
 async def test_a_padded_reference_still_finds_the_payment() -> None:
     """`_trimmed`, for the mirror-image reason the top-up needs it: a trailing space
     there credits a payment twice, and here it restates a payment that does not exist —

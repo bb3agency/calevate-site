@@ -219,7 +219,9 @@ def test_local_without_a_provider_uses_the_dev_sink(monkeypatch: pytest.MonkeyPa
     assert isinstance(get_whatsapp_transport(), ConsoleWhatsAppTransport)
 
 
-async def test_a_named_provider_refuses_rather_than_pretending(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_named_provider_refuses_rather_than_pretending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """No BSP is chosen in the decision log, so no adapter exists. Naming one in config
     must fail loudly — a silent no-op would look exactly like a working integration."""
     settings = get_settings()

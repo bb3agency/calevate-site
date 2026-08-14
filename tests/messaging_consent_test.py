@@ -599,3 +599,30 @@ def test_the_wire_enums_match_the_constants_the_check_mirrors() -> None:
     a source the API advertises and the database refuses, or the reverse."""
     assert set(get_args(ConsentSource)) == set(CONSENT_SOURCES)
     assert set(get_args(ConsentStatus)) == set(consent.RECORDABLE_STATUSES)
+
+
+async def test_a_number_the_normaliser_rejects_answers_no_consent_rather_than_erroring() -> None:
+    """A number that has no ledger key gets the answer of a number nobody ever asked:
+    `none`, and `messageable: false`.
+
+    Fail-CLOSED is the property. This lookup is what a caller consults before sending,
+    so the two wrong answers are both expensive: a 5xx makes the caller's error handler
+    decide whether to send (and the handler nobody wrote sends), while any `messageable:
+    true` on an unrecognisable identifier is a message to a stranger. The status must
+    also be 200 — a 4xx here reads as "our call was malformed, retry it differently"
+    rather than "you have no permission for this person".
+    """
+    _, slug, token = await _tenant("route-unnormalisable")
+    async with _client() as client:
+        response = await client.post(
+            LOOKUP, headers=_headers(token, slug), json={"phone": "not a phone"}
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "status": "none",
+        "source": None,
+        "captured_at": None,
+        "expires_at": None,
+        "messageable": False,
+    }

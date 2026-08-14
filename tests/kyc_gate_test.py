@@ -536,3 +536,43 @@ async def test_tenant_b_cannot_see_tenant_as_kyc_record() -> None:
     async with untenanted_session() as session:
         blind = await read_kyc(session, tenant_id=uuid.UUID(str(tenant_a["id"])))
     assert blind.recorded is False, "no GUC ⇒ zero rows (fail closed)"
+
+
+async def test_the_boolean_the_provisioning_seam_asks_tracks_the_filed_status() -> None:
+    """`kyc_verified` must answer False for every state that is not a live verification
+    — including a rejection, which is a FILED record and therefore the state most likely
+    to be mistaken for one.
+
+    It is the one-line selector a caller reaches for instead of reading the record and
+    re-deriving `is_verified`, so it is exactly where "recorded" could quietly come to
+    mean "cleared". A True here buys a phone number for a business nobody checked, which
+    is the DLT registration TRAI holds Calevate liable for as the Telemarketer.
+    """
+    from apps.api.compliance.kyc import kyc_verified
+
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+
+    async with tenant_session(tenant_id) as session:
+        assert await kyc_verified(session, tenant_id=tenant_id) is False, (
+            "nothing on file is not verified"
+        )
+
+    rejected = await _record(
+        org,
+        status="rejected",
+        entity_type="private_limited",
+        document_kind="cin",
+        document_ref=CIN,
+        signatory_name="A Signatory",
+        rejection_reason="The signatory named does not appear on the filing.",
+    )
+    assert rejected.status_code == 200, rejected.text
+    async with tenant_session(tenant_id) as session:
+        assert await kyc_verified(session, tenant_id=tenant_id) is False, (
+            "a rejected record is filed, and filed is not cleared"
+        )
+
+    await _verify(org)
+    async with tenant_session(tenant_id) as session:
+        assert await kyc_verified(session, tenant_id=tenant_id) is True

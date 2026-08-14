@@ -25,8 +25,10 @@ What is asserted here, in the order a regulator would ask it:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -35,6 +37,7 @@ from typing import Any
 
 import pytest
 import tool_routes
+import webhook_routes
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance.optout import (
     CALL_OPTOUT_SOURCE,
@@ -149,6 +152,33 @@ def test_what_is_not_an_opt_out_does_not_become_one(utterance: str) -> None:
     is not a licence to be sloppy: suppressing the caller who just asked to be rung back
     is a lead the client paid for and a promise we then break."""
     assert detect_opt_out([_Turn("caller", utterance)]) is None
+
+
+def test_a_wordless_caller_turn_is_skipped_and_a_later_opt_out_is_still_found() -> None:
+    """A turn that normalises to nothing must be stepped over, not allowed to end the
+    scan — and the turn index reported must be the turn the caller actually spoke in.
+
+    Real transcripts are full of these: a stray "..." from the STT, a line of punctuation,
+    a noise-only segment. They arrive BEFORE the sentence that matters, because a caller
+    who is about to interrupt is usually mid-noise when the segmenter cuts. If an empty
+    turn could stop the walk, the opt-out spoken one turn later is never detected, the
+    number is never suppressed, and the campaign rings a consumer who told us to stop —
+    which is the TCCCPR breach this detector exists to prevent.
+    """
+    turns = [
+        _Turn("caller", "..."),
+        _Turn("caller", "   "),
+        _Turn("agent", "Sorry, I did not catch that."),
+        _Turn("caller", "Stop calling me."),
+    ]
+
+    signal = detect_opt_out(turns)
+
+    assert signal is not None, "an empty turn must not end the scan"
+    assert signal.turn_idx == 3, "the evidence has to point at the turn that was spoken"
+    assert signal.rule == "stop_calling"
+    # And a transcript of nothing but silence is still not an opt-out.
+    assert detect_opt_out([_Turn("caller", "..."), _Turn("caller", " - ")]) is None
 
 
 def test_the_detector_and_the_golden_fixtures_agree_in_both_directions() -> None:
@@ -519,6 +549,107 @@ async def test_a_tool_call_that_names_no_execution_is_refused_not_acked(
     assert response.status_code == 422
     # RFC-9457: the machine-readable code lives in `type`, not a `code` member.
     assert response.json()["type"].endswith("/tool_call_unkeyable")
+
+
+async def test_a_body_that_is_not_json_is_refused_by_name_and_never_500s(
+    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An allowlisted source is not a well-formed sender, and a tool call this endpoint
+    cannot read must come back as the SAME named 422 an empty one does — never a 500,
+    and never a 202.
+
+    Two ways a body fails to be a JSON object, and both must land on the same answer
+    because the agent's fallback is the same in both: `json.loads` refusing the bytes,
+    and `json.loads` succeeding into something that is not an object (a bare list is
+    what a mis-configured custom function sends first). If either ever became a 500,
+    the caller would hear an apology for a request that was never registered while the
+    engine's own logs recorded a server fault against a body it considers valid.
+    """
+
+    async def _never(job: str, payload: dict[str, Any], **kwargs: Any) -> str:
+        raise AssertionError("an unreadable tool call must not queue anything")
+
+    monkeypatch.setattr(tool_routes, "enqueue", _never)
+    for label, body in (
+        ("not json at all", b"{not json"),
+        ("truncated object", b'{"execution_id": '),
+        ("a list, not an object", b'["exec_1"]'),
+    ):
+        async with _tool_client() as http:
+            response = await http.post(
+                TOOL, content=body, headers={**HEADERS, "content-type": "application/json"}
+            )
+        assert response.status_code == 422, f"{label}: {response.text}"
+        assert response.json()["type"].endswith("/tool_call_unkeyable"), label
+        assert "X-Ack-Ms" in response.headers, f"{label}: a refusal is measured too"
+
+
+async def test_a_tool_body_above_the_cap_is_refused_at_the_tools_own_size(
+    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """This endpoint refuses at ITS plausible size (4KB), not at the receiver's megabyte.
+
+    A tool call is an execution id, a language tag and a sentence of reason. The body
+    below is 8KB — comfortably inside the webhook receiver's `_MAX_BODY_BYTES`, so a
+    shared cap would accept it — and it must be refused here, unqueued, with the 413
+    that names the reason. The failure this pins is an unauthenticated caller getting
+    the latency-critical service to allocate a megabyte per request on the audio path.
+    """
+
+    async def _never(job: str, payload: dict[str, Any], **kwargs: Any) -> str:
+        raise AssertionError("an oversized tool call must not queue anything")
+
+    monkeypatch.setattr(tool_routes, "enqueue", _never)
+    oversized = json.dumps({"execution_id": "exec_big", "reason": "x" * 8192}).encode()
+    assert tool_routes._MAX_TOOL_BODY < len(oversized) < webhook_routes._MAX_BODY_BYTES, (
+        "the body must sit between the two caps or this test proves nothing"
+    )
+
+    async with _tool_client() as http:
+        response = await http.post(
+            TOOL, content=oversized, headers={**HEADERS, "content-type": "application/json"}
+        )
+
+    assert response.status_code == 413, response.text
+    assert response.json()["type"].endswith("/payload_too_large")
+    assert "X-Ack-Ms" in response.headers, "a refusal is measured too"
+
+
+async def test_a_queue_that_does_not_answer_tells_the_agent_so_rather_than_acking(
+    _allowlist: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`{"status": "accepted"}` is a promise that the suppression is durable, and the
+    only thing behind that promise is the queue accepting the job.
+
+    So when the enqueue stops answering, the endpoint must hold the request no longer
+    than the durable deadline and then answer with a RETRYABLE error. A 202 over a job
+    that was never queued is the worst outcome available here: the agent tells the
+    caller they have been removed, no worker ever runs, and — unlike the webhook path —
+    there is no reconciliation poller behind a tool call to notice. The transcript pass
+    is the only remaining catch, and it only works if nobody was told otherwise.
+    """
+    monkeypatch.setattr(tool_routes, "_DURABLE_DEADLINE_S", 0.2)
+
+    async def _stalled(job: str, payload: dict[str, Any], **kwargs: Any) -> str:
+        await asyncio.sleep(5)
+        raise AssertionError("unreachable: the deadline must fire first")
+
+    monkeypatch.setattr(tool_routes, "enqueue", _stalled)
+    started = time.perf_counter()
+    async with _tool_client() as http:
+        response = await http.post(
+            TOOL, json={"execution_id": f"exec_{uuid.uuid4().hex[:12]}"}, headers=HEADERS
+        )
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 2.0, f"the handler waited {elapsed:.1f}s on a stalled queue"
+    assert response.status_code == 503, response.text
+    problem = response.json()
+    assert problem["type"].endswith("/tool_queue_unavailable")
+    assert problem["kind"] == "transient"
+    assert problem["retryable"] is True
+    assert "accepted" not in response.text, "nothing may read as a registered suppression"
+    assert float(response.headers["X-Ack-Ms"]) < 500.0, "hard rule 3 holds on the refusals too"
 
 
 async def test_the_in_call_job_suppresses_the_number_the_engine_reports(

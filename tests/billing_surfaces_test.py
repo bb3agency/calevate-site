@@ -16,6 +16,7 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
+import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import service as billing
 from apps.api.db.base import uuid7
@@ -195,6 +196,50 @@ async def test_runway_prices_a_self_serve_wallet_at_the_list_rate() -> None:
     # ₹300 at the ₹6/min list price (config default) — priced from the SAME number the
     # top-up flow will use, so the two can never disagree.
     assert summary["minutes_left"] == 50
+
+
+async def test_a_deployment_with_no_list_price_offers_no_runway_rather_than_a_wrong_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`minutes_left` is priced from `SELF_SERVE_INR_PER_MIN`, and a deployment can have
+    that at zero — it is a configurable rupee figure, and zero is what an unconfigured
+    or a deliberately un-priced deployment holds.
+
+    There is no honest answer to "how many minutes does ₹300 buy" at a price of zero, so
+    the panel must answer NOTHING (`None`) and let the surface say "—". The two
+    alternatives are both worse than silence: dividing anyway is a `DivisionByZero` on a
+    billing panel, and treating a zero price as free would promise an owner unlimited
+    minutes that the credits gate will refuse the moment they dial.
+
+    A wallet at or below zero is a different question with a real answer — nought
+    minutes — and it must keep answering it, because that is the number that tells an
+    owner why their calls stopped.
+    """
+    from apps.api.core.settings import get_settings
+
+    tenant_id, _ = await _tenant_with_usage(minutes=0, monthly_fee=None)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET plan_tier = 'self_serve' WHERE id = :t"),
+            {"t": tenant_id},
+        )
+        await billing.record_entry(
+            session, tenant_id=tenant_id, delta=Decimal("300.00"), reason="topup", ref="rzp_zero"
+        )
+        monkeypatch.setattr(get_settings(), "self_serve_inr_per_min", Decimal("0"))
+        unpriced_summary = await billing.usage_summary(session, tenant_id=tenant_id)
+        monkeypatch.undo()
+        priced_summary = await billing.usage_summary(session, tenant_id=tenant_id)
+        balance = await billing.get_balance(session, tenant_id=tenant_id)
+
+    assert unpriced_summary["minutes_left"] is None, (
+        "an unpriced deployment must offer no runway number, not an invented one"
+    )
+    # The same wallet, priced, does answer — so the None above is the PRICE being
+    # missing and not the runway calculation having quietly stopped working.
+    assert priced_summary["minutes_left"] == 50
+    # The wallet itself is untouched by the question — hard rule 7, exact digits.
+    assert str(balance.amount_inr) == "300.0000"
 
 
 async def test_money_is_reported_in_paise_not_storage_precision() -> None:

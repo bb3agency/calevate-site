@@ -13,7 +13,13 @@ import uuid
 from collections.abc import Sequence
 
 from apps.api.admin import service as admin_service
-from apps.api.compliance.export import REDACTION_PENDING, build_subject_export, subject_ref
+from apps.api.compliance.export import (
+    FOREIGN_NUMBER_MARK,
+    REDACTION_PENDING,
+    build_subject_export,
+    mask_foreign_numbers,
+    subject_ref,
+)
 from apps.api.compliance.export_routes import SubjectExportOut
 from apps.api.compliance.export_routes import router as export_router
 from apps.api.core.errors import install_error_handlers
@@ -417,3 +423,40 @@ async def test_the_export_is_audited_and_the_audit_names_no_phone_number(caplog)
     assert national not in emitted
     assert digits not in emitted
     assert subject_ref(phone) in emitted
+
+
+async def test_the_subjects_own_number_survives_the_export_in_every_form_it_is_written() -> None:
+    """The mask must not swallow the SUBJECT's own number, however the model wrote it.
+
+    This document is addressed to the person whose number it is, and a DPDP subject
+    access response that redacts the requester's own identifier from their own record
+    is not a completeness answer — it reads as "we hold something here we will not show
+    you", which is the accusation the export exists to answer. The three spellings
+    (`+91…`, `91…`, bare national) are one person, and a mask that matched only the
+    stored spelling would blank the other two.
+    """
+    subject = "+919876511002"
+    for spelling in ("+919876511002", "919876511002", "9876511002"):
+        masked = mask_foreign_numbers(
+            f"Caller confirmed {spelling} is the right number.", subject_phone=subject
+        )
+        assert masked is not None
+        assert spelling in masked, f"the subject's own number written as {spelling} was masked"
+        assert FOREIGN_NUMBER_MARK not in masked
+
+
+async def test_a_digit_run_too_short_to_be_a_number_is_left_as_the_subject_wrote_it() -> None:
+    """Digit runs shorter than a phone number are prose, and prose is the subject's data.
+
+    The regex that finds phone-shaped runs is deliberately loose — it has to be, to catch
+    a number a model wrote with spaces in it — so the digit-count test is what keeps a
+    budget, a flat number or a quoted amount from coming back as `[number]`. Over-masking
+    here is not a safe failure: it silently corrupts the record the subject is entitled
+    to read, and they have no way to know a mask stood where a figure used to.
+    """
+    masked = mask_foreign_numbers(
+        "Quoted a budget of 20 00 000 for the flat.", subject_phone="+919876511002"
+    )
+
+    assert masked == "Quoted a budget of 20 00 000 for the flat.", masked
+    assert FOREIGN_NUMBER_MARK not in masked

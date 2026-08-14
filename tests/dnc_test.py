@@ -9,14 +9,16 @@ and that the numbers themselves never come back out in a response body.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.compliance import dnc
-from apps.api.compliance.service import check_dispatch
+from apps.api.compliance.service import assert_dispatch_allowed, check_dispatch
 from apps.api.core.errors import ProblemError
+from apps.api.core.logging import JsonFormatter
 from apps.api.core.settings import Settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
@@ -361,3 +363,180 @@ async def test_an_unknown_source_is_refused_by_name() -> None:
                 session, tenant_id=tenant_id, raw_numbers=[_number()], source="vibes"
             )
     assert caught.value.code == "dnc_unknown_source"
+
+
+async def test_a_paste_of_nothing_dialable_adds_nothing_and_says_how_much_it_dropped() -> None:
+    """A list where every line is unusable must report `malformed`, not a silent zero.
+
+    This is the shape of a real accident: a column paste that picked up the header row,
+    or a CSV whose numbers arrived as `#ERROR`. The client believes they suppressed a
+    list; the truthful answer is that nothing was suppressed and how many lines were
+    unreadable, because a quiet `added: 0` is what lets them close the screen and let
+    the campaign dial.
+    """
+    tenant_id, _agent_id, _slug, _token = await _tenant()
+
+    async with tenant_session(tenant_id) as session:
+        result = await dnc.add_numbers(
+            session,
+            tenant_id=tenant_id,
+            raw_numbers=["phone", "", "+91", "12345"],
+            source="manual",
+        )
+
+    assert result.added == 0
+    assert result.already_suppressed == 0
+    assert result.malformed == 4, "every unreadable line has to be counted, not swallowed"
+
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text("SELECT count(*) FROM dnc_list WHERE tenant_id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+    assert rows == 0, "an unreadable line must never become a suppression row"
+
+
+async def test_removing_an_entry_that_is_not_ours_is_a_404_and_not_a_500() -> None:
+    """An entry id this tenant cannot see is "not found", the same answer as an id that
+    never existed.
+
+    Both halves matter. The 404 rather than a 500 is the interface; the 404 rather than
+    a 403 is the tenancy property — a distinguishable "exists, but not yours" would let
+    one client probe another client's suppression list one id at a time, and the ids are
+    the only handles on numbers this surface hands out.
+    """
+    _tenant_id, _agent_id, slug, token = await _tenant()
+    other_id, _other_agent, _other_slug, _other_token = await _tenant()
+    phone = _number()
+
+    async with tenant_session(other_id) as session:
+        await dnc.add_numbers(session, tenant_id=other_id, raw_numbers=[phone], source="manual")
+        neighbours_entry = (
+            await session.execute(
+                text("SELECT id FROM dnc_list WHERE tenant_id = :t"), {"t": other_id}
+            )
+        ).scalar()
+
+    async with _client() as http:
+        invented = await http.delete(f"/v1/dnc/{uuid.uuid4()}", headers=_headers(token, slug))
+        neighbours = await http.delete(f"/v1/dnc/{neighbours_entry}", headers=_headers(token, slug))
+
+    assert invented.status_code == 404, invented.text
+    assert neighbours.status_code == 404, "another tenant's entry is not found, not forbidden"
+    assert neighbours.status_code == invented.status_code, (
+        "the two answers must be indistinguishable, or the id space becomes an oracle"
+    )
+
+    # And the neighbour still has their suppression — a 404 that quietly deleted it
+    # would be the worst of both.
+    async with tenant_session(other_id) as session:
+        survived = (
+            await session.execute(
+                text("SELECT count(*) FROM dnc_list WHERE id = :i"), {"i": neighbours_entry}
+            )
+        ).scalar()
+    assert survived == 1
+
+
+class _StolenUnderneath:
+    """An `AsyncSession` that lets a second writer delete the row between the lookup and
+    the DELETE — the race `remove_entry`'s rowcount check exists for."""
+
+    def __init__(self, inner: object, tenant_id: uuid.UUID, entry_id: uuid.UUID) -> None:
+        self._inner = inner
+        self._tenant_id = tenant_id
+        self._entry_id = entry_id
+        self._armed = True
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._inner, name)
+
+    async def execute(self, statement: object, params: object = None) -> object:
+        result = await self._inner.execute(statement, params)  # type: ignore[attr-defined]
+        if self._armed:
+            # Fires once, right after the SELECT that decided the row is removable.
+            self._armed = False
+            async with tenant_session(self._tenant_id) as rival:
+                await rival.execute(
+                    text("DELETE FROM dnc_list WHERE id = :i"), {"i": self._entry_id}
+                )
+        return result
+
+
+async def test_a_removal_that_deletes_no_row_reports_not_found_rather_than_success() -> None:
+    """When the DELETE affects zero rows, the caller must be told the entry is gone —
+    never handed a 2xx for work that did not happen.
+
+    Two things arrive at this branch: two people removing the same entry at once (the
+    race staged here), and RLS silently refusing the write on a row the non-locking
+    lookup could still read. A success answer would tell a client their number is back
+    in the campaign when it is not — and on this surface the client's next act is to
+    dial it.
+    """
+    tenant_id, _agent_id, _slug, _token = await _tenant()
+    phone = _number()
+
+    async with tenant_session(tenant_id) as session:
+        await dnc.add_numbers(session, tenant_id=tenant_id, raw_numbers=[phone], source="manual")
+        entry_id = (
+            await session.execute(
+                text("SELECT id FROM dnc_list WHERE tenant_id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+
+    async with tenant_session(tenant_id) as session:
+        racing = _StolenUnderneath(session, tenant_id, uuid.UUID(str(entry_id)))
+        with pytest.raises(ProblemError) as caught:
+            await dnc.remove_entry(racing, entry_id=uuid.UUID(str(entry_id)))  # type: ignore[arg-type]
+
+    assert caught.value.status == 404
+    assert caught.value.code == "not_found"
+    assert "dnc entry" in caught.value.detail.lower(), caught.value.detail
+
+
+async def test_the_raising_gate_refuses_a_suppressed_number_by_name_and_logs_no_digits(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`assert_dispatch_allowed` is the form used by dial paths that have no screen to
+    render a refusal on, so its refusal has to carry everything downstream needs.
+
+    Three properties in one, because on this path they are one event: it RAISES rather
+    than returning a decision nobody checked (a caller that forgets to read `.allowed`
+    places the call — which is why the raising form exists at all); the machine code
+    names the rule that blocked it, so an operator reading a failed dial knows whether
+    to look at the DNC list or at consent; and the log line it leaves behind carries the
+    rule and the tenant and never the number (hard rule 6), because the numbers this
+    gate refuses are precisely the ones a person asked us to stop holding out loud.
+    """
+    tenant_id, agent_id, _slug, _token = await _tenant()
+    phone = _number()
+    formatter = JsonFormatter()
+
+    async with tenant_session(tenant_id) as session:
+        # Allowed: it returns None. Nothing raised, nothing for a caller to forget.
+        assert (
+            await assert_dispatch_allowed(
+                session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
+            )
+            is None
+        )
+
+        await dnc.add_numbers(
+            session, tenant_id=tenant_id, raw_numbers=[phone], source="call_optout"
+        )
+
+        with caplog.at_level(logging.INFO), pytest.raises(ProblemError) as caught:
+            await assert_dispatch_allowed(
+                session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
+            )
+
+    assert caught.value.code == "dispatch_blocked_dnc", "the code has to name the rule"
+    assert caught.value.status == 422
+    assert caught.value.remediation, "a refusal a caller cannot act on is a dead end"
+    assert "do-not-call" in caught.value.detail.lower()
+
+    rendered = "\n".join(formatter.format(record) for record in caplog.records)
+    assert "dispatch_blocked" in rendered, "an operator has to be able to see the refusal"
+    assert str(tenant_id) in rendered
+    assert phone not in rendered and phone.lstrip("+") not in rendered

@@ -21,6 +21,8 @@ money survives `jsonb` exactly (hard rule 7).
 
 from __future__ import annotations
 
+import asyncio
+import signal
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -32,6 +34,7 @@ from apps.api.core.redis import get_redis
 from apps.api.core.settings import ENV_ONLY_KEYS, apply_platform_overrides, get_settings
 from apps.api.db.session import untenanted_session
 from calevate_shared.config import Settings
+from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
 from pydantic import ValidationError
 from sqlalchemy import text
 
@@ -367,3 +370,60 @@ async def test_the_read_path_does_no_io() -> None:
     # Ten thousand reads in well under a single millisecond of budget. A DB round trip
     # is ~1ms EACH, so this bound cannot be met by anything that touches the network.
     assert elapsed_ms < 50, f"10k get_settings() took {elapsed_ms:.1f}ms — is it doing IO?"
+
+
+# --- adoption: which deployables actually poll --------------------------------
+
+
+async def test_voice_runtime_adopts_console_config_when_it_boots() -> None:
+    """The adoption is a ONE-LINE decision in `apps/voice-runtime/main.py`, and a
+    deployable that does not make it runs on env + defaults forever without saying so.
+
+    voice-runtime is the deployable where that matters most and where hard rule 3 makes
+    it least obvious: the engine source-IP allowlist is the ENTIRE authenticity control
+    for an unsigned engine, and the vendor can renumber without telling us. Before the
+    refresher, that meant editing `.env` on the VPS and restarting the latency-critical
+    service while every webhook 401'd. So "the console can change it without a deploy"
+    is a recovery-time property of this service, not a convenience.
+
+    Asserted through the REAL lifespan, from a process state that has never read the
+    store, and against a VALUE rather than against a flag: the store's rupee figure has
+    to be the one `get_settings()` answers with once the service is up. Checking only
+    that a task exists would pass on a poller that reads nothing.
+    """
+    # A cold process — otherwise another suite's poll could satisfy this test.
+    await pc.stop_config_refresher()
+    pc.reset_for_test()
+    assert pc.snapshot().loaded_at is None, "this test must start from a process that never read"
+
+    await _write_row(DEMO_KEY, '"13.25"')
+    # Uvicorn owns the process signals in production; the lifespan installs handlers for
+    # them, and pytest is not a process this test may leave changed.
+    saved = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        async with voice_app.router.lifespan_context(voice_app):
+            # The refresher reads FIRST and sleeps afterwards, so this settles in one
+            # scheduler turn on a healthy box; the bounded loop is only so a sick one
+            # fails with this test's message instead of hanging. A `for` rather than a
+            # `while` because ruff's ASYNC110 is right in general — there is no event to
+            # await here, the poller publishes nothing but its snapshot.
+            for _ in range(250):
+                if pc.snapshot().loaded_at is not None:
+                    break
+                await asyncio.sleep(0.02)
+            snapshot = pc.snapshot()
+            in_force = get_settings().self_serve_inr_per_min
+    finally:
+        for sig, handler in saved.items():
+            signal.signal(sig, handler)
+        await pc.stop_config_refresher()
+
+    assert snapshot.loaded_at is not None, (
+        "voice-runtime booted without ever reading the store — an allowlist rotation "
+        "would now need a redeploy of the latency-critical service"
+    )
+    assert snapshot.degraded is False
+    # Hard rule 7: the exact rupee figure, as a Decimal, not a float that happens to
+    # compare equal.
+    assert in_force == Decimal("13.25")
+    assert str(in_force) == "13.25"
