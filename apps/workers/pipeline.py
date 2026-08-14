@@ -40,6 +40,7 @@ from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import assignment
 from apps.api.billing.caps import CAPS_CTE, over_cap_sql
 from apps.api.billing.rates import billable_tier
 from apps.api.billing.service import charge_for_call, plan_tier_of
@@ -260,7 +261,7 @@ async def ingest_engine_event(ctx: dict[str, Any], payload: dict[str, Any]) -> s
         return "unmapped"
 
     tenant_id, agent_id = resolved
-    call_id = await _upsert_call(tenant_id, agent_id, snapshot)
+    call_id = await _upsert_call(tenant_id, agent_id, snapshot, agent_ref)
 
     if snapshot.billable_ready:
         try:
@@ -294,16 +295,20 @@ async def ingest_engine_event(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     return outcome
 
 
-async def _upsert_call(tenant_id: UUID, agent_id: UUID, snapshot: ExecutionSnapshot) -> UUID:
+async def _upsert_call(
+    tenant_id: UUID, agent_id: UUID, snapshot: ExecutionSnapshot, engine_agent_ref: str | None
+) -> UUID:
     """Idempotent by `engine_call_id`. Status only ever moves forward: a late `ringing`
     webhook arriving after `completed` must not un-complete a finished call."""
     with span("pipeline.call_upsert", tenant_id=str(tenant_id), agent_id=str(agent_id)) as stage:
-        resolved = await _upsert_call_row(tenant_id, agent_id, snapshot)
+        resolved = await _upsert_call_row(tenant_id, agent_id, snapshot, engine_agent_ref)
         set_span_attributes(stage, call_id=str(resolved))
     return resolved
 
 
-async def _upsert_call_row(tenant_id: UUID, agent_id: UUID, snapshot: ExecutionSnapshot) -> UUID:
+async def _upsert_call_row(
+    tenant_id: UUID, agent_id: UUID, snapshot: ExecutionSnapshot, engine_agent_ref: str | None
+) -> UUID:
     direction = snapshot.direction
     call_id = uuid7()
     async with tenant_session(tenant_id) as session:
@@ -339,19 +344,67 @@ async def _upsert_call_row(tenant_id: UUID, agent_id: UUID, snapshot: ExecutionS
                 },
             )
         ).first()
-        if row is not None:
-            return UUID(str(row[0]))
-        # The conflict's WHERE clause refused the update (terminal row already there):
-        # read the existing id rather than treating it as an error.
-        existing = (
-            await session.execute(
-                text("SELECT id FROM calls WHERE engine_call_id = :ecid"),
-                {"ecid": snapshot.engine_call_id},
-            )
-        ).first()
-    if existing is None:  # pragma: no cover — only reachable on a concurrent delete
-        raise RuntimeError("call row vanished during upsert")
-    return UUID(str(existing[0]))
+        if row is None:
+            # The conflict's WHERE clause refused the update (terminal row already
+            # there): read the existing id rather than treating it as an error.
+            row = (
+                await session.execute(
+                    text("SELECT id FROM calls WHERE engine_call_id = :ecid"),
+                    {"ecid": snapshot.engine_call_id},
+                )
+            ).first()
+            if row is None:  # pragma: no cover — only reachable on a concurrent delete
+                raise RuntimeError("call row vanished during upsert")
+        resolved_id = UUID(str(row[0]))
+        await _record_arm_the_engine_ran(
+            session, tenant_id=tenant_id, call_id=resolved_id, engine_agent_ref=engine_agent_ref
+        )
+    return resolved_id
+
+
+async def _record_arm_the_engine_ran(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    call_id: UUID,
+    engine_agent_ref: str | None,
+) -> None:
+    """Attribute this call to a script arm IF the engine says an arm's agent ran it.
+
+    A/B ATTRIBUTION FOR CALLS WE DID NOT PLACE (ROADMAP M3)
+    --------------------------------------------------------
+    `agents/service.py::dispatch_call` attributes an OUTBOUND call by drawing a bucket
+    before it dials. Nothing draws anything here, and nothing may: by the time this row
+    exists the call is over, the caller has already heard a script, and picking an arm
+    now would name one they never heard. That is not attribution, it is fabrication, and
+    it would be invisible in the data — which is why the rule below is a rule about
+    FACTS and not about buckets.
+
+    The fact available is the one the engine reports: `ExecutionSnapshot.
+    engine_agent_ref` names the agent object that ran the call, and `publish_variant`
+    gives every arm its own engine agent with its own ref. So:
+
+    * ref names an ARM  → that call ran that arm, provably. Record it.
+    * ref names the AGENT → the call ran the agent's live script, which is neither arm.
+      Record nothing. For an inbound call to the client's DID this is the ordinary case
+      (FLOWS §3: the number answers with the agent), and it is why an inbound-only
+      experiment is still refused in `agents/experiments.py` — see its docstring.
+
+    It runs for both directions on purpose. On outbound it repairs a real gap rather
+    than duplicating `dispatch_call`: that function records only when its own INSERT
+    wins, so an engine webhook that beat our commit and created the `calls` row first
+    left an arm-dialled call carrying no arm at all. Both writers go through
+    `assignment.record`, whose `ON CONFLICT (call_id) DO NOTHING` means the first fact
+    written stands and no call can ever change arms.
+
+    Same transaction as the `calls` row by construction — the caller's session.
+    """
+    if not engine_agent_ref:
+        return
+    arm = await assignment.arm_of_engine_ref(session, engine_agent_ref=engine_agent_ref)
+    if arm is None:
+        return
+    await assignment.record(session, tenant_id=tenant_id, call_id=call_id, assignment=arm)
 
 
 # --- job 2: the pipeline ------------------------------------------------------
