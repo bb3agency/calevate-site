@@ -540,7 +540,7 @@ async def _seed_lead(tenant_id: UUID, lead_id: UUID) -> None:
         agent_id = uuid7()
         await session.execute(
             text(
-                "INSERT INTO agents (id, tenant_id, name, direction, language, disclosure_line, "
+                "INSERT INTO agents (id, tenant_id, name, direction, language_primary, disclosure_line, "
                 "status, created_at, updated_at) VALUES (:id, :t, 'Alerts', 'inbound', 'te-IN', "
                 "'This is an AI assistant.', 'draft', now(), now())"
             ),
@@ -548,8 +548,9 @@ async def _seed_lead(tenant_id: UUID, lead_id: UUID) -> None:
         )
         await session.execute(
             text(
-                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, status, created_at, "
-                "updated_at) VALUES (:id, :t, :a, :p, 'hot', now(), now())"
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, "
+                "created_at, updated_at) "
+                "VALUES (:id, :t, :a, :p, 'inbound_call', 'hot', now(), now())"
             ),
             {"id": lead_id, "t": tenant_id, "a": agent_id, "p": OTHER_E164},
         )

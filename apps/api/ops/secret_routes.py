@@ -37,7 +37,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import require_step_up
 from apps.api.ops.config_service import propagate
-from apps.api.ops.secret_probes import probe_credential
+from apps.api.ops.secret_probes import ProbeOutcome, probe_credential
 from apps.api.ops.secret_service import SecretRecord, read_secrets, rewrap_all, set_secret
 
 router = APIRouter(prefix="/v1/ops/secrets", tags=["ops"])
@@ -142,7 +142,13 @@ class SecretTestOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     key: str
-    outcome: str
+    # The server's CLOSED set, declared as one so the console can switch on it
+    # exhaustively. It was a bare `str` and the generated TypeScript was therefore
+    # `string`, which is the untyped-2xx defect D-84 swept three times: a console
+    # indexing a lookup table by it cannot be told at compile time that it has missed a
+    # case. Unlike `credit_ledger.reason` (a database enum a migration can widen) this
+    # set is exhausted by `ProbeResult` in-process, so narrowing it is honest.
+    outcome: ProbeOutcome
     #: The vendor's HTTP status, when there was one. Null otherwise.
     status: int | None
     detail: str

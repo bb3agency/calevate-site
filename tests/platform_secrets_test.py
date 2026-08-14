@@ -333,6 +333,64 @@ async def _wrapping() -> tuple[bytes, bytes, int]:
     return bytes(row[0]), bytes(row[1]), int(row[2])
 
 
+async def test_a_mislabelled_row_is_still_rewrapped() -> None:
+    """THE CONDITION THE WHOLE FINGERPRINT DESIGN RESTS ON (D-96).
+
+    `kek_version` is a REPORTING field. The obvious optimisation —
+    `WHERE kek_version <> :active`, skip the rows already under the current key — is
+    exactly what must never exist, and this test is what makes adding it fail.
+
+    The row below is MISLABELLED: it is wrapped under key A and stamped with key B's
+    fingerprint. That is what a hand-written INSERT, a bug, or a restore from a backup
+    taken mid-rotation produces. A rewrap that trusted the label would skip it, report
+    success, and leave it under A — and the next rotation, which drops A from the
+    environment, would make it permanently unreadable. Silent, irreversible, and it is
+    the counter design's failure mode wearing a hash.
+
+    So: every row, every time. This asserts the row was EXAMINED and RE-WRAPPED despite
+    its label already claiming to be current, and that it then opens under the active key
+    with no retired key configured at all.
+    """
+    admin = await _admin_id()
+    key_a = build_ring(kek=_kek(b"\x41"), retired=None, app_env="prod")
+    key_b = build_ring(kek=_kek(b"\x42"), retired=None, app_env="prod")
+
+    from apps.api.core.envelope import seal as _seal
+
+    envelope = _seal(SECRET, context=secret_context(KEY), ring=key_a)
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO platform_secrets (key, version, ciphertext, nonce, dek_wrapped, "
+                "dek_nonce, kek_version, last_four, created_by) "
+                "VALUES (:k, 1, :ct, :n, :dw, :dn, :kek, :l4, :by)"
+            ),
+            {
+                "k": KEY,
+                "ct": envelope.ciphertext,
+                "n": envelope.nonce,
+                "dw": envelope.dek_wrapped,
+                "dn": envelope.dek_nonce,
+                # THE LIE: wrapped under A, labelled B.
+                "kek": key_b.active.kek_id,
+                "l4": SECRET[-4:],
+                "by": admin,
+            },
+        )
+
+    rotated = build_ring(kek=_kek(b"\x42"), retired=_kek(b"\x41"), app_env="prod")
+    async with untenanted_session() as session:
+        result = await rewrap_all(session, ring=rotated)
+
+    assert result.examined == 1, "the row was FILTERED OUT — kek_version became a filter"
+    assert result.rewrapped == 1, "the row was skipped because its label already said 'current'"
+
+    # The proof that it matters: it now opens under B alone, so dropping A is safe.
+    only_b = build_ring(kek=_kek(b"\x42"), retired=None, app_env="prod")
+    async with untenanted_session() as session:
+        assert (await resolve_secrets(session, ring=only_b)).values[KEY] == SECRET
+
+
 async def test_a_row_no_key_opens_is_reported_never_skipped_silently() -> None:
     """The condition the whole fingerprint design rests on: a rewrap must SEE a row it
     cannot open, and say so, rather than passing over it and leaving it to die at the
@@ -579,6 +637,34 @@ def test_every_probe_names_where_its_endpoint_came_from() -> None:
         assert probe.source, f"{key}: no citation for the endpoint"
         assert probe.url.startswith("https://"), f"{key}: a credential over plaintext HTTP"
         assert isinstance(probe.verified, bool)
+
+
+def test_the_ledger_allowance_is_scoped_to_one_file() -> None:
+    """`BOUNDED_MUTATIONS` lets `secret_service.py` contain the rewrap's UPDATE. The
+    allowance must be ONE MODULE WIDE, not repo wide.
+
+    Written after a sabotage showed the claim was unproved: widening the lookup to ignore
+    the file left every check green while any module in the repo could mutate
+    `platform_secrets`. The database trigger is still the real enforcement — it would
+    refuse a ciphertext edit from anywhere — but check 1 exists to catch the statement
+    before it runs, and an allowance that silences it everywhere silences it for the
+    module that has not been reviewed.
+    """
+    from pathlib import Path
+
+    from scripts.check_ledger_immutability import BOUNDED_MUTATIONS, scan_source
+
+    statement = 'await session.execute(text("UPDATE platform_secrets SET kek_version = 0"))'
+
+    allowed_file = Path("apps/api/ops/secret_service.py")
+    assert (allowed_file.as_posix(), "platform_secrets") in BOUNDED_MUTATIONS
+    assert scan_source(allowed_file, statement) == [], "the registered module lost its allowance"
+
+    # Any OTHER module writing the identical statement is still a finding.
+    for elsewhere in ("apps/api/ops/config_service.py", "apps/workers/pipeline.py"):
+        findings = scan_source(Path(elsewhere), statement)
+        assert findings, f"{elsewhere} may now mutate platform_secrets — the allowance leaked"
+        assert "platform_secrets" in findings[0]
 
 
 def test_the_aad_namespaces_platform_secrets_away_from_tenant_secrets() -> None:

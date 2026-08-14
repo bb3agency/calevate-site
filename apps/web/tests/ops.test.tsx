@@ -88,7 +88,13 @@ function me(permissions: string[]): AdminMe {
   } as AdminMe;
 }
 
-const SUPERADMIN = me(["org:read", "admin:tenants", "ops:manage", "platform:config"]);
+const SUPERADMIN = me([
+  "org:read",
+  "admin:tenants",
+  "ops:manage",
+  "platform:config",
+  "platform:secrets",
+]);
 const OPERATOR = me(["org:read", "admin:tenants"]);
 
 /**
@@ -1415,8 +1421,11 @@ describe("the platform configuration panel", () => {
     const write = calls.find((c) => c.method === "PUT");
     expect(write?.path).toBe(`${OPS_CONFIG_PATH}/self_serve_inr_per_min`);
     // THE BINDING, on the wire. The API refuses a header that names another key.
-    expect(write?.headers["X-Confirm-Action"]).toBe(
-      configConfirmation("self_serve_inr_per_min"),
+    // The literal, for the reason the credential test above records: an assertion
+    // against the function under test cannot see the two sides move together.
+    expect(write?.headers["X-Confirm-Action"]).toBe("set_config:self_serve_inr_per_min");
+    expect(configConfirmation("self_serve_inr_per_min")).toBe(
+      "set_config:self_serve_inr_per_min",
     );
     // Money leaves as a STRING. A `number` input would have handed us a float, and
     // `usd_inr_rate` is stamped into usage_events.meta (hard rule 7).
@@ -1453,8 +1462,9 @@ describe("the platform configuration panel", () => {
       expect(calls.some((c) => c.method === "DELETE")).toBe(true);
     });
     const revert = calls.find((c) => c.method === "DELETE");
-    expect(revert?.headers["X-Confirm-Action"]).toBe(
-      revertConfirmation("self_serve_inr_per_min"),
+    expect(revert?.headers["X-Confirm-Action"]).toBe("revert_config:self_serve_inr_per_min");
+    expect(revertConfirmation("self_serve_inr_per_min")).toBe(
+      "revert_config:self_serve_inr_per_min",
     );
     // Not the same string as a set: reverting puts a value nobody has looked at in
     // months back into force, and a header captured for either must not authorise the
@@ -1547,6 +1557,16 @@ describe("the platform configuration panel", () => {
  *    the key-management panel is that removing `PLATFORM_KEK_RETIRED` too early makes
  *    rows permanently unreadable.
  */
+/** The credential box. `type="password"` has no accessible role, so it is addressed the
+ *  way a browser would find it rather than through a label this panel deliberately keeps
+ *  short — and it throws rather than returning null, so a form that failed to open reads
+ *  as the premise failure it is instead of an unhelpful "cannot fire change". */
+function secretInput(): HTMLInputElement {
+  const input = document.querySelector<HTMLInputElement>('input[type="password"]');
+  if (!input) throw new Error("the credential form is not open — did the button render disabled?");
+  return input;
+}
+
 describe("the credentials panel", () => {
   it("never puts a credential on screen, including after a test", async () => {
     const { container, calls } = renderAdminPage(
@@ -1566,8 +1586,7 @@ describe("the credentials panel", () => {
     await screen.findByText("bolna_api_key");
     fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
     const secret = "bn-live-secret-abcdef";
-    const [input] = document.querySelectorAll('input[type="password"]');
-    fireEvent.change(input, { target: { value: secret } });
+    fireEvent.change(secretInput(), { target: { value: secret } });
     fireEvent.click(screen.getByRole("button", { name: /Test with the vendor/ }));
 
     await screen.findByText("The vendor accepted this credential");
@@ -1595,9 +1614,7 @@ describe("the credentials panel", () => {
     );
     await screen.findByText("bolna_api_key");
     fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
-    fireEvent.change(document.querySelector('input[type="password"]')!, {
-      target: { value: "a-wrong-key-wxyz" },
-    });
+    fireEvent.change(secretInput(), { target: { value: "a-wrong-key-wxyz" } });
     fireEvent.click(screen.getByRole("button", { name: /Test with the vendor/ }));
 
     await screen.findByText("The vendor REFUSED this credential");
@@ -1636,9 +1653,7 @@ describe("the credentials panel", () => {
     );
     await screen.findByText("bolna_api_key");
     fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
-    fireEvent.change(document.querySelector('input[type="password"]')!, {
-      target: { value: "bn-live-new-key-0001" },
-    });
+    fireEvent.change(secretInput(), { target: { value: "bn-live-new-key-0001" } });
     fireEvent.change(screen.getByPlaceholderText(/rotating after/), {
       target: { value: "vendor breach notice" },
     });
@@ -1649,7 +1664,13 @@ describe("the credentials panel", () => {
 
     await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
     const write = calls.find((c) => c.method === "PUT");
-    expect(write?.headers["X-Confirm-Action"]).toBe(secretConfirmation("bolna_api_key"));
+    // THE LITERAL, not `secretConfirmation("bolna_api_key")`. Comparing the header
+    // against the same function that produced it asserts nothing — a sabotage that
+    // unbound the string left this green, because both sides moved together. The API
+    // owns this vocabulary (`ops/secret_routes.secret_confirmation`) and a runbook
+    // prints it, so the console's copy is pinned to the literal it must match.
+    expect(write?.headers["X-Confirm-Action"]).toBe("set_secret:bolna_api_key");
+    expect(secretConfirmation("bolna_api_key")).toBe("set_secret:bolna_api_key");
   });
 });
 

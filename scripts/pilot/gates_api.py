@@ -128,6 +128,16 @@ class GateContext:
         return True
 
 
+#: The two ways an adapter says "not through me" (D-93). They are deliberately distinct
+#: codes — `unverified` is waiting on pilot evidence, `absent` is an engine that has no
+#: such capability at all — and this harness must honour BOTH as `not_run` rather than
+#: `fail`. Gate 2 reported `fail` for a week because it knew only the older one, which is
+#: the harness scoring its own blind spot as the vendor's defect.
+_NO_CAPABILITY_CODES: frozenset[str] = frozenset(
+    {"engine_capability_unverified", "engine_capability_absent"}
+)
+
+
 def _engine_error(exc: BaseException) -> str:
     """A failure string that is safe to commit. `ProblemError.detail` is user-safe by
     construction (`errors.py`); anything else contributes only its type name, because an
@@ -213,7 +223,12 @@ async def _prompt_applied_check(
     try:
         snapshot = await ctx.engine.get_agent(ref)
     except ProblemError as exc:
-        if exc.code == "engine_capability_unverified":
+        # BOTH refusal codes land here and both mean "no read-back from this engine",
+        # but they are different facts and D-93 keeps them apart on purpose:
+        # `unverified` is waiting on pilot evidence, `absent` is an engine that will
+        # never have it. Either way this check cannot RUN, and reporting a fail would
+        # score the harness's own inability as the vendor's defect.
+        if exc.code in _NO_CAPABILITY_CODES:
             return not_run(
                 "update_prompt_applied",
                 f"the adapter does not implement an agent read-back (`{exc.code}`), so "
@@ -309,7 +324,7 @@ async def run_gate_2(ctx: GateContext) -> GateRun:
         await ctx.engine.provision_number(NumberSpec(series="standard", purpose="pilot"))
         checks.append(passed("attach_number", "provision_number returned a number"))
     except ProblemError as exc:
-        if exc.code == "engine_capability_unverified":
+        if exc.code in _NO_CAPABILITY_CODES:
             checks.append(
                 not_run(
                     "attach_number",

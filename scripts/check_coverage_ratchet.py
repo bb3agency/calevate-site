@@ -389,6 +389,30 @@ AREAS: tuple[Area, ...] = (
             "malformed, replayed or hostile request"
         ),
     ),
+    Area(
+        name="platform-credentials",
+        rule="hard rules 4 and 6 (append-only `platform_secrets`, no secret in a log)",
+        why=(
+            "the envelope, the resolution order and the console's write paths. It is its "
+            "own area rather than a few files bolted onto `ledgers-and-money`, because "
+            "the failures are not that area's failures: a wrapped DEK that cannot be "
+            "unwrapped is unrecoverable data loss, `env` losing to the store would let a "
+            "database row override a credential the operator pinned, and a plaintext "
+            "reaching a response body or a log line is the one defect this whole console "
+            "was designed to be incapable of. Every one of those lives in a branch that "
+            "only fires on the malformed, the rotated or the misconfigured — never on "
+            "the path a demo walks"
+        ),
+        patterns=(
+            "apps/api/core/envelope.py",
+            "apps/api/core/platform_config.py",
+            "apps/api/ops/models.py",
+            "apps/api/ops/config_routes.py",
+            "apps/api/ops/secret_routes.py",
+            "apps/api/ops/secret_service.py",
+            "apps/api/ops/secret_probes.py",
+        ),
+    ),
 )
 
 #: Budgets that were RAISED, with the ceiling authorized and the argument for it. Empty,

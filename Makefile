@@ -180,6 +180,10 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	uv run python -m scripts.check_web_env_parity
 	uv run python -m scripts.check_rls_coverage
 	uv run python -m scripts.check_ledger_immutability
+	# The six bootstrap keys may only ever be read from the environment (D-95 §4). A
+	# change that lets APP_ENV resolve from the console store is a security-posture
+	# inversion that reads like a harmless refactor, so it fails CI by name.
+	uv run python -m scripts.check_bootstrap_keys
 	uv run python -m scripts.check_redaction_exposure
 	uv run python -m scripts.check_openapi_fresh
 	# Half-wired features (CLAUDE.md). Here rather than in pytest because it needs no

@@ -115,6 +115,9 @@ jobs:
       - name: "Guardrail: ledger immutability (hard rule 4)"
         run: uv run python -m scripts.check_ledger_immutability
 
+      - name: "Guardrail: bootstrap keys stay environment-only (D-95 §4)"
+        run: uv run python -m scripts.check_bootstrap_keys
+
       - name: "Guardrail: redaction exposure (hard rule 5)"
         run: uv run python -m scripts.check_redaction_exposure
 

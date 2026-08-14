@@ -4,30 +4,12 @@
  * Platform configuration — the admin realm's view of `/v1/ops/config`
  * (PLATFORM-CONFIG §7, §8 panel 2).
  *
- * ══ THE TYPES BELOW ARE TEMPORARY AND HAND-WRITTEN ══════════════════════════════════
- *
- * `schema.d.ts` is generated from the API's OpenAPI document and this slice must not
- * regenerate it (the regeneration is a separate, coordinated step). So the three
- * response shapes are transcribed here, field for field, from
- * `apps/api/ops/config_routes.py`. **When `pnpm -C apps/web gen:api` next runs, delete
- * the `ConfigField` / `ConfigList` / `ConfigWrite` interfaces below and restore these
- * three lines in their place:**
- *
- *     export type ConfigField = Schemas["ConfigFieldOut"];
- *     export type ConfigList = Schemas["ConfigOut"];
- *     export type ConfigWrite = Schemas["ConfigWriteOut"];
- *
- * (with `import type { components } from "./schema";` and
- * `type Schemas = components["schemas"];` at the top, as every other module here does).
- * Nothing else in this file changes: the hooks, the paths and the confirmation strings
- * are written against these names.
- *
- * THE TRAP THAT MADE THIS WORTH SPELLING OUT. A Pydantic field with a default is
- * OPTIONAL in the generated TypeScript, so `editable` would arrive as `boolean |
- * undefined` and the console would have to write `field.editable ?? true` — whose
- * fallback for "we do not know" is "offer the form". Every field the console must trust
- * therefore carries NO default on the API side and is required here. If the generated
- * types come back with any of these optional, the fix is on the API, not a `??` here.
+ * THE TRAP THIS FILE WAS WRITTEN AROUND. A Pydantic field with a default is OPTIONAL in
+ * the generated TypeScript, so `editable` would arrive as `boolean | undefined` and the
+ * console would have to write `field.editable ?? true` — whose fallback for "we do not
+ * know" is "offer the form". Every field the console must trust therefore carries NO
+ * default on the API side, and the generated types confirm it: none of them is optional.
+ * If one ever comes back optional, the fix is on the API, not a `??` here.
  *
  * ══ WHAT THIS MODULE REFUSES TO DO ══════════════════════════════════════════════════
  *
@@ -42,6 +24,10 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { adminSession } from "./admin";
 import { apiRequest } from "./client";
+
+import type { components } from "./schema";
+
+type Schemas = components["schemas"];
 
 export const OPS_CONFIG_PATH = "/v1/ops/config";
 export const OPS_CONFIG_QUERY_KEY = ["admin", "ops", "config"] as const;
@@ -59,43 +45,20 @@ export type ConfigKind = "string" | "integer" | "number" | "boolean" | "enum" | 
 /** When a change takes effect. */
 export type ConfigApplies = "live" | "on_restart";
 
-/** TEMPORARY — see the header. Mirrors `ConfigFieldOut`. */
-export interface ConfigField {
-  key: string;
-  env_var: string;
-  value: ConfigValue;
-  source: ConfigSource;
-  default: ConfigValue;
-  has_default: boolean;
-  kind: ConfigKind;
-  options: string[];
-  editable: boolean;
-  applies: ConfigApplies;
-  caveat: string | null;
-  updated_by: string | null;
-  updated_at: string | null;
-  note: string | null;
-}
+/** One managed setting: its value, where that value came from, and whether it may be changed here. */
+export type ConfigField = Schemas["ConfigFieldOut"];
 
-/** TEMPORARY — see the header. Mirrors `ConfigOut`. */
-export interface ConfigList {
-  fields: ConfigField[];
-  config_version: number;
-  stale: boolean;
-  never_loaded: boolean;
-  /** When the configuration last changed, from the DATABASE's sentinel — which is what
-   *  makes `config_version` legible: a version bumped four seconds ago and one bumped
-   *  four days ago mean different things when a change is not appearing. */
-  config_changed_at: string | null;
-}
+/**
+ * Every managed setting, plus the snapshot's own health.
+ *
+ * `config_changed_at` is what makes `config_version` legible: a version bumped four
+ * seconds ago and one bumped four days ago mean different things when a change is not
+ * appearing. Both come from the DATABASE's sentinel, never from the reader's clock.
+ */
+export type ConfigList = Schemas["ConfigOut"];
 
-/** TEMPORARY — see the header. Mirrors `ConfigWriteOut`. */
-export interface ConfigWrite {
-  key: string;
-  previous: ConfigValue;
-  field: ConfigField;
-  config_version: number;
-}
+/** The answer to a write: what it was, what it is, and the version that now carries it. */
+export type ConfigWrite = Schemas["ConfigWriteOut"];
 
 /**
  * The step-up strings, copied from `apps/api/ops/config_routes.py` VERBATIM.

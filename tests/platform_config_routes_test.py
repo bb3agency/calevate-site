@@ -80,11 +80,26 @@ async def _audit_since(since: str) -> list[tuple[str, str | None]]:
     return [(str(a), b) for a, b in rows]
 
 
+#: Every key this suite sends a PUT for. The teardown clears ALL of them, not just the
+#: one the happy path uses.
+#:
+#: Found the hard way: a sabotage run that removed the field-constraint check let
+#: `otel_traces_sample_ratio = 5.0` — a value the app would refuse at boot — be STORED by
+#: a test that then failed on the status code. The row outlived the test, because the
+#: teardown only knew about one key. A refusal test writes nothing when the code is
+#: right, which is exactly why its cleanup has to be written for the case where the code
+#: is wrong.
+_WRITTEN_KEYS = (KEY, "otel_traces_sample_ratio", "engine", "object_store_bucket", "db_pool_size")
+
+
 @pytest.fixture(autouse=True)
 async def _clean() -> AsyncIterator[None]:
     yield
     async with untenanted_session() as session:
-        await session.execute(text("DELETE FROM platform_settings WHERE key = :k"), {"k": KEY})
+        await session.execute(
+            text("DELETE FROM platform_settings WHERE key = ANY(:keys)"),
+            {"keys": list(_WRITTEN_KEYS)},
+        )
     pc.reset_for_test()
     await pc.refresh(force=True)
 

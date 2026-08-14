@@ -9487,6 +9487,12 @@
             "type": "string"
           },
           "outcome": {
+            "enum": [
+              "accepted",
+              "rejected",
+              "unreachable",
+              "no_probe"
+            ],
             "title": "Outcome",
             "type": "string"
           },

@@ -134,11 +134,16 @@ async def test_the_bootstrap_six_are_never_managed_and_never_appliable() -> None
     } == ENV_ONLY_KEYS
 
     before = get_settings().app_env
-    apply_platform_overrides({"app_env": "local", DEMO_KEY: Decimal("1.00")})
+    # A value that DIFFERS from the one in force. Injecting the current value would make
+    # this assertion pass with the filter deleted — the test would be asserting that
+    # `local` equals `local`, which is true however the code behaves. (Found by
+    # sabotage: removing the filter left this green.)
+    other = "staging" if before != "staging" else "prod"
+    apply_platform_overrides({"app_env": other, DEMO_KEY: Decimal("1.00")})
     try:
         # The forbidden key was dropped; the harmless one beside it still landed, so the
         # filter is selective rather than a blanket refusal of the whole batch.
-        assert get_settings().app_env == before
+        assert get_settings().app_env == before, "the DATABASE just decided the environment"
         assert get_settings().self_serve_inr_per_min == Decimal("1.00")
     finally:
         apply_platform_overrides({})

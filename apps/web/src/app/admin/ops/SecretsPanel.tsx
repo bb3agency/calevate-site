@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+
+import { lookup } from "@/lib/lookup";
 import {
   CheckCircle2,
   CircleAlert,
@@ -240,7 +242,7 @@ function SecretRow({
               a pass/fail: only `rejected` means "find a different key". */}
           {test.data && (
             <NoticeBox
-              tone={OUTCOME_TONE[test.data.outcome]}
+              tone={lookup(OUTCOME_TONE, test.data.outcome) ?? "neutral"}
               icon={
                 test.data.outcome === "accepted" ? (
                   <ShieldCheck aria-hidden className="h-5 w-5" />
@@ -250,7 +252,7 @@ function SecretRow({
                   <CircleAlert aria-hidden className="h-5 w-5" />
                 )
               }
-              title={OUTCOME_TITLE[test.data.outcome]}
+              title={lookup(OUTCOME_TITLE, test.data.outcome) ?? "The check returned an outcome this build has no words for"}
             >
               <p className="mt-1">{test.data.detail}</p>
               <p className="mt-2 text-xs">

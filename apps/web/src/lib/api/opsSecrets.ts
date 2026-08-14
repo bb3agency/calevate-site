@@ -3,21 +3,6 @@
 /**
  * Credentials and key management — `/v1/ops/secrets` (PLATFORM-CONFIG §7, §8 panels 3-4).
  *
- * ══ THE TYPES BELOW ARE TEMPORARY AND HAND-WRITTEN ══════════════════════════════════
- *
- * Same situation and same fix as `opsConfig.ts`: this slice must not regenerate
- * `schema.d.ts`. **When `pnpm -C apps/web gen:api` next runs, delete the five interfaces
- * below and restore these lines in their place:**
- *
- *     export type PlatformSecret = Schemas["SecretOut"];
- *     export type SecretsList = Schemas["SecretsOut"];
- *     export type SecretTest = Schemas["SecretTestOut"];
- *     export type KekState = Schemas["KekOut"];
- *     export type RewrapResult = Schemas["RewrapOut"];
- *
- * (with `import type { components } from "./schema";` and
- * `type Schemas = components["schemas"];` at the top). Nothing else changes.
- *
  * ══ THERE IS NO VALUE FIELD ANYWHERE IN THIS FILE ═══════════════════════════════════
  *
  * Not on a response type, not in a query cache, not in a hook's return. §7: there is no
@@ -32,60 +17,31 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { adminSession } from "./admin";
 import { apiRequest } from "./client";
 
+import type { components } from "./schema";
+
+type Schemas = components["schemas"];
+
 export const OPS_SECRETS_PATH = "/v1/ops/secrets";
 export const OPS_SECRETS_QUERY_KEY = ["admin", "ops", "secrets"] as const;
 export const OPS_KEK_QUERY_KEY = ["admin", "ops", "kek"] as const;
 
 /** What `/test` concluded. `no_probe` and `unreachable` are NOT failures — they mean we
- *  could not check, which is a different sentence from "the vendor said no". */
-export type ProbeOutcome = "accepted" | "rejected" | "unreachable" | "no_probe";
+ *  could not check, which is a different sentence from "the vendor said no". Derived
+ *  from the generated schema rather than restated, so the four cases cannot drift. */
+export type ProbeOutcome = Schemas["SecretTestOut"]["outcome"];
 
-/** TEMPORARY — see the header. Mirrors `SecretOut`. */
-export interface PlatformSecret {
-  key: string;
-  env_var: string;
-  installed: boolean;
-  version: number;
-  versions: number;
-  last_four: string;
-  kek_id: number;
-  created_at: string | null;
-  created_by: string | null;
-  shadowed_by_env: boolean;
-  testable: boolean;
-}
+/** One credential as the console may know it: identity, provenance and last-4 — never a value. */
+export type PlatformSecret = Schemas["SecretOut"];
 
-/** TEMPORARY — see the header. Mirrors `SecretsOut`. */
-export interface SecretsList {
-  secrets: PlatformSecret[];
-}
+export type SecretsList = Schemas["SecretsOut"];
 
-/** TEMPORARY — see the header. Mirrors `SecretTestOut`. */
-export interface SecretTest {
-  key: string;
-  outcome: ProbeOutcome;
-  status: number | null;
-  detail: string;
-  verified: boolean;
-  candidate_last_four: string;
-}
+/** What `/test` concluded about a CANDIDATE value, before it was stored. */
+export type SecretTest = Schemas["SecretTestOut"];
 
-/** TEMPORARY — see the header. Mirrors `KekOut`. */
-export interface KekState {
-  active_kek_id: number;
-  has_retired_kek: boolean;
-  versions: number;
-  current: number;
-  pending: number;
-}
+/** Key-encryption-key state: which key is active, and how many rows still wrap under an older one. */
+export type KekState = Schemas["KekOut"];
 
-/** TEMPORARY — see the header. Mirrors `RewrapOut`. */
-export interface RewrapResult {
-  examined: number;
-  rewrapped: number;
-  unreadable: string[];
-  active_kek_id: number;
-}
+export type RewrapResult = Schemas["RewrapOut"];
 
 /** Copied VERBATIM from `apps/api/ops/secret_routes.py`, like every other confirmation
  *  in this console: it is a property of the request being sent, and a mismatch is

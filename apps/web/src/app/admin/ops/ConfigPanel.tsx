@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+
+import { lookup } from "@/lib/lookup";
 import {
   CheckCircle2,
   CircleHelp,
@@ -335,10 +337,13 @@ function ConfigRow({
             {display(field.value)}
           </p>
           <p className="mt-1 text-xs text-ink-faint">
-            {/* `lookup`-free: SOURCE_NOTE is keyed by a server-controlled union of three
-                values, and an unknown one falls back to printing the source itself
+            {/* Through `lookup()`, not a bare index. The comment here used to argue
+                the index was safe because the union is server-controlled — but the
+                union is our CLAIM about the wire, not a runtime guarantee, and a
+                response carrying `constructor` would resolve to the `Object` function
+                rather than to undefined. The fallback still prints the source itself
                 rather than blanking the line. */}
-            {SOURCE_NOTE[field.source] ?? `Source: ${field.source}`}
+            {lookup(SOURCE_NOTE, field.source) ?? `Source: ${field.source}`}
             {field.source === "db" && field.updated_by && (
               <>
                 {" "}

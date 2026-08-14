@@ -7048,8 +7048,11 @@ export interface components {
             detail: string;
             /** Key */
             key: string;
-            /** Outcome */
-            outcome: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "accepted" | "rejected" | "unreachable" | "no_probe";
             /** Status */
             status: number | null;
             /** Verified */
