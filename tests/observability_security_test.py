@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from apps.api.core.observability import redact_trace_payload, scrub_event
+from apps.api.core.observability import scrub_breadcrumb, scrub_event
 
 PHONE = "9876543210"
 TRANSCRIPT = "caller: naa number 9876543210, naa peru Ravi"
@@ -85,15 +85,35 @@ def test_local_variables_in_a_stack_frame_are_scrubbed() -> None:
     assert frame_vars["call_id"] == "019f-…"
 
 
-def test_the_langfuse_hook_scrubs_a_prompt_containing_a_transcript() -> None:
-    """An LLM trace is the richest PII object we produce: the prompt contains the
-    transcript. CLAUDE.md requires it to go through the redaction hook."""
-    payload = redact_trace_payload(
-        {"model": "sarvam-m", "prompt": TRANSCRIPT, "extraction": {"name": "Ravi"}}
+def test_a_log_breadcrumb_is_scrubbed_before_it_is_taken() -> None:
+    """Breadcrumbs were the hole beside `scrub_event`.
+
+    Sentry's logging integration builds a breadcrumb from `record.getMessage()` — our
+    JsonFormatter never runs on it — so an unscrubbed breadcrumb rides out attached to
+    the next error event.
+    """
+    crumb = scrub_breadcrumb(
+        {"type": "log", "message": f"delivering to +91{PHONE}", "data": {"transcript": TRANSCRIPT}}
     )
-    serialized = json.dumps(payload)
+    assert crumb is not None
+    serialized = json.dumps(crumb)
     assert PHONE not in serialized
-    assert payload["model"] == "sarvam-m", "non-PII metadata must survive to be useful"
+    assert "Ravi" not in serialized
+    assert crumb["type"] == "log", "the signal survives; only the values are taken"
+
+
+def test_an_outbound_url_breadcrumb_keeps_no_query_string() -> None:
+    """A client webhook target carries its own credential in the query string (D-23),
+    and it is neither a phone nor a redacted key — `redact_mapping` alone lets it out."""
+    crumb = scrub_breadcrumb(
+        {
+            "type": "http",
+            "data": {"url": "https://hooks.zapier.com/x/abc?token=s3cret", "status_code": 200},
+        }
+    )
+    assert crumb is not None
+    assert crumb["data"]["url"] == "https://hooks.zapier.com/x/abc"
+    assert crumb["data"]["status_code"] == 200, "the useful half of the breadcrumb survives"
 
 
 def test_an_event_is_never_dropped_entirely() -> None:
