@@ -537,7 +537,7 @@ Telephony (~₹0.35–0.50) is likewise constant. Only the platform fee and late
 | LiveKit Cloud (phase-2 candidate) | marginal ₹1.23 (agent + third-party SIP, two meters) but **$50/mo Ship floor dominates**: ₹4.40/min @1k min, ₹0.88/min @5k min; concurrency capped 5/20/600 | ✅ ap-south (Mumbai) VERIFIED — best-evidenced |
 | Pipecat Cloud (phase-2 candidate) | ~₹0.88 claimed — **entirely unverified** | regions unverified |
 | Self-host (DO BLR / Vultr Mumbai) | ₹2.1/min @1k, ₹0.85–1.2/min @5k (₹2,112/node ≈ 8–9 concurrent) | best possible physics (co-located), unmeasured |
-| ~~Cartesia **Line**~~ | ₹5.28/min ($0.06/min agent, verified) — but this is a **bundled** rate that appears to include their own models, so it is **not** comparable to Vapi's orchestration-only tax below. It sits level with Bolna's *bundled* 6.00¢. Eliminated because **BYOK support is unverified** (Line docs auth-gated) and Telugu depends on bringing Sarvam; plus monthly tiers to $299, agent concurrency 1/3/5/10 slots, and no India telephony/DLT story | India region **unverified** (docs auth-gated) |
+| ~~Cartesia **Line**~~ (D-88, re-examined Aug 2026) | ₹5.28/min ($0.06/min, Free→Startup) — **bundled, and now CONFIRMED bundled**: Line's LLM is fully BYOK via LiteLLM (`model=` + `api_key=`, 100+ providers) but **STT and TTS are not** — Ink 2 and Sonic 3.5 are the product and the SDK exposes no swap interface (first-party: the Line SDK README, `github.com/cartesia-ai/line`). So it is not comparable to a BYOK fee, and it **cannot host D-36's Sarvam stack**. Scale tier $0.014/min (₹1.23) is enterprise-negotiated with an unpublished commitment. Monthly plans to $299 (₹26,312); agent concurrency capped 1/3/5/10 by tier. Eliminated on **telephony**, not price: Cartesia numbers / imported Twilio / Voximplant, none of which is a DLT-registered Indian number | India story is REAL but enterprise-shaped: Blue Machines AI partnership (~Feb 2026) for India-**resident** processing, Bangalore office, Sonic 3 across the top 9 Indic languages incl. Telugu, on-prem/VPC/air-gapped, SOC 2 Type II + HIPAA + PCI L1. The earlier "English-first TTS" reading was **stale and is withdrawn**. Self-serve India region still unverified — `docs.cartesia.ai` and `www.cartesia.ai` are unreachable from our build environment |
 | ~~Vapi~~ | ~~₹4.40/min~~ — survives full BYOK; exceeds the entire all-in target alone | ❌ US/EU only: +230–260ms hairpin |
 
 Two rules this table encodes (D-32): at launch volume **monthly floors dominate
@@ -767,6 +767,85 @@ Phase triggers (numeric, pre-committed):
   is engineering the barge-in/turn-taking 20%, hence the volume gate.
 - **Phase 3 (self-host models on GPU):** sustained > ~50k min/month AND Telugu-quality
   open TTS exists. Below that, a 24/7 GPU at ~$0.72–0.79/hr loses to APIs on utilization.
+
+### 10.4 Scenario model: Bolna BYOK vs Cartesia Line at four volumes (Aug 2026, D-88)
+
+§10.1 prices the legs and §10.2 amortizes the base. This section is the same arithmetic
+run against a **named alternative**, because R6 forbids comparing platforms on headline
+rates and the only honest comparison is effective ₹/min at a stated volume, per path.
+
+**Two inputs are new since §10.1 and both change the answer.** First, **Bolna's BYOK
+platform fee is observed at 2¢/min ≈ ₹1.76** (from the Bolna dashboard, Aug 2026) — that
+sits INSIDE §10's assumed ₹1.50–2.00 band but **ABOVE OPERATIONS gate 12's negotiation
+target of ≤₹1.50**, so the gate is not satisfied by the observation and still needs the
+number in writing. Second, **Cartesia Line's $0.06 is confirmed bundled** (D-88), so it
+must be compared against Bolna's *platform + models*, never against the platform fee
+alone. FX ₹88/USD throughout, matching §10's existing figures.
+
+| Leg | Bolna (BYOK) | Cartesia Line (Startup) |
+|---|---|---|
+| Platform fee | ₹1.76 (2¢) | ₹5.28 ($0.06) — **includes STT + TTS** |
+| STT | ₹0.50 (Saaras) | *in the fee (Ink 2)* |
+| TTS | ₹0.54–0.81 (Bulbul v2) · ₹1.08–1.62 (v3) | *in the fee (Sonic 3.5)* |
+| LLM | ₹0.00 (Sarvam 105B) | ₹0.00 (BYOK Sarvam; Cartesia's own LLM line is "free for a limited time" — do not model on it) |
+| Telephony, blended in/out | ₹0.50–1.35 | ₹0.50–1.35 |
+| **Variable total** | **₹3.30–4.42** (v2) · **₹3.84–5.23** (v3) | **₹5.78–6.63** |
+| Midpoint used below | **₹3.87** (v2 stack) | **₹6.21** |
+
+Fixed monthly: infra ₹8,500 + ~₹300/client DID rental *(assumption — the Exotel/Vobiz
+rate card is still an open gate, ROADMAP §1)*. The Bolna path additionally buys a
+**Sarvam plan tier for RATE LIMITS, not price** (60 → 200 rpm ₹10k → 1,000 rpm ₹50k);
+the Cartesia path does not, because it is not calling Sarvam for speech. The Cartesia
+path instead carries **$299/mo ≈ ₹26,312** for the Startup plan.
+
+| | S1 · 1 client<br>1,000 min | S2 · 3 clients<br>5,000 min | S3 · 10 clients<br>20,000 min | S4 · 25 clients<br>60,000 min |
+|---|---|---|---|---|
+| Bolna — variable | ₹3,870 | ₹19,350 | ₹77,400 | ₹232,200 |
+| Bolna — fixed | ₹8,800 | ₹9,400 | ₹21,500¹ | ₹26,000¹ |
+| **Bolna — effective ₹/min** | **₹12.67** | **₹5.75** | **₹4.95** | **₹4.30** |
+| Cartesia — variable | ₹6,210 | ₹31,050 | ₹124,200 | *concurrency cap* |
+| Cartesia — fixed | ₹35,112 | ₹35,712 | ₹37,812 | *enterprise* |
+| **Cartesia — effective ₹/min** | **₹41.32** | **₹13.35** | **₹8.10** | **n/a self-serve** |
+
+¹ Sarvam Pro (₹10k) assumed from S3 for the 200 rpm ceiling — the one line where not
+using Sarvam speech genuinely helps Cartesia, and it is nowhere near enough to pay for
+itself.
+
+**The concurrency wall is the part a price table hides.** At 22 working days × 8 hours,
+average concurrency is `min ÷ 10,560`; peak runs ~4× average. S3 needs ~8 slots against
+Line's **10-slot self-serve ceiling**; S4 needs ~23 and has no self-serve tier at all.
+Bolna has no concurrency tier and no monthly floor (prepaid credits).
+
+**Break-even against retail**, solving `(variable × min + fixed) / min = retail` at
+S2-scale fixed costs:
+
+| Retail | Bolna break-even | Cartesia Startup break-even |
+|---|---|---|
+| ₹5/min | 8,319 min/mo | never (variable ₹6.21 > ₹5) |
+| ₹6/min | 4,413 min/mo | never |
+| ₹7/min | 3,003 min/mo | **45,205 min/mo** |
+
+That last cell is the elimination in one number: Line's self-serve tier needs ~45,000
+min/month to break even at ₹7/min, which needs ~17 concurrent slots, which the tier caps
+at 10. **There is no volume at which it works.** (Its Scale tier at ₹1.23/min *would*
+beat us — ≈₹2.43/min effective at S4 against our ₹4.30, about ₹112k/month — gated on an
+unpublished enterprise commitment, the India telephony gap, and a Telugu ear test against
+Sonic we have not run. Recorded because a comparison that only lists the loser's
+weaknesses is not evidence.)
+
+**Two things this table says about OUR path, independent of Cartesia:**
+
+1. **Closing gate 12's ₹0.26 fee gap is worth ₹5,200/month at S3 and ₹15,600 at S4.**
+   Real money, and a reason to run the negotiation properly — but not a crisis, and not
+   something switching orchestrators fixes.
+2. **The larger lever is Bulbul v2 vs v3** — ₹0.68 vs ₹1.35 at the midpoint, which is
+   ₹13,400/month at S3 and ₹40,200 at S4, *bigger than the entire platform-fee gap*. It
+   is decided by a Telugu ear test at the pilot (§10.1), not by a rate card.
+
+**Caveat carried forward, and it is ours:** §10 and FLOWS §257 price telephony at
+₹0.40–0.90 inbound / ₹0.60–1.80 outbound while §10.1 estimates ₹0.35–0.50. This table
+uses the wider band. If outbound really lands at ₹1.80, every Bolna figure above rises
+~₹0.45/min and the ₹5/min tier stops working below ~12,000 min/month.
 
 ## 11. Multi-Tenancy & Security (engineering-level; full detail in SECURITY-COMPLIANCE.md)
 

@@ -2954,6 +2954,61 @@ remediation pointing at a tool that does not exist; and `audit_chain_secret` fal
 the guessable constant `local-dev:{app_env}` in EVERY environment including prod, so a
 deploy that forgot it has an unverifiable audit chain.
 
+## §64 — the two carried findings, closed; and a vendor re-examination that corrected us
+
+§63 carried two findings rather than fixing them. Both are closed here, and the more
+interesting half of the wave was neither: a question about the orchestrator produced a
+correction to our own doc set.
+
+**The audit chain's signing secret is now required, and the era it protected is
+published (D-86).** The old fallback `local-dev:{app_env}` applied in EVERY environment,
+so a prod deploy that forgot the variable signed an append-only ledger with a constant
+printed in this repository — forgeable by anyone who can read the source, while the
+console reported "chain intact". The fix that matters most is not the refusal but the
+**shape** of it: one resolver, `resolve_hmac_key()`, now serves all three HMAC secrets,
+and **a present-but-short key is refused with the same code as an absent one** — to a
+caller they are one condition, and failing closed on absence while accepting a weak key
+guards the easier half of a single mistake. The 32-byte floor is the strictest of three
+converging authorities (RFC 2104 §3, NIST SP 800-107 Rev. 1 §5.3.4, RFC 7518 §3.2), cited
+where it is enforced.
+
+The consequence for existing deployments is the part worth remembering: history signed
+with the old constant still has to verify, so `AUDIT_CHAIN_SECRET_RETIRED` verifies
+(never signs) and `entries_under_retired_key` publishes how much of the log rests on it.
+**That count is deliberately not a component of `ok`** — those rows are intact; what they
+lack is attestation STRENGTH, which matters at exactly one moment (exporting the log as
+evidence) and is therefore rendered beside both verdicts rather than left in a runbook.
+
+**Credit adjustments exist (D-87)**, and the design question was the idempotency key. A
+caller-minted key was rejected because the failure being defended against is a SECOND
+CLICK, which mints a second key; the key is content-addressed on `(entry, amount)` and
+enforced by an index that already existed, not by a reader's `if`. The cost is written
+where a reader will meet it: two genuinely distinct corrections of the same amount
+against one entry collapse, and the second reads as "already corrected, nothing moved" —
+the safe direction when money is leaving. The balance is allowed to go negative because
+the alternative is a ledger that permanently claims credit the client never had; and
+because that must not be silent, `stops_dialling` carries the dial gate's own predicate
+evaluated inside the write's transaction rather than a second copy of the rule.
+
+**The vendor question corrected our documentation, which is the part to carry
+forward (D-88).** Asked why Bolna over Cartesia, the honest answer required reading
+Cartesia rather than repeating our teardown — and the teardown was stale. Cartesia Line's
+LLM is fully BYOK (LiteLLM, 100+ providers); its **STT and TTS are not** — Ink 2 and
+Sonic 3.5 have no swap interface, from Cartesia's own SDK README. So Line cannot host
+D-36's Sarvam stack, and its $0.06/min is a bundled rate that was never comparable to a
+BYOK platform fee. Meanwhile our "English-first TTS" characterisation was simply false by
+Aug 2026: Sonic 3 covers the top 9 Indic languages including Telugu, and the Blue
+Machines partnership targets India-**resident** processing. D-31's conclusion survives —
+on **telephony**, not price, since none of Line's number paths yields a DLT-registered
+Indian number — but its stated reason did not, and a stale rationale is how a settled
+decision gets re-litigated badly.
+
+Two numbers came out of that work and both are now in TRD §10.4: **Bolna's BYOK platform
+fee is observed at 2¢/min ≈ ₹1.76**, which is inside §10's assumed band but ~17% above
+gate 12's ≤₹1.50 target (worth ₹5,200/month at 20k platform-minutes); and **the larger
+cost lever is Bulbul v2 vs v3** — ₹13,400/month at the same volume, bigger than the whole
+platform-fee gap, and decided by a Telugu ear test rather than a rate card.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and

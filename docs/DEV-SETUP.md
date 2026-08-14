@@ -81,8 +81,18 @@ COHERE_API_KEY=           # only if the D-28 RAG bake-off picks a store without
 CLERK_ADMIN_* / CLERK_CLIENT_*                # two separate apps
 CLERK_FRONTEND_API / CLERK_WEBHOOK_SECRET     # custom domain (D-37) + the Svix secret
                           # for the user/org mirror hook; unset = refuse every event
-AUDIT_CHAIN_SECRET=       # HMAC material for the audit hash chain + idempotency scope
-                          # fingerprints. Unset locally = derived constant; prod MUST set.
+AUDIT_CHAIN_SECRET=       # HMAC material for the audit hash chain. REQUIRED outside
+                          # local (>=32 bytes; a shorter one is refused like an absent
+                          # one) — the API refuses to write or verify an audit entry
+                          # without it and /healthz/ready stays red. Unset locally =
+                          # derived constant, which is also generation 0 of the key ring
+AUDIT_CHAIN_SECRET_RETIRED=  # the PREVIOUS value, verification only, set in the same
+                          # deploy that rotates AUDIT_CHAIN_SECRET so pre-rotation
+                          # entries keep verifying. Empty until you have rotated
+IDEMPOTENCY_SCOPE_SECRET= # HMAC material for idempotency scope fingerprints. Its OWN
+                          # secret (it used to share the one above): the fingerprint must
+                          # stay stable or in-flight Idempotency-Keys miss their record
+                          # and a retry re-executes. Same floor, same refusal
 SMTP_* / NOTIFICATIONS_FROM                   # hot-lead alerts; unset locally = console
 INBOUND_RESERVE_RATIO=0.3 # share of the engine line pool reserved for inbound (FLOWS §5)
 SELF_SERVE_INR_PER_MIN=6.00                   # D-34 list price; runway framing + top-up

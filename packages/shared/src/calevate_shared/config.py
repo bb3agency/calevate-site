@@ -170,15 +170,57 @@ class Settings(BaseSettings):
     # the endpoint FAILS CLOSED — an unverifiable identity feed is worse than none.
     clerk_webhook_secret: str | None = None
 
-    # HMAC material for the audit hash chain and idempotency scope fingerprints
-    # (BACKEND-PATTERNS §4/§7). Local dev derives a constant when unset; prod MUST
-    # inject it — rotating it starts a new chain, so it is rotated with a drill.
+    # HMAC material for the audit hash chain (BACKEND-PATTERNS §7). REQUIRED outside
+    # `local`: it used to fall back to the constant `local-dev:{app_env}` in EVERY
+    # environment, so a prod deploy that forgot it signed its tamper-evident ledger
+    # with a key printed in this repository. `apps/api/compliance/audit.py` now refuses
+    # to write or verify without it anywhere but `local`, and
+    # `runtime_config_missing_keys` reports it at `/healthz/ready`.
+    #
+    # ROTATING IT NO LONGER STARTS A NEW CHAIN — the previous claim here, and the reason
+    # rotation was described as a drill. `verify_chain` walks a KEY RING and each entry
+    # is verified under the newest key that reproduces it, so history keeps verifying
+    # across a rotation as long as the outgoing key moves to the field below.
     audit_chain_secret: str | None = None
+
+    # The PREVIOUS `AUDIT_CHAIN_SECRET`, kept only so entries signed with it still
+    # verify. Never used to sign. Unset is the normal state — the ring always contains
+    # the pre-requirement `local-dev:{app_env}` fallback as its oldest generation
+    # without any configuration, which is what makes the deploy that introduced this
+    # requirement produce zero new breaks.
+    #
+    # DELIBERATELY NOT LENGTH-CHECKED, unlike the active key. A key that is already in
+    # the ledger cannot be made longer retroactively; refusing it would convert a weak
+    # historical key into an unverifiable one, which is strictly worse. The floor
+    # applies where it can still change an outcome: the key we are about to sign with.
+    audit_chain_secret_retired: str | None = None
+
+    # HMAC material for idempotency scope fingerprints (BACKEND-PATTERNS §4). ITS OWN
+    # SECRET, not the audit chain's, which is what it used to share.
+    #
+    # WHY IT IS SPLIT. `scope_key` is a PSEUDONYM — §4 forbids storing raw tenant/user
+    # ids in `idempotency_records`, and a keyed hash is only a pseudonym while the key
+    # is secret (EDPS/AEPD, "Introduction to the hash function as a personal data
+    # pseudonymisation technique", §4: a plain hash over an enumerable identifier space
+    # is reversible, and the fix is to enlarge the preimage space with a secret key).
+    # That makes it a different PURPOSE from tamper-evidence, and NIST SP 800-57 Part 1
+    # Rev. 5 §5.2 asks for one key per purpose.
+    #
+    # The operational half matters more here. The fingerprint has to be STABLE: change
+    # the material and every in-flight `Idempotency-Key` stops matching its stored
+    # record, so a client retry re-executes instead of replaying — for
+    # `POST /v1/leads/{id}/call` that is a second call placed to a real person. While
+    # this shared the audit chain's key, an audit-key rotation silently carried that
+    # cost. This slice makes audit rotation a supported operation for the first time, so
+    # welding a client-visible side effect to it would have been the wrong moment.
+    # Unset is a derived constant under APP_ENV=local ONLY; anywhere else it is refused.
+    idempotency_scope_secret: str | None = None
 
     # HMAC material for D-22 view-as grants (`apps/api/core/impersonation.py`). ITS OWN
     # SECRET, not a subkey of the one above, so that rotating it — which costs at most
-    # one grant lifetime of re-minting — is not coupled to the audit chain's rotation
-    # drill. Unset is a derived constant under APP_ENV=local ONLY; anywhere else an
+    # one grant lifetime of re-minting — is not coupled to the audit chain's rotation,
+    # which has to carry its outgoing value forward for history to keep verifying.
+    # Unset is a derived constant under APP_ENV=local ONLY; anywhere else an
     # absent value refuses to mint or verify, because a guessable key here is forgeable
     # access to a client's data rather than an unverifiable ledger.
     impersonation_grant_secret: str | None = None

@@ -18,6 +18,11 @@ from typing import get_args
 from calevate_shared.config import Environment, Settings
 from dotenv import dotenv_values
 
+from apps.api.core.errors import ProblemError
+from apps.api.core.logging import get_logger
+
+log = get_logger(__name__)
+
 # The values `APP_ENV` may take, read off the type rather than re-listed here: one
 # source of truth, so widening the Literal cannot leave this gate behind.
 ENVIRONMENTS: tuple[str, ...] = get_args(Environment)
@@ -103,6 +108,89 @@ def get_settings() -> Settings:
     return Settings()  # values come from env/.env
 
 
+#: The floor, in BYTES, for every HMAC key this deployment signs with.
+#:
+#: 32 is the SHA-256 output size, and three independent authorities land on or under it,
+#: so one constant serves every call site rather than each growing its own number:
+#:
+#:   - RFC 2104 §3 (HMAC itself): a key shorter than L bytes — L being the hash output
+#:     length, 32 for SHA-256 — "is strongly discouraged as it would decrease the
+#:     security strength of the function". This is the citation that governs the raw
+#:     HMAC uses (the audit chain, idempotency fingerprints).
+#:   - NIST SP 800-107 Rev. 1 §5.3.4: "The length of the HMAC key shall be at least 128
+#:     bits" — an absolute floor, comfortably under 32 bytes. (Rev. 1 is being withdrawn
+#:     in favour of SP 800-224, which carries the same 128-bit minimum.)
+#:   - RFC 7518 §3.2: an HS256 key must be at least the hash size. This is the citation
+#:     `core/impersonation.py` was written against, and it is the strictest of the
+#:     three, which is why the number is 32 and not 16.
+MIN_HMAC_KEY_BYTES = 32
+
+
+def resolve_hmac_key(
+    secret: str | None,
+    *,
+    env_var: str,
+    purpose: str,
+    code: str,
+    title: str,
+    local_fallback: str,
+    app_env: str,
+) -> bytes:
+    """The HMAC key for one purpose, or a refusal an operator can act on.
+
+    ONE resolver, because this repo now holds three HMAC secrets that each have to make
+    the same three decisions — configured, too short, absent — and three copies of that
+    ladder is where the fourth one gets it wrong. `core/impersonation.py` reasoned the
+    policy out first; this is that policy, extracted rather than re-derived, so a change
+    to the floor moves every key at once.
+
+    LENGTH IS PART OF BEING CONFIGURED. A present-but-short secret is refused with the
+    SAME code as an absent one, because to a caller they are one condition: "there is no
+    usable key here". Failing closed on absence while silently accepting a weak key
+    would leave the refusal guarding the easier half of one mistake — an operator who
+    pastes a short string into the secrets manager gets a key an attacker can search,
+    and the only signal is a log line nobody reads.
+
+    THE LOCAL FALLBACK IS SCOPED TO `local`, and the scoping is the whole point. A
+    fallback that applies in every environment is not a development convenience, it is a
+    production key with a development name: it ships in the repository, so anybody can
+    compute it. Under `local` it buys an offline dev box; anywhere else its absence is
+    an outage, which is loud, recoverable and visible at `/healthz/ready` before an
+    operator finds out by clicking something.
+
+    Callers pass `app_env` rather than having it read here so this stays a pure function
+    of its arguments — the caller has already loaded settings, and a second read would
+    be a second thing to keep consistent under test.
+    """
+    if secret:
+        if len(secret.encode()) < MIN_HMAC_KEY_BYTES:
+            # Not logged with the secret, obviously, and not with its length as a
+            # searchable field beyond the byte count an operator needs to fix it.
+            log.error("hmac_key_too_short", extra={"env_var": env_var, "app_env": app_env})
+            raise ProblemError(
+                kind="dependency",
+                code=code,
+                title=title,
+                detail=f"This deployment's HMAC key for {purpose} is too short.",
+                remediation=(
+                    f"{env_var} must be at least {MIN_HMAC_KEY_BYTES} bytes "
+                    "(RFC 2104 §3; NIST SP 800-107 Rev. 1 §5.3.4); inject a longer one "
+                    "from the secrets manager (DEV-SETUP §4)."
+                ),
+            )
+        return secret.encode()
+    if app_env != "local":
+        log.error("hmac_key_missing", extra={"env_var": env_var, "app_env": app_env})
+        raise ProblemError(
+            kind="dependency",
+            code=code,
+            title=title,
+            detail=f"This deployment has no HMAC key for {purpose}.",
+            remediation=f"Inject {env_var} from the secrets manager (DEV-SETUP §4).",
+        )
+    return local_fallback.encode()
+
+
 def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
     """Keys that are optional at BOOT but required to actually serve traffic.
 
@@ -139,6 +227,22 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
         # that "view as client" 502s on the day a client's dashboard looks wrong.
         if not cfg.impersonation_grant_secret:
             missing.append("IMPERSONATION_GRANT_SECRET")
+        # The audit chain signs with this and REFUSES to write or verify without it
+        # outside `local` (`compliance/audit.py::_active_key`). It used to fall back to
+        # `local-dev:{app_env}` everywhere, so a deploy that forgot it produced a
+        # tamper-evident ledger keyed on a constant printed in this repository —
+        # unverifiable as evidence and, since every audited action writes one, a
+        # condition an operator must meet BEFORE the deploy takes traffic rather than
+        # discover from the first 503 on a raw-transcript read (hard rule 5).
+        if not cfg.audit_chain_secret:
+            missing.append("AUDIT_CHAIN_SECRET")
+        # Its own key since the audit chain's was split off it — same refusal, different
+        # blast radius: without it every idempotent mutation (call-this-lead, campaign
+        # launch, KB publish) 503s rather than storing a fingerprint anybody can
+        # recompute. AUDIT_CHAIN_SECRET_RETIRED is deliberately NOT here: it is a
+        # verification aid, absent on every deployment that has never rotated.
+        if not cfg.idempotency_scope_secret:
+            missing.append("IDEMPOTENCY_SCOPE_SECRET")
     return missing
 
 
@@ -151,9 +255,11 @@ def fail_fast(message: str) -> None:
 __all__ = [
     "BOOTSTRAP_REQUIRED",
     "ENVIRONMENTS",
+    "MIN_HMAC_KEY_BYTES",
     "BootstrapError",
     "fail_fast",
     "get_settings",
+    "resolve_hmac_key",
     "runtime_config_missing_keys",
     "validate_bootstrap_env",
 ]

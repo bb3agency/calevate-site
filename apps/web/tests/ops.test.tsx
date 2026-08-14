@@ -903,6 +903,10 @@ describe("the audit chain verification", () => {
     newest_checked_at: "2026-08-13T09:15:00Z",
     breaks: [],
     breaks_found: 0,
+    // Zero is the honest default for a deployment that has always been configured, and
+    // it is the value that must render NOTHING — an "0 entries under a retired key"
+    // line would be a caveat about a problem this log does not have.
+    entries_under_retired_key: 0,
     ...over,
   });
 
@@ -1089,6 +1093,64 @@ describe("the audit chain verification", () => {
 
     expect(container.textContent).not.toContain("Whole log checked");
     expect(container.textContent).toContain("says nothing about the rest of the log");
+  });
+
+  it("names the weakly-attested era on an INTACT log, because ok is not the whole answer", async () => {
+    /* `entries_under_retired_key` is not a break and does not move `ok` — those rows
+       hash correctly. What they lack is attestation STRENGTH: they were signed before
+       this deployment had its own AUDIT_CHAIN_SECRET, when the key was a constant in
+       the source, so anyone who could read the repository could have produced one that
+       verifies. A green box that says only "intact" is what puts that era into an
+       evidence export unremarked. */
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [VERIFY]: verdict({ ok: true, entries_under_retired_key: 812 }),
+      }),
+    );
+
+    fireEvent.click(await armVerify());
+
+    await screen.findByText("Chain intact for the entries checked");
+    expect(container.textContent).toContain("812 entries verified under a retired signing key");
+    // Still intact — the caveat must not be written as a failure.
+    expect(container.textContent).toContain("they are not a break");
+  });
+
+  it("says nothing about retired keys when there are none", async () => {
+    // Zero is the answer on a deployment that has always been configured, and a caveat
+    // about a problem the log does not have is how operators learn to skim caveats.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, { [VERIFY]: verdict() }),
+    );
+
+    fireEvent.click(await armVerify());
+
+    await screen.findByText("Chain intact for the entries checked");
+    expect(container.textContent).not.toContain("retired signing key");
+  });
+
+  it("carries the retired-key caveat onto a FAILED verdict too", async () => {
+    // The two facts are independent: a log can be broken AND partly weakly attested,
+    // and the era question applies either side of the break.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [VERIFY]: verdict({
+          ok: false,
+          first_bad_entry_id: chainBreak().entry_id,
+          breaks: [chainBreak()],
+          breaks_found: 1,
+          entries_under_retired_key: 3,
+        }),
+      }),
+    );
+
+    fireEvent.click(await armVerify());
+
+    await screen.findByText("AUDIT CHAIN VERIFICATION FAILED");
+    expect(container.textContent).toContain("3 entries verified under a retired signing key");
   });
 
   it("asks for no typed confirmation, because it writes nothing", async () => {

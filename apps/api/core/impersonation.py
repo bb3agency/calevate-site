@@ -95,7 +95,7 @@ import jwt
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
+from apps.api.core.settings import get_settings, resolve_hmac_key
 from apps.api.db.base import uuid7
 
 log = get_logger(__name__)
@@ -124,10 +124,6 @@ GRANT_ALGORITHM: Final = "HS256"
 #: would be bookkeeping.
 GRANT_TTL: Final = timedelta(minutes=15)
 
-# RFC 7518 §3.2: an HS256 key should be at least the hash output size. PyJWT warns
-# below this; this module refuses, for the reason given in `_signing_secret`.
-_MIN_SECRET_BYTES = 32
-
 #: Tolerance for clock skew between API replicas. Small on purpose: both the minting and
 #: the verifying process are ours, so this covers NTP drift, not a third party's clock.
 #: (`CLERK_LEEWAY_S` is 30 because the other end of that comparison is Clerk's clock.)
@@ -153,65 +149,47 @@ def _signing_key() -> bytes:
     """The HMAC key, or a refusal.
 
     A DEDICATED secret rather than a subkey derived from `audit_chain_secret`, and the
-    reason is rotation rather than cryptography: rotating the audit chain secret "starts
-    a new chain, so it is rotated with a drill" (`calevate_shared.config`). Deriving this
-    key from it would couple a routine credential rotation — which costs at most fifteen
-    minutes of re-minting — to that drill, and coupled rotations are the ones that never
-    happen.
+    reason is rotation rather than cryptography: the two keys have unrelated rotation
+    triggers and unrelated costs. Rotating this one costs at most fifteen minutes of
+    re-minting; rotating the audit chain's means carrying the outgoing value in
+    `AUDIT_CHAIN_SECRET_RETIRED` so history keeps verifying. Deriving one from the other
+    would couple both to whichever moved, and coupled rotations are the ones that never
+    happen. (This is also NIST SP 800-57 Part 1's key-separation rule — one key, one
+    purpose — arriving at the same answer from the other direction.)
 
-    IT FAILS CLOSED OUTSIDE LOCAL. `audit_chain_secret` falls back to a derived constant
-    in any environment, which is defensible for tamper-EVIDENCE (a known key makes the
-    chain unverifiable, not forgeable-into-authority). It is not defensible for a token
+    IT FAILS CLOSED OUTSIDE LOCAL. `audit_chain_secret` USED TO fall back to a derived
+    constant in any environment, which was defensible for tamper-EVIDENCE (a known key
+    makes the chain unverifiable, not forgeable-into-authority) but never for a token
     that authorises reading a client's leads and transcripts: a staging or production
     deploy that forgot the variable would be handing out grants anybody could forge. So
     the local convenience is scoped to `local`, and everywhere else an absent secret is
     an outage — a loud one, matching `_jwk_client`'s answer to an absent Clerk secret,
-    which is the same class of failure and already has a shape in this repo.
+    which is the same class of failure and already has a shape in this repo. That
+    asymmetry is now gone in the other direction too: `compliance/audit.py` refuses an
+    absent chain secret on the same terms, so this module's stance is the house style
+    rather than the exception it was when it was written.
     `runtime_config_missing_keys` reports it at `/healthz/ready` before an operator
     finds out by clicking.
+
+    THE LADDER ITSELF NOW LIVES IN `core/settings.py::resolve_hmac_key`, because the
+    policy this module reasoned out first — configured, too short, absent; local
+    fallback scoped to `local`; a weak key refused with the same code as no key — is the
+    policy all three of this deployment's HMAC secrets need, and three copies is where
+    the fourth one gets it wrong. What stays here is the part that is about THIS key: it
+    is dedicated (above), and the local constant is >=32 bytes because PyJWT warns below
+    the HMAC-SHA256 key size and a warning on every local request trains people to
+    ignore warnings.
     """
     settings = get_settings()
-    secret = settings.impersonation_grant_secret
-    if secret:
-        # LENGTH IS PART OF BEING CONFIGURED, not a warning to read later. RFC 7518 §3.2
-        # requires an HMAC key at least the size of the hash output — 32 bytes for
-        # HS256 — and PyJWT only WARNS below it. Failing closed on a MISSING secret while
-        # silently accepting a present-but-weak one would leave the refusal below
-        # guarding the easier half of the same mistake: an operator who pastes a short
-        # string into the secrets manager gets a signing key an attacker can search,
-        # and the only signal is a log line nobody reads. Refused with the same shape as
-        # absence, because to this module they are the same condition.
-        if len(secret.encode()) < _MIN_SECRET_BYTES:
-            log.error(
-                "impersonation_grant_secret_too_short",
-                extra={"app_env": settings.app_env, "bytes": len(secret.encode())},
-            )
-            raise ProblemError(
-                kind="dependency",
-                code="impersonation_not_configured",
-                title="View-as is not configured",
-                detail="This deployment's signing key for view-as sessions is too short.",
-                remediation=(
-                    f"IMPERSONATION_GRANT_SECRET must be at least {_MIN_SECRET_BYTES} "
-                    "bytes (RFC 7518 §3.2 for HS256); inject a longer one from the "
-                    "secrets manager (DEV-SETUP §4)."
-                ),
-            )
-        return secret.encode()
-    if settings.app_env != "local":
-        log.error("impersonation_grant_secret_missing", extra={"app_env": settings.app_env})
-        raise ProblemError(
-            kind="dependency",
-            code="impersonation_not_configured",
-            title="View-as is not configured",
-            detail="This deployment has no signing key for view-as sessions.",
-            remediation=(
-                "Inject IMPERSONATION_GRANT_SECRET from the secrets manager (DEV-SETUP §4)."
-            ),
-        )
-    # >=32 bytes: PyJWT warns (RFC 7518 §3.2) below the HMAC-SHA256 key size, and a
-    # warning every local request trains people to ignore warnings.
-    return f"calevate-local-dev-impersonation-grant-key:{settings.app_env}".encode()
+    return resolve_hmac_key(
+        settings.impersonation_grant_secret,
+        env_var="IMPERSONATION_GRANT_SECRET",
+        purpose="D-22 view-as grants",
+        code="impersonation_not_configured",
+        title="View-as is not configured",
+        local_fallback=f"calevate-local-dev-impersonation-grant-key:{settings.app_env}",
+        app_env=settings.app_env,
+    )
 
 
 def mint_grant(*, tenant_id: UUID, admin_id: UUID) -> tuple[str, ImpersonationGrant]:

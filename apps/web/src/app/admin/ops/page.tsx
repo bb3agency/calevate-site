@@ -1401,6 +1401,37 @@ function OutboxReplayPanel({
  * an implicit "as of", and one left on screen while an operator works elsewhere is
  * otherwise indistinguishable from a live one.
  */
+/**
+ * The weakly-attested era, rendered beside the verdict rather than under it.
+ *
+ * `entries_under_retired_key` is NOT a break and is not a component of `ok` — those
+ * entries hash correctly. What they lack is attestation STRENGTH: on most deployments
+ * they are the rows written before `AUDIT_CHAIN_SECRET` was required, when the chain
+ * was signed with a constant that was printed in the source, so anyone who could read
+ * the repository could have produced a row that verifies. That distinction only matters
+ * at one moment — when an operator exports this log as evidence — and a caveat that
+ * lives in a runbook reaches nobody at that moment.
+ *
+ * It renders on the intact verdict AND on the failed one, because the two facts are
+ * independent: a log can be unbroken and still partly weakly attested, and a log with a
+ * break has the same era question about everything either side of it.
+ */
+function WeaklyAttestedNote({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <p className="mt-2">
+      <span className="font-semibold">
+        {formatCount(count)} {count === 1 ? "entry" : "entries"} verified under a retired
+        signing key.
+      </span>{" "}
+      Those rows are intact — they are not a break — but they were signed before this
+      deployment had its own <span className="font-mono">AUDIT_CHAIN_SECRET</span>, when
+      the key was a constant in the source. Treat them as weaker evidence than the rest:
+      if you are exporting this log for a dispute or an audit, say where that era ends.
+    </p>
+  );
+}
+
 function AuditChainPanel({ access }: { access: OpsAccess }) {
   const verify = useVerifyAuditChain();
   const asOf = verify.data ? formatIST(new Date(verify.submittedAt).toISOString()) : null;
@@ -1474,6 +1505,7 @@ function AuditChainPanel({ access }: { access: OpsAccess }) {
               Do not re-run and move on: capture the entry ids above, and do not let anyone
               &quot;repair&quot; the rows — the break is the evidence.
             </p>
+            <WeaklyAttestedNote count={verify.data.entries_under_retired_key} />
             <p className="mt-2 text-xs">
               {verify.data.complete
                 ? `Whole log checked — ${formatCount(verify.data.entries_checked)} entries. Checked at ${asOf}.`
@@ -1501,6 +1533,7 @@ function AuditChainPanel({ access }: { access: OpsAccess }) {
                 ? `Whole log checked — ${formatCount(verify.data.entries_checked)} entries, from the first row to the last.`
                 : `This covers ${formatCount(verify.data.entries_checked)} entries only, so it says nothing about the rest of the log.`}
             </p>
+            <WeaklyAttestedNote count={verify.data.entries_under_retired_key} />
             <p className="mt-2 text-xs">Checked at {asOf}.</p>
           </NoticeBox>
         )}

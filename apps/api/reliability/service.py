@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 from apps.api.core.alerting import alert, record_outbox_dlq_depth, record_outbox_lag
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
+from apps.api.core.settings import get_settings, resolve_hmac_key
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 
@@ -81,9 +81,43 @@ def body_hash(payload: Any) -> str:
 
 def scope_key(*, tenant_id: UUID | None, user_id: UUID | None) -> str:
     """HMAC fingerprint of tenant/user — RAW IDS ARE NEVER STORED in the idempotency
-    table (§4). Two tenants sending the same Idempotency-Key stay independent."""
+    table (§4). Two tenants sending the same Idempotency-Key stay independent.
+
+    IS A GUESSABLE FINGERPRINT A FORGERY PROBLEM? No, and the reason is worth recording
+    because the shape invites the opposite conclusion. `scope` is never accepted from
+    the wire: both call sites (`crm/routes.py`) derive it from `principal.tenant_id` /
+    `principal.user_id`, which come from a verified token. So an attacker who can
+    PREDICT another tenant's fingerprint still has no way to SUBMIT it, and cannot
+    collide with their idempotent write. The uniqueness constraint is reached only
+    through a value the server computed for the authenticated caller.
+
+    WHAT A GUESSABLE KEY DID COST is the pseudonymity, which is the only reason this is
+    an HMAC and not `f"{tenant_id}:{user_id}"`. §4 forbids storing the raw ids; a keyed
+    hash is a pseudonym only while the key is secret, because an identifier space that
+    someone holding the database can enumerate is an identifier space they can hash and
+    match (EDPS/AEPD, "Introduction to the hash function as a personal data
+    pseudonymisation technique" — the fix for a reversible plain hash is to enlarge the
+    preimage space with a secret key, which is what HMAC is doing here). With the old
+    `local-dev:{app_env}` fallback in force, this column was a rename of two ids rather
+    than a pseudonym for them.
+
+    ITS OWN SECRET, no longer the audit chain's — `calevate_shared.config` carries the
+    argument. The short version is that this value must be STABLE (changing it makes
+    every in-flight Idempotency-Key miss its record, so a retry re-executes: a second
+    real phone call for `POST /v1/leads/{id}/call`) while the audit chain's key is the
+    one that now has a rotation story. Sharing meant an audit rotation silently placed
+    duplicate calls.
+    """
     settings = get_settings()
-    material = (settings.audit_chain_secret or f"local-dev:{settings.app_env}").encode()
+    material = resolve_hmac_key(
+        settings.idempotency_scope_secret,
+        env_var="IDEMPOTENCY_SCOPE_SECRET",
+        purpose="idempotency scope fingerprints",
+        code="idempotency_not_configured",
+        title="Idempotent requests are not configured",
+        local_fallback=f"calevate-local-dev-idempotency-scope-key:{settings.app_env}",
+        app_env=settings.app_env,
+    )
     return hmac.new(material, f"{tenant_id}:{user_id}".encode(), hashlib.sha256).hexdigest()
 
 

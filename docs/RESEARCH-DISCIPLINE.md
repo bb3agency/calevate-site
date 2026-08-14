@@ -38,7 +38,7 @@ number means different things at each:
 |---|---|
 | Model (STT/TTS/LLM) | Cartesia Sonic ≈ ₹2.7–3.0 / 1k chars |
 | Orchestration, **bundled** (vendor's models included) | Cartesia Line $0.06/min · Bolna bundled 6.00¢ |
-| Orchestration, **BYOK** (on top of your model spend) | Bolna BYOK · Vapi $0.05/min |
+| Orchestration, **BYOK** (on top of your model spend) | Bolna BYOK (observed 2¢/min) · Vapi $0.05/min |
 | Self-orchestrated | ₹0 fee + compute |
 
 Mixing layers produces a **~4× error**. This is not hypothetical — it happened in TRD §10
@@ -67,7 +67,7 @@ Recorded because each was caught by the founder, not by me.
 | 3 | Treated Telugu quality as a platform differentiator | Under BYOK the models are identical across platforms, so it isn't one — **except** turn detection, which is orchestration-layer. → **R4** |
 | 4 | Claimed "Outpero self-orchestrates and pays no platform fee" as fact | **Retracted.** It was inferred from their security page + mid-call failover. Their TTS trio (Sarvam/Smallest/Cartesia) exactly matches Bolna's supported-provider list, which is equally consistent with them *being a customer*. Their orchestration layer is **UNKNOWN**. → **R7** |
 | 5 | Guessed their premium tier was a cloned Sarvam voice | Their shipped JS says otherwise: `value:sarvam_per_min`, `standard:smallest_per_min`, `premium:cartesia_per_min`. **Sarvam is their cheapest tier.** Read the code before theorising. |
-| 6 | Compared Cartesia Line's $0.06 against Vapi's $0.05 as equivalent | Vapi's is an orchestration tax *on top of* model spend; Line's appears to bundle models. → **R5** |
+| 6 | Compared Cartesia Line's $0.06 against Vapi's $0.05 as equivalent | Vapi's is an orchestration tax *on top of* model spend; Line's bundles models. **"Appears to" resolved to CONFIRMED (Aug 2026, D-88)**: Line's LLM is BYOK via LiteLLM but Ink 2 (STT) and Sonic 3.5 (TTS) have no swap interface — from Cartesia's own Line SDK README, which is first-party where their docs site is unreachable from our build environment. The lesson survives the confirmation: the error was comparing the numbers before establishing the layer. → **R5** |
 | 7 | Amortised Outpero's monthly fee into their effective rate but left **our** fixed costs outside ours | Applied the same rule to ourselves (TRD §10.2) — and it revealed that D-11's ₹6–8/min overage is below true cost under ~5,000 platform min/month. → **R6** |
 | 8 | Recorded "Bulbul v2 is discontinued" (D-20) | Wrong — that came from *ThinnestAI's* model listing, not Sarvam's. v2 is live at **half** the v3 price (D-35). Read the vendor's own rate card, not a reseller's. |
 

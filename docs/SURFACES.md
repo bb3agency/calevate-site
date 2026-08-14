@@ -293,13 +293,17 @@ Admin realm (`/admin/…`)
 - **Printable invoice statement** (`/admin/tenants/{id}/invoice`;
   `GET /v1/admin/tenants/{tenant_id}/invoice`) — a white, print-first document. It is a
   DERIVED statement, not a stored row (see DATA-MODEL §8).
-- **Credit top-up** (`POST|GET /v1/admin/tenants/{tenant_id}/credits`) — **API ONLY, NO
-  SCREEN.** It is listed in this section, whose whole purpose is "nobody re-proposes a
-  screen that exists", and every other bullet here names a screen path. This one names
-  only endpoints, and that is the tell: `runbooks/topup-payments.md` instructs an operator
-  to hand-construct the authenticated call. Since this is the ONLY way money reaches a
-  wallet, an admin screen for it is a live candidate rather than shipped work — it is the
-  top of the buildable list at §62. The self-serve wallet UI in §2b is separately still M2.
+- **Credit top-up and corrections** (`/admin/tenants/[tenantId]/credits` —
+  `POST|GET /v1/admin/tenants/{tenant_id}/credits`, `POST .../credits/adjustments`) —
+  **SHIPPED** (D-82, D-87). The screen records a payment against its bank reference, which
+  doubles as the idempotency key and as the typed confirmation — different every time, so
+  it cannot become muscle memory. Corrections are APPENDED against a named ledger row
+  (hard rule 4: the wrong entry stays, because it is the evidence), bounded by that
+  entry's remaining reversible amount, and step-up-confirmed only in the direction that
+  takes credit AWAY. The response's `stops_dialling` is the dial gate's own verdict on the
+  balance the write produced, rendered as a stop-toned notice — never re-derived on the
+  client. `runbooks/topup-payments.md` §3 no longer describes hand-constructing the call.
+  The self-serve wallet UI in §2b is separately still M2.
 - **Ops** (`/admin/ops`; `/v1/ops/platform`, `/v1/ops/outbox/replay`, `/v1/ops/audit/verify`).
   `GET /v1/ops/platform` returns the load-shed mode, the outbound halt, **`halt_reason`**
   and the TM registration in ONE row read — a halt shown beside a reason from a different

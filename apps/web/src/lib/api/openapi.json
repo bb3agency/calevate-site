@@ -140,6 +140,101 @@
         "title": "AddNumbersOut",
         "type": "object"
       },
+      "AdjustmentIn": {
+        "additionalProperties": false,
+        "description": "A compensating entry, described by what it corrects rather than by what it moves.\n\n`amount_inr` is a POSITIVE magnitude \u2014 how much of the named entry to take back. The\ndirection is derived from that entry (`CorrectableEntry.compensating_delta`), so the\none thing a form here cannot get wrong is the sign.",
+        "properties": {
+          "amount_inr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,11}0*$)\\d{0,8}\\.\\d{0,2}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount Inr"
+          },
+          "corrects_entry_id": {
+            "format": "uuid",
+            "title": "Corrects Entry Id",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_inr",
+          "corrects_entry_id",
+          "reason"
+        ],
+        "title": "AdjustmentIn",
+        "type": "object"
+      },
+      "AdjustmentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "balance_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance Inr",
+            "type": "string"
+          },
+          "corrects_entry_id": {
+            "format": "uuid",
+            "title": "Corrects Entry Id",
+            "type": "string"
+          },
+          "delta_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Delta Inr",
+            "type": "string"
+          },
+          "entry_id": {
+            "format": "uuid",
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "is_low": {
+            "title": "Is Low",
+            "type": "boolean"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "stops_dialling": {
+            "title": "Stops Dialling",
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "entry_id",
+          "corrects_entry_id",
+          "ref",
+          "delta_inr",
+          "balance_inr",
+          "is_low",
+          "recorded",
+          "stops_dialling"
+        ],
+        "title": "AdjustmentOut",
+        "type": "object"
+      },
       "AdminMeOut": {
         "additionalProperties": false,
         "description": "The admin realm's own identity document.\n\n`MeOut` (tenancy/routes.py) minus everything that is a property of a TENANT. There\nis no `organization`, because an admin principal resolved without\n`X-Impersonate-Org` has no tenant at all; and no `impersonating`, because a console\nscreen that had to enter a client to ask who it was is precisely the shape this\nroute removes. What is left \u2014 the role and the permission set \u2014 is the whole of what\nthe console legitimately needs to preview its own gates.",
@@ -1283,6 +1378,10 @@
             "title": "Entries Checked",
             "type": "integer"
           },
+          "entries_under_retired_key": {
+            "title": "Entries Under Retired Key",
+            "type": "integer"
+          },
           "first_bad_entry_id": {
             "anyOf": [
               {
@@ -1331,7 +1430,8 @@
           "entries_checked",
           "complete",
           "oldest_checked_at",
-          "newest_checked_at"
+          "newest_checked_at",
+          "entries_under_retired_key"
         ],
         "title": "ChainVerifyOut",
         "type": "object"
@@ -6185,6 +6285,11 @@
               }
             ],
             "title": "Ref"
+          },
+          "reversible_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Reversible Inr",
+            "type": "string"
           }
         },
         "required": [
@@ -6193,7 +6298,8 @@
           "reason",
           "ref",
           "balance_after_inr",
-          "occurred_at"
+          "occurred_at",
+          "reversible_inr"
         ],
         "title": "LedgerEntryOut",
         "type": "object"
@@ -12640,6 +12746,73 @@
           }
         },
         "summary": "Record a client payment onto the wallet \u2014 idempotent by the payment reference",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/credits/adjustments": {
+      "post": {
+        "description": "The ledger is append-only, so a wrong entry is never edited or removed \u2014 it stays where it is, because it is the evidence, and a new entry with the opposite sign cancels it. Name the entry to correct and how much of it to take back (a positive amount; the direction is derived from that entry). Sending the same correction again returns the entry that already exists and moves nothing. Taking credit AWAY additionally needs the header `X-Confirm-Action: adjust_credits:<corrects_entry_id>`; crediting back does not. The balance MAY go negative \u2014 a wrong credit that was partly spent cannot be fully reversed otherwise \u2014 and `stops_dialling` says whether that has blocked this client's outbound calling.",
+        "operationId": "record_adjustment_v1_admin_tenants__tenant_id__credits_adjustments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjustmentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdjustmentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Correct a wrong ledger entry by APPENDING a compensating adjustment",
         "tags": [
           "admin"
         ],

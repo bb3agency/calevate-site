@@ -322,6 +322,16 @@ class ChainVerifyOut(BaseModel):
     complete: bool
     oldest_checked_at: datetime | None
     newest_checked_at: datetime | None
+    #: Entries that verified under a RETIRED chain key rather than the active one.
+    #:
+    #: NOT a break and not a component of `ok`: these entries are intact. They are
+    #: WEAKLY ATTESTED — on most deployments they are the era before AUDIT_CHAIN_SECRET
+    #: was required, when the chain was signed with a constant printed in the source, so
+    #: anyone who could read the repository could have produced them. An operator
+    #: exporting this log as evidence has to know where that era ends, and a caveat that
+    #: lives only in a runbook is a caveat that reaches nobody at the moment it counts.
+    #: Zero on a deployment that has always been configured.
+    entries_under_retired_key: int
 
 
 class SpendCapRecomputeOut(BaseModel):
@@ -845,6 +855,7 @@ async def verify_audit_chain(
         complete=result.complete,
         oldest_checked_at=result.oldest_checked_at,
         newest_checked_at=result.newest_checked_at,
+        entries_under_retired_key=result.entries_under_retired_key,
     )
 
 

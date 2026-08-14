@@ -29,13 +29,19 @@ import {
 import { adminSession, useTenant } from "@/lib/api/admin";
 import {
   LEDGER_LIMIT,
+  adjustmentAmountProblem,
+  correctableEntries,
   creditReasonLabel,
+  isFullyReversed,
   normalizeReference,
   referenceCaution,
   referenceProblem,
   rupeeProblem,
+  takesCreditAway,
   useCredits,
+  useRecordAdjustment,
   useRecordTopUp,
+  type AdjustmentResult,
   type Credits,
   type LedgerEntry,
   type TopUpResult,
@@ -100,13 +106,32 @@ import { useAdminAccess } from "@/app/admin/access";
  * already recorded by a colleague ten minutes ago. So `unreadable` withholds the form
  * rather than merely leaving it unpopulated, exactly as `/commercials` withholds its own.
  *
- * ## THERE IS NO UNDO, AND THE SCREEN SAYS SO WHERE IT IS DECIDED
+ * ## THERE IS NO UNDO — THERE IS A COMPENSATING ENTRY, AND IT IS ON THIS SCREEN
  *
  * `credit_ledger` is append-only (hard rule 4, enforced by a database trigger). A wrong
  * credit is corrected by APPENDING a compensating `adjustment` entry; the wrong row
- * stays, because it is the evidence. This console cannot append one — the route records
- * positive top-ups only and refuses a negative amount — so the path is named rather than
- * left to be discovered after the fact. See `CorrectionCard`.
+ * stays, because it is the evidence. This console used to say that and then stop,
+ * because no endpoint appended one — "escalate instead of improvising" was the whole
+ * remedy for crediting the wrong client. `CorrectionPanel` is that endpoint's control,
+ * and its shape follows from the act being MORE dangerous than the top-up above it, in
+ * three ways the top-up does not need:
+ *
+ * - **The target is CHOSEN, never typed.** A correction names a `credit_ledger` row, and
+ *   the ids are uuids. Picking from the ledger this screen has already read removes a
+ *   transcription error that the server could only catch as a 404 — and it is what lets
+ *   the screen show what is left to take back beside the choice.
+ * - **The amount is double-keyed, like the reference above**, because it is the field
+ *   that decides how much money moves and it is different every time. The ceiling is
+ *   the server's (`reversible_inr`), stated next to the field rather than enforced by
+ *   arithmetic this console must not do.
+ * - **The confirmation goes on the WIRE.** Unlike the top-up, this route takes an
+ *   `X-Confirm-Action` — but only for the direction that takes credit away, which is
+ *   the route's rule and not this screen's opinion. `useRecordAdjustment` builds it.
+ *
+ * The consequence stated above the button is the one an operator cannot otherwise see
+ * coming: a correction may leave the balance BELOW zero, and for a self-serve or trial
+ * client that stops outbound dialling. The server answers whether it did — `stops_dialling`
+ * is the dial gate's own predicate — and the outcome panel says so in those words.
  */
 export default function CreditsPage({
   params,
@@ -117,15 +142,20 @@ export default function CreditsPage({
   const { tenantId } = use(params);
   const tenantQuery = useTenant(tenantId);
   const ledger = useCredits(adminSession(), tenantId);
-  // The mutation lives here rather than inside the form: a successful write invalidates
+  // The mutations live here rather than inside the forms: a successful write invalidates
   // the read, and a mutation held inside a form that the read remounts would lose its own
   // confirmation at the moment the write landed (`/commercials` records the same trap).
   const save = useRecordTopUp(adminSession(), tenantId);
+  const correct = useRecordAdjustment(adminSession(), tenantId);
   // `POST .../credits` is `admin:tenants` (`credit_routes.py` argues why recording a
   // received payment is that permission and not a `billing:write` that does not exist).
   // The admin realm's own identity read answers it — see `@/app/admin/access` for why the
   // client realm's `useWriteAccess` is the wrong instrument on an admin screen.
   const write = useAdminAccess("admin:tenants", "record a payment on this client's wallet");
+  // The same permission, a DIFFERENT sentence. Both controls are `admin:tenants`, but a
+  // restriction note has to name the control it sits under — two identical explanations
+  // on one screen leave an operator unsure which button either of them is about.
+  const amend = useAdminAccess("admin:tenants", "correct an entry on this client's wallet");
 
   if (tenantQuery.isLoading) return <Skeleton rows={6} />;
   // A 403, a 500 or a dropped connection is not "no such client".
@@ -168,6 +198,15 @@ export default function CreditsPage({
             wallet={state.wallet}
             save={save}
             write={write}
+          />
+          {/* Withheld with the form above and for the identical reason: a correction is
+              a write against a specific ledger row, so a ledger nobody could read is a
+              row nobody can name. */}
+          <CorrectionPanel
+            clientName={tenant.name}
+            wallet={state.wallet}
+            correct={correct}
+            write={amend}
           />
           <LedgerTable wallet={state.wallet} />
         </>
@@ -503,10 +542,11 @@ function RecordPanel({
             </p>
             <p className="mt-1 text-ink-muted">
               <span className="font-semibold">There is no undo.</span> This ledger is
-              append-only and a database trigger refuses UPDATE and DELETE, so a credit to
-              the wrong client or for the wrong amount is corrected by ADDING a
-              compensating entry — which this console cannot do. Read “If a credit was
-              wrong” below before you click, not after.
+              append-only and a database trigger refuses UPDATE and DELETE, so a credit
+              to the wrong client or for the wrong amount is corrected by ADDING a
+              compensating entry — “Correct a wrong entry”, below. That is a repair, not
+              an undo: both lines stay on the ledger for ever, and the client may already
+              have spent the money.
             </p>
             <p className="mt-1 text-xs text-ink-faint">
               Recorded in the audit log against your admin account, in the same
@@ -599,6 +639,387 @@ function Outcome({ result }: { result: TopUpResult }) {
   );
 }
 
+/** The correction draft. Strings throughout — the money one because hard rule 7. */
+interface Correction {
+  entryId: string;
+  amount: string;
+  /** Typed a second time. Double keying, on the field that decides how much moves. */
+  confirm: string;
+  reason: string;
+}
+
+const NO_CORRECTION: Correction = { entryId: "", amount: "", confirm: "", reason: "" };
+
+/**
+ * Take a wrong entry back off the wallet — by APPENDING, never by editing.
+ *
+ * The control this screen said did not exist. Its shape is argued in the file header;
+ * what is worth reading here is the ONE-DIRECTIONAL honesty the panel keeps:
+ *
+ * - the choice is limited to entries with something left to take back, because an entry
+ *   already fully corrected is a dead option and offering one is the defect §52 named;
+ * - the ceiling beside the amount is the SERVER's `reversible_inr`, displayed and never
+ *   recomputed — the console does no decimal arithmetic on money at all, so it cannot
+ *   preview the resulting balance and does not pretend to;
+ * - the consequence that cannot be previewed — a balance that lands below zero, which
+ *   stops a self-serve or trial client dialling — is stated as a CONDITION above the
+ *   button and answered as a FACT by the server underneath it.
+ */
+function CorrectionPanel({
+  clientName,
+  wallet,
+  correct,
+  write,
+}: {
+  clientName: string;
+  wallet: Credits;
+  correct: ReturnType<typeof useRecordAdjustment>;
+  write: ReturnType<typeof useAdminAccess>;
+}) {
+  const [draft, setDraft] = useState<Correction>(NO_CORRECTION);
+  const set = (key: keyof Correction, value: string) => {
+    setDraft((prev) => ({ ...prev, [key]: value }));
+    // The last result described a correction that is no longer the one in the form.
+    correct.reset();
+  };
+
+  const options = correctableEntries(wallet.entries);
+  const entry = options.find((candidate) => candidate.id === draft.entryId) ?? null;
+  const amount = draft.amount.trim();
+  const amountProblem = amount === "" ? null : adjustmentAmountProblem(draft.amount);
+  const amountReady = amount !== "" && amountProblem === null;
+  const confirmed = amountReady && draft.confirm.trim() === amount;
+  const reason = draft.reason.trim();
+  const reasonReady = reason.length >= 3;
+  const ready =
+    write.allowed && entry !== null && confirmed && reasonReady && !correct.isPending;
+  // The DIRECTION, read off the entry exactly as the route derives it. Everything the
+  // panel says about danger hangs on this, so it is computed once and never re-guessed.
+  const debit = entry !== null && takesCreditAway(entry);
+
+  if (wallet.entries.length === 0) {
+    // Not a disabled form: there is genuinely nothing on this ledger to correct, and a
+    // form over an empty ledger reads as "a correction is a thing you make up".
+    return (
+      <Card title="Correct a wrong entry">
+        <p className="text-sm text-ink-muted">
+          Nothing has been written to this ledger, so there is nothing to correct. A
+          correction always names the entry it cancels.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card title="Correct a wrong entry">
+      <p className="-mt-2 text-xs text-ink-muted">
+        For an entry that should not have been made — a payment credited to the wrong
+        client, or for more than arrived. The entry stays on the ledger; a new one with
+        the opposite sign cancels it.
+      </p>
+
+      {options.length === 0 ? (
+        <p className="mt-4 text-sm text-ink-muted">
+          Every entry on this wallet has already been taken back in full, so there is
+          nothing left to correct here.
+        </p>
+      ) : (
+        <form
+          className="mt-4 space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (entry === null) return;
+            correct.mutate(
+              { entry, amountInr: amount, reason },
+              // Cleared on success only, and the result panel carries what was sent: a
+              // form still holding the correction the server has answered for invites a
+              // second click that can only be a replay.
+              { onSuccess: () => setDraft(NO_CORRECTION) },
+            );
+          }}
+        >
+          <Field
+            label="Entry to correct"
+            id="adjust-entry"
+            hint="Chosen from the ledger below, never typed — an entry is identified by a uuid, and a mistyped one is a correction made against nothing. Only entries with something left to take back are listed."
+            error={null}
+          >
+            <select
+              id="adjust-entry"
+              value={draft.entryId}
+              disabled={!write.allowed}
+              onChange={(event) => set("entryId", event.target.value)}
+              aria-describedby={describedBy("adjust-entry", false)}
+              className={FIELD}
+            >
+              <option value="">Choose the entry that was wrong…</option>
+              {options.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {`${formatIST(option.occurred_at)} · ${creditReasonLabel(option.reason)} · ${
+                    option.delta_inr.startsWith("-") ? "" : "+"
+                  }${formatINR(option.delta_inr)}${option.ref ? ` · ${option.ref}` : ""}`}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          {entry && (
+            <NoticeBox
+              tone="neutral"
+              icon={<Info aria-hidden className="h-5 w-5" />}
+              title={`${formatINR(entry.reversible_inr)} of this entry can still be taken back`}
+            >
+              <p className="mt-1 text-xs">
+                It moved {entry.delta_inr.startsWith("-") ? "" : "+"}
+                {formatINR(entry.delta_inr)} on {formatIST(entry.occurred_at)}
+                {entry.ref ? (
+                  <>
+                    {" "}
+                    against <span className="font-mono">{entry.ref}</span>
+                  </>
+                ) : null}
+                . Correcting it{" "}
+                {debit
+                  ? "takes credit off this wallet"
+                  : "puts credit back on this wallet"}{" "}
+                — the direction comes from the entry, so there is no sign for you to get
+                right.
+              </p>
+            </NoticeBox>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Amount to take back (₹)"
+              id="adjust-amount"
+              hint="Rupees and paise, as digits — 50000.00. Never more than what is left of the entry, and never signed. It reaches the API as the exact string you type."
+              error={amountProblem}
+            >
+              <input
+                id="adjust-amount"
+                value={draft.amount}
+                disabled={!write.allowed}
+                onChange={(event) => set("amount", event.target.value)}
+                inputMode="decimal"
+                autoComplete="off"
+                aria-describedby={describedBy("adjust-amount", amountProblem !== null)}
+                aria-invalid={amountProblem !== null}
+                className={FIELD}
+              />
+            </Field>
+
+            <Field
+              label="Type the amount again"
+              id="adjust-amount-confirm"
+              hint="Typed twice because this is the field that decides how much money moves, and no entry on this ledger can be taken back."
+              error={
+                draft.confirm.trim() !== "" && amountReady && !confirmed
+                  ? "These two do not match. Read the amount off the entry above rather than pasting one into the other."
+                  : null
+              }
+            >
+              <input
+                id="adjust-amount-confirm"
+                value={draft.confirm}
+                disabled={!write.allowed}
+                onChange={(event) => set("confirm", event.target.value)}
+                inputMode="decimal"
+                autoComplete="off"
+                aria-describedby={describedBy(
+                  "adjust-amount-confirm",
+                  draft.confirm.trim() !== "" && amountReady && !confirmed,
+                )}
+                className={FIELD}
+              />
+            </Field>
+          </div>
+
+          <Field
+            label="Why (required)"
+            id="adjust-reason"
+            hint="Stored on the entry and on the audit record, in your words. “Who took this off the client, and why” is the question this answers months later — write the sentence you would want to find."
+            error={
+              draft.reason.trim() !== "" && !reasonReady
+                ? "Say why in at least a few words."
+                : null
+            }
+          >
+            <input
+              id="adjust-reason"
+              value={draft.reason}
+              disabled={!write.allowed}
+              onChange={(event) => set("reason", event.target.value)}
+              maxLength={500}
+              aria-describedby={describedBy(
+                "adjust-reason",
+                draft.reason.trim() !== "" && !reasonReady,
+              )}
+              aria-invalid={draft.reason.trim() !== "" && !reasonReady}
+              className={FIELD}
+            />
+          </Field>
+
+          {/* WHAT THE BUTTON DOES, ABOVE THE BUTTON — the ops order: the act, then that
+              it cannot be undone, then the consequence nobody can preview, then that it
+              is recorded. An operator who reads only the first line has read the part
+              that matters. */}
+          <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
+            <TriangleAlert
+              aria-hidden
+              className={`mt-0.5 h-4 w-4 shrink-0 ${debit ? "text-rose-600" : "text-ink-faint"}`}
+            />
+            <div className="min-w-0">
+              <p className="font-semibold text-ink">
+                {!entry
+                  ? `This corrects one entry on ${clientName}'s wallet`
+                  : debit
+                    ? `This takes ${amountReady ? formatINR(amount) : "credit"} back off ${clientName}'s wallet`
+                    : `This puts ${amountReady ? formatINR(amount) : "credit"} back on ${clientName}'s wallet`}
+              </p>
+              <p className="mt-1 text-ink-muted">
+                <span className="font-semibold">There is no undo, here either.</span> The
+                correction is a new line on the same append-only ledger — the entry it
+                cancels stays where it is, because it is the evidence, and correcting the
+                correction is another line again.
+              </p>
+              <p className="mt-1 text-ink-muted">
+                A correction may take the balance <span className="font-semibold">below
+                zero</span> — a wrong credit that has already been spent cannot be fully
+                taken back any other way. For a self-serve or trial client that stops
+                outbound dialling immediately, exactly as an empty wallet does; a managed
+                client is invoiced against their retainer and keeps calling. The answer
+                comes back with the result rather than being guessed here.
+              </p>
+              <p className="mt-1 text-xs text-ink-faint">
+                Recorded in the audit log against your admin account with the reason you
+                type above, in the same transaction as the money.
+                {debit
+                  ? " Taking credit away also sends the confirmation header the route demands for this direction."
+                  : ""}
+              </p>
+            </div>
+          </div>
+
+          {correct.error != null && <ProblemNotice error={correct.error} />}
+          {correct.data && <CorrectionOutcome result={correct.data} clientName={clientName} />}
+
+          <button
+            type="submit"
+            title={write.reason ?? undefined}
+            disabled={!ready}
+            className={PRIMARY_BUTTON}
+          >
+            {correct.isPending
+              ? "Correcting…"
+              : entry && amountReady
+                ? debit
+                  ? `Take ${formatINR(amount)} back off ${clientName}'s wallet`
+                  : `Put ${formatINR(amount)} back on ${clientName}'s wallet`
+                : "Correct this entry"}
+          </button>
+
+          <RestrictionNote reason={write.reason} />
+
+          {write.allowed && (
+            <p className="flex items-start gap-2 text-xs text-ink-muted">
+              <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {!entry
+                ? "Pick the entry that was wrong — a correction always cancels a specific line."
+                : !amountReady
+                  ? "Enter how much of that entry to take back."
+                  : !confirmed
+                    ? "Type the amount a second time to confirm. The two have to match exactly."
+                    : !reasonReady
+                      ? "Say why. It is stored on the entry and on the audit record."
+                      : "Ready. This cannot be taken back once it is written."}
+            </p>
+          )}
+        </form>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * What the correction did — and the two things a balance alone would not tell anyone.
+ *
+ * `recorded` separates "we have just taken ₹50,000 off this client" from "that
+ * correction was already made", both of which are 200. `stops_dialling` is the more
+ * expensive one: it is the dial gate's own verdict on the balance this write produced,
+ * and an operator who does not read it here reads it in a phone call from the client.
+ */
+function CorrectionOutcome({
+  result,
+  clientName,
+}: {
+  result: AdjustmentResult;
+  clientName: string;
+}) {
+  const tookCredit = result.delta_inr.startsWith("-");
+  return (
+    <div className="space-y-3">
+      <NoticeBox
+        tone={result.recorded ? "ok" : "neutral"}
+        icon={
+          result.recorded ? (
+            <CheckCircle2 aria-hidden className="h-5 w-5" />
+          ) : (
+            <Info aria-hidden className="h-5 w-5" />
+          )
+        }
+        title={
+          result.recorded
+            ? `Corrected — ${formatINR(result.delta_inr)} ${tookCredit ? "taken back" : "credited back"}`
+            : "Already corrected — nothing moved"
+        }
+      >
+        {result.recorded ? (
+          <>
+            <p className="mt-1 text-xs">
+              Against entry <span className="font-mono">{result.corrects_entry_id}</span>.
+              The wallet now holds {formatINR(result.balance_inr)}
+              {result.is_low ? ", which is under the low-balance line." : "."}
+            </p>
+            <p className="mt-2 text-xs">
+              The compensating entry is{" "}
+              <span className="font-mono">{result.entry_id}</span>, on the ledger below
+              and there permanently. The entry it cancels is still there too.
+            </p>
+          </>
+        ) : (
+          <p className="mt-1 text-xs">
+            A correction of exactly this amount against this entry was already on the
+            ledger (<span className="font-mono">{result.entry_id}</span>), so no second
+            one was written and the balance did not move. It stands at{" "}
+            {formatINR(result.balance_inr)}.{" "}
+            <span className="font-semibold">
+              This client has not been debited twice — this is the correction&apos;s own
+              reference doing its job.
+            </span>{" "}
+            If a FURTHER correction is genuinely needed, it is for a different amount.
+          </p>
+        )}
+      </NoticeBox>
+
+      {result.stops_dialling && (
+        <NoticeBox
+          tone="stop"
+          icon={<CircleAlert aria-hidden className="h-5 w-5" />}
+          title={`${clientName} cannot place outbound calls until this wallet is topped up`}
+        >
+          <p className="mt-1 text-xs">
+            The balance is at or below zero and this is a self-serve or trial account, so
+            the compliance gate refuses every outbound dial (`no_credits`). Inbound calls
+            are unaffected — their receptionist keeps answering. If the credit was
+            genuinely theirs, record the payment above; if it was not, this is the
+            correct state and they need to pay before they dial.
+          </p>
+        </NoticeBox>
+      )}
+    </div>
+  );
+}
+
 function LedgerTable({ wallet }: { wallet: Credits }) {
   if (wallet.entries.length === 0) {
     return (
@@ -633,6 +1054,12 @@ function LedgerTable({ wallet }: { wallet: Credits }) {
               </th>
               <th scope="col" className="py-1 pr-3 text-right font-medium">
                 Balance after
+              </th>
+              {/* Why an entry is, or is not, offered in the correction panel above —
+                  and the only place an operator can see that a line has ALREADY been
+                  corrected without adding up the deltas themselves. */}
+              <th scope="col" className="py-1 pr-3 text-right font-medium">
+                Left to take back
               </th>
             </tr>
           </thead>
@@ -674,21 +1101,28 @@ function Row({ entry }: { entry: LedgerEntry }) {
       <td className="py-1.5 pr-3 text-right tabular-nums">
         {formatINR(entry.balance_after_inr)}
       </td>
+      <td className="py-1.5 pr-3 text-right tabular-nums text-ink-muted">
+        {isFullyReversed(entry) ? "fully corrected" : formatINR(entry.reversible_inr)}
+      </td>
     </tr>
   );
 }
 
 /**
- * The remedy, named where an operator will look for it — which is after the mistake.
+ * WHICH remedy, for which mistake — named where an operator will look for it, which is
+ * after the mistake.
  *
  * This is not decoration on an append-only ledger. The instinct on discovering a wrong
  * credit is to look for an edit or a delete; there is none, a trigger refuses both
  * (`scripts/check_ledger_immutability.py`), and an operator who does not know that goes
- * looking for a database console. Every branch below is honest about what exists,
- * INCLUDING the one that does not: `POST .../credits` records positive top-ups and
- * refuses a negative amount, and no admin endpoint appends a free-form adjustment,
- * though SURFACES §1 promises one ("credit adjustments (compensating entries, never
- * edits)"). Offering a dead control would be worse than saying so.
+ * looking for a database console.
+ *
+ * It used to end with "there is no control for this — not on this screen and not
+ * anywhere", which was honest and is now false: `CorrectionPanel` above is the control,
+ * and this card's job changed from naming an absence to routing between two remedies
+ * that repair different failures. The duplicate case still belongs to the script,
+ * because a duplicate is DETECTED rather than reported — its key is a fingerprint of the
+ * group it cancels, which no operator can type.
  */
 function CorrectionCard() {
   return (
@@ -703,25 +1137,26 @@ function CorrectionCard() {
       <ul className="mt-3 space-y-3 text-sm text-ink-muted">
         <li>
           <span className="font-semibold text-ink">
+            The wrong client, or the wrong amount.
+          </span>{" "}
+          Use <span className="font-semibold">Correct a wrong entry</span> above. It
+          names the entry it cancels, takes back at most what that entry put in, derives
+          the direction from it, and is keyed so that clicking twice corrects once. The
+          balance may end below zero — for a self-serve or trial client that stops their
+          dialling, and the result says so.
+        </li>
+        <li>
+          <span className="font-semibold text-ink">
             The same payment credited twice.
           </span>{" "}
           <span className="font-mono text-xs">
             uv run python -m scripts.reconcile_credit_ledger --tenant &lt;id&gt; --apply
           </span>{" "}
-          is the tool. It reads without <span className="font-mono">--apply</span>,
-          derives its own reference so it cannot itself double-correct, runs under the
-          same per-tenant credit lock as every writer, and deletes nothing.
-        </li>
-        <li>
-          <span className="font-semibold text-ink">
-            The wrong client, or the wrong amount.
-          </span>{" "}
-          There is no control for this — not on this screen and not anywhere. This route
-          records positive top-ups only and refuses a negative amount rather than letting
-          a &ldquo;top-up&rdquo; quietly take credit away, and no admin endpoint appends a
-          free-form adjustment yet. Escalate instead of improvising: the correction has to
-          go through <span className="font-mono">record_entry</span>, which owns the
-          balance arithmetic and the lock.
+          is the tool, and it stays the tool: a duplicate is found by the script rather
+          than reported by a person, and its correction is keyed on a fingerprint of the
+          exact rows being cancelled — not something to retype into a form. It reads
+          without <span className="font-mono">--apply</span>, runs under the same
+          per-tenant credit lock as every writer, and deletes nothing.
         </li>
       </ul>
       <p className="mt-3 text-xs text-ink-muted">

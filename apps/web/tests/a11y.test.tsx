@@ -1127,8 +1127,10 @@ const ADMIN_SCREENS: Screen[] = [
   {
     // A wallet that is LOW and has both a credit and a debit on it: the low-balance
     // notice, both movement signs and the ledger table are four separate pieces of
-    // markup, and a fresh, empty, healthy wallet would scan none of them. The form's
-    // four inputs render on every branch of a successful read.
+    // markup, and a fresh, empty, healthy wallet would scan none of them. Both forms'
+    // inputs render on every branch of a successful read, and one entry is left FULLY
+    // corrected so the correction panel's select renders with an option missing rather
+    // than with everything on the ledger.
     file: "admin/tenants/[tenantId]/credits/page.tsx",
     realm: "admin",
     element: () => <TenantCreditsPage params={tenant} />,
@@ -1147,6 +1149,7 @@ const ADMIN_SCREENS: Screen[] = [
             ref: "0192f0aa-5555-7000-8000-0000000000c9",
             balance_after_inr: "150.00",
             occurred_at: "2026-08-13T05:30:00Z",
+            reversible_inr: "0.00",
           },
           {
             id: "0192f0aa-5555-7000-8000-000000000001",
@@ -1155,6 +1158,7 @@ const ADMIN_SCREENS: Screen[] = [
             ref: "UTR-902311",
             balance_after_inr: "2500.00",
             occurred_at: "2026-08-12T05:30:00Z",
+            reversible_inr: "2500.00",
           },
         ],
       },

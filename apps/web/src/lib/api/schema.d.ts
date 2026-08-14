@@ -620,6 +620,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/credits/adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Correct a wrong ledger entry by APPENDING a compensating adjustment
+         * @description The ledger is append-only, so a wrong entry is never edited or removed — it stays where it is, because it is the evidence, and a new entry with the opposite sign cancels it. Name the entry to correct and how much of it to take back (a positive amount; the direction is derived from that entry). Sending the same correction again returns the entry that already exists and moves nothing. Taking credit AWAY additionally needs the header `X-Confirm-Action: adjust_credits:<corrects_entry_id>`; crediting back does not. The balance MAY go negative — a wrong credit that was partly spent cannot be fully reversed otherwise — and `stops_dialling` says whether that has blocked this client's outbound calling.
+         */
+        post: operations["record_adjustment_v1_admin_tenants__tenant_id__credits_adjustments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/dlt-registration": {
         parameters: {
             query?: never;
@@ -2854,6 +2874,55 @@ export interface components {
             malformed: number;
         };
         /**
+         * AdjustmentIn
+         * @description A compensating entry, described by what it corrects rather than by what it moves.
+         *
+         *     `amount_inr` is a POSITIVE magnitude — how much of the named entry to take back. The
+         *     direction is derived from that entry (`CorrectableEntry.compensating_delta`), so the
+         *     one thing a form here cannot get wrong is the sign.
+         */
+        AdjustmentIn: {
+            /** Amount Inr */
+            amount_inr: number | string;
+            /**
+             * Corrects Entry Id
+             * Format: uuid
+             */
+            corrects_entry_id: string;
+            /** Reason */
+            reason: string;
+        };
+        /** AdjustmentOut */
+        AdjustmentOut: {
+            /** Balance Inr */
+            balance_inr: string;
+            /**
+             * Corrects Entry Id
+             * Format: uuid
+             */
+            corrects_entry_id: string;
+            /** Delta Inr */
+            delta_inr: string;
+            /**
+             * Entry Id
+             * Format: uuid
+             */
+            entry_id: string;
+            /** Is Low */
+            is_low: boolean;
+            /** Recorded */
+            recorded: boolean;
+            /** Ref */
+            ref: string;
+            /** Stops Dialling */
+            stops_dialling: boolean;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
          * AdminMeOut
          * @description The admin realm's own identity document.
          *
@@ -3331,6 +3400,8 @@ export interface components {
             complete: boolean;
             /** Entries Checked */
             entries_checked: number;
+            /** Entries Under Retired Key */
+            entries_under_retired_key: number;
             /** First Bad Entry Id */
             first_bad_entry_id: string | null;
             /** Newest Checked At */
@@ -5452,6 +5523,8 @@ export interface components {
             reason: string;
             /** Ref */
             ref: string | null;
+            /** Reversible Inr */
+            reversible_inr: string;
         };
         /** LifecycleIn */
         LifecycleIn: {
@@ -8490,6 +8563,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TopUpOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_adjustment_v1_admin_tenants__tenant_id__credits_adjustments_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdjustmentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdjustmentOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

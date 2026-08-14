@@ -93,12 +93,20 @@ The honest answer, in this order:
    Even with credentials in place, we cannot create the provider-side order, so there is
    no checkout to send them to.
 2. The path that works is a bank transfer — NEFT or UPI — recorded by us against their
-   wallet from the UTR the bank printed. That is the manual admin route
-   (`POST /v1/admin/tenants/{tenant_id}/credits`, admin realm, `admin:tenants`,
-   `apps/api/billing/credit_routes.py`), the same one that has always existed for this.
+   wallet from the UTR the bank printed. Record it on the **admin credits screen**,
+   `/admin/tenants/<tenantId>/credits` (D-82); it calls the same route that has always
+   existed for this (`POST /v1/admin/tenants/{tenant_id}/credits`, admin realm,
+   `admin:tenants`, `apps/api/billing/credit_routes.py`). Hand-constructing that call is
+   no longer the procedure — the screen exists, and it double-keys the reference.
    It is idempotent by the payment reference: the same UTR twice returns the existing
    entry and credits nothing; the same UTR with a different amount is a conflict, not a
    second payment.
+   **If you recorded the wrong amount or the wrong client**, do not ask anyone to edit the
+   row — the ledger is append-only. Use the correction control on the same screen
+   (`POST .../credits/adjustments`, D-87), which appends a compensating entry naming the
+   entry it corrects. Taking credit away asks for a typed confirmation; putting it back
+   does not. The balance MAY go negative if the wrong credit was already partly spent,
+   and the screen will tell you when that has stopped the client's outbound dialling.
 3. Give them a realistic turnaround, because the recording is a human action, not a
    callback.
 
