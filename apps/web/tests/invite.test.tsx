@@ -338,7 +338,20 @@ describe("§52: a request that failed is not a fact about the invitation", () =>
       fireEvent.click(screen.getByRole("button", { name: "Accept invitation" }));
     });
 
-    expect(container.textContent).toContain("Accepting…");
+    // WAITED FOR, not asserted on the next tick. `mutate()` dispatches `pending` from
+    // inside an async `execute()`, so how many microtasks separate the click from the
+    // re-render is a TanStack implementation detail and a property of how busy the
+    // machine is — this assertion read the pre-click label on a loaded CI runner and
+    // passed on every laptop. The repo has been here before, with `webhook_ack_slow` and
+    // the coverage ratchet: a test whose verdict depends on machine speed is a test that
+    // goes red on somebody else's PR for a reason that is not theirs.
+    //
+    // Waiting weakens nothing. The stubbed fetch NEVER settles, so `Accepting…` is a
+    // state the screen holds indefinitely once it arrives — there is no later state for
+    // a retry to race into, and a genuine failure to enter the pending state still fails
+    // here after the timeout.
+    await screen.findByRole("button", { name: "Accepting…" });
+
     expect(container.textContent).not.toContain(INVALID_HEADLINE);
     expect(container.textContent).not.toContain("You are in");
     expect(screen.queryByRole("alert")).toBeNull();
