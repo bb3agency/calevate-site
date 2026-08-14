@@ -280,8 +280,13 @@ Admin realm (`/admin/…`)
 - **Printable invoice statement** (`/admin/tenants/{id}/invoice`;
   `GET /v1/admin/tenants/{tenant_id}/invoice`) — a white, print-first document. It is a
   DERIVED statement, not a stored row (see DATA-MODEL §8).
-- **Credit top-up** (`POST|GET /v1/admin/tenants/{tenant_id}/credits`) — admin-recorded
-  today; the self-serve wallet UI in §2b is still M2.
+- **Credit top-up** (`POST|GET /v1/admin/tenants/{tenant_id}/credits`) — **API ONLY, NO
+  SCREEN.** It is listed in this section, whose whole purpose is "nobody re-proposes a
+  screen that exists", and every other bullet here names a screen path. This one names
+  only endpoints, and that is the tell: `runbooks/topup-payments.md` instructs an operator
+  to hand-construct the authenticated call. Since this is the ONLY way money reaches a
+  wallet, an admin screen for it is a live candidate rather than shipped work — it is the
+  top of the buildable list at §62. The self-serve wallet UI in §2b is separately still M2.
 - **Ops** (`/admin/ops`; `/v1/ops/platform`, `/v1/ops/outbox/replay`, `/v1/ops/audit/verify`).
   `GET /v1/ops/platform` returns the load-shed mode, the outbound halt, **`halt_reason`**
   and the TM registration in ONE row read — a halt shown beside a reason from a different

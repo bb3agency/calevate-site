@@ -28,7 +28,10 @@ WHAT THIS DOES NOT DO, AND WHY (see also the research note at the bottom of this
   questions instead, each with a live registry to compare against.
 * Not "written but never read". Distinguishing a write from a read would need a SQL
   parser (most of this repo's column access is raw `text()` SQL, per BACKEND-PATTERNS),
-  so `agents.business_hours` — which had a writer and no reader — is NOT caught here.
+  so a column with a writer and no reader is NOT caught here. (This used to cite
+  `agents.business_hours` as the live example; it has readers now — `business_hours.py`,
+  the dashboard's `after_hours_basis` and the T0 compiler — so the example was fixed while
+  the BLIND SPOT it illustrates remains exactly as described.)
   Named honestly rather than half-implemented: what is caught is the stronger and
   commoner form, a column no code touches at all.
 * No enum/`Literal`-member reachability check. An enum member is legitimately produced

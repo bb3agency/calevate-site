@@ -1706,8 +1706,13 @@
       },
       "ConcludeExperimentIn": {
         "additionalProperties": false,
-        "description": "`promote` is null for \"stop it and keep the control\" \u2014 the commonest honest\nending of an A/B test, and a first-class option rather than a cancel button.",
+        "description": "WHICH test, and how it ends.\n\n`experiment_id` is REQUIRED, and the requirement is the feature. Concluding used to\nbe keyed on the agent alone and resolved \"the running test\", so a retry that arrived\nafter that test ended and the next one started concluded the NEXT one \u2014 promoting an\narm nobody had read, onto live phone lines, with an audit row that looked deliberate\n(`experiments.conclude` carries the full argument, including why this is a body field\nrather than a path segment or an `If-Match`). No default: an omitted id is a 422\nnaming the field, because the one caller that would ever take a default is the stale\nrequest this exists to refuse.\n\n`promote` is null for \"stop it and keep the control\" \u2014 the commonest honest ending of\nan A/B test, and a first-class option rather than a cancel button.",
         "properties": {
+          "experiment_id": {
+            "format": "uuid",
+            "title": "Experiment Id",
+            "type": "string"
+          },
           "promote": {
             "anyOf": [
               {
@@ -1721,6 +1726,9 @@
             "title": "Promote"
           }
         },
+        "required": [
+          "experiment_id"
+        ],
         "title": "ConcludeExperimentIn",
         "type": "object"
       },
@@ -11458,7 +11466,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment/conclude": {
       "post": {
-        "description": "Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS \u00a77) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears \u2014 the test still ends. Idempotent: a test that already ended the way you asked returns 200 with `changed: false`, promotes nothing a second time and writes no audit row. 409 names the ending it found when that ending is a different one. 404 means this account has no such test.",
+        "description": "`experiment_id` names the test being concluded and is required: the request is answered about the test it names and is NEVER redirected onto whichever test happens to be running, so a retry that arrives after a later test started cannot end that one. Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS \u00a77) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears \u2014 the test still ends. Idempotent: a test that already ended the way you asked returns 200 with `changed: false`, promotes nothing a second time and writes no audit row. 409 names the ending it found when that ending is a different one. 404 means this account has no such test on this agent.",
         "operationId": "conclude_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_conclude_post",
         "parameters": [
           {

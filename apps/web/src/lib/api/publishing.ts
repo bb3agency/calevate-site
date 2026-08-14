@@ -273,6 +273,15 @@ export type ExperimentVariant = Schemas["VariantOut"];
 export type ExperimentRules = Schemas["ExperimentRulesOut"];
 export type StartExperimentIn = Schemas["StartExperimentIn"];
 export type StartExperimentOut = Schemas["StartExperimentOut"];
+/**
+ * `experiment_id` is REQUIRED on this body, and that is the whole point of the type.
+ *
+ * The endpoint used to conclude "whatever is running on this agent", so a retry arriving
+ * after a LATER test had started ended the later test. Naming the experiment makes the
+ * request answerable about the test it names and never redirected onto another one — the
+ * generated type now carries the requirement, so a caller that forgets it does not
+ * compile.
+ */
 export type ConcludeExperimentIn = Schemas["ConcludeExperimentIn"];
 export type ConcludeExperimentOut = Schemas["ConcludeExperimentOut"];
 
@@ -330,6 +339,13 @@ export function useStartExperiment(
  * Stop the test. `promote: null` is a real instruction — "keep the control" — not a
  * cancel, so it is the same mutation with the same audit trail rather than a second
  * endpoint that would let the two endings diverge.
+ *
+ * `experiment_id` is required and the caller sends the id it is DISPLAYING, not the id
+ * of whatever is running when the request lands. This screen caches the results read for
+ * 30 seconds and refetches on focus, so an operator can quite ordinarily be looking at a
+ * test a colleague has already ended — and if the colleague started the next one, the
+ * agent's "current" test is no longer the one under the button. Naming the id turns that
+ * into a 409/200-no-op about the test on screen instead of a promotion on the new one.
  */
 export function useConcludeExperiment(
   target: AgentTarget,

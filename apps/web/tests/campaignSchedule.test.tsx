@@ -7,7 +7,7 @@ import type { CampaignProgress, CampaignSummary, LaunchCheck } from "@/lib/api/c
 import { scheduleStartAt } from "@/lib/api/campaigns";
 import type { Me } from "@/lib/api/client";
 
-import { problem, renderClientPage } from "./harness";
+import { expectTextCount, problem, renderClientPage } from "./harness";
 
 /**
  * Scheduling a campaign start, from the screen.
@@ -61,6 +61,20 @@ const CAMPAIGN: CampaignSummary = {
 } as unknown as CampaignSummary;
 
 const READY: LaunchCheck = { ready: true, blockers: [] } as unknown as LaunchCheck;
+
+/**
+ * Two blockers a client would plausibly be sitting on while picking next Tuesday: one
+ * they can clear themselves, one that is on OUR desk with the registrar and will take
+ * days. The second is the whole argument — it is precisely the case where refusing to
+ * accept a date would be refusing today for a condition Tuesday will have fixed.
+ */
+const BLOCKED: LaunchCheck = {
+  ready: false,
+  blockers: [
+    { rule: "no_contacts", reason: "The campaign has no contacts." },
+    { rule: "pe_registration_not_active", reason: "PE registration is not active." },
+  ],
+} as unknown as LaunchCheck;
 
 function progress(extra: Record<string, unknown>): CampaignProgress {
   return { contacts: {}, total: 0, concurrency: 3, ...extra } as unknown as CampaignProgress;
@@ -233,5 +247,360 @@ describe("a campaign waiting for its start", () => {
     expect(
       await screen.findByText("A campaign can only be scheduled to start in the future."),
     ).toBeTruthy();
+  });
+});
+
+/**
+ * ARMING A SCHEDULE WHILE THE GATE IS REFUSING — the case the screen used to get wrong.
+ *
+ * Both forms rendered only inside the launch panel's `ready` branch, so a campaign with
+ * an outstanding blocker could not arm a start or a repeat at all. That was the SCREEN
+ * inventing a rule the server does not have, and the server's position is not an
+ * accident of implementation — `POST /schedule` and `POST /recurrence` both say in their
+ * docstrings that no gate runs at arm time, `campaigns/scheduling.py` decision 3 gives
+ * the reason, and D-79 records it. The gate runs at FIRE time, through the same
+ * `launch_campaign` the Launch button calls, and two structural tests
+ * (`campaign_schedule_test.py::test_the_module_exposes_no_way_to_skip_the_gate`,
+ * `campaign_recurrence_test.py::test_every_path_from_a_recurrence_to_running_goes_through_the_launch_gate`)
+ * pin that there is no second route into a dialling campaign.
+ *
+ * So a client whose DLT registration is with the registrar today may set next Tuesday.
+ * Which makes the DANGEROUS version of this fix the thing these tests are really for:
+ * a reachable form with the blockers HIDDEN would be worse than the defect it replaced —
+ * a schedule that looks armed and produces a silent nothing on Tuesday morning. Every
+ * test below therefore asserts the pair: the control is reachable AND the refusal it is
+ * being armed against is still on screen, in advance, in words.
+ */
+describe("arming a schedule while the gate is refusing", () => {
+  const DRAFT_BLOCKED = {
+    [`/v1/campaigns/${CAMPAIGN_ID}`]: progress({ status: "draft", launched_at: null }),
+    [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+  };
+
+  it("offers both forms with blockers outstanding, and still lists every blocker", async () => {
+    const { container } = await openCampaign(DRAFT_BLOCKED, "Before you launch");
+
+    // Reachable: the one-time start and the repeat, both live rather than merely
+    // rendered — a form a client can see and cannot submit is the same dead end.
+    expect(screen.getByLabelText("Start date")).toBeTruthy();
+    expect(screen.getByLabelText("Start time (IST)")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Schedule start" }) as HTMLButtonElement).disabled)
+      .toBe(true); // …until a date is picked, which is the form's own rule, not the gate's.
+    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-08-17" } });
+    expect((screen.getByRole("button", { name: "Schedule start" }) as HTMLButtonElement).disabled)
+      .toBe(false);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Tuesday" }));
+    expect((screen.getByRole("button", { name: "Set repeat" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+
+    // AND the blockers are still there, both of them, in the client's words. This is the
+    // half that must never be traded for the half above.
+    expect(container.querySelectorAll("li")).toHaveLength(2);
+    expect(container.textContent).toContain("Upload the contact list.");
+    expect(container.textContent).toContain("Your business's DLT registration isn't active");
+    // The desk it lands on survives too: this one is ours, and a client told only "your
+    // registration is not active" goes hunting for a setting they do not have.
+    expect(container.textContent).toContain("We handle this");
+    // Nothing green: arming a schedule is not the gate passing.
+    expect(container.textContent).not.toContain("Everything checks out.");
+    expect(
+      (screen.getByRole("button", { name: "Launch campaign" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("says what the start will do about the blockers, beside each form", async () => {
+    const { container } = await openCampaign(DRAFT_BLOCKED, "Before you launch");
+
+    // Once per form, because a client reading only the repeat form must not have to
+    // scroll back up to learn that arming it is not the same as it running.
+    expectTextCount(container, "As things stand", 2);
+    expect(container.textContent).toContain("As things stand this campaign would not start");
+    expect(container.textContent).toContain("As things stand the next run would not start");
+    // And the permission this whole fix rests on, in the client's words: setting a time
+    // is allowed, and the check is what decides — not this form.
+    expectTextCount(
+      container,
+      "the same check runs again at the moment it does, so anything you clear before then is enough",
+      2,
+    );
+    // The two consequences differ, and a client plans differently around them: a
+    // one-time start is given up on after a day, an occurrence is skipped and the
+    // repeat carries on. Both come from the server (`GRACE` vs `RECURRENCE_CATCHUP`).
+    expect(container.textContent).toContain(
+      "no calls go out, and after a day of trying the campaign goes back to draft.",
+    );
+    expect(container.textContent).toContain(
+      "that run is skipped rather than dialled at a different time of day",
+    );
+    expect(container.textContent).toContain("the repeat itself carries on.");
+    // The rule names stay the gate's vocabulary.
+    expect(container.textContent).not.toContain("pe_registration_not_active");
+  });
+
+  it("actually sends the start, rather than rendering a form the click does nothing to", async () => {
+    const { calls } = await openCampaign(
+      {
+        ...DRAFT_BLOCKED,
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/schedule`]: {
+          start_at: "2026-08-17T04:30:00+00:00",
+          first_dial_not_before: "2026-08-17T04:30:00+00:00",
+        },
+      },
+      "Before you launch",
+    );
+
+    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-08-17" } });
+    fireEvent.change(screen.getByLabelText("Start time (IST)"), { target: { value: "10:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Schedule start" }));
+
+    const sent = await vi.waitUntil(
+      () => calls.find((c) => c.method === "POST" && c.path.endsWith("/schedule")),
+      { timeout: 2000 },
+    );
+    expect(sent.body).toBe('{"start_at":"2026-08-17T10:00:00+05:30"}');
+  });
+
+  it("keeps the warning off a campaign the gate is happy with", async () => {
+    // The other half of the pair: a warning that is always on screen is a warning
+    // nobody reads, and "this would not start" is simply false when the gate is green.
+    const { container } = await openCampaign(
+      { [`/v1/campaigns/${CAMPAIGN_ID}`]: progress({ status: "draft", launched_at: null }) },
+      "Before you launch",
+    );
+
+    await screen.findByText("Everything checks out.");
+    expect(screen.getByRole("button", { name: "Schedule start" })).toBeTruthy();
+    expect(container.textContent).not.toContain("As things stand");
+  });
+
+  it("arms nothing at all while the launch check is unanswered", async () => {
+    // §52, at the one place this change could have broken it: the consequence note is a
+    // statement about a VERDICT. A failed `/launch-check` has no verdict, so the card is
+    // a refusal and nothing else — offering the form there would let a client arm a
+    // start under a sentence we cannot write.
+    const { container } = await openCampaign(
+      {
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: progress({ status: "draft", launched_at: null }),
+        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: problem(503, {
+          title: "Upstream unavailable",
+          detail: "We could not check this campaign just now.",
+          retryable: true,
+        }),
+      },
+      "Before you launch",
+    );
+
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("button", { name: "Schedule start" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Set repeat" })).toBeNull();
+    expect(container.textContent).not.toContain("As things stand");
+    expect(container.textContent).toContain("We could not check this campaign just now.");
+  });
+});
+
+/**
+ * THE CANCEL PATH, checked for the same defect rather than assumed clear.
+ *
+ * A schedule you cannot cancel BECAUSE you have since acquired a blocker would be the
+ * worse version of this bug: the client is then holding a start they did not want and
+ * cannot stop, and the only thing standing between them and unwanted calls is the very
+ * gate they are trying not to rely on. `DELETE /{id}/schedule` runs no gate either, and
+ * both cancel controls live in their own cards outside the launch panel — these tests
+ * hold that placement, because moving either one inside the panel's `ready` branch is
+ * exactly how it would regress.
+ */
+describe("cancelling a schedule that has since acquired a blocker", () => {
+  it("still offers the way out of a one-time start", async () => {
+    const { container } = await openCampaign(
+      {
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: progress({
+          status: "scheduled",
+          launched_at: null,
+          scheduled_start_at: "2026-08-17T04:30:00+00:00",
+          schedule_blocked_rules: ["pe_registration_not_active"],
+        }),
+        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+      },
+      "Scheduled",
+    );
+
+    const cancel = screen.getByRole("button", { name: "Cancel scheduled start" });
+    expect((cancel as HTMLButtonElement).disabled).toBe(false);
+    // …and the reason it is not going to start is still on the screen beside it.
+    expect(container.textContent).toContain("We tried to start this campaign and could not");
+    expect(container.textContent).toContain("Upload the contact list.");
+  });
+
+  it("still offers the way out of a repeat", async () => {
+    const { container } = await openCampaign(
+      {
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: progress({
+          status: "scheduled",
+          launched_at: null,
+          recurrence: {
+            days: [2],
+            at: "10:00",
+            until: null,
+            next_occurrence_at: "2026-08-18T04:30:00+00:00",
+            last_skipped_at: null,
+            last_skipped_reason: null,
+          },
+        }),
+        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+      },
+      "Repeats",
+    );
+
+    const stop = screen.getByRole("button", { name: "Stop repeating" });
+    expect((stop as HTMLButtonElement).disabled).toBe(false);
+    expect(container.textContent).toContain("Next: Tuesday, 18 Aug");
+    expect(container.textContent).toContain("Upload the contact list.");
+  });
+});
+
+/**
+ * AN ARMED SCHEDULE THE GATE WOULD REFUSE TODAY — the same silence, one moment later.
+ *
+ * Making the forms reachable creates a state that did not exist before: a start or a
+ * repeat sitting on a campaign whose blockers are still outstanding. Between arming and
+ * the tick's first attempt the cards used to say "Starts Monday, 10:00 IST" and nothing
+ * else, so the client's first evidence of the refusal would have been calls that never
+ * happened. These hold the sentence that closes that window — and, just as importantly,
+ * the three places it must NOT appear.
+ */
+describe("an armed schedule the gate would refuse today", () => {
+  const scheduledAt = (extra: Record<string, unknown>) =>
+    progress({
+      status: "scheduled",
+      launched_at: null,
+      scheduled_start_at: "2026-08-17T04:30:00+00:00",
+      ...extra,
+    });
+
+  it("says a pending start would not go ahead, before the tick has ever tried", async () => {
+    const { container } = await openCampaign(
+      {
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: scheduledAt({ schedule_blocked_rules: [] }),
+        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+      },
+      "Scheduled",
+    );
+
+    expect(container.textContent).toContain("As things stand this campaign would not start");
+    expect(container.textContent).toContain("The reasons are listed below.");
+    expect(container.textContent).toContain(
+      "no calls go out, and after a day of trying the campaign goes back to draft.",
+    );
+    // Not the server's record — nothing has been attempted yet, and claiming otherwise
+    // would be inventing an event.
+    expect(container.textContent).not.toContain("We tried to start this campaign and could not");
+    // The start itself, and the way out of it, are both still there.
+    expect(container.textContent).toContain("10:00");
+    expect(
+      (screen.getByRole("button", { name: "Cancel scheduled start" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  it("stands down once the server has actually refused, rather than warning twice", async () => {
+    // `schedule_blocked_rules` is a record of a real attempt and names which rules
+    // refused. That is the stronger statement; a forecast beside it would be two
+    // sentences about one fact, and the weaker one would be the newer.
+    const { container } = await openCampaign(
+      {
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: scheduledAt({
+          schedule_blocked_rules: ["pe_registration_not_active"],
+        }),
+        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+      },
+      "Scheduled",
+    );
+
+    expect(container.textContent).toContain("We tried to start this campaign and could not");
+    expect(container.textContent).not.toContain("The reasons are listed below. Clear them");
+  });
+
+  it("says the same of a pending repeat", async () => {
+    const { container } = await openCampaign(
+      {
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: progress({
+          status: "scheduled",
+          launched_at: null,
+          recurrence: {
+            days: [2],
+            at: "10:00",
+            until: null,
+            next_occurrence_at: "2026-08-18T04:30:00+00:00",
+            last_skipped_at: null,
+            last_skipped_reason: null,
+          },
+        }),
+        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+      },
+      "Repeats",
+    );
+
+    expect(container.textContent).toContain("As things stand the next run would not start");
+    expect(container.textContent).toContain(
+      "that run is skipped rather than dialled at a different time of day",
+    );
+    // The occurrence is still named: a warning that swallowed the schedule would be a
+    // worse card than the one it replaced.
+    expect(container.textContent).toContain("Next: Tuesday, 18 Aug");
+  });
+
+  it("never warns a RUNNING campaign that its repeat will not start", async () => {
+    /**
+     * The trap this rules out. `launch_blockers` reports a `status` blocker for a
+     * campaign that has already launched — true, and NOT a statement about the next
+     * occurrence, which the dispatcher only evaluates after `complete_or_rearm` returns
+     * the campaign to `scheduled`. A card keyed on `ready` alone would tell a client
+     * whose calls are going out fine that their repeat is broken.
+     */
+    const { container } = await openCampaign(
+      {
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: progress({
+          status: "running",
+          launched_at: "2026-08-11T04:30:00+00:00",
+          recurrence: {
+            days: [2],
+            at: "10:00",
+            until: null,
+            next_occurrence_at: "2026-08-18T04:30:00+00:00",
+            last_skipped_at: null,
+            last_skipped_reason: null,
+          },
+        }),
+        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: {
+          ready: false,
+          blockers: [{ rule: "status", reason: "This campaign has already been launched." }],
+        } as unknown as LaunchCheck,
+      },
+      "Repeats",
+    );
+
+    expect(container.textContent).toContain("Next: Tuesday, 18 Aug");
+    expect(container.textContent).not.toContain("As things stand");
+  });
+
+  it("warns nothing while the launch check is unanswered", async () => {
+    // §52 again, at the armed cards: a schedule waiting for Monday under a 503 gets its
+    // date and its cancel button, and no claim about a verdict nobody sent.
+    const { container } = await openCampaign(
+      {
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: scheduledAt({ schedule_blocked_rules: [] }),
+        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: problem(503, {
+          title: "Upstream unavailable",
+          detail: "We could not check this campaign just now.",
+          retryable: true,
+        }),
+      },
+      "Scheduled",
+    );
+
+    expect(container.textContent).not.toContain("As things stand");
+    expect(screen.getByRole("button", { name: "Cancel scheduled start" })).toBeTruthy();
+    expect(container.textContent).toContain("We could not check this campaign just now.");
   });
 });

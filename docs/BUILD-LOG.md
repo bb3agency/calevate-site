@@ -2843,6 +2843,64 @@ test would have sent down the override branch.
 the experiment, so a stale retry arriving after a NEW test started would conclude the new
 test. Fixing it moves the request shape and the console, so it wants its own slice.
 
+## §62 — two carried findings, and a survey that says the blocker is not the code
+
+**A stale retry could end the wrong experiment (D-80).** `conclude` was keyed on the AGENT,
+so a request for test one arriving after test two had started concluded test two — losing a
+running experiment and promoting an arm nobody chose. It now names the experiment, and is
+answered about the test it named rather than redirected. The sabotage is the evidence that
+D-65's three-answer work had not covered this: restoring the agent-fallback turned exactly
+ONE test red while all 27 others passed.
+
+**The screen was inventing a rule the server does not have (D-81).** Scheduling runs no gate
+at arm time by design — the gate runs at fire time, every time — but both arming forms lived
+inside the launch panel's `ready` branch, so a client with blockers today could not arm a
+start for next Tuesday. Fixed on the screen; the server was right. The price of exposing the
+control is three stated consequences, and one of them closed a gap nobody had reported: an
+armed schedule said only "Starts Monday, 10:00 IST", so a doomed schedule's first evidence
+would have been calls that never happened.
+
+### The survey: where this actually stands
+
+A full read-only survey ran alongside this wave. Its answer to "could this take a paying
+client on Monday" is **no, and the reason is not the code**. Milestone 0 — which ROADMAP §1
+says to start immediately and which is ENTIRELY NON-CODE — has not had one item completed:
+no legal entity, no DLT PE registration, no GST registration, no Bolna account, no telephony
+vendor, and nothing deployed anywhere. The engine is `fake` and all 13 pilot gates read NOT
+RUN. **The legal-entity decision is the root of the tree**: it blocks DLT registration, GST
+registration and every identity field on the invoice.
+
+It found NO regressions across the eight subsystems the last four waves moved, and confirmed
+§58's three carried findings are all genuinely fixed.
+
+**The three things that would embarrass us first, all buildable now:**
+
+1. **Money reaches a wallet only by a hand-constructed API call.** The credits endpoint is
+   complete, idempotent-by-UTR and audited; nothing in `apps/web` calls it, and
+   `runbooks/topup-payments.md` tells an operator to hit the API by hand off a bank
+   statement. It is the ONLY way money gets in.
+2. **The client cannot see their own invoice** — admin-realm only, while BRD names the client
+   persona as the one who pays it.
+3. **The invoice is not a valid Indian tax invoice** — 18% GST charged with no supplier or
+   recipient GSTIN, no HSN/SAC, no place of supply, no entity address. The VALUES wait on the
+   entity decision; the CODE does not.
+
+### Six documented claims the code contradicted, now corrected
+
+Five were in THIS file, and one of them contradicted §49 of this same file: the state-of-the
+-system list still described `inbound_webhooks` as having no writer, when a client
+self-provisioning their own lead source had shipped — a SELLABLE capability listed as inert.
+Also corrected: "eleven checks in the guardrail target" (it is ten; the eleventh, the
+coverage ratchet, is a separate target with different preconditions, so a reader who trusts
+that sentence gets a weaker gate than they think), a stale frontend test count, a stale
+"re-verified at §50" pointer, `SURFACES.md` listing credit top-up under "shipped today" when
+no screen exists, and a `check_wiring` docstring citing an example that has since been fixed
+while the blind spot it illustrates remains real.
+
+**The root cause is worth acting on**: `check_docs_drift` guards commands, D-references,
+SEC-COMP §3 vocabulary and the rate-zone table — it cannot see BUILD-LOG PROSE. The section
+every future session reads first is the one section with no guard on it.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above, grep-verified against the tree at this commit, and
@@ -2870,9 +2928,14 @@ caps with the ops recompute. KYC and the first-campaign hold, both gates plus bo
 plus the client's own screens plus the cross-tenant hold queue. Outbound CRM sync (webhook
 half). OTel tracing across every boundary, Sentry, and `alert()` with a real email
 transport. Outbound CRM sync's Sheets half, adapter included, though nothing has yet spoken
-to a real Google project. Eleven checks in the guardrail target — the newest being
+to a real Google project. Ten checks in `make guardrails` — the eleventh thing this used to count, the coverage
+ratchet, is a SEPARATE target with different preconditions (both stores empty), and a
+reader who runs `make guardrails` believing it covers the ratchet gets a weaker gate than
+they think — the newest being
 half-wiring, compliance invariants, docs drift, the coverage ratchet and the web tier's env
-parity — and the frontend gate beside it, now 364 tests over every screen in both realms.
+parity — and the frontend gate beside it, 638 tests over every screen in both realms at
+§61 (this said 364 for several sections; the number moves every wave and is not worth
+chasing — read `pnpm -C apps/web test` if the exact figure matters).
 The console speaks one design language from tokens in `globals.css`, and sign-in exists for
 both Clerk realms behind two guards that refuse to ship the dev credential.
 
@@ -2897,7 +2960,13 @@ is honest at the surface rather than silent in a worker:
   OTel SDK's own exception events. Redaction is now automatic in `_RedactingSpanExporter`.
 - **`kb_retrieval_logs`.** No producer, and cannot have one until the engine reports a
   retrieval — three of its columns are the dated deferrals in `UNWIRED_BASELINE`.
-- **`inbound_webhooks` rows**, still provisioned out of band because nothing writes them.
+- ~~**`inbound_webhooks` rows**, provisioned out of band because nothing writes them.~~
+  **FALSE SINCE `61e8470`, and this file contradicted ITSELF for eleven sections** — §49
+  above already records that "`inbound_webhooks` finally has a writer".
+  `ingest/service.py` INSERTs them, `POST /v1/lead-sources` is the client-realm creator,
+  and `/c/[slug]/lead-sources` is the screen. A client provisioning their own lead source
+  is a SELLABLE capability that this list was describing as inert. Kept struck through as
+  the standing example of why this section needs re-reading against the code, not trusted.
 - **`self_serve_signup_enabled`**, defaulting OFF. All six R-11 mitigations now hold in
   code, so this is a business switch rather than a blocked one.
 - **`plans.overage_rate_value`**, present and NULL on every plan until a retail number is
@@ -2935,7 +3004,11 @@ scheme and payload paths.
 
 ### Where the next session should start
 
-1. **Founder decisions, none of them code.** Re-verified at the close of §50 and all still
+1. **Founder decisions, none of them code.** Re-verified at §62 and all still open — but
+   note the TOOLING around two of them moved after this paragraph was written: the retail
+   value-tier rate is now SETTABLE per tenant through the commercials screen (D-66), so it
+   is a number somebody must choose rather than a place to put it. Originally verified at
+   the close of §50 and all still
    open; neither §49 nor §50 touched any of them: the retail value-tier rate
    (`plans.overage_rate_value` exists and is NULL on every seeded plan); the retention TTL
    divergence (docs 24 months, seed 365 transcript / 1095 lead / 90 recording — SEC-COMP §4

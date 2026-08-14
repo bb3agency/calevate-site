@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
@@ -33,6 +33,11 @@ import { problem, type Routes } from "./harness";
  *    not a draw — and that call sits in the denominator of the rate beside calls that
  *    were split. The screen must say so on the row, and must not count the call as one
  *    we dialled.
+ * 6. **Every ending names the test it is ending.** The server used to conclude "whatever
+ *    is running" on this agent, so a press from a screen showing an ended test would end
+ *    the NEXT one — this panel's read is cached for 30s, which is exactly long enough.
+ *    The id in the body is the id on screen, and a refusal about a test that has already
+ *    ended is rendered as the refusal it is.
  *
  * Everything statistical is the SERVER's: `headline`, `caveat` and `basis` are printed
  * verbatim, so these tests feed the payloads the API produces rather than re-deriving a
@@ -41,6 +46,8 @@ import { problem, type Routes } from "./harness";
 
 const TENANT = "0192f0aa-7777-7000-8000-0000000000a1";
 const AGENT = "0192f0aa-7777-7000-8000-0000000000b2";
+/** The test the panel is DISPLAYING — and therefore the one every ending must name. */
+const EXPERIMENT_ID = "0192f0aa-7777-7000-8000-0000000000d1";
 
 const TENANT_PATH = `/v1/admin/tenants/${TENANT}`;
 const ME_PATH = "/v1/admin/me";
@@ -82,7 +89,7 @@ function variant(over: Record<string, unknown> = {}) {
 
 function experiment(over: Partial<Experiment> = {}): Experiment {
   return {
-    experiment_id: "0192f0aa-7777-7000-8000-0000000000d1",
+    experiment_id: EXPERIMENT_ID,
     agent_id: AGENT,
     name: "Direct booking greeting",
     status: "running",
@@ -362,11 +369,79 @@ describe("the A/B script test panel", () => {
     expect(screen.queryByRole("button", { name: /Start test/ })).toBeNull();
   });
 
+  it("names the test on screen in every ending, rather than 'whatever is running'", async () => {
+    /**
+     * The console half of the fix. `POST .../experiment/conclude` requires an
+     * `experiment_id`; the server answers about the test that id names and never falls
+     * back to the agent's current one. That is only worth anything if the console sends
+     * the id it is DISPLAYING — sending "the running one" from here would just move the
+     * defect one process to the left.
+     *
+     * Asserted on the request body rather than on a rendered sentence, because the body
+     * is the whole contract: a screen that renders correctly and posts `{promote: "B"}`
+     * is the exact failure this pins.
+     */
+    const { calls } = await render({
+      [EXPERIMENT_PATH]: state({ experiment: experiment() }),
+      [`POST ${CONCLUDE_PATH}`]: {
+        experiment_id: EXPERIMENT_ID,
+        promoted_label: "B",
+        new_version: 3,
+        applied: true,
+        engine_synced: true,
+        changed: true,
+      },
+    });
+
+    const concludeBodies = () =>
+      calls
+        .filter((call) => call.method === "POST" && call.path === CONCLUDE_PATH)
+        .map((call) => JSON.parse(call.body ?? "{}"));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Promote B (v2)" }));
+    await screen.findByText(/Promoted variant B as v3\./);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop, keep the control" }));
+    await waitFor(() => expect(concludeBodies()).toHaveLength(2));
+
+    expect(concludeBodies()).toEqual([
+      { experiment_id: EXPERIMENT_ID, promote: "B" },
+      { experiment_id: EXPERIMENT_ID, promote: null },
+    ]);
+  });
+
+  it("renders the refusal when the test on screen has already ended another way", async () => {
+    /**
+     * The stale screen, end to end. The read is cached for 30 seconds and refetched on
+     * focus, so an operator can press Promote A on a test a colleague ended promoting B.
+     * The server names the ending it found; this panel must PRINT that refusal, because
+     * the alternative — a silent failure, or worse the old fallback that would have
+     * concluded whichever test is running now — is how an operator learns the wrong
+     * script is live from a client instead of from us.
+     */
+    const { container } = await render({
+      [EXPERIMENT_PATH]: state({ experiment: experiment() }),
+      [`POST ${CONCLUDE_PATH}`]: problem(409, {
+        title: "Conflict",
+        detail:
+          "This script test has already ended promoting variant B, so it cannot now promote variant A.",
+        remediation: "Reload the agent to see how it ended.",
+      }),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Promote A (v1)" }));
+
+    await screen.findByText(/already ended promoting variant B/);
+    expect(container.textContent).toContain("Reload the agent to see how it ended.");
+    // Nothing was promoted, so nothing may read as a promotion.
+    expect(container.textContent).not.toContain("Promoted variant A");
+  });
+
   it("reports a promotion this press performed, with the version it minted", async () => {
     await render({
       [EXPERIMENT_PATH]: state({ experiment: experiment() }),
       [`POST ${CONCLUDE_PATH}`]: {
-        experiment_id: "0192f0aa-7777-7000-8000-0000000000d1",
+        experiment_id: EXPERIMENT_ID,
         promoted_label: "B",
         new_version: 3,
         applied: true,
@@ -395,7 +470,7 @@ describe("the A/B script test panel", () => {
     const { container } = await render({
       [EXPERIMENT_PATH]: state({ experiment: experiment() }),
       [`POST ${CONCLUDE_PATH}`]: {
-        experiment_id: "0192f0aa-7777-7000-8000-0000000000d1",
+        experiment_id: EXPERIMENT_ID,
         promoted_label: "B",
         new_version: null,
         applied: false,

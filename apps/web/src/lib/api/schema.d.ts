@@ -423,7 +423,7 @@ export interface paths {
         put?: never;
         /**
          * Stop the test, and optionally promote an arm through the publish path
-         * @description Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS §7) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears — the test still ends. Idempotent: a test that already ended the way you asked returns 200 with `changed: false`, promotes nothing a second time and writes no audit row. 409 names the ending it found when that ending is a different one. 404 means this account has no such test.
+         * @description `experiment_id` names the test being concluded and is required: the request is answered about the test it names and is NEVER redirected onto whichever test happens to be running, so a retry that arrives after a later test started cannot end that one. Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS §7) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears — the test still ends. Idempotent: a test that already ended the way you asked returns 200 with `changed: false`, promotes nothing a second time and writes no audit row. 409 names the ending it found when that ending is a different one. 404 means this account has no such test on this agent.
          */
         post: operations["conclude_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_conclude_post"];
         delete?: never;
@@ -3407,10 +3407,26 @@ export interface components {
         };
         /**
          * ConcludeExperimentIn
-         * @description `promote` is null for "stop it and keep the control" — the commonest honest
-         *     ending of an A/B test, and a first-class option rather than a cancel button.
+         * @description WHICH test, and how it ends.
+         *
+         *     `experiment_id` is REQUIRED, and the requirement is the feature. Concluding used to
+         *     be keyed on the agent alone and resolved "the running test", so a retry that arrived
+         *     after that test ended and the next one started concluded the NEXT one — promoting an
+         *     arm nobody had read, onto live phone lines, with an audit row that looked deliberate
+         *     (`experiments.conclude` carries the full argument, including why this is a body field
+         *     rather than a path segment or an `If-Match`). No default: an omitted id is a 422
+         *     naming the field, because the one caller that would ever take a default is the stale
+         *     request this exists to refuse.
+         *
+         *     `promote` is null for "stop it and keep the control" — the commonest honest ending of
+         *     an A/B test, and a first-class option rather than a cancel button.
          */
         ConcludeExperimentIn: {
+            /**
+             * Experiment Id
+             * Format: uuid
+             */
+            experiment_id: string;
             /** Promote */
             promote?: string | null;
         };
