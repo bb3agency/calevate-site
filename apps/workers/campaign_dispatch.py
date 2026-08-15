@@ -775,9 +775,14 @@ async def emit_campaign_completed(session: Any, *, tenant_id: UUID, campaign_id:
 
     Returns the number of outbox rows written — the number of subscribed endpoints.
     """
-    row = (await session.execute(_CAMPAIGN_COMPLETED_SQL, {"cid": campaign_id})).first()
-    if row is None:  # pragma: no cover — the row was just UPDATEd in this transaction
-        return 0
+    # `.one()` rather than `.first()` plus a defensive `if row is None: return 0`. The
+    # row was UPDATEd to its terminal status in THIS transaction, so an empty result is
+    # not a case to handle — it means the invariant broke, and the honest response is to
+    # fail the transaction rather than silently skip an event a client subscribed to and
+    # is waiting for. A branch that cannot be reached is also a branch no test can cover,
+    # and the coverage ratchet counts a `pragma: no cover` as uncovered precisely so that
+    # suppressing it is not an escape (D-29).
+    row = (await session.execute(_CAMPAIGN_COMPLETED_SQL, {"cid": campaign_id})).one()
     return await integrations.enqueue_event(
         session,
         tenant_id=tenant_id,

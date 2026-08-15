@@ -443,6 +443,60 @@ async def test_filing_twice_before_execution_returns_the_request_in_flight() -> 
     assert count == 1
 
 
+@pytest.mark.anyio
+async def test_the_list_answers_after_the_erasure_and_is_ordered_newest_first() -> None:
+    """The GET the lifecycle screen reads, which had no test at any layer.
+
+    Two properties, and the second is the one with a consequence. **Newest first**, so a
+    screen taking `[0]` gets the erasure that is actually in flight rather than an older
+    one. And **still answerable once the tenant is erased** — every other admin route
+    filters `deleted_at IS NULL`, so a status read built the ordinary way would 404 at
+    exactly the instant the erasure it certifies succeeds. `list_tenant_erasures` says so
+    in its docstring; nothing until now made it fail if a later edit routed it through
+    `tenant_exists`.
+    """
+    tenant_id, _, _ = await _tenant()
+    await _churn(tenant_id)
+    token = await _admin()
+    filed = await _post(token, tenant_id, confirm=_confirm(tenant_id))
+    request_id = filed.json()["request_id"]
+    await _run_worker(tenant_id, request_id)
+
+    async with _client() as http:
+        listed = await http.get(
+            BASE.format(tenant_id=tenant_id), headers={"Authorization": f"Bearer {token}"}
+        )
+    assert listed.status_code == 200, listed.text
+    body = listed.json()
+    assert [row["request_id"] for row in body] == [request_id], (
+        "the erasure certificate became unreachable at the moment it was produced"
+    )
+    assert body[0]["completed_at"] is not None
+
+    # The service half, on its own session, so a route that filtered in Python would
+    # still leave this assertion standing.
+    async with tenant_session(tenant_id) as session:
+        records = await tenant_erasure.list_tenant_erasures(session, limit=50)
+    # `record.id` here, `request_id` on the wire — the rename happens in `_out`.
+    assert [str(r.id) for r in records] == [request_id]
+
+
+@pytest.mark.anyio
+async def test_filing_against_a_tenant_that_does_not_exist_is_a_404() -> None:
+    """A 404, not a 500 and not a spurious 409.
+
+    The id is a well-formed uuid naming nothing — the shape an operator produces by
+    pasting a tenant id from a system that has since been erased. RLS makes a neighbour's
+    tenant indistinguishable from an absent one here, which is the correct answer and the
+    reason this is a 404 rather than a 403.
+    """
+    token = await _admin()
+    missing = uuid.uuid4()
+    response = await _post(token, missing, confirm=_confirm(missing))
+    assert response.status_code == 404, response.text
+    assert "not_found" in _code(response) or _code(response) == "not_found"
+
+
 # --- 4. the two keys ----------------------------------------------------------------
 
 
