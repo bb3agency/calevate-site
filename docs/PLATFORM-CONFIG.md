@@ -226,6 +226,16 @@ question with the *candidate* value before storing it, and reports our own reaso
 Wrong key, refused at the screen, is the difference between this console being a
 convenience and being a new outage source.
 
+> ⚠ **AMENDED BY D-101.** Three things on this page are now stale and the code is right:
+> the `PUT` is **conditional** — `If-Match` is required (428 without it, 412 when the
+> value moved, carrying the current value and who set it), and an identical value is a
+> true no-op with no sentinel bump and no audit row; `GET` also returns each key's `etag`
+> and a `bootstrap` array naming the keys that can only change with an SSH session and a
+> restart; and `applies` has **five** values, not two — `live`, `on_restart`,
+> `needs_republish`, `env_only`, `unclassified`. §6's "secrets are cached with a shorter
+> TTL of their own" was superseded by D-97: they ride the same sentinel, so a rotation
+> propagates on the same poll as a config change.
+
 ## 8. The console
 
 `admin.calevate.tech/ops` gains panels beside the existing ones (outbox replay, DLQ depth,

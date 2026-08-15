@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
@@ -134,16 +136,30 @@ def validate_bootstrap_env(environ: dict[str, str] | None = None) -> None:
 #
 # The CI guardrail that enforces this list against future edits is `check_bootstrap_keys`
 # (PLATFORM-CONFIG §13 phase 6); this constant is what it reads.
-ENV_ONLY_KEYS: frozenset[str] = frozenset(
-    {
-        "app_env",
-        "database_url",
-        "alembic_database_url",
-        "platform_kek",
-        "platform_kek_retired",
-        "redis_url",
-    }
-)
+#: The same six as DATA, so the console can SHOW them.
+#:
+#: They are absent from `GET /v1/ops/config` by construction — `managed_fields()` never
+#: offers them — and absence is not an explanation. An operator looking for `APP_ENV`
+#: found nothing and had no way to tell "this build does not have it" from "this one
+#: cannot be changed here". These reasons are what the console renders instead: the key
+#: exists, it is real, it is env-only, and here is why. NO VALUE IS EVER PUBLISHED WITH
+#: THEM — two of the six are the credentials that open the credential store.
+BOOTSTRAP_REASONS: dict[str, str] = {
+    "app_env": (
+        "it decides whether dev tokens are accepted (D-49). Reading it from the store "
+        "would let the DATABASE decide this deployment's security posture."
+    ),
+    "database_url": "it is how you reach the store.",
+    "alembic_database_url": "migrations run before the store is guaranteed to exist.",
+    "platform_kek": (
+        "it is the key that opens the credential store. A database holding both the "
+        "lock and the key is encryption as theatre."
+    ),
+    "platform_kek_retired": "same — it unwraps DEKs written under the previous KEK.",
+    "redis_url": "workers need it before settings resolve.",
+}
+
+ENV_ONLY_KEYS: frozenset[str] = frozenset(BOOTSTRAP_REASONS)
 
 # Values resolved from `platform_settings` and layered UNDER the environment.
 #
@@ -183,16 +199,23 @@ def apply_platform_overrides(values: Mapping[str, object]) -> None:
         # bootstrap key into the store, which is exactly the change CI is meant to stop.
         log.error("platform_override_refused", extra={"keys": ",".join(refused)})
     _platform_overrides = {k: v for k, v in values.items() if k not in ENV_ONLY_KEYS}
-    get_settings.cache_clear()
+    # The real cache, not the accessor's compatibility handle: this is the one place
+    # that must not go through a shim, because a refresh that failed to invalidate would
+    # leave the fleet reporting a change it never applied.
+    #
+    # A PIN OPENED BEFORE THIS CALL DELIBERATELY SURVIVES IT. `settings_scope()` holds a
+    # `Settings` OBJECT, not a cache slot, so a request already in flight keeps the
+    # configuration it started with even though the process has moved on. That is the
+    # in-flight guarantee, and it is a consequence of holding the object rather than a
+    # second mechanism to keep in step.
+    _current_settings.cache_clear()
 
 
 @lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    """This process's EFFECTIVE settings: `os.environ`/.env → `platform_settings` → code
-    default (PLATFORM-CONFIG §4's resolution order, minus the refusal, which belongs to
-    whoever consumes a missing value).
+def _current_settings() -> Settings:
+    """The process's settings as of the last refresh. The unpinned answer.
 
-    Still `lru_cache`d and still O(1) with no IO, which is what keeps it legal on
+    `lru_cache`d and O(1) with no IO, which is what keeps `get_settings()` legal on
     voice-runtime's request path (hard rule 3): the store's contribution arrives through
     `apply_platform_overrides`, off the request path, and this function only ever reads
     a dict that is already in memory.
@@ -206,6 +229,87 @@ def get_settings() -> Settings:
     """
     base = Settings()  # values come from env/.env
     return base.model_copy(update=dict(_platform_overrides)) if _platform_overrides else base
+
+
+#: The `Settings` pinned for the unit of work running on this task, if any.
+#:
+#: A `ContextVar` rather than a parameter for the reason the override layer is module
+#: state: `get_settings()` has ~200 call sites and threading a snapshot through them is
+#: the change this whole design exists to avoid. A ContextVar is inherited by tasks
+#: spawned inside the scope and is invisible to everything outside it, which is exactly
+#: the shape a per-request pin needs.
+_pinned: ContextVar[Settings | None] = ContextVar("calevate_pinned_settings", default=None)
+
+
+@contextmanager
+def settings_scope() -> Iterator[Settings]:
+    """Resolve settings ONCE for this unit of work, and hold that answer to the end.
+
+    THE PROBLEM THIS SOLVES, in the founder's words: "changing the core things and env
+    keys might require restart ... and if any calls are happening in that moment they
+    will fail". The console makes a change land in every process within ~5 seconds with
+    no restart, which is the good half. The bad half is what "within 5 seconds" means to
+    work that is ALREADY RUNNING: without a pin, a request that reads `get_settings()`
+    twice can read the OLD value the first time and the NEW value the second, because a
+    background refresh landed between them. The snapshot swap itself is atomic — a
+    single `get_settings()` never returns a half-applied `Settings` — but a unit of work
+    is not a single read, and "atomic per read" is not the property anyone needs.
+
+    Two keys that must agree are where this becomes a defect rather than a curiosity: a
+    rate and its ceiling, a provider and its credential, `usd_inr_rate` and the price it
+    is converting. Half-applied is a wrong number in `usage_events`, not a stale one.
+
+    So: one resolution per request, per job, per tick. Entering is one ContextVar set;
+    leaving is one reset. Nested scopes REUSE the outer pin rather than re-resolving —
+    an inner unit of work is part of the outer one, and re-resolving would reintroduce
+    exactly the straddle this prevents.
+
+    WHAT IS DELIBERATELY *NOT* PINNED, because it must be live-immediate: the big red
+    switch and the load-shed mode. They are not `Settings` fields at all — they live in
+    `platform_state` and are read through `core/loadshed`, whose TTL is bounded well
+    under one dispatch tick. That separation is the design, stated: anything that must
+    take effect mid-flight is not configuration, it is STATE, and it goes in the table
+    the halt lives in. Everything reachable from `Settings` is pinned for the duration of
+    the work that read it.
+    """
+    existing = _pinned.get()
+    if existing is not None:
+        yield existing
+        return
+    token = _pinned.set(_current_settings())
+    try:
+        yield _pinned.get() or _current_settings()
+    finally:
+        _pinned.reset(token)
+
+
+def get_settings() -> Settings:
+    """This process's EFFECTIVE settings: `os.environ`/.env → `platform_settings` → code
+    default (PLATFORM-CONFIG §4's resolution order, minus the refusal, which belongs to
+    whoever consumes a missing value).
+
+    Inside a `settings_scope()` this returns the object pinned when that scope opened,
+    so a unit of work cannot straddle a config refresh. Outside one — a script, a test,
+    module import — it returns the current answer, which is what it has always done.
+    Still O(1) and still IO-free either way (hard rule 3).
+    """
+    return _pinned.get() or _current_settings()
+
+
+#: `get_settings.cache_clear()` still works, because thirteen call sites in four test
+#: files and one fixture already spell it that way and `get_settings` is no longer the
+#: `lru_cache` itself.
+#:
+#: A COMPATIBILITY HANDLE, NOT A SECOND CACHE. It forwards to `_current_settings`, which
+#: is the only cache there is — rewriting those call sites to name a private function, or
+#: publishing a second clearing verb, would be the "two ways to do one thing" the repo
+#: treats as a defect even when both work. `apply_platform_overrides` deliberately does
+#: NOT go through here: the one caller that must never be wrong should not depend on a
+#: shim staying attached.
+#:
+#: `cache_info` is deliberately NOT forwarded: nothing in this repo calls it, and a shim
+#: nobody uses is a maintenance cost pretending to be an API.
+get_settings.cache_clear = _current_settings.cache_clear  # type: ignore[attr-defined]
 
 
 def effective_env() -> Mapping[str, str]:
@@ -392,6 +496,7 @@ def fail_fast(message: str) -> None:
 
 
 __all__ = [
+    "BOOTSTRAP_REASONS",
     "BOOTSTRAP_REQUIRED",
     "ENVIRONMENTS",
     "ENV_ONLY_KEYS",
@@ -406,5 +511,6 @@ __all__ = [
     "platform_overrides",
     "resolve_hmac_key",
     "runtime_config_missing_keys",
+    "settings_scope",
     "validate_bootstrap_env",
 ]

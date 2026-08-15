@@ -24,7 +24,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, LargeBinary, Text, func
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, LargeBinary, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -60,6 +60,15 @@ class PlatformSetting(Base):
     #: reason, which also lands in `audit_log`); nullable here because a row written by
     #: a migration or a seed has no operator to state one.
     note: Mapped[str | None] = mapped_column(Text)
+    #: THE CONCURRENCY TOKEN. Drawn from a global sequence by the column default on
+    #: INSERT and by a BEFORE UPDATE trigger on every update, so a value is never
+    #: reissued — which is what makes an ETag read before a revert unable to match the
+    #: row that replaces it. A conditional write (`If-Match`) compares against this and
+    #: refuses rather than merges. See the migration for why not `xmin`, why not a
+    #: per-row counter, and why not the fleet-wide sentinel.
+    revision: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("nextval('platform_settings_revision_seq')")
+    )
 
 
 class PlatformConfigVersion(Base):

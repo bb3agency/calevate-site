@@ -3338,6 +3338,32 @@ export interface components {
             /** Rule */
             rule: string;
         };
+        /**
+         * BootstrapKeyOut
+         * @description A §4 bootstrap key: real, required, and changeable ONLY on the VPS.
+         *
+         *     THESE ARE NOT IN `fields` AND NEVER WILL BE, and that absence was the problem. An
+         *     operator looking for `APP_ENV` on this screen found nothing at all, which reads
+         *     identically to "this build does not have that setting" — so the one class of key that
+         *     genuinely does need an SSH session and a restart was the one the console said nothing
+         *     about. It says it here instead, with the reason, beside the keys it CAN change.
+         *
+         *     NO VALUE, EVER. Two of the six are `PLATFORM_KEK` and `PLATFORM_KEK_RETIRED` — the
+         *     keys that open the credential store — and one is `DATABASE_URL`, which carries a
+         *     password. `configured` is presence and nothing more, which is the only fact an
+         *     operator needs from a screen (hard rule 6 applies to a response body exactly as it
+         *     applies to a log line).
+         */
+        BootstrapKeyOut: {
+            /** Configured */
+            configured: boolean;
+            /** Env Var */
+            env_var: string;
+            /** Key */
+            key: string;
+            /** Reason */
+            reason: string;
+        };
         /** Branch */
         Branch: {
             /** Address */
@@ -3866,6 +3892,8 @@ export interface components {
             editable: boolean;
             /** Env Var */
             env_var: string;
+            /** Etag */
+            etag: string;
             /** Has Default */
             has_default: boolean;
             /** Key */
@@ -3894,6 +3922,8 @@ export interface components {
          *     snapshot from an hour ago identically to a live one.
          */
         ConfigOut: {
+            /** Bootstrap */
+            bootstrap: components["schemas"]["BootstrapKeyOut"][];
             /** Config Changed At */
             config_changed_at: string | null;
             /** Config Version */
@@ -3924,11 +3954,15 @@ export interface components {
         ConfigWriteOut: {
             /** Config Version */
             config_version: number;
+            /** Etag */
+            etag: string;
             field: components["schemas"]["ConfigFieldOut"];
             /** Key */
             key: string;
             /** Previous */
             previous: string | boolean | number | null;
+            /** Recorded */
+            recorded: boolean;
         };
         /**
          * ConsentProvenanceIn
@@ -7018,6 +7052,10 @@ export interface components {
          *     for a fact that decides whether it offers to rotate or to install.
          */
         SecretOut: {
+            /** Applies */
+            applies: string;
+            /** Caveat */
+            caveat: string | null;
             /** Created At */
             created_at: string | null;
             /** Created By */
@@ -12734,6 +12772,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-confirm-action"?: string | null;
+                "if-match"?: string | null;
             };
             path: {
                 key: string;
@@ -12771,6 +12810,7 @@ export interface operations {
             query?: never;
             header?: {
                 "x-confirm-action"?: string | null;
+                "if-match"?: string | null;
             };
             path: {
                 key: string;

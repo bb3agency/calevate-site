@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.envelope import Envelope, KekRing, kek_ring, last_four, rewrap, seal, unseal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.platform_config import is_secret_key
+from apps.api.core.platform_config import applies_rule, is_secret_key
 from apps.api.core.settings import ENV_ONLY_KEYS, env_declares, env_var_for
 from apps.api.db.result import rowcount_of
 
@@ -78,6 +78,12 @@ class SecretRecord:
     #: How many versions exist, including this one. Rotation history, so an operator can
     #: see that a key has been rotated without being able to read any of it.
     versions: int
+    #: `live` | `on_restart` | ... — when a ROTATION actually reaches the code that uses
+    #: this credential. From the same `FIELD_APPLIES` table the config panel reads, so
+    #: the two surfaces cannot answer one question differently.
+    applies: str
+    #: What the operator must still do, or `None`. Non-null for everything but `live`.
+    caveat: str | None
 
 
 def manageable_secret_keys() -> tuple[str, ...]:
@@ -157,6 +163,8 @@ async def read_secrets(session: AsyncSession) -> list[SecretRecord]:
             created_by=r[5] or r[6],
             shadowed_by_env=env_declares(str(r[0])),
             versions=int(r[7]),
+            applies=applies_rule(str(r[0])).applies,
+            caveat=applies_rule(str(r[0])).caveat,
         )
         for r in rows
     }
@@ -173,6 +181,8 @@ async def read_secrets(session: AsyncSession) -> list[SecretRecord]:
                 created_by=None,
                 shadowed_by_env=env_declares(key),
                 versions=0,
+                applies=applies_rule(key).applies,
+                caveat=applies_rule(key).caveat,
             ),
         )
         for key in manageable_secret_keys()
@@ -265,6 +275,8 @@ async def set_secret(
         created_by=str(actor_id),
         shadowed_by_env=env_declares(key),
         versions=version,
+        applies=applies_rule(key).applies,
+        caveat=applies_rule(key).caveat,
     )
 
 

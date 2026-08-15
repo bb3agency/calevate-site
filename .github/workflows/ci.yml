@@ -118,6 +118,9 @@ jobs:
       - name: "Guardrail: bootstrap keys stay environment-only (D-95 §4)"
         run: uv run python -m scripts.check_bootstrap_keys
 
+      - name: "Guardrail: config applies + bounds (D-101)"
+        run: uv run python -m scripts.check_config_applies
+
       - name: "Guardrail: redaction exposure (hard rule 5)"
         run: uv run python -m scripts.check_redaction_exposure
 

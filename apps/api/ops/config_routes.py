@@ -1,8 +1,21 @@
 """The platform configuration surface (PLATFORM-CONFIG §7).
 
-    GET    /v1/ops/config          every key: value, source, who set it, when
-    PUT    /v1/ops/config/{key}    validated against Settings before it is stored
-    DELETE /v1/ops/config/{key}    revert to the code default
+    GET    /v1/ops/config          every key: value, source, who set it, when, its etag
+    PUT    /v1/ops/config/{key}    validated against Settings, conditional on If-Match
+    DELETE /v1/ops/config/{key}    revert to the code default, conditional on If-Match
+
+**EVERY WRITE IS CONDITIONAL, AND THE HEADER IS REQUIRED.** `If-Match` carries the
+`etag` from the read the operator decided against; a write whose token has moved is
+refused with **412** and the current value, and a request with no token at all is
+refused with **428** (RFC 6585). Optional would have made "a losing write is refused" a
+property of the console rather than of the surface — the runbook curl and the second
+operator would keep last-write-wins. `"0"` is the token of a key with no stored row, so
+creating and reverting are conditional through the same header with no second mechanism.
+
+**A WRITE THAT CHANGES NOTHING IS A NO-OP, AND SAYS SO.** `recorded: false` means the
+value was already the stored one: no row moved, no audit row landed, the sentinel did
+not move and no peer re-read the store. That is D-82's convention — "I stored this" and
+"this was already the value" are different sentences.
 
 All `platform:config`, admin realm, and — like every other route under `/v1/ops` — never
 shed, because an operator must not be locked out of the configuration by the load-shed
@@ -35,7 +48,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,13 +59,22 @@ from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.platform_config import (
     ConfigField,
+    StoredRow,
     describe,
+    etag_for,
+    parse_etag,
     project,
     snapshot,
     typed_value,
 )
 from apps.api.core.rbac import permission_meta
-from apps.api.core.settings import get_settings
+from apps.api.core.settings import (
+    BOOTSTRAP_REASONS,
+    effective_env,
+    env_declares,
+    env_var_for,
+    get_settings,
+)
 from apps.api.core.stepup import require_step_up
 from apps.api.ops.config_service import (
     WriteResult,
@@ -165,13 +187,49 @@ class ConfigFieldOut(BaseModel):
     #: The permitted values for `kind == "enum"`; empty otherwise.
     options: list[str]
     editable: bool
-    #: `live` | `on_restart` — when a change actually takes effect.
+    #: `live` | `on_restart` | `needs_republish` | `env_only` | `unclassified` — when a
+    #: change actually takes effect. THE MOST LOAD-BEARING FIELD IN THIS MODEL: a key
+    #: reported `live` that is really snapshotted at process start is a lie that costs an
+    #: outage, so the console must render this verbatim and never assume a default.
+    #: `needs_republish` means a restart does NOT fix it — something must be published
+    #: again. `env_only` and `unclassified` always arrive with `editable: false`.
     applies: str
-    #: What the operator still has to do after changing it, or null.
+    #: What the operator still has to do after changing it, or null. Non-null for every
+    #: `applies` except `live`.
     caveat: str | None
+    #: The concurrency token for this key. Send it back as `If-Match` on a PUT or a
+    #: DELETE; a write whose token has moved is refused with 412 rather than merged.
+    #: `"0"` means "no row is stored", which is a state a write can be conditional on.
+    etag: str
     updated_by: str | None
     updated_at: str | None
     note: str | None
+
+
+class BootstrapKeyOut(BaseModel):
+    """A §4 bootstrap key: real, required, and changeable ONLY on the VPS.
+
+    THESE ARE NOT IN `fields` AND NEVER WILL BE, and that absence was the problem. An
+    operator looking for `APP_ENV` on this screen found nothing at all, which reads
+    identically to "this build does not have that setting" — so the one class of key that
+    genuinely does need an SSH session and a restart was the one the console said nothing
+    about. It says it here instead, with the reason, beside the keys it CAN change.
+
+    NO VALUE, EVER. Two of the six are `PLATFORM_KEK` and `PLATFORM_KEK_RETIRED` — the
+    keys that open the credential store — and one is `DATABASE_URL`, which carries a
+    password. `configured` is presence and nothing more, which is the only fact an
+    operator needs from a screen (hard rule 6 applies to a response body exactly as it
+    applies to a log line).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    env_var: str
+    #: Why it can never move into the store.
+    reason: str
+    #: True when this deployment's environment declares it. Presence, never the value.
+    configured: bool
 
 
 class ConfigOut(BaseModel):
@@ -200,6 +258,10 @@ class ConfigOut(BaseModel):
     #: bumped four seconds ago and one bumped four days ago mean different things to an
     #: operator whose change is not appearing. Null on a database that has never had one.
     config_changed_at: str | None
+    #: The keys this console can NEVER change, with the reason and whether they are set.
+    #: Rendered as its own read-only panel: everything in `fields` takes effect without a
+    #: restart, and everything here needs an SSH session and one. No values.
+    bootstrap: list[BootstrapKeyOut]
 
 
 class ConfigSetIn(BaseModel):
@@ -238,6 +300,14 @@ class ConfigWriteOut(BaseModel):
     field: ConfigFieldOut
     #: The config version after the write. Peers are on it within a poll interval.
     config_version: int
+    #: False when the submitted value was ALREADY the stored value: nothing was written,
+    #: no audit row exists for this request, the sentinel did not move and no process in
+    #: the fleet re-read the store. D-82's convention — the console renders "already the
+    #: value" rather than a change nobody made.
+    recorded: bool
+    #: The key's token AFTER this request, for the operator's next conditional write.
+    #: Also returned in the `ETag` response header.
+    etag: str
 
 
 def _out(field: ConfigField) -> ConfigFieldOut:
@@ -253,10 +323,57 @@ def _out(field: ConfigField) -> ConfigFieldOut:
         editable=field.editable,
         applies=field.applies,
         caveat=field.caveat,
+        etag=field.etag,
         updated_by=field.updated_by,
         updated_at=field.updated_at,
         note=field.note,
     )
+
+
+def require_if_match(header: str | None, *, key: str) -> int:
+    """The revision this caller believes it is writing over, or a refusal.
+
+    REQUIRED, NOT OPTIONAL, and that is the decision worth stating. An optional
+    precondition protects only the callers who remember to send one — which is the
+    console, on the day it is written, and nothing else. The runbook curl, the second
+    console, the operator with a shell: all of them keep last-write-wins, and the
+    property "a losing write is refused" stops being a property of the SURFACE and
+    becomes a property of one client. 428 (RFC 6585) is the status for exactly this: the
+    server requires the request to be conditional, and it says which header.
+
+    A caller with no value to send is not stuck: `If-Match: "0"` is the token of a key
+    with no stored row, and it is what a GET reports for one.
+    """
+    if header is None:
+        raise ProblemError(
+            kind="conflict",
+            status=428,
+            code="config_if_match_required",
+            title="This change has to say what it is replacing",
+            detail=(
+                "Writes to a platform setting are conditional, so two operators editing "
+                "the same key cannot silently overwrite each other."
+            ),
+            remediation=(
+                "Read GET /v1/ops/config, take this field's `etag`, and send it as "
+                'If-Match. A key with no stored value has the etag "0".'
+            ),
+        )
+    revision = parse_etag(header)
+    if revision is None:
+        raise ProblemError(
+            kind="validation",
+            code="config_if_match_invalid",
+            title="That If-Match is not one of ours",
+            detail=f"{header!r} is not an entity-tag this surface issues.",
+            remediation=(
+                "Send the `etag` from GET /v1/ops/config verbatim, quotes included — "
+                'e.g. If-Match: "42". `*`, weak tags and lists are deliberately '
+                "refused: each of them would let an unconditional write through."
+            ),
+            fields=[{"field": key, "rule": "if_match", "message": "expected a quoted integer"}],
+        )
+    return revision
 
 
 async def _fields(session: AsyncSession) -> list[ConfigFieldOut]:
@@ -305,12 +422,22 @@ async def read_config(session: GlobalSession, _: ConfigOperator) -> ConfigOut:
     # (this process is behind, and the operator needs to see that rather than a
     # self-consistent story).
     sentinel = await read_sentinel(session)
+    environ = effective_env()
     return ConfigOut(
         fields=await _fields(session),
         config_version=current.version,
         stale=current.degraded,
         never_loaded=current.loaded_at is None,
         config_changed_at=sentinel.changed_at,
+        bootstrap=[
+            BootstrapKeyOut(
+                key=key,
+                env_var=env_var_for(key),
+                reason=reason,
+                configured=env_declares(key, environ),
+            )
+            for key, reason in sorted(BOOTSTRAP_REASONS.items())
+        ],
     )
 
 
@@ -331,13 +458,16 @@ async def set_config(
     payload: ConfigSetIn,
     session: GlobalSession,
     request: Request,
+    response: Response,
     tasks: BackgroundTasks,
     principal: ConfigOperator,
     key: ConfigKey,
     x_confirm_action: Annotated[str | None, Header()] = None,
+    if_match: Annotated[str | None, Header()] = None,
 ) -> ConfigWriteOut:
     """Bound to the key, audited in the same transaction, propagated after it commits."""
     require_step_up(x_confirm_action, config_confirmation(key))
+    expected = require_if_match(if_match, key=key)
     if principal.user_id is None:
         # `updated_by` is NOT NULL and references `admin_users`: every value in this
         # table was put there by a person. An admin principal always has one; refusing
@@ -356,11 +486,16 @@ async def set_config(
         value=payload.value,
         note=payload.reason,
         actor_id=principal.user_id,
+        expected_revision=expected,
     )
-    await _audit(
-        session, request, principal, result, action="platform.config_set", reason=payload.reason
-    )
-    return await _write_out(session, result, tasks)
+    if result.recorded:
+        # NO AUDIT ROW FOR A NO-OP. `audit_log` is hash-chained and is the answer to
+        # "who changed this and when"; an entry for a request that changed nothing would
+        # put a double-clicked Save into the permanent record as two changes.
+        await _audit(
+            session, request, principal, result, action="platform.config_set", reason=payload.reason
+        )
+    return _write_out(response, result, tasks)
 
 
 @router.delete(
@@ -378,10 +513,12 @@ async def set_config(
 async def revert_config(
     session: GlobalSession,
     request: Request,
+    response: Response,
     tasks: BackgroundTasks,
     principal: ConfigOperator,
     key: ConfigKey,
     x_confirm_action: Annotated[str | None, Header()] = None,
+    if_match: Annotated[str | None, Header()] = None,
 ) -> ConfigWriteOut:
     """Reverting a key that was never overridden is a 404, not a cheerful success.
 
@@ -390,6 +527,7 @@ async def revert_config(
     — the same objection `platform_confirmation` raises against the empty transition.
     """
     require_step_up(x_confirm_action, revert_confirmation(key))
+    expected = require_if_match(if_match, key=key)
     if principal.user_id is None:
         raise ProblemError(
             kind="auth",
@@ -398,7 +536,9 @@ async def revert_config(
             detail="A configuration change has to be attributable to an operator.",
         )
 
-    result = await clear_value(session, key=key, actor_id=principal.user_id)
+    result = await clear_value(
+        session, key=key, actor_id=principal.user_id, expected_revision=expected
+    )
     if result is None:
         raise ProblemError(
             kind="not_found",
@@ -421,7 +561,7 @@ async def revert_config(
         # `audit_log` is the whole history of why a value went back to its default.
         reason=REVERT_REASON,
     )
-    return await _write_out(session, result, tasks)
+    return _write_out(response, result, tasks)
 
 
 async def _audit(
@@ -467,9 +607,7 @@ async def _audit(
     )
 
 
-async def _write_out(
-    session: AsyncSession, result: WriteResult, tasks: BackgroundTasks
-) -> ConfigWriteOut:
+def _write_out(response: Response, result: WriteResult, tasks: BackgroundTasks) -> ConfigWriteOut:
     """The response, and the propagation, in the only order that is correct.
 
     THE ORDERING PROBLEM, stated because it is easy to get backwards. The row is written
@@ -488,13 +626,23 @@ async def _write_out(
     Neither is the guarantee. The guarantee is the trigger's bump plus every process's
     own poll (§6) — the background task only makes it faster, and its failure is logged
     and survivable.
+
+    A NO-OP SCHEDULES NOTHING. If the value was already the stored one, no row moved and
+    the sentinel did not move either; `propagate()` would force every process in the
+    fleet to re-read Postgres for a change that did not happen, which is the cost a
+    double-clicked Save must not have.
     """
-    tasks.add_task(propagate)
+    if result.recorded:
+        tasks.add_task(propagate)
+    etag = etag_for(result.revision)
+    response.headers["ETag"] = etag
     return ConfigWriteOut(
         key=result.key,
         previous=result.old,
         field=_projected_field(result),
         config_version=result.version,
+        recorded=result.recorded,
+        etag=etag,
     )
 
 
@@ -514,7 +662,10 @@ def _projected_field(result: WriteResult) -> ConfigFieldOut:
     else:
         overrides[result.key] = typed_value(result.key, result.new)
     settings, projected = project(overrides)
-    for field in describe(settings, snap=projected):
+    rows = {
+        result.key: StoredRow(updated_by=None, updated_at=None, note=None, revision=result.revision)
+    }
+    for field in describe(settings, rows=rows, snap=projected):
         if field.key == result.key:
             return _out(field)
     raise ProblemError(
@@ -525,4 +676,4 @@ def _projected_field(result: WriteResult) -> ConfigFieldOut:
     )
 
 
-__all__ = ["config_confirmation", "revert_confirmation", "router"]
+__all__ = ["config_confirmation", "require_if_match", "revert_confirmation", "router"]

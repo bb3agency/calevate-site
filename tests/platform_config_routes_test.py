@@ -40,7 +40,7 @@ from apps.api.ops.config_routes import (
     set_config,
 )
 from apps.api.ops.config_service import WriteResult
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, Response
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from starlette.requests import Request
@@ -54,11 +54,32 @@ def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://api")
 
 
-def _auth(token: str, confirm: str | None = None) -> dict[str, str]:
+def _auth(token: str, confirm: str | None = None, etag: str | None = '"0"') -> dict[str, str]:
+    """Admin token, optional step-up, and the conditional-write token.
+
+    `etag` defaults to `"0"` — the token of a key with no stored row — because that is
+    what the overwhelming majority of these cases are writing over, and threading it
+    through fifteen call sites would bury the assertion each one exists for. That it is
+    REQUIRED is not defaulted away: `test_a_write_without_an_if_match_is_refused` sends
+    `etag=None` and is the test that would go green if the requirement were dropped.
+    """
     headers = {"Authorization": f"Bearer {token}"}
     if confirm is not None:
         headers["X-Confirm-Action"] = confirm
+    if etag is not None:
+        headers["If-Match"] = etag
     return headers
+
+
+async def _etag(key: str = KEY) -> str:
+    """The key's current token, read the way the console reads it."""
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text("SELECT revision FROM platform_settings WHERE key = :k"), {"k": key}
+            )
+        ).first()
+    return f'"{0 if row is None else int(row[0])}"'
 
 
 async def _row() -> tuple[str, str | None] | None:
@@ -406,7 +427,11 @@ async def test_a_revert_removes_the_row_and_is_audited() -> None:
             json={"value": "7.25", "reason": "about to be reverted"},
         )
         since = await _newest_audit_id()
-        response = await http.delete(PATH, headers=_auth(token, revert_confirmation(KEY)))
+        # The token from the row that now exists — a revert is conditional on the value
+        # it is removing, exactly as a set is on the value it replaces.
+        response = await http.delete(
+            PATH, headers=_auth(token, revert_confirmation(KEY), etag=await _etag())
+        )
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -498,10 +523,12 @@ async def test_a_set_by_a_session_with_no_admin_identity_is_refused_and_stores_n
                 ConfigSetIn(value="9.00", reason="a session with no admin row"),
                 session,
                 _request(),
+                Response(),
                 BackgroundTasks(),
                 _anonymous_operator(),
                 KEY,
                 x_confirm_action=config_confirmation(KEY),
+                if_match='"0"',
             )
     assert raised.value.code == "config_actor_unknown"
     assert raised.value.kind == "auth"
@@ -528,10 +555,12 @@ async def test_a_revert_by_a_session_with_no_admin_identity_is_refused_too() -> 
             await revert_config(
                 session,
                 _request(),
+                Response(),
                 BackgroundTasks(),
                 _anonymous_operator(),
                 KEY,
                 x_confirm_action=revert_confirmation(KEY),
+                if_match=await _etag(),
             )
     assert raised.value.code == "config_actor_unknown"
     assert await _row() is not None, "the row was removed by a caller with no identity"
@@ -574,7 +603,9 @@ def test_the_projected_response_refuses_to_describe_a_key_it_cannot_find() -> No
     it. So the miss is a named error rather than anything that looks like an answer.
     """
     with pytest.raises(ProblemError) as raised:
-        _projected_field(WriteResult(key="no_such_setting", old='"9.00"', new=None, version=7))
+        _projected_field(
+            WriteResult(key="no_such_setting", old='"9.00"', new=None, version=7, revision=0)
+        )
     assert raised.value.code == "config_key_vanished"
     assert raised.value.kind == "internal"
 

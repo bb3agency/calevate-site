@@ -123,6 +123,10 @@ function configField(over: Partial<ConfigField> = {}): ConfigField {
 
 function configList(fields: ConfigField[], over: Partial<ConfigList> = {}): ConfigList {
   return {
+    // Required since D-101: the keys that can only change with an SSH session and a
+    // restart. Their ABSENCE used to read identically to "this build has no such
+    // setting", which is why the server states them rather than the console inferring.
+    bootstrap: [],
     fields,
     config_version: 42,
     stale: false,
@@ -146,6 +150,8 @@ const SECRETS: SecretsList = {
       created_by: "Ops",
       shadowed_by_env: false,
       testable: true,
+      applies: "on_restart",
+      caveat: "the engine adapter captures this key at construction (D-101)",
     },
   ],
 };
@@ -533,7 +539,7 @@ describe("two operators, one key", () => {
     // change they were told they could make.
     renderOps(
       opsRoutes({
-        [OPS_CONFIG_PATH]: configList([{ ...configField(), etag: undefined }]),
+        [OPS_CONFIG_PATH]: configList([{ ...configField(), etag: undefined as unknown as string }]),
       }),
     );
 

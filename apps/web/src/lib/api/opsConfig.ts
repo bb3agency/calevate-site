@@ -55,7 +55,7 @@ export type ConfigKind = "string" | "integer" | "number" | "boolean" | "enum" | 
 export type ConfigApplies = "live" | "on_restart";
 
 /** One managed setting: its value, where that value came from, and whether it may be changed here. */
-export type ConfigField = ConfigFieldWire;
+export type ConfigField = Schemas["ConfigFieldOut"];
 
 /**
  * Every managed setting, plus the snapshot's own health.
@@ -67,7 +67,7 @@ export type ConfigField = ConfigFieldWire;
 export type ConfigList = Schemas["ConfigOut"];
 
 /** The answer to a write: what it was, what it is, and the version that now carries it. */
-export type ConfigWrite = ConfigWriteWire;
+export type ConfigWrite = Schemas["ConfigWriteOut"];
 
 /**
  * The step-up strings, copied from `apps/api/ops/config_routes.py` VERBATIM.
@@ -87,41 +87,6 @@ export function revertConfirmation(key: string): string {
   return `revert_config:${key}`;
 }
 
-/* ══════════════════════════════════════════════════════════════════════════════════════
- * TEMPORARY — HAND-DECLARED WIRE FIELDS. Delete this fence after `pnpm gen:api`.
- *
- * `apps/api/ops/config_routes.py` grew three fields this slice needs and
- * `src/lib/api/schema.d.ts` has not been regenerated (that file is off-limits here):
- *
- *   ConfigFieldOut.etag: str        — the key's concurrency token, `"0"` for no row
- *   ConfigWriteOut.etag: str        — the token AFTER the write
- *   ConfigWriteOut.recorded: bool   — False when the value was already the stored one
- *
- * TO RESTORE, exactly:
- *   1. run `pnpm -C apps/web gen:api`;
- *   2. delete this block down to the `END HAND-DECLARED` fence;
- *   3. replace `ConfigFieldWire` / `ConfigWriteWire` in the two type aliases below with
- *      `Schemas["ConfigFieldOut"]` / `Schemas["ConfigWriteOut"]`;
- *   4. run `pnpm -C apps/web typecheck test`.
- *
- * EVERY ADDED FIELD IS OPTIONAL HERE, and that is the trap this repo has hit four times,
- * avoided: a Pydantic field with a default is OPTIONAL in the generated TypeScript, so a
- * hand-written `required` breaks on the swap. None of these three carries a default
- * today, so the swap will widen them to required and nothing here will break — but
- * declaring them required and being wrong is the failure that costs a session, and
- * declaring them optional and being conservative costs one branch each. Both branches
- * are live code with a stated meaning, not `?? true`:
- *
- *   - no `etag` ⇒ this API cannot be written to conditionally, and it REQUIRES a
- *     conditional write (428 without `If-Match`), so the console refuses to offer a form
- *     rather than sending a request that can only fail;
- *   - no `recorded` ⇒ the write happened, which is what an API without the field means.
- * ══════════════════════════════════════════════════════════════════════════════════════ */
-
-type ConfigFieldWire = Schemas["ConfigFieldOut"] & { etag?: string };
-type ConfigWriteWire = Schemas["ConfigWriteOut"] & { etag?: string; recorded?: boolean };
-
-/* ══ END HAND-DECLARED ══════════════════════════════════════════════════════════════ */
 
 /**
  * A conditional write was refused because the token had moved.

@@ -113,15 +113,33 @@ class Settings(BaseSettings):
     # capacity by adopting it; what changes is that all 16 are POOLED instead of five
     # pooled and ten churning. `apps/api/db/session.py` argues why the overflow is the
     # expensive half.
-    db_pool_size: int = Field(default=16, ge=1)
+    # THE UPPER BOUND IS NOT DECORATION. Every value here can now be set from the ops
+    # console (D-95), and a type-valid value can still be catastrophic: `DB_POOL_SIZE =
+    # 500` on the four voice-runtime processes asks Postgres for 2000 backends against
+    # the `max_connections = 200` DEPLOYMENT §2a sizes for, so the first restart after
+    # the change is the one that cannot open a connection. 32 is double the largest pool
+    # in that table (16) and still cannot exhaust the server from one service alone.
+    # `ge=1` stays: one connection is slow, not fatal, and a single-connection CLI is a
+    # legitimate configuration.
+    db_pool_size: int = Field(default=16, ge=1, le=32)
 
-    object_store_endpoint: str
-    object_store_bucket: str
+    # 63 is the S3 bucket-name maximum, and the endpoint bound is a URL's practical
+    # ceiling. Both are console-settable, so a value the vendor cannot accept has to be
+    # refused at the screen rather than at the first recording upload.
+    object_store_endpoint: str = Field(max_length=255)
+    object_store_bucket: str = Field(max_length=63)
 
     # Public base URL of the voice-runtime deployable. It is baked into every agent's
     # config at publish time, so it must be the address the ENGINE can reach — not the
     # API's — and changing it means re-publishing every agent.
-    webhook_base_url: str = "http://localhost:8100"
+    #
+    # THE SCHEME IS REQUIRED. This string is concatenated into `webhook_url` and handed
+    # to the vendor; `hooks.calevate.tech` with no scheme produces a URL the engine
+    # silently never calls, and the symptom is every call's lead going missing with no
+    # error anywhere on our side. A pattern refuses it at the console instead.
+    webhook_base_url: str = Field(
+        default="http://localhost:8100", max_length=255, pattern=r"^https?://[^\s]+$"
+    )
 
     # Engine selection is per-environment; `fake` is the default for local work so
     # the whole pipeline runs offline (DEV-SETUP.md §3).
@@ -137,7 +155,7 @@ class Settings(BaseSettings):
     #: Cartesia's id for the outbound caller ID. Absent ⇒ outbound calls REFUSE rather
     #: than dial from whatever number the vendor picks: a promotional campaign leaving on
     #: a service-series number is a TCCCPR breach we would discover from a complaint.
-    cartesia_from_number_id: str | None = None
+    cartesia_from_number_id: str | None = Field(default=None, max_length=128)
     # The engine's egress addresses — comma-separated, literal IPs only. This is the
     # ENTIRE authenticity control for an unsigned engine, and it is a value the VENDOR
     # owns: they can renumber without telling us, and while it is stale every webhook
@@ -155,11 +173,20 @@ class Settings(BaseSettings):
     # the one direction nobody re-checks. Both now read this through `bolna_source_ips`.
     # The default is spelled from the same frozenset the fallback uses so the two cannot
     # drift either.
-    bolna_webhook_source_ips: str = ",".join(sorted(DEFAULT_BOLNA_SOURCE_IPS))
+    bolna_webhook_source_ips: str = Field(
+        default=",".join(sorted(DEFAULT_BOLNA_SOURCE_IPS)), max_length=1024
+    )
     # Bolna quotes cost in USD cents; the adapter converts at capture and STAMPS this
     # rate into usage_events.meta so any ledger row can be re-derived (hard rule 7).
     # A config row, not a live FX call: metering must be reproducible, not current.
-    usd_inr_rate: Decimal = Decimal("88.00")
+    #
+    # BOUNDED BECAUSE IT IS MONEY AND IT IS CONSOLE-SETTABLE. `0` is type-valid and
+    # makes every Bolna minute cost nothing — the platform bills zero and nobody
+    # notices until the month closes — so the floor is EXCLUSIVE. The ceiling is two
+    # orders of magnitude above any plausible USD/INR rate: a fat-fingered `8800`
+    # would overcharge every client by 100x, and an ops console is exactly where that
+    # keystroke happens.
+    usd_inr_rate: Decimal = Field(default=Decimal("88.00"), gt=0, le=1000)
 
     # BYOK models — canonical stack per D-36: Sarvam does STT + LLM + TTS.
     # Gemini is a configurable FALLBACK, not the default.
@@ -171,12 +198,15 @@ class Settings(BaseSettings):
 
     # Two SEPARATE Clerk applications — admin realm and client realm never share
     # session logic (TRD §11).
-    clerk_admin_publishable_key: str | None = None
+    clerk_admin_publishable_key: str | None = Field(default=None, max_length=256)
     clerk_admin_secret_key: str | None = None
-    clerk_client_publishable_key: str | None = None
+    clerk_client_publishable_key: str | None = Field(default=None, max_length=256)
     clerk_client_secret_key: str | None = None
     # Custom domain so the flow is ours end to end (D-37); also the JWKS host.
-    clerk_frontend_api: str = "accounts.calevate.tech"
+    # 253 is the DNS name limit; a hostname is all this may ever be, because
+    # `core/auth.jwks_url` interpolates it into `https://{host}/.well-known/jwks.json`
+    # and a value carrying a scheme or a path would build a URL that fetches nothing.
+    clerk_frontend_api: str = Field(default="accounts.calevate.tech", max_length=253)
     # Svix signing secret for the user/org mirror webhook (`whsec_...`). Absent means
     # the endpoint FAILS CLOSED — an unverifiable identity feed is worse than none.
     clerk_webhook_secret: str | None = None
@@ -240,12 +270,15 @@ class Settings(BaseSettings):
     # Any SMTP provider works, which keeps the provider a deployment decision rather
     # than a code dependency. Unset in a non-local env = notifications report FAILURE
     # rather than silently pretending (see workers/transport.py).
-    smtp_host: str | None = None
-    smtp_port: int = 587
-    smtp_username: str | None = None
+    smtp_host: str | None = Field(default=None, max_length=253)
+    # 1..65535 is the whole legal port space. `0` is type-valid, is what an empty box
+    # submits as an integer, and would make every hot-lead alert fail at connect.
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = Field(default=None, max_length=320)
     smtp_password: str | None = None
     smtp_use_tls: bool = True
-    notifications_from: str | None = None
+    # 320 is the RFC 5321 maximum for an addr-spec (64 local + @ + 255 domain).
+    notifications_from: str | None = Field(default=None, max_length=320)
 
     # WHERE OPERATOR ALERTS GO (OPERATIONS §4; §8's pre-launch gate "alerts firing to
     # Sri's phone"). `apps/api/core/alerting.py` delivers through the SAME transport as
@@ -256,7 +289,7 @@ class Settings(BaseSettings):
     # discovered during an incident. Setting it is the pre-launch gate; a phone gets the
     # alert through its mail app until a BSP is chosen and the WhatsApp seam in
     # `apps/workers/whatsapp.py` can carry the second channel §4 also promises.
-    alerts_email: str | None = None
+    alerts_email: str | None = Field(default=None, max_length=320)
 
     # THE EXTERNAL DEAD MAN (D-50's open residual, now closed). The ping URL of ONE
     # hosted dead-man check, pinged by `scripts/backup/backup-health.sh` only when every
@@ -282,11 +315,13 @@ class Settings(BaseSettings):
     # `whatsapp_provider` is a seam, not a switch: any name other than `console`
     # resolves to `provider_not_implemented` and refuses to send, loudly.
     whatsapp_enabled: bool = False
-    whatsapp_provider: str | None = None
+    whatsapp_provider: str | None = Field(default=None, max_length=64)
     # The approved template's name and language, as registered with the provider. Here
     # rather than in code because re-approval is an operational event, not a deploy.
-    whatsapp_template_hot_lead: str = "calevate_hot_lead_v1"
-    whatsapp_template_locale: str = "en"
+    # A template name is an identifier at the provider, and a locale is a language tag;
+    # neither is free text, and an EMPTY one would send a message naming no template.
+    whatsapp_template_hot_lead: str = Field(default="calevate_hot_lead_v1", max_length=128)
+    whatsapp_template_locale: str = Field(default="en", max_length=16)
 
     # Google Sheets delivery for outbound CRM sync (D-23, `outbound_webhooks.kind =
     # 'google_sheets'`). Same seam as `whatsapp_provider`: `console` is the local dev
@@ -301,7 +336,7 @@ class Settings(BaseSettings):
     # is. `apps/api/integrations/routes.py` refuses to create a sheets endpoint when
     # this says the deployment cannot deliver to one.
     #
-    google_sheets_provider: str | None = None
+    google_sheets_provider: str | None = Field(default=None, max_length=64)
 
     # The service-account key the `service_account` provider signs with: the JSON blob
     # Google issues, injected from the secrets manager at deploy time exactly like
@@ -336,7 +371,7 @@ class Settings(BaseSettings):
     #
     # A STATEMENT ABOUT THE CAPABILITY, never a credential: the tokens below are
     # separate and each lead source still needs its own.
-    meta_lead_retriever: str | None = None
+    meta_lead_retriever: str | None = Field(default=None, max_length=64)
 
     # The Page access tokens the `graph` retriever reads with: a JSON object keyed by
     # LEAD SOURCE id (`inbound_webhooks.id`), `{"<uuid>": "<page-access-token>"}`,
@@ -402,13 +437,13 @@ class Settings(BaseSettings):
     sentry_dsn: str | None = None
     # Stamped onto every error so a report names the deploy that produced it.
     # CI sets it from the commit sha; unset is fine and reads as 'dev'.
-    release_version: str = "dev"
+    release_version: str = Field(default="dev", max_length=64)
 
     # OpenTelemetry (TRD §2). Base URL of an OTLP/HTTP collector — the exporter appends
     # `/v1/traces`. UNSET IS THE LOCAL DEFAULT AND MEANS NO TRACING AT ALL: no SDK
     # import, no middleware, no background exporter thread, so `uv run pytest` and a
     # dev box need nothing running (same contract as an absent SENTRY_DSN).
-    otel_exporter_otlp_endpoint: str | None = None
+    otel_exporter_otlp_endpoint: str | None = Field(default=None, max_length=255)
     # Head sampling ratio for ROOT traces; child hops inherit the decision through the
     # traceparent, so a sampled call stays whole from webhook to Postgres. 10% because
     # the SLO BREACH is already caught on 100% of calls by the pipeline-lag metric —
@@ -425,7 +460,13 @@ class Settings(BaseSettings):
     # ("about N minutes left") and the top-up flow price from the SAME source, and so
     # a price change is a deploy, not a code edit. Managed clients never see it: their
     # price lives in their `plans` row.
-    self_serve_inr_per_min: Decimal = Decimal("6.00")
+    #
+    # BOUNDED FOR THE SAME REASON `usd_inr_rate` IS, one surface closer to the client:
+    # `0` is type-valid and would price every self-serve minute at nothing, so the
+    # runway framing says "unlimited" and the top-up flow charges zero. Exclusive floor.
+    # The ceiling is absurd on purpose — nobody sells a minute for ₹10,000 — and its job
+    # is to catch a decimal point in the wrong place before it reaches a wallet.
+    self_serve_inr_per_min: Decimal = Field(default=Decimal("6.00"), gt=0, le=10_000)
 
     # R-11's kill switch. Self-serve signup is the sharp edge of D-34 (anyone can sign
     # up and dial), so the public intake is OFF unless someone turned it on, and
@@ -443,7 +484,7 @@ class Settings(BaseSettings):
     # credential and deciding for itself. `apps/api/billing/payments.py` owns the ONE
     # selector; the only name with anything behind it today is `razorpay`, and any
     # other name resolves to `provider_not_implemented` rather than looking configured.
-    payment_provider: str | None = None
+    payment_provider: str | None = Field(default=None, max_length=64)
     # WHICH telephony vendor may sell this deployment a phone number (D-05: Exotel, with
     # Vobiz for the 140-series). Config rather than an inference from a credential, for
     # the same reason `payment_provider` is: a key is not a statement that the
@@ -452,10 +493,10 @@ class Settings(BaseSettings):
     # so this setting currently decides only WHICH refusal an operator sees. A name
     # outside {exotel, vobiz} resolves to `provider_not_implemented` rather than looking
     # configured.
-    number_provider: str | None = None
+    number_provider: str | None = Field(default=None, max_length=64)
     # The PUBLIC key id, handed to the browser's checkout. Unset = the top-up intent
     # answers "payments not configured" rather than returning an unusable intent.
-    razorpay_key_id: str | None = None
+    razorpay_key_id: str | None = Field(default=None, max_length=128)
     # The webhook signing secret from their dashboard. Unset means the payment
     # receiver FAILS CLOSED — an unverifiable payment feed credits wallets on
     # anyone's say-so, which is worse than no feed at all.
@@ -491,16 +532,29 @@ class Settings(BaseSettings):
     # a PROFORMA that names the missing keys, and it refuses the "Tax Invoice" heading
     # rather than printing an invalid one. It does NOT change what the client owes —
     # `invoice.py` argues why a forgotten variable must never silently move money.
-    gst_supplier_legal_name: str | None = None
-    gst_supplier_address: str | None = None
+    gst_supplier_legal_name: str | None = Field(default=None, max_length=200)
+    gst_supplier_address: str | None = Field(default=None, max_length=1000)
     # 15 characters. Its first two digits are the supplier's State and are what decides
     # CGST+SGST vs IGST, so this field is the single source of our place of supply —
     # there is deliberately no separate state setting to drift from it.
-    gst_supplier_gstin: str | None = None
+    # LENGTH-CAPPED AND DELIBERATELY NOT LENGTH-CHECKED. A GSTIN is exactly 15
+    # characters, and an exact `min_length=15` here was WRONG — caught by
+    # `invoice_gst_test`, which feeds a 14-character value on purpose. `billing/gst.py`
+    # already degrades gracefully on a malformed one: `parse_gstin` treats it as ABSENT,
+    # the document renders as a PROFORMA naming the missing key, and nothing about what
+    # the client owes moves. Enforcing the exact length in the MODEL converts that
+    # designed degradation into a process that will not boot, because `Settings()` is
+    # constructed before anything can explain itself. The rule this field settles for
+    # every bound added in this wave: a model-level bound exists to cap BLAST RADIUS
+    # (what one value can do to the store and to every process that re-reads it), and it
+    # must never be stricter than a consumer that already fails gracefully.
+    gst_supplier_gstin: str | None = Field(default=None, max_length=32)
     # The Service Accounting Code our supply is classified under. 4 digits up to ₹5
     # crore aggregate turnover, 6 above it (Notification 78/2020-CT). WHICH code an AI
     # voice-agent subscription falls under is the accountant's call, not this repo's.
-    gst_supply_sac: str | None = None
+    # Capped, not checked, for the same reason as the GSTIN above: `_SAC_RE` in
+    # `billing/gst.py` is the semantic gate and it degrades to a proforma.
+    gst_supply_sac: str | None = Field(default=None, max_length=16)
 
     # THE KEY THAT OPENS THE CREDENTIAL STORE (PLATFORM-CONFIG §3). Base64 of exactly 32
     # random bytes; `apps/api/core/envelope.py` owns the encoding, the length rule and

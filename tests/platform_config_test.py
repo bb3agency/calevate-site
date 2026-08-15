@@ -242,7 +242,7 @@ def test_every_managed_field_can_be_described_and_rendered() -> None:
         assert field.kind in {"string", "integer", "number", "boolean", "enum", "decimal"}
         assert (field.options != ()) == (field.kind == "enum")
         assert field.source in {"env", "db", "default"}
-        assert field.applies in {"live", "on_restart"}
+        assert field.applies in pc.APPLIES_VALUES
 
 
 # --- propagation --------------------------------------------------------------
@@ -499,15 +499,46 @@ async def test_a_cold_start_with_no_store_serves_env_and_defaults(
 async def test_the_read_path_does_no_io() -> None:
     """Hard rule 3's requirement, measured rather than asserted in prose: voice-runtime
     reads `get_settings()` inside a 500ms ack budget, and a config lookup that opened a
-    connection would put a database round trip on the webhook path."""
+    connection would put a database round trip on the webhook path.
+
+    MEASURED AGAINST A CONTROL, NOT AGAINST A WALL-CLOCK CONSTANT, and the reason is a
+    real failure rather than a preference. The bound used to be an absolute 50ms per 10k
+    calls, which held only while `get_settings` was a bare `functools.lru_cache` — a C
+    object with no Python line for `coverage` to trace. It has a Python frame now (the
+    `settings_scope()` pin), so under `make coverage-ratchet` — which runs this whole
+    suite instrumented — the same code measured 59ms and this test failed for the
+    tracer's cost rather than for anything about IO. A gate that goes red under its own
+    coverage run is a gate people learn to re-run rather than read.
+
+    The control is a trivial Python function. Instrumentation taxes both, so the RATIO
+    survives it, and the ratio is the property in the first place: `get_settings()` costs
+    the same order as calling a function, and a database round trip is ~1ms EACH — four
+    orders of magnitude away from anything this bound could admit.
+    """
+
+    def _control() -> int:
+        return 1
+
     await pc.refresh(force=True)
+    get_settings()  # prime, so neither loop pays for the first `Settings()` construction
+
+    started = time.perf_counter()
+    for _ in range(10_000):
+        _control()
+    control_ms = (time.perf_counter() - started) * 1000
+
     started = time.perf_counter()
     for _ in range(10_000):
         get_settings()
     elapsed_ms = (time.perf_counter() - started) * 1000
-    # Ten thousand reads in well under a single millisecond of budget. A DB round trip
-    # is ~1ms EACH, so this bound cannot be met by anything that touches the network.
-    assert elapsed_ms < 50, f"10k get_settings() took {elapsed_ms:.1f}ms — is it doing IO?"
+
+    # Generous on purpose: what this must exclude is a network round trip, which would be
+    # ~10_000x the control, not 10x. A bound tight enough to fail on a slow CI box would
+    # be measuring the box.
+    assert elapsed_ms < max(50.0, control_ms * 10), (
+        f"10k get_settings() took {elapsed_ms:.1f}ms against a {control_ms:.1f}ms control "
+        "for the same number of plain function calls — is it doing IO?"
+    )
 
 
 # --- adoption: which deployables actually poll --------------------------------

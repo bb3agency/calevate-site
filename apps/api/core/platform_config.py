@@ -72,7 +72,8 @@ import time
 from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any, get_args
 
 from calevate_shared.config import Settings
 from pydantic import TypeAdapter, ValidationError
@@ -164,40 +165,276 @@ _SECRET_NAME_FRAGMENTS: tuple[str, ...] = tuple(
     )
 )
 
-#: Keys whose value is consumed ONCE, when the process starts, with the reason.
-#:
-#: These are still managed — hiding them would be worse — but the console has to say
-#: that changing one does nothing until a restart. §8's rule is that "a field that
-#: silently does nothing is worse than no field", and a field that quietly does nothing
-#: *for six hours* is the same defect wearing a delay. This is the one classification
-#: here that cannot be derived from a type, because it is a fact about WHERE the value
-#: is read, not about what it is; it is small, it is reasoned per key, and a field
-#: omitted from it defaults to "live", which is true of anything read through
-#: `get_settings()` at the point of use — the overwhelmingly common shape in this repo.
-APPLIES_ON_RESTART: dict[str, str] = {
-    "db_pool_size": (
-        "the SQLAlchemy engine is built once per process (db/session.py holds it in "
-        "`_engine`), so the pool keeps whatever size it was created with"
-    ),
-    "otel_exporter_otlp_endpoint": (
-        "tracing is initialised once at boot (`init_tracing` returns early when a "
-        "provider already exists) — a second provider would double every span"
-    ),
-    "otel_traces_sample_ratio": (
-        "the sampler is fixed when the tracer provider is built, for the same reason"
-    ),
-}
+# --- WHEN A CHANGE ACTUALLY TAKES EFFECT --------------------------------------
+#
+# `applies` is the most dangerous field the console publishes. A key reported `live`
+# that is really snapshotted at process start is a lie that costs an outage: an operator
+# changes it, sees no error, believes it took, and the platform keeps the old value
+# until something unrelated restarts. §8's rule — "a field that silently does nothing is
+# worse than no field" — applies with more force to a field that silently does nothing
+# *for six hours*.
+#
+# WHY IT IS A TABLE AND NOT A DERIVATION. It is a fact about WHERE a value is read, not
+# about what it is, and nothing in the type says whether the reader is `get_settings()`
+# at the point of use or a constructor that ran at boot. Every attempt to infer it
+# statically has the same failure: it guesses `live` for anything it cannot see through,
+# and `live` is the answer that costs the outage. So it is enumerated, per key, with the
+# reason — and the enumeration is made unrottable in two ways rather than trusted:
+#
+#   * `describe()` treats a MISSING entry as `UNCLASSIFIED` and marks the field
+#     NOT EDITABLE, so a `Settings` field added tomorrow is never offered as `live` by
+#     default. The fail-safe direction is "you cannot edit this yet", never "we assume
+#     it works";
+#   * `scripts/check_config_applies.py` fails CI on any managed field with no entry, any
+#     entry naming a field that is no longer managed, and any entry with no reason.
+#
+# THE FOUR ANSWERS, and why four rather than two:
 
-#: Keys that take effect immediately but do NOT retroactively change what already
-#: exists, with what the operator has to do about it. Distinct from the above: the value
-#: IS live, the leftover is elsewhere.
-APPLIES_WITH_FOLLOW_UP: dict[str, str] = {
-    "webhook_base_url": (
+#: Read through `get_settings()` at the point of use. In force everywhere within one
+#: poll interval, no restart.
+LIVE = "live"
+#: Consumed once, at process start. The value WILL apply after a restart, and does
+#: nothing before one.
+ON_RESTART = "on_restart"
+#: Live for new work, but artefacts already created carry the old value. Neither `live`
+#: nor `on_restart`: a restart does not fix it and waiting does not either — something
+#: has to be re-published. Without this category the classification cannot be honest,
+#: because `webhook_base_url` is in it and is the field most likely to be changed during
+#: an incident.
+NEEDS_REPUBLISH = "needs_republish"
+#: The store can NEVER deliver this value, restart or not — the consumer reads the
+#: environment directly, or reads it before the store is reachable. Distinct from
+#: `on_restart`, which promises a restart is enough. `editable` is False for these and
+#: the write path refuses them by name, because a console that stores a value which can
+#: never apply is §8's defect with an extra six-hour delay bolted on.
+ENV_ONLY = "env_only"
+#: No entry in `FIELD_APPLIES`. Never offered for editing — see above.
+UNCLASSIFIED = "unclassified"
+
+APPLIES_VALUES: frozenset[str] = frozenset(
+    {LIVE, ON_RESTART, NEEDS_REPUBLISH, ENV_ONLY, UNCLASSIFIED}
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AppliesRule:
+    """One key's answer to "when does changing this actually do anything?".
+
+    `caveat` is `None` only for `LIVE`, where there is nothing left to say. Every other
+    classification carries the sentence the console renders beside the field, because a
+    caveat in a runbook reaches nobody at the moment they are typing into the box.
+    """
+
+    applies: str
+    caveat: str | None = None
+
+
+#: EVERY managed key, classified. The guardrail fails if this is not exhaustive.
+#:
+#: The `LIVE` entries are the ones that were checked rather than assumed: each names a
+#: call site that reads `get_settings()` per use. The other three categories are where
+#: the audit found the console lying.
+FIELD_APPLIES: dict[str, AppliesRule] = {
+    # ---- env_only: the store cannot deliver these, and a restart does not help -----
+    "db_pool_size": AppliesRule(
+        ENV_ONLY,
+        "the SQLAlchemy engine is built from a bare `Settings()` (db/session.py), which "
+        "reads the environment only — and it is built BEFORE the store can be read, "
+        "because reading the store needs a connection from it. A value stored here can "
+        "never apply, restart or not: set DB_POOL_SIZE in the deployment's environment.",
+    ),
+    # ---- on_restart: consumed once, at process start -------------------------------
+    "otel_exporter_otlp_endpoint": AppliesRule(
+        ON_RESTART,
+        "tracing is initialised once at boot (`init_tracing` returns early when a "
+        "provider already exists) — a second provider would double every span",
+    ),
+    "otel_traces_sample_ratio": AppliesRule(
+        ON_RESTART,
+        "the sampler is fixed when the tracer provider is built, for the same reason",
+    ),
+    "release_version": AppliesRule(
+        ON_RESTART,
+        "it is stamped into the OTel resource and handed to `sentry_sdk.init` at boot, "
+        "and into the `service_start` log line — nothing reads it again afterwards",
+    ),
+    "clerk_admin_publishable_key": AppliesRule(
+        ON_RESTART,
+        "the JWKS URL it encodes is baked into a `PyJWKClient` the first time a token of "
+        "this realm is verified (`core/auth._jwk_clients`), and that client is held for "
+        "the life of the process",
+    ),
+    "clerk_client_publishable_key": AppliesRule(
+        ON_RESTART, "same as the admin key: the realm's `PyJWKClient` is built once"
+    ),
+    "clerk_frontend_api": AppliesRule(
+        ON_RESTART,
+        "the fallback JWKS host, and it is read at the same moment the realm's "
+        "`PyJWKClient` is constructed — once per process",
+    ),
+    "usd_inr_rate": AppliesRule(
+        ON_RESTART,
+        "the Bolna adapter captures it as `_fx_rate` when `get_engine()` builds it, and "
+        "that instance is cached for the life of the process — so a new rate does NOT "
+        "reach the cost conversion stamped into usage_events until every process "
+        "restarts. Until then, minutes are still costed at the old rate.",
+    ),
+    "cartesia_from_number_id": AppliesRule(
+        ON_RESTART,
+        "the Cartesia adapter captures it at construction and `get_engine()` caches the "
+        "adapter for the life of the process",
+    ),
+    # ---- needs_republish: live for new work, stale on what already exists ----------
+    "webhook_base_url": AppliesRule(
+        NEEDS_REPUBLISH,
         "new agent publishes use it immediately, but every agent already published "
         "carries the OLD URL in its engine-side config — they must be re-published or "
-        "their webhooks keep going to the previous address"
+        "their webhooks keep going to the previous address",
     ),
+    "engine": AppliesRule(
+        NEEDS_REPUBLISH,
+        "`get_engine()` switches immediately, but every LIVE agent was created on the "
+        "previous vendor and its `engine_agent_ref` means nothing to the new one — and "
+        "its webhook URL still ends in the old engine's name. Every agent must be "
+        "re-published before the switch is real. Switching BACK also returns the "
+        "adapter instance cached earlier in this process, with the credentials and FX "
+        "rate it was built with.",
+    ),
+    # ---- live: read through get_settings() at the point of use ---------------------
+    "object_store_endpoint": AppliesRule(LIVE),  # workers/storage._client(), per call
+    "object_store_bucket": AppliesRule(LIVE),  # workers/storage, per call
+    "bolna_webhook_source_ips": AppliesRule(LIVE),  # bolna_source_ips(get_settings())
+    "smtp_host": AppliesRule(LIVE),  # workers/transport.get_transport(), per send
+    "smtp_port": AppliesRule(LIVE),
+    "smtp_username": AppliesRule(LIVE),
+    "smtp_use_tls": AppliesRule(LIVE),
+    "notifications_from": AppliesRule(LIVE),
+    "alerts_email": AppliesRule(LIVE),  # core/alerting, per alert
+    "whatsapp_enabled": AppliesRule(LIVE),  # workers/whatsapp, per send
+    "whatsapp_provider": AppliesRule(LIVE),
+    "whatsapp_template_hot_lead": AppliesRule(LIVE),
+    "whatsapp_template_locale": AppliesRule(LIVE),
+    "google_sheets_provider": AppliesRule(LIVE),  # workers/sheets_sync, per delivery
+    "meta_lead_retriever": AppliesRule(LIVE),  # ingest/meta, per retrieval
+    "inbound_reserve_ratio": AppliesRule(
+        LIVE,
+        "read once per dispatch tick, before the loop — a tick that has started keeps "
+        "the pool it computed, and the next one (≤30s later) uses the new value",
+    ),
+    "self_serve_inr_per_min": AppliesRule(LIVE),  # billing/service, per quote
+    "self_serve_signup_enabled": AppliesRule(LIVE),  # tenancy/signup, per request
+    "payment_provider": AppliesRule(LIVE),  # billing/payments.payment_capability()
+    "number_provider": AppliesRule(LIVE),  # campaigns/provisioning, per call
+    "razorpay_key_id": AppliesRule(LIVE),  # billing/payments, per capability read
+    "gst_supplier_legal_name": AppliesRule(LIVE),  # billing/gst.supplier_identity()
+    "gst_supplier_address": AppliesRule(LIVE),
+    "gst_supplier_gstin": AppliesRule(LIVE),
+    "gst_supply_sac": AppliesRule(LIVE),
+    # ---- CREDENTIALS. Same question, higher stakes -------------------------------
+    #
+    # The Secrets panel implies exactly what the config panel implies — set it and it is
+    # in force in seconds — and for two of these that was false. A rotated Bolna key that
+    # never reaches the running adapter presents as "the vendor is rejecting our key",
+    # which sends an operator to the vendor's dashboard rather than to a restart. They
+    # are classified here, in the SAME table, because there is one question and it should
+    # not have two answers in two places.
+    "bolna_api_key": AppliesRule(
+        ON_RESTART,
+        "the Bolna adapter captures it when `get_engine()` builds it, and that instance "
+        "is cached for the life of the process — a rotation here does NOT reach the "
+        "adapter placing calls until every process restarts",
+    ),
+    "cartesia_api_key": AppliesRule(
+        ON_RESTART, "captured at construction by the cached Cartesia adapter, as above"
+    ),
+    "sentry_dsn": AppliesRule(
+        ON_RESTART,
+        "`sentry_sdk.init` runs once at boot (`init_observability`); a new DSN does not "
+        "redirect errors until the process restarts",
+    ),
+    "clerk_admin_secret_key": AppliesRule(
+        ON_RESTART,
+        "read when the realm's `PyJWKClient` is built, once per process — and under "
+        "APP_ENV=local its PRESENCE is what disables dev tokens, so a process that "
+        "started without it keeps accepting them until it restarts",
+    ),
+    "clerk_client_secret_key": AppliesRule(ON_RESTART, "same as the admin secret"),
+    # Read at the point of use, per call or per request.
+    "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
+    "gemini_api_key": AppliesRule(LIVE),
+    "cohere_api_key": AppliesRule(LIVE),
+    "clerk_webhook_secret": AppliesRule(LIVE),
+    "audit_chain_secret": AppliesRule(LIVE),  # compliance/audit._active_key(), per write
+    "audit_chain_secret_retired": AppliesRule(LIVE),
+    "idempotency_scope_secret": AppliesRule(LIVE),
+    "impersonation_grant_secret": AppliesRule(LIVE),  # core/impersonation, per mint
+    "smtp_password": AppliesRule(LIVE),  # workers/transport.get_transport(), per send
+    "backup_heartbeat_url": AppliesRule(LIVE),
+    "google_sheets_service_account_json": AppliesRule(LIVE),
+    "meta_page_access_tokens": AppliesRule(LIVE),
+    "razorpay_webhook_secret": AppliesRule(LIVE),
+    "razorpay_key_secret": AppliesRule(LIVE),
 }
+
+#: The classification a field with no entry gets. Fail-safe by construction.
+_UNCLASSIFIED_RULE = AppliesRule(
+    UNCLASSIFIED,
+    "this build does not record when a change to this key takes effect, so the console "
+    "will not offer to change it. Classify it in core/platform_config.FIELD_APPLIES "
+    "(scripts/check_config_applies.py fails CI until you do).",
+)
+
+
+def applies_rule(key: str) -> AppliesRule:
+    """When a change to this key takes effect, and what the operator must do about it."""
+    return FIELD_APPLIES.get(key, _UNCLASSIFIED_RULE)
+
+
+# --- the per-key concurrency token --------------------------------------------
+#
+# WHY PER KEY AND NOT THE FLEET SENTINEL. `platform_config_version` already exists and
+# is tempting: one integer, already bumped by the trigger, already read by every
+# process. It is the wrong granularity for a conditional write, and choosing it would
+# make the feature worse than not having it. The console shows 36 fields; two operators
+# working on different fields at the same time is the NORMAL case, not the race. With a
+# fleet-wide token, operator B's unrelated edit to `alerts_email` invalidates operator
+# A's in-flight edit to `usd_inr_rate` — a conflict that is not one. False conflicts are
+# not a small cost: they are how people learn to hit retry without reading, which turns
+# a 412 back into last-write-wins with extra steps. The token has to be scoped to the
+# thing being protected, which is the row.
+#
+# The token is a strong ETag over the row's `revision`, and `"0"` means "no row". That
+# makes CREATE conditional too, with the same header and no second mechanism: two
+# operators who both see an unset key both send `If-Match: "0"`, and exactly one wins.
+_ETAG_ABSENT = 0
+
+
+def etag_for(revision: int) -> str:
+    """The ETag for a row at this revision. `"0"` is the ETag of an absent row.
+
+    RFC 9110 §8.8.3 shape: an opaque, quoted entity-tag. Opaque is the operative word —
+    a caller compares it and sends it back, and nothing outside this module may parse a
+    meaning out of it.
+    """
+    return f'"{revision}"'
+
+
+def parse_etag(value: str) -> int | None:
+    """An `If-Match` value back to a revision, or `None` if it is not one of ours.
+
+    Deliberately strict: no `*`, no weak (`W/`) tags, no comma lists. RFC 9110 permits
+    all three, and every one of them would weaken this. `If-Match: *` means "any current
+    representation" — for a config write that is exactly the unconditional write this
+    exists to refuse. A weak tag is defined as semantic equivalence, which is a claim
+    nobody can make about two different values of an FX rate. A list makes "which one
+    did I actually overwrite" unanswerable in the audit row.
+    """
+    token = value.strip()
+    if len(token) < 3 or not token.startswith('"') or not token.endswith('"'):
+        return None
+    digits = token[1:-1]
+    return int(digits) if digits.isdigit() else None
+
 
 #: How a value is rendered and edited in the console. Derived from the annotation, never
 #: hand-mapped: a field whose type changes changes its editor with it.
@@ -234,14 +471,18 @@ class ConfigField:
     #: The allowed values, for a `Literal` field. Empty for everything else.
     options: tuple[str, ...]
     editable: bool
-    #: `live` | `on_restart` — when a change to this key actually takes effect.
+    #: `live` | `on_restart` | `needs_republish` | `env_only` | `unclassified` — when a
+    #: change to this key actually takes effect. See `FIELD_APPLIES`.
     applies: str
     #: What the operator still has to do after changing it, or `None`. Carries the
-    #: reason for `on_restart`, and the follow-up for a key like `webhook_base_url`
-    #: whose new value is live but whose old value is baked into things already
-    #: published. Rendered beside the field, because a caveat in a runbook reaches
-    #: nobody at the moment they are typing into the box.
+    #: reason for every classification except `live`, where there is nothing left to
+    #: say. Rendered beside the field, because a caveat in a runbook reaches nobody at
+    #: the moment they are typing into the box.
     caveat: str | None
+    #: The concurrency token for THIS key: the value a conditional write must send back
+    #: in `If-Match`. `"0"` when no row is stored, which is a real state a write can be
+    #: conditional on ("I believe nobody has set this") rather than an absence.
+    etag: str
     #: Who last set it in the store, and when. Both `None` unless `source == "db"`.
     updated_by: str | None
     updated_at: str | None
@@ -362,6 +603,18 @@ def _typed(field: str, stored: Any) -> Any:
         return None
 
 
+def typed_strict(field: str, stored: Any) -> Any:
+    """Like `typed_value`, but a value that does not validate RAISES.
+
+    The write path needs the two cases apart. `typed_value` folds "this row no longer
+    parses" into `None`, which is the right answer on a background refresh (drop the row,
+    keep serving) and the wrong one when deciding whether an incoming value is ALREADY
+    the stored one: a broken row would compare equal to an incoming `null` and the write
+    that was meant to repair it would be reported as a no-op.
+    """
+    return _adapter(field).validate_python(stored)
+
+
 def typed_value(field: str, stored: Any) -> Any:
     """The public spelling of `_typed`, for a caller that has just validated a write.
 
@@ -388,6 +641,22 @@ def project(overrides: Mapping[str, Any]) -> tuple[Settings, ConfigSnapshot]:
     return effective, replace(snapshot(), overrides=dict(overrides))
 
 
+def _is_decimal(field: str) -> bool:
+    """Is this field money? — asked of the ANNOTATION, never of the JSON schema.
+
+    THIS USED TO BE A HEURISTIC AND THE HEURISTIC WAS WRONG. It read "string type with a
+    `pattern` and no `date-time` format" as `Decimal`, which is true of `Decimal`'s
+    serialization schema and equally true of ANY string field carrying a
+    `Field(pattern=…)`. The first such field — `webhook_base_url`, whose pattern now
+    requires an `http(s)://` scheme — rendered in the console as a money editor. The
+    right question is what the field IS, and the annotation answers it exactly.
+
+    `Decimal | None` is unwrapped because an optional money field is still money.
+    """
+    annotation = Settings.model_fields[field].annotation
+    return Decimal in {annotation, *get_args(annotation)}
+
+
 def _kind_of(field: str) -> tuple[ValueKind, tuple[str, ...]]:
     """How the console should render this field, from its annotation.
 
@@ -395,18 +664,17 @@ def _kind_of(field: str) -> tuple[ValueKind, tuple[str, ...]]:
     editor table is a second list, and the first field somebody adds without touching it
     renders as a text box that stores a string into an integer.
     """
+    # Money first, and from the type: it must stay a string end to end (hard rule 7),
+    # so it is its own kind rather than a number the browser could round.
+    if _is_decimal(field):
+        return "decimal", ()
     schema = _adapter(field).json_schema(mode="serialization")
     # `str | None` produces an anyOf; the interesting half is the non-null branch.
     variants = [v for v in schema.get("anyOf", [schema]) if v.get("type") != "null"]
     head = variants[0] if variants else schema
     if "enum" in head:
         return "enum", tuple(str(v) for v in head["enum"])
-    kind = str(head.get("type", "string"))
-    # A `Decimal` serializes as a string with a numeric pattern; it is money and must
-    # stay exact, so it is its own kind rather than a number the browser could round.
-    if kind == "string" and "pattern" in head and head.get("format") != "date-time":
-        return "decimal", ()
-    return kind, ()
+    return str(head.get("type", "string")), ()
 
 
 # --- reading the store --------------------------------------------------------
@@ -655,6 +923,9 @@ class StoredRow:
     updated_by: str | None
     updated_at: str | None
     note: str | None
+    #: The row's per-key revision, which is what an `If-Match` is compared against.
+    #: See the migration for why it is a global sequence rather than a per-row counter.
+    revision: int = 0
 
 
 def describe(
@@ -695,8 +966,12 @@ def describe(
         # field here, so the two are not the same fact.
         default = None if info.is_required() else info.get_default(call_default_factory=True)
         kind, options = _kind_of(key)
-        stored = provenance.get(key) if source == "db" else None
-        restart = APPLIES_ON_RESTART.get(key)
+        # Provenance is read for any key that HAS a row, not only for `source == "db"`:
+        # an env-shadowed key or one whose stored value failed re-validation still has a
+        # row, and its `etag` is what a conditional write has to match. Reporting `"0"`
+        # for a key that does have a row would make every write to it fail forever.
+        stored = provenance.get(key)
+        rule = applies_rule(key)
         fields.append(
             ConfigField(
                 key=key,
@@ -707,26 +982,40 @@ def describe(
                 default=(None if default is None else adapter.dump_python(default, mode="json")),
                 kind=kind,
                 options=options,
-                editable=not from_env,
-                applies="on_restart" if restart else "live",
-                caveat=restart or APPLIES_WITH_FOLLOW_UP.get(key),
-                updated_by=stored.updated_by if stored else None,
-                updated_at=stored.updated_at if stored else None,
-                note=stored.note if stored else None,
+                # Three independent reasons a field cannot be edited here, and the
+                # console renders the reason from `applies`/`caveat`: the environment
+                # already decides it, the store could never deliver it, or this build
+                # does not know when a change would take effect.
+                editable=not from_env and rule.applies not in {ENV_ONLY, UNCLASSIFIED},
+                applies=rule.applies,
+                caveat=rule.caveat,
+                etag=etag_for(stored.revision if stored else 0),
+                updated_by=stored.updated_by if stored and source == "db" else None,
+                updated_at=stored.updated_at if stored and source == "db" else None,
+                note=stored.note if stored and source == "db" else None,
             )
         )
     return fields
 
 
 __all__ = [
-    "APPLIES_ON_RESTART",
-    "APPLIES_WITH_FOLLOW_UP",
+    "APPLIES_VALUES",
+    "ENV_ONLY",
+    "FIELD_APPLIES",
+    "LIVE",
+    "NEEDS_REPUBLISH",
+    "ON_RESTART",
+    "UNCLASSIFIED",
+    "AppliesRule",
     "ConfigField",
     "ConfigSnapshot",
     "StoredRow",
+    "applies_rule",
     "describe",
+    "etag_for",
     "is_secret_key",
     "managed_fields",
+    "parse_etag",
     "project",
     "publish_version",
     "refresh",

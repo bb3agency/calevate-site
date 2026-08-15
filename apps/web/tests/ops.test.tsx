@@ -144,6 +144,8 @@ const SECRETS_FIXTURE: SecretsList = {
       created_by: "Ops",
       shadowed_by_env: false,
       testable: true,
+      applies: "on_restart",
+      caveat: "the engine adapter captures this key at construction (D-101)",
     },
     {
       key: "sarvam_api_key",
@@ -157,6 +159,8 @@ const SECRETS_FIXTURE: SecretsList = {
       created_by: null,
       shadowed_by_env: true,
       testable: true,
+      applies: "live",
+      caveat: null,
     },
   ],
 };
@@ -202,6 +206,10 @@ function configField(over: Partial<ConfigField> = {}): ConfigField {
 
 function configList(over: Partial<ConfigList> = {}): ConfigList {
   return {
+    // Required since D-101: the six keys that can only change with an SSH session and a
+    // restart. Their ABSENCE used to read identically to "this build has no such
+    // setting", which is why the server states them rather than the console inferring.
+    bootstrap: [],
     fields: [
       configField(),
       configField({

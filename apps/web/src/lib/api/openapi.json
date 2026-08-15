@@ -616,6 +616,36 @@
         "title": "BlockerOut",
         "type": "object"
       },
+      "BootstrapKeyOut": {
+        "additionalProperties": false,
+        "description": "A \u00a74 bootstrap key: real, required, and changeable ONLY on the VPS.\n\nTHESE ARE NOT IN `fields` AND NEVER WILL BE, and that absence was the problem. An\noperator looking for `APP_ENV` on this screen found nothing at all, which reads\nidentically to \"this build does not have that setting\" \u2014 so the one class of key that\ngenuinely does need an SSH session and a restart was the one the console said nothing\nabout. It says it here instead, with the reason, beside the keys it CAN change.\n\nNO VALUE, EVER. Two of the six are `PLATFORM_KEK` and `PLATFORM_KEK_RETIRED` \u2014 the\nkeys that open the credential store \u2014 and one is `DATABASE_URL`, which carries a\npassword. `configured` is presence and nothing more, which is the only fact an\noperator needs from a screen (hard rule 6 applies to a response body exactly as it\napplies to a log line).",
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "env_var": {
+            "title": "Env Var",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "env_var",
+          "reason",
+          "configured"
+        ],
+        "title": "BootstrapKeyOut",
+        "type": "object"
+      },
       "Branch": {
         "additionalProperties": false,
         "properties": {
@@ -2018,6 +2048,10 @@
             "title": "Env Var",
             "type": "string"
           },
+          "etag": {
+            "title": "Etag",
+            "type": "string"
+          },
           "has_default": {
             "title": "Has Default",
             "type": "boolean"
@@ -2107,6 +2141,7 @@
           "editable",
           "applies",
           "caveat",
+          "etag",
           "updated_by",
           "updated_at",
           "note"
@@ -2118,6 +2153,13 @@
         "additionalProperties": false,
         "description": "The whole managed surface, plus how much this answer can be trusted.\n\n`config_version` and `stale` ride along for the \u00a752 reason: a console that showed\nvalues without saying whether the process could still reach the store would render a\nsnapshot from an hour ago identically to a live one.",
         "properties": {
+          "bootstrap": {
+            "items": {
+              "$ref": "#/components/schemas/BootstrapKeyOut"
+            },
+            "title": "Bootstrap",
+            "type": "array"
+          },
           "config_changed_at": {
             "anyOf": [
               {
@@ -2154,7 +2196,8 @@
           "config_version",
           "stale",
           "never_loaded",
-          "config_changed_at"
+          "config_changed_at",
+          "bootstrap"
         ],
         "title": "ConfigOut",
         "type": "object"
@@ -2204,6 +2247,10 @@
             "title": "Config Version",
             "type": "integer"
           },
+          "etag": {
+            "title": "Etag",
+            "type": "string"
+          },
           "field": {
             "$ref": "#/components/schemas/ConfigFieldOut"
           },
@@ -2230,13 +2277,19 @@
               }
             ],
             "title": "Previous"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
           }
         },
         "required": [
           "key",
           "previous",
           "field",
-          "config_version"
+          "config_version",
+          "recorded",
+          "etag"
         ],
         "title": "ConfigWriteOut",
         "type": "object"
@@ -9356,6 +9409,21 @@
         "additionalProperties": false,
         "description": "One credential, as much as anyone may ever see of it.\n\nNO VALUE FIELD, ON ANY ROUTE, EVER. `last_four` is the only fragment that exists, and\n`core/envelope.last_four` masks it entirely below eight characters.\n\nNo field carries a default: the console must not have to write `installed ?? true`\nfor a fact that decides whether it offers to rotate or to install.",
         "properties": {
+          "applies": {
+            "title": "Applies",
+            "type": "string"
+          },
+          "caveat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caveat"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -9426,7 +9494,9 @@
           "created_at",
           "created_by",
           "shadowed_by_env",
-          "testable"
+          "testable",
+          "applies",
+          "caveat"
         ],
         "title": "SecretOut",
         "type": "object"
@@ -18602,6 +18672,22 @@
               ],
               "title": "X-Confirm-Action"
             }
+          },
+          {
+            "in": "header",
+            "name": "if-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
@@ -18657,6 +18743,22 @@
                 }
               ],
               "title": "X-Confirm-Action"
+            }
+          },
+          {
+            "in": "header",
+            "name": "if-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],

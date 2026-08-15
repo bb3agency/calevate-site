@@ -98,6 +98,19 @@ class SecretOut(BaseModel):
     #: True when this build can ask the vendor whether a candidate works. False means
     #: `/test` will answer `no_probe` rather than a green tick.
     testable: bool
+    #: WHEN A ROTATION ACTUALLY REACHES THE CODE THAT USES THIS CREDENTIAL.
+    #:
+    #: `live` for most, and `on_restart` for the ones a process captures once —
+    #: `bolna_api_key` is the important one: the adapter copies it when `get_engine()`
+    #: builds it and that instance is cached for the life of the process, so a key
+    #: rotated here does NOT reach the code placing calls until every process restarts.
+    #: Without this field the Secrets panel implied the opposite, and the symptom of the
+    #: gap — the vendor rejecting our calls — sends an operator to the vendor's dashboard
+    #: rather than to a restart. Same vocabulary and same source as the config panel's
+    #: `applies` (`core/platform_config.FIELD_APPLIES`).
+    applies: str
+    #: What the operator must still do after rotating, or null. Non-null unless `live`.
+    caveat: str | None
 
 
 class SecretsOut(BaseModel):
@@ -175,6 +188,8 @@ def _out(record: SecretRecord, *, testable: bool) -> SecretOut:
         created_by=record.created_by,
         shadowed_by_env=record.shadowed_by_env,
         testable=testable,
+        applies=record.applies,
+        caveat=record.caveat,
     )
 
 
