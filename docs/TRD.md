@@ -200,6 +200,12 @@ class VoiceEngine(Protocol):
         # as TEXT plus `*_readable` verdicts, so "the field was absent" and "the value is
         # empty" stay different answers. An unknown ref RAISES — a snapshot for an agent
         # nobody created is a conclusion drawn from nothing that looks like a measurement
+    async def delete_agent(self, ref: EngineAgentRef) -> None   # the compensation half,
+        # without which an orphan is detectable and un-fixable (D-123). IDEMPOTENT BY
+        # CONTRACT: the caller is a compensation path, i.e. the one most likely to be
+        # retried, so a ref the engine does not hold is the postcondition already
+        # satisfied — raising there DLQs a job whose work is done (RFC 9110 §9.2.2 says
+        # the same of DELETE). Deliberately NOT symmetric with detach_kb, which raises
     async def start_outbound_call(self, ref, to: E164, ctx: CallContext) -> CallHandle
     async def end_call(self, call_id: str) -> None
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None
@@ -229,7 +235,9 @@ class VoiceEngine(Protocol):
 Normalized models (ours, stored): CallEvent{call_id, tenant_id, agent_id, direction,
 status, started_at, ended_at, from, to, recording_url, cost_raw, engine="bolna",
 engine_payload_ref}; TranscriptTurn{call_id, idx, speaker, text, start_ms, end_ms, lang}.
-Raw vendor payloads are archived to object storage for debugging but NEVER read by app code.
+Raw vendor payloads are archived to object storage for debugging but NEVER read by app code —
+under `engine-payloads/{tenant}/{call}/…` so a DPDP erasure can enumerate one subject's copies
+(D-126); the reference is committed before the object is written, and nothing archives yet.
 Adapter conformance test suite runs against the `bolna` and `fake` adapters in CI
 (mocked) — the second adapter exists to keep the first one honest.
 
@@ -248,13 +256,31 @@ it (`apps/api/agents/verification.py`), before any column records the publish:
   are different facts (the `AgentSnapshot.*_readable` tri-state) and only one is evidence.
 - **drift the publish path cannot see** — an agent edited in the vendor's own dashboard,
   or a publish that failed on our side after the vendor committed — is answered by
-  `GET /v1/agents/{agent_id}/engine-state`, an on-demand read of THEIRS. A read: it
-  reports and re-publishes nothing.
+  `GET /v1/agents/{agent_id}/engine-state` on demand, and by `sweep_engine_drift`, an ARQ
+  cron at :07/:37 that walks the 25 STALEST live agents through the same read (D-123).
+  Both are READS: they report and re-publish nothing, because overwriting a drift
+  overwrites whatever the vendor's console was used to change, plausibly the correct
+  emergency edit made while ours was down. The sweep's verdict lands on
+  `engine_agent_routes.drift_state` (migration d4b8e1c73f05 — there rather than on
+  `agents`, which is FORCE-RLS'd and so cannot serve a global staleness-ordered queue or a
+  cross-tenant ops summary) and is published on `GET /v1/ops/platform` as `engine_drift`.
+  A PROVEN mismatch alerts; `unreadable`/`unreachable` are counted separately and do not,
+  because an alarm that fires when the vendor is briefly slow is one nobody reads.
+- **an orphan is now COMPENSATED, not just logged.** A create whose recording fails leaves
+  a vendor object we are billed for and cannot address; `agents/service.py::_reclaim_orphan`
+  calls `delete_agent` inline before the publish raises — inline rather than through the
+  outbox because the ref lives only in that frame and an outbox row would roll back with
+  the transaction that is failing. It stays best-effort: a delete that fails logs the ref,
+  which is where this path was before. A human's soft-delete deliberately does NOT reach
+  `delete_agent` — Bolna's delete destroys the agent's executions, which are a retention
+  obligation (SEC-COMP §4).
 
-Two properties here genuinely need a vendor account and are recorded as equality-asserted
-entries in `tests/publish_known_gaps_test.py`: whether `POST /v2/agent` honours an
-idempotency key (without one, a create whose response is lost leaves an orphan we are
-billed for), and whether a `delete_agent` exists to compensate one. Neither is guessed.
+One property here genuinely needs a vendor account and is the last equality-asserted entry
+in `tests/publish_known_gaps_test.py`: whether `POST /v2/agent` honours an idempotency key.
+Without one, a create whose RESPONSE is lost makes a second vendor object whose id we never
+saw — so there is nothing for the compensator above to name. It is not guessed. What a
+REPEAT `delete_agent` answers is the smaller unknown that remains, and it is a MARKED
+ASSUMPTION in both real adapters (assumed 404) measured by OPERATIONS §2 gate 2.
 
 Bolna integration surface [deep-research-verified Aug 2026 against docs.bolna.ai + the
 bolna-ai/bolna OSS repo; items marked (pilot) need live confirmation on the pilot

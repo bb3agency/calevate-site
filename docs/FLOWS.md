@@ -101,8 +101,9 @@ Custom domain `accounts.calevate.tech` so the flow is ours end to end.
 
 **Three ways into the client realm (D-34 — both motions supported):**
 1. **Self-serve signup** — email/password or **Google OAuth** → Clerk creates the user →
-   our webhook mirrors it into `users` → org-create step (name + slug, validated against
-   `reserved_slugs`) → `organizations` row with `plan_tier='self_serve'` → owner membership.
+   the `users` mirror row appears (webhook, or reconciled on the spot — see below) →
+   org-create step (name + slug, validated against `reserved_slugs`) → `organizations`
+   row with `plan_tier='self_serve'` → owner membership.
 2. **Admin invite link** — admin console issues an invitation for an existing or new org;
    accept path: token hash lookup, expiry + `used_at` check, **burn on success**; resend
    invalidates the prior token. This is how MANAGED clients (and extra staff on any org)
@@ -116,9 +117,19 @@ Custom domain `accounts.calevate.tech` so the flow is ours end to end.
 `clerk_webhooks.py` acknowledges `organization*` events and ignores them rather than
 inventing a tenant from an upstream one. Tenant birth is therefore a single Postgres
 transaction (org + retention policies + agent + extraction schema + tier + owner
-membership + audit row), not a two-system distributed transaction — the only cross-system
-ordering left is that the `user.created` mirror must land before an invite can be
-accepted or a self-serve org created.
+membership + audit row), not a two-system distributed transaction.
+
+**AND THERE IS NO CROSS-SYSTEM ORDERING LEFT EITHER.** This used to say that the
+`user.created` mirror must land before an invite can be accepted or a self-serve org
+created — which was true, and was a defect rather than a design: Clerk mints a session
+the instant the account exists and returns the browser to us, so both of those steps
+routinely arrive first and both answered 401, the one status a browser treats as "sign in
+again". Clerk's own guidance is that webhook delivery is eventually consistent and must
+not gate a synchronous onboarding flow. `core/clerk_identity.py` therefore RECONCILES the
+mirror row from Clerk's Backend API when a verified token names a subject we have not seen
+(never from the token's claims — `users.email` binds an invitation to its recipient), and
+falls back to a transient, retryable refusal only when Clerk itself cannot be reached. The
+webhook remains the steady-state feed and the only source of `user.deleted`. See D-124.
 
 **Clerk ↔ our DB (D-37):** Clerk authenticates; it does **not** own our data model.
 Webhooks (`user.created/updated/deleted`, `organizationMembership.*`) mirror identities
@@ -340,10 +351,22 @@ ported per client wish.
   dial gate refuses it as `account_closed`, and the lifecycle route's `from_statuses` has
   no exit. A soft-deleted client is a 404 on that route rather than a 409 — it is not a
   client any more, and the directory route has always said so.
-- **`organizations.deleted_at` still has no writer.** Every reader of it is correct and
-  tested; nothing in `apps/` sets it, because tenant-level erasure has no execution path
-  (`deletion_requests` is per data subject). Recorded with its remedy in
-  `tests/tenant_birth_known_gaps_test.py`.
+- **`organizations.deleted_at` is written by the tenant erasure, and by nothing else**
+  (D-122). `POST /v1/admin/tenants/{id}/erasure` — admin realm, superadmin, step-up
+  confirmed and bound to the tenant — files a `tenant_erasure_requests` row and queues
+  `execute_tenant_erasure` in one transaction; the worker strips every call, turn,
+  extraction, lead and delivered CRM body the tenant holds, destroys the recording bytes
+  past the TRAI floor and schedules the rest in `recording_erasure_holds`, and marks the
+  organisation deleted LAST, in the same transaction as the certificate. The account must
+  already be `churned`: `deleted_at IS NOT NULL => status = 'churned'` is what lets the
+  readers above filter on different columns and still agree, and
+  `ck_organizations_deleted_implies_churned` is what holds it. It is NOT a
+  `deletion_requests` row — that table is one data principal's DPDP §12 right, keyed by a
+  phone number and surfaced in the client realm; this is the client organisation's
+  instruction under DPDP §8, covering every subject at once. What it does not erase is
+  stated in the certificate rather than hidden: the append-only ledgers, DNC entries, the
+  knowledge base, the client's own users and memberships, and engine-side copies
+  (`compliance/tenant_erasure.TENANT_ERASURE_LIMITATIONS`).
 
 ## 10. Number Provisioning & DLT Roles (reference)
 

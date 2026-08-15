@@ -645,6 +645,46 @@ class VoiceEngine(Protocol):
         """
         ...
 
+    async def delete_agent(self, ref: EngineAgentRef) -> None:
+        """Remove the agent from the engine. **IDEMPOTENT BY CONTRACT.**
+
+        THE HOLE THIS CLOSES. `create_agent` is a side effect at a third party and the
+        write of `engine_agent_ref` is a side effect in our database, with no transaction
+        spanning the two. D-121 closed the common CAUSE of a failure in that window (the
+        create/create race, with a row lock) and could not clean up after the ones that
+        remain: a read-back that proves `not_applied` on a create, and a soft-delete
+        landing mid-publish, both roll OUR half back and leave THEIRS standing. Until
+        this method existed the only remedy was a log line naming a ref and a human in a
+        vendor dashboard, which is a remedy the way a note on the fridge is a fire alarm.
+
+        **IDEMPOTENT, and that is the whole reason it is stated here rather than left to
+        each adapter.** The caller is a compensation path — the one place in the system
+        that runs precisely because something already failed, and therefore the one most
+        likely to be retried. A ref the engine does not hold is this method's POST-
+        CONDITION already satisfied, not an error: raising there would DLQ a compensation
+        job whose work is done, and leave an operator hunting an orphan that no longer
+        exists. RFC 9110 §9.2.2 gives the same answer for HTTP DELETE, and an adapter
+        whose vendor disagrees is the adapter's problem to absorb, not the caller's.
+
+        Deliberately NOT symmetric with `detach_kb`, which RAISES on a handle the engine
+        does not hold. The asymmetry is the difference in what the caller does next:
+        `detach_kb`'s caller is about to publish a replacement and is entitled to know
+        whether the old text is really gone, while this method's caller wants the object
+        gone and has no next step that depends on who removed it.
+
+        IT MUST BE REAL. An adapter that accepts the call and removes nothing turns the
+        compensation path into a log line with extra steps, so the conformance suite
+        observes the removal through `get_agent` rather than trusting the call.
+
+        WHAT IT COSTS AT THE VENDOR IS NOT THIS CONTRACT'S TO PROMISE. Bolna documents
+        that deleting an agent destroys all of its batches and executions; whether every
+        engine does is a fact about each engine and is recorded in each adapter. That is
+        why nothing in this repo calls it on an agent a human soft-deleted — the only
+        caller is the orphan compensator, whose subject is an agent created seconds ago
+        that has never taken a call.
+        """
+        ...
+
     async def start_outbound_call(
         self, ref: EngineAgentRef, to: E164, ctx: CallContext
     ) -> CallHandle: ...

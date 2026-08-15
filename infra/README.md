@@ -28,10 +28,17 @@ The retention promise in the DPA and the erasure promise on the certificate were
 partly unkept — and, worse, the certificate's limitation text described a 90-day floor as
 if a mechanism were enforcing it.
 
-`engine-payloads/` is the quieter half of the same hole. Raw vendor payloads are written
-by `archive_payload()`, they contain phone numbers and transcript text, **no
-`retention_policies` category covers them** (the enum is
-`recording|transcript|lead|consent_log`), and nothing in `apps/` has ever deleted one.
+`engine-payloads/` is the quieter half of the same hole, and it is now half closed.
+Raw vendor payloads are written by `archive_payload()` and they contain phone numbers and
+transcript text. **No `retention_policies` category covers them** (the enum is
+`recording|transcript|lead|consent_log`), so this bucket rule remains their only clock and
+the number below is still a decision a human owes (§5, item 5). What changed in D-126 is the
+other half: the key was `engine-payloads/{engine}/{date}/{execution_id}.json`, naming
+neither a tenant nor a subject, so no DPDP erasure could ever enumerate one person's
+copies. It is now `engine-payloads/{tenant}/{call}/…` and
+`retention._erase_engine_payloads` destroys them on both erasure paths. **The prefix this
+rule is scoped to is unchanged**, so nothing in this directory needed editing for it —
+which is the property `tests/object_lifecycle_test.py` asserts rather than assumes.
 
 ## 2. What is here
 
@@ -73,7 +80,7 @@ This module chooses too high, on purpose, and says so:
 | Prefix | Days | What it is |
 |---|---|---|
 | `recordings/` | 2555 (7y) | A **ceiling**, set above every retention period the platform currently seeds (the longest is `consent_log` at 2555d), so the rule can never be the reason an object disappears before that tenant's own policy allows. It bounds infinite accumulation. It does not implement retention. |
-| `engine-payloads/` | 90 | Debug artifacts with no retention category and no legal retention requirement, carrying phone numbers and transcript text. **This is a new retention decision** and needs a decision-log entry (ROADMAP §6) — it is not implied by any existing policy row. |
+| `engine-payloads/` | 90 | Debug artifacts with no retention category and no legal retention requirement, carrying phone numbers and transcript text. A DPDP erasure reaches them by `{tenant}/{call}` prefix since D-126; expiry for everyone who did NOT file one is still only this rule. **This is a new retention decision** and needs a decision-log entry (ROADMAP §6) — it is not implied by any existing policy row. |
 | (all) | abort MPU after 7d | Cost hygiene. No compliance content. |
 
 **Per-tenant precision, if it is wanted, belongs in `apps/`, not here.** The key layout

@@ -2,10 +2,12 @@
 
 Every entry below was found while taking one subject's data through erasure and retention
 end to end, is real, and could not be closed from inside that slice — each one names the
-specific reason and the specific act that closes it. Two are waiting on a person outside
-this repository (a founder's commitment, counsel's reading of a regulation); one is
-waiting on a two-step column deprecation that must not be started in the same change that
-found it.
+specific reason and the specific act that closes it. Both are waiting on a person outside
+this repository (a founder's commitment, counsel's reading of a regulation), which is the
+only kind of entry that legitimately survives here: an engineering gap is closed in the
+session that finds it or in the next one. The third entry — the archived vendor payloads
+that no erasure could enumerate — was closed by code in D-126 and deleted, which is what
+the equality below exists to force.
 
 **THE ASSERTION IS AN EQUALITY**, in the shape `tests/reliability_known_gaps_test.py`
 established. Each key has a probe that answers "is this still true?" and the test asserts
@@ -18,10 +20,8 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from uuid import uuid4
 
 from apps.api.compliance.deletion import ERASURE_EXCEPTIONS, ERASURE_LIMITATIONS
-from apps.workers import storage
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SEC_COMP = REPO_ROOT / "docs" / "SECURITY-COMPLIANCE.md"
@@ -69,24 +69,6 @@ KNOWN_OPEN_DPDP_GAPS: dict[str, str] = {
         "clients hand to data principals is a commitment, not a code change, which is "
         "why §4 already records it as reserved."
     ),
-    "archived_vendor_payloads_would_be_unerasable_if_anything_wrote_them": (
-        "`storage.archive_payload` stores the RAW vendor payload — which carries the "
-        "phone number and the transcript — under `engine-payloads/{engine}/{date}/"
-        "{execution_id}.json`. That key names no tenant and no subject, so a DPDP erasure "
-        "cannot enumerate it the way `_erase_delivery_bodies` enumerates a subject prefix, "
-        "and no retention policy category reaches it either. Today nothing is at risk: "
-        "the function has NO CALLER and `calls.engine_payload_ref` is never written, so "
-        "the store is empty. It is recorded because it is a loaded gun — the next slice "
-        "that wires the debug archive inherits an unerasable personal-data store and "
-        "nothing would tell it so. CLOSED BY: either deleting `archive_payload`, "
-        "`payload_key` and `calls.engine_payload_ref` in the two-step hard rule 8 requires "
-        "(stop writing, then drop in a later release — and the column is already never "
-        "written, so step one is done), or giving the key a `{tenant}/{call}` prefix and "
-        "an arm in `_erase_recordings`' shape BEFORE a caller exists. Both are somebody's "
-        "next hour; neither belongs in the change that found it, because the delete "
-        "touches `infra/object-lifecycle/policy.json`'s prefix rule and the migration "
-        "head is contended."
-    ),
 }
 
 
@@ -104,23 +86,11 @@ async def _no_limitation_mentions_backups() -> bool:
     return "backup" not in said and "restore" not in said
 
 
-async def _payload_key_names_no_subject() -> bool:
-    """The archived-payload key carries neither a tenant nor a call, so no erasure can
-    enumerate it. Asked of the FUNCTION rather than of a source grep: what matters is the
-    shape of the key it produces, not how the f-string happens to be written."""
-    key = storage.payload_key(engine="fake", execution_id=str(uuid4()))
-    tenant, call = str(uuid4()), str(uuid4())
-    return tenant not in key and call not in key and "{" not in key
-
-
 #: key → the probe that answers "is this gap still real?". Every probe is async so the
 #: assertion below reads as one loop rather than as two kinds of entry.
 PROBES: dict[str, Callable[[], Awaitable[bool]]] = {
     "recording_floor_cites_an_authority_that_may_not_impose_it": _floor_is_attributed_to_trai,
     "the_erasure_notice_does_not_mention_backups": _no_limitation_mentions_backups,
-    "archived_vendor_payloads_would_be_unerasable_if_anything_wrote_them": (
-        _payload_key_names_no_subject
-    ),
 }
 
 

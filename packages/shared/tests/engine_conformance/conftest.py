@@ -160,6 +160,20 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
             if stored is None:
                 return httpx.Response(404, json={"error": "unknown agent"})
             return httpx.Response(200, json={"agent_id": agent_id, "data": stored})
+        if path.startswith("/v2/agent/") and request.method == "DELETE":
+            # STATEFUL, for the reason the GET above is: a stub that answered every
+            # DELETE with 200 would let an adapter that removes nothing pass the delete
+            # clause, which is the one defect that clause exists to catch.
+            #
+            # THE 404 ON A REPEAT IS THIS SUITE'S ASSUMPTION AS MUCH AS THE ADAPTER'S,
+            # and `BolnaEngine.delete_agent` says so in the marked-assumption block: the
+            # vendor documents 200 and 400 and nothing about a second delete. Encoding
+            # 404 here proves our HANDLING of a 404 and proves nothing about Bolna —
+            # exactly the standing every shape in this stub has (see `_cartesia_handler`).
+            agent_id = path.rsplit("/", 1)[-1]
+            if agents.pop(agent_id, None) is None:
+                return httpx.Response(404, json={"error": "unknown agent"})
+            return httpx.Response(200, json={"message": "success", "state": "deleted"})
         if path == "/call" and request.method == "POST":
             body = json.loads(request.content or b"{}")
             assert body["recipient_phone_number"].startswith("+"), "E.164 only"
@@ -268,6 +282,14 @@ def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
             if stored is None:
                 return httpx.Response(404, json={"error": "unknown agent"})
             return httpx.Response(200, json={"agent": {**stored, "id": agent_id}})
+        if path.startswith("/agents/") and path.count("/") == 2 and method == "DELETE":
+            # Stateful, and the documents store goes with the agent: an agent object that
+            # survived only as a bag of documents would let `get_agent` keep answering.
+            agent_id = path.rsplit("/", 1)[-1]
+            if agents.pop(agent_id, None) is None:
+                return httpx.Response(404, json={"error": "unknown agent"})
+            documents.pop(agent_id, None)
+            return httpx.Response(200, json={"status": "deleted"})
         if path.endswith("/documents") and method == "POST":
             agent_id = path.split("/")[2]
             store = documents.setdefault(agent_id, {})

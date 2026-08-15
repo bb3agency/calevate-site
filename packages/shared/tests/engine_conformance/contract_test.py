@@ -259,6 +259,70 @@ async def test_reading_an_agent_the_engine_never_created_is_reported(
     )
 
 
+async def test_delete_agent_removes_exactly_the_agent_it_names_and_is_idempotent(
+    engine: VoiceEngine,
+) -> None:
+    """THE CLAUSE THAT MAKES AN ORPHAN COMPENSABLE (D-121's second gap).
+
+    `create_agent` is a side effect at a third party and our `engine_agent_ref` write is a
+    side effect in our database, with no transaction over both. Until `delete_agent`
+    existed, every failure in that window left a vendor-side object we were billed for and
+    could not address, and the only remedy on the books was a log line and a human in a
+    dashboard. `agents/service.py::_reclaim_orphan` is the caller; this is the clause that
+    stops it being ceremony.
+
+    THREE PROPERTIES, and each of them is a way an adapter can be wrong:
+
+    1. **It really removes.** Observed through `get_agent` rather than through the delete's
+       own return value, for `detach_kb`'s reason: an adapter that accepts the call and
+       does nothing satisfies a `assert await engine.delete_agent(ref) is None` perfectly.
+    2. **It removes the one it NAMES.** Two agents are created and one is deleted. A
+       delete that took the account down with it, or that addressed the last-written agent
+       instead of the argument, passes property 1 alone — and the compensator runs while a
+       correctly published agent for the same tenant may exist.
+    3. **A second delete is not an error.** The Protocol makes this idempotent because the
+       caller is a compensation path, i.e. the one most likely to be retried; raising here
+       DLQs a job whose work is done. For the two real adapters this exercises the
+       `absent_is_success` branch against a stub 404 — and BOTH adapters' `delete_agent`
+       carry a marked assumption that a vendor answers 404 rather than 400 to a repeat,
+       which no stub can settle (OPERATIONS §2 gate 2).
+    """
+    kept = await engine.create_agent(_agent_config(engine, name="Kept receptionist"))
+    doomed = await engine.create_agent(
+        _agent_config(
+            engine,
+            name="Orphaned receptionist",
+            agent_id="0199a0b0-0000-7000-8000-0000000000de",
+        )
+    )
+    assert kept != doomed, (
+        "this engine minted one ref for two differently-named agents, so the clause below "
+        "cannot tell 'deleted the right one' from 'deleted the only one'"
+    )
+
+    await engine.delete_agent(doomed)
+
+    gone: Exception | None = None
+    try:
+        await engine.get_agent(doomed)
+    except Exception as exc:  # adapters raise our ProblemError; the type is theirs
+        gone = exc
+    assert gone is not None, (
+        "the agent is still readable after delete_agent — an orphan this adapter reports "
+        "as compensated is still costing money at the vendor"
+    )
+
+    # Property 2: the blast radius was one object.
+    assert (await engine.get_agent(kept)).engine_agent_ref == kept, (
+        "delete_agent took a DIFFERENT agent with it — the compensator runs beside live "
+        "agents belonging to the same account"
+    )
+
+    # Property 3: the postcondition is already satisfied, so this must not raise.
+    await engine.delete_agent(doomed)
+    await engine.delete_agent("agent_this_engine_never_created")
+
+
 async def test_agent_read_back_answers_or_declines_the_kb_reference_question(
     engine: VoiceEngine,
 ) -> None:

@@ -231,6 +231,20 @@ class FakeEngine:
         self._assert_speech_is_ours(cfg)
         self._agents[ref] = cfg
 
+    async def delete_agent(self, ref: EngineAgentRef) -> None:
+        """Forget the agent AND everything hanging off it — idempotent, per the contract.
+
+        `_kb` is dropped in the same act because the Protocol's "what it costs at the
+        vendor" note is a real property here too: a fake that removed the agent and kept
+        its attached sources would leave `list_kb(ref)` answering about an agent that no
+        longer exists, which is the phantom `get_agent` raises to avoid.
+
+        `pop(..., None)` rather than `del`: deleting a ref this engine never held is the
+        postcondition already satisfied, and the conformance suite deletes twice.
+        """
+        self._agents.pop(ref, None)
+        self._kb.pop(ref, None)
+
     async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
         """Read back what this engine actually HOLDS for `ref` — never what it was last
         handed.

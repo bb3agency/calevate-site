@@ -371,8 +371,20 @@ async def _absorb_leadgen(
     config: IngestConfig,
     notification: meta.LeadNotification,
     received_at: float,
+    payload_hash: str | None = None,
 ) -> Literal["accepted", "duplicate", "refused", "deferred"]:
     """One lead, one transaction — the unit of work Meta actually delivers.
+
+    `payload_hash` is the claim's dedupe digest, and it is `None` for every caller that
+    holds the notification Meta sent — it is then computed from the notification, which
+    is the only correct answer for a live delivery. The re-drive is the one caller that
+    does NOT hold it: `webhook_inbox_events` keeps the `leadgen_id` and the digest and
+    not the notification, so a `LeadNotification` rebuilt from a row carries the id and
+    no provenance, and hashing THAT would present a different digest for the same key —
+    which `claim_inbox_event` correctly reads as a doctored replay and refuses with
+    `webhook_payload_mismatch`. Passing the row's own digest re-claims the row the
+    refusal is recorded on, which is the entire point of re-driving rather than
+    inserting a second one.
 
     One transaction PER NOTIFICATION rather than per delivery: Meta batches, and one
     lead whose number will not normalize must not roll back the two beside it that were
@@ -402,7 +414,9 @@ async def _absorb_leadgen(
             # as numbers and a retry that quoted one as a string would otherwise look
             # like a doctored replay and raise `webhook_payload_mismatch` at a genuine
             # sender.
-            payload_hash=body_hash(notification.provenance()),
+            payload_hash=payload_hash
+            if payload_hash is not None
+            else body_hash(notification.provenance()),
             event_name=meta.LEADGEN_FIELD,
         )
         if claim.state == "duplicate":
@@ -659,9 +673,28 @@ class IngestActivityItemOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source: str
+    # WHICH lead source this delivery arrived at. The screen needs it to offer the
+    # re-drive against the right one, and without it the table could name the KIND of
+    # source ("meta_lead_ads") for a client who has three of them and no way to say which.
+    lead_source_id: UUID
+    # The sender's own identity for this delivery. For Meta it is the `leadgen_id` — the
+    # id Meta's own Ads Manager and support both speak, and the one thing that stays
+    # durable about a lead we could not read. For the shared-secret path it is our body
+    # digest, which is the honest answer there: a form vendor gives us no id to keep.
+    #
+    # NOT a log line and not personal data: a Meta object id belongs to the tenant reading
+    # it. Hard rule 6's concern is the redactor, which masks a 15-digit id as though it
+    # were a number (`_record_refusal` says so) — that is an argument about logs, and a
+    # field that always read `[phone]` is exactly why the id is served from here instead.
+    event_key: str
     # `webhook_inbox_events.event_name` is a nullable column: a row written by a
     # provider that sends no event name has none, and inventing "" would be a lie.
     event: str | None
+    # Whether `POST /v1/lead-sources/{lead_source_id}/meta/redrive` would act on this row.
+    # A BOOLEAN rather than leaving a screen to compare `error` against a reason list it
+    # would then hold a stale copy of: the server owns `meta.REDRIVABLE_REASONS`, and a
+    # console that guessed would offer a button for a refusal the route will not touch.
+    recoverable: bool
     # The three words the SURFACES spec uses, not our internal inbox enum.
     outcome: Literal["accepted", "rejected", "processing"]
     # Vendor retries we absorbed without ringing the customer twice.
@@ -704,7 +737,17 @@ async def ingest_activity(
     # BOTH inbox keyspaces for each source. A Meta endpoint's deliveries live under
     # `meta:{id}` (they dedupe on a different unit of work), and leaving them out is
     # how a refusal we recorded on purpose becomes a delivery the client never sees.
-    sources = {f"{prefix}{row[0]}": str(row[1]) for row in hooks for prefix in ("ingest:", "meta:")}
+    #
+    # The provider string is where the lead source's ID lives, so the map carries it
+    # rather than only the source NAME — the re-drive button needs to name one source,
+    # and a client with three Meta sources cannot be asked which "meta_lead_ads" row is
+    # which. The prefix is also what tells a Meta refusal from a shared-secret one, which
+    # is the other half of `recoverable`.
+    sources = {
+        f"{prefix}{row[0]}": (UUID(str(row[0])), str(row[1]), prefix)
+        for row in hooks
+        for prefix in ("ingest:", "meta:")
+    }
     if not sources:
         return IngestActivityOut(items=[])
 
@@ -712,7 +755,7 @@ async def ingest_activity(
         await session.execute(
             text(
                 "SELECT provider, event_name, status, duplicate_count, last_error, created_at, "
-                "updated_at FROM webhook_inbox_events WHERE provider = ANY(:providers) "
+                "updated_at, event_key FROM webhook_inbox_events WHERE provider = ANY(:providers) "
                 "ORDER BY updated_at DESC LIMIT :limit"
             ),
             {"providers": list(sources.keys()), "limit": min(limit, 200)},
@@ -721,7 +764,19 @@ async def ingest_activity(
     return IngestActivityOut(
         items=[
             IngestActivityItemOut(
-                source=sources.get(str(r[0]), "unknown"),
+                source=sources[str(r[0])][1],
+                lead_source_id=sources[str(r[0])][0],
+                event_key=str(r[7]),
+                # `meta.REDRIVABLE_REASONS` is the server's list and the route's SELECT
+                # uses the same one, so this flag and the act it offers cannot disagree.
+                # Restricted to the `meta:` keyspace because there is nothing to re-drive
+                # on the other one: a shared-secret refusal has the whole payload behind
+                # it and nothing to re-fetch.
+                recoverable=(
+                    sources[str(r[0])][2] == "meta:"
+                    and r[2] == "failed"
+                    and str(r[4]) in meta.REDRIVABLE_REASONS
+                ),
                 event=r[1],
                 # The three words the SURFACES spec uses, not our internal enum.
                 outcome=(
@@ -810,6 +865,200 @@ async def meta_setup(
         lead_retrieval_available=capability.available,
         lead_retrieval_reason=capability.reason,
     )
+
+
+class MetaRedriveOut(BaseModel):
+    """One re-drive, accounted for exactly the way a live delivery is.
+
+    The four verdicts are `_absorb_leadgen`'s own, because the re-drive runs
+    `_absorb_leadgen` — a different vocabulary here would be a second answer to "what
+    happened to my lead". `candidates` is what the row selection FOUND, and
+    `candidates != accepted + duplicate + refused + deferred` is the arithmetic that says
+    a row went missing, the same check `MetaLeadgenAckOut` exists to make possible.
+
+    Declared, `extra="forbid"`, and counts only: this handler holds retrieved leads in
+    scope — names and phone numbers — and an untyped return is one careless line away
+    from shipping them (D-71's defect class, and `scripts/check_redaction_exposure.py`
+    can only judge a declared model).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidates: int
+    accepted: int
+    duplicate: int
+    refused: int
+    # Still not readable, but for a reason a retry can fix — Graph timed out, Graph 5xx'd.
+    # The row stays `failed` and re-drivable, so the button can simply be pressed again.
+    deferred: int
+
+
+#: How many recorded refusals one press re-drives. A re-drive is one Graph round trip per
+#: lead, so an unbounded batch is an unbounded request; and the whole population it exists
+#: for is "the leads that arrived while the token was missing", which is a client's ad
+#: spend over a day or two rather than a backlog of millions. A client with more presses
+#: again — the selection is `status = 'failed'`, so the rows this run accepted are no
+#: longer candidates and the next press continues where it stopped.
+MAX_REDRIVE = 100
+
+
+@sources_router.post(
+    "/{webhook_id}/meta/redrive",
+    response_model=MetaRedriveOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Re-run Meta leads we recorded but could not read (SURFACES §2b)",
+    description=(
+        "Re-fetch the leads this source recorded but could not read because no Meta "
+        "Page access token was attached yet. Meta redelivers a notification for about "
+        "36 hours and then unsubscribes the Page; after that the lead is still recorded "
+        "against its Meta lead ID and this is what acts on it. Each lead goes through "
+        "the same checks a live delivery does, including the compliance gate — a lead "
+        "recovered here is not dialled unless a live one would have been."
+    ),
+)
+async def meta_redrive(
+    webhook_id: UUID,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> MetaRedriveOut:
+    """The recorded refusal, re-run through the path production runs.
+
+    **Why this route exists.** A verified leadgen notification we could not read is
+    recorded `failed` against its `leadgen_id`, and `claim_inbox_event` re-claims a failed
+    row by CAS — so attaching a Page access token DOES recover the lead, but only while
+    Meta is still redelivering. Meta gives up after ~36 hours and unsubscribes the Page.
+    After that the `leadgen_id` was durable and unreachable: no route, no job and no
+    screen acted on a recorded refusal. The lead was not lost from the database, it was
+    lost from the product.
+
+    **It calls `_absorb_leadgen` and adds nothing.** The claim, the capability selector,
+    the consent branch (`require_form_consent=True`) and the compliance gate are the ones
+    a live delivery runs, because they are literally the same call. A second absorb path
+    for recovered leads is how a lead recovered on a Tuesday gets dialled under rules the
+    Monday lead was refused by — and hard rule 5's gate is the one rule that must not
+    have two implementations. Nothing here is a bypass and there is no flag for one.
+
+    **`org:manage`, audited, and no `db` session.** The permission matches every other
+    write on this router (`staff` is out, an impersonating operator is refused — D-22).
+    The audit row and the candidate read share ONE transaction that commits BEFORE any
+    Graph call, so the request never holds a pooled connection across somebody else's
+    network — the boundary `_absorb_leadgen`'s docstring draws, applied to its caller.
+    That also means the act is recorded even if the run dies halfway: an audit of a
+    re-drive is an audit of somebody asking for one.
+    """
+    received_at = time.time()
+    assert principal.tenant_id is not None
+    provider = meta.inbox_provider(webhook_id)
+
+    async with tenant_session(principal.tenant_id) as session:
+        # RLS is the tenancy boundary and the ONLY one: `webhook_inbox_events` has no
+        # `tenant_id` (it is keyspaced by provider), so what makes the rows below this
+        # tenant's is that `load_config` resolved `webhook_id` to a row RLS let them see.
+        # A 404 for another tenant's id, indistinguishable from an unknown one.
+        config = await load_config(session, webhook_id)
+        if config is None or config.source != META_SOURCE:
+            raise ProblemError.not_found("Lead source")
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT event_key, payload_hash, last_error FROM webhook_inbox_events "
+                    "WHERE provider = :provider AND status = 'failed' "
+                    "AND last_error = ANY(:reasons) ORDER BY created_at LIMIT :limit"
+                ),
+                {
+                    "provider": provider,
+                    "reasons": list(meta.REDRIVABLE_REASONS),
+                    "limit": MAX_REDRIVE,
+                },
+            )
+        ).all()
+        await write_audit(
+            session,
+            action="lead_source.meta_redriven",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="inbound_webhook",
+            object_id=str(webhook_id),
+            ip=request.client.host if request.client else None,
+            # A COUNT, never the ids. `write_audit`'s summary reaches the log stream, a
+            # `leadgen_id` is 15 digits and phone-shaped, and the redactor cannot tell one
+            # from a number it is required to mask — `_record_refusal` makes the same call
+            # for the same reason. The ids are durable in `webhook_inbox_events.event_key`.
+            summary={"candidates": str(len(rows))},
+        )
+
+    outcomes: Counter[str] = Counter()
+    for event_key, payload_hash, recorded_reason in rows:
+        outcome = await _absorb_leadgen(
+            webhook_id=webhook_id,
+            config=config,
+            # Rebuilt from the row, which holds the `leadgen_id` and no provenance —
+            # so a recovered lead's `leads.data` carries the id that fetched it and
+            # not the ad it came from. That is a real and stated loss, and the
+            # alternative is storing a vendor payload in the reliability inbox, which
+            # hard rule 2 sends to object storage rather than into a typed column.
+            notification=meta.LeadNotification(leadgen_id=str(event_key)),
+            received_at=received_at,
+            payload_hash=str(payload_hash),
+        )
+        outcomes[outcome] += 1
+        if outcome == _DEFERRED:
+            await _restore_redrivable_reason(
+                config, provider=provider, event_key=str(event_key), reason=str(recorded_reason)
+            )
+
+    if outcomes[_DEFERRED]:
+        # No 503 here, unlike the live receiver: there is no vendor ladder to hand the
+        # work back to. The client pressed a button, so the retry is the client pressing
+        # it again — and `deferred` in a 200 is what tells them to, where a 5xx would read
+        # as "the re-drive is broken" for a Graph blip.
+        log.warning(
+            "meta_redrive_deferred",
+            extra={"webhook_id": str(webhook_id), "deferred": outcomes[_DEFERRED]},
+        )
+
+    result = MetaRedriveOut(
+        candidates=len(rows),
+        accepted=outcomes["accepted"],
+        duplicate=outcomes["duplicate"],
+        refused=outcomes["refused"],
+        deferred=outcomes[_DEFERRED],
+    )
+    # Ids and counts (hard rule 6). A re-driven Meta lead payload carries a name and a
+    # phone number and neither is on this line or in the model above.
+    log.info("meta_leads_redriven", extra={"webhook_id": str(webhook_id), **result.model_dump()})
+    return result
+
+
+async def _restore_redrivable_reason(
+    config: IngestConfig, *, provider: str, event_key: str, reason: str
+) -> None:
+    """Put back the refusal that made this row re-drivable, after a deferred re-drive.
+
+    **Without this the re-drive could strand the lead it exists to rescue.** A Graph
+    timeout mid-re-drive is recorded by `_absorb_leadgen` as `meta_graph_unavailable` —
+    correct on the live path, where Meta's own ladder brings the notification back — but
+    on THIS path the recorded reason is the candidate predicate, so the blip would move
+    the row out of `REDRIVABLE_REASONS` and no press would ever find it again. That is
+    the same class of defect as the one being closed here, introduced by the fix.
+
+    So the ORIGINAL reason is restored rather than the transient one kept: a Graph blip
+    while retrying is news about Graph, not about this lead, and the row's job is to say
+    why the lead is still unread. Guarded on `status = 'failed'` so it can only ever
+    re-label a row that is still a refusal — a concurrent redelivery that succeeded in
+    between wins, and its `processed` row is left alone.
+
+    `mark_inbox_failed` is not reused: that is the CLAIM-closing primitive and it moves
+    the status, which is exactly what must not happen to a row already `failed`.
+    """
+    async with tenant_session(config.tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE webhook_inbox_events SET last_error = :reason, updated_at = now() "
+                "WHERE provider = :provider AND event_key = :key AND status = 'failed'"
+            ),
+            {"reason": reason, "provider": provider, "key": event_key},
+        )
 
 
 @sources_router.post(

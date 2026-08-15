@@ -45,6 +45,8 @@ export type IngestActivityItem = Schemas["IngestActivityItemOut"];
 
 export type IngestActivity = Schemas["IngestActivityOut"];
 
+const activityKey = (session: Session) => ["ingest-activity", session.orgSlug];
+
 /**
  * One decision the real ingest path would have made, reported instead of acted on.
  *
@@ -59,7 +61,7 @@ export type LeadSourceDryRun = Schemas["LeadSourceDryRunOut"];
 
 export function useIngestActivity(session: Session): UseQueryResult<IngestActivity> {
   return useQuery({
-    queryKey: ["ingest-activity", session.orgSlug],
+    queryKey: activityKey(session),
     queryFn: () => apiRequest<IngestActivity>(session, "/v1/lead-sources/activity"),
     // Deliveries land on the form vendor's schedule, and this screen is usually
     // open precisely because someone just submitted a test form and is waiting
@@ -92,6 +94,36 @@ export function useMetaSetup(session: Session) {
       apiRequest<MetaSetup>(session, `/v1/lead-sources/${webhookId}/meta/setup`, {
         method: "POST",
       }),
+  });
+}
+
+/**
+ * Re-run the Meta leads this source recorded but could not read.
+ *
+ * Meta redelivers a leadgen notification for ~36 hours and then unsubscribes the Page;
+ * after that the lead is still recorded against its Meta lead ID and this is the only
+ * thing that acts on it. Each lead goes back through the same checks a live delivery
+ * gets, the compliance gate included, so a recovered lead is not dialled unless a live
+ * one would have been.
+ *
+ * `MetaRedriveOut` from the generated schema, and every count on it is REQUIRED — a
+ * hand-written twin is how `deferred: 0` becomes an optional `undefined` that a screen
+ * renders as nothing at all, which is this repo's most repeated frontend defect.
+ *
+ * Invalidates the activity query on success, because that is the view whose
+ * `recoverable` flags this just changed: leaving it stale would keep offering the
+ * button for rows that are now leads.
+ */
+export type MetaRedrive = Schemas["MetaRedriveOut"];
+
+export function useMetaRedrive(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (webhookId: string) =>
+      apiRequest<MetaRedrive>(session, `/v1/lead-sources/${webhookId}/meta/redrive`, {
+        method: "POST",
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: activityKey(session) }),
   });
 }
 

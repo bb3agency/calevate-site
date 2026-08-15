@@ -791,6 +791,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/erasure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This client's erasure record and its certificate — readable after erasure
+         * @description Newest first, and deliberately still answerable once the tenant is erased.
+         *
+         *     `tenant_id` is in the path and RLS scopes the read; it is not named in the SQL. The
+         *     parameter is what makes the caller's scope explicit at the call site and is what the
+         *     session is opened on.
+         */
+        get: operations["list_tenant_erasures_v1_admin_tenants__tenant_id__erasure_get"];
+        put?: never;
+        /**
+         * Erase this client's data — irreversible, superadmin, step-up confirmed
+         * @description Executes the tenant-level erasure FLOWS §9 ends the offboarding with, and is the only thing in this product that sets `organizations.deleted_at`. After it completes the client is gone from every screen, no membership resolves, no dial is permitted and no invitation can be issued or redeemed. It cannot be undone. The account must ALREADY be closed (`churned`) — 409 `tenant_not_closed` otherwise, and 409 `tenant_already_erased` if it has been erased before. Needs a superadmin AND the header `X-Confirm-Action: erase_tenant_data:<tenant_id>`. Filing twice returns 200 with `already_open: true` rather than erasing twice. Export the client's data BEFORE calling this: nothing here produces the bundle.
+         */
+        post: operations["request_tenant_erasure_v1_admin_tenants__tenant_id__erasure_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/erasure/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One erasure record and its certificate
+         * @description RLS scopes the lookup, so another tenant's record is not found — the same answer
+         *     a nonexistent id gets, deliberately.
+         */
+        get: operations["read_tenant_erasure_v1_admin_tenants__tenant_id__erasure__request_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/feature-flags": {
         parameters: {
             query?: never;
@@ -2415,6 +2464,26 @@ export interface paths {
          *     exactly as it left, so a client who did not rotate does not have to re-paste.
          */
         post: operations["enable_lead_source_v1_lead_sources__webhook_id__enable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-sources/{webhook_id}/meta/redrive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-run Meta leads we recorded but could not read (SURFACES §2b)
+         * @description Re-fetch the leads this source recorded but could not read because no Meta Page access token was attached yet. Meta redelivers a notification for about 36 hours and then unsubscribes the Page; after that the lead is still recorded against its Meta lead ID and this is what acts on it. Each lead goes through the same checks a live delivery does, including the compliance gate — a lead recovered here is not dialled unless a live one would have been.
+         */
+        post: operations["meta_redrive_v1_lead_sources__webhook_id__meta_redrive_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4712,6 +4781,45 @@ export interface components {
             url: string | null;
         };
         /**
+         * EngineDriftOut
+         * @description How far the platform's live agents have drifted from what we published (D-123).
+         *
+         *     THE HALF-WIRED-FEATURE GUARD. `sweep_engine_drift` walks live agents through
+         *     `engine_drift_for` every half hour and writes what the engine was observed to be
+         *     holding. A job that writes a state nobody reads is the defect CLAUDE.md names, so the
+         *     state rides the read the ops screen already makes — the same argument, and the same
+         *     route-table argument, that put `outbox_dead_letters` here rather than on an endpoint
+         *     of its own.
+         *
+         *     THE ALARM IS `out_of_sync`, and `undetermined` is deliberately NOT folded into it.
+         *     `agents/verification.py`'s whole doctrine is that "the engine is provably running
+         *     something else" and "we could not read the answer" are different facts and only one is
+         *     evidence; a console that added them would report a vendor having a slow afternoon as a
+         *     fleet of agents speaking unapproved scripts, and an operator learns to ignore that
+         *     number within a week.
+         *
+         *     COUNTS AND TIMESTAMPS ONLY (hard rule 6). The per-agent sentence lives behind
+         *     `GET /v1/agents/{agent_id}/engine-state`, which is tenant-scoped and permissioned;
+         *     nothing derived from a prompt or a disclosure line reaches this model. See
+         *     `agents/reconciliation.EngineDriftSummary`, which is where that boundary is enforced.
+         */
+        EngineDriftOut: {
+            /** In Sync */
+            in_sync: number;
+            /** Live Agents */
+            live_agents: number;
+            /** Never Checked */
+            never_checked: number;
+            /** Oldest Checked At */
+            oldest_checked_at: string | null;
+            /** Oldest Drift At */
+            oldest_drift_at: string | null;
+            /** Out Of Sync */
+            out_of_sync: number;
+            /** Undetermined */
+            undetermined: number;
+        };
+        /**
          * EngineStateOut
          * @description The RECONCILIATION read: what the engine is running RIGHT NOW versus our row.
          *
@@ -5274,6 +5382,8 @@ export interface components {
             error: string | null;
             /** Event */
             event: string | null;
+            /** Event Key */
+            event_key: string;
             /**
              * First At
              * Format: date-time
@@ -5285,10 +5395,17 @@ export interface components {
              */
             last_at: string;
             /**
+             * Lead Source Id
+             * Format: uuid
+             */
+            lead_source_id: string;
+            /**
              * Outcome
              * @enum {string}
              */
             outcome: "accepted" | "rejected" | "processing";
+            /** Recoverable */
+            recoverable: boolean;
             /** Source */
             source: string;
         };
@@ -6342,6 +6459,33 @@ export interface components {
             refused: number;
         };
         /**
+         * MetaRedriveOut
+         * @description One re-drive, accounted for exactly the way a live delivery is.
+         *
+         *     The four verdicts are `_absorb_leadgen`'s own, because the re-drive runs
+         *     `_absorb_leadgen` — a different vocabulary here would be a second answer to "what
+         *     happened to my lead". `candidates` is what the row selection FOUND, and
+         *     `candidates != accepted + duplicate + refused + deferred` is the arithmetic that says
+         *     a row went missing, the same check `MetaLeadgenAckOut` exists to make possible.
+         *
+         *     Declared, `extra="forbid"`, and counts only: this handler holds retrieved leads in
+         *     scope — names and phone numbers — and an untyped return is one careless line away
+         *     from shipping them (D-71's defect class, and `scripts/check_redaction_exposure.py`
+         *     can only judge a declared model).
+         */
+        MetaRedriveOut: {
+            /** Accepted */
+            accepted: number;
+            /** Candidates */
+            candidates: number;
+            /** Deferred */
+            deferred: number;
+            /** Duplicate */
+            duplicate: number;
+            /** Refused */
+            refused: number;
+        };
+        /**
          * MetaSetupOut
          * @description Everything a client needs to point a Meta app at this lead source, and the one
          *     thing they need to know before they bother.
@@ -6677,6 +6821,7 @@ export interface components {
         };
         /** PlatformStateOut */
         PlatformStateOut: {
+            engine_drift: components["schemas"]["EngineDriftOut"];
             /** Halt Reason */
             halt_reason: string | null;
             /** Load Shed Mode */
@@ -7939,6 +8084,146 @@ export interface components {
              * @enum {string}
              */
             status: "draft" | "submitted" | "approved" | "rejected";
+        };
+        /** TenantErasureAcceptedOut */
+        TenantErasureAcceptedOut: {
+            /** Already Open */
+            already_open: boolean;
+            /** Completed At */
+            completed_at: string | null;
+            /** Limitations */
+            limitations: string[];
+            proof: components["schemas"]["TenantErasureProofOut"] | null;
+            /** Reason */
+            reason: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "completed";
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
+         * TenantErasureIn
+         * @description `extra="forbid"` so a caller cannot smuggle a narrower scope into an operation
+         *     that honours none. The worker erases everything it can reach for the tenant.
+         */
+        TenantErasureIn: {
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * TenantErasureLimitationOut
+         * @description One thing this erasure did NOT destroy, and the rule that stopped it.
+         */
+        TenantErasureLimitationOut: {
+            /** Authority */
+            authority: string;
+            /** Outcome */
+            outcome: string;
+            /** What */
+            what: string;
+            /** Why */
+            why: string;
+        };
+        /**
+         * TenantErasureOut
+         * @description The response model IS the output whitelist (BACKEND-PATTERNS §1).
+         */
+        TenantErasureOut: {
+            /** Completed At */
+            completed_at: string | null;
+            /** Limitations */
+            limitations: string[];
+            proof: components["schemas"]["TenantErasureProofOut"] | null;
+            /** Reason */
+            reason: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "completed";
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
+         * TenantErasureProofOut
+         * @description The certificate. Carries no personal data by construction: an organisation id,
+         *     timestamps, counts and plain statements of what was done to each store.
+         */
+        TenantErasureProofOut: {
+            /** Actions */
+            actions: {
+                [key: string]: string;
+            };
+            /** Engine Deletion */
+            engine_deletion: string;
+            /** Executed At */
+            executed_at: string;
+            /** Limitations */
+            limitations: string[];
+            /** Limitations Version */
+            limitations_version: string;
+            /** Not Erased */
+            not_erased: components["schemas"]["TenantErasureLimitationOut"][];
+            /** Recording Hold Until */
+            recording_hold_until: string | null;
+            scope: components["schemas"]["TenantErasureScopeOut"];
+            /** Tenant Id */
+            tenant_id: string;
+        };
+        /**
+         * TenantErasureScopeOut
+         * @description WHAT was erased, by count. Never by id, never by number.
+         *
+         *     Every field is NULLABLE AND REQUIRED. Nullable because absent is not zero: a proof
+         *     written by a worker that did not record a fact must not be rendered as the claim
+         *     that the fact was zero, and hard rule 4 forbids back-filling the row to make it so.
+         *     Required — no Pydantic default — because a field with a default generates an OPTIONAL
+         *     TypeScript property, and this repo has been bitten by that four times.
+         */
+        TenantErasureScopeOut: {
+            /** Call Extractions Erased */
+            call_extractions_erased: number | null;
+            /** Calls Erased */
+            calls_erased: number | null;
+            /** Leads Erased */
+            leads_erased: number | null;
+            /** Recordings Destroyed */
+            recordings_destroyed: number | null;
+            /** Recordings Within Trai Floor */
+            recordings_within_trai_floor: number | null;
+            /** Transcript Turns Erased */
+            transcript_turns_erased: number | null;
+            /** Webhook Bodies Erased */
+            webhook_bodies_erased: number | null;
         };
         /** TenantSummary */
         TenantSummary: {
@@ -9835,6 +10120,108 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_tenant_erasures_v1_admin_tenants__tenant_id__erasure_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantErasureOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    request_tenant_erasure_v1_admin_tenants__tenant_id__erasure_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantErasureIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantErasureAcceptedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_tenant_erasure_v1_admin_tenants__tenant_id__erasure__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantErasureOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -12561,6 +12948,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    meta_redrive_v1_lead_sources__webhook_id__meta_redrive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetaRedriveOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

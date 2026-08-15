@@ -33,6 +33,16 @@ erasure made the recording permanently undeletable. Both halves are closed: the 
 destroys the bytes at `max(ttl, floor)`, and the erasure destroys the ones past the floor
 and SCHEDULES the rest in `recording_erasure_holds` (`_erase_recordings`).
 
+ARCHIVED RAW ENGINE PAYLOADS (D-126) are the third store outside Postgres, and the only
+one an erasure reaches while no retention arm does. The archive carries the caller's
+number and the transcript, so `_erase_engine_payloads` deletes it by `{tenant}/{call}`
+prefix on both erasure paths. It does NOT expire on a tenant policy: no
+`retention_policies.data_category` covers it (the enum is
+`recording|transcript|lead|consent_log`), and adding one is a DPA commitment plus a
+documented-enum change, not a worker's call. Until that decision the bucket's 90-day
+`engine-payloads/` lifecycle rule is its only clock — and that rule has never been
+applied to anything (infra/README §5).
+
 Engine-side copies are the open edge, honestly marked: Bolna's deletion API is
 undocumented (pilot gate), so `engine_deletion` is recorded as `unconfirmed` in the
 proof rather than asserted. A proof that overclaims is worse than one that says what it
@@ -67,7 +77,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -735,7 +745,7 @@ async def _erase_delivery_bodies(
 
     keys: list[str] = []
     for subject_type, subject_id in subjects:
-        keys += storage.delivery_body_keys_for(
+        keys += storage.keys_under(
             storage.delivery_body_subject_prefix(
                 tenant_id=tenant_id, subject_type=subject_type, subject_id=subject_id
             )
@@ -756,6 +766,81 @@ async def _erase_delivery_bodies(
     return len(keys)
 
 
+async def _erase_engine_payloads(
+    session: AsyncSession, *, tenant_id: UUID, call_ids: Sequence[UUID]
+) -> int:
+    """Destroy every archived RAW vendor payload for these calls. Returns the count.
+
+    The archive (`storage.archive_payload`) keeps the engine's own webhook/poll document
+    for a call, and that document carries the caller's number and the transcript — so it
+    is personal data with an erasure duty, not an inert debug artifact, and D-126 gave its
+    key a `{tenant}/{call}` prefix precisely so this arm could exist. It is written the
+    same shape as `_erase_delivery_bodies` and for the same three reasons:
+
+    * **The DELETE is driven by the object store, not by the column.** One call can hold
+      several archived documents — the engine fires a payload per status transition — and
+      `engine_payload_ref` holds one key. Listing the call's prefix destroys all of them,
+      including any sibling no column ever named.
+    * **A refusal to answer RAISES** (`StorageUnavailableError` is an `arq.Retry`), which
+      rolls the erasure back and leaves `completed_at` NULL for the retry. A certificate
+      that claims a destruction we did not attempt is the one failure worse than a late
+      certificate.
+    * **The reference is cleared in the same transaction as the delete**, so no cleared
+      pointer ever outlives a surviving object and no surviving pointer names a deleted
+      one.
+
+    WHY THE COLUMN GATES THE LISTING, when `_erase_delivery_bodies`' equivalent gate is a
+    table probe. Without a gate every DPDP erasure on the platform would depend on the
+    object store being up — a storage outage would stop erasures that have nothing to do
+    with storage — which is the argument that path already makes and this one does not get
+    to ignore. The gate is a PK lookup over the calls being erased, and it is sound in both
+    directions because `archive_payload` states the write order it requires: the reference
+    is committed BEFORE the object is PUT. A reference naming an object that does not exist
+    is harmless (deleting an absent key is a no-op); an object no reference names would be
+    unreachable, which is the defect this whole change exists to remove. Once any of these
+    calls carries a reference the listing runs over ALL of them, so a sibling that lost its
+    own reference is still destroyed.
+
+    NO CALLER WRITES THIS ARCHIVE YET (D-126): the arm is deliberately built before the
+    producer, because after the producer exists the unreachable objects already do.
+    """
+    if not call_ids:
+        return 0
+    # The gate. `id = ANY(...)` is the primary key, so this is an index probe over the
+    # calls in hand rather than a scan for a column nothing currently writes.
+    archived = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM calls WHERE id = ANY(:ids) AND engine_payload_ref IS NOT NULL "
+                "LIMIT 1"
+            ),
+            {"ids": list(call_ids)},
+        )
+    ).first()
+    if archived is None:
+        return 0
+
+    keys: list[str] = []
+    for call_id in call_ids:
+        keys += storage.keys_under(
+            storage.payload_call_prefix(tenant_id=tenant_id, call_id=call_id)
+        )
+    if not keys:
+        return 0
+    storage.delete_objects(keys)
+    # RLS scopes this to the tenant; `calls` is not an append-only table (hard rule 4's
+    # registry names neither it nor any object-ref column), so clearing the ref is a
+    # plain UPDATE rather than a compensating entry.
+    await session.execute(
+        text(
+            "UPDATE calls SET engine_payload_ref = NULL, updated_at = now() "
+            "WHERE id = ANY(:ids) AND engine_payload_ref IS NOT NULL"
+        ),
+        {"ids": list(call_ids)},
+    )
+    return len(keys)
+
+
 # The recordings this erasure reached, split by whether destroying them is lawful TODAY.
 # Read BEFORE the pointer clear — afterwards the question is unanswerable, which is how
 # the whole collision stayed invisible.
@@ -771,10 +856,17 @@ WHERE c.id = ANY(:ids) AND c.recording_url IS NOT NULL
 # re-record the same hold without failing on its own previous attempt. Nothing about a
 # hold changes between attempts, so DO NOTHING is the correct resolution rather than an
 # upsert that would move `erase_after` on every retry.
+# EXACTLY ONE OWNER, and the database says so (`ck_recording_hold_one_owner`, migration
+# f3a71c9e26b4). A hold is an obligation one erasure incurred, and there are two kinds of
+# erasure now — one data principal's §12 request (`deletion_requests`) and the end of an
+# engagement (`tenant_erasure_requests`). Both must be able to schedule a destruction,
+# and a destruction must name the certificate that promised it, so the arc is exclusive
+# rather than one nullable column reused for two meanings.
 _HOLD_INSERT_SQL = """
 INSERT INTO recording_erasure_holds
-  (id, tenant_id, call_id, request_id, object_key, erase_after, created_at)
-VALUES (:id, :tid, :cid, :rid, :key, :erase_after, now())
+  (id, tenant_id, call_id, request_id, tenant_erasure_id, object_key, erase_after,
+   created_at)
+VALUES (:id, :tid, :cid, :rid, :teid, :key, :erase_after, now())
 ON CONFLICT (tenant_id, object_key) DO NOTHING
 """
 
@@ -783,8 +875,9 @@ async def _erase_recordings(
     session: AsyncSession,
     *,
     tenant_id: UUID,
-    request_id: UUID,
     call_ids: list[UUID],
+    hold_deletion_request_id: UUID | None = None,
+    hold_tenant_erasure_id: UUID | None = None,
 ) -> tuple[int, int, datetime | None]:
     """Destroy the audio this erasure may destroy; SCHEDULE the audio it may not yet.
 
@@ -814,6 +907,12 @@ async def _erase_recordings(
     as `_erase_delivery_bodies` and for the same reason: a certificate claiming a
     destruction we did not perform is worse than one not yet issued.
     """
+    # Mirrors `ck_recording_hold_one_owner`. The database is the authority; this is here
+    # so a caller that gets it wrong is told which call site is wrong, rather than
+    # discovering it as a CheckViolation from an INSERT several frames down.
+    if (hold_deletion_request_id is None) == (hold_tenant_erasure_id is None):
+        raise ValueError("a recording hold needs exactly one owning erasure request")
+
     rows = (
         await session.execute(
             text(_ERASURE_RECORDINGS_SQL),
@@ -841,7 +940,8 @@ async def _erase_recordings(
                 "id": uuid7(),
                 "tid": tenant_id,
                 "cid": call_id,
-                "rid": request_id,
+                "rid": hold_deletion_request_id,
+                "teid": hold_tenant_erasure_id,
                 "key": key,
                 "erase_after": lawful_at,
             },
@@ -931,10 +1031,17 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         extractions_erased = 0
         recordings_in_floor = 0
         recordings_destroyed = 0
+        payloads_erased = 0
         held_until: datetime | None = None
         if calls:
+            payloads_erased = await _erase_engine_payloads(
+                session, tenant_id=tenant_id, call_ids=list(calls)
+            )
             recordings_in_floor, recordings_destroyed, held_until = await _erase_recordings(
-                session, tenant_id=tenant_id, request_id=request_id, call_ids=list(calls)
+                session,
+                tenant_id=tenant_id,
+                call_ids=list(calls),
+                hold_deletion_request_id=request_id,
             )
             result = await session.execute(
                 text(
@@ -1017,6 +1124,14 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                     f"{bodies_erased} delivered CRM payload(s) deleted from object "
                     "storage and their references cleared"
                 ),
+                # Counted in the sentence rather than in `scope`, for the reason the line
+                # above is: `scope` is a whitelist the certificate renderer and the
+                # response model both enumerate, so a number added there is a wire-shape
+                # change, and `actions` is the part that passes through verbatim.
+                "engine_payloads": (
+                    f"{payloads_erased} archived raw engine payload(s) deleted from "
+                    "object storage and their references cleared"
+                ),
                 "usage_events": "retained — append-only ledger, carries no personal data",
                 "consent_ledger": "retained — append-only proof that consent existed",
             },
@@ -1054,8 +1169,325 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
     )
     return (
         f"erased calls={len(calls)} leads={len(leads)} turns={turns_erased} "
-        f"bodies={bodies_erased} recordings={recordings_destroyed} "
-        f"floor_recordings={recordings_in_floor}"
+        f"bodies={bodies_erased} payloads={payloads_erased} "
+        f"recordings={recordings_destroyed} floor_recordings={recordings_in_floor}"
+    )
+
+
+# --- TENANT-LEVEL ERASURE (FLOWS §9) -------------------------------------------------
+#
+# The per-subject erasure above answers one data principal's DPDP §12 request. This one
+# answers the END OF AN ENGAGEMENT: the client organisation's instruction, executed by
+# us, over every subject in the account at once. `apps/api/compliance/tenant_erasure.py`
+# argues why the two are separate requests with separate tables and separate certificates
+# — and why the MECHANISM is nevertheless this one module, reusing these statements,
+# these object-store helpers and `recording_erasure_holds`.
+#
+# WHY IT IS ONE TRANSACTION AND HAS NO ROW BUDGET, unlike the nightly sweep.
+# `sweep_tenant` may defer: a category it does not finish tonight it finishes tomorrow,
+# and nothing downstream reads a "the sweep is complete" flag. A tenant erasure ends by
+# writing `organizations.deleted_at` and a certificate that SAYS the data is gone, so a
+# partial run that stamped either would be a document asserting something false. It
+# therefore runs to completion or rolls back entirely, and it is batched only so the
+# statements stay bounded rather than so the job can stop early. The clients this is for
+# are Indian SMBs with thousands of calls, not millions; if that stops being true the fix
+# is a resumable cursor ON THE REQUEST ROW, not a budget that silently half-erases.
+
+#: Keyset page size for walking a tenant's calls and leads. Same order of magnitude as
+#: `SWEEP_BATCH_ROWS` and for the same reason: keep each statement's row count bounded so
+#: one enormous UPDATE cannot hold locks for the length of the whole erasure.
+TENANT_ERASURE_BATCH = 500
+
+# Keyset rather than OFFSET: the erasure UPDATEs the very rows it is paging over, and an
+# OFFSET walk over a table being rewritten skips rows. `(created_at, id)` is unique and
+# stable — `id` is uuid_v7 — so the cursor cannot repeat or miss a row.
+_TENANT_CALL_PAGE_SQL = """
+SELECT id, created_at FROM calls
+WHERE (created_at, id) > (:after_at, :after_id)
+ORDER BY created_at, id LIMIT :batch
+"""
+
+# The leads arm has no cursor because the UPDATE makes its own rows stop matching — the
+# anonymized-phone prefix is the guard, exactly as `_LEAD_SQL` uses it, and keying on
+# `name IS NOT NULL` would skip every lead whose caller never gave one.
+_TENANT_LEAD_PAGE_SQL = """
+SELECT id FROM leads
+WHERE left(phone_e164, length(:anon)) <> :anon
+ORDER BY created_at, id LIMIT :batch
+"""
+
+# `AND status = 'churned' AND deleted_at IS NULL` is not defensive decoration. The first
+# is the invariant every reader of this column depends on (an erased tenant is always
+# churned — `compliance/tenant_erasure.py` argues it, and migration f3a71c9e26b4 enforces
+# it with a CHECK); the second makes the write single-shot, so a concurrent second
+# erasure cannot restamp the instant on a certificate that has already been issued. A
+# zero rowcount here is an invariant violation, not a no-op, and the caller raises.
+_MARK_ERASED_SQL = """
+UPDATE organizations SET deleted_at = now(), updated_at = now()
+WHERE id = :tid AND deleted_at IS NULL AND status = 'churned'
+"""
+
+
+async def _erase_tenant_calls(
+    session: AsyncSession, *, tenant_id: UUID, request_id: UUID
+) -> tuple[dict[str, int], datetime | None]:
+    """Erase the caller data on every call this tenant has. Returns the counts.
+
+    Each page runs the SAME statements `execute_deletion_request` runs for one subject's
+    calls — the recording split, the transcript mark, the personal-field clear, the
+    derived extraction payload, the archived engine payloads, the delivered webhook
+    bodies — so there is one definition
+    of "what erasing a call means" and this path cannot drift from the per-subject one.
+    """
+    counts: dict[str, int] = {
+        "calls_erased": 0,
+        "transcript_turns_erased": 0,
+        "call_extractions_erased": 0,
+        "recordings_destroyed": 0,
+        "recordings_within_trai_floor": 0,
+        "webhook_bodies_erased": 0,
+        # Recorded in the proof, reported in `actions`, and deliberately NOT in
+        # `tenant_erasure._SCOPE_COUNTS`: that tuple is the API's whitelist, and widening
+        # it is a wire-shape change rather than a fact about this erasure. The stored
+        # proof is a record of facts; the renderer takes what it understands.
+        "engine_payloads_erased": 0,
+    }
+    held_until: datetime | None = None
+    # The cursor's floor. `created_at` is NOT NULL on every row, so an epoch start is
+    # strictly below every real value and needs no first-page special case.
+    after_at = datetime(1970, 1, 1, tzinfo=UTC)
+    after_id = UUID(int=0)
+
+    while True:
+        page = (
+            await session.execute(
+                text(_TENANT_CALL_PAGE_SQL),
+                {"after_at": after_at, "after_id": after_id, "batch": TENANT_ERASURE_BATCH},
+            )
+        ).all()
+        if not page:
+            break
+        call_ids = [UUID(str(row[0])) for row in page]
+        after_id, after_at = UUID(str(page[-1][0])), page[-1][1]
+
+        counts["engine_payloads_erased"] += await _erase_engine_payloads(
+            session, tenant_id=tenant_id, call_ids=call_ids
+        )
+        in_floor, destroyed, page_held = await _erase_recordings(
+            session,
+            tenant_id=tenant_id,
+            call_ids=call_ids,
+            hold_deletion_request_id=None,
+            hold_tenant_erasure_id=request_id,
+        )
+        counts["recordings_within_trai_floor"] += in_floor
+        counts["recordings_destroyed"] += destroyed
+        if page_held is not None and (held_until is None or page_held > held_until):
+            held_until = page_held
+
+        result = await session.execute(
+            text(
+                "UPDATE transcript_turns SET text = :mark, text_redacted = :mark, "
+                "updated_at = now() WHERE call_id = ANY(:ids) AND text <> :mark"
+            ),
+            {"mark": REDACTED_MARK, "ids": call_ids},
+        )
+        counts["transcript_turns_erased"] += int(rowcount_of(result) or 0)
+
+        await session.execute(
+            text(
+                "UPDATE calls SET from_e164 = NULL, to_e164 = NULL, recording_url = NULL, "
+                "summary = NULL, updated_at = now() WHERE id = ANY(:ids)"
+            ),
+            {"ids": call_ids},
+        )
+        counts["calls_erased"] += len(call_ids)
+
+        result = await session.execute(
+            text(
+                "UPDATE call_extractions SET data = '{}'::jsonb, errors = NULL, "
+                "updated_at = now() WHERE call_id = ANY(:ids) AND data <> '{}'::jsonb"
+            ),
+            {"ids": call_ids},
+        )
+        counts["call_extractions_erased"] += int(rowcount_of(result) or 0)
+
+        counts["webhook_bodies_erased"] += await _erase_delivery_bodies(
+            session,
+            tenant_id=tenant_id,
+            subjects=[("call", str(cid)) for cid in call_ids],
+        )
+    return counts, held_until
+
+
+async def _erase_tenant_leads(session: AsyncSession, *, tenant_id: UUID) -> tuple[int, int]:
+    """Anonymize every lead this tenant holds. Returns (leads, delivery bodies).
+
+    Never a DELETE, for the reason `_LEAD_SQL` gives: leads carry FKs from `lead_events`
+    and are referenced by `calls`, and anonymizing keeps the funnel countable while
+    removing the person.
+    """
+    leads_erased = 0
+    bodies = 0
+    anon = ANONYMIZED_PHONE[:9]
+    while True:
+        page = (
+            (
+                await session.execute(
+                    text(_TENANT_LEAD_PAGE_SQL),
+                    {"anon": anon, "batch": TENANT_ERASURE_BATCH},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not page:
+            return leads_erased, bodies
+        lead_ids = [UUID(str(lid)) for lid in page]
+        # BEFORE the UPDATE: the body key is built from the lead id, which survives, but
+        # keeping the two adjacent means a crash between them leaves the object findable
+        # by the same prefix on the retry rather than only by a re-listing.
+        bodies += await _erase_delivery_bodies(
+            session, tenant_id=tenant_id, subjects=[("lead", str(lid)) for lid in lead_ids]
+        )
+        await session.execute(
+            text(
+                "UPDATE leads SET phone_e164 = :anon || substr(id::text, 1, 8), name = NULL, "
+                "data = '{}'::jsonb, deleted_at = COALESCE(deleted_at, now()), "
+                "updated_at = now() WHERE id = ANY(:ids)"
+            ),
+            {"ids": lead_ids, "anon": anon},
+        )
+        leads_erased += len(lead_ids)
+
+
+async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """Erase every caller record this tenant holds, then mark the organisation deleted.
+
+    THE ORDER IS THE WHOLE DESIGN. `organizations.deleted_at` is written LAST, in the same
+    transaction as the proof, so the column can only ever mean "the erasure below
+    completed". Written first it would mean "an erasure was started", which is a
+    different claim and the one that nine readers — every membership resolution, the dial
+    gate, the invitation gate, the directory — would have believed.
+
+    Idempotent on `completed_at`, like `execute_deletion_request`: a re-run must not
+    produce a second, weaker proof, and arq WILL re-run this if the object store raises
+    (`StorageUnavailableError` is an `arq.Retry`; the transaction rolls back, `deleted_at`
+    stays NULL and the retry redoes the whole thing).
+
+    Hard rule 4 is a constraint this had to solve rather than bend. Nothing in
+    `db/registry.APPEND_ONLY_TABLES` is touched: `usage_events`, `consent_ledger`,
+    `credit_ledger`, `one_time_charges`, `whatsapp_alert_optin_ledger`,
+    `preference_scrub_runs` and `audit_log` are all left exactly as they are, and the
+    certificate says so in the words a client can read
+    (`tenant_erasure.TENANT_ERASURE_LIMITATIONS`). `consent_ledger` and `audit_log` do
+    carry caller numbers; the register states that rather than hiding it, because the
+    alternative — a compensating "erased" entry that did not actually remove the number —
+    would be a ledger entry whose only function is to make a certificate look complete.
+
+    Hard rule 6: ids and counts in every log line. No number, no transcript text, no
+    extraction payload, and no object key (a delivery-body key contains the subject's
+    row id).
+    """
+    tenant_id = UUID(str(payload["tenant_id"]))
+    request_id = UUID(str(payload["request_id"]))
+
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text("SELECT completed_at FROM tenant_erasure_requests WHERE id = :rid"),
+                {"rid": request_id},
+            )
+        ).first()
+        if row is None:
+            return "not_found"
+        if row[0] is not None:
+            return "already_completed"
+
+        counts, held_until = await _erase_tenant_calls(
+            session, tenant_id=tenant_id, request_id=request_id
+        )
+        leads_erased, lead_bodies = await _erase_tenant_leads(session, tenant_id=tenant_id)
+        counts["leads_erased"] = leads_erased
+        counts["webhook_bodies_erased"] += lead_bodies
+
+        marked = await session.execute(text(_MARK_ERASED_SQL), {"tid": tenant_id})
+        if int(rowcount_of(marked) or 0) != 1:
+            # The precondition the API checked has changed underneath us, or the
+            # invariant is broken. Either way the certificate must not be written: a
+            # proof that says "this organisation is erased" over a row that is not is
+            # the one lie a compliance document cannot contain. Raising rolls the whole
+            # transaction back, so nothing was erased either.
+            alert(
+                "WORKER_TERMINAL",
+                "tenant_erasure_mark_failed",
+                detail="organizations.deleted_at was not set; nothing was erased",
+                tenant_id=str(tenant_id),
+                request_id=str(request_id),
+            )
+            raise RuntimeError(
+                f"tenant erasure could not set organizations.deleted_at (request_id={request_id})"
+            )
+
+        proof: dict[str, Any] = {
+            "tenant_id": str(tenant_id),
+            "executed_at": datetime.now(UTC).isoformat(),
+            "scope": {
+                **counts,
+                HOLD_UNTIL_KEY: held_until.isoformat() if held_until is not None else None,
+            },
+            "actions": {
+                "organizations": "marked deleted; no membership resolves and no dial is permitted",
+                "calls": "phone numbers, recording pointer and summary cleared",
+                "recordings": (
+                    f"{counts['recordings_destroyed']} audio file(s) destroyed in object "
+                    f"storage; {counts['recordings_within_trai_floor']} scheduled for "
+                    f"destruction on expiry of the {RECORDING_FLOOR_DAYS}-day retention floor"
+                ),
+                "transcript_turns": "text and text_redacted replaced",
+                "call_extractions": "extracted field payload cleared",
+                "leads": "phone anonymized, name and extracted fields cleared",
+                "webhook_deliveries": (
+                    f"{counts['webhook_bodies_erased']} delivered CRM payload(s) deleted "
+                    "from object storage and their references cleared"
+                ),
+                "engine_payloads": (
+                    f"{counts['engine_payloads_erased']} archived raw engine payload(s) "
+                    "deleted from object storage and their references cleared"
+                ),
+                "usage_events": "retained — append-only ledger, carries no personal data",
+                "consent_ledger": "retained — append-only proof that consent existed",
+                "audit_log": "retained — append-only, and the record of this erasure",
+                "dnc_list": "retained — removing a suppression would make people callable again",
+                "kb_sources": "not searched and not changed",
+                "memberships": "retained — client account data, and access ends with this erasure",
+            },
+            "engine_deletion": "unconfirmed_pending_vendor_api",
+        }
+        await session.execute(
+            text(
+                "UPDATE tenant_erasure_requests SET completed_at = now(), "
+                "proof = CAST(:proof AS jsonb) WHERE id = :rid"
+            ),
+            {"rid": request_id, "proof": json.dumps(proof)},
+        )
+
+    log.info(
+        "tenant_erased",
+        extra={
+            "tenant_id": str(tenant_id),
+            "request_id": str(request_id),
+            "calls": counts["calls_erased"],
+            "leads": counts["leads_erased"],
+        },
+    )
+    return (
+        f"tenant erased calls={counts['calls_erased']} leads={counts['leads_erased']} "
+        f"turns={counts['transcript_turns_erased']} "
+        f"bodies={counts['webhook_bodies_erased']} "
+        f"payloads={counts['engine_payloads_erased']} "
+        f"recordings={counts['recordings_destroyed']} "
+        f"floor_recordings={counts['recordings_within_trai_floor']}"
     )
 
 
@@ -1068,9 +1500,11 @@ __all__ = [
     "RECORDING_FLOOR_DAYS",
     "REDACTED_MARK",
     "SWEEP_BATCH_ROWS",
+    "TENANT_ERASURE_BATCH",
     "TENANT_ROW_BUDGET",
     "apply_retention",
     "execute_deletion_request",
+    "execute_tenant_erasure",
     "sweep_tenant",
     "sweep_tenants",
 ]

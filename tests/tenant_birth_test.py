@@ -126,7 +126,15 @@ async def _soft_delete(tenant_id: UUID) -> None:
     # session would silently write no row and the fixture would assert nothing.
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE organizations SET deleted_at = now() WHERE id = :t"), {"t": tenant_id}
+            # `status = 'churned'` in the same statement, because `deleted_at` is not a
+            # free-standing flag: `ck_organizations_deleted_implies_churned` (D-122) makes
+            # an erased tenant always a churned one, which is what lets the readers of the
+            # column filter on different halves of "account closed" and still agree. The
+            # real writer (`workers/retention.execute_tenant_erasure`) refuses to run at
+            # all unless the account is already churned, so this fixture is now producing
+            # a state the product can actually reach rather than one only a test could.
+            text("UPDATE organizations SET deleted_at = now(), status = 'churned' WHERE id = :t"),
+            {"t": tenant_id},
         )
 
 
@@ -341,11 +349,17 @@ async def test_a_soft_deleted_client_is_not_one_the_lifecycle_switch_can_move() 
 
     assert moved.status_code == 404, moved.text
     assert directory.status_code == 404, "the two surfaces have to agree"
-    assert await _scalar(
-        tenant_id, "SELECT status FROM organizations WHERE id = :t", t=tenant_id
-    ) in (
-        "onboarding",
-        "prospect",
+    assert (
+        await _scalar(
+            tenant_id,
+            "SELECT status FROM organizations WHERE id = :t",
+            t=tenant_id,
+            # `churned` because `_soft_delete` now sets it: `deleted_at` is a refinement of
+            # `churned` and the database says so (D-122). What this asserts is unchanged —
+            # the refused SUSPEND wrote nothing — and the point stands more sharply than
+            # before, since `churned` is the state the switch would otherwise have moved.
+        )
+        == "churned"
     ), "the refused transition wrote nothing"
 
 

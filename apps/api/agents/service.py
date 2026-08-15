@@ -77,7 +77,7 @@ from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
 
-from calevate_shared.engine import AgentConfig, CallContext, ModelConfig
+from calevate_shared.engine import AgentConfig, CallContext, ModelConfig, VoiceEngine
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -228,41 +228,63 @@ def _to_config(tenant_id: UUID, agent: dict[str, object]) -> AgentConfig:
     )
 
 
-def _orphaned(agent_id: UUID, ref: str, engine_name: str, reason: str) -> None:
-    """A vendor-side agent we created and then could not record. LOG IT LOUDLY.
+async def _reclaim_orphan(engine: VoiceEngine, agent_id: UUID, ref: str, reason: str) -> None:
+    """A vendor-side agent we created and then could not record. DELETE IT, or log it.
 
     THE SHAPE OF THE PROBLEM. `create_agent` is a side effect at a third party; our write
     of `engine_agent_ref` is a side effect in our database. There is no transaction
-    spanning both, so a failure in the window between them — the read-back refusing, the
-    row being soft-deleted underneath us, the connection to Postgres dropping — rolls OUR
-    half back and leaves theirs standing. The result is an agent object we are billed for
-    and can never address again, because the only copy of its id was in the transaction
-    that rolled back.
+    spanning both, so a failure in the window between them — the read-back proving the
+    engine is not running what we sent, the row being soft-deleted underneath us — rolls
+    OUR half back and leaves theirs standing. The result is an agent object we are billed
+    for and can never address again, because the only copy of its id was in the
+    transaction that rolled back.
 
-    This log line IS that copy. `ref` is a vendor-issued opaque id — not a phone number,
-    not transcript text, not an extraction payload — so hard rule 6 permits it, and
-    without it an operator cannot find the object in the vendor's dashboard to delete it.
+    **THE COMPENSATION, AND WHY IT IS INLINE.** `VoiceEngine.delete_agent` now exists, so
+    the remedy is a call rather than a note. It happens HERE, synchronously, before the
+    caller raises — NOT through the outbox and not through an arq enqueue — because the
+    ref lives only in this frame. The outbox is transactional (BACKEND-PATTERNS §4) and
+    this transaction is about to roll back, so an outbox row would roll back with it and
+    take the only copy of the ref down; a direct enqueue would survive but adds a second
+    thing that can fail while we are already holding the failure. One vendor round trip on
+    a path that is already failing is a cost worth paying to not leak a billed object.
 
-    Why not delete it ourselves: `VoiceEngine` has no `delete_agent`, and adding one
-    would put a speculative vendor endpoint (`DELETE /v2/agent/{id}`, whose semantics
-    nobody here has run — every vendor host is egress-blocked in this environment) onto
-    the Protocol that all four adapters must implement. An unverified vendor behaviour is
-    not a capability (D-31/D-32). The gap is recorded as an equality-asserted entry in
-    `tests/publish_known_gaps_test.py`, which names the vendor account that closes it.
+    **BEST-EFFORT, and the log line is still the floor.** If the delete raises — the
+    vendor is the thing that was misbehaving a moment ago, so it might — we are exactly
+    where we were before this function grew a remedy: an ERROR carrying the ref, which is
+    the operator's copy. `ref` is a vendor-issued opaque id, not a phone number, not
+    transcript text, not an extraction payload, so hard rule 6 permits it. Nothing is
+    re-raised: this is compensation for a failure the caller is about to report, and
+    failing the publish a second way would replace an actionable error with a confusing
+    one.
+
+    **`delete_agent` IS NOT CALLED ON A HUMAN'S SOFT-DELETE**, and that is deliberate.
+    Bolna's delete destroys the agent's executions with it, and a soft-deleted agent's
+    call history is a retention obligation of ours (SECURITY-COMPLIANCE §4). The subject
+    here is an agent minted seconds ago that has never taken a call, which is the only
+    population for which "remove it entirely" is the right answer.
 
     Why a `lock` makes this rare rather than routine: `_load_agent(for_update=True)`
     serializes publishes on one agent, so the common cause — two concurrent publishes
     both seeing "no ref" and both creating — cannot happen at all.
     """
-    log.error(
-        "engine_agent_orphaned",
-        extra={
-            "agent_id": str(agent_id),
-            "engine": engine_name,
-            "engine_agent_ref": ref,
-            "reason": reason,
-        },
-    )
+    ids = {
+        "agent_id": str(agent_id),
+        "engine": engine.name,
+        "engine_agent_ref": ref,
+        "reason": reason,
+    }
+    try:
+        await engine.delete_agent(ref)
+    except Exception as exc:
+        # Broad on purpose: the remedy must never become a new way for the publish to
+        # fail. `exc.__class__.__name__` and nothing from the exception's text — an
+        # adapter normalizes to `ProblemError`, but a transport error could arrive raw.
+        log.error(
+            "engine_agent_orphaned",
+            extra={**ids, "reclaim_failed": exc.__class__.__name__},
+        )
+        return
+    log.warning("engine_agent_orphan_reclaimed", extra=ids)
 
 
 async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> str:
@@ -303,7 +325,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     verdict = await verify_publish(engine, ref, config)
     if verdict.state == "not_applied":
         if created:
-            _orphaned(agent_id, ref, engine.name, "read_back_proved_not_applied")
+            await _reclaim_orphan(engine, agent_id, ref, "read_back_proved_not_applied")
         log.error(
             "agent_publish_not_applied",
             extra={
@@ -359,7 +381,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     )
     if rowcount_of(result) == 0:
         if created:
-            _orphaned(agent_id, ref, engine.name, "agent_deleted_during_publish")
+            await _reclaim_orphan(engine, agent_id, ref, "agent_deleted_during_publish")
         raise ProblemError.conflict(
             "agent_deleted_during_publish",
             "This agent was deleted while it was being published.",
@@ -474,7 +496,7 @@ async def publish_variant(
     verdict = await verify_publish(engine, ref, config)
     if verdict.state == "not_applied":
         if not existing_ref:
-            _orphaned(agent_id, ref, engine.name, "variant_read_back_proved_not_applied")
+            await _reclaim_orphan(engine, agent_id, ref, "variant_read_back_proved_not_applied")
         log.error(
             "agent_variant_publish_not_applied",
             extra={

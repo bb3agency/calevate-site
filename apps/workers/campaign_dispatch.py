@@ -107,6 +107,7 @@ from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.integrations import service as integrations
 
 log = get_logger(__name__)
 
@@ -714,11 +715,86 @@ async def _dispatch_for_campaign(
             # column means stays `campaigns.scheduling`'s question.
             settled = await complete_or_rearm(session, campaign_id=campaign_id)
             if settled == "completed":
+                # IN THIS TRANSACTION, beside the status write that justifies it — the
+                # transactional-outbox property (BACKEND-PATTERNS §4) that makes "the
+                # campaign completed but the CRM never heard" and "the CRM heard about a
+                # completion that rolled back" both unrepresentable. A tick that dies
+                # between the UPDATE and the enqueue rolls both back and the next tick
+                # re-completes the campaign, because `complete_or_rearm` is a CAS off
+                # `running`.
+                await emit_campaign_completed(session, tenant_id=tenant_id, campaign_id=campaign_id)
                 log.info("campaign_completed", extra={"campaign_id": str(campaign_id)})
             elif settled == "scheduled":
                 log.info("campaign_recurrence_rearmed", extra={"campaign_id": str(campaign_id)})
 
     return {"dialled": dialled, "blocked": blocked, "exhausted": exhausted}
+
+
+# The `data` keys a `campaign.completed` outbound event carries (docs/WEBHOOKS.md §1.2),
+# in the order `integrations.service.DEFAULT_SHEET_COLUMNS` lays them out in a
+# spreadsheet. AGGREGATES AND THE CAMPAIGN'S OWN NAME ONLY — not one contact's number,
+# not one contact's name. That is not squeamishness about a third party: it is what makes
+# this the one event `integrations.service.body_subject` can name no subject for, so the
+# forensic body is deliberately not retained and there is nothing here for a DPDP erasure
+# to have to find. A per-contact roster would reverse all three of those facts.
+#
+# `updated_at` IS the completion instant: `complete_or_rearm`'s UPDATE wrote it with
+# `now()` in this same transaction, so `completed_at` is read from the row rather than
+# stamped a second time from the clock — two stamps for one event is two answers to
+# "when did it finish".
+_CAMPAIGN_COMPLETED_SQL = text(
+    "SELECT c.name, c.updated_at, count(cc.id) AS total, "
+    "  count(cc.id) FILTER (WHERE cc.status = 'connected') AS reached "
+    "FROM campaigns c LEFT JOIN campaign_contacts cc ON cc.campaign_id = c.id "
+    "WHERE c.id = :cid GROUP BY c.id, c.name, c.updated_at"
+)
+
+
+async def emit_campaign_completed(session: Any, *, tenant_id: UUID, campaign_id: UUID) -> int:
+    """Tell every subscribed endpoint that a campaign finished (D-23, `campaign.completed`).
+
+    **This event was subscribable and nothing produced it.** `campaign.completed` has
+    been in `EVENT_TYPES`, in the endpoint route's `EventName` and in the integrations
+    screen's checkbox list ("A campaign finishes") since D-23, and no line of code ever
+    enqueued one — so a client could tick the box, see the endpoint saved, and wait
+    forever. Its sibling `lead.updated` had the identical defect and was closed by
+    `crm.service.emit_lead_updated`; this one waited because the only place that knows a
+    campaign finished is this dispatcher.
+
+    **Called with the CALLER'S session on purpose, and never given one of its own.** The
+    outbox row has to commit with the terminal `status = 'completed'` write or the two
+    can disagree, and a helper that opened its own `tenant_session` would guarantee they
+    eventually do. `tests/campaign_completed_event_test.py` proves the coupling by
+    failing the enqueue and asserting the campaign is still `running`.
+
+    `contacts_reached` counts `connected` and only `connected`: that is the status
+    `resolve_campaign_contact` writes when a call reached its end with `completed`, i.e.
+    the customer was actually spoken to. `no_answer`, `failed` and `dnc_blocked` are
+    contacts we dialled or refused to dial, and folding any of them in would report a
+    reach rate the client's own call log contradicts.
+
+    Returns the number of outbox rows written — the number of subscribed endpoints.
+    """
+    # `.one()` rather than `.first()` plus a defensive `if row is None: return 0`. The
+    # row was UPDATEd to its terminal status in THIS transaction, so an empty result is
+    # not a case to handle — it means the invariant broke, and the honest response is to
+    # fail the transaction rather than silently skip an event a client subscribed to and
+    # is waiting for. A branch that cannot be reached is also a branch no test can cover,
+    # and the coverage ratchet counts a `pragma: no cover` as uncovered precisely so that
+    # suppressing it is not an escape (D-29).
+    row = (await session.execute(_CAMPAIGN_COMPLETED_SQL, {"cid": campaign_id})).one()
+    return await integrations.enqueue_event(
+        session,
+        tenant_id=tenant_id,
+        event="campaign.completed",
+        data={
+            "campaign_id": str(campaign_id),
+            "name": row[0],
+            "contacts_total": int(row[2]),
+            "contacts_reached": int(row[3]),
+            "completed_at": row[1].isoformat(),
+        },
+    )
 
 
 async def resolve_campaign_contact(
@@ -864,5 +940,6 @@ __all__ = [
     "TICK_SECONDS",
     "TenantWork",
     "dispatch_campaign_tick",
+    "emit_campaign_completed",
     "resolve_campaign_contact",
 ]

@@ -8,6 +8,7 @@ import {
   platformConfirmation,
   type AuditChainVerdict,
   type ChainBreak,
+  type EngineDrift,
   type OutboxReplayResult,
   type PlatformState,
 } from "@/lib/api/admin";
@@ -256,6 +257,26 @@ function deadLetters(over: Partial<PlatformState["outbox_dead_letters"]> = {}) {
   };
 }
 
+/**
+ * The drift summary, defaulting to a SWEPT and CLEAN platform (D-123).
+ *
+ * Clean rather than empty on purpose: a default of all-zeroes with a null
+ * `oldest_checked_at` is the "no agent has been checked yet" state, and every unrelated
+ * ops test would then render a warning banner it was not written to expect.
+ */
+function engineDrift(over: Partial<EngineDrift> = {}): EngineDrift {
+  return {
+    live_agents: 4,
+    never_checked: 0,
+    out_of_sync: 0,
+    in_sync: 4,
+    undetermined: 0,
+    oldest_drift_at: null,
+    oldest_checked_at: "2026-08-15T04:07:00Z",
+    ...over,
+  };
+}
+
 /** What the server answers a replay with: the count it moved, and the scope it used. */
 function replayed(count: number, job: string | null = null): OutboxReplayResult {
   return { replayed: count, job };
@@ -267,6 +288,7 @@ function platform(over: Partial<PlatformState> = {}): PlatformState {
     outbound_halted: false,
     halt_reason: null,
     outbox_dead_letters: deadLetters(),
+    engine_drift: engineDrift(),
     tm_registration: {
       status: "active",
       tm_id: "TM-110022",
@@ -1063,6 +1085,100 @@ describe("the dead-letter depth, before the click", () => {
         1,
       );
     });
+  });
+});
+
+describe("what the voice platform is running", () => {
+  it("names the drifted agents as an alarm, and the unreadable ones as NOT one", async () => {
+    // The distinction the whole panel turns on. `agents/verification.py` keeps "provably
+    // running something else" apart from "we could not read the answer" at the source, and
+    // a console that added them would report a slow vendor as a fleet of agents speaking
+    // unapproved scripts — a number an operator learns to ignore inside a week.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        platform({
+          engine_drift: engineDrift({
+            live_agents: 10,
+            in_sync: 6,
+            out_of_sync: 2,
+            undetermined: 2,
+            oldest_drift_at: "2026-08-01T04:07:00Z",
+          }),
+        }),
+        SUPERADMIN,
+      ),
+    );
+
+    await screen.findByText("2 of 10 live agents are running something else");
+    expect(container.textContent).toContain("Oldest divergence");
+    expect(container.textContent).not.toContain("4 of 10");
+    // NO LEVER. Re-publishing over a drift overwrites whatever the vendor's console was
+    // used to change, so the console must not offer that as one click from a summary.
+    expect(screen.queryByRole("button", { name: /publish/i })).toBeNull();
+  });
+
+  it("says nobody is watching when the sweep has never run, instead of all-clear", async () => {
+    // The panel's own version of the DLQ's "0 is not the same as unread". If the cron
+    // dies, every count freezes and `out_of_sync: 0` reads as all-clear forever;
+    // `oldest_checked_at` is the only field that can say otherwise.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        platform({
+          engine_drift: engineDrift({
+            live_agents: 3,
+            in_sync: 0,
+            never_checked: 3,
+            oldest_checked_at: null,
+          }),
+        }),
+        SUPERADMIN,
+      ),
+    );
+
+    await screen.findByText("No agent has been checked yet");
+    expect(container.textContent).not.toContain("Every checked agent is running what we published");
+    expect(container.textContent).toContain("never");
+  });
+
+  it("REFUSES to state a drift count it could not read, rather than showing zero", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(problem(503, { title: "Service unavailable" }), SUPERADMIN),
+    );
+
+    await screen.findByText("We do not know what the voice platform is running");
+    expect(container.textContent).not.toContain("Every checked agent is running what we published");
+    expect(container.textContent).not.toContain("live agents are running something else");
+  });
+
+  it("treats a payload with no drift field as unreadable, not as an all-clear", async () => {
+    // Against a CURRENT server this cannot happen — `engine_drift` is required on the
+    // wire. Against an older one it can, and mid-deploy is exactly when someone is on
+    // this screen. The narrowing has to hold at runtime because `read !== null` is true
+    // for `undefined`: before it did, this rendered a blank ops console, taking the big
+    // red switch down with it. Found by axe's screen scan, which renders with a bare
+    // payload; pinned here because a11y would not say WHY it broke.
+    const withoutDrift: Record<string, unknown> = { ...platform() };
+    delete withoutDrift.engine_drift;
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(withoutDrift as unknown as PlatformState, SUPERADMIN),
+    );
+
+    await screen.findByText("We do not know what the voice platform is running");
+    // And the rest of the screen survived — this panel must never be able to blank the
+    // incident levers beside it.
+    expect(container.textContent).toContain("Load-shed mode");
+  });
+
+  it("reports an all-clear only when the sweep has actually run", async () => {
+    const { container } = renderAdminPage(<OpsPage />, routes(platform(), SUPERADMIN));
+
+    await screen.findByText("Every checked agent is running what we published");
+    expect(container.textContent).toContain("What the voice platform is running");
+    expect(container.textContent).not.toContain("No agent has been checked yet");
   });
 });
 

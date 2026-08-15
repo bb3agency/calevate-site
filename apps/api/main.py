@@ -78,6 +78,7 @@ def _mount_routers(application: FastAPI) -> None:
         global_router as global_dnc_router,
     )
     from apps.api.compliance.registration_routes import router as dlt_registration_router
+    from apps.api.compliance.tenant_erasure_routes import router as tenant_erasure_router
     from apps.api.compliance.whatsapp_optin_routes import (
         admin_router as whatsapp_optin_admin_router,
     )
@@ -147,6 +148,9 @@ def _mount_routers(application: FastAPI) -> None:
     # in declaration order (see `voice_router` above).
     application.include_router(messaging_consent_router)
     application.include_router(deletion_router)
+    # The admin-realm twin: the END of an engagement rather than one data principal's
+    # §12 request, and the only writer `organizations.deleted_at` has (FLOWS §9, D-120).
+    application.include_router(tenant_erasure_router)
     application.include_router(dlt_registration_router)
     application.include_router(kyc_router)
     # R-11's first-campaign hold: the client's view of it, and ops's release. The admin

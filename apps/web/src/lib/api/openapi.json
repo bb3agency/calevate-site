@@ -3599,6 +3599,67 @@
         "title": "EndpointOut",
         "type": "object"
       },
+      "EngineDriftOut": {
+        "additionalProperties": false,
+        "description": "How far the platform's live agents have drifted from what we published (D-123).\n\nTHE HALF-WIRED-FEATURE GUARD. `sweep_engine_drift` walks live agents through\n`engine_drift_for` every half hour and writes what the engine was observed to be\nholding. A job that writes a state nobody reads is the defect CLAUDE.md names, so the\nstate rides the read the ops screen already makes \u2014 the same argument, and the same\nroute-table argument, that put `outbox_dead_letters` here rather than on an endpoint\nof its own.\n\nTHE ALARM IS `out_of_sync`, and `undetermined` is deliberately NOT folded into it.\n`agents/verification.py`'s whole doctrine is that \"the engine is provably running\nsomething else\" and \"we could not read the answer\" are different facts and only one is\nevidence; a console that added them would report a vendor having a slow afternoon as a\nfleet of agents speaking unapproved scripts, and an operator learns to ignore that\nnumber within a week.\n\nCOUNTS AND TIMESTAMPS ONLY (hard rule 6). The per-agent sentence lives behind\n`GET /v1/agents/{agent_id}/engine-state`, which is tenant-scoped and permissioned;\nnothing derived from a prompt or a disclosure line reaches this model. See\n`agents/reconciliation.EngineDriftSummary`, which is where that boundary is enforced.",
+        "properties": {
+          "in_sync": {
+            "title": "In Sync",
+            "type": "integer"
+          },
+          "live_agents": {
+            "title": "Live Agents",
+            "type": "integer"
+          },
+          "never_checked": {
+            "title": "Never Checked",
+            "type": "integer"
+          },
+          "oldest_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Checked At"
+          },
+          "oldest_drift_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Drift At"
+          },
+          "out_of_sync": {
+            "title": "Out Of Sync",
+            "type": "integer"
+          },
+          "undetermined": {
+            "title": "Undetermined",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "live_agents",
+          "never_checked",
+          "out_of_sync",
+          "in_sync",
+          "undetermined",
+          "oldest_drift_at",
+          "oldest_checked_at"
+        ],
+        "title": "EngineDriftOut",
+        "type": "object"
+      },
       "EngineStateOut": {
         "additionalProperties": false,
         "description": "The RECONCILIATION read: what the engine is running RIGHT NOW versus our row.\n\nDistinct from `VerificationOut` because it is asked at a different moment and costs a\nvendor round trip. It is the only instrument that can see the two divergences that\nappear with no code of ours running: an edit made in the vendor's own dashboard, and\na publish that failed on our side after the vendor had already committed.\n\n`state` adds `not_published` (there is nothing to compare) and `not_applied` (the\nengine is running something else) to the four `VerificationOut` values. A\n`not_applied` here is a finding, not a refusal \u2014 nothing is being written.",
@@ -4964,6 +5025,10 @@
             ],
             "title": "Event"
           },
+          "event_key": {
+            "title": "Event Key",
+            "type": "string"
+          },
           "first_at": {
             "format": "date-time",
             "title": "First At",
@@ -4972,6 +5037,11 @@
           "last_at": {
             "format": "date-time",
             "title": "Last At",
+            "type": "string"
+          },
+          "lead_source_id": {
+            "format": "uuid",
+            "title": "Lead Source Id",
             "type": "string"
           },
           "outcome": {
@@ -4983,6 +5053,10 @@
             "title": "Outcome",
             "type": "string"
           },
+          "recoverable": {
+            "title": "Recoverable",
+            "type": "boolean"
+          },
           "source": {
             "title": "Source",
             "type": "string"
@@ -4990,7 +5064,10 @@
         },
         "required": [
           "source",
+          "lead_source_id",
+          "event_key",
           "event",
+          "recoverable",
           "outcome",
           "deduplicated",
           "error",
@@ -7380,6 +7457,41 @@
         "title": "MetaLeadgenAckOut",
         "type": "object"
       },
+      "MetaRedriveOut": {
+        "additionalProperties": false,
+        "description": "One re-drive, accounted for exactly the way a live delivery is.\n\nThe four verdicts are `_absorb_leadgen`'s own, because the re-drive runs\n`_absorb_leadgen` \u2014 a different vocabulary here would be a second answer to \"what\nhappened to my lead\". `candidates` is what the row selection FOUND, and\n`candidates != accepted + duplicate + refused + deferred` is the arithmetic that says\na row went missing, the same check `MetaLeadgenAckOut` exists to make possible.\n\nDeclared, `extra=\"forbid\"`, and counts only: this handler holds retrieved leads in\nscope \u2014 names and phone numbers \u2014 and an untyped return is one careless line away\nfrom shipping them (D-71's defect class, and `scripts/check_redaction_exposure.py`\ncan only judge a declared model).",
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "candidates": {
+            "title": "Candidates",
+            "type": "integer"
+          },
+          "deferred": {
+            "title": "Deferred",
+            "type": "integer"
+          },
+          "duplicate": {
+            "title": "Duplicate",
+            "type": "integer"
+          },
+          "refused": {
+            "title": "Refused",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "candidates",
+          "accepted",
+          "duplicate",
+          "refused",
+          "deferred"
+        ],
+        "title": "MetaRedriveOut",
+        "type": "object"
+      },
       "MetaSetupOut": {
         "additionalProperties": false,
         "description": "Everything a client needs to point a Meta app at this lead source, and the one\nthing they need to know before they bother.\n\nDeclared rather than a bare dict for the same reason `IngestActivityItemOut` is:\n`scripts/check_redaction_exposure.py` inspects response MODELS, and a setup view is\none careless field away from echoing the app secret it derives the token from.",
@@ -8259,6 +8371,9 @@
       "PlatformStateOut": {
         "additionalProperties": false,
         "properties": {
+          "engine_drift": {
+            "$ref": "#/components/schemas/EngineDriftOut"
+          },
           "halt_reason": {
             "anyOf": [
               {
@@ -8290,7 +8405,8 @@
           "outbound_halted",
           "halt_reason",
           "tm_registration",
-          "outbox_dead_letters"
+          "outbox_dead_letters",
+          "engine_drift"
         ],
         "title": "PlatformStateOut",
         "type": "object"
@@ -11308,6 +11424,369 @@
           "status"
         ],
         "title": "TemplateStatusIn",
+        "type": "object"
+      },
+      "TenantErasureAcceptedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "already_open": {
+            "title": "Already Open",
+            "type": "boolean"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "proof": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TenantErasureProofOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "tenant_id",
+          "status",
+          "reason",
+          "requested_at",
+          "completed_at",
+          "proof",
+          "limitations",
+          "already_open"
+        ],
+        "title": "TenantErasureAcceptedOut",
+        "type": "object"
+      },
+      "TenantErasureIn": {
+        "additionalProperties": false,
+        "description": "`extra=\"forbid\"` so a caller cannot smuggle a narrower scope into an operation\nthat honours none. The worker erases everything it can reach for the tenant.",
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "TenantErasureIn",
+        "type": "object"
+      },
+      "TenantErasureLimitationOut": {
+        "additionalProperties": false,
+        "description": "One thing this erasure did NOT destroy, and the rule that stopped it.",
+        "properties": {
+          "authority": {
+            "title": "Authority",
+            "type": "string"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "what": {
+            "title": "What",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "what",
+          "outcome",
+          "why",
+          "authority"
+        ],
+        "title": "TenantErasureLimitationOut",
+        "type": "object"
+      },
+      "TenantErasureOut": {
+        "additionalProperties": false,
+        "description": "The response model IS the output whitelist (BACKEND-PATTERNS \u00a71).",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "proof": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TenantErasureProofOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "completed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "tenant_id",
+          "status",
+          "reason",
+          "requested_at",
+          "completed_at",
+          "proof",
+          "limitations"
+        ],
+        "title": "TenantErasureOut",
+        "type": "object"
+      },
+      "TenantErasureProofOut": {
+        "additionalProperties": false,
+        "description": "The certificate. Carries no personal data by construction: an organisation id,\ntimestamps, counts and plain statements of what was done to each store.",
+        "properties": {
+          "actions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Actions",
+            "type": "object"
+          },
+          "engine_deletion": {
+            "title": "Engine Deletion",
+            "type": "string"
+          },
+          "executed_at": {
+            "title": "Executed At",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "limitations_version": {
+            "title": "Limitations Version",
+            "type": "string"
+          },
+          "not_erased": {
+            "items": {
+              "$ref": "#/components/schemas/TenantErasureLimitationOut"
+            },
+            "title": "Not Erased",
+            "type": "array"
+          },
+          "recording_hold_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording Hold Until"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/TenantErasureScopeOut"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "executed_at",
+          "scope",
+          "recording_hold_until",
+          "actions",
+          "engine_deletion",
+          "not_erased",
+          "limitations",
+          "limitations_version"
+        ],
+        "title": "TenantErasureProofOut",
+        "type": "object"
+      },
+      "TenantErasureScopeOut": {
+        "additionalProperties": false,
+        "description": "WHAT was erased, by count. Never by id, never by number.\n\nEvery field is NULLABLE AND REQUIRED. Nullable because absent is not zero: a proof\nwritten by a worker that did not record a fact must not be rendered as the claim\nthat the fact was zero, and hard rule 4 forbids back-filling the row to make it so.\nRequired \u2014 no Pydantic default \u2014 because a field with a default generates an OPTIONAL\nTypeScript property, and this repo has been bitten by that four times.",
+        "properties": {
+          "call_extractions_erased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Extractions Erased"
+          },
+          "calls_erased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calls Erased"
+          },
+          "leads_erased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leads Erased"
+          },
+          "recordings_destroyed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recordings Destroyed"
+          },
+          "recordings_within_trai_floor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recordings Within Trai Floor"
+          },
+          "transcript_turns_erased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript Turns Erased"
+          },
+          "webhook_bodies_erased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Bodies Erased"
+          }
+        },
+        "required": [
+          "calls_erased",
+          "transcript_turns_erased",
+          "call_extractions_erased",
+          "leads_erased",
+          "recordings_destroyed",
+          "recordings_within_trai_floor",
+          "webhook_bodies_erased"
+        ],
+        "title": "TenantErasureScopeOut",
         "type": "object"
       },
       "TenantSummary": {
@@ -14655,6 +15134,179 @@
           "admin"
         ],
         "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/erasure": {
+      "get": {
+        "description": "Newest first, and deliberately still answerable once the tenant is erased.\n\n`tenant_id` is in the path and RLS scopes the read; it is not named in the SQL. The\nparameter is what makes the caller's scope explicit at the call site and is what the\nsession is opened on.",
+        "operationId": "list_tenant_erasures_v1_admin_tenants__tenant_id__erasure_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TenantErasureOut"
+                  },
+                  "title": "Response List Tenant Erasures V1 Admin Tenants  Tenant Id  Erasure Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This client's erasure record and its certificate \u2014 readable after erasure",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "description": "Executes the tenant-level erasure FLOWS \u00a79 ends the offboarding with, and is the only thing in this product that sets `organizations.deleted_at`. After it completes the client is gone from every screen, no membership resolves, no dial is permitted and no invitation can be issued or redeemed. It cannot be undone. The account must ALREADY be closed (`churned`) \u2014 409 `tenant_not_closed` otherwise, and 409 `tenant_already_erased` if it has been erased before. Needs a superadmin AND the header `X-Confirm-Action: erase_tenant_data:<tenant_id>`. Filing twice returns 200 with `already_open: true` rather than erasing twice. Export the client's data BEFORE calling this: nothing here produces the bundle.",
+        "operationId": "request_tenant_erasure_v1_admin_tenants__tenant_id__erasure_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantErasureIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantErasureAcceptedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Erase this client's data \u2014 irreversible, superadmin, step-up confirmed",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/erasure/{request_id}": {
+      "get": {
+        "description": "RLS scopes the lookup, so another tenant's record is not found \u2014 the same answer\na nonexistent id gets, deliberately.",
+        "operationId": "read_tenant_erasure_v1_admin_tenants__tenant_id__erasure__request_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantErasureOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One erasure record and its certificate",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/admin/tenants/{tenant_id}/feature-flags": {
@@ -18193,6 +18845,47 @@
           }
         },
         "summary": "Re-enable a disabled lead source",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/lead-sources/{webhook_id}/meta/redrive": {
+      "post": {
+        "description": "Re-fetch the leads this source recorded but could not read because no Meta Page access token was attached yet. Meta redelivers a notification for about 36 hours and then unsubscribes the Page; after that the lead is still recorded against its Meta lead ID and this is what acts on it. Each lead goes through the same checks a live delivery does, including the compliance gate \u2014 a lead recovered here is not dialled unless a live one would have been.",
+        "operationId": "meta_redrive_v1_lead_sources__webhook_id__meta_redrive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaRedriveOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Re-run Meta leads we recorded but could not read (SURFACES \u00a72b)",
         "tags": [
           "lead-ingest"
         ],

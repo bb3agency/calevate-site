@@ -2,7 +2,10 @@
 
 Everything outside `engine/` consumes these, never a vendor payload shape. Raw
 vendor payloads are archived to object storage and referenced by
-`engine_payload_ref` — they are never read by app code.
+`engine_payload_ref` — they are never read by app code. Never read is not the same
+as never personal: the archived document carries the caller's number and the
+transcript, so its key names the tenant and the call and a DPDP erasure deletes it
+(D-126, `apps/workers/storage.payload_key`).
 """
 
 from __future__ import annotations

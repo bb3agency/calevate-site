@@ -213,6 +213,25 @@ PROVIDER_NOT_IMPLEMENTED_REASON: Final = "provider_not_implemented"
 RECORDED_OUTSIDE_LOCAL_REASON: Final = "meta_recorded_retriever_refused"
 NO_ANSWERS_REASON: Final = "meta_lead_had_no_answers"
 
+#: The recorded refusals that ATTACHING A CREDENTIAL makes readable — the ones a re-drive
+#: can act on (`POST /v1/lead-sources/{id}/meta/redrive`).
+#:
+#: Both are the capability selector saying "not configured", so both are undone by the
+#: operator step that configures it, and the lead behind them is intact at Meta's end:
+#: nothing was fetched, so nothing was lost. Everything else this module records is a
+#: VERDICT about the lead itself — deleted at Meta, no answers on the form, no dialable
+#: number, no published agent — and re-running one of those would spend a Graph call to
+#: reach the same refusal.
+#:
+#: Two of the selector's own reasons are deliberately NOT here.
+#: `RECORDED_OUTSIDE_LOCAL_REASON` and `PROVIDER_NOT_IMPLEMENTED_REASON` name a
+#: deployment configured WRONG rather than one not configured yet, they have never been
+#: reachable in production (`META_LEAD_RETRIEVER` is `graph` or unset), and the second
+#: carries a `:provider` suffix so it is not an exact match at all — a `LIKE` in the
+#: candidate query for a state no deployment has been in is a wider predicate than the
+#: fix needs. Adding one is one line here plus one test.
+REDRIVABLE_REASONS: Final[tuple[str, ...]] = (NO_TOKEN_REASON, NO_RETRIEVER_REASON)
+
 # Re-exported, not redefined: the rule belongs to the ingest flow that raises it
 # (`service.ingest_lead`), and two spellings of one rule name is how a support runbook
 # and a timeline entry end up disagreeing.
@@ -576,6 +595,7 @@ __all__ = [
     "PROVIDER_NOT_IMPLEMENTED_REASON",
     "RECORDED_OUTSIDE_LOCAL_REASON",
     "RECORDED_PROVIDER",
+    "REDRIVABLE_REASONS",
     "SIGNATURE_HEADER",
     "SIGNATURE_PREFIX",
     "LeadNotification",

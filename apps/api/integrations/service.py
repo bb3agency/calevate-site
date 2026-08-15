@@ -615,6 +615,18 @@ DEFAULT_SHEET_COLUMNS: dict[str, tuple[str, ...]] = {
         "sentiment",
         "summary",
     ),
+    # AGGREGATES AND THE CAMPAIGN'S NAME — the one layout here with no person in it.
+    # `name` is the CAMPAIGN's, and it sits second for the reason `lead.*` puts the
+    # lead's name second: the id identifies the row, the name is what a human scanning
+    # the sheet reads. Produced by `apps.workers.campaign_dispatch.emit_campaign_completed`,
+    # which is the only writer of these keys.
+    "campaign.completed": (
+        "campaign_id",
+        "name",
+        "contacts_total",
+        "contacts_reached",
+        "completed_at",
+    ),
 }
 
 # Characters that make a spreadsheet treat a cell as an expression. `=` and `@` are

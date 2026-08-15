@@ -409,6 +409,12 @@ async def test_ops_can_read_and_record_the_platform_tm_registration() -> None:
         "halt_reason",
         "tm_registration",
         "outbox_dead_letters",
+        # D-123. The second MEASUREMENT on a payload of switches, and it arrives by the
+        # same argument `outbox_dead_letters` did: the ops screen makes one read, gates
+        # the whole page on it, and `ops:manage` is in `MUTATING_PERMISSIONS` — so a field
+        # here costs no new entry in `ADMIN_CONSOLE_GETS` while a second GET would. This
+        # guard caught it too, which is the point of an exact set.
+        "engine_drift",
     }
 
     assert recorded.status_code == 200, recorded.text

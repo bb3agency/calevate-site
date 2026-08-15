@@ -17,6 +17,13 @@ Signature scheme (svix-webhooks docs):
     expected       = base64(HMAC_SHA256(secret_bytes, signed_content))
     svix-signature = "v1,<sig> v1,<other-sig>"   # space-separated, versioned
 `secret` arrives as `whsec_<base64>`; the bytes after the prefix are the key.
+
+**This endpoint is no longer the only way a `users` row appears.** Clerk's own guidance
+is that webhook delivery is eventually consistent and must not gate a synchronous
+onboarding flow, so `core/clerk_identity.py` reconciles a missing mirror row from Clerk's
+Backend API when a verified token arrives first (D-124). Both paths share one upsert and
+one payload shape; this one remains the steady-state feed and the ONLY source of
+`user.deleted`.
 """
 
 from __future__ import annotations
@@ -29,13 +36,12 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, Request
-from sqlalchemy import text
 
 from apps.api.core.alerting import alert
+from apps.api.core.clerk_identity import mirror_clerk_user
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
-from apps.api.db.base import uuid7
 from apps.api.db.session import untenanted_session
 from apps.api.reliability.service import (
     body_hash,
@@ -84,56 +90,16 @@ def verify_svix(*, secret: str, headers: dict[str, str], body: bytes) -> bool:
 
 
 async def _mirror_user(payload: dict[str, Any], deleted: bool) -> str:
-    clerk_id = payload.get("id")
-    if not isinstance(clerk_id, str):
-        return "ignored"
+    """The push half of the mirror.
 
-    if deleted:
-        # Soft: `deactivated_at` is what the auth guard re-checks on every request, so
-        # this takes effect on the very next call. A hard delete would orphan
-        # memberships and audit rows that must survive (hard rule 4).
-        async with untenanted_session() as session:
-            await session.execute(
-                text(
-                    "UPDATE users SET deactivated_at = now(), updated_at = now() "
-                    "WHERE clerk_user_id = :cid AND deactivated_at IS NULL"
-                ),
-                {"cid": clerk_id},
-            )
-        return "deactivated"
-
-    emails = payload.get("email_addresses") or []
-    primary_id = payload.get("primary_email_address_id")
-    email = next(
-        (e.get("email_address") for e in emails if e.get("id") == primary_id),
-        next((e.get("email_address") for e in emails), None),
-    )
-    if not email:
-        return "ignored"
-    name = " ".join(
-        part for part in (payload.get("first_name"), payload.get("last_name")) if part
-    ).strip()
-
-    async with untenanted_session() as session:
-        # `deactivated_at` is deliberately NOT in the SET list. Svix does not guarantee
-        # ordering, so a `user.updated` can land after the `user.deleted` for the same
-        # id — and clearing the flag there would restore a revoked account's access to
-        # every tenant it belonged to, because the auth guard re-reads exactly this
-        # column on every request. Clerk never reuses a user id, so a later event for a
-        # deleted one is always stale: the mirror reflects the deletion, it does not
-        # get to overrule it. Nothing else in the codebase clears this column, so
-        # reinstating an account would be a deliberate admin action, not a side effect
-        # of whatever order the webhooks happened to arrive in.
-        await session.execute(
-            text(
-                "INSERT INTO users (id, clerk_user_id, email, name, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, :name, now(), now()) "
-                "ON CONFLICT (clerk_user_id) DO UPDATE SET email = EXCLUDED.email, "
-                "name = COALESCE(EXCLUDED.name, users.name), updated_at = now()"
-            ),
-            {"id": uuid7(), "cid": clerk_id, "email": email, "name": name or None},
-        )
-    return "mirrored"
+    The WRITE itself lives in `core/clerk_identity.mirror_clerk_user`, shared with the
+    just-in-time reconcile that `core/auth.py` performs when a verified token arrives
+    before this webhook does (D-124). One function, because a pull path with its own
+    upsert would be a second set of trust rules for the same row — and because the
+    reconcile's whole safety argument is that it writes exactly what this endpoint
+    writes, from exactly the same Clerk payload shape.
+    """
+    return await mirror_clerk_user(payload, deleted=deleted)
 
 
 @router.post(

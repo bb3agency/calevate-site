@@ -458,12 +458,103 @@ async def run_gate_2(ctx: GateContext) -> GateRun:
         "dispatcher is the caller that will want it."
     )
 
+    checks.extend(await _delete_agent_checks(ctx, nonce))
+
     return GateRun(
         number=2,
         title="Full API provisioning",
         checks=tuple(checks),
         findings=tuple(findings),
     )
+
+
+async def _delete_agent_checks(ctx: GateContext, nonce: str) -> list[SubCheck]:
+    """Settle `delete_agent`'s MARKED ASSUMPTION — the one thing the docs do not answer.
+
+    Both real adapters implement `DELETE` on the agent, and both carry an assumption in
+    their docstring that a vendor answers **404** for an id the account does not hold,
+    which `absent_is_success` folds into the Protocol's idempotent success. Bolna's
+    reference publishes 200 and 400 and says nothing about a repeat; Cartesia publishes no
+    agent-delete reference at all. If a repeat answers 400, the compensator raises on work
+    that is already done and the orphan-reclaim job walks its retry ladder into the DLQ.
+    That question needs an account, which is what this gate is.
+
+    **A THROWAWAY AGENT, NOT THE GATE'S OWN.** The agent above is the subject of the
+    execution read-back and of the `user_data` round trip, and gate 2's own instructions
+    tell an operator to re-run against the same execution once it reaches `completed` —
+    Bolna's delete destroys the agent's executions with it, so deleting the gate's subject
+    would silently break its own re-run procedure. This creates and destroys its own.
+
+    Three sub-checks, mapping one-to-one onto the three properties the conformance clause
+    asserts against stubs: the delete lands, the object is really gone (observed through
+    `get_agent`, not through the delete's return value), and a REPEAT does not raise.
+    """
+    checks: list[SubCheck] = []
+    disposable = _pilot_agent_config(
+        ctx.settings, nonce=f"{nonce}-del", prompt_marker="delete-probe"
+    )
+    try:
+        ref = await ctx.engine.create_agent(disposable)
+    except Exception as exc:
+        return [
+            not_run(
+                "delete_agent",
+                "could not create the throwaway agent this probe deletes: " + _engine_error(exc),
+            )
+        ]
+
+    try:
+        await ctx.engine.delete_agent(ref)
+    except Exception as exc:
+        return [
+            failed(
+                "delete_agent",
+                f"DELETE on agent {ref} was refused: {_engine_error(exc)}. The orphan "
+                "compensator (`agents/service.py::_reclaim_orphan`) cannot remove a "
+                "vendor-side agent it created, so every failed publish leaks a billed "
+                "object. THE AGENT WAS NOT DELETED — remove it by hand.",
+            )
+        ]
+    checks.append(passed("delete_agent", f"agent {ref} deleted"))
+
+    try:
+        await ctx.engine.get_agent(ref)
+    except Exception:
+        checks.append(passed("delete_agent_removed", "the deleted agent no longer reads back"))
+    else:
+        checks.append(
+            failed(
+                "delete_agent_removed",
+                "the vendor accepted the DELETE and the agent still reads back — an "
+                "orphan this adapter reports as compensated is still costing money.",
+            )
+        )
+
+    # THE ASSUMPTION ITSELF. A raise here does not mean the vendor is wrong; it means our
+    # adapter's 404 assumption is, and the finding names the fix.
+    try:
+        await ctx.engine.delete_agent(ref)
+    except Exception as exc:
+        checks.append(
+            failed(
+                "delete_agent_is_idempotent",
+                "a REPEAT delete raised (" + _engine_error(exc) + "). The adapter assumes "
+                "a vendor answers 404 for an id it does not hold and treats that as "
+                "success; this vendor does something else. Capture the exact status and "
+                "body, then narrow the adapter's `absent_is_success` branch onto it — a "
+                "compensation job that raises on work already done walks its retry ladder "
+                "into the DLQ.",
+            )
+        )
+    else:
+        checks.append(
+            passed(
+                "delete_agent_is_idempotent",
+                "a repeat delete of an id the vendor no longer holds is a no-op, which is "
+                "what the Protocol promises its retrying caller",
+            )
+        )
+    return checks
 
 
 # --- gate 1: webhook trust ----------------------------------------------------

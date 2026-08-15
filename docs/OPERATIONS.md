@@ -29,7 +29,7 @@ most of this is real PSTN call spend). 5–7 working days alongside other work.
 | # | Gate | Pass criteria |
 |---|---|---|
 | 1 H | Webhook trust | Register a tunnel URL as the agent's `webhook_url`; run calls. Confirm deliveries arrive ONLY from 13.203.39.153 and our allowlist (nginx + in-app) rejects anything else; confirm dedupe on execution_id; confirm the payload matches Get Execution. Docs claim no signing — if a signature header exists, capture it and update TRD §5. |
-| 2 H | Full API provisioning | Via API only, no dashboard: create agent → update prompt → attach number → start call (`POST /call`) → `GET /executions/{id}`. Confirm /v2 agent paths, `user_data` context injection round-trips into the prompt, and `scheduled_at` works. |
+| 2 H | Full API provisioning | Via API only, no dashboard: create agent → update prompt → attach number → start call (`POST /call`) → `GET /executions/{id}`. Confirm /v2 agent paths, `user_data` context injection round-trips into the prompt, and `scheduled_at` works. **AND SETTLE `delete_agent`'s MARKED ASSUMPTION (D-123).** Both real adapters implement `DELETE` on the agent (`DELETE /v2/agent/{agent_id}` is published in Bolna's reference — 200 `{"message":"success","state":"deleted"}`, 400, and a note that it destroys all of the agent's batches and executions; Cartesia publishes NO agent-delete reference at all, so its `DELETE /agents/{id}` is INFERRED). What neither vendor documents is what a REPEAT delete answers, and both adapters assume **404** and fold it into the Protocol's idempotent success. If it is a 400 instead, `agents/service.py::_reclaim_orphan` raises on a compensation whose work is already done and the retry ladder DLQs it. The harness now runs this: `gates_api._delete_agent_checks` creates a THROWAWAY agent (never the gate's own — deleting that would destroy the execution this gate's own re-run instructions depend on), deletes it, re-reads it, and deletes it a SECOND time. Record the exact status and body of the repeat; if it is not 404 the fix is to narrow `absent_is_success` onto what the vendor actually sends, never to widen the accepted status range. |
 | 3 H | Telugu quality (BYOK) | Sarvam Saaras V3 STT + Bulbul V3 TTS on OUR keys. 10-utterance Telugu script on real PSTN: names/numbers ≥90% correct; Telugu-English code-mixed handled. Confirm **Bulbul V3 (not v2) is selectable**. |
 | 4 H | Real-call latency | 10 PSTN calls: voice-to-voice p50 ≤ 1.1s, p95 ≤ 1.8s (stopwatch + recording analysis). **Vendor latency claims are marketing — their site says "<300ms" undefined; plan only against our own measurement.** Record first-greeting delay after pickup separately (cold-start hides there). **Also capture `latency_data` from Get Execution as an adapter fixture and record whether it AGREES with the stopwatch.** Their docs describe `time_to_first_audio` plus per-component transcriber/llm/synthesizer blocks — unverified against a live account, and a different set of numbers from voice-to-voice turn latency, which would be our own arithmetic aligning three components. This capture is what re-opens durable per-call latency storage: `calls.latency` was dropped (`f1a7c39d5be2`) rather than filled with pipeline timings that are not the caller's experience, and the storage shape gets chosen from the payload we actually receive. Note the documented `transcriber.turns` entries carry recognised TEXT — hard rules 5/6 apply to wherever it lands. |
 | 5 H | Telugu turn-taking [NEW, D-32] | Barge-in mid-sentence, and end-of-utterance on slow/hesitant Telugu speech: does the agent cut callers off, or leave dead air? Endpointing is an ORCHESTRATION-layer property — BYOK models do NOT fix it. Measure, never assume. |
@@ -295,6 +295,25 @@ and a second delivery mechanism is a second thing to be broken on the night it i
   what repairs them, and both are keyed off the SAME ten-minute deadline
   (`pipeline.PIPELINE_STALL_AFTER`, imported by `dispatcher.STALL_AFTER_MINUTES`) so a
   call cannot be late for one and current for the other.
+- **`engine_agent_drift_detected` says a client's phone line is speaking a script nobody
+  approved (D-123).** `sweep_engine_drift` reads the 25 stalest live agents back off the
+  engine every half hour (:07 and :37, off the round-numbered ticks) and records what the
+  vendor is actually holding. It fires on a PROVEN mismatch only. `unreadable` and
+  `unreachable` are counted and recorded per agent and deliberately do NOT alert — "the
+  engine is running something else" and "we could not read the answer" are different facts
+  and only one is evidence, and an alarm that fires whenever the vendor has a slow
+  afternoon is one somebody mutes long before it catches a real dashboard edit.
+- **The sweep RE-PUBLISHES NOTHING, and the console offers no button that would (D-123).**
+  Overwriting a drift overwrites whatever the vendor's own console was used to change,
+  plausibly the correct emergency edit made while ours was the thing that was down. The
+  output is a record and an alert; the decision is a human's, taken from the agent's own
+  screen where the sentence saying what differs actually lives.
+- **`GET /v1/ops/platform` carries `engine_drift`, and `oldest_checked_at` is the field to
+  read first.** If the cron dies every count freezes and `out_of_sync: 0` reads as all-clear
+  forever — an `oldest_checked_at` that stops moving (or is null) is the only thing on the
+  payload that can say nobody is watching, so the console leads with it rather than
+  burying it. `never_checked` is distinct from `in_sync` for the same reason
+  `live_verify_state`'s `unverified` is distinct from `unreachable`.
 - **What triggers one**: webhook failures > 3/5min; pipeline lag > 5 min; latency p95
   breach 15-min sustained; cap approaching (80%)/breached; complaint-spike on campaign;
   engine 5xx spike; nightly job failures; cert/domain expiry.
@@ -415,6 +434,15 @@ one differs from a summary below, the runbook is the authority.
   `kb_engine_ref_unknown` vs `kb_engine_out_of_sync`: same disease, different cures, and
   the wrong cure leaves a client's agent quoting old prices. Includes the manual
   vendor-side withdrawal and its two unverified pilot-gate caveats.
+- **An agent is running something we did not publish** — `runbooks/agent-engine-drift.md`.
+  The `engine_agent_drift_detected` alarm and the ops panel behind it (D-123). Opens with
+  "do NOT start by re-publishing", because the two causes — a vendor-dashboard edit and a
+  publish that failed on our side after the vendor committed — want OPPOSITE fixes and a
+  count cannot tell them apart. `disclosure_applied: false` is escalated as an incident
+  rather than a config drift: it is the one property here with a legal consequence. Also
+  covers the two things the panel says that are not the alarm — a rising `undetermined`
+  (the vendor, or our own read-back shape drifting) and an `oldest_checked_at` that has
+  stopped moving, which means every count on the panel is stale.
 - **Local database cannot reach head** — `runbooks/stale-dev-database.md`. The
   `credit_ledger` CONCURRENTLY unique index that cannot build over permanent pre-cutoff
   duplicates hard rule 4 forbids deleting; a fresh database and `make db-reset`; and why

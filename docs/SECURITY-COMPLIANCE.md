@@ -152,6 +152,24 @@ cite the same string:
 | Security safeguards | §5 below |
 | Cross-border | CAUTION (D-31): Bolna call recordings observed on S3 us-east-1; their Enterprise tier offers full India data-residency (audio, transcripts, logs, in-India inference) — residency posture must be pinned in the Bolna contract and disclosed in the client DPA until then. **Models are all-India BY DEFAULT since D-36** — Sarvam is sovereign and now serves STT, LLM *and* TTS, so no transcript text leaves India on the default stack. This inverts the earlier posture: "all-India" is no longer a client opt-in at a quality tradeoff, it is what ships. Gemini remains a *configurable fallback*; enabling it sends transcript text (never audio) to Google and therefore requires a DPA disclosure and an explicit per-tenant decision — treat switching an agent to Gemini as a residency change, not a config tweak. This is a live differentiator: Outpero's privacy policy admits "some providers may process data on servers located outside India" (evidence/outpero-teardown-aug2026.md §9b) |
 
+**Tenant-level erasure — a different data subject, and a different DPDP relationship
+(D-122).** The `deletion_requests` row above is ONE data principal exercising §12 against
+a client's caller records: the client is the Fiduciary, we are the Processor, and the
+certificate is theirs to hand on. The END of an engagement is a separate instruction under
+§8 — the Fiduciary is responsible for processing carried out on its behalf and has the
+Processor erase on instruction — covering every subject in the account at once. It has its
+own table (`tenant_erasure_requests`), its own admin-realm surface
+(`POST /v1/admin/tenants/{id}/erasure`, superadmin + a step-up bound to the tenant), and
+its own certificate; it reuses the same worker module, the same object-store helpers and
+the same `recording_erasure_holds` schedule, because the MECHANISM is one mechanism even
+though the subjects are two. It is the only writer of `organizations.deleted_at`, it
+refuses an account that is not already `churned`, and what it does not erase — the
+append-only ledgers (hard rule 4), DNC suppressions, the client's own users and
+memberships, engine-side copies, and the same client-uploaded knowledge content the
+per-subject register already declares unsearched — is enumerated in the certificate
+rather than left to inference. Nothing here DECIDES that open question; it repeats the
+per-subject register's statement so the two certificates cannot disagree.
+
 **Delivered CRM bodies (D-23) are personal data we now retain, and the terms are these.**
 `webhook_deliveries.payload_ref` holds the object-storage key of the body we POSTed to a
 client's own endpoint — the lead's name, their number in whatever form that endpoint's
@@ -180,6 +198,24 @@ lawful rather than merely useful:
   `staff` and an impersonating operator see the delivery record and never the body.
 - **Bounded**: 64 KiB per delivery, truncation declared inside the stored object. Neither
   the endpoint URL nor the signing secret is ever part of it.
+
+**Archived raw engine payloads (D-126) are the third personal-data store outside
+Postgres, and the erasure reaches them.** `calls.engine_payload_ref` holds the
+object-storage key of the vendor's own document for a call (hard rule 2 keeps that
+document out of typed columns); it carries the caller's number and the transcript, so it
+is personal data whatever it is kept for. Its key was
+`engine-payloads/{engine}/{date}/{execution_id}` — naming neither tenant nor subject, so
+no erasure could enumerate one person's copies. It is now
+`engine-payloads/{tenant}/{call}/…` and `_erase_engine_payloads` destroys every object
+under the erased calls' prefixes, on the per-subject path and the tenant path alike, with
+the count in the proof's `actions`. Two limits stated rather than implied: **nothing
+writes this archive yet** (the arm exists BEFORE the producer, because after the producer
+the unreachable objects already exist), and **no retention category expires it** — the
+enum is `recording|transcript|lead|consent_log`, so for anyone who has NOT filed an
+erasure the only clock is the bucket's 90-day `engine-payloads/` lifecycle rule, which
+has never been applied to a real bucket (infra/README §5). Giving the archive its own
+retention category is a DPA commitment and a change to a documented enum, and is reserved
+here the same way the backup clause below is.
 
 **OPEN DECISION — erasure vs. the 90-day recording floor.** Surfaced by the DPDP erasure
 producer (`apps/api/compliance/deletion.py`), stated here rather than resolved, because

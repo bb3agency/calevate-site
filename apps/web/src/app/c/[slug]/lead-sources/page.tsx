@@ -11,6 +11,7 @@ import {
   KeyRound,
   Plus,
   Power,
+  RotateCcw,
   ShieldAlert,
   Webhook,
   XCircle,
@@ -36,6 +37,7 @@ import {
   useCreateLeadSource,
   useIngestActivity,
   useLeadSources,
+  useMetaRedrive,
   useMetaSetup,
   useRotateLeadSourceSecret,
   useSetLeadSourceActive,
@@ -162,6 +164,7 @@ export default function LeadSourcesPage() {
   const activity = useIngestActivity(session);
   const test = useTestWebhook(session);
   const metaSetup = useMetaSetup(session);
+  const redrive = useMetaRedrive(session);
 
   /**
    * D-22 read-only, and the least obvious case on the sweep: the dry-run writes
@@ -354,6 +357,10 @@ export default function LeadSourcesPage() {
               // The response carries a credential for ONE source; leaving it on screen
               // beside a different ID is how the wrong token gets pasted into Meta.
               metaSetup.reset();
+              // And the recovery result is about ONE source too: "2 of 2 recovered"
+              // left standing under a different Page reads as a statement about that
+              // Page's leads, which is the wrong answer rather than a stale one.
+              redrive.reset();
             }}
             query={sources}
             // Only Meta sources: the other kinds have no Meta endpoint at all, and
@@ -378,6 +385,13 @@ export default function LeadSourcesPage() {
           </div>
         )}
         {metaSetup.data && <MetaSetupDetails setup={metaSetup.data} />}
+
+        <MetaRecovery
+          sourceId={metaSourceId.trim()}
+          activity={activity}
+          redrive={redrive}
+          canWrite={write.allowed}
+        />
       </Card>
 
       <Card
@@ -407,23 +421,35 @@ export default function LeadSourcesPage() {
           </div>
         ) : !deliveries ? null : deliveries.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px] text-sm">
+            <table className="w-full min-w-[820px] text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
                   <th className="px-3 py-2.5 font-semibold">Source</th>
+                  <th className="px-3 py-2.5 font-semibold">Reference</th>
                   <th className="px-3 py-2.5 font-semibold">Outcome</th>
                   <th className="px-3 py-2.5 font-semibold">Retries absorbed</th>
                   <th className="px-3 py-2.5 text-right font-semibold">Last seen</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {deliveries.map((item, i) => (
-                  // No stable ID in the payload, and `event` is nullable — a vendor can
-                  // post without naming an event and we still record the delivery — so
-                  // it cannot carry the key. Source + first delivery narrows it; the
-                  // index is what actually guarantees uniqueness for a read-only list.
-                  <tr key={`${item.source}-${item.first_at}-${i}`}>
+                {deliveries.map((item) => (
+                  // `event_key` is the row's own identity — one inbox row per
+                  // (source, sender's id) by unique constraint — so the list finally has
+                  // a stable key. It used to be source + first delivery + the ARRAY
+                  // INDEX, because nothing in the payload identified a row; the index is
+                  // what React re-keys on when the 30-second refetch reorders the table.
+                  <tr key={`${item.lead_source_id}-${item.event_key}`}>
                     <td className="px-3 py-2.5 text-ink">{item.source}</td>
+                    {/* The sender's own id for this delivery. For a Meta source it is the
+                        `leadgen_id` — the string Meta's Ads Manager and Meta support both
+                        speak, and the one thing that survives a lead we could not read, so
+                        it is what a client quotes when asking anybody about it. For a form
+                        vendor it is our body digest, which is the honest answer there. */}
+                    <td className="px-3 py-2.5">
+                      <code className="break-all font-mono text-xs text-ink-muted">
+                        {item.event_key}
+                      </code>
+                    </td>
                     <td className="px-3 py-2.5">
                       <span
                         className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -437,6 +463,17 @@ export default function LeadSourcesPage() {
                       {item.error && (
                         <p className="mt-1 text-xs text-rose-700 dark:text-rose-400">
                           {item.error}
+                        </p>
+                      )}
+                      {/* SERVER-DERIVED, never inferred here by comparing `error` against a
+                          list this file would then hold a stale copy of. A row is
+                          recoverable when the re-drive route would actually act on it, and
+                          only the server knows which reasons those are — a badge that
+                          guessed would promise a recovery the route declines to make. */}
+                      {item.recoverable && (
+                        <p className="mt-1 flex items-center gap-1 text-xs text-ink-muted">
+                          <RotateCcw className="h-3 w-3 shrink-0" aria-hidden />
+                          Recoverable — use “Recover unread leads” above.
                         </p>
                       )}
                     </td>
@@ -1061,6 +1098,106 @@ function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
         setup from here. The first row in “Recent deliveries” below is what tells you it
         worked.
       </p>
+    </div>
+  );
+}
+
+/**
+ * The other half of the re-drive: an affordance for it.
+ *
+ * A route with no button is the half-wired feature `tests/crm_egress_known_gaps_test.py`
+ * refused to accept, and the reason that gap stayed open through a whole slice. What a
+ * client needs before pressing anything is the COUNT — how many of their leads are
+ * sitting unread — and that comes from the activity view's server-derived `recoverable`
+ * flag rather than from this file re-deciding what a recoverable reason is.
+ *
+ * §52, and the loading state is the one that matters here: "0 leads waiting" printed
+ * while the activity query is still in flight tells someone their leads are fine when we
+ * have not looked yet. So loading is a skeleton, a failed read is a refusal with a retry,
+ * and a zero is only ever printed against an answer we actually received.
+ */
+function MetaRecovery({
+  sourceId,
+  activity,
+  redrive,
+  canWrite,
+}: {
+  sourceId: string;
+  activity: ReturnType<typeof useIngestActivity>;
+  redrive: ReturnType<typeof useMetaRedrive>;
+  canWrite: boolean;
+}) {
+  // Nothing to say until a source is picked: the count and the button are both about ONE
+  // lead source, and a total across an account would offer to recover leads belonging to
+  // a Page the person is not looking at.
+  if (!sourceId) return null;
+
+  const waiting = activity.data?.items.filter(
+    (item) => item.lead_source_id === sourceId && item.recoverable,
+  );
+  const result = redrive.data;
+
+  return (
+    <div className="mt-4 border-t border-line pt-4">
+      <p className="text-sm font-medium text-ink">Leads we recorded but could not read</p>
+      <p className="mt-1 text-sm text-ink-muted">
+        If a lead arrived before your Page access token was in place, we kept it against
+        its Meta lead ID but could not fetch what the person typed. Meta stops resending
+        after about a day and a half; this fetches them now. Each one goes through the
+        same checks a live lead does — including whether you may call them.
+      </p>
+
+      {activity.error != null ? (
+        <div className="mt-3">
+          <ProblemNotice error={activity.error} onRetry={() => activity.refetch()} />
+        </div>
+      ) : activity.isLoading || !waiting ? (
+        <div className="mt-3">
+          <Skeleton rows={1} />
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            disabled={!canWrite || redrive.isPending || waiting.length === 0}
+            onClick={() => redrive.mutate(sourceId)}
+            className={SECONDARY_BUTTON_SM}
+          >
+            <RotateCcw className="h-4 w-4" />
+            {redrive.isPending ? "Recovering…" : "Recover unread leads"}
+          </button>
+          <span className="text-xs text-ink-faint">
+            {waiting.length === 0
+              ? "Nothing is waiting for this source."
+              : `${formatCount(waiting.length)} ${waiting.length === 1 ? "lead is" : "leads are"} waiting.`}
+          </span>
+        </div>
+      )}
+
+      {redrive.error != null && (
+        <div className="mt-3">
+          <ProblemNotice error={redrive.error} />
+        </div>
+      )}
+      {result && (
+        <div className={`mt-3 rounded-lg border p-3 text-sm ${NOTICE_TONES.ok}`}>
+          <p className="font-medium">
+            {formatCount(result.accepted)} of {formatCount(result.candidates)} recovered.
+          </p>
+          <p className="mt-1">
+            {/* Every non-accepted bucket is named, because a run that recovered 2 of 5 and
+                said only "2 recovered" is the shape that makes someone press again and
+                again. `deferred` is the one with an action attached, so it says so. */}
+            {result.refused > 0 &&
+              `${formatCount(result.refused)} could not be used — see the reason on each row below. `}
+            {result.duplicate > 0 &&
+              `${formatCount(result.duplicate)} had already landed. `}
+            {result.deferred > 0
+              ? `${formatCount(result.deferred)} could not be fetched just now — Meta was unreachable, and they are still waiting, so try again shortly.`
+              : "Anything recovered appears in your leads, and was called only if your rules allowed it."}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

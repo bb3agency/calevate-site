@@ -336,7 +336,12 @@ class CartesiaEngine:
             )
         return self._client
 
-    async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    async def _request(
+        self, method: str, path: str, *, absent_is_success: bool = False, **kwargs: Any
+    ) -> dict[str, Any]:
+        """One round trip. `absent_is_success` is `delete_agent`'s and nothing else's —
+        see `BolnaEngine._request`, which carries the argument for why it is opt-in per
+        call site rather than a blanket 404 policy."""
         try:
             response = await self._http().request(method, path, **kwargs)
         except httpx.HTTPError as exc:
@@ -346,6 +351,10 @@ class CartesiaEngine:
                 title="Voice platform is unreachable",
                 detail="The voice platform did not respond.",
             ) from exc
+        if absent_is_success and response.status_code == 404:
+            # The declared postcondition, already satisfied. See `delete_agent`.
+            log.info("cartesia_delete_already_absent", extra={"method": method})
+            return {}
         if response.status_code >= 400:
             # The vendor's message is NOT forwarded (hard rule 2 upward, and a client
             # cannot act on it). The status is logged; the code carries the meaning.
@@ -439,6 +448,29 @@ class CartesiaEngine:
         never named. If PATCH is not their verb this 404s/405s loudly.
         """
         await self._request("PATCH", f"/agents/{ref}", json=self._agent_body(cfg))
+
+    async def delete_agent(self, ref: EngineAgentRef) -> None:
+        """`DELETE /agents/{id}`. INFERRED — the RESTful sibling of `create_agent`'s
+        `POST /agents`, and it stands or falls with it.
+
+        **MARKED ASSUMPTION, and it is weaker than Bolna's on both halves.** Bolna at
+        least publishes the route; a search for a Cartesia Line agent-delete reference
+        (2026-08-15) returned NO PUBLIC DOCUMENTATION for it — their published API surface
+        covers datasets and voices, and the Line agent control plane is not documented
+        outside the OSS SDK, which models the in-call agent rather than its CRUD. "No
+        public documentation found" is the finding, recorded rather than papered over.
+        ASSUMED: the path exists at `DELETE /agents/{id}` and answers 404 for an id the
+        account does not hold, which `_absent_is_success` folds into the Protocol's
+        idempotent success.
+        FALSIFIED BY: any non-404 refusal on a repeat delete, and by a 404/405 on the
+        FIRST delete — which is the same falsifier `create_agent` and `update_agent`
+        already carry, and it fails loudly rather than degrading: an orphan we could not
+        remove is reported by the compensator exactly as it was before this method
+        existed, which is a log line naming the ref, not a claim that it is gone.
+        MEASURED BY: OPERATIONS §2 gate 2's `delete_agent` sub-check, run against whichever
+        vendor the deployment is configured for.
+        """
+        await self._request("DELETE", f"/agents/{ref}", absent_is_success=True)
 
     async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
         """`GET /agents/{id}` → our `AgentSnapshot`. INFERRED path, as above.

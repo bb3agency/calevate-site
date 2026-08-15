@@ -5,6 +5,13 @@ D-37 keeps Clerk and states the reason plainly: Hard Rule 1's RLS model trusts
 not a login bug. Clerk authenticates; **our Postgres stays the system of record**
 (users/organizations mirrored via Clerk webhooks), and RLS keys off OUR tenant_id.
 
+**Which user a client-realm token IS lives in `core/clerk_identity.py`**, not here, and
+both client-realm dependencies call it (D-124). Clerk's mirror is eventually consistent,
+so a verified token can arrive before its `users` row: that module reconciles the row
+from Clerk's Backend API rather than answering 401, which is what the two membership-less
+routes — signup and invite-accept — used to do to every new customer. The admin realm is
+deliberately NOT reconciled: `admin_users` is an ops-managed allowlist, not a mirror.
+
 Realms never share session logic (TRD §11): admin tokens are verified against the
 admin application's JWKS and can only produce an admin principal; client tokens the
 same. A token minted for one realm is not a token for the other.
@@ -49,6 +56,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
+from apps.api.core.clerk_identity import resolve_mirrored_user
 from apps.api.core.context import (
     IMPERSONATE_HEADER,
     IMPERSONATION_GRANT_HEADER,
@@ -63,7 +71,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.rbac import MUTATING_PERMISSIONS, Permission, role_has
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
-from apps.api.db.session import admin_session, untenanted_session, user_session
+from apps.api.db.session import admin_session, user_session
 
 log = get_logger(__name__)
 
@@ -393,19 +401,15 @@ async def _load_client_principal(verified: VerifiedToken, org_slug: str | None) 
 
     `is_active` is re-checked against the DB on every request rather than trusted
     from the cached session (§7): deactivation must take effect immediately.
+
+    The identity half is `clerk_identity.resolve_mirrored_user`, shared with
+    `current_identity` — one definition of "which user is this token", reconciling from
+    Clerk's Backend API when the Svix mirror has not landed yet (D-124). This route
+    reaches that state too: a member who accepted an invite in one tab and opens the
+    console in another can beat the webhook, and the answer there was the same
+    unrecoverable 401.
     """
-    # `users` is a GLOBAL table (identity crosses tenants), so this lookup needs no
-    # tenant context — which is exactly why it can be the first step.
-    async with untenanted_session() as session:
-        user_row = (
-            await session.execute(
-                text("SELECT id FROM users WHERE clerk_user_id = :cid AND deactivated_at IS NULL"),
-                {"cid": verified.clerk_user_id},
-            )
-        ).first()
-    if user_row is None:
-        raise ProblemError.unauthorized("This account is not provisioned.")
-    user_id: UUID = user_row[0]
+    user_id: UUID = await resolve_mirrored_user(verified.clerk_user_id)
 
     # Now, and only now, a session that can see THIS user's memberships.
     async with user_session(user_id) as session:
@@ -674,25 +678,24 @@ async def _load_admin_principal(
 async def current_identity(request: Request) -> tuple[UUID, str]:
     """A verified client-realm user with NO membership requirement.
 
-    Exactly one flow needs this: accepting an invitation. The invitee has signed up
-    with Clerk and has been mirrored into `users`, but has no `memberships` row yet —
-    that row is what accepting the invitation creates. `current_principal` would 403
-    them, correctly, which is why the invite path cannot use it.
+    Two flows need this — accepting an invitation, and self-serve signup. The caller has
+    signed up with Clerk but has no `memberships` row yet: that row is what the call
+    creates. `current_principal` would 403 them, correctly, which is why neither path can
+    use it.
 
     Returns (user_id, clerk_user_id) rather than a Principal, because a Principal
     without a tenant is a shape the rest of the code should never have to handle.
+
+    THE MIRROR RACE IS THE ORDINARY CASE HERE, not an edge (D-124). These two routes are
+    reached seconds after Clerk mints the identity, while `user.created` is still in
+    flight to our Svix endpoint, so "no `users` row" used to answer 401 — the one status
+    a browser is built to treat as "sign in again", which mints another valid token and
+    reproduces it exactly. `resolve_mirrored_user` reconciles from Clerk's Backend API
+    instead, and only falls back to a transient, retryable refusal when Clerk itself
+    cannot be reached.
     """
     verified = await verify_token(_bearer(request), "client")
-    async with untenanted_session() as session:
-        row = (
-            await session.execute(
-                text("SELECT id FROM users WHERE clerk_user_id = :cid AND deactivated_at IS NULL"),
-                {"cid": verified.clerk_user_id},
-            )
-        ).first()
-    if row is None:
-        raise ProblemError.unauthorized("This account is not provisioned.")
-    return UUID(str(row[0])), verified.clerk_user_id
+    return await resolve_mirrored_user(verified.clerk_user_id), verified.clerk_user_id
 
 
 def _impersonation_slug(request: Request) -> str | None:

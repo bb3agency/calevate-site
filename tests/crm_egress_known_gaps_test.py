@@ -1,8 +1,22 @@
 """Egress defects that are OPEN, recorded so they cannot be quietly rediscovered.
 
-Both entries were found taking the CRM/ingest/outbound slice end to end. Neither is
-waiting on a vendor, a regulator or a commercial term: each is waiting on a file this
-slice was not allowed to write, and each names the file and the act.
+**THE REGISTRY IS EMPTY, AND THE PROBES ARE NOT.** Both entries this file was created
+with have been closed, and the equality below is what forced their deletion in the same
+change as the fix:
+
+- `campaign.completed` now has a producer — `apps.workers.campaign_dispatch`'s
+  `emit_campaign_completed`, in the transaction that writes the terminal status
+  (`tests/campaign_completed_event_test.py`);
+- a Meta lead refused for want of a token is re-drivable long after Meta has
+  unsubscribed the Page — `POST /v1/lead-sources/{id}/meta/redrive`, with the activity
+  view saying which rows are recoverable and the setup card offering the button
+  (`tests/meta_redrive_test.py`).
+
+An empty dict here is not an empty file. Every probe is kept, so each of those defects
+now fails HERE, by its original name and with its original message, if it is ever
+reintroduced — which is the regression test the fix earned, and the reason a comment or
+a TODO was never an option. A future slice that finds a new egress gap it cannot close
+adds it back, with what closes it.
 
 **THE ASSERTION IS AN EQUALITY**, in the shape `tests/reliability_known_gaps_test.py`
 established. Every key has a probe answering "is this still true?", and the test asserts
@@ -29,46 +43,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: Gap key → why it is open, and WHAT CLOSES IT. Delete an entry the moment its probe
 #: stops finding the defect; the equality makes that mandatory rather than polite.
-KNOWN_OPEN_EGRESS_GAPS: dict[str, str] = {
-    "campaign_completed_is_subscribable_and_nobody_produces_it": (
-        "`campaign.completed` is in `integrations.service.EVENT_TYPES`, in the endpoint "
-        "route's `EventName` Literal and in the integrations screen's checkbox list as "
-        "'A campaign finishes'. Nothing enqueues one — a client can tick it and wait "
-        "forever. Its sibling `lead.updated` had the identical defect and was closed in "
-        "this change (`crm.service.emit_lead_updated`); this one could not be, because "
-        "the only place that knows a campaign finished is "
-        "`apps/workers/campaign_dispatch.py`, outside this slice's write boundary. "
-        "CLOSED BY: at the point `campaign_dispatch` logs `campaign_completed`, and in "
-        "the SAME transaction as the campaign's terminal status write, call "
-        "`integrations.enqueue_event(event='campaign.completed', data={campaign_id, "
-        "name, contacts_total, contacts_reached, completed_at})` — aggregates only, no "
-        "person, which is exactly why `service.body_subject` refuses to retain a body "
-        "for this event. Then add the matching tuple to "
-        "`integrations.service.DEFAULT_SHEET_COLUMNS`, which today has no entry for it, "
-        "so a Sheets endpoint subscribed to it is refused with `no_column_order` "
-        "(`sheets_endpoint_test` pins that refusal and would need to move with it)."
-    ),
-    "a_meta_lead_refused_for_want_of_a_token_is_only_recoverable_while_meta_retries": (
-        "A verified leadgen notification we cannot read is recorded `failed` against its "
-        "`leadgen_id` in `webhook_inbox_events`, and `claim_inbox_event` re-claims a "
-        "failed row by CAS — so attaching a Page access token DOES recover the lead, but "
-        "only for as long as Meta keeps redelivering (~36 hours, then the Page is "
-        "unsubscribed). After that the `leadgen_id` is still durable and nothing can act "
-        "on it: no route, no job and no screen re-drives a recorded refusal, and the "
-        "activity view does not even render the `event_key`. So the lead is not lost "
-        "from the DATABASE, it is lost from the PRODUCT. CLOSED BY: a re-drive that "
-        "reuses the existing path rather than adding a second one — `POST "
-        "/v1/lead-sources/{webhook_id}/meta/redrive` (org:manage, audited) selecting "
-        "this source's `webhook_inbox_events` rows with status='failed' and "
-        "last_error IN (meta.NO_TOKEN_REASON, meta.NO_RETRIEVER_REASON), and calling the "
-        "SAME `_absorb_leadgen` with a `LeadNotification` rebuilt from the row, so the "
-        "claim, the capability selector, the consent branch and the compliance gate are "
-        "the ones production already runs. It is not built here because it needs the "
-        "activity view to show which leads are recoverable and the Meta setup card to "
-        "offer the button, and half of it — a route with no affordance — is the "
-        "half-wired feature this file exists to refuse."
-    ),
-}
+KNOWN_OPEN_EGRESS_GAPS: dict[str, str] = {}
 
 
 def _event_has_no_producer(event: str) -> bool:
@@ -118,13 +93,19 @@ def _no_route_can_redrive_a_recorded_meta_refusal() -> bool:
 #: a TODO, and a probe with no entry is a CLOSED gap whose predicate keeps answering
 #: False — which is the regression test the fix earned.
 PROBES: dict[str, Callable[[], bool]] = {
+    # Closed, probe kept: the producer is `emit_campaign_completed`, called from
+    # `_dispatch_for_campaign` in the transaction that writes `status = 'completed'`.
+    # Deleting the producer answers True here again and fails on the line below.
     "campaign_completed_is_subscribable_and_nobody_produces_it": (
         _campaign_completed_has_no_producer
     ),
+    # Closed, probe kept: `POST /v1/lead-sources/{webhook_id}/meta/redrive` is mounted.
+    # Unmounting it — or renaming the path out of the shape this looks for — reopens the
+    # gap here rather than leaving a screen with a button and no route behind it.
     "a_meta_lead_refused_for_want_of_a_token_is_only_recoverable_while_meta_retries": (
         _no_route_can_redrive_a_recorded_meta_refusal
     ),
-    # Closed in this change, probe kept: `lead.updated` had no producer either, and
+    # Closed by the previous slice, probe kept: `lead.updated` had no producer either, and
     # `crm.service.emit_lead_updated` is now called from the single-lead PATCH and from
     # the bulk action. If this ever answers True again it fails on the line below rather
     # than being rediscovered by the next slice.
