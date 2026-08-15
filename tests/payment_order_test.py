@@ -1,7 +1,6 @@
 """The order-creation adapter (D-98): the paise boundary, the request, and the click.
 
-Three properties, and the file is organised as three sections because they fail for
-three different reasons:
+Five properties, in five sections, because they fail for five different reasons:
 
 1. **The conversion to the provider's unit is exact or it refuses.** Hard rule 7 in the
    outbound direction. `inr_to_paise` is the single most dangerous line in the
@@ -12,7 +11,15 @@ three different reasons:
    prose. Exercised through `httpx.MockTransport`: **no test in this file may reach the
    real Razorpay API, and the adapter has no path that would let one** — the transport is
    injected and a missing injection is a construction error, not a live call.
-3. **A second click creates no second order.** The key is derived by us (`topup_receipt`)
+3. **The adapter owns exactly the client it built.** `razorpay_orders()` injects nothing,
+   so the un-injected lifetime is the one production runs: the client is constructed from
+   the pinned host and budget and closed on every exit, while a client the caller passed
+   in is left open. Exercised by substituting `httpx.AsyncClient` with one whose transport
+   is a mock, which is what keeps that path off the network too.
+4. **A credential is built the right way round.** The public key id and the private secret
+   are both opaque `rzp_…` strings, so swapping them type-checks and reads fine and shows
+   up only as a 401 from an account nobody here can call. The wire header is the assertion.
+5. **A second click creates no second order.** The key is derived by us (`topup_receipt`)
    and served by `reliability.claim_idempotency`, so the property to assert is the
    observable one: two calls, one order id, one provider request.
 
@@ -25,6 +32,7 @@ from __future__ import annotations
 import base64
 import json
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -36,15 +44,20 @@ from apps.api.admin import service as admin_service
 from apps.api.billing import payment_routes, payments
 from apps.api.billing.payment_routes import TopUpIntentIn, create_topup_intent
 from apps.api.billing.payments import (
+    API_VERSION_PATH,
     BASE_URL,
     INTENT_REPLAY_WINDOW,
     NOTES_TENANT_KEY,
+    ORDER_TIMEOUT_S,
+    ORDERS_PATH,
     PROVIDER,
     RECEIPT_MAX_LEN,
+    USER_AGENT,
     RazorpayOrders,
     inr_to_paise,
     paise_to_inr,
     payment_capability,
+    razorpay_orders,
     topup_receipt,
 )
 from apps.api.billing.service import to_paise
@@ -57,6 +70,10 @@ from sqlalchemy import text
 # Test values. They name no real account and no request in this file leaves the process.
 TEST_KEY_ID = "rzp_test_orderslice"
 TEST_KEY_SECRET = "rzp_secret_orderslice"
+
+# What a stand-in Razorpay is: a function from the request we sent to the answer it gives
+# (or an `httpx.HTTPError` it raises). Named because both fixtures below take one.
+_Responder = Callable[[httpx.Request], httpx.Response]
 
 
 def _payments_configured(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -104,7 +121,7 @@ async def _prepaid_tenant() -> tuple[UUID, Principal]:
 class _Recorder:
     """A stand-in for Razorpay that records what we sent and answers what we tell it to."""
 
-    def __init__(self, responder: Any) -> None:
+    def __init__(self, responder: _Responder) -> None:
         self.requests: list[httpx.Request] = []
         self._responder = responder
 
@@ -121,7 +138,7 @@ class _Recorder:
         )
 
 
-def _ok(order_id: str = "order_TESTONLY0001") -> Any:
+def _ok(order_id: str = "order_TESTONLY0001") -> _Responder:
     """An order response echoing what we sent — the shape their docs describe. It is a
     FIXTURE OF OUR READING, not evidence: nobody here has seen a real one."""
 
@@ -140,6 +157,13 @@ def _ok(order_id: str = "order_TESTONLY0001") -> Any:
         )
 
     return responder
+
+
+def _boom(_request: httpx.Request) -> httpx.Response:
+    """The transport failing before any response exists — a DNS answer we never got, a
+    TLS handshake that stalled, an egress proxy refusing the host (which is this
+    environment's actual behaviour for razorpay.com)."""
+    raise httpx.ConnectTimeout("no route")
 
 
 def _install(monkeypatch: pytest.MonkeyPatch, recorder: _Recorder) -> None:
@@ -283,10 +307,7 @@ async def test_a_refusal_becomes_our_problem_code_and_never_vendor_prose(status:
 
 
 async def test_an_unreachable_provider_is_a_dependency_failure_not_a_fabricated_order() -> None:
-    def boom(_request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectTimeout("no route")
-
-    recorder = _Recorder(boom)
+    recorder = _Recorder(_boom)
     with pytest.raises(ProblemError) as raised:
         await recorder.orders().create_order(
             amount_inr=Decimal("500.00"), receipt="clv_x", notes={}
@@ -332,8 +353,258 @@ async def test_an_absent_amount_echo_does_not_take_the_integration_down() -> Non
     assert order.amount_paise == 50000, "our own conversion remains the authority"
 
 
+class _SelfBuiltClients:
+    """Watches the client the adapter builds for ITSELF, when none was injected.
+
+    `create_order` has two client lifetimes and only one of them is exercised by
+    `_Recorder`: the injected client, which the caller owns and the adapter must leave
+    open. The other — no client passed, so the adapter constructs one per call and is the
+    only thing that can close it — is the lifetime PRODUCTION uses, because
+    `razorpay_orders()` never injects. This substitutes `httpx.AsyncClient` in the module
+    the adapter constructs through, keeps every constructor kwarg it was given, and hands
+    back a real client whose transport is a mock, so **no request leaves the process** on
+    the very path that would otherwise open a real connection pool to api.razorpay.com.
+    """
+
+    def __init__(self, responder: _Responder) -> None:
+        self.kwargs: list[dict[str, Any]] = []
+        self.clients: list[httpx.AsyncClient] = []
+        self.requests: list[httpx.Request] = []
+        self._responder = responder
+
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        return self._responder(request)
+
+    def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        real = httpx.AsyncClient
+
+        def factory(**kwargs: Any) -> httpx.AsyncClient:
+            self.kwargs.append(kwargs)
+            client = real(transport=httpx.MockTransport(self._handle), **kwargs)
+            self.clients.append(client)
+            return client
+
+        monkeypatch.setattr(httpx, "AsyncClient", factory)
+
+
 # ============================================================================
-# 3. The click, twice
+# 3. The client the adapter builds for itself — the lifetime production uses
+# ============================================================================
+
+
+@pytest.mark.parametrize(
+    ("responder", "expected_code"),
+    [
+        (_ok("order_OWNED0001"), None),
+        (lambda _r: httpx.Response(500, json={}), "payment_provider_rejected"),
+        (_boom, "payment_provider_unreachable"),
+    ],
+    ids=["success", "rejected", "unreachable"],
+)
+async def test_a_client_the_adapter_built_itself_is_always_closed(
+    monkeypatch: pytest.MonkeyPatch, responder: Any, expected_code: str | None
+) -> None:
+    """PROPERTY: when `create_order` builds its own client it closes it on EVERY exit —
+    the success, the vendor's refusal, and the transport failure — and it never closes a
+    client the caller injected.
+
+    What breaks if this stops holding: `razorpay_orders()` injects nothing, so every
+    order created in production goes down this path. A client that is not closed leaks
+    its connection pool and its sockets per request; leaking it only on the ERROR exits
+    (the classic shape of this bug — a close on the happy line instead of a `finally`)
+    means the leak appears exactly when the provider is having a bad day and we are
+    retrying hardest, which is the worst moment to run a process out of file descriptors.
+    Asserted on the observable `is_closed`, not on a call count, so a close that raised
+    would still read as unclosed.
+    """
+    watcher = _SelfBuiltClients(responder)
+    watcher.install(monkeypatch)
+    orders = RazorpayOrders(key_id=TEST_KEY_ID, key_secret=TEST_KEY_SECRET)
+
+    if expected_code is None:
+        order = await orders.create_order(
+            amount_inr=Decimal("2500.10"), receipt="clv_owned", notes={}
+        )
+        assert order.order_id == "order_OWNED0001"
+        assert order.amount_paise == 250010
+    else:
+        with pytest.raises(ProblemError) as raised:
+            await orders.create_order(amount_inr=Decimal("2500.10"), receipt="clv_owned", notes={})
+        assert raised.value.code == expected_code
+
+    assert len(watcher.clients) == 1, "one order, one client"
+    assert watcher.clients[0].is_closed is True, "the adapter owns it, so the adapter closes it"
+
+
+async def test_an_injected_client_is_left_open_for_its_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PROPERTY: the adapter closes only what it built. A caller that passed a client in
+    still holds a usable one afterwards.
+
+    What breaks if this stops holding: `finally: await client.aclose()` without the
+    ownership test would close a pooled client belonging to the caller, and the SECOND
+    order on that client would fail with a closed-client error that points at the caller,
+    not at us. The test asserts a second order succeeds on the same client — the
+    observable answer, rather than the absence of a close call.
+    """
+    watcher = _SelfBuiltClients(_ok("order_INJECTED01"))
+    watcher.install(monkeypatch)
+    injected = httpx.AsyncClient(base_url=BASE_URL)
+    orders = RazorpayOrders(key_id=TEST_KEY_ID, key_secret=TEST_KEY_SECRET, client=injected)
+
+    first = await orders.create_order(amount_inr=Decimal("100.00"), receipt="clv_a", notes={})
+    second = await orders.create_order(amount_inr=Decimal("100.00"), receipt="clv_b", notes={})
+
+    assert first.order_id == second.order_id == "order_INJECTED01"
+    assert injected.is_closed is False, "the caller's client survives its own request"
+    await injected.aclose()
+
+
+async def test_the_self_built_client_carries_the_pinned_host_budget_and_our_own_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PROPERTY: the client the adapter builds is configured from the pinned constants —
+    `BASE_URL`, `ORDER_TIMEOUT_S`, JSON content type — and identifies as US.
+
+    What breaks if this stops holding: a missing timeout makes httpx's default (or none)
+    the budget for a call sitting inside a client request, so a payment provider having a
+    slow minute becomes a browser hang with no explanation instead of our
+    `payment_provider_unreachable`. And impersonating `Razorpay-Python/<version>` — the
+    User-Agent their own SDK sends — would make their support answer a question about a
+    client library we do not run.
+    """
+    watcher = _SelfBuiltClients(_ok())
+    watcher.install(monkeypatch)
+    await RazorpayOrders(key_id=TEST_KEY_ID, key_secret=TEST_KEY_SECRET).create_order(
+        amount_inr=Decimal("100.00"), receipt="clv_cfg", notes={}
+    )
+
+    kwargs = watcher.kwargs[0]
+    assert kwargs["base_url"] == BASE_URL == "https://api.razorpay.com"
+    assert kwargs["timeout"] == ORDER_TIMEOUT_S
+    assert kwargs["headers"]["Content-Type"] == "application/json"
+    assert kwargs["headers"]["User-Agent"] == USER_AGENT
+    assert "Razorpay-Python" not in kwargs["headers"]["User-Agent"], "we do not impersonate them"
+    assert str(watcher.requests[0].url) == f"{BASE_URL}{API_VERSION_PATH}{ORDERS_PATH}"
+
+
+@pytest.mark.parametrize(
+    ("content", "content_type"),
+    [
+        (b"<html><body>502 Bad Gateway</body></html>", "text/html"),
+        (b"", "application/json"),
+        (b"{'id': 'order_X'}", "application/json"),
+        (b"order_TRUNCATED", "application/json"),
+    ],
+    ids=["html-error-page", "empty-body", "not-json-quotes", "bare-text"],
+)
+async def test_a_200_that_is_not_json_refuses_rather_than_raising_a_decode_error(
+    content: bytes, content_type: str
+) -> None:
+    """PROPERTY: a 2xx whose body cannot be parsed is `payment_order_unreadable` — one of
+    OUR codes, raised deliberately — never a `JSONDecodeError` escaping the adapter.
+
+    What breaks if this stops holding: an interposed proxy, a WAF or a load balancer
+    answering 200 with an HTML error page is exactly the failure this environment already
+    has (the egress proxy refuses razorpay.com), and it is not hypothetical for a
+    deployment behind a corporate network. Without the `except ValueError` the caller
+    gets a raw decode error, which reaches the client as a 500 with no remediation and no
+    problem code — and, worse, an operator reading it looks for a bug in our JSON rather
+    than at the box that rewrote the response. The empty-body case is the same defect at
+    zero length: `httpx.Response.json()` on `b""` raises, it does not return None.
+    """
+    recorder = _Recorder(
+        lambda _r: httpx.Response(200, content=content, headers={"Content-Type": content_type})
+    )
+    with pytest.raises(ProblemError) as raised:
+        await recorder.orders().create_order(
+            amount_inr=Decimal("500.00"), receipt="clv_x", notes={}
+        )
+    assert raised.value.code == "payment_order_unreadable"
+    assert "JSON" not in raised.value.detail and "json" not in raised.value.detail
+
+
+@pytest.mark.parametrize(
+    "payload", [[{"id": "order_X"}], "order_X", 42, None], ids=["list", "string", "number", "null"]
+)
+async def test_a_json_body_that_is_not_an_object_refuses_rather_than_invents(payload: Any) -> None:
+    """PROPERTY: valid JSON of the wrong SHAPE is refused too. The response contract is
+    UNVERIFIED, so `body.get("id")` is only ever reached behind an `isinstance(dict)`
+    test; a list or a bare string must produce the same authored refusal as no id at all.
+
+    What breaks if this stops holding: `AttributeError: 'list' object has no attribute
+    'get'` — a 500 instead of a refusal, on a shape nobody here has confirmed we will
+    never see.
+    """
+    recorder = _Recorder(lambda _r: httpx.Response(200, json=payload))
+    with pytest.raises(ProblemError) as raised:
+        await recorder.orders().create_order(
+            amount_inr=Decimal("500.00"), receipt="clv_x", notes={}
+        )
+    assert raised.value.code == "payment_order_unreadable"
+
+
+# ============================================================================
+# 4. Building the adapter from settings — the credential seam
+# ============================================================================
+
+
+async def test_the_adapter_is_built_with_the_secret_as_the_password_not_the_key_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PROPERTY: `razorpay_orders()` authenticates as `Basic base64(key_id:key_secret)`,
+    reading the public half from `settings.razorpay_key_id` and the private half through
+    the ONE accessor (`razorpay_api_secret`) — in that order, not swapped, and never the
+    key id used for both.
+
+    What breaks if this stops holding: the two credentials are both opaque `rzp_…`
+    strings, so swapping them, or passing the publishable key twice, type-checks, reads
+    fine, and fails only as an opaque 401 from a live account nobody here can call. That
+    is the defect class this whole module was built to make visible before a deployment
+    finds it. Asserted on the wire header, which is the only place the difference shows.
+    """
+    _payments_configured(monkeypatch)
+    watcher = _SelfBuiltClients(_ok("order_FROMSETTINGS"))
+    watcher.install(monkeypatch)
+
+    order = await razorpay_orders().create_order(
+        amount_inr=Decimal("2500.10"), receipt="clv_settings", notes={NOTES_TENANT_KEY: "t"}
+    )
+
+    assert order.order_id == "order_FROMSETTINGS"
+    expected = base64.b64encode(f"{TEST_KEY_ID}:{TEST_KEY_SECRET}".encode()).decode()
+    assert watcher.requests[0].headers["authorization"] == f"Basic {expected}"
+    assert TEST_KEY_SECRET not in str(watcher.requests[0].url), "the secret rides in the header"
+
+
+@pytest.mark.parametrize("missing", ["key_id", "secret"])
+async def test_building_the_adapter_without_the_capabilitys_credentials_never_yields_a_caller(
+    monkeypatch: pytest.MonkeyPatch, missing: str
+) -> None:
+    """PROPERTY: `razorpay_orders()` refuses to hand back an adapter when either half of
+    the credential is absent. It raises instead — and the capability seam, not this
+    function, is what a caller is supposed to ask first.
+
+    What breaks if this stops holding: `None` reaching `httpx`'s `auth=` tuple sends an
+    UNAUTHENTICATED (or half-authenticated) request to a payment provider, which is both
+    a request we cannot explain and a 401 that looks like a vendor outage. The refusal
+    keeps `creates_orders is False` meaning exactly one thing: no order call happens.
+    """
+    _payments_configured(monkeypatch)
+    if missing == "key_id":
+        monkeypatch.setattr(get_settings(), "razorpay_key_id", None)
+    else:
+        monkeypatch.setattr(payments, "razorpay_api_secret", lambda: None)
+
+    assert payment_capability().creates_orders is False, "the seam already said no"
+    with pytest.raises(AssertionError):
+        razorpay_orders()
+
+
+# ============================================================================
+# 5. The click, twice
 # ============================================================================
 
 
