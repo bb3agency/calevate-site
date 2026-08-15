@@ -94,6 +94,17 @@ jobs:
         # is deliberate: this job is where "empty stores" is guaranteed rather than
         # remembered (a migrated+seeded database and a service container Redis that has
         # never served a suite), and the manifest is how the next step knows it.
+        #
+        # `continue-on-error` — NOT a softening, and the job still fails. Every guardrail
+        # below is a later step in THIS job, so a failing suite used to mark all twelve
+        # `skipped`: the run where something broke was the one run that never asked
+        # whether RLS coverage had regressed, whether a ledger had lost its trigger, or
+        # whether a secret had become loggable. CI was red for NINE consecutive commits
+        # that way, and every one of them reported the guardrails as skipped rather than
+        # as unrun. The guardrails are independent questions and are now always asked;
+        # `Suite result` below re-raises this step's failure so nothing ships green.
+        continue-on-error: true
+        id: suite
         run: uv run coverage run -m pytest -q -p scripts.check_coverage_ratchet
 
       - name: "Guardrail: coverage ratchet (D-29 coverage:ratchet)"
@@ -154,6 +165,16 @@ jobs:
 
       - name: "Guardrail: OpenAPI snapshot freshness"
         run: uv run python -m scripts.check_openapi_fresh
+
+      - name: Suite result
+        # The re-raise. `Tests` runs with `continue-on-error` so the guardrails above are
+        # never skipped by an unrelated failure; this is where that failure becomes the
+        # job's. It must stay AFTER every guardrail and BEFORE nothing — a green job with
+        # a red suite is the one outcome this pair must never produce.
+        if: steps.suite.outcome == 'failure'
+        run: |
+          echo "::error::the test suite failed — see the Tests step above."
+          exit 1
 
       - name: "Quality gate: regression suite (ratchet)"
         # Exits non-zero only on a REGRESSION against the committed per-model baseline,

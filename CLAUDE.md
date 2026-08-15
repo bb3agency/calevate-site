@@ -86,6 +86,31 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
   work runs conformance; extraction changes run the golden-transcript fixtures.
 - Feature flags via plain config rows, not a flag SaaS.
 
+## Tempo: there is no later
+
+This repository was built from nothing in about a week of continuous work, and it is
+still being built that way. **There is no next sprint, no backlog grooming, no "we will
+get to it".** Plan in hours, not weeks.
+
+What that means when you are working:
+
+- **If it can be done now, do it now.** Do not file a finding you are able to fix. Do not
+  write "worth doing later" about a one-line change. The only things that legitimately
+  wait are the ones that need something OUTSIDE this repo — a legal entity, a DLT
+  registration, a vendor account, a signed commercial term, a regulator's answer. Say
+  which of those it is waiting on, by name.
+- **"Ours" and "not ours" is the only scheduling distinction that matters.** An
+  engineering task has no timeline; it is either done in this session or it is the next
+  thing done. An external blocker has a real timeline and is nobody's to code around.
+- **Do not narrate schedules.** No "this week", "next session", "in a future milestone".
+  A deferral is a decision-log entry naming what closes it, or it is not a deferral.
+- **Finish the seam.** Half-wired is not progress deferred; it is a defect shipped. The
+  same clock that makes it tempting to leave a route unmounted is the one that guarantees
+  nobody comes back for it.
+- This does NOT license shortcuts. The quality bar below is unchanged and is not in
+  tension with the tempo — the reason the pace has held is that nothing has had to be
+  redone. Speed comes from not accumulating defects, not from skipping the gate.
+
 ## Quality bar: write it the way the industry writes it
 
 Working is the floor, not the target. This is a multi-tenant SaaS holding other

@@ -23,8 +23,10 @@ clean up in a fixture.
 
 from __future__ import annotations
 
+import os
 import uuid
 from collections.abc import AsyncIterator
+from unittest import mock
 
 import pytest
 from apps.api.core import platform_config as pc
@@ -60,7 +62,12 @@ from tests.admin_security_test import _make_admin
 # the resolution path is reachable without the environment shadowing it. The shadowing
 # case is proved separately, against a key that IS in `.env`.
 KEY = "meta_page_access_tokens"
-#: A credential the environment DOES declare here, used to prove §4's precedence.
+#: The credential used to prove §4's precedence. The test DECLARES it in the environment
+#: itself rather than relying on this repo's `.env` carrying it — which is what the
+#: earlier version did, and it made the test pass on a developer's machine and fail in
+#: CI, where there is no `.env` at all. A test whose subject is "the environment wins"
+#: must own the environment it is asserting about; borrowing an ambient one asserts
+#: whatever that machine happens to have.
 SHADOWED_KEY = "cohere_api_key"
 SECRET = "co-live-9f3a71b2c8d4e6f5"
 
@@ -435,16 +442,21 @@ async def test_the_environment_still_wins_over_a_stored_credential() -> None:
     makes putting credentials in a database acceptable at all (§10's last mitigation).
     """
     admin = await _admin_id()
-    async with untenanted_session() as session:
-        await set_secret(session, key=KEY, value=SECRET, actor_id=admin)
-        await set_secret(session, key=SHADOWED_KEY, value="stored-and-inert", actor_id=admin)
-        resolved = await resolve_secrets(session)
-        stored = (
-            await session.execute(
-                text("SELECT count(*) FROM platform_secrets WHERE key = :k"),
-                {"k": SHADOWED_KEY},
-            )
-        ).scalar_one()
+    # DECLARED HERE, not borrowed from `.env`. An empty value counts as declared on
+    # purpose (`env_declares`): `COHERE_API_KEY=` is a deployment stating it has no
+    # Cohere key, and pydantic hands `Settings` the empty string rather than falling
+    # through to the store — so this is the real shadowing shape, not a stand-in.
+    with mock.patch.dict(os.environ, {SHADOWED_KEY.upper(): ""}):
+        async with untenanted_session() as session:
+            await set_secret(session, key=KEY, value=SECRET, actor_id=admin)
+            await set_secret(session, key=SHADOWED_KEY, value="stored-and-inert", actor_id=admin)
+            resolved = await resolve_secrets(session)
+            stored = (
+                await session.execute(
+                    text("SELECT count(*) FROM platform_secrets WHERE key = :k"),
+                    {"k": SHADOWED_KEY},
+                )
+            ).scalar_one()
 
     assert resolved.values[KEY] == SECRET, "an unshadowed credential resolves"
     # The row EXISTS and is deliberately not applied. Stored-and-inert is the state the
