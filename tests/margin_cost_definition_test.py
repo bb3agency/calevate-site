@@ -69,17 +69,31 @@ async def _tenant_with_a_mixed_month() -> uuid.UUID:
     )
     tenant_id: uuid.UUID = created["id"]
     agent_id = created["agent_id"]
-    call_id = uuid7()
+    # ONE CALL PER ROW, since D-112 (`ux_usage_events_tenant_call_unit`). The fixture used
+    # to hang all five rows off a single call, which meant three `telephony_s` rows for one
+    # call — a shape `pipeline._meter` cannot produce and the ledger now refuses. The
+    # month's arithmetic is what this file is about and it is unchanged; what changes is
+    # that the fixture now depicts a month the product could actually generate. The
+    # correction row keeps its own call for the same reason: `unit_type='other'` is
+    # excluded from the index precisely so a compensating entry can repeat, and pinning it
+    # to a call that also carries a metered row would test that exclusion by accident.
+    call_ids = [uuid7() for _ in _ROWS]
     async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
-                "status, created_at, updated_at) VALUES (:i, :t, :a, :e, 'outbound', "
-                "'+919876500002', 'completed', now(), now())"
-            ),
-            {"i": call_id, "t": tenant_id, "a": agent_id, "e": f"exec_{uuid.uuid4().hex[:12]}"},
-        )
-        for unit_type, qty, cost, tier in _ROWS:
+        for index, call_id in enumerate(call_ids):
+            await session.execute(
+                text(
+                    "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                    "to_e164, status, created_at, updated_at) VALUES (:i, :t, :a, :e, "
+                    "'outbound', '+919876500002', 'completed', now(), now())"
+                ),
+                {
+                    "i": call_id,
+                    "t": tenant_id,
+                    "a": agent_id,
+                    "e": f"exec_{uuid.uuid4().hex[:12]}_{index}",
+                },
+            )
+        for call_id, (unit_type, qty, cost, tier) in zip(call_ids, _ROWS, strict=True):
             await session.execute(
                 text(
                     "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, "

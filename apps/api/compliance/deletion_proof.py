@@ -11,11 +11,13 @@ Why the two are not the same thing, and why this module exists at all:
 **A proof that overstates what was erased is worse than one that admits a limitation**,
 because the person relying on it cannot tell. The stored proof says `calls: "phone
 numbers, recording pointer and summary cleared"`. Every word of that is true and it is
-still misleading, because the POINTER is not the audio: `execute_deletion_request` clears
-`calls.recording_url` unconditionally at any age, while the recording it pointed at sits
-under the TRAI 90-day floor (SEC-COMP §1) with no per-tenant mechanism that deletes it
-afterwards (SEC-COMP §4). A reader of the stored proof alone would tell a data principal
-their recording is gone. It is not.
+still misleading, because the POINTER is not the audio. That sentence used to describe
+the whole of what happened to a recording; it no longer does — `_erase_recordings`
+destroys the bytes of every recording past the retention floor and schedules the rest —
+but the certificate still has three states to keep apart, and they are not
+interchangeable: audio destroyed, audio scheduled with a date, and (for proofs written
+before any of this) audio whose fate the proof does not state. A reader of the stored
+`actions` line alone would collapse all three.
 
 `ERASURE_LIMITATIONS` has always said so — but it rode the API *envelope*, beside the
 proof rather than inside it. The envelope is not what gets filed. So the certificate
@@ -58,10 +60,12 @@ from dataclasses import astuple
 from typing import Any
 
 from apps.api.compliance.deletion import (
+    DESTROYED_COUNT_KEY,
     ERASURE_EXCEPTIONS,
     ERASURE_LIMITATIONS,
     FLOOR_COUNT_KEY,
     FLOOR_OUTCOME,
+    HOLD_UNTIL_KEY,
     RECORDING_FLOOR_DAYS,
     ErasureLimitation,
 )
@@ -78,6 +82,14 @@ _FLOOR_UNKNOWN = (
 _FLOOR_NONE = (
     "None of those recordings were inside the "
     f"{RECORDING_FLOOR_DAYS}-day window when the erasure ran."
+)
+# A proof that counted the collision but recorded no destruction date was written before
+# the deferral WAS a schedule — when clearing the pointer destroyed the only handle on the
+# audio, so nothing could ever delete it. Certificates for those erasures keep saying the
+# weaker, true thing.
+_HOLD_UNSCHEDULED = (
+    "This certificate does not state a destruction date for them; confirm their removal "
+    "with the client in writing."
 )
 
 
@@ -112,6 +124,8 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
     turns = _count(scope.get("transcript_turns_erased"))
     extractions = _count(scope.get("call_extractions_erased"))
     floor = _optional_count(scope.get(FLOOR_COUNT_KEY))
+    destroyed = _optional_count(scope.get(DESTROYED_COUNT_KEY))
+    hold_until = _optional_text(scope.get(HOLD_UNTIL_KEY))
 
     return {
         # Passed through, never recomputed: this module is not given the number, and the
@@ -125,11 +139,19 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
             "transcript_turns_erased": turns,
             "call_extractions_erased": extractions,
             FLOOR_COUNT_KEY: floor,
+            DESTROYED_COUNT_KEY: destroyed,
+            HOLD_UNTIL_KEY: hold_until,
         },
         "actions": _actions(stored.get("actions")),
         "engine_deletion": str(stored.get("engine_deletion") or ""),
-        "erased": _erased(calls=len(calls), leads=len(leads), turns=turns, fields=extractions),
-        "not_erased": _not_erased(floor),
+        "erased": _erased(
+            calls=len(calls),
+            leads=len(leads),
+            turns=turns,
+            fields=extractions,
+            recordings=destroyed,
+        ),
+        "not_erased": _not_erased(floor, hold_until),
         "limitations": list(ERASURE_LIMITATIONS),
         "limitations_version": notice_version(ERASURE_LIMITATIONS, ERASURE_EXCEPTIONS),
     }
@@ -138,7 +160,9 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
 # --- what was cleared ---------------------------------------------------------
 
 
-def _erased(*, calls: int, leads: int, turns: int, fields: int) -> list[str]:
+def _erased(
+    *, calls: int, leads: int, turns: int, fields: int, recordings: int | None
+) -> list[str]:
     """The scope counts as sentences, for a reader who does not know our table names.
 
     "No call record held this number" is a real and common answer — a client cannot know
@@ -153,6 +177,14 @@ def _erased(*, calls: int, leads: int, turns: int, fields: int) -> list[str]:
         )
     else:
         statements.append("No call record held this number.")
+    # Only when the proof RECORDED it. A certificate built from a proof written before
+    # the audio was reachable must not claim a destruction, and must not claim zero
+    # either — the recording exception below is where its silence is explained.
+    if recordings:
+        statements.append(
+            f"{_plural(recordings, 'call recording')} — the audio was destroyed in "
+            "object storage and cannot be recovered."
+        )
     if turns:
         statements.append(
             f"{_plural(turns, 'transcript turn')} — the spoken text was replaced with a "
@@ -176,12 +208,16 @@ def _erased(*, calls: int, leads: int, turns: int, fields: int) -> list[str]:
 # --- what was not ------------------------------------------------------------
 
 
-def _not_erased(floor: int | None) -> list[dict[str, Any]]:
+def _not_erased(floor: int | None, hold_until: str | None) -> list[dict[str, Any]]:
     """The register, with the floor count attached to the one entry it speaks for."""
     entries: list[dict[str, Any]] = []
     for exception in ERASURE_EXCEPTIONS:
         carries_count = exception.outcome == FLOOR_OUTCOME
-        why = f"{exception.why} {_floor_sentence(floor)}" if carries_count else exception.why
+        why = (
+            f"{exception.why} {_floor_sentence(floor, hold_until)}"
+            if carries_count
+            else exception.why
+        )
         entries.append(
             {
                 "what": exception.what,
@@ -194,15 +230,26 @@ def _not_erased(floor: int | None) -> list[dict[str, Any]]:
     return entries
 
 
-def _floor_sentence(floor: int | None) -> str:
+def _floor_sentence(floor: int | None, hold_until: str | None) -> str:
+    """How many recordings the floor caught, and — the part that makes it actionable —
+    the date they go.
+
+    Three states, three sentences, and none of them is the other two: a proof that never
+    recorded the count says so; a recorded zero is the claim "none"; and a recorded count
+    with no date is a proof from the era when a deferral had no schedule, which is a
+    weaker statement than one that names the day and must not borrow its wording.
+    """
     if floor is None:
         return _FLOOR_UNKNOWN
     if floor == 0:
         return _FLOOR_NONE
-    return (
+    caught = (
         f"{floor} of those recordings were inside the {RECORDING_FLOOR_DAYS}-day window "
-        "when the erasure ran and could not lawfully be destroyed."
+        "when the erasure ran and could not lawfully be destroyed then."
     )
+    if hold_until is None:
+        return f"{caught} {_HOLD_UNSCHEDULED}"
+    return f"{caught} The last of them is destroyed on {hold_until}."
 
 
 # --- reading a durable row written by code that is not this code ---------------
@@ -227,6 +274,13 @@ def _count(value: Any) -> int:
 def _optional_count(value: Any) -> int | None:
     """`None` when the stored proof never recorded it — see decision 2 in the docstring."""
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _optional_text(value: Any) -> str | None:
+    """Same discipline for a stored instant: absent, or null because nothing was
+    deferred, both render as "no date" rather than as an empty string a screen would
+    print."""
+    return value if isinstance(value, str) and value else None
 
 
 def _actions(value: Any) -> dict[str, str]:

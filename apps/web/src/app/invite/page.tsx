@@ -95,7 +95,9 @@ import {
 } from "@/lib/auth/clientRealm";
 import { lookup } from "@/lib/lookup";
 import {
+  INVITE_TOKEN_PARAM,
   ROLE_COPY,
+  inviteLink,
   isInvitationForSomeoneElse,
   isInvitationUnusable,
   useAcceptInvitation,
@@ -103,22 +105,18 @@ import {
 } from "@/lib/api/members";
 
 /**
- * This route's own path and the parameter the token rides in.
+ * Where Clerk should send this person back to once they have an identity.
  *
- * NOT exported: Next type-checks a route file's export surface and rejects anything that
- * is not a page field, so a route module cannot also be a constants module. They stay
- * local, and the duplicate is stated rather than hidden — `settings/team/page.tsx` builds
- * `${origin}/invite?token=…` inline, and the two spellings disagreeing is this defect
- * again. THE FOLLOW-UP: lift both into `src/lib/` and have the team screen build its link
- * from there. That file is outside this change's slice, so the pointer is left attached
- * instead of the two quietly drifting.
+ * `inviteLink` is the ONE definition of this URL, now that it lives in
+ * `lib/api/members.ts`. It could not live in this file: Next type-checks a route file's
+ * export surface and rejects anything that is not a page field, so a route module cannot
+ * also be a constants module — which is why the path was spelled out twice, here and in
+ * `settings/team/page.tsx`, and why the follow-up this replaces was left attached. Two
+ * spellings of one URL is how the team screen came to hand owners a link to a page that
+ * did not exist.
  */
-const INVITE_PATH = "/invite";
-const INVITE_TOKEN_PARAM = "token";
-
-/** Where Clerk should send this person back to once they have an identity. */
 function returnHere(token: string): string {
-  return `${INVITE_PATH}?${INVITE_TOKEN_PARAM}=${encodeURIComponent(token)}`;
+  return inviteLink(token);
 }
 
 export default function InvitePage() {

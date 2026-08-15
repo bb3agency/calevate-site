@@ -176,7 +176,7 @@ async def _exported_rows(payload: str) -> list[list[str]]:
         # the path where a chooser could do the most damage: picking columns to render
         # is exactly the mistake that left `name` unguarded before.
         body = await export_leads_csv(session, columns=["phone", "name", "intent"])
-    return [row for row in csv.reader(io.StringIO(body)) if row]
+    return [row for row in csv.reader(io.StringIO(body.csv)) if row]
 
 
 @pytest.mark.parametrize("payload", [FORMULA_PAYLOAD, *OTHER_LEADERS])
@@ -241,7 +241,7 @@ async def test_a_benign_export_is_not_mangled_by_the_guard() -> None:
         )
         body = await export_leads_csv(session)
 
-    rows = [row for row in csv.reader(io.StringIO(body)) if row]
+    rows = [row for row in csv.reader(io.StringIO(body.csv)) if row]
     # Columns are chooseable now, so cells are located by HEADER rather than by position
     # — the header labels are the registry's (`crm.columns`) and the order is its
     # default. A positional read here would break on a reorder that broke nothing.

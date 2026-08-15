@@ -367,6 +367,7 @@ async def ingest_lead(
         # The source asserts nothing about permission and the caller has told us that
         # arriving is not consenting. Keep the lead, refuse the dial, and name the fix
         # (add the question to the lead form) rather than the symptom.
+        await _record_dial_consent_declined(session, tenant_id=config.tenant_id, phone_e164=phone)
         await _timeline(
             session, config.tenant_id, resolved_lead, "blocked", {"rule": NO_CONSENT_FIELD_RULE}
         )
@@ -375,6 +376,9 @@ async def ingest_lead(
     if isinstance(consent_field, str) and consent_field:
         consent_value = str(payload.get(consent_field, "")).strip().lower()
         if consent_value not in ("true", "yes", "1", "on"):
+            await _record_dial_consent_declined(
+                session, tenant_id=config.tenant_id, phone_e164=phone
+            )
             await _timeline(
                 session, config.tenant_id, resolved_lead, "blocked", {"rule": "no_form_consent"}
             )
@@ -411,6 +415,47 @@ async def ingest_lead(
         extra={"lead_id": str(resolved_lead), "speed_to_lead_s": round(elapsed, 2)},
     )
     return {"lead_id": resolved_lead, "dispatched": True, "call_handle": handle}
+
+
+async def _record_dial_consent_declined(
+    session: AsyncSession, *, tenant_id: UUID, phone_e164: str
+) -> None:
+    """Make the refusal a FACT about the person, not prose on one lead's timeline (D-117).
+
+    THE DEFECT THIS CLOSES. The front door already got this right — a lead-ad fill on a
+    form with no opt-in question is saved and not dialled — but the refusal lived only in
+    a `lead_events` row of type `note`, which the timeline renders for a human and which
+    no dial path reads. So `POST /v1/leads/{id}/call` dialled that person with the whole
+    compliance gate passing, because the gate had nothing per-person to ask. Proven by
+    `tests/lead_consent_carryover_test.py` before it was closed.
+
+    `consent_ledger` is where it belongs and was built for it: append-only, RLS'd,
+    DPDP-shaped, and its CHECK constraints already admit `purpose='callback'`,
+    `status='declined'` and `consent_source='web_form_optin'`. Writing it HERE and reading
+    it in `check_dispatch` means every dial path inherits one answer at once, rather than
+    the leads screen growing its own and the campaign dispatcher keeping the old one.
+
+    KEYED ON THE PHONE, NOT THE LEAD. The ledger's unit is a person, and the same person
+    can arrive twice as two lead rows from two forms; a refusal attached to one row would
+    be silently undone by the next import. It also means a later genuine opt-in supersedes
+    this row by being NEWER, which is the ledger's existing doctrine rather than a new
+    rule — a withdrawal is a new row, never an edit.
+
+    No `evidence`: `ck_consent_ledger_granted_consent_carries_evidence` requires it of a
+    GRANT, and rightly does not of a decline — the evidence for "they were never asked"
+    is the absence the timeline row already records.
+
+    Not idempotency-guarded: two identical declines are two true statements about two
+    submissions, the table is append-only, and `check_dispatch` reads only the latest.
+    """
+    await session.execute(
+        text(
+            "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, status, "
+            "consent_source, captured_at, created_at) VALUES (:id, :tid, :phone, "
+            "'callback', 'declined', 'web_form_optin', now(), now())"
+        ),
+        {"id": uuid7(), "tid": tenant_id, "phone": phone_e164},
+    )
 
 
 async def _timeline(

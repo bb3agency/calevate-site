@@ -183,6 +183,21 @@ RECORDING_FLOOR_DAYS: Final = 90
 # different words — see `deletion_proof._floor_sentence`.
 FLOOR_COUNT_KEY: Final = "recordings_within_trai_floor"
 
+# The other two facts the proof records about the audio, duplicated from
+# `apps.workers.retention` for the reason above and pinned to it by
+# `tests/recording_erasure_test.py`:
+#
+#   `recordings_destroyed`   how many audio files the request actually destroyed — the
+#                            ones past the floor, where no law required their retention.
+#   `recording_hold_until`   the ISO instant the LAST deferred one is destroyed on, or
+#                            null when nothing was deferred.
+#
+# ABSENT IS NOT ZERO on both, for the same reason it is not zero on the floor count: no
+# proof written before the recording bytes were reachable carries them, and hard rule 4
+# forbids back-filling those rows.
+DESTROYED_COUNT_KEY: Final = "recordings_destroyed"
+HOLD_UNTIL_KEY: Final = "recording_hold_until"
+
 # The one exception the floor count belongs to. Matched on the outcome rather than on a
 # list index so that reordering the register cannot silently attach the count to the
 # wrong statement.
@@ -224,14 +239,14 @@ class ErasureLimitation:
 # Index-aligned with `ERASURE_EXCEPTIONS` below. Adding a limitation means adding both.
 ERASURE_LIMITATIONS: tuple[str, ...] = (
     "Call recordings: the pointer to the audio is cleared immediately, so nothing in "
-    "this system can reach, play or export it. The audio file itself is NOT deleted by "
-    "this request. Indian telecom rules require call recordings to be retained for at "
-    f"least {RECORDING_FLOOR_DAYS} days (SECURITY-COMPLIANCE §1), and no automatic "
-    "per-tenant process "
-    "removes them once that period passes — the bucket-wide storage rule is a growth "
-    "ceiling, not a retention mechanism (SECURITY-COMPLIANCE §4). Treat the audio as "
-    "still existing until its removal is confirmed in writing. SECURITY-COMPLIANCE §4 "
-    "describes erasure as covering recordings; the two sections are in tension and this "
+    "this system can reach, play or export it. The audio files themselves are destroyed "
+    "by this request too, EXCEPT any that are still inside the "
+    f"{RECORDING_FLOOR_DAYS}-day period Indian telecom rules require call recordings to "
+    "be retained for (SECURITY-COMPLIANCE §1). Those are not destroyed early and they "
+    "are not kept indefinitely either: each one is scheduled, and the certificate states "
+    "the date the last of them is destroyed on. SECURITY-COMPLIANCE §4 describes erasure "
+    "as covering recordings and §1 requires the retention period; whether an under-age "
+    "recording should be destroyed on request ANYWAY is an open decision, and this "
     "notice states the position rather than resolving it.",
     "consent_ledger entries are retained, and they carry the caller's number. They are "
     "the append-only proof that the calls were lawful (hard rule 4); destroying them "
@@ -269,24 +284,30 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
 # Index-aligned with `ERASURE_LIMITATIONS` — see `ErasureLimitation.keyword`.
 ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
     ErasureLimitation(
-        what="The audio recordings of the calls this erasure covered.",
+        what="Audio recordings still inside their mandatory retention period.",
         keyword="recording",
         outcome=FLOOR_OUTCOME,
         why=(
-            "The link this system held to each recording was cleared, so nothing in "
-            "Calevate can play, download or export the audio. The audio file itself is "
-            "still in object storage and this request did not delete it: Indian telecom "
-            "rules require call recordings to be kept for at least "
-            f"{RECORDING_FLOOR_DAYS} days, and no automatic per-tenant process removes "
-            "them once that period passes. Treat the audio as still existing until the "
-            "client confirms its removal in writing."
+            "The link this system held to every recording was cleared, so nothing in "
+            "Calevate can play, download or export any of them. The audio files were "
+            "destroyed as well — except those less than "
+            f"{RECORDING_FLOOR_DAYS} days old, which Indian telecom rules require to be "
+            "kept for that long. Those are not destroyed early. They are also not kept: "
+            "each one has a destruction date fixed at the moment this request ran, and "
+            "the audio is deleted automatically on that date without a second request."
         ),
         authority=(
-            f"TRAI {RECORDING_FLOOR_DAYS}-day recording-retention floor "
-            "(SECURITY-COMPLIANCE §1), against the erasure duty in SECURITY-COMPLIANCE "
-            "§4. Which of the two takes precedence is an open decision recorded in §4; "
-            "until it is taken the pointer is cleared at every age and nothing in this "
-            "erasure is conditional on the recording's age."
+            f"The {RECORDING_FLOOR_DAYS}-day recording-retention floor "
+            "(SECURITY-COMPLIANCE §1) read against the erasure duty in DPDP §12(3), "
+            "which requires erasure 'unless retention of the same is necessary for the "
+            "specified purpose or for compliance with any law for the time being in "
+            "force'. A retention obligation therefore DEFERS an erasure rather than "
+            "cancelling it, and DPDP §8(7)'s storage limitation makes keeping the data "
+            "beyond that obligation a breach in itself — which is why the deferral is a "
+            "scheduled destruction and not an exemption. Whether an under-age recording "
+            "should be destroyed on request anyway is an open decision recorded in "
+            "SECURITY-COMPLIANCE §4; until it is taken the pointer is cleared at every "
+            "age and no under-age audio is destroyed early."
         ),
     ),
     ErasureLimitation(

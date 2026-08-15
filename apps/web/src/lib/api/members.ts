@@ -191,3 +191,24 @@ export const ROLE_COPY: Record<string, { label: string; can: string }> = {
     can: "Day-to-day work: leads, calls and agents. No billing, no team changes, and phone numbers stay masked.",
   },
 };
+
+/**
+ * Where an invite link points, and the parameter its token rides in — ONE definition.
+ *
+ * `/invite/page.tsx` had these as local constants (Next type-checks a route file's
+ * export surface, so a page module cannot also be a constants module) and
+ * `settings/team/page.tsx` built `${origin}/invite?token=…` inline. The invite page's
+ * author left the duplicate flagged rather than hidden: two spellings of one URL is how
+ * `/invite` came to be a 404 for eight days while the team screen handed the link to
+ * owners. This is where they were promised to land.
+ *
+ * `origin` is a parameter rather than read from `window` here so the function is usable
+ * during server rendering, where the team screen falls back to a relative link.
+ */
+export const INVITE_PATH = "/invite";
+export const INVITE_TOKEN_PARAM = "token";
+
+export function inviteLink(token: string, origin?: string): string {
+  const path = `${INVITE_PATH}?${INVITE_TOKEN_PARAM}=${encodeURIComponent(token)}`;
+  return origin ? `${origin}${path}` : path;
+}

@@ -250,6 +250,21 @@ function SubjectExportCard({ session }: { session: Session }) {
                 value={formatCount(exportDocument.data.counts.consent_records)}
               />
             </dl>
+            {/* An erasure empties every column that carries the number, so a subject who
+                has already been erased gets a file of zeros — which reads as "we never
+                had anything" and is not what happened. This says which of the two it is,
+                and whether any audio is still lawfully held. It is a fact about our
+                processing, not the person's data, so it belongs beside the counts. */}
+            {exportDocument.data.erasure !== null && (
+              <p className="mt-3 text-xs text-ink-muted">
+                An erasure for this number completed on{" "}
+                {formatIST(exportDocument.data.erasure.completed_at)}, which is why the
+                counts above are what they are.
+                {exportDocument.data.erasure.recordings_pending_destruction > 0 &&
+                  exportDocument.data.erasure.recordings_destroyed_by !== null &&
+                  ` ${formatCount(exportDocument.data.erasure.recordings_pending_destruction)} recording(s) are still held under the mandatory retention period and are destroyed by ${formatIST(exportDocument.data.erasure.recordings_destroyed_by)}.`}
+              </p>
+            )}
             <button
               type="button"
               onClick={() =>
@@ -672,15 +687,28 @@ function Certificate({ proof, requestId }: { proof: ErasureProof; requestId: str
           label="Extracted records erased"
           value={formatCount(proof.scope.call_extractions_erased)}
         />
+        {/* Only when the proof RECORDED it. Rendering `0` for a certificate that never
+            carried the figure would be this screen inventing a claim the server was
+            careful not to make. */}
+        {proof.scope.recordings_destroyed !== null && (
+          <Fact
+            label="Recordings destroyed"
+            value={formatCount(proof.scope.recordings_destroyed)}
+          />
+        )}
       </dl>
 
       {/* `null` is not zero here, and the certificate says the two in different words:
           a number means "this many recordings were inside the retention floor", `null`
-          means the erasure predates our recording that fact at all. */}
+          means the erasure predates our recording that fact at all. When there is a
+          schedule the DATE is the actionable half — a client answering a data principal
+          needs to be able to say when, not merely that. */}
       <p className="mt-2 text-xs text-ink-muted">
         {proof.scope.recordings_within_trai_floor === null
           ? "This erasure ran before we started counting recordings inside the retention floor, so that figure is not on this certificate."
           : `${formatCount(proof.scope.recordings_within_trai_floor)} of these calls still had audio inside the mandatory retention period.`}
+        {proof.scope.recording_hold_until !== null &&
+          ` That audio is not kept: the last of it is destroyed on ${formatIST(proof.scope.recording_hold_until)}.`}
       </p>
 
       <h4 className="mt-3 text-xs font-semibold text-ink">Erased</h4>

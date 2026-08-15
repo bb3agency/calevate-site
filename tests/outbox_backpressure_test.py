@@ -94,6 +94,37 @@ async def _rows(ids: list[UUID]) -> dict[UUID, tuple[str, int, bool, str | None]
     return {row[0]: (str(row[1]), int(row[2]), bool(row[3]), row[4]) for row in found}
 
 
+async def _step_over_the_backoff(message_id: UUID) -> float | None:
+    """Read the wait `mark_outbox_failed` gave this message, then skip it.
+
+    Returns the wait in seconds, or `None` when the row holds no lease. Same helper, same
+    argument as `reliability_audit_test`'s: sleeping it out costs five real minutes and
+    mocking the clock would stop the assertion being about the interval the production
+    statement actually wrote. So the wait is measured, handed back to the caller to
+    assert on, and only then pushed into the past.
+    """
+    async with untenanted_session() as session:
+        remaining = (
+            await session.execute(
+                text(
+                    "SELECT EXTRACT(EPOCH FROM (locked_until - now())) FROM outbox_messages "
+                    "WHERE id = :id AND locked_until IS NOT NULL AND locked_until > now()"
+                ),
+                {"id": message_id},
+            )
+        ).scalar()
+        if remaining is None:
+            return None
+        await session.execute(
+            text(
+                "UPDATE outbox_messages SET locked_until = now() - interval '1 second' "
+                "WHERE id = :id"
+            ),
+            {"id": message_id},
+        )
+    return float(remaining)
+
+
 @pytest.fixture
 def only_mine(monkeypatch: pytest.MonkeyPatch) -> Any:
     """Run the REAL claim, then hand the loop only this file's rows.
@@ -266,6 +297,14 @@ async def test_a_poisoned_payload_still_walks_to_the_dlq(
     is what `apps/api/core/queue.py`'s callers already treat as "the queue is down"
     (`reliability_audit_test::test_enqueueing_against_a_dead_redis_fails_fast` pins that
     pair). Anything else is the message.
+
+    **THE WALK TAKES TIME NOW, and the loop has to say so.** `mark_outbox_failed` used to
+    clear `locked_until` on the retry branch, so five ticks back to back spent the whole
+    budget — which is exactly why it was a defect: in production those five ticks are
+    fifty seconds. The retry branch holds the message for its backoff, so this loop steps
+    over each wait explicitly rather than pretending there was none. What is asserted is
+    unchanged: poison still reaches the DLQ, and it still holds no lease when it gets
+    there.
     """
     ids = await _seed(1)
     only_mine(ids)
@@ -275,8 +314,10 @@ async def test_a_poisoned_payload_still_walks_to_the_dlq(
 
     monkeypatch.setattr(dispatcher, "enqueue", _refuse)
 
+    waits: list[float | None] = []
     for _ in range(rel.OUTBOX_MAX_ATTEMPTS):
         await dispatcher.dispatch_outbox({})
+        waits.append(await _step_over_the_backoff(ids[0]))
 
     status, attempts, deferred, last_error = (await _rows(ids))[ids[0]]
     assert status == "failed", (
@@ -285,6 +326,14 @@ async def test_a_poisoned_payload_still_walks_to_the_dlq(
     )
     assert not deferred, "a dead letter holds no lease — the ops replay must be able to move it"
     assert last_error is not None and last_error.startswith("ValueError:"), last_error
+    # Every tick before the last one had to be waited out, and the last one did not: the
+    # poison budget is spent over minutes rather than in one loop, and the terminal
+    # transition clears the hold. Without this the loop above would silently degrade into
+    # "one attempt then four no-ops" the moment the backoff changed shape.
+    assert waits[:-1] and all(w is not None for w in waits[:-1]), (
+        f"a retryable failure left the message immediately re-claimable: {waits}"
+    )
+    assert waits[-1] is None, f"the dead letter is holding a {waits[-1]}s lease"
 
 
 async def test_an_outage_and_a_poison_message_are_told_apart_by_the_row(
@@ -300,6 +349,74 @@ async def test_an_outage_and_a_poison_message_are_told_apart_by_the_row(
 
     assert deferred
     assert outage_error is not None and outage_error.startswith("ConnectionError:"), outage_error
+
+
+# =============================== 2b. and an operator can SEE the backlog while it happens
+
+
+async def test_the_ops_read_counts_deferred_messages_during_an_outage(
+    monkeypatch: pytest.MonkeyPatch, only_mine: Any, alerts: list[tuple[str, str, str | None]]
+) -> None:
+    """THE THIRD STATE, ON THE SCREEN. The half `defer_outbox_claim` created and left
+    invisible.
+
+    The backoff is what makes an outage survivable, and it is also what makes it look
+    like nothing: the messages stay `pending`, the DLQ stays honestly empty, and the ops
+    console — which published `depth` and nothing else — showed a green "Nothing is
+    dead-lettered" for the whole five minutes. An operator arriving mid-incident read the
+    one number on the screen and concluded the outbox was fine.
+
+    Asserted through `read_dead_letter_queue`, which is THE definition of the queue's
+    depth for both the metric and `GET /v1/ops/platform`, so this is the number the
+    console actually renders rather than a second count written for the test.
+
+    **THE COUNT IS COMPARED AS A DELTA, not as an absolute.** `outbox_messages` is
+    platform-wide and other suites leave rows in it; a bare `deferred == 3` would be
+    asserting about the whole database's mood. The delta is this file's own doing.
+    """
+    ids = await _seed(3)
+    only_mine(ids)
+
+    async with untenanted_session() as session:
+        before = await rel.read_dead_letter_queue(session)
+
+    _queue_is_down(monkeypatch)
+    assert await dispatcher.dispatch_outbox({}) == "published=0"
+
+    async with untenanted_session() as session:
+        during = await rel.read_dead_letter_queue(session)
+
+    assert during.deferred - before.deferred == len(ids), (
+        f"three messages were handed back with a backoff and the ops read moved from "
+        f"{before.deferred} to {during.deferred} deferred — the console cannot show a "
+        "backlog it does not count, which is how an outage renders as 'nothing wrong'"
+    )
+    # The DLQ is genuinely EMPTY of our rows, and that is the whole point: the number that
+    # used to be the only one on screen is still telling the truth, and the truth was
+    # misleading on its own.
+    assert during.depth == before.depth, "an outage must not dead-letter anything"
+
+    # And when the queue comes back, the count comes down. A gauge that only rises is a
+    # gauge an operator learns to ignore.
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE outbox_messages SET locked_until = NULL WHERE id = ANY(:ids)"),
+            {"ids": ids},
+        )
+    monkeypatch.setattr(dispatcher, "enqueue", _publishes)
+    assert await dispatcher.dispatch_outbox({}) == f"published={len(ids)}"
+
+    async with untenanted_session() as session:
+        after = await rel.read_dead_letter_queue(session)
+    assert after.deferred == before.deferred, (
+        f"the deferred count did not come back down after the queue recovered "
+        f"({before.deferred} -> {during.deferred} -> {after.deferred})"
+    )
+
+
+async def _publishes(job: str, *args: Any, job_id: str | None = None, **kwargs: Any) -> str | None:
+    """A queue that works — the recovery half of the outage test above."""
+    return job_id or "queued"
 
 
 # ================================================= 3. the deferral is still a CAS (§5)
@@ -358,8 +475,8 @@ async def test_the_wait_grows_with_the_attempts_already_spent() -> None:
         }
 
     assert waits[late] > waits[early], waits
-    assert waits[early] == pytest.approx(rel.OUTBOX_SYSTEMIC_BACKOFF_S, abs=2)
-    assert waits[late] <= rel.OUTBOX_SYSTEMIC_BACKOFF_CAP_S
+    assert waits[early] == pytest.approx(rel.OUTBOX_RETRY_BACKOFF_S, abs=2)
+    assert waits[late] <= rel.OUTBOX_RETRY_BACKOFF_CAP_S
 
 
 async def test_the_budget_now_outlives_a_restart_rather_than_a_minute() -> None:
@@ -374,7 +491,7 @@ async def test_the_budget_now_outlives_a_restart_rather_than_a_minute() -> None:
     cadence = seconds[1] - seconds[0] if len(seconds) > 1 else 60
     undeferred = cadence * rel.OUTBOX_MAX_ATTEMPTS
     deferred = sum(
-        min(rel.OUTBOX_SYSTEMIC_BACKOFF_S * attempt, rel.OUTBOX_SYSTEMIC_BACKOFF_CAP_S)
+        min(rel.OUTBOX_RETRY_BACKOFF_S * attempt, rel.OUTBOX_RETRY_BACKOFF_CAP_S)
         for attempt in range(1, rel.OUTBOX_MAX_ATTEMPTS)
     )
 

@@ -88,11 +88,32 @@ GROUP BY status;
   rows and would write an `ops.outbox_replay` audit entry for a redelivery that never
   happened. Fix Redis; the next tick past the wait publishes the backlog. The wait grows
   with the attempts a message has already spent
-  (`OUTBOX_SYSTEMIC_BACKOFF_S = 30` per attempt, capped at 300), which is what makes the
+  (`OUTBOX_RETRY_BACKOFF_S = 30` per attempt, capped at 300), which is what makes the
   five-attempt budget cover minutes of downtime rather than the fifty seconds a
   ten-second tick would otherwise spend it in. `last_error` on those rows names the Redis
   error, and it is preserved rather than overwritten if they later dead-letter for a
   different reason.
+
+  **YOU NO LONGER NEED THIS QUERY TO SEE IT.** `GET /v1/ops/platform` publishes
+  `outbox_dead_letters.deferred` from the same aggregate as the DLQ depth, and the console
+  panel renders it as "N messages are waiting on a retry backoff" — so the ops screen
+  reads honestly during an outage instead of showing a green "Nothing is dead-lettered"
+  for the whole five minutes the backoff buys. `depth: 0, deferred: high` is an outage in
+  progress; `depth: high, deferred: 0` is one that already burned through the budget and
+  is now a replay job. The panel disables the replay button in the first case and says
+  why, because replay moves `failed` rows and would move none of these.
+
+  A DEFERRED COUNT IS ALSO NORMAL IN SMALL NUMBERS: a claimed, in-flight message looks
+  identical (both are `pending` with a future `locked_until` — one `OUTBOX_CLAIM_LEASE`,
+  one backoff, deliberately the same column). A handful on a busy platform is traffic; a
+  number that climbs across polls is the signal.
+
+  **AND IT IS NOT ONLY THE QUEUE.** Since the per-message retry gained the same backoff,
+  a message whose OWN publish keeps failing — a receiver that is down rather than Redis —
+  also sits deferred between attempts. Those rows carry the receiver's error in
+  `last_error` rather than a `ConnectionError`, and they DO spend their attempt budget, so
+  they walk to the DLQ over about five minutes instead of fifty seconds. Read `last_error`
+  to tell the two apart before deciding whether to wait or to go and fix a receiver.
 - `failed` rows → each one fired alert `OUTBOX_DISPATCH` / `outbox_dead_letter` with
   the message id, and DLQ depth is the `outbox_dlq_depth` metric. Inspect
   `last_error` on the row. Replay is NOT a hand edit. **Console: Operations —

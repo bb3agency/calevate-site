@@ -23,9 +23,12 @@ cancellation can leave a transaction in flight while its retry starts, and an op
 replay or a lost Redis removes it entirely. `lock_call_writes` makes it a database fact.
 
 **THE CONCURRENCY HERE IS REAL, AND THIS FILE PROVES IT RATHER THAN CLAIMING IT.** The
-last test removes the lock and asserts the SAME harness produces the double — a
-concurrent test that never actually raced is the commonest way to be fooled, and a
-negative control is the only thing that rules it out.
+last test removes the lock and asserts the SAME harness breaks — a concurrent test that
+never actually raced is the commonest way to be fooled, and a negative control is the
+only thing that rules it out. What "breaks" means moved when migration `b8d3f47c2a19`
+added `ux_usage_events_tenant_call_unit`: the unguarded pair no longer double-meters, it
+gets one of its two runs refused by the database. That control's own docstring carries
+the argument for why the weaker outcome is the better one.
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.workers import pipeline
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from tests.smoke_pipeline_test import _seed_tenant
 
 RUN = uuid.uuid4().hex[:12]
@@ -269,13 +273,36 @@ async def test_the_harness_catches_an_unguarded_check_then_write(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A concurrency test that never actually raced is the commonest way to be fooled, so
-    this one is run with the guard removed and asserted to FAIL.
+    this one is run with the guard removed and asserted to break.
 
     The break is not a synthetic one: `lock_call_writes` is stubbed to a no-op, which is
     exactly the code that shipped before it existed. If a future edit made the two
     coroutines run sequentially — an `await` moved, a fixture serialising the loop, a
     session pool of one — this assertion is what goes red, rather than the tests above
     silently ceasing to test anything.
+
+    **WHAT "BREAKS" MEANS CHANGED WHEN THE INDEX LANDED, and the change is the point.**
+    This control used to assert the double itself: 10 usage rows for a five-row call and
+    the minutes counted twice, which is what an unguarded check-then-write produced when
+    nothing in the DATABASE stopped it. Migration `b8d3f47c2a19` added
+    `ux_usage_events_tenant_call_unit`, so the second inserter now blocks on the
+    conflicting key and raises `unique_violation` instead — and because `_meter` writes
+    all five rows, the wallet charge and the `spend_state` upsert in ONE transaction, the
+    abort takes the whole second metering with it.
+
+    So the control still proves the same two things and one more:
+
+    1. **the race is real** — one of the two runs still has to lose, and it can only lose
+       by having reached the insert while the other was mid-transaction;
+    2. **the lock is still doing work** — remove it and something goes wrong, loudly;
+    3. **and the ledger is now protected by a FACT rather than a convention.** The
+       failure mode with the lock removed is one aborted job attempt, which ARQ retries
+       into a clean no-op, instead of a permanent double charge on an append-only table
+       that no UPDATE can take back.
+
+    A reader tempted to conclude the lock is therefore redundant should read the row
+    counts below: without it, one legitimate metering run FAILS. The index is the
+    backstop, not the mechanism.
     """
     tenant_id, execution_id, call_id = await _staged("control")
     snapshot = await get_engine().get_execution(execution_id)
@@ -288,11 +315,31 @@ async def test_the_harness_catches_an_unguarded_check_then_write(
     written = await _both(lambda: pipeline._meter(tenant_id, call_id, snapshot))
     ledger = await _ledger(tenant_id, call_id)
 
-    assert written == [5, 5], (
-        f"the two runs did not overlap — this file's races are not races, got {written}"
+    refused = [r for r in written if isinstance(r, IntegrityError)]
+    succeeded = [r for r in written if not isinstance(r, BaseException)]
+    # Any OTHER exception is a broken harness rather than the constraint doing its job,
+    # and must not be silently accepted as "it failed, so the control works".
+    unexpected = [
+        r for r in written if isinstance(r, BaseException) and not isinstance(r, IntegrityError)
+    ]
+    assert unexpected == [], f"the unguarded run failed for the wrong reason: {unexpected}"
+    assert len(refused) == 1 and succeeded == [5], (
+        "with the lock removed exactly one of the two overlapping runs must be refused by "
+        f"ux_usage_events_tenant_call_unit and the other must meter the call, got {written}. "
+        "Two successes mean the runs did not overlap and this file's races are not races; "
+        "two refusals mean neither committed."
     )
-    assert ledger["usage_rows"] == 10, (
-        f"the unguarded pre-check did not double-meter ({ledger['usage_rows']} rows), so "
-        "the tests above would pass with the lock deleted"
+    assert "ux_usage_events_tenant_call_unit" in str(refused[0]), (
+        f"refused by something other than the metering key: {refused[0]}"
     )
-    assert float(ledger["minutes"]) == pytest.approx(2 * (snapshot.duration_s or 0) / 60, abs=0.01)
+    # The whole second metering rolled back — no partial row set, and the cap counter did
+    # NOT move twice. This is the assertion the old control could not make, because
+    # before the index both halves of the double actually committed.
+    assert ledger["usage_rows"] == 5, (
+        f"{ledger['usage_rows']} usage rows survived the refused run; the abort was "
+        "supposed to take the entire second metering with it"
+    )
+    assert float(ledger["minutes"]) == pytest.approx((snapshot.duration_s or 0) / 60, abs=0.01), (
+        "spend_state moved for both runs, so the refused transaction committed part of "
+        "itself and the tenant's cap is armed against a number that never happened"
+    )

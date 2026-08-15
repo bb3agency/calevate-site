@@ -30,6 +30,8 @@ import { ApiProblem } from "@/lib/api/client";
 import {
   useCreateTenant,
   useInvite,
+  useRevokeTenantInvitation,
+  useTenantInvitations,
   type CreateOrgIn,
   type CreateOrgOut,
 } from "@/lib/api/admin";
@@ -619,12 +621,38 @@ function CreatedPanel({
   onBack: () => void;
 }) {
   const invite = useInvite();
+  const revoke = useRevokeTenantInvitation();
   const [email, setEmail] = useState(defaultEmail);
   // The token is shown ONCE and cannot be recovered, so it is state rather than
   // `invite.data` — and it is cleared at every submit so a token minted for one address
   // can never sit under a refusal for another.
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const refusal = refusalReason(invite.error);
+  // THE EXIT FROM THE SERVER'S OWN REFUSAL, and the reason it needs its own state.
+  //
+  // A second live token for one address is refused (`invitation_already_pending`), which
+  // is right — two keys to a client's account in one inbox, only one of them revocable —
+  // but on its own it leaves an operator whose first token was lost with nothing to do
+  // for 72 hours: the revoke that already existed is client-realm, and this invite is
+  // minted before anybody can sign in.
+  //
+  // `invite.data` cannot carry the id: a mutation clears `data` when the next attempt
+  // fails, and the attempt that fails is exactly the one where the cancel is needed. So
+  // the mint is remembered here — WITH ITS ADDRESS, which is the part that must not be
+  // dropped. Minting for A and then being refused for B is a refusal about B's pending
+  // invitation, and offering a button that silently cancels A's would revoke a live
+  // credential the operator never asked about. The control appears only when the address
+  // in the box is the one we hold.
+  const [minted, setMinted] = useState<{ id: string; email: string } | null>(null);
+  const blockedByPending =
+    invite.error instanceof ApiProblem && invite.error.code === "invitation_already_pending";
+  const cancellable =
+    blockedByPending && minted && minted.email === email.trim().toLowerCase() ? minted.id : null;
+  // The case the remembered mint cannot cover: the first link was issued by a colleague,
+  // or from another tab, so this component never saw its id. Fetched only once the server
+  // has actually refused — a list of live credentials is not something to put on screen
+  // for every operator who opens the wizard.
+  const pending = useTenantInvitations(blockedByPending && !cancellable ? created.id : "");
 
   return (
     <div className="space-y-4">
@@ -664,7 +692,12 @@ function CreatedPanel({
               // nobody asked for.
               invite.mutate(
                 { tenantId: created.id, email: email.trim(), role: "owner" },
-                { onSuccess: (data) => setInviteToken(data.token) },
+                {
+                  onSuccess: (data) => {
+                    setInviteToken(data.token);
+                    setMinted({ id: data.id, email: email.trim().toLowerCase() });
+                  },
+                },
               );
             }}
           >
@@ -692,6 +725,70 @@ function CreatedPanel({
 
           {invite.error && <ProblemNotice error={invite.error} />}
           {refusal && <p className="text-xs text-ink-muted">{refusal}</p>}
+          {revoke.error && <ProblemNotice error={revoke.error} />}
+
+          {blockedByPending && !cancellable && (
+            <div className="space-y-2">
+              {/* §52 on a panel that appears only inside a refusal: while the list is in
+                  flight it is a skeleton, and a failed read is the read's own refusal —
+                  never "there are no pending invites", which would contradict the 409
+                  that put this panel on screen. */}
+              {pending.isLoading ? (
+                <Skeleton rows={2} />
+              ) : pending.error ? (
+                <ProblemNotice error={pending.error} onRetry={() => void pending.refetch()} />
+              ) : (
+                (pending.data ?? []).map((row) => (
+                  <div key={row.id} className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="font-mono text-ink">{row.email_masked}</span>
+                    <span className="text-ink-muted">
+                      {row.role} · expires {formatIST(row.expires_at)}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={revoke.isPending}
+                      className={SECONDARY_BUTTON}
+                      onClick={() =>
+                        revoke.mutate({ tenantId: created.id, invitationId: row.id })
+                      }
+                    >
+                      Cancel this invite
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {cancellable && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={revoke.isPending}
+                className={SECONDARY_BUTTON}
+                onClick={() => {
+                  setInviteToken(null);
+                  revoke.mutate(
+                    { tenantId: created.id, invitationId: cancellable },
+                    {
+                      onSuccess: () => {
+                        // The row is gone, so the handle must go with it: a second click
+                        // would 404 and read as the cancel having failed.
+                        setMinted(null);
+                        invite.reset();
+                      },
+                    },
+                  );
+                }}
+              >
+                {revoke.isPending ? "Cancelling…" : "Cancel the unused invite"}
+              </button>
+              <span className="text-xs text-ink-muted">
+                Cancels the link this wizard already issued, so a fresh one can be sent to
+                the same address. It does nothing to an invite somebody has already used.
+              </span>
+            </div>
+          )}
 
           {inviteToken && (
             <NoticeBox
@@ -713,9 +810,11 @@ function CreatedPanel({
 
       <div className="flex flex-wrap gap-2">
         {/* Back to step 3 with its answers intact — `AfterCreate` holds the draft above
-            this swap precisely so this button is not a way to lose them. It is also the
-            only way back: the endpoint has no draft save, so an unsubmitted intake exists
-            nowhere but in this tab. */}
+            this swap precisely so this button is not a way to lose them. The sentence
+            that used to follow ("the endpoint has no draft save, so an unsubmitted intake
+            exists nowhere but in this tab") stopped being true when `POST …/intake/draft`
+            landed and `IntakeStep` grew its Save-draft control: an unsubmitted intake IS
+            on file, and `Unfinished onboardings` on `/admin/new` is where it resumes. */}
         <button type="button" onClick={onBack} className={SECONDARY_BUTTON}>
           <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
           Back to the intake

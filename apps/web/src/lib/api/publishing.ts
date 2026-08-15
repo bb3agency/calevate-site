@@ -75,6 +75,14 @@ export type AgentVoiceState = Schemas["VoiceStateOut"];
 export type PendingState = Schemas["PendingOut"];
 export type PendingChange = Schemas["PendingChangeOut"];
 
+/**
+ * What `POST …/agents/{id}/publish` answers: the engine's own ref for this agent.
+ *
+ * The fully-qualified schema key, because `admin/routes.py` has a `PublishOut` of its
+ * own (KB publishing) and the generator namespaces both rather than picking one.
+ */
+export type PublishOut = Schemas["apps__api__agents__routes__PublishOut"];
+
 export type ApplyIn = Schemas["ApplyIn"];
 export type ApplyOut = Schemas["ApplyOut"];
 export type UndoOut = Schemas["UndoOut"];
@@ -219,6 +227,42 @@ export function useApplyChanges(
         method: "POST",
         body: payload,
       }),
+    onSuccess: refresh,
+  });
+}
+
+/**
+ * "Put this agent on the voice platform" — the FIRST publish (FLOWS §1 step 7).
+ *
+ * ## The hole this fills
+ *
+ * `POST /v1/admin/tenants/{tid}/agents/{aid}/publish` has been mounted and tested since
+ * the route moved onto the tenant path, and **nothing in either realm called it**. Every
+ * other publish in the product is a RE-publish that runs only when the agent is already
+ * live: `apply_to_live` guards its engine push on `row.is_live`, `set_call_cap` and
+ * `recompile_t0` on `status == 'live' AND engine_agent_ref`. So an agent minted by the
+ * wizard — `status='draft'`, `engine_agent_ref=NULL` — could never become live from any
+ * screen. A founder could sign a client, run the whole wizard, invite the owner, and the
+ * agent would sit in `draft` with no control anywhere that moved it.
+ *
+ * ## Why it lives here and not in `agents.ts`
+ *
+ * `agents.ts` is the ROSTER — the list five screens read for a name and an id. This is
+ * the third instance of the one question this module already owns: what is configured,
+ * what is live, and what closes the gap. Apply, the call cap and the voice all answer it
+ * for an agent that is already on the engine; this answers it for one that is not, and it
+ * shares `useAfterPublish`, so a first publish invalidates exactly the caches Apply does.
+ *
+ * ADMIN realm, `agents:write`, tenant in the path — the same shape as Apply and Undo, and
+ * for the same reason: only an operator can author the script this pushes.
+ */
+export function usePublishAgent(
+  target: AgentTarget,
+): UseMutationResult<PublishOut, Error, void> {
+  const refresh = useAfterPublish(target);
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<PublishOut>(adminSession(), agentPath(target, "publish"), { method: "POST" }),
     onSuccess: refresh,
   });
 }

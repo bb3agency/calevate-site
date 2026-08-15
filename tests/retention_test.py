@@ -20,6 +20,7 @@ from apps.workers.retention import (
     execute_deletion_request,
 )
 from sqlalchemy import text
+from tests.conftest import FakeS3
 
 
 async def _tenant_with_old_call(days_ago: int, phone: str) -> tuple[uuid.UUID, uuid.UUID]:
@@ -96,7 +97,7 @@ async def _tenant_with_old_call(days_ago: int, phone: str) -> tuple[uuid.UUID, u
     return tenant_id, call_id
 
 
-async def test_recordings_older_than_their_ttl_lose_their_pointer() -> None:
+async def test_recordings_older_than_their_ttl_lose_their_pointer(s3: FakeS3) -> None:
     tenant_id, call_id = await _tenant_with_old_call(200, "+919876500011")
     await apply_retention({})
     async with tenant_session(tenant_id) as session:

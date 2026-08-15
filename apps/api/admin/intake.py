@@ -52,6 +52,14 @@ FORCEd policy rather than minting a new one. The migration argues the choice aga
   intake too thin to compile into an agent that can answer a caller. Draft freely,
   publish deliberately.
 
+**Which lane a submit is on (SURFACES §2b).** Intake is TRAINING: it applies
+immediately, so a live agent is re-published in the same transaction. The one exception
+is the one `agents/t0.py` already carries and for the same reason — a hand-written
+script edit waiting behind "Apply to live calls" shares the same body column, so
+applying the facts would drag that unapproved script onto a phone line. When that is
+the case the facts stage with it and the result says so (`staged_behind_script`), rather
+than the step reporting a version number an operator reads as "live".
+
 `read_intake` returns what a resume needs: the sheet's own fields plus the structured
 columns, with the compiled block for display.
 """
@@ -66,14 +74,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import t0
+from apps.api.agents.prompts import insert_prompt_version
 from apps.api.agents.service import publish_agent
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
@@ -383,6 +390,9 @@ class _AgentState(BaseModel):
     engine_agent_ref: str | None
     language_primary: str
     active_version: int | None
+    # SURFACES §2b: is a hand-written script edit already waiting behind "Apply to live
+    # calls"? Same question, same expression and same consequence as `agents/t0.py`.
+    script_staged: bool
 
 
 async def _agent_state(session: AsyncSession, agent_id: UUID) -> _AgentState:
@@ -395,7 +405,8 @@ async def _agent_state(session: AsyncSession, agent_id: UUID) -> _AgentState:
     row = (
         await session.execute(
             text(
-                "SELECT a.status, a.engine_agent_ref, a.language_primary, pv.version "
+                "SELECT a.status, a.engine_agent_ref, a.language_primary, pv.version, "
+                "(a.system_prompt_id IS DISTINCT FROM a.live_prompt_id) "
                 "FROM agents a LEFT JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
@@ -409,6 +420,7 @@ async def _agent_state(session: AsyncSession, agent_id: UUID) -> _AgentState:
         engine_agent_ref=row[1],
         language_primary=str(row[2]),
         active_version=int(row[3]) if row[3] is not None else None,
+        script_staged=bool(row[4]),
     )
 
 
@@ -426,66 +438,8 @@ async def _current_prompt(session: AsyncSession, agent_id: UUID) -> tuple[str | 
     return (row[0], row[1]) if row is not None else (None, None)
 
 
-async def _write_prompt_version(
-    session: AsyncSession,
-    *,
-    tenant_id: UUID,
-    agent_id: UUID,
-    body: str,
-    compiled: str,
-    created_by: UUID | None,
-) -> int:
-    """A NEW version carrying the block AND its build artifact, then the pointer.
-
-    The insert sets `compiled_t0_context` at creation rather than updating a row later,
-    because `prompt_versions` is immutable history (agents/prompts.py) — an artifact
-    stamped onto an existing version would rewrite what an earlier publish said.
-    """
-    current = (
-        await session.execute(
-            text("SELECT COALESCE(max(version), 0) FROM prompt_versions WHERE agent_id = :aid"),
-            {"aid": agent_id},
-        )
-    ).scalar()
-    version = int(current or 0) + 1
-    version_id = uuid7()
-    try:
-        await session.execute(
-            text(
-                "INSERT INTO prompt_versions (id, tenant_id, agent_id, version, body, "
-                "compiled_t0_context, notes, created_by, published_at, created_at, updated_at) "
-                "VALUES (:id, :tid, :aid, :version, :body, :compiled, :notes, :by, now(), "
-                "now(), now())"
-            ),
-            {
-                "id": version_id,
-                "tid": tenant_id,
-                "aid": agent_id,
-                "version": version,
-                "body": body,
-                "compiled": compiled,
-                "notes": "regenerated from intake (FLOWS §1 step 3)",
-                "by": created_by,
-            },
-        )
-    except IntegrityError as exc:
-        # UNIQUE(agent_id, version): two operators saved the step at once and this one
-        # lost. A lost race is a conflict, not a silent retry (BACKEND-PATTERNS §5).
-        raise ProblemError.conflict(
-            "prompt_version_conflict",
-            "Another prompt version was written for this agent at the same time.",
-            remediation="Reload the wizard and save the intake again.",
-        ) from exc
-    result = await session.execute(
-        text(
-            "UPDATE agents SET system_prompt_id = :vid, updated_at = now() "
-            "WHERE id = :aid AND deleted_at IS NULL"
-        ),
-        {"vid": version_id, "aid": agent_id},
-    )
-    if rowcount_of(result) == 0:
-        raise ProblemError.not_found("Agent")
-    return version
+#: The note every intake-minted version carries, so the history says which step wrote it.
+_PROMPT_NOTES = "regenerated from intake (FLOWS §1 step 3)"
 
 
 async def save_intake_draft(
@@ -611,15 +565,33 @@ async def record_intake(
             "prompt_version": agent.active_version,
             "regenerated": False,
             "kb_source_id": None,
+            "staged_behind_script": agent.script_staged,
         }
 
-    version = await _write_prompt_version(
+    # THE FACTS RIDE THE SAME LANE `agents/t0.py` PUTS A RECOMPILE ON, and for the same
+    # reason: the block is spliced into the DRAFT body, so applying it would publish
+    # whatever hand-written script is waiting behind Apply — the blast-radius accident
+    # SURFACES §2b:101 exists to prevent. With nothing staged the two pointers agree and
+    # the facts apply immediately, which is what "training applies immediately" means.
+    #
+    # Written through `prompts.insert_prompt_version` rather than by a second INSERT of
+    # this module's own. The copy that used to live here set `system_prompt_id` and left
+    # `live_prompt_id` untouched, which broke the invariant `agents/service.py` depends
+    # on ("NULL can only mean the two pointers agree") in both directions: a freshly
+    # onboarded, freshly published agent reported a phantom "Script v1 is waiting to go
+    # live" on the client's own screen forever, and re-submitting the intake over a
+    # staged edit published the OLD applied script while answering with the new version
+    # number. One statement may mint a `prompt_versions` row; this module is a caller.
+    applies_now = not agent.script_staged
+    version = await insert_prompt_version(
         session,
         tenant_id=tenant_id,
         agent_id=agent_id,
         body=splice_t0_block(body, block, identity=f"{business_name} receptionist."),
-        compiled=block,
+        notes=_PROMPT_NOTES,
         created_by=recorded_by,
+        compiled_t0_context=block,
+        apply_live=applies_now,
     )
 
     seed = kb_seed_text(facts)
@@ -636,7 +608,10 @@ async def record_intake(
         )
         kb_source_id = UUID(str(seeded["id"]))
 
-    if agent.status == "live" and agent.engine_agent_ref:
+    # `and applies_now`: publishing while the facts are staged would push the version
+    # the applied pointer still names — the old script — under the banner of a submit
+    # that just reported a new one.
+    if agent.status == "live" and agent.engine_agent_ref and applies_now:
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
 
     # ids and counts only: services, FAQs and escalation numbers are client business
@@ -647,6 +622,7 @@ async def record_intake(
             "agent_id": str(agent_id),
             "prompt_version": version,
             "facts": len(block.splitlines()) - 1,
+            "staged_behind_script": not applies_now,
         },
     )
     return {
@@ -654,6 +630,7 @@ async def record_intake(
         "prompt_version": version,
         "regenerated": True,
         "kb_source_id": kb_source_id,
+        "staged_behind_script": not applies_now,
     }
 
 

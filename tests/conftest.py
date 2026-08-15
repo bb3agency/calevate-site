@@ -6,16 +6,20 @@ Linux (CI, VPS) is unaffected.
 """
 
 import asyncio
+import io
 import os
 import shutil
 import sys
 import tempfile
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from apps.api.core.settings import get_settings
 from apps.api.db.session import untenanted_session
+from apps.workers import storage
+from botocore.exceptions import ClientError
 from sqlalchemy import text
 
 
@@ -145,3 +149,77 @@ def source_ip_allowlist(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..
 
     yield _set
     get_settings.cache_clear()
+
+
+# --- the object store, faked -------------------------------------------------------
+#
+# HERE rather than in one suite, because three of them now need it and a second copy is
+# where the drift starts. It moved out of `tests/delivery_body_retention_test.py` when the
+# retention sweep and the DPDP erasure gained arms that delete RECORDING objects: before
+# that, `calls.recording_url` was cleared by a bare UPDATE and no retention test had ever
+# needed a bucket.
+#
+# Faked rather than pointed at MinIO, for the reason that suite already gave: local MinIO
+# may not be running (it is not, on this machine, and CI has none), and a suite that SKIPS
+# proves nothing about whether an erasure erases. `_no_ambient_credentials` above means an
+# unfaked call raises `NoCredentialsError` — loudly, never silently passing — so a test
+# that needs the store has to say so by taking this fixture.
+#
+# Deliberately NOT autouse: a handful of tests assert the FAILURE path, and a fake that
+# quietly worked everywhere would turn "the object store is down" into an unreachable
+# branch. Ask for it, and set `.fail` when you want the outage.
+
+# ruff: noqa: N803 — boto3's keyword arguments are PascalCase (`Bucket`, `Key`, `Body`,
+# `Delete`, `Prefix`). A fake that renamed them would not be callable by the code under
+# test, which is the only reason it exists.
+
+
+class FakeS3:
+    """An S3 that lives in a dict and can be told to stop working."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+        self.fail = False
+
+    def _check(self) -> None:
+        if self.fail:
+            raise ClientError(
+                {"Error": {"Code": "ServiceUnavailable", "Message": "down"}}, "Operation"
+            )
+
+    def put_object(self, *, Bucket: str, Key: str, Body: bytes, **_: Any) -> dict[str, Any]:
+        self._check()
+        self.objects[Key] = Body
+        return {}
+
+    def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:
+        self._check()
+        if Key not in self.objects:
+            raise ClientError({"Error": {"Code": "NoSuchKey", "Message": "gone"}}, "GetObject")
+        return {"Body": io.BytesIO(self.objects[Key])}
+
+    def delete_objects(self, *, Bucket: str, Delete: dict[str, Any]) -> dict[str, Any]:
+        self._check()
+        for item in Delete["Objects"]:
+            self.objects.pop(item["Key"], None)
+        return {}
+
+    def get_paginator(self, name: str) -> Any:
+        store = self
+
+        class _Paginator:
+            def paginate(self, *, Bucket: str, Prefix: str) -> Iterator[dict[str, Any]]:
+                store._check()
+                keys = sorted(key for key in store.objects if key.startswith(Prefix))
+                # Two pages, so a caller that reads only the first is caught.
+                yield {"Contents": [{"Key": key} for key in keys[:1]]}
+                yield {"Contents": [{"Key": key} for key in keys[1:]]}
+
+        return _Paginator()
+
+
+@pytest.fixture
+def s3(monkeypatch: pytest.MonkeyPatch) -> FakeS3:
+    fake = FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+    return fake

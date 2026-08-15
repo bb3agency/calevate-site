@@ -702,12 +702,26 @@ async def test_a_message_that_keeps_killing_its_worker_reaches_the_dlq() -> None
     )
 
 
-async def test_reporting_an_outcome_releases_the_lease_immediately() -> None:
-    """A retryable failure must not also cost the message its lease.
+async def test_reporting_an_outcome_replaces_the_claim_lease_with_the_backoff() -> None:
+    """The two outcomes a dispatcher can report, and what each leaves on `locked_until`.
 
-    `mark_outbox_failed` below the ceiling returns the row to `pending`; if it left
-    `locked_until` in place, the next tick would skip it and every transient failure
-    would become a two-minute stall. Same for a publish: a resolved message holding a
+    **THIS TEST USED TO ASSERT THE OPPOSITE FOR THE RETRY, AND THE OPPOSITE WAS THE BUG.**
+    It read "a retryable failure must not also cost the message its lease", on the
+    argument that a row returned to `pending` while still holding its two-minute
+    `OUTBOX_CLAIM_LEASE` would stall for the whole lease. That argument is sound about
+    the CLAIM lease and produced the wrong rule: clearing `locked_until` outright made
+    the next 10-second tick re-attempt the message immediately, so a five-attempt budget
+    was spent in fifty seconds — shorter than a receiver's restart, and the exact failure
+    `defer_outbox_claim` was written to prevent for the systemic case.
+
+    The rule now is REPLACE, not release: the claim lease comes off and the retry backoff
+    goes on. So the two things this pins are that the message is genuinely held (the next
+    tick does not see it) and that the hold is the backoff rather than the lease — those
+    are different numbers, and asserting only "leased" would pass under the old
+    two-minute claim lease being left in place by mistake, which is a real way to get
+    this wrong.
+
+    A PUBLISH is unchanged and still clears it outright: a resolved message holding a
     lease would make `locked_until IS NOT NULL` mean nothing.
     """
     retried, published = await _seed_outbox("release", count=2)
@@ -721,18 +735,38 @@ async def test_reporting_an_outcome_releases_the_lease_immediately() -> None:
         await rel.mark_outbox_published(session, message_id=published, job_id="job-1")
 
     status, _, leased = await _outbox_row(retried)
-    assert (status, leased) == ("pending", False), (
-        f"a retryable failure returns the message to the queue NOW, got {status!r} leased={leased}"
+    assert (status, leased) == ("pending", True), (
+        f"a retryable failure holds the message for its backoff, got {status!r} leased={leased}"
     )
     status, _, leased = await _outbox_row(published)
     assert (status, leased) == ("published", False), (
         f"a published message holds no lease, got {status!r} leased={leased}"
     )
 
-    # And the released one really is claimable again on the very next tick.
+    # WHICH hold. One attempt spent buys one base interval (30s), and that must be the
+    # number on the row rather than the claim lease (120s) left behind by an edit that
+    # forgot to overwrite it. Both are "leased"; only one is correct.
+    async with untenanted_session() as session:
+        held_for = (
+            await session.execute(
+                text(
+                    "SELECT EXTRACT(EPOCH FROM (locked_until - now())) "
+                    "FROM outbox_messages WHERE id = :id"
+                ),
+                {"id": retried},
+            )
+        ).scalar()
+    assert float(held_for) == pytest.approx(rel.OUTBOX_RETRY_BACKOFF_S, abs=3), (
+        f"held for {held_for}s; the backoff owes it {rel.OUTBOX_RETRY_BACKOFF_S}s and the "
+        f"claim lease it replaced was {rel.OUTBOX_CLAIM_LEASE.total_seconds()}s"
+    )
+
+    # And the hold is real: the very next tick must NOT see it.
     async with untenanted_session() as session:
         again = await rel.claim_outbox_batch(session, limit=1)
-    assert [m.id for m in again] == [retried], "released means claimable, not merely unlocked"
+    assert retried not in [m.id for m in again], (
+        "the message was re-claimable on the next tick, so the backoff is not being honoured"
+    )
     await _retire(retried, published)
 
 

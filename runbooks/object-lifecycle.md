@@ -4,11 +4,16 @@ When: first-time setup of a bucket; after any edit to
 `infra/object-lifecycle/policy.json`; and whenever a client's `recording` retention
 policy is raised (step 1 is the reason).
 
-What this configures: the rule that deletes recording **audio** and archived vendor
-payloads from the bucket. `apps/workers/retention.py` clears `calls.recording_url`; this
-rule is the only thing that removes the bytes it pointed at. Read `infra/README.md` §3
-first if you have not — in particular, **this rule is a ceiling on growth, not per-tenant
-retention**, and treating it as retention is how it gets set to a dangerous number.
+What this configures: a BACKSTOP that deletes recording **audio** and archived vendor
+payloads from the bucket. It is no longer the only thing that removes the bytes, and that
+correction is the reason to read this paragraph rather than skim it. Since migration
+`9c1d3e7a05f4`, `apps/workers/retention.py` deletes the audio object itself — on the
+tenant's own `recording` policy in the sweep, and on the earliest lawful date in a DPDP
+erasure (`recording_erasure_holds`). This rule is what catches an object those paths never
+saw: one whose reference was lost, or written before that code existed. Read
+`infra/README.md` §3 first if you have not — in particular, **this rule is a ceiling on
+growth, not per-tenant retention**, and treating it as retention is how it gets set to a
+dangerous number.
 
 Ground rules: production access through the audited admin path, read-only SELECTs
 (SECURITY-COMPLIANCE §5). Credentials come from the secrets manager into the
@@ -111,9 +116,16 @@ Say this out loud when you report the change, because the wording matters legall
 - **The engine's copy is untouched.** Bolna's recordings live on their S3 and their
   deletion API is undocumented (pilot gate 12(f)). `engine_deletion` stays
   `unconfirmed_pending_vendor_api` in every proof.
-- **This is not per-tenant retention.** A tenant on a 180-day policy still has audio in
-  the bucket on day 181; only the pointer is gone. That gap is the open decision in
-  SECURITY-COMPLIANCE §4 and closing it is an `apps/` change, not a bucket setting.
+- **This is not per-tenant retention.** It never became per-tenant retention; the
+  per-tenant mechanism was built next to it instead (`apps/workers/retention.py`, migration
+  `9c1d3e7a05f4`), so a tenant on a 180-day policy now has their audio deleted on day 181
+  by the nightly sweep, and this rule is the ceiling that catches whatever the sweep never
+  saw. If you are asked "when is this client's audio deleted?", the answer is their
+  `retention_policies` row, never the number in `policy.json`.
+- **A DPDP erasure has its own clock.** An erasure destroys the audio it may destroy and
+  schedules the rest in `recording_erasure_holds` — nothing about that waits on this
+  bucket rule, and lowering or raising the ceiling does not move a scheduled destruction.
+  To answer "has the deferred audio actually gone?", read `erased_at` on the hold row.
 
 ## 6. If recordings are disappearing early
 
@@ -127,4 +139,10 @@ compliant is what is being destroyed.
    `PutBucketLifecycleConfiguration` replaces, it does not merge.
 4. Objects already expired are gone. Quantify the loss by call count and date range from
    `calls` (`recording_url IS NOT NULL` plus `ended_at`), not by listing the bucket, and
-   report it against the TRAI retention obligation.
+   report it against the retention obligation.
+5. **Rule out the two paths that now delete legitimately before calling it an incident.**
+   The nightly sweep deletes on the tenant's `recording` policy, and an erasure destroys or
+   schedules by subject. Both are logged with counts and no keys:
+   `retention_sweep` (`recordings`, `recording_holds`) and `deletion_executed`
+   (`recordings=`, `floor_recordings=`). A drop that matches a sweep count is the system
+   doing its job; a drop that matches nothing is the incident.

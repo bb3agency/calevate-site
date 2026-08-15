@@ -197,6 +197,13 @@ class InviteIn(BaseModel):
 class InviteOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # The row, so the caller can revoke the thing it just created. Without it the wizard
+    # could mint an invitation and had no handle on it — and since `create_invitation`
+    # refuses a SECOND live token for one address, an operator whose first token was lost
+    # would be locked out of that address for 72 hours with no control anywhere in the
+    # admin realm (the revoke that existed is client-realm, and the client cannot sign in
+    # yet — that is what the invitation is FOR).
+    id: UUID
     # Returned EXACTLY once — only the hash is stored, so it cannot be re-read later.
     token: str
     expires_in_hours: int
@@ -291,7 +298,7 @@ async def invite_member(
     from apps.api.db.session import tenant_session
 
     async with tenant_session(tenant_id) as scoped:
-        token = await service.create_invitation(
+        invitation_id, token = await service.create_invitation(
             scoped,
             tenant_id=tenant_id,
             email=str(payload.email),
@@ -309,7 +316,127 @@ async def invite_member(
         # later review actually needs.
         summary={"role": payload.role},
     )
-    return InviteOut(token=token, expires_in_hours=int(service.INVITE_TTL.total_seconds() // 3600))
+    return InviteOut(
+        id=invitation_id,
+        token=token,
+        expires_in_hours=int(service.INVITE_TTL.total_seconds() // 3600),
+    )
+
+
+class PendingInviteOut(BaseModel):
+    """One live key to a client's account, as the console may see it.
+
+    MASKED, like the client realm's own list: `email` is in
+    `scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, and an operator deciding
+    which pending invite to cancel needs to RECOGNISE it, not to read it. Same mask, same
+    function (`members.mask_email`), so the two realms cannot show a client's staff two
+    different renderings of one row.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    email_masked: str
+    role: str
+    invited_at: datetime
+    expires_at: datetime
+
+
+@router.get(
+    "/tenants/{tenant_id}/invitations",
+    response_model=list[PendingInviteOut],
+    openapi_extra=permission_meta("org:read"),
+    summary="Invitations to this account that can still be redeemed",
+    description=(
+        "The keys to this client's account that exist in somebody's inbox right now. "
+        "Addresses are masked. This is what makes the duplicate refusal actionable: "
+        "minting a second live token for one address is refused, and an operator who did "
+        "not issue the first one needs to be able to see and cancel it."
+    ),
+)
+async def list_tenant_invitations(
+    tenant_id: UUID,
+    principal: Principal = Depends(requires("org:read", realm="admin")),
+) -> list[PendingInviteOut]:
+    """`org:read`, NOT `admin:tenants`, and `tests/impersonation_reads_test.py` is why.
+
+    D-22 forbids gating a GET on a permission read-only impersonation refuses, and
+    `admin:tenants` is in `MUTATING_PERMISSIONS` — so gating this read on it would hide
+    "who currently holds a key to this account" from a support session looking at exactly
+    that. `list_unfinished_onboardings` above states the same rule for the same reason;
+    the mint and the cancel keep `admin:tenants`, because handing out or destroying a
+    credential is the separate thing.
+
+    The addresses are masked, which is what makes the read safe to widen: an operator
+    recognises a row, they do not read it.
+
+    Runs in the tenant's own RLS scope, so a tenant id that names nothing answers with an
+    empty list rather than another account's invitations.
+    """
+    del principal
+    from apps.api.db.session import tenant_session
+    from apps.api.tenancy import members as members_service
+
+    async with tenant_session(tenant_id) as scoped:
+        rows = await members_service.list_pending_invitations(scoped)
+    return [
+        PendingInviteOut(
+            id=row.id,
+            email_masked=row.email_masked,
+            role=row.role,
+            invited_at=row.invited_at,
+            expires_at=row.expires_at,
+        )
+        for row in rows
+    ]
+
+
+@router.delete(
+    "/tenants/{tenant_id}/invitations/{invitation_id}",
+    status_code=204,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Revoke an unused invitation from the console (the wizard's way out)",
+    description=(
+        "Deletes an invitation that has not been redeemed, so a fresh one can be issued "
+        "for the same address. An invitation accepted between the click and the request "
+        "is NOT deleted — the CAS on `used_at IS NULL` answers 404, because the person is "
+        "now a member and removing them is a different act on a different surface."
+    ),
+)
+async def revoke_tenant_invitation(
+    tenant_id: UUID,
+    invitation_id: UUID,
+    session: GlobalSession,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> None:
+    """The admin half of `DELETE /v1/invitations/{id}`, which is client-realm.
+
+    It has to exist HERE rather than being reached by impersonation for two reasons that
+    both come from decisions already made: D-22 makes an impersonating session read-only,
+    so a revoke is refused through it; and the account this matters most for has no
+    member yet — the wizard's owner invite is minted before anybody can sign in, so the
+    client-realm control has nobody to press it.
+
+    The same `members_service.revoke_invitation` does the work, in the tenant's own RLS
+    scope, so an id belonging to another tenant is invisible and answers 404 rather than
+    confirming it exists (D-65). 204: there is nothing to say about a row that is gone,
+    and the caller already knows which id it asked about.
+    """
+    from apps.api.db.session import tenant_session
+    from apps.api.tenancy import members as members_service
+
+    async with tenant_session(tenant_id) as scoped:
+        role = await members_service.revoke_invitation(scoped, invitation_id)
+    await write_audit(
+        session,
+        action=f"admin.invitation_revoked:{role}",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="invitation",
+        object_id=str(invitation_id),
+        ip=request.client.host if request.client else None,
+    )
 
 
 class IntakeOut(BaseModel):
@@ -326,6 +453,14 @@ class IntakeOut(BaseModel):
     prompt_version: int | None
     regenerated: bool
     kb_source_id: UUID | None
+    # Whether the compiled facts are sitting in the DRAFT script rather than in the one
+    # callers hear. True only when a hand-written script edit was already waiting behind
+    # "Apply to live calls" — the facts join it there instead of dragging it live
+    # (SURFACES §2b, the exception `agents/t0.py` states). NOT optional and NOT
+    # defaulted: a field with a default generates an optional TypeScript property, and
+    # a screen is then free to omit the one sentence that stops an operator reading
+    # `prompt_version` as "these facts are on the phone line now".
+    staged_behind_script: bool
 
 
 class IntakeStateOut(BaseModel):

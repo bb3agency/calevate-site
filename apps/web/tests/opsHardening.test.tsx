@@ -88,7 +88,10 @@ const PLATFORM_STATE = {
   load_shed_mode: "normal",
   outbound_halted: false,
   halt_reason: null,
-  outbox_dead_letters: { depth: 0, oldest_at: null, by_job: [] },
+  // `deferred` is required on the wire (`DeadLetterQueueOut`), so a fixture without it is
+  // a shape the server never sends. Zero here: this file is about the config/secret
+  // panels, and an outbox in trouble is `ops.test.tsx`'s subject.
+  outbox_dead_letters: { depth: 0, deferred: 0, oldest_at: null, by_job: [] },
   tm_registration: {
     status: "active",
     tm_id: "TM-110022",

@@ -413,13 +413,32 @@ export function useBulkLeads(session: Session) {
  * a client who narrowed the table to "hot" and pressed Export downloaded every contact
  * in the account with full numbers, and the screen had to carry a warning saying so.
  * Same object, same `lensQuery`, so the file is the table.
+ *
+ * **The byte-order mark is added HERE and not on the server, and that is the same split
+ * `core/spreadsheet_safety.py` makes**: one hazard, two renderings, each written for the
+ * consumer that will actually open the bytes. Excel does not sniff UTF-8 — a `.csv` with
+ * no mark is decoded in the machine's legacy code page, so on a Telugu-first product
+ * every name in the file arrives as mojibake and the client's own data looks like we
+ * corrupted it. The API RESPONSE stays clean UTF-8 with no mark, because a script reading
+ * `/v1/leads/export.csv` would otherwise find a stray U+FEFF welded to its first header
+ * cell — the bug the mark causes when it is applied to the wrong consumer. This branch is
+ * definitionally the human-opens-it-in-a-spreadsheet path: it exists only to hand the
+ * browser a file to save. `tests/leadsExportEncoding.test.tsx` asserts the BYTES, because
+ * `Blob.text()` runs the spec's UTF-8 decode and strips the mark it is checking for.
+ *
+ * Written as an ESCAPE and never as a pasted glyph: U+FEFF is zero-width, so in source it
+ * is indistinguishable from nothing at all and the next reader cannot tell a deliberate
+ * mark from an accident of somebody's editor. Same reasoning as the full-width formula
+ * leaders in `core/spreadsheet_safety.py`.
  */
+const BOM = "\uFEFF";
+
 export function useExportLeads(session: Session) {
   return useMutation({
     mutationFn: (lens: LeadLens) =>
       apiRequest<string>(session, `/v1/leads/export.csv${lensQuery(lens)}`),
     onSuccess: (csv) => {
-      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      const url = URL.createObjectURL(new Blob([BOM, csv], { type: "text/csv;charset=utf-8" }));
       const link = document.createElement("a");
       link.href = url;
       link.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;

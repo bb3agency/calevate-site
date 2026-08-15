@@ -382,7 +382,7 @@ async def test_an_expired_invitation_cannot_be_accepted() -> None:
     created = await _org_for("expiry")
     user_id, clerk_id = await _mirrored_user()
     async with tenant_session(created["id"]) as session:
-        token = await admin_service.create_invitation(
+        _invitation_id, token = await admin_service.create_invitation(
             session,
             tenant_id=created["id"],
             email=f"{clerk_id}@example.com",
@@ -413,7 +413,7 @@ async def test_an_invitation_grants_exactly_the_role_it_was_issued_for() -> None
     created = await _org_for("role")
     user_id, clerk_id = await _mirrored_user()
     async with tenant_session(created["id"]) as session:
-        token = await admin_service.create_invitation(
+        _invitation_id, token = await admin_service.create_invitation(
             session,
             tenant_id=created["id"],
             email=f"{clerk_id}@example.com",

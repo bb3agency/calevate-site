@@ -2973,7 +2973,7 @@
       },
       "DeadLetterQueueOut": {
         "additionalProperties": false,
-        "description": "How much a replay would re-send, published so the confirmation can be informed.\n\nThe console asks an operator to confirm `POST /outbox/replay`, whose effect is real\nHMAC-signed webhooks into clients' own systems for every tenant at once. Until this\nfield existed the console said so in its own words: there was no count to show before\nthe click, so the operator confirmed a redelivery of unknown size, tenancy and age.\n\nThree numbers rather than one, because a total does not tell an operator what they are\nabout to do: 142 dead letters is a different act depending on whether it is 142 CRM\nwebhooks or 142 hot-lead emails, and a different act again depending on whether the\nhead of the queue is ten minutes or nine days old.",
+        "description": "How much a replay would re-send, published so the confirmation can be informed.\n\nThe console asks an operator to confirm `POST /outbox/replay`, whose effect is real\nHMAC-signed webhooks into clients' own systems for every tenant at once. Until this\nfield existed the console said so in its own words: there was no count to show before\nthe click, so the operator confirmed a redelivery of unknown size, tenancy and age.\n\nThree numbers rather than one, because a total does not tell an operator what they are\nabout to do: 142 dead letters is a different act depending on whether it is 142 CRM\nwebhooks or 142 hot-lead emails, and a different act again depending on whether the\nhead of the queue is ten minutes or nine days old.\n\n**AND `deferred`, WHICH IS NOT A DEAD LETTER.** It rides this model rather than\ngetting a field of its own on `PlatformStateOut` because it is only meaningful beside\n`depth`: the two are the outbox's two unhealthy states and an operator reads them as a\npair. See `reliability.service.DeadLetterQueue.deferred` for what it counts and why\nthe console was blind to it.",
         "properties": {
           "by_job": {
             "items": {
@@ -2981,6 +2981,10 @@
             },
             "title": "By Job",
             "type": "array"
+          },
+          "deferred": {
+            "title": "Deferred",
+            "type": "integer"
           },
           "depth": {
             "title": "Depth",
@@ -3002,7 +3006,8 @@
         "required": [
           "depth",
           "oldest_at",
-          "by_job"
+          "by_job",
+          "deferred"
         ],
         "title": "DeadLetterQueueOut",
         "type": "object"
@@ -3724,6 +3729,28 @@
             "title": "Leads",
             "type": "array"
           },
+          "recording_hold_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording Hold Until"
+          },
+          "recordings_destroyed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recordings Destroyed"
+          },
           "recordings_within_trai_floor": {
             "anyOf": [
               {
@@ -3745,7 +3772,9 @@
           "leads",
           "transcript_turns_erased",
           "call_extractions_erased",
-          "recordings_within_trai_floor"
+          "recordings_within_trai_floor",
+          "recordings_destroyed",
+          "recording_hold_until"
         ],
         "title": "ErasureScopeOut",
         "type": "object"
@@ -5034,13 +5063,18 @@
           "regenerated": {
             "title": "Regenerated",
             "type": "boolean"
+          },
+          "staged_behind_script": {
+            "title": "Staged Behind Script",
+            "type": "boolean"
           }
         },
         "required": [
           "agent_id",
           "prompt_version",
           "regenerated",
-          "kb_source_id"
+          "kb_source_id",
+          "staged_behind_script"
         ],
         "title": "IntakeOut",
         "type": "object"
@@ -5349,12 +5383,18 @@
             "title": "Expires In Hours",
             "type": "integer"
           },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
           "token": {
             "title": "Token",
             "type": "string"
           }
         },
         "required": [
+          "id",
           "token",
           "expires_in_hours"
         ],
@@ -7698,6 +7738,44 @@
           "why"
         ],
         "title": "PendingChangeOut",
+        "type": "object"
+      },
+      "PendingInviteOut": {
+        "additionalProperties": false,
+        "description": "One live key to a client's account, as the console may see it.\n\nMASKED, like the client realm's own list: `email` is in\n`scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, and an operator deciding\nwhich pending invite to cancel needs to RECOGNISE it, not to read it. Same mask, same\nfunction (`members.mask_email`), so the two realms cannot show a client's staff two\ndifferent renderings of one row.",
+        "properties": {
+          "email_masked": {
+            "title": "Email Masked",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "invited_at": {
+            "format": "date-time",
+            "title": "Invited At",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email_masked",
+          "role",
+          "invited_at",
+          "expires_at"
+        ],
+        "title": "PendingInviteOut",
         "type": "object"
       },
       "PendingOut": {
@@ -10701,6 +10779,45 @@
         "title": "SubjectExportCountsOut",
         "type": "object"
       },
+      "SubjectExportErasureOut": {
+        "additionalProperties": false,
+        "description": "A completed erasure for this subject, and the audio it is still lawfully holding.\n\nPresent because everything else in this document is keyed on the phone number and an\nerasure destroys every column that carries it \u2014 so once one has run, the rest of the\ndisclosure is empty and says, in effect, \"we hold nothing about you\". That is untrue\nwhile an under-floor recording is sitting on a scheduled destruction, and a \u00a711 answer\nthat under-reports is the same defect as one that over-reports.\n\n`null` on the parent field means no erasure has been completed for this number. It is\nNOT the same as this object with `recordings_pending_destruction = 0`, which means one\nran and is finished down to the bytes.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "recordings_destroyed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recordings Destroyed By"
+          },
+          "recordings_pending_destruction": {
+            "title": "Recordings Pending Destruction",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "completed_at",
+          "recordings_pending_destruction",
+          "recordings_destroyed_by"
+        ],
+        "title": "SubjectExportErasureOut",
+        "type": "object"
+      },
       "SubjectExportIn": {
         "additionalProperties": false,
         "description": "`extra=\"forbid\"` so a caller cannot smuggle a second selector (a lead id, a\ntenant slug) into a request whose whole security argument is \"one phone number\".",
@@ -10855,6 +10972,16 @@
           "counts": {
             "$ref": "#/components/schemas/SubjectExportCountsOut"
           },
+          "erasure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubjectExportErasureOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "generated_at": {
             "title": "Generated At",
             "type": "string"
@@ -10884,6 +11011,7 @@
         "required": [
           "phone_e164",
           "generated_at",
+          "erasure",
           "lead",
           "calls",
           "transcripts",
@@ -14552,6 +14680,49 @@
       }
     },
     "/v1/admin/tenants/{tenant_id}/invitations": {
+      "get": {
+        "description": "The keys to this client's account that exist in somebody's inbox right now. Addresses are masked. This is what makes the duplicate refusal actionable: minting a second live token for one address is refused, and an operator who did not issue the first one needs to be able to see and cancel it.",
+        "operationId": "list_tenant_invitations_v1_admin_tenants__tenant_id__invitations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PendingInviteOut"
+                  },
+                  "title": "Response List Tenant Invitations V1 Admin Tenants  Tenant Id  Invitations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Invitations to this account that can still be redeemed",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      },
       "post": {
         "operationId": "invite_member_v1_admin_tenants__tenant_id__invitations_post",
         "parameters": [
@@ -14595,6 +14766,50 @@
           }
         },
         "summary": "Wizard step 8 \u2014 single-use 72h invite (token hashed at rest)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/invitations/{invitation_id}": {
+      "delete": {
+        "description": "Deletes an invitation that has not been redeemed, so a fresh one can be issued for the same address. An invitation accepted between the click and the request is NOT deleted \u2014 the CAS on `used_at IS NULL` answers 404, because the person is now a member and removing them is a different act on a different surface.",
+        "operationId": "revoke_tenant_invitation_v1_admin_tenants__tenant_id__invitations__invitation_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "invitation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Invitation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Revoke an unused invitation from the console (the wizard's way out)",
         "tags": [
           "admin"
         ],

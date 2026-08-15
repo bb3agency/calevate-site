@@ -497,7 +497,7 @@ async def export_leads(
     field_filters = _parse_field_filters(
         f, frozenset(c.key for c in lead_column_registry.facetable(available))
     )
-    csv_body = await service.export_leads_csv(
+    export = await service.export_leads_csv(
         session,
         agent_id=agent_id,
         status=status,
@@ -529,7 +529,10 @@ async def export_leads(
             # reason `status` is: "exported my own eight leads" and "exported the
             # account" must not be the same audit row.
             "assigned_to": str(assigned_to) if assigned_to else None,
-            "rows": max(csv_body.count("\n") - 1, 0),
+            # Counted by the query, not by counting newlines in the file: `QUOTE_ALL`
+            # keeps a newline inside its cell, so a lead whose name or note contains one
+            # made this number larger than the number of contacts that actually left.
+            "rows": export.row_count,
             # WHICH COLUMNS left the building, now that it varies. "Exported the phone
             # column for four hot leads" and "exported everything we hold about them"
             # are different events and the record should tell them apart — and this is
@@ -543,7 +546,7 @@ async def export_leads(
         },
     )
     return Response(
-        content=csv_body,
+        content=export.csv,
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="leads.csv"'},
     )

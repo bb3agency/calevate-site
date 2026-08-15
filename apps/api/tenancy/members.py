@@ -37,7 +37,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from hashlib import sha256
 from uuid import UUID
 
 from sqlalchemy import text
@@ -340,72 +339,30 @@ async def create_team_invitation(
 ) -> tuple[UUID, str]:
     """Invite a colleague. Returns (invitation id, RAW token — shown exactly once).
 
-    The token itself is `admin.service.create_invitation`, reused rather than rewritten:
-    it is single-use, 72h, `secrets.token_urlsafe(32)`, SHA-256 at rest, and burned by a
-    CAS on accept. A second invitation mechanism for the client realm would be a second
-    thing to get wrong, and the one that gets less scrutiny is the one that rots — the
-    2026 guidance on invite links (single use, short-lived, bound to the recipient's
-    address) is met by that implementation plus the binding on the accept route, so this
-    function's job is only the two authorization questions the admin path does not have
-    to ask.
+    The invitation itself is `admin.service.create_invitation`, reused rather than
+    rewritten: it is single-use, 72h, `secrets.token_urlsafe(32)`, SHA-256 at rest, and
+    burned by a CAS on accept. A second invitation mechanism for the client realm would
+    be a second thing to get wrong, and the one that gets less scrutiny is the one that
+    rots — the 2026 guidance on invite links (single use, short-lived, bound to the
+    recipient's address) is met by that implementation plus the binding on the accept
+    route.
+
+    THE TWO REFUSALS MOVED INTO IT. "Already on this team" and "a live invitation for
+    this address already exists" used to live here, which meant the admin wizard's
+    invite path — the other caller — enforced neither, and its Create-invite button
+    pressed twice minted two live owner credentials for one client. They are properties
+    of minting an invitation, not of the client realm, so they now sit with the INSERT
+    and both callers inherit them. What is left here is the one question that genuinely
+    differs: an owner may only grant a role they hold, and an admin-realm operator has
+    no membership role to compare against.
     """
     assert_role_is_grantable(actor_role, role)
 
-    # Both checks read `memberships`/`invitations` under the tenant session, so they can
-    # only ever answer about THIS account — asking "is this address already here" must
-    # not become a way to probe whether an address exists on the platform.
-    already = (
-        await session.execute(
-            text(
-                "SELECT 1 FROM memberships m JOIN users u ON u.id = m.user_id "
-                "WHERE lower(u.email) = lower(:e)"
-            ),
-            {"e": email},
-        )
-    ).first()
-    if already is not None:
-        raise ProblemError.business_rule(
-            "member_already_on_team",
-            "That person is already on this account.",
-            remediation="Change their role from the team list instead of inviting them again.",
-        )
-
-    pending = (
-        await session.execute(
-            text(
-                "SELECT 1 FROM invitations WHERE lower(email) = lower(:e) "
-                "AND used_at IS NULL AND expires_at > now()"
-            ),
-            {"e": email},
-        )
-    ).first()
-    if pending is not None:
-        # Refused rather than silently replaced: issuing a second live token for one
-        # address doubles the number of keys to that account in somebody's inbox, and
-        # quietly revoking the first would break a link that may already be in transit.
-        raise ProblemError.conflict(
-            "invitation_already_pending",
-            "There is already an unused invitation for that address.",
-            remediation="Revoke the pending invitation first if you want to send a new link.",
-        )
-
     from apps.api.admin import service as admin_service
 
-    raw = await admin_service.create_invitation(
+    return await admin_service.create_invitation(
         session, tenant_id=tenant_id, email=email, role=role, created_by=actor_user_id
     )
-    # Found by token hash, which is UNIQUE, rather than by email-and-unused: an EXPIRED
-    # invitation to the same address is also unused, and picking "the newest row for
-    # this email" would be a guess where an exact key exists. `create_invitation`
-    # returning the id would be better still — it is in `apps/api/admin/service.py`,
-    # which this slice does not own.
-    invitation_id = (
-        await session.execute(
-            text("SELECT id FROM invitations WHERE token_hash = :h"),
-            {"h": sha256(raw.encode()).hexdigest()},
-        )
-    ).scalar_one()
-    return UUID(str(invitation_id)), raw
 
 
 @dataclass(frozen=True, slots=True)

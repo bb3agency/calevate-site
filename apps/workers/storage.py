@@ -350,10 +350,14 @@ def delivery_body_keys_for(prefix: str) -> list[str]:
 def delete_objects(keys: Sequence[str]) -> int:
     """Delete objects by key; returns how many were asked for. RAISES on failure.
 
-    Raising rather than reporting a partial success is what lets both callers be
-    correct with one implementation: the erasure must retry rather than certify, and the
-    retention sweep must leave `payload_ref` pointing at an object it failed to delete —
-    a cleared reference to a surviving object is an orphan nothing can ever reach again.
+    Raising rather than reporting a partial success is what lets every caller be correct
+    with one implementation: the erasure must retry rather than certify, and the retention
+    sweep must leave the reference (`payload_ref`, `recording_url`) pointing at an object
+    it failed to delete — a cleared reference to a surviving object is an orphan nothing
+    can ever reach again.
+
+    Not delivery-body-specific and its messages no longer say so: recordings and the
+    scheduled destructions of `recording_erasure_holds` come through here too.
     """
     if not keys:
         return 0
@@ -366,8 +370,9 @@ def delete_objects(keys: Sequence[str]) -> int:
             )
             errors = response.get("Errors") or []
             if errors:
-                # Keys are not logged: a delivery-body key contains the subject's row id.
-                raise StorageUnavailableError(f"delivery body delete refused {len(errors)} key(s)")
+                # Keys are not logged: a delivery-body key contains the subject's row id,
+                # and a recording key names one of the client's calls (hard rule 6).
+                raise StorageUnavailableError(f"object delete refused {len(errors)} key(s)")
     except (BotoCoreError, ClientError) as exc:
         raise StorageUnavailableError(f"object delete failed: {type(exc).__name__}") from exc
     return len(keys)

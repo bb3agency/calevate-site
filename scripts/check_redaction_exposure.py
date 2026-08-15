@@ -25,6 +25,18 @@ there are three ways raw text reaches a browser:
    the handler must write audit_log. Otherwise removing the role check from the raw
    transcript endpoint would leave this guardrail green.
 
+WHAT THIS CHECK CANNOT SEE, said plainly so nobody mistakes a green run for a whole
+answer. It walks the OPENAPI SCHEMA, so it only ever judges values that leave through a
+declared API response. Three egress paths carry the same data and are invisible to it:
+the CSV export's BYTES (a `Response` with no model — which is exactly why its allowlist
+entry is the widest form, a whole-path skip), the signed D-23 webhook body, and the
+Google Sheets row. Nothing static can judge those, so they are covered at RUNTIME by
+`tests/crm_egress_redaction_test.py`, which asserts a real-shaped number spoken inside a
+call appears in none of the bytes that actually leave — the response, the file, the POST
+body handed to the socket and the cells handed to the sheets transport. Treat the two as
+one guardrail: this file proves the schema declares nothing raw, that file proves the
+wire carries nothing raw.
+
 An allowlist entry may also NAME the raw fields it is permitted to return instead of
 switching the walk off for the whole path (`RawDisclosure.fields`) — so the DPDP subject
 access document may echo the subject's own `phone_e164` back at them while every other

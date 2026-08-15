@@ -23,7 +23,7 @@ from uuid import UUID
 import pytest
 from apps.api.core.errors import ProblemError
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.workers import pipeline
 from apps.workers.extraction import extract_call
@@ -37,6 +37,7 @@ from apps.workers.retention import _apply_one, apply_retention, execute_deletion
 from arq import Retry
 from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from sqlalchemy import text
+from tests.conftest import FakeS3, untenanted_session
 
 # The real-arq-worker harness, imported rather than copied: it is the only way to count
 # the attempts arq ACTUALLY made, and a second copy of it would be a second thing to get
@@ -136,8 +137,9 @@ async def _outbox_rows(job: str, matcher: dict[str, Any]) -> list[dict[str, Any]
 # --- the poller is the source of truth, the webhook is a hint (TRD §5, D-31) ----
 
 
-async def test_reconciliation_leaves_a_call_it_has_already_completed_alone() -> None:
-    """The poller's "do we know this call?" probe must actually be able to SEE the call.
+async def test_reconciliation_leaves_a_settled_call_alone() -> None:
+    """The poller's "is there anything left to do?" probe must actually be able to SEE
+    the call.
 
     `calls` is FORCE-RLS'd, so a probe on an untenanted session returns zero rows for
     every execution ever placed — and the poller then re-drives the entire 30-minute
@@ -517,10 +519,22 @@ async def test_a_lead_with_no_captured_name_still_ages_out() -> None:
         assert not data, "extracted fields go with the phone number"
 
 
-async def test_retention_still_runs_for_a_soft_deleted_tenant() -> None:
+async def test_retention_still_runs_for_a_soft_deleted_tenant(s3: FakeS3) -> None:
     """FLOWS §9: churn STARTS the retention countdown. Skipping soft-deleted
-    organizations stops the sweep for exactly the tenant whose data must age out."""
+    organizations stops the sweep for exactly the tenant whose data must age out.
+
+    Takes the `s3` fixture since D-115. The sweep destroys the OBJECT and only then clears
+    the reference, and when object storage is unreachable it deliberately defers rather
+    than dropping the only handle on the bytes — so without a store this test was asserting
+    the deferral, not the sweep. Both halves are asserted now: an offboarded tenant's audio
+    is destroyed AND its pointer cleared, which is what "expire on schedule" was always
+    supposed to mean.
+    """
     tenant_id, call_id = await _tenant_with_old_call(200, "+919876511003")
+    key = await _scalar(tenant_id, "SELECT recording_url FROM calls WHERE id = :c", c=call_id)
+    assert key, "the fixture must give the sweep something to destroy"
+    s3.objects[str(key)] = b"audio"
+
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE organizations SET deleted_at = now() WHERE id = :t"), {"t": tenant_id}
@@ -530,6 +544,10 @@ async def test_retention_still_runs_for_a_soft_deleted_tenant() -> None:
 
     url = await _scalar(tenant_id, "SELECT recording_url FROM calls WHERE id = :c", c=call_id)
     assert url is None, "an offboarded tenant's recordings still expire on schedule"
+    assert str(key) not in s3.objects, (
+        "the pointer was cleared and the audio kept — the defect D-115 closed, back on "
+        "the one tenant whose data must age out"
+    )
 
 
 async def test_erasure_also_clears_the_extracted_copy_of_the_person() -> None:
@@ -589,7 +607,10 @@ async def test_erasure_also_clears_the_extracted_copy_of_the_person() -> None:
 # sentence is in `WorkerSettings.max_tries`). So one database blip or one engine timeout
 # dropped extraction, the lead upsert, metering and the hot-lead alert to manual replay —
 # and the reconciliation poller could not recover it, because `ingest_engine_event` had
-# already written `status = 'completed'` and `_already_completed` skips on exactly that.
+# already written `status = 'completed'` and the poller's probe skipped on exactly that.
+# That probe is `_pipeline_settled` now and asks the wider question — are the artefacts
+# this snapshot implies actually present — so the poller DOES recover that shape today.
+# The retry ladder below is still the fast path; the poller is the guarantee behind it.
 #
 # ATTEMPT COUNTS COME FROM A REAL WORKER. A test that writes `ctx["job_try"]` itself can
 # only prove that an `if` compares two integers — it cannot notice that arq never calls

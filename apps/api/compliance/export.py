@@ -151,6 +151,58 @@ def _lead_record(row: Any) -> dict[str, Any]:
     }
 
 
+# Every erasure this tenant has completed for this subject, and whatever audio those
+# erasures are still lawfully holding.
+#
+# KEYED ON `subject_ref`, NOT ON THE NUMBER, and that is the whole reason this query
+# exists rather than a join onto `calls`. A completed erasure nulls `from_e164`,
+# `to_e164` AND `deletion_requests.phone_e164` in the same statements that create the
+# holds, so after it runs NOTHING in this database can be matched to the person by their
+# number — every other query in this module returns empty, and the document says "we hold
+# nothing about you". That is false while an under-floor recording is still in the bucket
+# on a schedule (`recording_erasure_holds`, migration 9c1d3e7a05f4), and a §11 access
+# answer that under-reports is the same defect as one that over-reports.
+#
+# The hash is what survives, by design (D-44): `subject_ref(phone)` is computable from the
+# number the requester just supplied and from nothing else, so this discloses to someone
+# who already has the number and to no one else.
+#
+# The holds are reached THROUGH the request rather than by call id, for the same reason:
+# the calls no longer name the subject either.
+_ERASURE_SQL = """
+SELECT d.completed_at,
+       count(h.id) FILTER (WHERE h.erased_at IS NULL) AS pending,
+       max(h.erase_after) FILTER (WHERE h.erased_at IS NULL) AS last_erase_after
+FROM deletion_requests d
+LEFT JOIN recording_erasure_holds h ON h.request_id = d.id
+WHERE d.subject_ref = :ref AND d.completed_at IS NOT NULL
+GROUP BY d.id, d.completed_at
+ORDER BY d.completed_at DESC
+LIMIT 1
+"""
+
+
+async def _erasure_summary(session: AsyncSession, *, phone_e164: str) -> dict[str, Any] | None:
+    """The most recent completed erasure for this subject, or None if there is none.
+
+    `None` and "an erasure with nothing outstanding" are different answers and are not
+    merged: the first means nobody has asked, the second means somebody did and it is
+    finished. A client reading this to answer a data principal needs to be able to tell
+    those apart without reading a count.
+    """
+    row = (await session.execute(text(_ERASURE_SQL), {"ref": subject_ref(phone_e164)})).first()
+    if row is None:
+        return None
+    return {
+        "completed_at": _iso(row[0]),
+        # Audio this erasure could not lawfully destroy when it ran and has not destroyed
+        # yet. Zero means the erasure is complete down to the bytes.
+        "recordings_pending_destruction": int(row[1] or 0),
+        # The day the last of it goes. Null when nothing is outstanding.
+        "recordings_destroyed_by": _iso(row[2]),
+    }
+
+
 async def build_subject_export(
     session: AsyncSession, *, tenant_id: UUID, phone_e164: str
 ) -> dict[str, Any]:
@@ -260,6 +312,7 @@ async def build_subject_export(
     document: dict[str, Any] = {
         "phone_e164": phone_e164,
         "generated_at": datetime.now(UTC).isoformat(),
+        "erasure": await _erasure_summary(session, phone_e164=phone_e164),
         "lead": lead,
         "calls": calls,
         "transcripts": transcripts,

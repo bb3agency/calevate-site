@@ -329,7 +329,8 @@ async def test_the_export_cap_applies_to_the_filtered_rows_only() -> None:
         crm.MAX_EXPORT_ROWS = original
 
     assert raised.value.code == "lead_export_too_large"
-    assert len(narrowed.strip().splitlines()) == 3, "header + two hot leads"
+    assert len(narrowed.csv.strip().splitlines()) == 3, "header + two hot leads"
+    assert narrowed.row_count == 2
 
 
 # --------------------------------------------------------------- 2. status counts
@@ -485,8 +486,8 @@ async def test_the_export_is_ordered_deterministically_too() -> None:
         first = await crm.export_leads_csv(session, status="new")
         second = await crm.export_leads_csv(session, status="new")
 
-    assert _csv_phones(first) == set(seeded), "header + every seeded lead"
-    assert first == second, "the same export ran twice and produced two different files"
+    assert _csv_phones(first.csv) == set(seeded), "header + every seeded lead"
+    assert first.csv == second.csv, "the same export ran twice and produced two different files"
 
 
 async def test_an_over_cap_limit_is_refused_rather_than_silently_clamped() -> None:

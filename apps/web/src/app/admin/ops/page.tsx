@@ -1156,8 +1156,18 @@ function OutboxReplayPanel({
     : queue.status === "loading"
       ? "Reading the queue depth. The button unlocks once the size of the replay is known."
       : sized !== null && sized.depth === 0
-        ? "Nothing is dead-lettered, so there is nothing to replay. Running it anyway would " +
-          "record an ops.outbox_replay entry for a redelivery that never happened."
+        ? // THE ALL-CLEAR LIVES IN TWO PLACES, and only one of them was fixed first: the
+          // green box above became conditional on `deferred` while this sentence — the one
+          // physically next to the button, which is where an operator actually reads — went
+          // on saying "nothing is dead-lettered" during an outage. Caught by
+          // `apps/web/tests/ops.test.tsx`, and worth the note: a panel with two voices needs
+          // both of them changed, and the one beside the control is the one that counts.
+          sized.deferred > 0
+          ? `No message has reached the dead-letter queue yet, so there is nothing to ` +
+            `replay — but ${formatCount(sized.deferred)} are waiting on a backoff above. ` +
+            "Replay only moves failed messages; these need the queue to come back."
+          : "Nothing is dead-lettered, so there is nothing to replay. Running it anyway would " +
+            "record an ops.outbox_replay entry for a redelivery that never happened."
         : !scopeChosen
           ? "Choose what to replay first. There is no default, because the default would be " +
             "the largest possible act."
@@ -1197,7 +1207,16 @@ function OutboxReplayPanel({
           </NoticeBox>
         )}
 
-        {sized !== null && sized.depth === 0 && (
+        {/* THE ALL-CLEAR, AND THE CASE THAT IS NOT ONE.
+            `depth === 0` used to render "Nothing is dead-lettered" unconditionally, and
+            during a queue outage that sentence was TRUE and the screen it produced was a
+            lie: `defer_outbox_claim` holds a failing batch as `pending` with a lease into
+            the future, so for the whole five minutes of tolerated downtime the DLQ really
+            is empty while the backlog grows behind it. An operator opening this screen
+            mid-incident read a green box. `deferred` is the same aggregate's answer to
+            "and how many are waiting", so the tone follows the queue's actual health
+            rather than the one state this panel happens to act on. */}
+        {sized !== null && sized.depth === 0 && sized.deferred === 0 && (
           <NoticeBox
             tone="ok"
             icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
@@ -1207,6 +1226,32 @@ function OutboxReplayPanel({
               No outbox message is in the <span className="font-mono">failed</span> state,
               so there is nothing to replay and the control below is disabled. This is a
               measurement, not an assumption — it refreshes every 30 seconds.
+            </p>
+          </NoticeBox>
+        )}
+
+        {/* Deferred messages are NOT this panel's lever — replay acts on `failed` rows
+            only and would move none of them — so this box states the situation and
+            explicitly says not to click, rather than implying the button is the answer. */}
+        {sized !== null && sized.deferred > 0 && (
+          <NoticeBox
+            tone="warn"
+            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
+            title={`${formatCount(sized.deferred)} messages are waiting on a retry backoff`}
+          >
+            <p className="mt-1">
+              These are not dead letters — they are still{" "}
+              <span className="font-mono">pending</span> and the dispatcher will pick them
+              up on its own once the backoff elapses. A number here that keeps climbing
+              means the queue itself is unreachable, not that any one message is bad; the{" "}
+              <span className="font-mono">outbox_queue_unreachable</span> alert and{" "}
+              <span className="font-mono">runbooks/webhook-delivery-failures.md</span> §3
+              are where that goes.
+            </p>
+            <p className="mt-2">
+              Replaying does nothing for them: it acts on the{" "}
+              <span className="font-mono">failed</span> state alone. If the backoff runs
+              out before the queue comes back they become dead letters, and then it will.
             </p>
           </NoticeBox>
         )}

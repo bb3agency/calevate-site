@@ -180,6 +180,25 @@ class SubjectExportConsentOut(Strict):
     evidence_recorded: bool
 
 
+class SubjectExportErasureOut(Strict):
+    """A completed erasure for this subject, and the audio it is still lawfully holding.
+
+    Present because everything else in this document is keyed on the phone number and an
+    erasure destroys every column that carries it — so once one has run, the rest of the
+    disclosure is empty and says, in effect, "we hold nothing about you". That is untrue
+    while an under-floor recording is sitting on a scheduled destruction, and a §11 answer
+    that under-reports is the same defect as one that over-reports.
+
+    `null` on the parent field means no erasure has been completed for this number. It is
+    NOT the same as this object with `recordings_pending_destruction = 0`, which means one
+    ran and is finished down to the bytes.
+    """
+
+    completed_at: str | None
+    recordings_pending_destruction: int
+    recordings_destroyed_by: str | None
+
+
 class SubjectExportCountsOut(Strict):
     """What the document contains, stated in the document.
 
@@ -203,6 +222,9 @@ class SubjectExportOut(Strict):
     # the document is about them (`export.py` decision 3).
     phone_e164: str
     generated_at: str
+    # See `SubjectExportErasureOut` — null means nobody has asked for this number to be
+    # erased, and is a different answer from an erasure with nothing left outstanding.
+    erasure: SubjectExportErasureOut | None
     lead: SubjectExportLeadOut | None
     calls: list[SubjectExportCallOut]
     transcripts: list[SubjectExportTranscriptOut]

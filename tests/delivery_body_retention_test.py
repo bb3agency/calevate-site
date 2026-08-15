@@ -21,19 +21,15 @@ that copy is a liability the moment any one of these properties stops holding:
 The object store is a fake, on purpose: local MinIO may not be running, and a suite that
 SKIPS is a suite that proves nothing about the exact properties above. The fake answers
 like S3 (`ClientError`/`NoSuchKey`, paginated listing, batch delete) and can be made to
-fail, which is the half a real MinIO cannot easily be asked for.
+fail, which is the half a real MinIO cannot easily be asked for. It lives in
+`tests/conftest.py` now — the retention sweep and the DPDP erasure grew arms that delete
+RECORDING objects, so it has three callers and a second copy would be where they drift.
 """
-
-# ruff: noqa: N803 — boto3's keyword arguments are PascalCase (`Bucket`, `Key`, `Body`,
-# `Delete`, `Prefix`). A fake that renamed them would not be callable by the code under
-# test, which is the only reason it exists.
 
 from __future__ import annotations
 
-import io
 import json
 import uuid
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -46,68 +42,14 @@ from apps.api.db.session import tenant_session
 from apps.api.integrations import service
 from apps.workers import outbound_webhooks, retention, storage
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
-from botocore.exceptions import ClientError
 from sqlalchemy import text
+from tests.conftest import FakeS3
 
 SECRET = "whsec_delivery_body_secret"
 # The agent each fixture tenant was created with — `leads.agent_id` and `calls.agent_id`
 # are NOT NULL, and the onboarding flow is what mints one.
 _AGENTS: dict[uuid.UUID, uuid.UUID] = {}
 ENDPOINT_URL = "https://crm.example/hook?apikey=not-a-thing-we-store"
-
-
-# --- the object store, faked -------------------------------------------------------
-
-
-class FakeS3:
-    """An S3 that lives in a dict and can be told to stop working."""
-
-    def __init__(self) -> None:
-        self.objects: dict[str, bytes] = {}
-        self.fail = False
-
-    def _check(self) -> None:
-        if self.fail:
-            raise ClientError(
-                {"Error": {"Code": "ServiceUnavailable", "Message": "down"}}, "Operation"
-            )
-
-    def put_object(self, *, Bucket: str, Key: str, Body: bytes, **_: Any) -> dict[str, Any]:
-        self._check()
-        self.objects[Key] = Body
-        return {}
-
-    def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:
-        self._check()
-        if Key not in self.objects:
-            raise ClientError({"Error": {"Code": "NoSuchKey", "Message": "gone"}}, "GetObject")
-        return {"Body": io.BytesIO(self.objects[Key])}
-
-    def delete_objects(self, *, Bucket: str, Delete: dict[str, Any]) -> dict[str, Any]:
-        self._check()
-        for item in Delete["Objects"]:
-            self.objects.pop(item["Key"], None)
-        return {}
-
-    def get_paginator(self, name: str) -> Any:
-        store = self
-
-        class _Paginator:
-            def paginate(self, *, Bucket: str, Prefix: str) -> Iterator[dict[str, Any]]:
-                store._check()
-                keys = sorted(key for key in store.objects if key.startswith(Prefix))
-                # Two pages, so a caller that reads only the first is caught.
-                yield {"Contents": [{"Key": key} for key in keys[:1]]}
-                yield {"Contents": [{"Key": key} for key in keys[1:]]}
-
-        return _Paginator()
-
-
-@pytest.fixture
-def s3(monkeypatch: pytest.MonkeyPatch) -> FakeS3:
-    fake = FakeS3()
-    monkeypatch.setattr(storage, "_client", lambda: fake)
-    return fake
 
 
 @pytest.fixture

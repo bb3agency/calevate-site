@@ -605,6 +605,19 @@ class RetentionPolicy(PKMixin, Base):
         CheckConstraint(
             "data_category != 'recording' OR ttl_days >= 90", name="recording_ttl_floor"
         ),
+        # A TTL is a DURATION, and zero or negative is not one. Without this a policy row
+        # saying `ttl_days = 0` makes every row of that category expired the instant it
+        # is written — the sweep would empty a live client's CRM on the next tick and the
+        # only thing standing between them and that is that nothing writes these rows
+        # today except onboarding. "Nothing writes it yet" is not a constraint; this is
+        # (migration 9c1d3e7a05f4).
+        CheckConstraint("ttl_days > 0", name="ttl_positive"),
+        # ONE policy per category per tenant. Two rows for the same category is not a
+        # harmless duplicate: `sweep_tenant` loops the probe's rows and applies each, so
+        # the shorter TTL silently wins over the one the client agreed to, and a screen
+        # that renders "your retention settings" has to pick one to show. The DB now
+        # refuses the ambiguity instead of leaving each reader to resolve it differently.
+        UniqueConstraint("tenant_id", "data_category", name="one_policy_per_category"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -614,6 +627,69 @@ class RetentionPolicy(PKMixin, Base):
     ttl_days: Mapped[int] = mapped_column(Integer, nullable=False)
     action: Mapped[str] = mapped_column(String, nullable=False, server_default="delete")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class RecordingErasureHold(PKMixin, Base):
+    """One call recording whose ERASURE IS OWED AND NOT YET LAWFUL — and the date it is.
+
+    WHY THIS TABLE EXISTS AT ALL. A DPDP erasure clears `calls.recording_url` at any age
+    (SEC-COMP §4 reserves the decision to destroy under-floor audio EARLY to the
+    founder). Clearing the pointer used to be the whole of it, and that had a
+    consequence nobody wrote down: the key was the only handle anything had on the
+    object, so after the erasure no query could name the bytes. The retention sweep's
+    recording arm selects `WHERE recording_url IS NOT NULL`, so it could never reach
+    them either. **An erasure request therefore made the audio permanently
+    undeletable** — the one outcome neither reading of the DPDP/TRAI tension wants. This
+    row is the handle that survives the pointer clear.
+
+    THE LEGAL SHAPE IT ENCODES. DPDP §12(3) requires erasure "unless retention of the
+    same is necessary for the specified purpose or for compliance with any law for the
+    time being in force". A retention obligation is therefore a reason to DEFER an
+    erasure, not to refuse it: when the obligation lapses the duty revives, and DPDP
+    §8(7)'s storage limitation makes keeping the data past that point its own breach. So
+    a recording inside the retention floor is not "kept"; it is scheduled. `erase_after`
+    is the earliest instant at which destroying it is lawful, and the sweep destroys it
+    then without anyone filing a second request.
+
+    NOT a ledger, deliberately: `erased_at` is stamped when the bytes go, so this is a
+    worklist with a completion mark and it must never join
+    `db/registry.APPEND_ONLY_TABLES`. What is append-only about an erasure is the PROOF
+    (`deletion_requests.proof`), and that is a different table.
+
+    `object_key` is not personal data — `recordings/{tenant}/{yyyy}/{mm}/{call}.wav`
+    names a call, not a person — but the ROW is tenant data and is RLS'd like every
+    other (hard rule 1). The unique constraint is what makes a retried erasure idempotent
+    in the database rather than by convention.
+    """
+
+    __tablename__ = "recording_erasure_holds"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "object_key", name="one_hold_per_object"),
+        # The sweep's only query: this tenant's holds that are due and not yet done.
+        Index(
+            "ix_recording_erasure_holds_due",
+            "tenant_id",
+            "erase_after",
+            postgresql_where=text("erased_at IS NULL"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    # The call survives an erasure as a stripped, countable shell, so this FK is stable.
+    call_id: Mapped[UUID] = mapped_column(
+        ForeignKey("calls.id", ondelete="RESTRICT"), nullable=False
+    )
+    # WHICH erasure incurred the obligation, so the destruction can be tied back to the
+    # certificate that promised it.
+    request_id: Mapped[UUID] = mapped_column(
+        ForeignKey("deletion_requests.id", ondelete="RESTRICT"), nullable=False
+    )
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    erase_after: Mapped[datetime] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    erased_at: Mapped[datetime | None]
 
 
 class DeletionRequest(PKMixin, Base):

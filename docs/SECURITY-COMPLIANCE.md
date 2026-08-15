@@ -199,35 +199,64 @@ on instruction has a compliance gap. *Retention wins*: a statutory retention obl
 one of the standard grounds on which an erasure request is lawfully deferred, and
 destroying the recording destroys the evidence that the call itself was compliant.
 
-**What the code does today** — a half-pick nobody appears to have decided:
-`execute_deletion_request` clears `calls.recording_url` **unconditionally, at any age**,
-in the same statement that nulls `from_e164`/`to_e164`/`summary`; the audio bytes are
-removed by the object-store lifecycle rule that follows the retention policy, and that
-rule is floored at 90 days. So the *pointer* goes immediately — nothing in our system can
-reach the audio — while the *bytes* may lawfully survive the request. That position is
-shipped honestly rather than hidden: it is the first entry of `ERASURE_LIMITATIONS`,
-returned on every deletion-request response, naming both sections so whoever hands the
-certificate to a data principal knows they are standing on an unresolved question.
+**The prerequisite has been built, and the decision is narrower than it was.** This
+section used to say that no per-tenant mechanism deleted recording bytes, that three
+modules named a lifecycle rule which does not do what they assumed, and that building the
+real mechanism was "prerequisite work for this decision, not a consequence of it". That
+work is done (migration `9c1d3e7a05f4`), and doing it surfaced a defect nobody had
+named:
 
-**And the lifecycle rule does not do what those modules assume.** Three modules
-(`workers/retention.py`, `workers/storage.py`, `compliance/deletion.py`) name an
-object-store lifecycle rule as the mechanism that removes the audio. `infra/` now carries
-one (`infra/object-lifecycle/`) — but read what it is: a bucket-wide, prefix-scoped
-CEILING (`recordings/` expire at 2555 days, `engine-payloads/` at 90, incomplete
-multipart uploads aborted at 7), floored so it can never fire below the 90-day TRAI
-minimum or below the longest TTL any tenant has configured. A bucket rule is static and
-prefix-scoped while `retention_policies` is per tenant and editable at runtime, so it
-CANNOT "follow the retention policy" — it exists to bound growth, not to expire a
-tenant's recordings on that tenant's clock. So the position is unchanged where it counts:
-the pointer-clear is still the whole of the erasure, no per-tenant mechanism deletes
-recording bytes, and the "defensible reading" above still rests on a mechanism nobody has
-built. Building it stays prerequisite work for this decision, not a consequence of it.
+- **The retention sweep never deleted the audio.** `apply_retention` cleared
+  `calls.recording_url` at `max(ttl, floor)` and left the object in the bucket until the
+  2555-day growth ceiling — so "recordings are kept for 90 days" was true of a column and
+  false of a person. The sweep now deletes the object and then clears the reference, in
+  that order (`_sweep_objects_in_batches`), so a crash leaves a dangling reference rather
+  than an unreachable object.
+- **An erasure made the audio permanently undeletable.** The pointer clear destroyed the
+  only handle anything had on the key, and the sweep selects
+  `WHERE recording_url IS NOT NULL` — so a caller who exercised their §12 right ended up
+  with their recording orphaned in the bucket forever, while a caller who did nothing had
+  theirs expire on the tenant's policy. That is not either side of the question below; it
+  is the failure to have asked it.
 
-Resolving it is a decision-log entry against this section (ROADMAP §6), and it needs the
-Bolna erasure commitment from pilot gate 12(f) in hand — an answer that binds our storage
-but not the engine's is not an answer. Until then: do not narrow the certificate's
-limitations text, and do not make the pointer-clear conditional on age without deciding
-this first.
+**What the code does today.** `execute_deletion_request` still clears
+`calls.recording_url` **unconditionally, at any age** — unchanged, because this section
+forbids making it conditional before the decision is taken. It now also splits the audio:
+a recording **past** the floor is destroyed by the request, and a recording **inside** it
+is written to `recording_erasure_holds` with the earliest instant at which destroying it
+is lawful, which the nightly sweep then honours without a second request. The certificate
+states the destroyed count and the destruction date, so the notice no longer has to say
+"treat the audio as still existing" indefinitely.
+
+**Why a deferral rather than a refusal, stated where it is relied on.** DPDP §12(3)
+requires erasure "unless retention of the same is necessary for the specified purpose or
+for compliance with any law for the time being in force" — a retention obligation moves an
+erasure's date, it does not cancel it — and DPDP §8(7)'s storage limitation makes holding
+the data past the end of that obligation a breach in its own right. So the lawful shape of
+"we cannot delete this yet" is a schedule, and a schedule has to be a row rather than a
+sentence. (DPDP Rules 2025 Rule 8's Third Schedule erasure periods are **not** engaged:
+they apply to e-commerce, online gaming and social-media fiduciaries above 2 crore / 50
+lakh user thresholds, and Rule 8(3)'s 48-hour pre-erasure notice rides on them.)
+
+**What is STILL reserved to the founder**, and it is now the whole of the open question:
+whether an erasure should destroy a recording **younger** than the floor anyway. Nothing
+in the code takes it — no under-floor recording is destroyed early — and it still needs
+the Bolna erasure commitment from pilot gate 12(f) in hand, because an answer that binds
+our storage but not the engine's is not an answer. Until then: do not narrow the
+certificate's limitations text, and do not make the pointer-clear conditional on age
+without deciding this first. Resolving it is a decision-log entry against this section
+(ROADMAP §6); resolving it "erasure wins" is now a one-line change, because it only moves
+`erase_after` to `now()`.
+
+**And the floor's own authority is in doubt** — recorded as an equality-asserted entry in
+`tests/dpdp_known_gaps_test.py` rather than resolved here, because it is counsel's call.
+§1 attributes the 90 days to TRAI; TRAI's 90-day figure in the TCCCPR framework is the
+opt-out cooling period before a sender may seek fresh consent, and the two-year archive of
+commercial records/CDR/EDR/IPDR is **Unified Licence clause 39.20** (amended December
+2021), which binds licensees — telecom service providers — and not a telemarketer. The
+floor errs towards keeping data, so nothing is destroyed too early; it errs the other way
+into §8(7), because retaining personal data on a legal basis that does not exist is itself
+the storage-limitation breach.
 
 **OPEN QUESTION — the retention defaults in this document and the ones in the seed do not
 match, and neither matches the other.** Surfaced by the retention sweep, stated here

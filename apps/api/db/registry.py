@@ -108,6 +108,11 @@ TENANT_TABLES = [
     "tenant_feature_flags",
     "retention_policies",
     "deletion_requests",
+    # One recording whose destruction an erasure OWES but could not lawfully perform yet
+    # (migration 9c1d3e7a05f4). Tenant data: it names one of this client's calls and the
+    # object key of its audio. NOT append-only — `erased_at` is stamped when the bytes
+    # go, and the append-only artifact of an erasure is `deletion_requests.proof`.
+    "recording_erasure_holds",
     "inbound_webhooks",
     "outbound_webhooks",
     "kb_sources",

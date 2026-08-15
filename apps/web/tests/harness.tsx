@@ -49,6 +49,27 @@ export function problem(status: number, body: Record<string, unknown> = {}): Pro
   return new ProblemResponse(status, body);
 }
 
+/**
+ * A route that never answers — the LOADING half of §52, which had no way to be reached.
+ *
+ * "Loading is a skeleton, failure is a refusal, and neither is a number, a state, or an
+ * empty state" has three states in it and this table could only produce two: a 200 and a
+ * `problem()`. Both SETTLE, so `isLoading` is false by the first assertion and a test
+ * claiming to check the in-flight branch was really checking the settled one — the trick
+ * of asserting before the first `await` works only while nothing on the screen suspends,
+ * which stops being true the moment a route reads `use(params)` (see `adminRoute.tsx`).
+ *
+ * A pending fetch is the honest way to hold a query in `isLoading`, because it is what
+ * the browser actually does. Nothing here resolves or rejects it: the promise is
+ * abandoned when the test ends, which is also what a navigated-away-from page does.
+ */
+export class NeverAnswers {}
+
+/** A route stuck in flight, for asserting the skeleton rather than the settled state. */
+export function stillLoading(): NeverAnswers {
+  return new NeverAnswers();
+}
+
 /** One request the screen made, as the network saw it. */
 export interface ApiCall {
   url: string;
@@ -124,6 +145,7 @@ export function stubApi(routes: Routes): ApiCall[] {
         );
       }
       const answer = routes[key];
+      if (answer instanceof NeverAnswers) return new Promise<Response>(() => {});
       if (answer instanceof ProblemResponse) {
         return new Response(JSON.stringify(answer.body), {
           status: answer.status,

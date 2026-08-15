@@ -90,11 +90,16 @@ def _recording_entry(document: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------- 1. what it admits
 
 
-def test_the_certificate_says_the_audio_may_survive_the_pointer_it_cleared() -> None:
-    """THE gap. The worker clears `calls.recording_url` — the POINTER — at any age, and
-    the certificate said only "recording pointer cleared". The audio it points at is
-    held under a 90-day floor, so the erased-looking record and the surviving file are
-    both true at once, and only one of them was written down.
+def test_the_certificate_says_which_audio_survived_the_pointer_it_cleared() -> None:
+    """THE gap, now narrowed to the only recordings it still applies to.
+
+    The worker clears `calls.recording_url` — the POINTER — at any age. It now also
+    DESTROYS the bytes of every recording past the retention floor (`_erase_recordings`),
+    so the certificate's exception is no longer "the audio survives" but "the audio still
+    inside its mandatory retention period survives, and here is when it goes". The test
+    holds the notice to that narrower, stronger claim: it must still name the floor and
+    both sections, and it must still leave a non-engineer in no doubt that some audio may
+    exist right now.
     """
     document = _certified()
 
@@ -110,8 +115,13 @@ def test_the_certificate_says_the_audio_may_survive_the_pointer_it_cleared() -> 
     assert "security-compliance §1" in prose and "§4" in prose, (
         "a reader with no access to this codebase needs the two sections by name"
     )
+    # The authority for DEFERRING rather than refusing, cited where it is relied on.
+    assert "dpdp §12(3)" in prose and "§8(7)" in prose, (
+        "a deferral is only lawful because the statute says retention necessary for "
+        "compliance with a law is the exception — cite it, do not assert it"
+    )
     # The actionable half: a non-engineer must come away knowing the audio may exist.
-    assert "still" in entry["why"].lower() or "may" in entry["why"].lower()
+    assert "still" in entry["why"].lower() or "not destroyed early" in entry["why"].lower()
 
 
 def test_the_certificate_does_not_claim_a_lifecycle_rule_deletes_the_audio() -> None:

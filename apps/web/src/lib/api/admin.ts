@@ -41,6 +41,8 @@ export type TenantSummary = Schemas["TenantSummary"];
 export type CreateOrgIn = Schemas["CreateOrgIn"];
 export type CreateOrgOut = Schemas["CreateOrgOut"];
 export type InviteOut = Schemas["InviteOut"];
+/** One redeemable invitation, address masked (`admin/routes.py::PendingInviteOut`). */
+export type PendingInviteOut = Schemas["PendingInviteOut"];
 export type PlatformState = Schemas["PlatformStateOut"];
 export type KbSource = Schemas["SourceOut"];
 export type KbChunk = Schemas["ChunkOut"];
@@ -281,6 +283,52 @@ export function useInvite() {
         method: "POST",
         body: { email, role },
       }),
+  });
+}
+
+/**
+ * The keys to a client's account that exist in somebody's inbox right now.
+ *
+ * Masked addresses — an operator has to RECOGNISE a pending invite to cancel the right
+ * one, not read it. This read is what makes the duplicate refusal actionable across
+ * sessions: the wizard remembers the invitation IT minted, and this covers the case it
+ * cannot — a colleague issued the first link, or it was issued from another tab.
+ */
+export function useTenantInvitations(tenantId: string): UseQueryResult<PendingInviteOut[]> {
+  return useQuery({
+    queryKey: ["admin", "invitations", tenantId],
+    queryFn: () =>
+      apiRequest<PendingInviteOut[]>(
+        adminSession(),
+        `/v1/admin/tenants/${tenantId}/invitations`,
+      ),
+    enabled: Boolean(tenantId),
+  });
+}
+
+/**
+ * Cancel an unused invitation from the console.
+ *
+ * The exit from the refusal `useInvite` can now hit: minting a SECOND live token for one
+ * address is refused (`invitation_already_pending`), and the revoke that already existed
+ * is client-realm — useless for the wizard's owner invite, which is issued before anybody
+ * can sign in. Without this, an operator whose first token was lost was locked out of
+ * that address for 72 hours.
+ *
+ * 204, so there is no body to type. A revoke that races an acceptance answers 404 and
+ * arrives as problem+json: the person is a member now, and that is a different act.
+ */
+export function useRevokeTenantInvitation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ tenantId, invitationId }: { tenantId: string; invitationId: string }) =>
+      apiRequest<void>(
+        adminSession(),
+        `/v1/admin/tenants/${tenantId}/invitations/${invitationId}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: (_data, { tenantId }) =>
+      client.invalidateQueries({ queryKey: ["admin", "invitations", tenantId] }),
   });
 }
 

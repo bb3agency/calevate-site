@@ -43,6 +43,7 @@ from calevate_shared.engine import (
 )
 from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
 
+from apps.api.billing.rates import ROUNDING
 from apps.api.core.errors import ProblemError
 from apps.api.engine.capabilities import require_capability, require_speech_leg
 
@@ -407,11 +408,23 @@ class FakeEngine:
     # --- reading the truth ---------------------------------------------------
 
     def _cost_for(self, duration_s: int) -> CostBreakdown:
+        # `rounding=ROUNDING` (half-up), never the ambient `decimal` context. This is
+        # FIXTURE money, not a client's, and the mode is still explicit for the reason
+        # `billing/rates.py` gives: `Decimal.quantize()` with no mode reads
+        # `decimal.getcontext()`, which is process-global and mutable by any library in
+        # the image, so a leg price here could move because something else imported.
+        # It matters more than "fixture" suggests — this breakdown is what every
+        # pipeline and conformance test meters, so a fake that rounds differently from
+        # the real write path (`pipeline._unit_price`) makes the suite agree with a
+        # policy production does not use.
         minutes = Decimal(duration_s) / Decimal(60)
-        legs = {k: (v * minutes).quantize(Decimal("0.0001")) for k, v in _COST_PER_MIN.items()}
+        legs = {
+            k: (v * minutes).quantize(Decimal("0.0001"), rounding=ROUNDING)
+            for k, v in _COST_PER_MIN.items()
+        }
         total = sum(legs.values(), Decimal("0"))
         return CostBreakdown(
-            total_inr=total.quantize(Decimal("0.0001")),
+            total_inr=total.quantize(Decimal("0.0001"), rounding=ROUNDING),
             platform_inr=legs["platform"],
             network_inr=legs["network"],
             llm_inr=legs["llm"],

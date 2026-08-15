@@ -50,6 +50,7 @@ from apps.workers.retention import execute_deletion_request
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import FakeS3
 
 BASE = "/v1/compliance/deletion-requests"
 
@@ -212,7 +213,9 @@ def test_the_worker_and_the_api_spell_the_proof_key_the_same_way() -> None:
 # --------------------------------------------------------- the durable half: the proof
 
 
-async def test_the_stored_proof_records_how_many_recordings_were_inside_the_floor() -> None:
+async def test_the_stored_proof_records_how_many_recordings_were_inside_the_floor(
+    s3: FakeS3,
+) -> None:
     """The count has to be written where it survives the process that computed it.
 
     Two calls for one subject: one 10 days old (inside the floor, its audio may not
@@ -240,7 +243,7 @@ async def test_the_stored_proof_records_how_many_recordings_were_inside_the_floo
     assert "floor_recordings=1" in result
 
 
-async def test_none_inside_the_floor_is_recorded_as_zero_not_as_absent() -> None:
+async def test_none_inside_the_floor_is_recorded_as_zero_not_as_absent(s3: FakeS3) -> None:
     """ "Absent is not zero" is the certificate's rule, and it cuts both ways: now that
     the job records the number, zero is a claim we CAN make and must make. A subject
     whose only recording is older than the floor gets "None of those recordings were
@@ -291,7 +294,7 @@ async def test_a_call_whose_pointer_was_already_gone_is_not_counted_as_a_collisi
     assert proof["scope"][FLOOR_COUNT_KEY] == 1
 
 
-async def test_the_count_never_exceeds_the_calls_the_proof_names() -> None:
+async def test_the_count_never_exceeds_the_calls_the_proof_names(s3: FakeS3) -> None:
     """A cheap internal-consistency check on the filed document: the collisions are a
     subset of the calls in scope. A reader who can only see the certificate has no other
     way to sanity-check the number."""
@@ -338,7 +341,7 @@ async def test_the_count_reaches_the_certificate_a_client_actually_reads() -> No
     assert str(RECORDING_FLOOR_DAYS) in entry["why"]
 
 
-async def test_the_certificate_says_none_rather_than_going_silent() -> None:
+async def test_the_certificate_says_none_rather_than_going_silent(s3: FakeS3) -> None:
     """The zero path through the same surface. "None of those recordings were inside the
     window" is a stronger statement than silence and it is now supportable."""
     phone = _phone()

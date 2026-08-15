@@ -390,8 +390,16 @@ async def test_the_certificate_says_what_the_stored_row_alone_cannot() -> None:
     assert any("recording" in line.lower() for line in certificate["erased"])
     audio = [entry for entry in certificate["not_erased"] if entry["outcome"] == FLOOR_OUTCOME]
     assert len(audio) == 1
-    assert "still existing" in audio[0]["why"], (
-        "a non-engineer must come away knowing the audio may still exist"
+    # The PROPERTY, not the phrasing. This pinned the literal words "still existing"
+    # until D-115 rewrote the sentence to say what actually happens now: the bytes are
+    # held under a named retention obligation and destroyed on a stated date. A test that
+    # pins prose blocks the prose from improving, and this file's subject is whether a
+    # non-engineer is correctly informed — so assert that the sentence still tells them
+    # the audio persists and when it goes.
+    why = audio[0]["why"]
+    assert "destroyed on" in why, (
+        "a non-engineer must come away knowing the audio still exists and when it goes; "
+        f"the certificate said: {why}"
     )
     assert "lifecycle" not in audio[0]["why"].lower(), (
         "SEC-COMP §4: no per-tenant mechanism deletes recording bytes, so the "

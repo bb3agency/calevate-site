@@ -243,6 +243,10 @@ function configList(over: Partial<ConfigList> = {}): ConfigList {
 function deadLetters(over: Partial<PlatformState["outbox_dead_letters"]> = {}) {
   return {
     depth: 9,
+    // Added by the slice that regenerated the client after `deferred` landed on
+    // `DeadLetterQueueOut`; the field is required on the wire, so a fixture without it
+    // is a shape the server never sends.
+    deferred: 0,
     oldest_at: "2026-08-04T04:15:00Z",
     by_job: [
       { job: "deliver_outbound_webhook", depth: 6, oldest_at: "2026-08-04T04:15:00Z" },
@@ -913,7 +917,7 @@ describe("the dead-letter depth, before the click", () => {
     const { container } = renderAdminPage(
       <OpsPage />,
       routes(
-        platform({ outbox_dead_letters: { depth: 0, oldest_at: null, by_job: [] } }),
+        platform({ outbox_dead_letters: { depth: 0, deferred: 0, oldest_at: null, by_job: [] } }),
         SUPERADMIN,
       ),
     );
@@ -931,6 +935,50 @@ describe("the dead-letter depth, before the click", () => {
     // by name, and one that vanished would make "the runbook is wrong" indistinguishable
     // from "there is nothing parked".
     expect(container.textContent).toContain("Dead-lettered outbox messages");
+  });
+
+  it("does NOT say all-clear while messages are deferred behind a backoff", async () => {
+    // THE MID-INCIDENT LIE this panel used to tell, and the reason `deferred` exists.
+    //
+    // During a queue outage `defer_outbox_claim` holds the batch as `pending` with a
+    // lease into the future, so the DLQ really is empty and "Nothing is dead-lettered"
+    // was a TRUE sentence producing a false screen — a green box for the whole five
+    // minutes of tolerated downtime that the backoff buys, which is exactly the window
+    // an operator is looking at it in. The all-clear now follows the queue's health
+    // rather than the one state this panel happens to act on.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        platform({
+          outbox_dead_letters: { depth: 0, deferred: 214, oldest_at: null, by_job: [] },
+        }),
+        SUPERADMIN,
+      ),
+    );
+
+    await screen.findByText("214 messages are waiting on a retry backoff");
+    expect(container.textContent).not.toContain("Nothing is dead-lettered");
+    // And it must not read as something the button fixes: replay acts on `failed` rows
+    // and would move none of these. An operator told "there is a backlog" beside a live
+    // replay button will press it, and then believe they have done something.
+    expect(container.textContent).toContain("Replaying does nothing for them");
+    const button = (await screen.findByRole("button", {
+      name: /Replay dead letters/,
+    })) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+  });
+
+  it("shows dead letters and deferred messages side by side when both are real", async () => {
+    // The state after the backoff ran out mid-outage: some messages burned through the
+    // budget and some are still waiting. Both numbers have to be on screen — a panel
+    // that showed only the DLQ would tell the operator the incident is over.
+    renderAdminPage(
+      <OpsPage />,
+      routes(platform({ outbox_dead_letters: deadLetters({ deferred: 31 }) }), SUPERADMIN),
+    );
+
+    await screen.findByText("9 messages are parked in the dead-letter queue");
+    await screen.findByText("31 messages are waiting on a retry backoff");
   });
 
   it("will not replay until a scope is chosen, and there is no default", async () => {
