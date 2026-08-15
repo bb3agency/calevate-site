@@ -207,7 +207,68 @@ interface RequestOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * The API's code for "your token is fine, our copy of your account has not landed yet".
+ *
+ * Clerk mints a session the instant an account exists and sends the browser straight
+ * back to us, while the `user.created` webhook travels out of band — so `/signup` and
+ * `/invite`, the first thirty seconds of every customer's and every colleague's life in
+ * the product, race it. The API reconciles from Clerk's Backend API and only answers
+ * this when it could not (`apps/api/core/clerk_identity.py`, D-124).
+ */
+export const IDENTITY_MIRROR_PENDING = "identity_mirror_pending";
+
+/**
+ * How long this transport is willing to wait for that mirror before giving the refusal
+ * to the screen. Four extra attempts at 0.5s, 1s, 2s, 4s — about seven and a half
+ * seconds, which is far longer than a Svix delivery and far shorter than a person's
+ * patience with a form that appears to have hung.
+ */
+const MIRROR_RETRY_ATTEMPTS = 4;
+const MIRROR_RETRY_BASE_MS = 500;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 export async function apiRequest<T>(
+  session: Session,
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  /**
+   * RETRYING A POST IS SAFE FOR THIS ONE CODE, AND ONLY BECAUSE OF WHERE IT IS RAISED.
+   *
+   * `mutations: { retry: false }` in `app/providers.tsx` is the rule and it stays the
+   * rule: the expensive mutations place phone calls, and their safety net is the
+   * server's `Idempotency-Key` handling rather than a client guess about whether the
+   * first attempt landed. This is the one exception, and it is not a judgement call —
+   * `identity_mirror_pending` is raised by the FastAPI auth dependency, before any route
+   * handler body runs, so a request refused with it has provably executed nothing. There
+   * is no attempt to have landed.
+   *
+   * It lives HERE, in the transport, rather than in `useSignup` and `useAcceptInvitation`
+   * separately: both routes reach it, any future route taking `current_identity` reaches
+   * it, and two copies of a backoff policy is where the second one drifts. The screens
+   * are untouched — while this loops, the mutation is still `isPending`, so §52's
+   * "loading is a skeleton" holds without either page knowing this exists; and if it
+   * runs out, the refusal that arrives carries the server's own remediation sentence,
+   * which is the one place that rule should be written.
+   */
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await sendRequest<T>(session, path, options);
+    } catch (error) {
+      const waitable =
+        error instanceof ApiProblem &&
+        error.code === IDENTITY_MIRROR_PENDING &&
+        attempt < MIRROR_RETRY_ATTEMPTS &&
+        !options.signal?.aborted;
+      if (!waitable) throw error;
+      await sleep(MIRROR_RETRY_BASE_MS * 2 ** attempt);
+    }
+  }
+}
+
+async function sendRequest<T>(
   session: Session,
   path: string,
   { method = "GET", body, idempotencyKey, confirmAction, ifMatch, signal }: RequestOptions = {},

@@ -20,11 +20,10 @@ schema but nothing emits it yet, we say so.
 | -------------------- | -------------------------------------------------------------------------- | ------ |
 | `lead.created`       | A lead lands via your ingest webhook — in the same transaction as the lead row, before any call is attempted. | Live |
 | `call.completed`     | The post-call pipeline finishes for a call whose final status is `completed` (summary and extraction already exist when you hear about it). | Live |
-| `lead.updated`       | — | Reserved, not yet emitted |
-| `campaign.completed` | — | Reserved, not yet emitted |
+| `lead.updated`       | A lead's status, name or owner actually changes — one event per lead per edit, and nothing at all for a re-save that moved no field. In the same transaction as the edit. | Live |
+| `campaign.completed` | An outbound campaign has nothing left to dial and reaches its terminal `completed` status — in the same transaction as that status write. A campaign that REPEATS does not fire this at the end of each run: it is not finished, it is waiting for its next occurrence. | Live |
 
-All four names are accepted when you register an endpoint; the two reserved ones simply
-never fire today. `GET /v1/integrations/events` returns the live list.
+All four fire. `GET /v1/integrations/events` returns the list you may subscribe to.
 
 ### 1.2 The envelope
 
@@ -56,9 +55,19 @@ type:
   in your endpoint config, not assumed.
 - `created_at` is UTC, ISO-8601.
 
+A `lead.updated` envelope carries the same `data` keys as `lead.created`, with the values
+as they stand AFTER the edit.
+
 A `call.completed` envelope carries in `data`: `call_id`, `lead_id` (may be null),
 `direction`, `duration_s`, `outcome`, `sentiment`, `summary`. The summary — never the
 transcript — is what leaves on a webhook.
+
+A `campaign.completed` envelope carries in `data`: `campaign_id`, `name` (the campaign's,
+not a person's), `contacts_total`, `contacts_reached` and `completed_at`. **It is the one
+event that carries no personal data at all** — aggregates only, no per-contact roster —
+which is also why it is the one event whose delivered body we do not retain a copy of:
+there is no data subject in it for a deletion request to find. `contacts_reached` counts
+the contacts a call actually connected to, not the contacts dialled.
 
 An optional per-endpoint field mapping can rename our `data` keys to yours (e.g.
 `lead_id` → `LeadRef`). When a mapping is configured, **only mapped fields are sent**,
@@ -274,10 +283,19 @@ and carries no answers. Fetching them is `GET /{leadgen_id}?fields=field_data` w
 Page access token holding `leads_retrieval`, and this deployment has no Meta app
 credentials. So a verified delivery is acknowledged (200 — a permanent refusal must not
 make Meta retry for 36 hours and then unsubscribe your Page), recorded against its
-`leadgen_id` with the reason `meta_lead_retrieval_unavailable`, and shown in
-`GET /v1/lead-sources/activity` as **rejected**. It is not lost: the record is
-re-claimable, so replaying those deliveries once a retriever exists lands the leads for
-real.
+`leadgen_id` with the reason `meta_lead_retrieval_unavailable` (or
+`meta_page_token_not_configured` where an adapter exists and your source has no token
+yet), and shown in `GET /v1/lead-sources/activity` as **rejected** with
+`recoverable: true`.
+
+**It is not lost, and it stays recoverable after Meta gives up.** Meta redelivers for
+about 36 hours and then unsubscribes the Page; while it is still redelivering, attaching
+the credential is enough — the recorded refusal is re-claimable and the next redelivery
+lands the lead. After that window, `POST /v1/lead-sources/{webhook_id}/meta/redrive`
+(`org:manage`, audited) re-runs those recorded refusals for that source through the same
+path a live delivery takes, compliance gate included. It answers counts:
+`candidates`, `accepted`, `duplicate`, `refused`, `deferred` — where `deferred` means we
+could not reach Meta just now and those leads are still waiting, so press it again.
 
 ### 2.7 Dry-run tester
 

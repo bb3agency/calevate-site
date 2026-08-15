@@ -622,6 +622,19 @@ export function useSetPlatformState() {
 export type DeadLetterQueue = Schemas["DeadLetterQueueOut"];
 
 /**
+ * How far the platform's live agents have drifted from what we published (D-123).
+ *
+ * Rides `GET /v1/ops/platform` for `DeadLetterQueue`'s reasons, and is unreadable exactly
+ * when that read is — so the panel says so rather than rendering a reassuring zero.
+ *
+ * EVERY FIELD IS REQUIRED ON THE WIRE. `EngineDriftOut` declares no defaults, which is
+ * what keeps these non-optional in `schema.d.ts`: an optional `out_of_sync` would be read
+ * through `?? 0`, and a `0` that means "the field was missing" is exactly the conflation
+ * this panel exists to prevent.
+ */
+export type EngineDrift = Schemas["EngineDriftOut"];
+
+/**
  * The step-up string for an UNSCOPED dead-letter replay — every job, every tenant.
  *
  * `ops/routes.py`'s `OUTBOX_REPLAY_CONFIRMATION`, mirrored, and it stays this exact

@@ -1,10 +1,13 @@
 """Tenant-birth and offboarding defects that are OPEN, recorded so they cannot be
 quietly rediscovered.
 
-Both entries were found by walking creation, provisioning and offboarding over HTTP, are
-real, and could not be closed from inside this slice — each names the specific reason and
-the specific act that closes it. **Neither is waiting on a vendor**: they are waiting on a
-file this slice does not own, and the file is named. (`tests/onboarding_known_gaps_test.py`
+The entries here were found by walking creation, provisioning and offboarding over HTTP,
+are real, and could not be closed from inside the slice that found them — each names the
+specific reason and the specific act that closes it. **None is waiting on a vendor**:
+they are waiting on a file that slice did not own, and the file is named. (The
+`organizations.deleted_at`-has-no-writer entry was one of them and is now closed by
+D-122 — `compliance/tenant_erasure.py` and `workers/retention.execute_tenant_erasure`.
+Its probe remains below, as a regression test.) (`tests/onboarding_known_gaps_test.py`
 is the other half of this registry and holds the two that ARE vendor-blocked; the split is
 by blocker, so a reader chasing a DID account and a reader chasing a code change do not
 have to read each other's list.)
@@ -37,48 +40,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: Gap key → why it is open, and WHAT CLOSES IT (`CLOSED BY:`). Delete an entry the moment
 #: its probe stops finding the gap; the equality assertion makes that mandatory.
-KNOWN_OPEN_TENANT_BIRTH_GAPS: dict[str, str] = {
-    "organizations_soft_delete_has_readers_but_no_writer": (
-        "`organizations.deleted_at` is READ by seven places — `core/auth.py`'s membership "
-        "resolution, `compliance.service.account_stopped_blocker`, the client directory, "
-        "`admin.service.tenant_exists`, `quality/service.py`, `quality/sampling_routes.py` "
-        "and `workers/qa_sampling.py` — and is WRITTEN by nothing in `apps/`. Every one of "
-        "those readers is correct and tested (a soft-deleted tenant does not dial, does not "
-        "resolve a membership, is not in the directory, and still ages out under retention); "
-        "what does not exist is the act that SETS it. FLOWS §9's offboarding ends at "
-        "`org status churned`, and `deletion_requests` is per-data-subject (one phone "
-        "number's erasure), not per-tenant — so 'erase this whole client' has no execution "
-        "path, and the column is a half-wired feature that reads like a shipped one. "
-        "NOT externally blocked: the tenant-level erasure lives in `apps/api/compliance/` "
-        "(`deletion.py`, `deletion_proof.py`, `deletion_routes.py`), which another agent "
-        "owns in this session — writing a second erasure path in `apps/api/admin/` to reach "
-        "it would be the two-ways-per-problem defect the quality bar refuses. "
-        "CLOSED BY: `compliance/deletion.py` setting `organizations.deleted_at` when a "
-        "TENANT-scoped deletion request completes, reached from the offboarding surface "
-        "after the export bundle, with the proof certificate naming the org — plus a test "
-        "that the dial gate and the auth guard both refuse the tenant afterwards."
-    ),
-    "an_unmirrored_clerk_identity_reads_as_a_permanent_auth_failure": (
-        "`core/auth.py::current_identity` answers 401 'This account is not provisioned.' "
-        "when a Clerk-verified token names a `clerk_user_id` with no `users` row yet. That "
-        "is the ORDINARY RACE on both paths that use it: FLOWS §2 has Clerk create the "
-        "user, our Svix webhook mirror it, and only then the org-create or invite-accept "
-        "step — and Svix delivery is asynchronous, so a founder who clicks straight through "
-        "from Clerk's signup to our form arrives before the mirror does. A 401 is the one "
-        "status a browser client is built to treat as 'your session is bad, sign in again', "
-        "and signing in again does not help; the condition is transient and clears by "
-        "itself in a second. The distinction is available — the token VERIFIED, so this is "
-        "not an authentication failure — and it is not made. "
-        "NOT externally blocked (the Clerk account is a separate matter and this is a "
-        "response-shape decision): `apps/api/core/auth.py` is explicitly hands-off for this "
-        "slice, and the refusal must be changed there rather than papered over in the two "
-        "callers, which is where the second copy of an auth rule would start. "
-        "CLOSED BY: `current_identity` raising the `kind='transient'` problem with a "
-        "`Retry-After` header — the ladder `tenancy/signup.py::_consume` already uses — "
-        "when the token verifies but the mirror row is absent, keeping the 401 for the "
-        "`deactivated_at` case, which is genuinely permanent."
-    ),
-}
+KNOWN_OPEN_TENANT_BIRTH_GAPS: dict[str, str] = {}
 
 
 def _client() -> AsyncClient:
@@ -107,6 +69,11 @@ async def _an_unmirrored_identity_is_refused_as_unauthenticated() -> bool:
     A client-realm token for a Clerk id that verifies and has no `users` row — exactly the
     state between Clerk's signup and our Svix mirror. 401 is the gap; a 4xx-that-says-wait
     or a 503 is the fix.
+
+    CLOSED by D-124, and kept as the regression test this file's docstring promises. With
+    no Clerk secret configured — this environment — the just-in-time reconcile cannot run,
+    so the answer is the transient `identity_mirror_pending` 503 rather than 401. If it
+    ever returns to 401 the equality below turns red with no entry to match it.
     """
     unmirrored = f"user_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
@@ -131,6 +98,12 @@ async def _an_unmirrored_identity_is_refused_as_unauthenticated() -> bool:
 #: key → the probe that answers "is this gap still real?". An entry must have a probe; a
 #: probe may outlive its entry (see the module docstring).
 PROBES: dict[str, Callable[[], Awaitable[bool]]] = {
+    # The entry this probe recorded is GONE (D-122): `compliance/tenant_erasure.py`
+    # files the request and `workers/retention.execute_tenant_erasure` writes the column.
+    # The probe STAYS, as this file's docstring requires — a probe with no entry is a
+    # CLOSED gap whose predicate must keep answering False, which makes it a regression
+    # test at the exact moment it stops being a finding. Delete the writer and the
+    # equality assertion reports an open gap nobody recorded.
     "organizations_soft_delete_has_readers_but_no_writer": (
         _nothing_writes_the_organization_soft_delete
     ),

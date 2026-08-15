@@ -582,7 +582,18 @@ class BolnaEngine:
             )
         return self._client
 
-    async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    async def _request(
+        self, method: str, path: str, *, absent_is_success: bool = False, **kwargs: Any
+    ) -> dict[str, Any]:
+        """One vendor round trip, with the throttle ladder and the error normalization.
+
+        `absent_is_success` exists for `delete_agent` and for nothing else: the Protocol
+        makes delete IDEMPOTENT, so "the object you asked me to remove is not here" is
+        that method's postcondition rather than a failure. It is opt-in per call site
+        because on every OTHER route a 404 is a real defect — `get_agent` raising on an
+        unknown ref is a contract clause, and a path we got wrong 404s exactly the same
+        way, which is how a wrong path gets FOUND (see `get_agent`'s note on gate 2).
+        """
         for attempt in range(THROTTLE_MAX_ATTEMPTS):
             try:
                 response = await self._http().request(method, path, **kwargs)
@@ -617,6 +628,13 @@ class BolnaEngine:
                 remediation="This will be retried automatically.",
                 failure_stage="CORE_LOGIC",
             )
+        if absent_is_success and response.status_code == 404:
+            # NOT a swallowed error: the caller declared that an absent object satisfies
+            # it. Logged at info so a compensation that found nothing to compensate is
+            # still legible in the record — `delete_agent`'s caller is an orphan
+            # reclaimer, and "there was no orphan" is a fact worth having.
+            log.info("engine_delete_already_absent", extra={"route": path})
+            return {}
         if response.status_code >= 400:
             # Never echo a vendor error body to a client — it is not user-safe and it
             # is not our vocabulary.
@@ -706,6 +724,52 @@ class BolnaEngine:
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
         await self._request("PUT", f"/v2/agent/{ref}", json=self._agent_body(cfg))
+
+    async def delete_agent(self, ref: EngineAgentRef) -> None:
+        """`DELETE /v2/agent/{agent_id}` — the orphan compensator's one instrument.
+
+        **THE PATH AND THE VERB ARE DOCUMENTED, and this is a stronger footing than the
+        rest of this adapter's agent lifecycle stands on.** Bolna's API reference publishes
+        the route as `DELETE https://api.bolna.ai/v2/agent/{agent_id}` with a
+        `Authorization: Bearer` header, `agent_id` as a required path parameter, a 200
+        answering `{"message": "success", "state": "deleted"}`, and 400 as the only other
+        documented status. The OSS server's own `API.md` documents the same route shape
+        (`DELETE /agent/{agent_id}` → `{"agent_id": ..., "state": "deleted"}`).
+        Retrieved 2026-08-15 via search summary of https://docs.bolna.ai/api-reference/agent/v2/delete
+        and read at source at https://github.com/bolna-ai/bolna/blob/master/API.md —
+        the hosted docs host itself is refused by this environment's egress proxy, so the
+        first is REPORTED, NOT READ and the second is READ AT SOURCE for the OSS server.
+
+        **THE RESPONSE BODY IS NOT PARSED, deliberately.** `{"state": "deleted"}` is the
+        only signal the vendor offers and it is a string we would be checking against our
+        own guess about its spelling; the 2xx plus the conformance clause's re-read is
+        what makes the delete mean something. Nothing here maps a vendor field.
+
+        **MARKED ASSUMPTION — what is assumed and what falsifies it.**
+        ASSUMED: deleting an `agent_id` this account does not hold (already deleted, or
+        never existed) answers **404**, which `absent_is_success` converts into the
+        Protocol's idempotent success. Nothing published says so: the reference documents
+        200 and 400 and says nothing at all about a repeat.
+        FALSIFIED BY: a repeat delete answering **400** — in which case this method raises
+        `engine_rejected` on a compensation whose work is already done, and the retry
+        ladder DLQs a job that has nothing left to do.
+        NOT ASSUMED THE OTHER WAY: a 400 is left as a failure rather than also folded into
+        success, because a 400 is what a malformed request looks like too, and an adapter
+        that reported "deleted" for a request the vendor rejected would be the exact class
+        of silent lie `detach_kb` refuses to be. If the pilot returns 400 for a repeat, the
+        fix is a narrow branch here on the vendor's actual body — not a wider status range.
+        MEASURED BY: OPERATIONS §2 gate 2's `delete_agent` sub-check, which creates a
+        throwaway agent, deletes it, re-reads it, and deletes it a SECOND time, recording
+        the status of the repeat. That is the whole question, and it needs an account.
+
+        **WHAT IT DESTROYS.** Their reference states this removes all of the agent's data
+        including its batches and executions. That is why the only caller in this repo is
+        the orphan compensator (`agents/service.py`), whose subject is an agent minted
+        seconds ago that has never taken a call — and why a human soft-deleting an agent
+        does NOT reach here: their call history is a retention obligation of ours
+        (SECURITY-COMPLIANCE §4), not a console-click side effect.
+        """
+        await self._request("DELETE", f"/v2/agent/{ref}", absent_is_success=True)
 
     async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
         """`GET /v2/agent/{agent_id}` → our `AgentSnapshot`.

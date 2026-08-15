@@ -5,7 +5,7 @@ import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
 import type { Me } from "@/lib/api/client";
 import type { IngestActivityItem, LeadSource, MetaSetup } from "@/lib/api/leadSources";
 
-import { problem, renderClientPage } from "./harness";
+import { problem, renderClientPage, stillLoading } from "./harness";
 
 /**
  * Lead sources — where leads arrive from, and the screen a client opens at exactly the
@@ -37,6 +37,8 @@ const CREATE_PATH = "POST /v1/lead-sources";
 /** A Meta source, so it appears in BOTH pickers (the Meta one filters to its kind). */
 const SOURCE_ID = "018f3c00-0000-7000-8000-000000000001";
 const FORM_SOURCE_ID = "018f3c00-0000-7000-8000-000000000002";
+/** A SECOND Meta source, so the picker can move between two of the same kind. */
+const SECOND_META_SOURCE_ID = "018f3c00-0000-7000-8000-000000000003";
 const TEST_PATH = `/v1/lead-sources/${SOURCE_ID}/test`;
 const META_PATH = `/v1/lead-sources/${SOURCE_ID}/meta/setup`;
 const TOKEN = "verify-token-9f2c4a";
@@ -62,6 +64,13 @@ function delivery(over: Partial<IngestActivityItem> = {}): IngestActivityItem {
     error: null,
     first_at: "2026-08-12T09:00:00Z",
     last_at: "2026-08-13T04:00:00Z",
+    // The three the re-drive added. `event_key` is the sender's own reference (a
+    // `leadgen_id` for Meta), `lead_source_id` is which source it arrived at, and
+    // `recoverable` is the server's answer to "would the re-drive act on this row" —
+    // all three asserted by "the leads we could not read" below.
+    event_key: "lead.created:website_form",
+    lead_source_id: FORM_SOURCE_ID,
+    recoverable: false,
     ...over,
   };
 }
@@ -78,11 +87,15 @@ function setup(over: Partial<MetaSetup> = {}): MetaSetup {
   };
 }
 
-/** The "Retries absorbed" cell of the row a source occupies, by column position. */
+/** The "Retries absorbed" cell of the row a source occupies, by column position.
+ *  Source · Reference · Outcome · Retries absorbed · Last seen — the Reference column
+ *  (the sender's own id for the delivery) is what shifted this from 2. */
+const RETRIES_COLUMN = 3;
+
 function retriesCell(source: string): string {
   const row = screen.getByText(source).closest("tr");
   expect(row, `no row for ${source}`).not.toBeNull();
-  return row!.querySelectorAll("td")[2]?.textContent ?? "";
+  return row!.querySelectorAll("td")[RETRIES_COLUMN]?.textContent ?? "";
 }
 
 function leadSource(over: Partial<LeadSource> = {}): LeadSource {
@@ -177,6 +190,229 @@ describe("the delivery log", () => {
     // session can still see whether a client's form is reaching us.
     await renderPage({ [ACTIVITY_PATH]: { items: [delivery()] } }, READ_ONLY_ME);
     await screen.findByText("website_form");
+  });
+});
+
+describe("the leads we could not read", () => {
+  /**
+   * The half of the re-drive that is not a route. A Meta lead we could not fetch is
+   * recorded against its `leadgen_id` and Meta stops resending after ~36 hours; the
+   * route that recovers it is worth nothing if nobody can find it, which is why the
+   * gaps registry refused to ship the route alone.
+   *
+   * Three failure modes, in cost order: printing "nothing is waiting" over a read that
+   * failed or has not returned (the reason someone gives up on leads that are sitting
+   * right there); offering the button for a refusal the route will not act on; and
+   * reporting a partial run as a whole one.
+   */
+  const REDRIVE_PATH = `/v1/lead-sources/${SOURCE_ID}/meta/redrive`;
+
+  function stranded(over: Partial<IngestActivityItem> = {}): IngestActivityItem {
+    return delivery({
+      source: "meta_lead_ads",
+      lead_source_id: SOURCE_ID,
+      event_key: "900000000000123",
+      outcome: "rejected",
+      error: "meta_page_token_not_configured",
+      recoverable: true,
+      ...over,
+    });
+  }
+
+  async function pickMetaSource(routes: Record<string, unknown> = {}) {
+    const rendered = await renderPage(routes);
+    fireEvent.change(screen.getByLabelText("Meta lead source"), {
+      target: { value: SOURCE_ID },
+    });
+    return rendered;
+  }
+
+  it("counts what is waiting for THIS source and offers to fetch it", async () => {
+    const { calls } = await pickMetaSource({
+      [ACTIVITY_PATH]: {
+        items: [
+          stranded(),
+          stranded({ event_key: "900000000000124" }),
+          // Another source's stranded lead: recoverable, and not this button's business.
+          stranded({
+            lead_source_id: FORM_SOURCE_ID,
+            event_key: "900000000000125",
+          }),
+          // THIS source, and NOT recoverable — a verdict about the lead, which the
+          // re-drive will not act on. Counting it would promise a recovery that comes
+          // back "0 accepted", so it is in the fixture to make the flag load-bearing.
+          stranded({
+            event_key: "900000000000126",
+            error: "meta_lead_had_no_answers",
+            recoverable: false,
+          }),
+          // …and an ordinary accepted delivery for this source, which is not waiting
+          // for anything at all.
+          stranded({
+            event_key: "900000000000127",
+            outcome: "accepted",
+            error: null,
+            recoverable: false,
+          }),
+        ],
+      },
+      [`POST ${REDRIVE_PATH}`]: {
+        candidates: 2,
+        accepted: 2,
+        duplicate: 0,
+        refused: 0,
+        deferred: 0,
+      },
+    });
+
+    await screen.findByText("2 leads are waiting.");
+    fireEvent.click(screen.getByRole("button", { name: "Recover unread leads" }));
+
+    await screen.findByText("2 of 2 recovered.");
+    expect(calls.filter((c) => c.path === REDRIVE_PATH && c.method === "POST")).toHaveLength(1);
+  });
+
+  it("says nothing is waiting only when the server answered", async () => {
+    await pickMetaSource({ [ACTIVITY_PATH]: { items: [delivery()] } });
+    await screen.findByText("Nothing is waiting for this source.");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Recover unread leads",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+
+  it("refuses rather than reporting that nothing is waiting, when the read failed", async () => {
+    // The same rule the delivery log holds to, and it costs more here: told nothing is
+    // waiting, a client stops looking for leads that are sitting in the inbox.
+    const { container } = await pickMetaSource({
+      [ACTIVITY_PATH]: problem(503, { title: "Service unavailable" }),
+    });
+
+    // `findAllByRole`: the delivery log below refuses on the same failed read, so there
+    // are two refusals on screen and exactly one of them is this block's.
+    expect((await screen.findAllByRole("alert")).length).toBeGreaterThan(0);
+    expect(container.textContent).not.toContain("Nothing is waiting for this source.");
+    expect(screen.queryByRole("button", { name: "Recover unread leads" })).toBeNull();
+  });
+
+  it("shows a skeleton rather than a count while the read is still in flight", async () => {
+    const { container } = await pickMetaSource({
+      [ACTIVITY_PATH]: stillLoading(),
+    });
+
+    await screen.findByText("Leads we recorded but could not read");
+    expect(container.textContent).not.toContain("Nothing is waiting for this source.");
+    expect(container.textContent).not.toContain("leads are waiting");
+    expect(screen.queryByRole("button", { name: "Recover unread leads" })).toBeNull();
+  });
+
+  it("names every bucket, so a partial run does not read as a whole one", async () => {
+    await pickMetaSource({
+      [ACTIVITY_PATH]: {
+        items: [stranded(), stranded({ event_key: "900000000000126" })],
+      },
+      [`POST ${REDRIVE_PATH}`]: {
+        candidates: 2,
+        accepted: 1,
+        duplicate: 0,
+        refused: 0,
+        deferred: 1,
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Recover unread leads" }));
+
+    await screen.findByText("1 of 2 recovered.");
+    // The deferred one is the bucket with an action attached: press again shortly.
+    expect((await screen.findByText(/could not be fetched just now/)).textContent).toContain(
+      "try again shortly",
+    );
+  });
+
+  it("marks the recoverable row in the delivery log and leaves the others alone", async () => {
+    const { container } = await pickMetaSource({
+      [ACTIVITY_PATH]: {
+        items: [
+          stranded(),
+          // A verdict about the lead, not about our credentials: never offered.
+          stranded({
+            event_key: "900000000000127",
+            error: "meta_lead_had_no_answers",
+            recoverable: false,
+          }),
+        ],
+      },
+    });
+
+    // The Meta lead id is rendered, which is what a client quotes to Meta support and
+    // the only durable handle on a lead we never read.
+    await screen.findByText("900000000000123");
+    expect(container.textContent).toContain("900000000000127");
+    expect(screen.getAllByText(/Recoverable — use/)).toHaveLength(1);
+  });
+
+  it("is disabled for a viewer who lacks the permission the route requires", async () => {
+    await renderPage({ [ACTIVITY_PATH]: { items: [stranded()] } }, READ_ONLY_ME);
+    fireEvent.change(screen.getByLabelText("Meta lead source"), {
+      target: { value: SOURCE_ID },
+    });
+
+    await screen.findByText("1 lead is waiting.");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Recover unread leads",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+
+  it("clears the result when the picker moves to a different source", async () => {
+    // "2 of 2 recovered" left standing under a different Page is not a stale number, it
+    // is a statement about the wrong Page's leads — the same reason the setup card
+    // resets its verify token on this change.
+    const { container } = await pickMetaSource({
+      [ACTIVITY_PATH]: { items: [stranded()] },
+      [SOURCES_PATH]: sourceList(
+        leadSource(),
+        leadSource({ id: SECOND_META_SOURCE_ID, source: "meta_lead_ads" }),
+      ),
+      [`POST ${REDRIVE_PATH}`]: {
+        candidates: 1,
+        accepted: 1,
+        duplicate: 0,
+        refused: 0,
+        deferred: 0,
+      },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Recover unread leads" }));
+    await screen.findByText("1 of 1 recovered.");
+
+    // To a DIFFERENT Meta source, not to the empty option: clearing the picker hides
+    // the whole block, so an empty value would pass whether or not the result is reset.
+    fireEvent.change(screen.getByLabelText("Meta lead source"), {
+      target: { value: SECOND_META_SOURCE_ID },
+    });
+
+    await screen.findByText("Nothing is waiting for this source.");
+    expect(container.textContent).not.toContain("recovered.");
+  });
+
+  it("renders a refusal, not a result, when the re-drive itself fails", async () => {
+    const { container } = await pickMetaSource({
+      [ACTIVITY_PATH]: { items: [stranded()] },
+      [`POST ${REDRIVE_PATH}`]: problem(404, {
+        title: "Lead source not found",
+      }),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Recover unread leads" }));
+
+    await screen.findByRole("alert");
+    expect(container.textContent).not.toContain("recovered.");
   });
 });
 

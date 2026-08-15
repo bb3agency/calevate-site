@@ -556,8 +556,16 @@ async def test_oversized_duplicated_and_nul_bearing_headers_get_a_deliberate_ans
     a handler, and none of them reaches the 500 path either.
 
     The token shapes are `dev:client:` ones so the assertions describe the AUTH layer
-    rather than this box's Clerk configuration: each is a well-formed token naming a
-    user that does not exist.
+    rather than this box's Clerk configuration.
+
+    THE TWO GROUPS ARE SPLIT, and the split is the point. A NUL byte is a malformed
+    CREDENTIAL — `_bearer` refuses it at the boundary and nothing further runs, so 401 is
+    the honest answer and always will be. The other three carry a WELL-FORMED token
+    naming a subject we have no mirror row for (the duplicate header resolves to the
+    first value, which is a valid dev token); since D-124 that is the transient
+    `identity_mirror_pending` refusal, because the token verified and calling that an
+    authentication failure is exactly the defect. Asserting one status for all four would
+    make this test the thing that resists the fix.
     """
     async with _client() as http:
         huge = await http.get(
@@ -577,7 +585,10 @@ async def test_oversized_duplicated_and_nul_bearing_headers_get_a_deliberate_ans
 
     for response in (huge, nul, duplicated, empty_org):
         _assert_deliberate(response)
-        assert response.status_code == 401, response.text
+    assert nul.status_code == 401, nul.text
+    for unmirrored in (huge, duplicated, empty_org):
+        assert unmirrored.status_code == 503, unmirrored.text
+        assert unmirrored.json()["type"].endswith("/identity_mirror_pending"), unmirrored.text
 
 
 # ------------------------------------------------------------- reported, then fixed

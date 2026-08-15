@@ -108,6 +108,13 @@ TENANT_TABLES = [
     "tenant_feature_flags",
     "retention_policies",
     "deletion_requests",
+    # The END of an engagement, executed and certified (migration f3a71c9e26b4): the
+    # request that erases one client's caller data and is the only thing in this product
+    # that writes `organizations.deleted_at`. Tenant data — it names one client and
+    # carries the certificate they are handed — and RLS'd like every other row here.
+    # NOT append-only: `completed_at` and `proof` are stamped on completion, exactly as
+    # on `deletion_requests`.
+    "tenant_erasure_requests",
     # One recording whose destruction an erasure OWES but could not lawfully perform yet
     # (migration 9c1d3e7a05f4). Tenant data: it names one of this client's calls and the
     # object key of its audio. NOT append-only — `erased_at` is stamped when the bytes
@@ -153,7 +160,15 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "inbound routing table: an engine webhook arrives with only the VENDOR agent id "
         "and no session, so resolving it to a tenant is inherently cross-tenant. Keeping "
         "this two-id lookup in its own global table is what lets `agents` stay FORCE-RLS'd "
-        "(hard rule 1) instead of needing an exemption. Carries no PII and no call data."
+        "(hard rule 1) instead of needing an exemption. Carries no PII and no call data. "
+        "It is also the row that STANDS FOR one vendor-side agent object, which is why "
+        "the drift sweep's record lives here (`drift_state`, `drift_checked_at`, "
+        "`drift_detected_at`; migration d4b8e1c73f05): a global work queue ordered by "
+        "staleness and a cross-tenant ops summary are both unaskable from a tenant "
+        "session, and the alternative was an exemption on `agents` itself. Those three "
+        "columns hold a verdict from a fixed five-value vocabulary and two timestamps — "
+        "no prompt, no disclosure line, no detail sentence, which is why the operator-"
+        "readable sentence stays on the tenant-scoped per-agent endpoint."
     ),
     "platform_settings": (
         "platform-scoped, admin realm only (PLATFORM-CONFIG §5). One engine selection, "

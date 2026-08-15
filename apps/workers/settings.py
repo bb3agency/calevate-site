@@ -33,12 +33,17 @@ from apps.api.core.settings import (
 from apps.workers.billing import issue_one_time_charges
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.dispatcher import dispatch_outbox, report_stalled_pipeline, sweep_expired
+from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.optout import record_in_call_optout
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from apps.workers.pipeline import ingest_engine_event, reconcile_executions, run_post_call_pipeline
 from apps.workers.qa_sampling import draw_qa_samples
-from apps.workers.retention import apply_retention, execute_deletion_request
+from apps.workers.retention import (
+    apply_retention,
+    execute_deletion_request,
+    execute_tenant_erasure,
+)
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
 log = get_logger(__name__)
@@ -65,6 +70,12 @@ FUNCTIONS: list[Any] = [
         # A DPDP erasure is queued rather than run inline: it touches many rows and must
         # survive a request timing out halfway through.
         execute_deletion_request,
+        # The other erasure: the end of an engagement rather than one data principal's
+        # §12 request. Queued for the same reason and registered here for the reason the
+        # WhatsApp pair below is — an unregistered job is not a dormant feature, it is a
+        # row walking its retry ladder into the DLQ while the console reports the
+        # offboarding as under way.
+        execute_tenant_erasure,
         # Both WhatsApp jobs. An unregistered job is not a dormant feature — the outbox
         # publishes it, arq does not recognise the name, and the row walks its retry
         # ladder into the DLQ while every screen reports the message was queued.
@@ -133,6 +144,25 @@ CRON_JOBS = [
     # Retention is a legal obligation, not a cleanup task: without this the
     # policies we promise in the DPA are only a table (SEC-COMP §4).
     cron(traced_job(apply_retention), hour={3}, minute={40}),
+    # THE DRIFT SWEEP (D-123). `engine_drift_for` was on-demand only, so the two
+    # divergences a publish-time read-back structurally cannot see — an agent edited in
+    # the VENDOR'S dashboard, and a publish that failed on our side after the vendor
+    # committed — stayed wrong until somebody opened that one agent's screen.
+    #
+    # `minute` comes FROM the module rather than being written here, for the reason
+    # `dispatch_campaign_tick`'s `second` does: `engine_reconciliation` reasons about its
+    # own interval — it asserts at import that a tick's worst case fits inside it, which
+    # is what lets it skip the Redis lease the campaign tick needs — and two places
+    # writing "30 minutes" is how that assertion stops being true.
+    #
+    # `max_tries` EXPLICIT, the reason `issue_one_time_charges` states below: `cron()`
+    # defaults it to 1, so a sweep that gave up on its first failure would leave every
+    # client's live agent unwatched with the console still green.
+    cron(
+        traced_job(sweep_engine_drift),
+        minute=set(SWEEP_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # THE SETUP FEE STOPS WAITING FOR A HUMAN. Before this cron the onboarding charge
     # was written by whoever rendered the tenant's invoice, so a client nobody looked
     # at was never billed (`apps/workers/billing.py` and `billing/charges.py` carry the

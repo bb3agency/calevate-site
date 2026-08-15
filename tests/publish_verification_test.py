@@ -592,11 +592,11 @@ async def test_a_republish_racing_a_soft_delete_refuses_and_reports_no_orphan(
 
     `publish_agent` reaches its rowcount guard by two roads. On a first publish the
     vendor object was created inside this transaction, so a rollback strands it and
-    `_orphaned` is the only surviving copy of its id. On a re-publish nothing was
-    created — `engine_agent_ref` was already ours and is still in the row the rollback
-    restores — so the object remains addressable and nothing is stranded. Crying orphan
-    here would put an operator into the vendor's dashboard hunting an object that is not
-    lost, which is how a loud log line stops being read.
+    `_reclaim_orphan` is the only thing that can still reach it. On a re-publish nothing
+    was created — `engine_agent_ref` was already ours and is still in the row the rollback
+    restores — so the object remains addressable and nothing is stranded. Compensating
+    here would be WORSE than a false alarm now that the compensation is a real delete: it
+    would remove a live agent's vendor object because its republish lost a race.
 
     Worth its own test rather than a parameter on the one above, because the two arms
     disagree about what happened rather than about a value: the refusal is identical and
@@ -920,20 +920,25 @@ async def test_an_arm_the_engine_did_not_apply_is_refused_like_the_agent() -> No
     assert stored is None
 
 
-async def test_a_first_publish_of_an_arm_that_fails_verification_logs_the_orphan(
+async def test_a_first_publish_of_an_arm_that_fails_verification_reclaims_the_orphan(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The compensation an operator has to perform by hand, because there is no
-    `delete_agent` on the Protocol (`publish_known_gaps_test` records why).
+    """The compensation is now a DELETE, not a note for a human (D-123).
+
+    This test used to assert an ERROR line naming a ref, because `VoiceEngine` could
+    create, update and read an agent and could not remove one. `delete_agent` closed that,
+    so the assertion moved from "the orphan was recorded" to "the orphan is GONE FROM THE
+    ENGINE" — which is checked against the engine's own state, not against our log,
+    because a log line is exactly what this change exists to stop being the remedy.
 
     Only on a CREATE: an update that fails verification leaves the ref we already had, so
-    there is nothing orphaned and an ERROR line would be a false alarm. That asymmetry is
-    the branch, and it is asserted in both directions below.
+    there is nothing orphaned and deleting anything would destroy a live arm. That
+    asymmetry is the branch, and it is asserted in both directions below.
     """
     tenant_id, agent_id = await _publishable_agent()
     variant_id, disclosure = await _running_arm(tenant_id, agent_id)
 
-    with caplog.at_level("ERROR"), _engine(SilentlyDroppingEngine()):
+    with caplog.at_level("DEBUG"), _engine(SilentlyDroppingEngine()) as engine:
         async with tenant_session(tenant_id) as session:
             with pytest.raises(ProblemError):
                 await publish_variant(
@@ -946,13 +951,18 @@ async def test_a_first_publish_of_an_arm_that_fails_verification_logs_the_orphan
                     disclosure_line=disclosure,
                     existing_ref=None,
                 )
-    orphans = [r for r in caplog.records if "orphan" in r.getMessage().lower()]
-    assert orphans, "a vendor agent we can no longer address was created and never logged"
+        # THE ASSERTION THAT MATTERS: the vendor is not holding an object we cannot name.
+        assert engine._agents == {}, (
+            "the arm's vendor-side agent survived a publish that refused — it is billed "
+            "for, unaddressable, and nothing in the system will ever collect it"
+        )
+    reclaimed = [r for r in caplog.records if r.getMessage() == "engine_agent_orphan_reclaimed"]
+    assert reclaimed, "the reclaim happened and left no record an operator can find"
 
     # And the other direction: an UPDATE that fails verification orphans nothing, so it
     # must not cry orphan. A log that fires on both is a log an operator stops reading.
     caplog.clear()
-    with caplog.at_level("ERROR"), _engine(SilentlyDroppingEngine()):
+    with caplog.at_level("DEBUG"), _engine(SilentlyDroppingEngine()):
         async with tenant_session(tenant_id) as session:
             with pytest.raises(ProblemError):
                 await publish_variant(
@@ -968,3 +978,80 @@ async def test_a_first_publish_of_an_arm_that_fails_verification_logs_the_orphan
     assert not [r for r in caplog.records if "orphan" in r.getMessage().lower()], (
         "an update that failed verification reported an orphan it did not create"
     )
+
+
+async def test_a_refused_agent_publish_deletes_the_vendor_agent_it_created(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The same compensation on `publish_agent`, and the one that costs real money.
+
+    `FreshRefEngine` is the substrate rather than the plain fake, for the reason D-121
+    needed it: `FakeEngine` derives its ref from `(tenant_id, agent_id)`, so a create that
+    is never recorded is indistinguishable from one that is — the ref would be
+    re-derivable and nothing would be orphaned. A vendor mints a new id per create, and it
+    is the un-re-derivable id that makes an orphan an orphan.
+    """
+
+    class FreshRefSilentlyDropping(FreshRefEngine):
+        """Mints a new id per create AND does not run what it was sent: the exact pair
+        that produces an unaddressable, billed-for, wrong-script agent."""
+
+        async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
+            ref = await super().create_agent(cfg)
+            self._agents[ref] = cfg.model_copy(
+                update={"system_prompt": "Whatever this agent had before."}
+            )
+            return ref
+
+    tenant_id, agent_id = await _publishable_agent()
+    with caplog.at_level("DEBUG"), _engine(FreshRefSilentlyDropping()) as engine:
+        async with tenant_session(tenant_id) as session:
+            with pytest.raises(ProblemError) as exc:
+                await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+        assert exc.value.code == "engine_publish_not_applied"
+        assert engine._agents == {}, (
+            "the vendor is still holding an agent whose only id died with the rolled-back "
+            "transaction"
+        )
+    assert [r for r in caplog.records if r.getMessage() == "engine_agent_orphan_reclaimed"]
+
+
+async def test_a_reclaim_the_vendor_refuses_falls_back_to_the_operator_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The remedy must never become a NEW way for the publish to fail.
+
+    The vendor was misbehaving a moment ago — that is why we are compensating — so the
+    delete is exactly the call most likely to fail next. When it does we must land back
+    where we started and no further: the publish still refuses with its own code, and the
+    ERROR line still carries the ref, because that line is the operator's only copy of an
+    id that is about to be lost with the transaction.
+    """
+
+    class UndeletableEngine(FreshRefEngine):
+        async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
+            ref = await super().create_agent(cfg)
+            self._agents[ref] = cfg.model_copy(update={"system_prompt": "Not what we sent."})
+            return ref
+
+        async def delete_agent(self, ref: EngineAgentRef) -> None:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_unreachable",
+                title="Voice engine unreachable",
+                detail="The voice platform did not respond.",
+            )
+
+    tenant_id, agent_id = await _publishable_agent()
+    with caplog.at_level("DEBUG"), _engine(UndeletableEngine()) as engine:
+        async with tenant_session(tenant_id) as session:
+            with pytest.raises(ProblemError) as exc:
+                await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+    # The publish reports the PUBLISH failure, not the reclaim's.
+    assert exc.value.code == "engine_publish_not_applied"
+    orphaned = [r for r in caplog.records if r.getMessage() == "engine_agent_orphaned"]
+    assert orphaned, "the reclaim failed and nobody was told which object leaked"
+    assert getattr(orphaned[0], "reclaim_failed", None) == "ProblemError"
+    # The ref an operator has to go and delete by hand is IN the record.
+    assert getattr(orphaned[0], "engine_agent_ref", None) in engine._agents
+    assert not [r for r in caplog.records if r.getMessage() == "engine_agent_orphan_reclaimed"]

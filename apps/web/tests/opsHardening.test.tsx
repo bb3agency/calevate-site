@@ -92,6 +92,18 @@ const PLATFORM_STATE = {
   // a shape the server never sends. Zero here: this file is about the config/secret
   // panels, and an outbox in trouble is `ops.test.tsx`'s subject.
   outbox_dead_letters: { depth: 0, deferred: 0, oldest_at: null, by_job: [] },
+  // Required on the wire for the same reason (`EngineDriftOut` declares no defaults), and
+  // SWEPT rather than all-null: a never-swept platform raises the "nobody is watching"
+  // banner, which is `ops.test.tsx`'s subject and noise in this file's.
+  engine_drift: {
+    live_agents: 0,
+    never_checked: 0,
+    out_of_sync: 0,
+    in_sync: 0,
+    undetermined: 0,
+    oldest_drift_at: null,
+    oldest_checked_at: "2026-08-15T04:07:00Z",
+  },
   tm_registration: {
     status: "active",
     tm_id: "TM-110022",

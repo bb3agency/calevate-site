@@ -370,7 +370,15 @@ async def test_a_soft_deleted_account_dials_nothing() -> None:
     # untenanted session silently matches no row and the fixture would write nothing.
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE organizations SET deleted_at = now() WHERE id = :t"), {"t": tenant_id}
+            # `status = 'churned'` in the same statement, because `deleted_at` is not a
+            # free-standing flag: `ck_organizations_deleted_implies_churned` (D-122) makes
+            # an erased tenant always a churned one, which is what lets the readers of the
+            # column filter on different halves of "account closed" and still agree. The
+            # real writer (`workers/retention.execute_tenant_erasure`) refuses to run at
+            # all unless the account is already churned, so this fixture is now producing
+            # a state the product can actually reach rather than one only a test could.
+            text("UPDATE organizations SET deleted_at = now(), status = 'churned' WHERE id = :t"),
+            {"t": tenant_id},
         )
 
     decision = await _gate(tenant_id, agent_id)

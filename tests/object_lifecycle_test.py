@@ -188,7 +188,9 @@ def test_rule_prefixes_match_the_keys_storage_actually_writes(policy: dict) -> N
     """The rules are scoped to prefixes; `storage.py` owns the keys. If those two ever
     disagree the lifecycle rule matches nothing and reports itself healthy."""
     written_recording = recording_key(uuid4(), uuid4())
-    written_payload = payload_key("bolna", "exec-1")
+    written_payload = payload_key(
+        tenant_id=uuid4(), call_id=uuid4(), engine="bolna", execution_id="exec-1"
+    )
     written_body = delivery_body_key(
         tenant_id=uuid4(), subject_type="lead", subject_id=str(uuid4()), delivery_id=uuid4()
     )
@@ -215,15 +217,21 @@ def test_rule_prefixes_match_the_keys_storage_actually_writes(policy: dict) -> N
 def test_every_written_prefix_is_covered_by_some_rule(policy: dict) -> None:
     """Both things we put in the bucket must expire eventually. `engine-payloads/` is
     the one that is easy to forget: raw vendor payloads carry phone numbers and
-    transcript text, no `retention_policies` category covers them (the enum is
-    recording/transcript/lead/consent_log), and nothing in `apps/` ever deletes them.
+    transcript text and no `retention_policies` category covers them (the enum is
+    recording/transcript/lead/consent_log). A DPDP erasure now deletes them by
+    `{tenant}/{call}` prefix (D-126, `retention._erase_engine_payloads`), which is a
+    different clock from expiry: an object belonging to nobody who asked to be forgotten
+    still has this rule and nothing else.
     """
     covered = {
         rule.get("Filter", {}).get("Prefix", "")
         for rule in policy["Rules"]
         if rule["Status"] == "Enabled" and rule.get("Expiration", {}).get("Days") is not None
     }
-    for written in (recording_key(uuid4(), uuid4()), payload_key("bolna", "exec-1")):
+    for written in (
+        recording_key(uuid4(), uuid4()),
+        payload_key(tenant_id=uuid4(), call_id=uuid4(), engine="bolna", execution_id="exec-1"),
+    ):
         assert any(written.startswith(prefix) for prefix in covered), (
             f"nothing expires {written!r} — it accumulates forever"
         )

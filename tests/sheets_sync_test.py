@@ -277,11 +277,18 @@ async def test_the_column_order_survives_a_round_trip_through_jsonb() -> None:
 def test_an_event_with_no_declared_columns_is_refused_rather_than_guessed() -> None:
     """Inferring the column order from THIS row's keys means the next row — with one
     field missing — silently shifts every value one column left. A spreadsheet has no
-    per-row schema, so a guess is unrecoverable. `campaign.completed` has no published
-    payload shape yet (WEBHOOKS §1.1: reserved, not emitted), so it has no default."""
-    assert service.sheet_columns("campaign.completed", {}) == ()
-    assert service.sheet_columns("lead.created", {}), "the live events do have defaults"
-    assert service.sheet_columns("call.completed", {})
+    per-row schema, so a guess is unrecoverable.
+
+    The specimen used to be `campaign.completed`, which had no published payload shape.
+    It has one now — it has a producer — so this asserts the property directly: an event
+    NOBODY declares columns for gets an empty tuple rather than a guess, and every event
+    a client can subscribe to has a layout. That second line is the stronger claim and it
+    is the one `campaign.completed` used to fail: an event on the endpoint form with no
+    entry here is a Sheets subscription refused at creation.
+    """
+    assert service.sheet_columns("no.such.event", {}) == ()
+    for event in service.EVENT_TYPES:
+        assert service.sheet_columns(event, {}), f"{event} is subscribable and unwritable"
 
 
 # --------------------------------------------------------------------------------
@@ -576,9 +583,15 @@ async def test_a_sheet_whose_url_is_not_a_sheet_refuses_permanently(
 async def test_an_event_with_no_column_order_refuses_instead_of_guessing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The DELIVERY-time half of the refusal `sheets_endpoint_test` pins at
+    configuration time, and its column order is monkeypatched away for the same reason:
+    `campaign.completed` gained a producer and therefore a layout, so no subscribable
+    event is without one today. The next one added without a layout arrives in exactly
+    the state this constructs, and lands on exactly this branch."""
     tenant_id, endpoint_id = await _tenant_with_sheet(events=("campaign.completed",))
     sink = _use(monkeypatch)
     _capture_alerts(monkeypatch)
+    monkeypatch.delitem(service.DEFAULT_SHEET_COLUMNS, "campaign.completed")
 
     outcome = await deliver_outbound_webhook(
         {"job_try": 1},

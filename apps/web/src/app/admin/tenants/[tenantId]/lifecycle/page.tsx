@@ -17,6 +17,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { adminSession, useTenant } from "@/lib/api/admin";
+import { erasureConfirmation, useEraseTenant, useTenantErasures } from "@/lib/api/erasure";
 import {
   LIFECYCLE_COPY,
   useSetTenantStatus,
@@ -50,6 +51,10 @@ export default function LifecyclePage({
   const tenantQuery = useTenant(tenantId);
   const move = useSetTenantStatus(adminSession(), tenantId);
   const write = useAdminAccess("admin:tenants", "change an account's state");
+  // `ops:manage` is the superadmin marker the API checks IN ADDITION to `admin:tenants`
+  // before it will erase. Previewed here so an operator sees why the control is closed
+  // to them, rather than discovering it as a 403 after typing a confirmation.
+  const erase = useAdminAccess("ops:manage", "erase a client's data");
 
   if (tenantQuery.isLoading) return <Skeleton rows={5} />;
   // §52: a failed read is a refusal, never a screen that reports a state it could not
@@ -83,17 +88,20 @@ export default function LifecyclePage({
         /* Terminal, and said plainly rather than by a row of disabled buttons: reopening
            a closed account is a new agreement, not a click. The API answers 409 naming
            the state, so this is a preview of a real refusal. */
-        <NoticeBox
-          tone="stop"
-          icon={<AlertTriangle className="h-5 w-5" />}
-          title="This account is closed"
-        >
-          <p className="mt-1 text-xs opacity-90">
-            Closed accounts cannot be reopened here. Their users have no access, their
-            data is on the retention clock, and restarting the relationship means a new
-            account with its own commercial terms.
-          </p>
-        </NoticeBox>
+        <>
+          <NoticeBox
+            tone="stop"
+            icon={<AlertTriangle className="h-5 w-5" />}
+            title="This account is closed"
+          >
+            <p className="mt-1 text-xs opacity-90">
+              Closed accounts cannot be reopened here. Their users have no access, their
+              data is on the retention clock, and restarting the relationship means a new
+              account with its own commercial terms.
+            </p>
+          </NoticeBox>
+          <ErasurePanel tenantId={tenantId} tenantName={tenant.name} access={erase} />
+        </>
       ) : (
         <MoveForm move={move} currentStatus={tenant.status} tenantName={tenant.name} write={write} />
       )}
@@ -208,6 +216,156 @@ function MoveForm({
           )}
         </div>
       </form>
+    </Card>
+  );
+}
+
+/**
+ * The offboarding trigger SURFACES §1 has promised since v1.0, and the last step of
+ * FLOWS §9. Only ever rendered for a CLOSED account, because the API refuses any other
+ * (`409 tenant_not_closed`) — `deleted_at` only ever refines `churned`.
+ *
+ * THE TYPED CONFIRMATION IS NOT THE GUARD, and the difference matters. The guard is the
+ * `X-Confirm-Action` header the API demands and the superadmin role it checks first; a
+ * dialog that only exists in this component is absent from curl. What the typing buys is
+ * that the most destructive request in the product cannot be sent by a mis-click, and
+ * that the operator has read the sentence describing what goes.
+ */
+function ErasurePanel({
+  tenantId,
+  tenantName,
+  access,
+}: {
+  tenantId: string;
+  tenantName: string;
+  access: ReturnType<typeof useAdminAccess>;
+}) {
+  const session = adminSession();
+  const filed = useTenantErasures(session, tenantId);
+  const erase = useEraseTenant(session, tenantId);
+  const [reason, setReason] = useState("");
+  const [typed, setTyped] = useState("");
+  const confirmation = erasureConfirmation(tenantId);
+  const existing = filed.data?.[0];
+  const blocked = reason.trim().length < 3 || typed.trim() !== confirmation;
+
+  if (existing) {
+    // Already filed or already done. The certificate stays readable here forever — every
+    // OTHER admin screen 404s an erased client, which is exactly why this one does not
+    // go through the live-tenant predicate.
+    return (
+      <Card title="Data erasure">
+        <p className="text-sm text-ink-muted">
+          {existing.status === "completed"
+            ? `This client's data was erased on ${new Date(existing.completed_at ?? existing.requested_at).toLocaleString()}. The certificate below is the record.`
+            : "An erasure has been filed for this client and is running. It cannot be cancelled."}
+        </p>
+        <p className="mt-2 text-xs text-ink-muted">Reason recorded: {existing.reason}</p>
+        {existing.proof && (
+          <ul className="mt-3 space-y-1 text-xs text-ink-muted">
+            <li>Calls stripped: {existing.proof.scope.calls_erased ?? "not recorded"}</li>
+            <li>Leads anonymised: {existing.proof.scope.leads_erased ?? "not recorded"}</li>
+            <li>
+              Recordings destroyed: {existing.proof.scope.recordings_destroyed ?? "not recorded"}
+              {existing.proof.recording_hold_until
+                ? ` — the rest are destroyed by ${new Date(existing.proof.recording_hold_until).toLocaleDateString()}`
+                : ""}
+            </li>
+            <li>Engine-side copies: {existing.proof.engine_deletion}</li>
+          </ul>
+        )}
+        {existing.limitations.length > 0 && (
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-medium text-ink">
+              What this erasure did not remove
+            </summary>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-ink-muted">
+              {existing.limitations.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </Card>
+    );
+  }
+
+  return (
+    <Card title="Erase this client's data">
+      <form
+        className="space-y-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          erase.mutate({ reason: reason.trim() });
+        }}
+      >
+        <RestrictionNote reason={access.reason} />
+        <NoticeBox tone="stop" icon={<AlertTriangle className="h-5 w-5" />}>
+          <p className="text-xs">
+            This destroys every caller record {tenantName} holds — call numbers, summaries,
+            transcripts, extracted fields, CRM leads, delivered CRM payloads and the audio
+            past its 90-day legal retention floor — and marks the client deleted. It cannot
+            be undone. Export their data first: nothing here produces the bundle. Billing
+            ledgers, consent records, do-not-call entries and the knowledge base are kept,
+            and the certificate says so.
+          </p>
+        </NoticeBox>
+
+        <div>
+          <label htmlFor="erase-reason" className={FIELD_LABEL}>
+            Why
+          </label>
+          <div className="mt-1">
+            <textarea
+              id="erase-reason"
+              rows={2}
+              maxLength={500}
+              value={reason}
+              disabled={!access.allowed}
+              onChange={(event) => {
+                setReason(event.target.value);
+                erase.reset();
+              }}
+              className={FIELD}
+            />
+          </div>
+          <span className={FIELD_HINT}>
+            Recorded verbatim in the audit log, beside who asked for it.
+          </span>
+        </div>
+
+        <div>
+          <label htmlFor="erase-confirm" className={FIELD_LABEL}>
+            Type the confirmation
+          </label>
+          <div className="mt-1">
+            <input
+              id="erase-confirm"
+              value={typed}
+              disabled={!access.allowed}
+              autoComplete="off"
+              onChange={(event) => {
+                setTyped(event.target.value);
+                erase.reset();
+              }}
+              className={FIELD}
+            />
+          </div>
+          <span className={FIELD_HINT}>
+            <code>{confirmation}</code> — the same string the API demands as a header, so a
+            request cannot arrive from a screen that did not mean to send it.
+          </span>
+        </div>
+
+        <button
+          type="submit"
+          disabled={erase.isPending || blocked || !access.allowed}
+          className={PRIMARY_BUTTON}
+        >
+          {erase.isPending ? "Erasing…" : "Erase this client's data"}
+        </button>
+      </form>
+      {erase.error != null && <ProblemNotice error={erase.error} />}
     </Card>
   );
 }

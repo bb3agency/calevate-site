@@ -311,6 +311,79 @@ async def test_gate_2_reports_number_attachment_as_a_dashboard_step() -> None:
     assert any("provision_number" in f for f in result.findings)
 
 
+async def test_gate_2_settles_the_delete_agent_assumption_on_a_throwaway_agent() -> None:
+    """The gate that makes `delete_agent`'s MARKED ASSUMPTION falsifiable (D-123).
+
+    Both real adapters assume a vendor answers 404 for an id it does not hold and fold
+    that into the Protocol's idempotent success. Nothing published says so. This is where
+    that gets measured — and it must not touch the gate's own agent, whose executions the
+    vendor's delete would destroy along with the re-run procedure gate 2 documents.
+    """
+    engine = EchoingEngine()
+    result = await run_gate_2(_ctx(engine, calls_remaining=1, to_e164="+919000000001"))
+    assert _check(result, "delete_agent").status == "pass"
+    assert _check(result, "delete_agent_removed").status == "pass"
+    assert _check(result, "delete_agent_is_idempotent").status == "pass"
+    # THE GATE'S OWN AGENT SURVIVED. `get_execution` and the `user_data` round trip read
+    # against it, and gate 2 tells an operator to re-run once the execution is billable.
+    started = _check(result, "start_call")
+    assert started.status == "pass"
+
+
+async def test_gate_2_reports_a_vendor_whose_repeat_delete_refuses() -> None:
+    """The falsifier, in the shape the pilot would actually meet it: the first delete
+    lands and the second is refused. That is the adapter's assumption being wrong, not the
+    vendor being broken, and the finding has to say which."""
+
+    class RefusesRepeatDeleteEngine(EchoingEngine):
+        def __init__(self) -> None:
+            super().__init__()
+            self._deleted: set[str] = set()
+
+        async def delete_agent(self, ref: str) -> None:
+            if ref in self._deleted:
+                raise ProblemError(
+                    kind="dependency",
+                    code="engine_rejected",
+                    title="Voice engine rejected the request",
+                    detail="The voice platform could not complete this operation.",
+                )
+            self._deleted.add(ref)
+            await super().delete_agent(ref)
+
+    result = await run_gate_2(
+        _ctx(RefusesRepeatDeleteEngine(), calls_remaining=1, to_e164="+919000000001")
+    )
+    assert _check(result, "delete_agent").status == "pass"
+    idempotent = _check(result, "delete_agent_is_idempotent")
+    assert idempotent.status == "fail"
+    assert "absent_is_success" in idempotent.detail, (
+        "the failure must name the branch to narrow, or it is a red row with no next step"
+    )
+    assert result.status == "fail"
+
+
+async def test_gate_2_says_the_agent_was_not_deleted_when_the_delete_is_refused() -> None:
+    """A delete that failed leaves an object the pilot account is billed for, and the one
+    thing the operator needs is to be told so — the same reason `_reclaim_orphan` still
+    logs the ref when its own delete fails."""
+
+    class UndeletableEngine(EchoingEngine):
+        async def delete_agent(self, ref: str) -> None:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_rejected",
+                title="Voice engine rejected the request",
+                detail="The voice platform could not complete this operation.",
+            )
+
+    result = await run_gate_2(_ctx(UndeletableEngine(), calls_remaining=1, to_e164="+919000000001"))
+    deleted = _check(result, "delete_agent")
+    assert deleted.status == "fail"
+    assert "THE AGENT WAS NOT DELETED" in deleted.detail
+    assert "_reclaim_orphan" in deleted.detail
+
+
 async def test_gate_2_dry_run_places_no_call() -> None:
     ctx = _ctx(EchoingEngine(), calls_remaining=0, to_e164="+919000000001")
     result = await run_gate_2(ctx)

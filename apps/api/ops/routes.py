@@ -91,6 +91,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
+from apps.api.agents.reconciliation import read_engine_drift
 from apps.api.billing.caps import read_caps, read_spend_counters, recompute_capped
 from apps.api.billing.service import current_billing_month, to_paise
 from apps.api.compliance.audit import verify_chain, write_audit
@@ -102,6 +103,7 @@ from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platfo
 from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import require_step_up
 from apps.api.db.session import tenant_session
+from apps.api.engine import get_engine
 from apps.api.ops.service import (
     TmRegistration,
     read_halt_state,
@@ -186,6 +188,48 @@ class DeadLetterQueueOut(BaseModel):
     deferred: int
 
 
+class EngineDriftOut(BaseModel):
+    """How far the platform's live agents have drifted from what we published (D-123).
+
+    THE HALF-WIRED-FEATURE GUARD. `sweep_engine_drift` walks live agents through
+    `engine_drift_for` every half hour and writes what the engine was observed to be
+    holding. A job that writes a state nobody reads is the defect CLAUDE.md names, so the
+    state rides the read the ops screen already makes — the same argument, and the same
+    route-table argument, that put `outbox_dead_letters` here rather than on an endpoint
+    of its own.
+
+    THE ALARM IS `out_of_sync`, and `undetermined` is deliberately NOT folded into it.
+    `agents/verification.py`'s whole doctrine is that "the engine is provably running
+    something else" and "we could not read the answer" are different facts and only one is
+    evidence; a console that added them would report a vendor having a slow afternoon as a
+    fleet of agents speaking unapproved scripts, and an operator learns to ignore that
+    number within a week.
+
+    COUNTS AND TIMESTAMPS ONLY (hard rule 6). The per-agent sentence lives behind
+    `GET /v1/agents/{agent_id}/engine-state`, which is tenant-scoped and permissioned;
+    nothing derived from a prompt or a disclosure line reaches this model. See
+    `agents/reconciliation.EngineDriftSummary`, which is where that boundary is enforced.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    live_agents: int
+    # Never swept. A distinct number from `in_sync` for `live_verify_state`'s reason: an
+    # agent nobody has looked at must not be counted as one we looked at and liked.
+    never_checked: int
+    out_of_sync: int
+    in_sync: int
+    undetermined: int
+    # Null exactly when `out_of_sync` is 0. Age is what separates a publish that raced a
+    # sweep from a vendor-console edit nobody has noticed for a week.
+    oldest_drift_at: datetime | None
+    # THE SWEEP'S OWN PULSE, and the field that stops this panel lying by omission. If the
+    # cron dies, every count above freezes at its last value and `out_of_sync: 0` reads as
+    # "all clear" forever. A `oldest_checked_at` that stops moving is the only thing on
+    # this payload that can say "nobody is watching". Null when nothing has been swept.
+    oldest_checked_at: datetime | None
+
+
 class PlatformStateOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -223,6 +267,13 @@ class PlatformStateOut(BaseModel):
     # stays gated on the permission alone, and the panel renders "we could not read the
     # depth" rather than a zero (BUILD-LOG §52: failure is a refusal, not an empty state).
     outbox_dead_letters: DeadLetterQueueOut
+    # The second thing on this payload that is a MEASUREMENT rather than a switch, and it
+    # rides here for the same three reasons `outbox_dead_letters` does: one read, one
+    # permission, no new entry in `ADMIN_CONSOLE_GETS`. NO DEFAULT — a Pydantic field with
+    # one generates an OPTIONAL TypeScript property, and a console that has to write
+    # `state.engine_drift?.out_of_sync ?? 0` has a `0` for "the field is missing", which is
+    # the exact conflation this whole panel exists to prevent.
+    engine_drift: EngineDriftOut
 
 
 class TmRegistrationIn(BaseModel):
@@ -445,6 +496,10 @@ async def _platform_out(session: AsyncSession, *, load_shed_mode: str) -> Platfo
     """
     halt = await read_halt_state(session)
     dlq = await read_dead_letter_queue(session)
+    # Scoped to the CONFIGURED engine, not to every route row: a leftover route from a
+    # previous vendor is not something the sweep reads back, so counting it here would
+    # report a permanent `never_checked` nothing can ever clear.
+    drift = await read_engine_drift(session, engine=get_engine().name)
     return PlatformStateOut(
         load_shed_mode=load_shed_mode,
         outbound_halted=halt.outbound_halted,
@@ -460,6 +515,15 @@ async def _platform_out(session: AsyncSession, *, load_shed_mode: str) -> Platfo
                 for entry in dlq.by_job
             ],
             deferred=dlq.deferred,
+        ),
+        engine_drift=EngineDriftOut(
+            live_agents=drift.live_agents,
+            never_checked=drift.never_checked,
+            out_of_sync=drift.out_of_sync,
+            in_sync=drift.in_sync,
+            undetermined=drift.undetermined,
+            oldest_drift_at=drift.oldest_drift_at,
+            oldest_checked_at=drift.oldest_checked_at,
         ),
     )
 

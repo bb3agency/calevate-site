@@ -179,7 +179,14 @@ lead-ad fill with no opt-in question on the form is saved and **not** dialled
 CREDENTIAL: it needs a Page access token with `leads_retrieval` and this deployment
 holds no Meta credentials, so a verified delivery today still lands as a RECORDED refusal
 (`meta_lead_retrieval_unavailable`) against its `leadgen_id`, visible in the activity
-view and re-claimable the day a token exists. `apps/api/ingest/meta.py` states this, and
+view — which now marks it `recoverable` — and re-claimable the day a token exists.
+"The day a token exists" used to mean "if Meta is still retrying": it redelivers for
+~36 hours and then unsubscribes the Page, after which the `leadgen_id` was durable and
+unreachable by anything. `POST /v1/lead-sources/{webhook_id}/meta/redrive` (`org:manage`,
+audited) is what acts on it now, through the same `_absorb_leadgen` a live delivery takes
+— same claim, same capability selector, same consent branch, same compliance gate — with
+the count and the button on the Meta card of the lead-sources screen.
+`apps/api/ingest/meta.py` states the credential position, and
 `POST /v1/lead-sources/{webhook_id}/meta/setup` answers the handshake half — a POST
 because the response carries a verify token, the mirror of `/v1/dnc/check`.*);
 typed+validated extraction (theirs is untyped — the "Delhi

@@ -466,9 +466,19 @@ async def test_an_event_with_no_column_order_is_refused_at_configuration_time(
 ) -> None:
     """`sheet_columns` refuses at DELIVERY time rather than guessing an order. Asking
     the same question at configuration time turns a per-lead failed delivery into one
-    answer at the moment the client can still choose a different event."""
+    answer at the moment the client can still choose a different event.
+
+    THE COLUMN ORDER IS MONKEYPATCHED AWAY rather than named from `EVENT_TYPES`, and
+    that is the change `campaign.completed` forced. It was the one subscribable event
+    with no layout, so this test used it as the specimen — and giving it a producer meant
+    giving it a layout, which left the refusal reachable by no event at all. Deleting the
+    test would delete the guard on the next event somebody adds without one; monkeypatch
+    keeps `create_sheets_endpoint`'s real refusal under test with a real event name and
+    an empty layout, which is exactly the state that next event will arrive in.
+    """
     _sheets_enabled(monkeypatch)
     tenant_id = await _tenant()
+    monkeypatch.delitem(service.DEFAULT_SHEET_COLUMNS, "campaign.completed")
 
     with pytest.raises(ProblemError) as excinfo:
         async with tenant_session(tenant_id) as session:

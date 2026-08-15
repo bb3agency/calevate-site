@@ -665,6 +665,9 @@ class RecordingErasureHold(PKMixin, Base):
     __tablename__ = "recording_erasure_holds"
     __table_args__ = (
         UniqueConstraint("tenant_id", "object_key", name="one_hold_per_object"),
+        CheckConstraint(
+            "num_nonnulls(request_id, tenant_erasure_id) = 1", name="one_owning_erasure"
+        ),
         # The sweep's only query: this tenant's holds that are due and not yet done.
         Index(
             "ix_recording_erasure_holds_due",
@@ -682,9 +685,17 @@ class RecordingErasureHold(PKMixin, Base):
         ForeignKey("calls.id", ondelete="RESTRICT"), nullable=False
     )
     # WHICH erasure incurred the obligation, so the destruction can be tied back to the
-    # certificate that promised it.
-    request_id: Mapped[UUID] = mapped_column(
-        ForeignKey("deletion_requests.id", ondelete="RESTRICT"), nullable=False
+    # certificate that promised it. EXACTLY ONE of the two is set, and the database says
+    # so (`ck_recording_hold_one_owner`, migration f3a71c9e26b4): there are two kinds of
+    # erasure — one data principal's DPDP §12 request, and the end of a whole engagement
+    # — and both must be able to schedule a destruction they may not perform yet. Two
+    # exclusive FKs rather than one column with two meanings, because a certificate has
+    # to be nameable from the row.
+    request_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("deletion_requests.id", ondelete="RESTRICT")
+    )
+    tenant_erasure_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("tenant_erasure_requests.id", ondelete="RESTRICT")
     )
     object_key: Mapped[str] = mapped_column(Text, nullable=False)
     erase_after: Mapped[datetime] = mapped_column(nullable=False)
@@ -746,6 +757,49 @@ class DeletionRequest(PKMixin, Base):
     phone_e164: Mapped[str | None] = mapped_column(Text)
     subject_ref: Mapped[str] = mapped_column(Text, nullable=False)
     scope: Mapped[str | None] = mapped_column(Text)
+    requested_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    completed_at: Mapped[datetime | None]
+    proof: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class TenantErasureRequest(PKMixin, Base):
+    """The END OF AN ENGAGEMENT, executed and certified (FLOWS §9).
+
+    The writer `organizations.deleted_at` never had. Nine places read that column —
+    `core/auth.py` twice, the dial gate, `tenant_exists`, `assert_account_open`, the
+    admin directory, the health board, `quality/service.py` and the QA sampler — and
+    until this table nothing in `apps/` set it (D-120). See
+    `apps/api/compliance/tenant_erasure.py` for the state model, and why this is NOT a
+    `deletion_requests` row: that table is ONE data principal's DPDP §12 right, keyed by
+    a phone number, surfaced in the client realm. This is the client organisation's
+    instruction, covering every subject at once, filed and read in the admin realm.
+
+    NOT append-only, and must never join `db/registry.APPEND_ONLY_TABLES`: `completed_at`
+    and `proof` are stamped when the worker finishes, exactly as on `deletion_requests`.
+    What is append-only about an erasure is the proof document, which is written once.
+
+    The partial unique index is `uq_deletion_requests_open_subject`'s shape and exists
+    for the same reason — at most one queued, unexecuted erasure per tenant, so a
+    double-click cannot mint two certificates for one act. Declared with a predicate, so
+    autogenerate cannot diff it; the migration is the source of truth for its existence.
+    """
+
+    __tablename__ = "tenant_erasure_requests"
+    __table_args__ = (
+        Index(
+            "uq_tenant_erasure_requests_open",
+            "tenant_id",
+            unique=True,
+            postgresql_where=text("completed_at IS NULL"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    # Why this client's data was destroyed, verbatim from the operator.
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
     requested_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     completed_at: Mapped[datetime | None]
     proof: Mapped[dict[str, object] | None] = mapped_column(JSONB)

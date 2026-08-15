@@ -8,7 +8,10 @@ Two rules from the blueprint drive this module:
    ours is. Everything downstream can be re-run; a recording we failed to copy may
    simply be gone, and TRAI's 90-day floor is our obligation, not theirs.
 2. **Raw vendor payloads go to object storage as refs, never into typed columns**
-   (hard rule 2). They exist for debugging and are never read by app code.
+   (hard rule 2). They exist for debugging and are never read by app code — but they
+   are PERSONAL DATA all the same (the raw payload carries the caller's number and the
+   transcript), so their key names the tenant and the call and a DPDP erasure reaches
+   them by prefix, exactly as it reaches a delivered body (D-126, see `payload_key`).
 3. **Delivered webhook bodies are PERSONAL DATA with a clock and an erasure duty**
    (D-23, SEC-COMP §4). Unlike the two above they are read back — by support, by the
    retention sweep and by the DPDP erasure worker — so their key SHAPE is part of the
@@ -90,9 +93,44 @@ def recording_key(tenant_id: UUID, call_id: UUID) -> str:
     return f"recordings/{tenant_id}/{stamp}/{call_id}.wav"
 
 
-def payload_key(engine: str, execution_id: str) -> str:
-    stamp = datetime.now(UTC).strftime("%Y/%m/%d")
-    return f"engine-payloads/{engine}/{stamp}/{execution_id}.json"
+ENGINE_PAYLOAD_PREFIX = "engine-payloads"
+
+
+def payload_key(*, tenant_id: UUID, call_id: UUID, engine: str, execution_id: str) -> str:
+    """`engine-payloads/{tenant}/{call}/{engine}-{execution}.json`.
+
+    THE TENANT AND THE CALL ARE LOAD-BEARING, for the reason `delivery_body_key` spells
+    out about its subject segment: a DPDP erasure arrives naming a PERSON, resolves them
+    to calls, and can only reach an object it can enumerate. This key used to be
+    `engine-payloads/{engine}/{YYYY}/{MM}/{DD}/{execution_id}.json`, which named neither
+    — so the archive was a personal-data store (the raw payload carries the number and
+    the transcript) that no erasure and no retention category could ever reach. Nothing
+    was at risk only because nothing called this yet; the key is fixed BEFORE the first
+    caller rather than after, because afterwards the unreachable objects already exist.
+
+    The date segment is gone with no loss: the lifecycle rule expires on object age, not
+    on a key, and `LastModified` answers "when was this written?" more honestly than a
+    path an uploader chose.
+
+    `execution_id` is vendor-controlled and stays LAST on purpose. Object keys are opaque
+    byte strings — no store resolves `..` or collapses `/` — so the worst a hostile id
+    can do is create a deeper path INSIDE this call's prefix, which the erasure's prefix
+    listing still reaches. It cannot escape the tenant or the call.
+    """
+    return f"{ENGINE_PAYLOAD_PREFIX}/{tenant_id}/{call_id}/{engine}-{execution_id}.json"
+
+
+def payload_call_prefix(*, tenant_id: UUID, call_id: UUID) -> str:
+    """Every archived payload for one call. Ends in `/` so the prefix stops at the
+    path segment.
+
+    Weaker than `delivery_body_subject_prefix`'s reason and deliberately said so: two
+    call ids are uuids of the same length, so neither can be a strict prefix of the
+    other and the slash separates no two calls that exist today. What it bounds is the
+    SEGMENT — a future key layout that appends to the call component (`{call}-raw/`, a
+    per-attempt suffix) is outside this prefix rather than silently inside it, so an
+    erasure's reach cannot widen because a key changed shape."""
+    return f"{ENGINE_PAYLOAD_PREFIX}/{tenant_id}/{call_id}/"
 
 
 async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> str:
@@ -123,14 +161,44 @@ async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> 
     return key
 
 
-def archive_payload(*, engine: str, execution_id: str, payload: dict[str, Any]) -> str | None:
+def archive_payload(
+    *, tenant_id: UUID, call_id: UUID, engine: str, execution_id: str, payload: dict[str, Any]
+) -> str | None:
     """Best-effort archive of the raw vendor payload. Returns the key, or None.
 
     Best-effort on purpose: this is a debugging aid. Failing a call's pipeline because
     a debug artifact could not be written would be the tail wagging the dog.
+
+    THE TENANT AND CALL ARE REQUIRED ARGUMENTS, and that is a deliberate constraint on
+    whoever wires the first caller. The payload is personal data (D-126); an archive
+    written where the call is not yet known would be an object no erasure can reach, and
+    a defaulted or optional id is exactly how that happens. `calls.engine_payload_ref` —
+    the column this key is stored in — says the same thing in the schema: the writer is
+    the post-call pipeline, where the call row exists, not the webhook ack path, which is
+    untenanted by design (hard rule 3).
+
+    **THE WRITE ORDER IS PART OF THE CONTRACT, and it is the opposite of
+    `store_delivery_body`'s.** Commit `calls.engine_payload_ref = payload_key(...)` FIRST,
+    then call this. The reference is what tells `retention._erase_engine_payloads` there
+    is anything under this call's prefix worth a listing, so:
+
+      * reference committed, PUT never happened → the erasure lists a prefix and deletes
+        nothing. Harmless: deleting an absent key is a no-op, and a debug reference that
+        resolves to nothing is the same "gone" answer `read_delivery_body` already
+        establishes as a real one rather than an error.
+      * object PUT, reference never committed → an object holding a caller's number and
+        transcript that the erasure has no reason to look for. That is the D-126 defect
+        reintroduced one crash at a time.
+
+    A delivered body can be written object-first because its key names the SUBJECT, so a
+    listing finds it with no help from the database. This key names the call, and the
+    erasure reaches calls, not archives — so here the reference is the index and it is
+    written first.
     """
     settings = get_settings()
-    key = payload_key(engine, execution_id)
+    key = payload_key(
+        tenant_id=tenant_id, call_id=call_id, engine=engine, execution_id=execution_id
+    )
     try:
         _client().put_object(
             Bucket=settings.object_store_bucket,
@@ -140,7 +208,9 @@ def archive_payload(*, engine: str, execution_id: str, payload: dict[str, Any]) 
             ServerSideEncryption="AES256",
         )
     except (BotoCoreError, ClientError):
-        log.warning("payload_archive_failed", extra={"engine": engine})
+        # Ids and an engine name. Never one byte of the payload — the thing that could
+        # not be written is a phone number and a transcript (hard rule 6).
+        log.warning("payload_archive_failed", extra={"engine": engine, "call_id": str(call_id)})
         return None
     return key
 
@@ -186,7 +256,7 @@ def delivery_body_key(
     `recording_key`'s date prefix. A DPDP erasure arrives naming a PERSON, not a date,
     and an object nobody can enumerate for that person is a breach waiting for its first
     request. Putting the subject in the key makes the object store itself the index the
-    erasure walks (`delivery_body_keys_for`), so an object written by a worker that then
+    erasure walks (`keys_under`), so an object written by a worker that then
     crashed before recording the reference is still reachable — a DB-side index would
     have missed exactly those.
 
@@ -330,12 +400,18 @@ def read_delivery_body(key: str) -> dict[str, Any] | None:
     return document if isinstance(document, dict) else None
 
 
-def delivery_body_keys_for(prefix: str) -> list[str]:
-    """Every stored body under one subject prefix. RAISES on failure, deliberately.
+def keys_under(prefix: str) -> list[str]:
+    """Every object under one prefix. RAISES on failure, deliberately.
 
     The DPDP erasure calls this, and an erasure that treats "the store did not answer"
     as "there was nothing there" writes a certificate claiming a deletion it did not
     perform. Loud and retried beats quiet and false.
+
+    Not delivery-body-specific, and its name no longer says so — the archived engine
+    payloads (D-126) are enumerated by their own `{tenant}/{call}` prefix through this
+    same function, exactly as `delete_objects` is already shared by every store in this
+    module. Two listings for one question is how the second one grows a different
+    failure contract.
     """
     keys: list[str] = []
     try:
@@ -343,7 +419,7 @@ def delivery_body_keys_for(prefix: str) -> list[str]:
         for page in paginator.paginate(Bucket=get_settings().object_store_bucket, Prefix=prefix):
             keys += [str(item["Key"]) for item in page.get("Contents", [])]
     except (BotoCoreError, ClientError) as exc:
-        raise StorageUnavailableError(f"delivery body list failed: {type(exc).__name__}") from exc
+        raise StorageUnavailableError(f"object list failed: {type(exc).__name__}") from exc
     return keys
 
 
@@ -399,6 +475,7 @@ def presigned_url(key: str, *, ttl_s: int = PRESIGN_TTL_S) -> str | None:
 
 __all__ = [
     "DELIVERY_BODY_PREFIX",
+    "ENGINE_PAYLOAD_PREFIX",
     "MAX_RETAINED_BODY_BYTES",
     "PRESIGN_TTL_S",
     "RECORDING_RETRY_DEFER_S",
@@ -408,8 +485,9 @@ __all__ = [
     "copy_recording",
     "delete_objects",
     "delivery_body_key",
-    "delivery_body_keys_for",
     "delivery_body_subject_prefix",
+    "keys_under",
+    "payload_call_prefix",
     "payload_key",
     "presigned_url",
     "read_delivery_body",
