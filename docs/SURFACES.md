@@ -171,15 +171,17 @@ stored), `X-Hub-Signature-256` verified against the raw bytes with the app secre
 before any parse, dedupe keyed on `leadgen_id` (the lead is the unit of work — Meta
 batches and re-batches), the form-field mapping, and consent that is never assumed: a
 lead-ad fill with no opt-in question on the form is saved and **not** dialled
-(`no_consent_field_configured`). (*Still NOT built and not to be claimed: the Graph
-read that carries the answers. `GET /{leadgen_id}?fields=field_data` needs a Page
-access token with `leads_retrieval`, and this deployment holds no Meta credentials —
-so a verified delivery today lands as a RECORDED refusal
+(`no_consent_field_configured`). (*The Graph read that carries the answers is **built**
+— this parenthetical said it was not, for a wave after D-90 landed it.
+`GET /{leadgen_id}?fields=field_data` sits behind the `LeadRetriever` Protocol with
+`field_data` → flat-map normalization feeding the same consent gate, and
+`LEAD_RETRIEVAL_IMPLEMENTED = True` is the greppable constant. What is missing is the
+CREDENTIAL: it needs a Page access token with `leads_retrieval` and this deployment
+holds no Meta credentials, so a verified delivery today still lands as a RECORDED refusal
 (`meta_lead_retrieval_unavailable`) against its `leadgen_id`, visible in the activity
-view and re-claimable the day an adapter exists. `apps/api/ingest/meta.py` states
-this, `POST /v1/lead-sources/{webhook_id}/meta/setup` answers it (a POST because the
-response carries a verify token — the mirror of `/v1/dnc/check`), and
-`LEAD_RETRIEVAL_IMPLEMENTED = False` is the greppable constant.*);
+view and re-claimable the day a token exists. `apps/api/ingest/meta.py` states this, and
+`POST /v1/lead-sources/{webhook_id}/meta/setup` answers the handshake half — a POST
+because the response carries a verify token, the mirror of `/v1/dnc/check`.*);
 typed+validated extraction (theirs is untyped — the "Delhi
 in a quantity field" bug); full version history with diffs and audit (they keep 3
 versions, no diff); and **DNC on every dispatch path** including instant, which is where

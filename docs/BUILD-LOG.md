@@ -3009,12 +3009,91 @@ gate 12's ≤₹1.50 target (worth ₹5,200/month at 20k platform-minutes); and 
 cost lever is Bulbul v2 vs v3** — ₹13,400/month at the same volume, bigger than the whole
 platform-fee gap, and decided by a Telugu ear test rather than a rate card.
 
+## §65 — nine red CI runs from borrowed credentials, a drain that had never drained, and two guards pointed at the doc set
+
+The wave's largest finding was not in a feature. **`_install_signal_handlers` destroyed
+the drain its own docstring described (D-101).** `Server.serve()` enters uvicorn's
+`capture_signals()` and *then* runs the lifespan, so our handler replaced `handle_exit`
+with one raising `KeyboardInterrupt`; the exception escaped `asyncio.run`, so
+`Server.shutdown()` never closed sockets and never waited, and the lifespan's `finally`
+never flushed. Measured with a real server and a sleeping request — before, `ESCAPED
+KeyboardInterrupt` and no in-flight line at all; after, `INFLIGHT 200` then exit 143. On
+`hooks.calevate.tech` that made every deploy an abort of whatever webhook was in flight,
+on an at-most-once feed with no retry (D-31), and `stop_grace_period: 30s` had nothing to
+give its seconds to. DEPLOYMENT §4b's promise is true for the first time.
+
+**Nine consecutive CI runs were red on two tests that asserted about an environment they
+had borrowed rather than declared**, and because every guardrail is a later step in the
+same job, all twelve were reported `skipped` for those nine commits — which is the part
+worth carrying: `skipped` was read as `ok` here, by me, in a readiness audit. One test
+proved secret precedence using `COHERE_API_KEY` because this repo's `.env` happened to
+carry it; the other needed botocore to find an access key and found the developer's
+exported `AWS_*`. The individual fixes are small. What closes the CLASS is
+`tests/conftest._no_ambient_credentials`, which strips `AWS_*` and repoints `HOME` for the
+whole session, so borrowing is impossible rather than detectable — a test that needs a
+credential now declares it, which puts the dependency in the test that has it. **The
+grep-shaped guard written first was thrown away**: it flagged three files that merely NAME
+a credential inside an assertion and caught neither real offender, and a check that
+produces only false positives is worse than none. Two structural facts keep local and CI
+the same shape and are asserted: no committed `.env`, and `.env.example` held to the eight
+bootstrap keys.
+
+Also closed: **ARQ jobs now pin `Settings` for their duration** via `on_job_start` /
+`on_job_end`, the half left open when D-101's `settings_scope()` landed in both HTTP
+deployables. Jobs are the half that runs LONGEST — a post-call pipeline can be alive for
+many seconds while a console change propagates in ~5 — and a job that reads
+`usd_inr_rate` when it prices a call and again when it writes the usage row could bill one
+call at two rates, in an append-only ledger where the fix is a compensating entry. And the
+graceful-shutdown timeouts in `compose.prod.yml` are now stated with their arithmetic
+rather than left to a default that outlives `stop_grace_period`.
+
+**Two guards were pointed at the doc set, in opposite directions.** D-102 gives the
+greppable-constant device its reverse check: prose that STATES a capability constant's
+value is compared against the AST-discovered constant, because every error the readiness
+audit found ran the same way — the capability was BUILT and the doc still said missing.
+`PROVIDER_CREATES_ORDERS` had been True since D-98 while four documents said no checkout
+could be opened. Understating is not the safe error: it is how a shipped checkout gets
+rebuilt, and `docs/` is authoritative, so a reader believes the doc over the code.
+Value-stating rather than name-mentioning, adjacency rather than proximity, present tense
+only — 20 value-statements in the tree, 4 genuine offenders, 0 false positives.
+
+D-103 points the other way, at code. **The set of engine names had three spellings**, and
+the drifted copy in the voice-runtime receiver did not open a hole — Cartesia deliveries
+were already refused twice over — it created a BLIND SPOT: `_refuse` labels anything
+outside `KNOWN_ENGINES` as `"unknown"`, so on `ENGINE=cartesia` every 401 was attributed
+to a stranger probing the URL rather than to our own unimplemented verifier. The set now
+has exactly two definitions, both in `calevate_shared`, and an AST scan fails the build on
+a third rather than pinning the two we found. That matters because **the third copy is the
+one nobody looked for**: `agents/models.py::ENGINES` renders a CHECK constraint, so
+`ENGINE=cartesia` fails client creation with a raw `IntegrityError`. It needs a migration,
+so it is reported as a strict `xfail` and an equality-asserted `KNOWN_OPEN_COPIES` entry —
+fixing the constant fails the test and forces the entry's deletion, so the list cannot rot
+into a permanent exemption.
+
+**A doctrine landed in CLAUDE.md and AGENTS.md rather than a file**: there is no "later".
+Work that can be done now is done now, and the only scheduling distinction that survives
+is whether a thing is ours to do or waits on someone else — a credential, a regulator, a
+vendor reply. It does not license shortcuts; it forbids narrating a schedule instead of
+finishing a seam.
+
 ## State of the system — what a future session inherits
 
-Written after the sweep above, grep-verified against the tree at this commit, and
-deliberately separated into four states, because "built" has meant four different things
-in this repo and conflating them is how a session re-derives a decision that was already
-taken.
+Written after the sweep above and deliberately separated into four states, because "built"
+has meant four different things in this repo and conflating them is how a session
+re-derives a decision that was already taken.
+
+⚠ **This paragraph used to say "grep-verified against the tree at this commit". It was
+not**, and a readiness audit found four claims that were wrong — every one of them in the
+same direction: a capability had been BUILT and this inventory still described it as
+missing (`PROVIDER_CREATES_ORDERS`, WhatsApp's adapter, the guardrail count, and ROADMAP
+§5's twin of the first). Understating is not the safe error. Somebody reads "no checkout
+can be opened" and rebuilds the checkout. **Section 5 of `scripts/check_docs_drift.py`
+(D-102) now enforces the part of that promise a machine can hold**: any sentence in this
+repo that STATES a capability constant's value is compared against the constant, and CI
+fails if they disagree. What is still on a human is the class no matcher can decide — a
+paragraph that describes a capability without quoting a constant, which is exactly how the
+WhatsApp row stayed wrong. When you write an entry here, quote the constant with its
+value; that is the half that cannot rot silently.
 
 **Built and working end to end** — meaning: code, tests, a mounted route, a screen where
 the surface is client- or operator-facing, and a guardrail where a rule needs one. One
@@ -3036,12 +3115,15 @@ caps with the ops recompute. KYC and the first-campaign hold, both gates plus bo
 plus the client's own screens plus the cross-tenant hold queue. Outbound CRM sync (webhook
 half). OTel tracing across every boundary, Sentry, and `alert()` with a real email
 transport. Outbound CRM sync's Sheets half, adapter included, though nothing has yet spoken
-to a real Google project. Ten checks in `make guardrails` — the eleventh thing this used to count, the coverage
-ratchet, is a SEPARATE target with different preconditions (both stores empty), and a
-reader who runs `make guardrails` believing it covers the ratchet gets a weaker gate than
-they think — the newest being
-half-wiring, compliance invariants, docs drift, the coverage ratchet and the web tier's env
-parity — and the frontend gate beside it, 638 tests over every screen in both realms at
+to a real Google project. **Twelve** checks in `make guardrails` — `lint-imports` plus the
+eleven `scripts/check_*` modules the target invokes; count them in the recipe, not here,
+because this number has been wrong twice (it said ten while the tree ran twelve). The
+newest two are bootstrap-key isolation (D-95) and config `applies` classification (D-101),
+joining half-wiring, compliance invariants, docs drift and the web tier's env parity. The
+coverage ratchet is NOT among them: it is a SEPARATE target with different preconditions
+(both stores empty), and a reader who runs `make guardrails` believing it covers the
+ratchet gets a weaker gate than they think.
+Beside it the frontend gate, 638 tests over every screen in both realms at
 §61 (this said 364 for several sections; the number moves every wave and is not worth
 chasing — read `pnpm -C apps/web test` if the exact figure matters).
 The console speaks one design language from tokens in `globals.css`, and sign-in exists for
@@ -3053,16 +3135,34 @@ decision wide, and each is named by a greppable selector rather than faked, so t
 is honest at the surface rather than silent in a worker:
 - **The whole backup tree.** `infra/backup/` has been applied to nothing and **no wal-g
   command has ever been run**. Nothing is deployed, every secret is a reference.
-- **Razorpay order creation.** The capability is expressible and both surfaces ask one
-  selector; `PROVIDER_CREATES_ORDERS` is False, so no checkout can be opened from a top-up
-  intent. The signing scheme itself is unverified against a live account.
-- **WhatsApp.** A transport protocol, a console dev sink, delivery records and a retry
-  ladder, with no vendor adapter, because no decision picks a BSP. The escalation path is
-  complete except for the send.
+- **Razorpay order creation.** ⚠ **This entry said the adapter did not exist. It does**
+  (D-98): `PROVIDER_CREATES_ORDERS` is True, `RazorpayOrders.create_order` is written,
+  `POST /v1/orders` is mounted and the order is created SERVER-SIDE so
+  `notes.calevate_tenant_id` reaches the provider by construction. What is inert is the
+  DEPLOYMENT, and D-98 exists to keep the two facts apart: `PaymentCapability.creates_orders`
+  is False on every box we run, with its own reason `no_api_secret` — no Razorpay API
+  secret is configured anywhere, so no checkout can be opened from a top-up intent today.
+  "An adapter exists" and "this box can take a payment" are different sentences and the
+  first one is now true. The signing scheme is still unverified against a live account,
+  and no checkout widget was built at all (`checkout.js` is a supply-chain decision,
+  hard rule 9); the signed webhook, never the browser callback, is the source of truth.
+- **WhatsApp.** ⚠ **This entry said "no vendor adapter, because no decision picks a BSP".
+  Both halves were false**: D-91 picked the **Meta Cloud API** (direct, no BSP reseller),
+  and `apps/workers/whatsapp_cloud.py` implements the transport — one POST to
+  `/{phone-number-id}/messages`, template gate encoded, status classification, driven
+  through `httpx.MockTransport` in tests. What is inert is the vendor relationship:
+  `CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA` is False, we hold no WABA, no phone number id
+  and no token, and this module has never exchanged a byte with Meta. Everything above
+  the send — transport protocol, console dev sink, delivery records, retry ladder,
+  escalation path — was already complete and remains so.
 - **Google Sheets sync.** Delivered through the same job as the webhook half; refused at
   endpoint creation while no service account exists.
-- **Meta Lead Ads field retrieval.** Intake is native; the Graph read that carries the form
-  answers needs a Page token this deployment does not hold.
+- **Meta Lead Ads field retrieval.** Intake is native and the Graph read is **built**
+  (D-90): `LEAD_RETRIEVAL_IMPLEMENTED` is True and `GET /{leadgen_id}?fields=field_data`
+  sits behind the `LeadRetriever` Protocol, feeding the existing consent gate. Inert for
+  a credential only — the Page token with `leads_retrieval` that this deployment does not
+  hold — so a verified delivery still lands as a recorded `meta_lead_retrieval_unavailable`
+  refusal, re-claimable the day a token exists.
 - ~~**`redact_trace_payload`.**~~ No longer inert and no longer present: it was DELETED
   (D-61) once the audit found that hard rule 6 was being broken on the tracing path by the
   OTel SDK's own exception events. Redaction is now automatic in `_RedactingSpanExporter`.

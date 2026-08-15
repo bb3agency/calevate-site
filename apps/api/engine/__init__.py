@@ -39,14 +39,15 @@ _instances: dict[str, VoiceEngine] = {}
 def get_engine(settings: Settings | None = None) -> VoiceEngine:
     """One adapter instance per engine name per process (httpx clients are reused)."""
     cfg = settings or get_settings()
-    # Widened to `str` deliberately. `Settings.engine` is typed `EngineName`, which does
-    # NOT yet include `cartesia` — that literal lives in `calevate_shared/config.py`,
-    # which this wave's integrator owns, so the key is REPORTED rather than added here.
-    # Without the widening the branch below is statically unreachable and mypy's
-    # `warn_unreachable` rejects the file; with it, the adapter is wired and becomes
-    # selectable the moment the literal grows. The alternative — leaving the branch out
-    # until the literal lands — is the "route nobody mounted" defect: an adapter that
-    # exists, passes conformance, and cannot be reached by any configuration.
+    # Widened to `str`, and the reason for widening it is GONE. This said `EngineName`
+    # "does NOT yet include `cartesia`"; it does — D-93/D-94 landed the literal in
+    # `calevate_shared/config.py` (`Literal["fake", "bolna", "cartesia"]`), so every
+    # member reaches a branch below and mypy's `warn_unreachable` has nothing to object
+    # to under the narrow type. The annotation is now vestigial rather than load-bearing:
+    # narrowing it back to `EngineName` is a typing-only change with no runtime effect.
+    # What the original note got right and is worth keeping: shipping the branch BEFORE
+    # the literal was correct, because the alternative is the "route nobody mounted"
+    # defect — an adapter that exists, passes conformance, and no configuration can reach.
     name: str = cfg.engine
     if name not in _instances:
         if name == "bolna":
@@ -56,11 +57,13 @@ def get_engine(settings: Settings | None = None) -> VoiceEngine:
         elif name == "cartesia":
             from apps.api.engine.cartesia import CartesiaEngine
 
-            # `getattr` because the settings keys are not on `Settings` yet (see above);
-            # the exact names, types and defaults are reported to the integrator. It
-            # degrades to None, which makes the capability selector report the engine
-            # unconfigured and every request refuse — the correct behaviour for an
-            # adapter with no credentials, and the same shape `payment_capability` uses.
+            # `getattr` is vestigial for the same reason as the widening above: both keys
+            # ARE real `Settings` fields now (`cartesia_api_key`,
+            # `cartesia_from_number_id` in `calevate_shared/config.py`, D-93/D-94), each
+            # defaulting to None. The None default is the part that still matters — it
+            # makes the capability selector report the engine unconfigured and every
+            # request refuse, which is the correct behaviour for an adapter with no
+            # credentials and the same shape `payment_capability` uses.
             _instances[name] = CartesiaEngine(
                 api_key=getattr(cfg, "cartesia_api_key", None),
                 from_number_id=getattr(cfg, "cartesia_from_number_id", None),

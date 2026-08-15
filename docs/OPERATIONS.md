@@ -369,10 +369,11 @@ one differs from a summary below, the runbook is the authority.
   (`recipient_not_opted_in`, `whatsapp_disabled`, every `blocked_*` from the dispatch
   gate). Covers both states of the `messaging` consent purpose.
 - **Top-ups and payments** — `runbooks/topup-payments.md`. `payment_capability()` and what
-  each refusal means; server-side order creation is NOT implemented
-  (`PROVIDER_CREATES_ORDERS = False`) and what to tell a client who wants to pay today;
-  the Razorpay signing scheme and payload paths are UNVERIFIED against a live account, so
-  the first real payment is an attended test, not a routine.
+  each refusal means; the order adapter IS built (`PROVIDER_CREATES_ORDERS` is True, D-98)
+  but no deployment holds a Razorpay API secret, so `creates_orders` answers False with
+  reason `no_api_secret` — and what to tell a client who wants to pay today; the Razorpay
+  signing scheme and payload paths are UNVERIFIED against a live account, so the first
+  real payment is an attended test, not a routine.
 - **Knowledge base out of sync with the engine** — `runbooks/kb-out-of-sync.md`.
   `kb_engine_ref_unknown` vs `kb_engine_out_of_sync`: same disease, different cures, and
   the wrong cure leaves a client's agent quoting old prices. Includes the manual

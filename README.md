@@ -14,7 +14,11 @@ apps/api            FastAPI modular monolith
 apps/voice-runtime  FastAPI — engine webhooks, in-call tools. LATENCY-CRITICAL.
 apps/workers        ARQ workers — post-call pipeline, embeddings, campaigns
 packages/shared     Pydantic models, VoiceEngine protocol, normalized events
-infra/              Terraform (DO Bangalore), GitHub Actions
+infra/              nginx templates, backup units + wal-g config, object-lifecycle
+                    policy, and Terraform whose only resource is that S3 lifecycle
+                    config. No host, no network, no DNS; nothing applied (D-25 moved
+                    hosting off DigitalOcean — this line said "DO Bangalore" for months)
+.github/workflows/  CI (listed under infra/ here until D-102's sweep; it never lived there)
 ```
 
 Python members are a **uv workspace** (one `uv.lock`, one venv, `packages/shared`

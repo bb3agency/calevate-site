@@ -143,6 +143,7 @@ import sys
 import tokenize
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -167,6 +168,7 @@ CAPABILITY_ROOTS: tuple[Path, ...] = (
     REPO_ROOT / "scripts",
     REPO_ROOT / "alembic",
     REPO_ROOT / "tests",
+    REPO_ROOT / "infra",
 )
 # The console carries the same claims in JSDoc above the screens that render the refusal
 # (`/c/[slug]/verification` explains why there is no purchase form). Scanned as raw text
@@ -297,8 +299,18 @@ _VALUE_CLAIM = re.compile(
 # exactly that (§"`redact_trace_payload`", §"`inbound_webhooks` rows"). A retracted claim
 # is not a claim, and a check that fired on the correct way to retract one would be
 # pushing people to delete the record instead, which is the opposite of what this file
-# is for. Masked rather than dropped so offsets — and therefore line numbers — survive.
-_STRUCK = re.compile(r"~~.+?~~", re.DOTALL)
+# is for.
+#
+# Bounded at a blank line, matching GFM: strikethrough is inline emphasis and cannot
+# cross a paragraph. Without the bound, ONE stray `~~` and the next one four sections
+# later would mask everything between them — a silent blind spot is a worse failure here
+# than a missed retraction, because nothing announces it.
+_STRUCK = re.compile(r"~~(?:[^\n]|\n(?!\s*\n))+?~~")
+
+
+def _mask(match: re.Match[str]) -> str:
+    """Blank a span in place, keeping newlines so every later line keeps its number."""
+    return re.sub(r"[^\n]", " ", match.group())
 
 
 @dataclass(frozen=True, slots=True)
@@ -872,6 +884,29 @@ def stale_deferrals(root: Path | None = None, deferrals: dict[str, str] | None =
 # --- 5. prose that quotes a capability constant's value quotes the right one ----
 
 
+def _boolean_definitions(roots: Iterable[Path] | None = None) -> dict[str, list[ConstantFact]]:
+    """`{name: every module-level boolean definition of it}` — the raw reading."""
+    definitions: dict[str, list[ConstantFact]] = {}
+    for path, _, tree in _python_sources(roots):
+        module = _rel(path)
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                targets: list[ast.expr] = list(node.targets)
+            elif isinstance(node, ast.AnnAssign):
+                targets = [node.target]
+            else:
+                continue
+            value = node.value
+            if not isinstance(value, ast.Constant) or not isinstance(value.value, bool):
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id.isupper():
+                    definitions.setdefault(target.id, []).append(
+                        ConstantFact(target.id, module, node.lineno, bool(value.value))
+                    )
+    return definitions
+
+
 def capability_constants(roots: Iterable[Path] | None = None) -> dict[str, ConstantFact]:
     """Every module-level `NAME = <bool literal>` in the repo's Python, by name.
 
@@ -881,87 +916,54 @@ def capability_constants(roots: Iterable[Path] | None = None) -> dict[str, Const
     anyway because the AST found it, and the sixth will be checked the day it is written.
     The selection rule is mechanical rather than semantic — UPPER_SNAKE, module level,
     literal `True`/`False` — which on today's tree selects exactly the honesty device and
-    nothing else, because a boolean somebody wanted to CHANGE would be config, not a
-    `Final` in a module.
+    nothing else, because a boolean somebody wanted to CHANGE at runtime would be config
+    or a feature flag (D-78), not a `Final` in a module.
 
-    A name defined twice with disagreeing values is not returned: `capability_blind_spots`
-    reports it instead, because a doc quoting an ambiguous name cannot be judged and
-    picking one definition silently would be inventing the answer.
+    A name defined twice with disagreeing values is not returned: `capability_ambiguities`
+    reports it through `blind_spots()` instead, because a doc quoting an ambiguous name
+    cannot be judged and picking one definition silently would be inventing the answer.
     """
-    facts: dict[str, ConstantFact] = {}
-    ambiguous: set[str] = set()
-    for path in _capability_python(roots):
-        module = _rel(path)
-        for node in ast.parse(path.read_text(encoding="utf-8"), filename=str(path)).body:
-            if isinstance(node, ast.Assign):
-                targets = node.targets
-            elif isinstance(node, ast.AnnAssign):
-                targets = [node.target]
-            else:
-                continue
-            value = node.value
-            if not isinstance(value, ast.Constant) or not isinstance(value.value, bool):
-                continue
-            for target in targets:
-                if not isinstance(target, ast.Name) or not target.id.isupper():
-                    continue
-                previous = facts.get(target.id)
-                if previous is not None and previous.value != value.value:
-                    ambiguous.add(target.id)
-                facts[target.id] = ConstantFact(
-                    target.id, module, node.lineno, bool(value.value)
-                )
-    return {name: fact for name, fact in facts.items() if name not in ambiguous}
+    return {
+        name: facts[-1]
+        for name, facts in _boolean_definitions(roots).items()
+        if len({fact.value for fact in facts}) == 1
+    }
 
 
 def capability_ambiguities(roots: Iterable[Path] | None = None) -> list[str]:
     """Names two modules define as different booleans. Reported, never resolved."""
-    seen: dict[str, ConstantFact] = {}
-    clashes: dict[str, list[str]] = {}
-    for path in _capability_python(roots):
-        module = _rel(path)
-        for node in ast.parse(path.read_text(encoding="utf-8"), filename=str(path)).body:
-            if isinstance(node, ast.Assign):
-                targets = node.targets
-            elif isinstance(node, ast.AnnAssign):
-                targets = [node.target]
-            else:
-                continue
-            value = node.value
-            if not isinstance(value, ast.Constant) or not isinstance(value.value, bool):
-                continue
-            for target in targets:
-                if not isinstance(target, ast.Name) or not target.id.isupper():
-                    continue
-                fact = ConstantFact(target.id, module, node.lineno, bool(value.value))
-                previous = seen.setdefault(target.id, fact)
-                if previous.value != fact.value:
-                    clashes.setdefault(target.id, [previous.where]).append(fact.where)
     return [
-        f"`{name}` is defined as a boolean in more than one place with disagreeing "
-        f"values ({', '.join(wheres)}). No sentence quoting that name can be judged, so "
-        "section 5 is blind to it until one of them is renamed."
-        for name, wheres in sorted(clashes.items())
+        f"`{name}` is defined as a module-level boolean in more than one place with "
+        f"disagreeing values ({', '.join(fact.where for fact in facts)}). No sentence "
+        "quoting that name can be judged, so section 5 is blind to it until one of them "
+        "is renamed."
+        for name, facts in sorted(_boolean_definitions(roots).items())
+        if len({fact.value for fact in facts}) > 1
     ]
 
 
 def module_level_names(roots: Iterable[Path] | None = None) -> set[str]:
-    """Every UPPER_SNAKE name bound at module level in the repo's Python, any value.
+    """Every UPPER_SNAKE name ASSIGNED at module level in the repo's Python, any value.
 
     Wider than `capability_constants()` on purpose, and used only to answer "does the tree
-    spell this name at all". `PAYMENT_PROVIDER` is not a boolean, so a doc quoting a value
-    for it would be nonsense — but it is not the RENAME this half is looking for, and
-    reporting it would be a guess about intent.
+    still define this name". `PAYMENT_PROVIDER` is not a boolean, so a doc quoting a value
+    for it would be nonsense — but it is not the RENAME the second half of
+    `capability_drift()` is looking for, and reporting it would be a guess about intent.
+
+    Assignments only: `from ... import PROVIDER_CREATES_ORDERS` is deliberately NOT a
+    spelling of the name. Measured, because the first run of the rename negative control
+    stayed green on it — a half-finished rename leaves exactly that stale import behind
+    (in `payments_provider_seam_test.py`, here), and counting it would let the import
+    shield every doc sentence quoting the old name from ever being compared again. Costs
+    nothing on today's tree: dropping imports adds zero findings.
     """
     names: set[str] = set()
-    for path in _capability_python(roots):
-        for node in ast.parse(path.read_text(encoding="utf-8"), filename=str(path)).body:
+    for _, _, tree in _python_sources(roots):
+        for node in tree.body:
             if isinstance(node, ast.Assign):
                 names.update(t.id for t in node.targets if isinstance(t, ast.Name))
             elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
                 names.add(node.target.id)
-            elif isinstance(node, ast.ImportFrom | ast.Import):
-                names.update(alias.asname or alias.name.rsplit(".", 1)[-1] for alias in node.names)
     return {name for name in names if name.isupper()}
 
 
@@ -1004,21 +1006,20 @@ def _python_sources(
     return tuple(_parse_python(path) for path in _capability_python(roots))
 
 
-def _python_prose(path: Path) -> Iterator[tuple[int, str]]:
+def _python_prose(text: str, tree: ast.Module) -> Iterator[tuple[int, str]]:
     """`(first line, text)` for each docstring and each run of `#` comments.
 
     Prose only. The definition line, the `assert X is True` in a test and the
     `capability = X and credentials()` in a service are CODE — they are the thing being
     described, they cannot drift from themselves, and judging them would make the
-    offender message ("a doc states…") a lie about half its hits. Runs of consecutive
-    comment lines are joined so a claim that wraps across two `#` lines is still one
-    sentence to the matcher.
+    offender message ("a doc states…") a lie about half its hits.
+
+    Runs of consecutive comment lines are joined, and each line's `#` marker is stripped,
+    so a claim wrapping across two of them reads as the one sentence it is. Without the
+    stripping the marker sits between the name and its value and defeats the adjacency
+    rule — the matcher would go blind at exactly the 100-column margin where a long
+    comment wraps, which is where this repo's comments live.
     """
-    text = path.read_text(encoding="utf-8")
-    try:
-        tree = ast.parse(text, filename=str(path))
-    except SyntaxError:  # a fixture of deliberately broken source; not this check's call
-        return
     for node in ast.walk(tree):
         if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
             continue
@@ -1039,7 +1040,7 @@ def _python_prose(path: Path) -> Iterator[tuple[int, str]]:
             if run:
                 yield start, "\n".join(run)
             run, start = [], token.start[0]
-        run.append(token.string)
+        run.append(token.string.lstrip("#"))
         previous = token.start[0]
     if run:
         yield start, "\n".join(run)
@@ -1059,14 +1060,20 @@ def prose_blocks(
     """
     for path in doc_files() if docs is None else list(docs):
         yield _rel(path), 1, path.read_text(encoding="utf-8")
-    for path in _capability_python(roots):
-        for line, text in _python_prose(path):
+    for path, source, tree in _python_sources(roots):
+        for line, text in _python_prose(source, tree):
             yield _rel(path), line, text
     web_root = WEB_SOURCE_ROOT if web is None else web
     if web_root.exists():
         for path in sorted(web_root.rglob("*.ts*")):
             if "node_modules" not in path.parts:
                 yield _rel(path), 1, path.read_text(encoding="utf-8")
+
+
+@cache
+def _default_value_claims() -> tuple[ValueClaim, ...]:
+    """Scanned once. `blind_spots()`, `capability_drift()` and the OK line all want it."""
+    return tuple(value_claims(prose_blocks()))
 
 
 def value_claims(blocks: Iterable[tuple[str, int, str]] | None = None) -> list[ValueClaim]:
@@ -1076,9 +1083,11 @@ def value_claims(blocks: Iterable[tuple[str, int, str]] | None = None) -> list[V
     the first of them, so a claim wrapped by an 88-column doc is still seen exactly once
     and attributed to the line the name is on.
     """
+    if blocks is None:
+        return list(_default_value_claims())
     claims: list[ValueClaim] = []
-    for where, first_line, text in prose_blocks() if blocks is None else blocks:
-        lines = _STRUCK.sub(lambda m: " " * len(m.group()), text).splitlines()
+    for where, first_line, text in blocks:
+        lines = _STRUCK.sub(_mask, text).splitlines()
         for index, line in enumerate(lines):
             window = line if index + 1 >= len(lines) else f"{line}\n{lines[index + 1]}"
             for match in _VALUE_CLAIM.finditer(window):
@@ -1220,10 +1229,10 @@ def blind_spots() -> list[str]:
             "runs on has either been deleted or stopped being discoverable, and section 5 "
             "would pass on any prose"
         )
-    claims = value_claims()
-    if len(claims) < 8:
+    stated = value_claims()
+    if len(stated) < 8:
         failures.append(
-            f"only {len(claims)} sentence(s) in the whole repo state a boolean constant's "
+            f"only {len(stated)} sentence(s) in the whole repo state a boolean constant's "
             "value — the matcher has stopped matching (a markdown or docstring convention "
             "moved), so section 5 would report OK on a doc that contradicts every constant"
         )

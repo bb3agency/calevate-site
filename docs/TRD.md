@@ -960,7 +960,9 @@ architectural change that actually matters.
 
 **The architectural change: engine selection is currently GLOBAL and must become
 per-tenant.** `apps/api/engine/__init__.py::get_engine()` resolves one engine per
-deployment from `ENGINE=fake|bolna`. That is a fine shape for one vendor and the wrong
+deployment from `ENGINE=`, whose permitted values are `calevate_shared.config.EngineName`
+— today `fake|bolna|cartesia`, and never spelled out again anywhere else (D-103). That is
+a fine shape for one vendor and the wrong
 shape for a migration, because it makes the switch a single irreversible flip for every
 client at once. Nobody sane migrates a phone system that way.
 

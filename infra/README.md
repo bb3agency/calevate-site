@@ -115,8 +115,11 @@ written. Do not assume any of it works.
 
 1. **Confirm the target.** Production object storage is **Cloudflare R2**
    (DEPLOYMENT.md §1, TRD §2). DEV-SETUP.md §3 also names DO Spaces as an alternative,
-   and CLAUDE.md's repo-layout line says "Terraform (DO Bangalore)" — that refers to the
-   *VPS*, not the bucket. Pin which one is live before applying anything. **No bucket
+   and DigitalOcean appears in older docs only because CLAUDE.md's repo-layout line
+   used to read "Terraform (DO Bangalore)" — which referred to the *VPS*, not the
+   bucket, and was wrong on both counts after D-25 moved hosting off DigitalOcean
+   entirely. That line is corrected; nothing in this directory names a provider.
+   Pin which store is live before applying anything. **No bucket
    name or account ID appears anywhere in this directory**; every one is a variable.
 2. **Verify the store actually supports these rules.** "S3-compatible expiration" is not
    one thing. R2, DO Spaces and MinIO each implement a subset of S3's lifecycle grammar

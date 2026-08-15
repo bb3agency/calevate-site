@@ -13,7 +13,9 @@ fallback, not the default. Our code: admin console,
 client dashboards, schema-driven extraction + mini-CRM, RAG (managed service — D-28), metering/billing,
 TRAI/DLT/DPDP compliance. Stack: FastAPI + Python 3.12, Next.js 15 + TypeScript,
 Postgres 16 (RLS; pgvector only as D-28 contingency), Redis + ARQ, Clerk auth
-(two realms — reaffirmed D-37), DO Bangalore.
+(two realms — reaffirmed D-37). Hosting is a general-purpose Hetzner-class VPS (D-25
+superseded D-13's "DO Bangalore"; India co-location is required only for in-call-path
+services), and nothing has been deployed — `infra/` is templates nobody has applied.
 
 ## Setup & commands
 

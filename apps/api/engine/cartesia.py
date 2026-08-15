@@ -750,6 +750,21 @@ class CartesiaEngine:
         somebody reads their webhook documentation and implements the real scheme. That is
         a visibly unfinished integration — the reconciliation poller remains the guarantee
         of record — rather than a plausible-looking wrong one.
+
+        THE OTHER HALF OF THE REFUSAL IS NOT IN THIS FILE (D-103). This method is what the
+        WORKER acts on; the receiver that actually answers the delivery is
+        `apps/voice-runtime/engine_intake.verify_source`, which cannot import this module
+        (hard rule 3 forbids the heavy import on the ack path) and instead reads
+        `WEBHOOK_AUTH_BY_ENGINE["cartesia"] == "hmac"` and refuses on the same grounds. So
+        both halves fail closed independently, and neither can be softened by a change to
+        the other. `tests/engine_name_drift_test.py` asserts they still agree — including
+        the case that matters most, a deployment actually running `ENGINE=cartesia`, where
+        the temptation to let the delivery through is at its strongest.
+
+        WHEN THE SCHEME IS SOURCED, both halves change together or the conformance clause
+        `test_the_declared_webhook_method_is_the_one_actually_reported` fails: the verifier
+        lands here, the receiver grows the matching check, and only then does either stop
+        returning `ok=False`.
         """
         return WebhookVerdict(ok=False, method="hmac", reason=SIGNATURE_UNIMPLEMENTED_REASON)
 

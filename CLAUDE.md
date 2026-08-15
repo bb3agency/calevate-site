@@ -24,10 +24,19 @@ apps/api            FastAPI modular monolith — tenancy, agents, crm, billing, 
 apps/voice-runtime  FastAPI — engine webhooks, in-call tool endpoints. LATENCY-CRITICAL.
 apps/workers        ARQ workers — post-call pipeline, embeddings, campaigns, retention
 packages/shared     Pydantic models, VoiceEngine protocol, normalized events
-infra/              Terraform (DO Bangalore), GitHub Actions
+infra/              nginx templates, backup units + wal-g config, object-lifecycle policy,
+                    and Terraform whose ONLY resource is that S3 lifecycle configuration.
+                    No host, no network, no DNS, and NOTHING here has ever been applied.
+.github/workflows/  CI (this used to be listed under infra/, where it does not live)
 docs/               BRD, TRD, DATA-MODEL, SECURITY-COMPLIANCE, FLOWS, OPERATIONS, ROADMAP
 runbooks/           Incident procedures
 ```
+
+`docs/DEPLOYMENT.md` is the accurate account of what deployment IS, and this line used to
+contradict it twice: it said "Terraform (DO Bangalore)" when the Terraform provisions no
+host at all and D-25 moved hosting to a general-purpose Hetzner-class VPS (India
+co-location is required only for in-call-path services). `infra/README.md` §5 lists what a
+human must do before any of it is real — `terraform validate` has never been run.
 
 ## Commands
 

@@ -8,7 +8,7 @@ import ipaddress
 import logging
 from decimal import Decimal
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,7 +18,29 @@ Environment = Literal["local", "staging", "prod"]
 # `cartesia` is a REAL adapter with a real conformance run (D-93), not a placeholder —
 # but D-94 gates ADOPTING it on three triggers, one of which (BYOC SIP from an Indian
 # DLT-registered carrier) is unanswered. Selectable, not recommended.
+#
+# THE ONE DEFINITION OF WHAT `ENGINE=` MAY BE (D-103). It is a `Literal` because pydantic
+# validates the setting against it and mypy checks every comparison against it, and
+# neither can be done with a runtime set — so this is the one spelling of these names on
+# the selection axis, and `SELECTABLE_ENGINES` below is how every other module asks.
 EngineName = Literal["fake", "bolna", "cartesia"]
+
+#: The same set as a value, for the callers that need to CHECK membership rather than
+#: annotate a field — `get_args` on the Literal, never a second tuple beside it.
+#:
+#: WHY IT EXISTS AT ALL (D-103). It did not, and the absence is what let three copies of
+#: this set grow: `apps/voice-runtime/engine_intake.py` retyped it as its own `Literal`
+#: and drifted to `("bolna", "fake")` after `cartesia` was added here, and
+#: `apps/api/agents/models.py::ENGINES` still is `("fake", "bolna")` — which is not a
+#: cosmetic disagreement, because that tuple renders the `ck_agents_engine_enum` CHECK
+#: constraint, so a deployment running `ENGINE=cartesia` cannot insert an agent row at
+#: all. A set nobody can import is a set everybody retypes.
+#:
+#: `tests/engine_name_drift_test.py` walks the tree for a second spelling and fails on
+#: one, which is the part that keeps this the ONE definition rather than the first of
+#: several. It is a frozenset rather than the raw tuple so no caller can mutate the
+#: answer another caller is about to read.
+SELECTABLE_ENGINES: frozenset[str] = frozenset(get_args(EngineName))
 
 # Stdlib logger, not `apps.api.core.logging.get_logger`: `calevate_shared` is imported by
 # every deployable and must not depend on `apps`. `get_logger` is `logging.getLogger`
@@ -598,6 +620,7 @@ def bolna_source_ips(settings: Settings) -> frozenset[str]:
 
 __all__ = [
     "DEFAULT_BOLNA_SOURCE_IPS",
+    "SELECTABLE_ENGINES",
     "EngineName",
     "Environment",
     "Settings",
