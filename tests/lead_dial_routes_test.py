@@ -23,8 +23,10 @@ external dependency the test process has no bucket for.
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest import mock
 
 import httpx
 import pytest
@@ -493,12 +495,32 @@ async def test_a_recording_link_is_presigned_and_the_read_is_audited() -> None:
             {"k": f"recordings/{tenant_id}/{call_id}.mp3", "i": call_id},
         )
 
-    async with _client() as http:
-        response = await http.get(f"/v1/calls/{call_id}/recording", headers=headers)
+    # THE CREDENTIALS ARE DECLARED HERE, not inherited from the machine. Presigning is
+    # local computation — no object store need exist — but botocore still refuses
+    # without a key pair, and `NoCredentialsError` is a `BotoCoreError`, so
+    # `presigned_url` returns None and the route correctly answers 502. This test used
+    # to pass only where a developer happened to have `AWS_*` exported or a `~/.aws`
+    # profile on disk, and failed in CI, which has neither. A test that needs a
+    # credential must state it; borrowing one asserts about the machine.
+    with mock.patch.dict(
+        os.environ,
+        {"AWS_ACCESS_KEY_ID": "test-access-key", "AWS_SECRET_ACCESS_KEY": "test-secret-key"},
+    ):
+        async with _client() as http:
+            response = await http.get(f"/v1/calls/{call_id}/recording", headers=headers)
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["url"].startswith("http"), body
+    url = body["url"]
+    # `startswith("http")` was the whole assertion here, and a sabotage that returned the
+    # literal string "http://sabotage" passed it. A link is only useful if it names OUR
+    # object and carries a signature, so assert both: the bucket and the exact key, and
+    # the SigV4 parameters that make it presigned rather than merely a URL. Without the
+    # signature the link is either a 403 for the client or — far worse, on a bucket
+    # someone later makes public — a permanent unauthenticated one.
+    assert f"recordings/{tenant_id}/{call_id}.mp3" in url, url
+    assert "X-Amz-Signature=" in url, "not a signed link — the client would get a 403"
+    assert "X-Amz-Expires=" in url, "an unexpiring link is a permanent leak"
     assert body["expires_in_s"] > 0, "an unexpiring link is a permanent leak"
     async with untenanted_session() as session:
         audited = (
