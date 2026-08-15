@@ -26,6 +26,21 @@ between the two pointers also materializes `live_prompt_id` in the same UPDATE. 
 ahead" — which is also true of every row that predates the pointer (migration
 a4e7b2c95d18 backfilled them) and of every row `admin/intake.py` writes.
 
+WHAT "LIVE" IS ALLOWED TO MEAN (migration c1f6a94d2b07)
+-------------------------------------------------------
+`publish_agent` used to finish at "the vendor call returned without raising" and then
+write four claims about the ENGINE — `status = 'live'`, `engine_agent_ref`,
+`live_tts_voice`, and (through `apply_to_live`) `live_prompt_id`. All four were derived
+from one fact about OURSELVES. D-64 put `VoiceEngine.get_agent` on the Protocol to close
+exactly that, and nothing called it.
+
+Now every publish reads the agent back and scores it (`agents/verification.py`). A PROVEN
+mismatch is a refusal — the transaction rolls back, and nothing claims a script the
+engine was observed not to be running. An UNPROVEN one (the adapter could not read the
+field, or the read-back itself failed) is recorded in `live_verify_state` and rendered,
+never rounded up. The four values and why `not_applied` is not one of them are in the
+migration.
+
 WHICH VOICE THE ENGINE IS HOLDING (migration c8b3f14e7a29)
 ----------------------------------------------------------
 `publish_agent` is the ONLY place a voice reaches the engine, so it is the only place
@@ -58,6 +73,7 @@ by us at all, so a dispatch-side check would leave the receptionist motion ungua
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
 
@@ -68,6 +84,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
 from apps.api.agents.models import CALL_CAP_DEFAULT_S
+from apps.api.agents.verification import verify_publish
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -89,7 +106,29 @@ def effective_call_cap(max_call_duration_s: int | None) -> int:
     return CALL_CAP_DEFAULT_S if max_call_duration_s is None else max_call_duration_s
 
 
-async def _load_agent(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> dict[str, object]:
+async def _load_agent(
+    session: AsyncSession, tenant_id: UUID, agent_id: UUID, *, for_update: bool = False
+) -> dict[str, object]:
+    """The agent as an `AgentConfig` needs it, optionally under a row lock.
+
+    `for_update` is the publish path's, and only the publish path's. The read alone is a
+    read-then-write over `engine_agent_ref` — read "no ref", call `create_agent`, write
+    the ref back — and two publishes interleaving there produce TWO vendor-side agents
+    for one row, of which we can record exactly one. The other is an orphan: an object we
+    are billed for, cannot address, and have no record of. BACKEND-PATTERNS §5 wants CAS
+    or a lock; a CAS cannot serve here because the value being decided (the vendor's id)
+    does not exist until after the side effect, so the lock is the only instrument that
+    covers the window.
+
+    `FOR UPDATE` on `agents` only — not on the LEFT JOINed `prompt_versions`, which
+    `agents/prompts.py` keeps immutable and which a lock would needlessly block a
+    concurrent version WRITE against. `OF a` is what says so.
+
+    Deliberately NOT the default: `dispatch_call` reads through here on the outbound hot
+    path and takes no lock, because it decides nothing about the row — it reads a ref and
+    dials it, and a publish landing mid-dial changes which script the NEXT call speaks,
+    never this one.
+    """
     row = (
         await session.execute(
             text(
@@ -100,6 +139,7 @@ async def _load_agent(session: AsyncSession, tenant_id: UUID, agent_id: UUID) ->
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
+                + (" FOR UPDATE OF a" if for_update else "")
             ),
             {"aid": agent_id},
         )
@@ -188,29 +228,115 @@ def _to_config(tenant_id: UUID, agent: dict[str, object]) -> AgentConfig:
     )
 
 
+def _orphaned(agent_id: UUID, ref: str, engine_name: str, reason: str) -> None:
+    """A vendor-side agent we created and then could not record. LOG IT LOUDLY.
+
+    THE SHAPE OF THE PROBLEM. `create_agent` is a side effect at a third party; our write
+    of `engine_agent_ref` is a side effect in our database. There is no transaction
+    spanning both, so a failure in the window between them — the read-back refusing, the
+    row being soft-deleted underneath us, the connection to Postgres dropping — rolls OUR
+    half back and leaves theirs standing. The result is an agent object we are billed for
+    and can never address again, because the only copy of its id was in the transaction
+    that rolled back.
+
+    This log line IS that copy. `ref` is a vendor-issued opaque id — not a phone number,
+    not transcript text, not an extraction payload — so hard rule 6 permits it, and
+    without it an operator cannot find the object in the vendor's dashboard to delete it.
+
+    Why not delete it ourselves: `VoiceEngine` has no `delete_agent`, and adding one
+    would put a speculative vendor endpoint (`DELETE /v2/agent/{id}`, whose semantics
+    nobody here has run — every vendor host is egress-blocked in this environment) onto
+    the Protocol that all four adapters must implement. An unverified vendor behaviour is
+    not a capability (D-31/D-32). The gap is recorded as an equality-asserted entry in
+    `tests/publish_known_gaps_test.py`, which names the vendor account that closes it.
+
+    Why a `lock` makes this rare rather than routine: `_load_agent(for_update=True)`
+    serializes publishes on one agent, so the common cause — two concurrent publishes
+    both seeing "no ref" and both creating — cannot happen at all.
+    """
+    log.error(
+        "engine_agent_orphaned",
+        extra={
+            "agent_id": str(agent_id),
+            "engine": engine_name,
+            "engine_agent_ref": ref,
+            "reason": reason,
+        },
+    )
+
+
 async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> str:
-    """Create or update the agent on the engine, then record the mapping.
+    """Create or update the agent on the engine, VERIFY it, then record the mapping.
 
     The routing row is written HERE, in the same transaction as `engine_agent_ref`,
     because the alternative — writing it from a webhook handler on first sight — means
     the first call for a new agent is the one that gets lost.
+
+    THE READ-BACK (D-64, `agents/verification.py`). This used to end at "the vendor call
+    returned without raising", and then wrote `status = 'live'`, `engine_agent_ref` and
+    the voice mirror — four claims about the ENGINE, all derived from one fact about
+    OURSELVES. Now the agent is read back through `VoiceEngine.get_agent` and scored; a
+    PROVEN mismatch is a refusal (the transaction rolls back and no column claims a
+    script the engine was observed not to hold), and an unproven one is recorded as
+    `live_verify_state` rather than rounded up to success.
+
+    THE LOCK. `for_update=True` — see `_load_agent`. It closes the create/create race
+    that manufactures orphans and it serializes a publish against a concurrent
+    `set_call_cap`, `apply_to_live` or `set_agent_voice` republish, all of which reach
+    this function and all of which read-then-write the same row.
     """
-    agent = await _load_agent(session, tenant_id, agent_id)
+    agent = await _load_agent(session, tenant_id, agent_id, for_update=True)
     engine = get_engine()
     config = _to_config(tenant_id, agent)
 
     existing_ref = agent["engine_agent_ref"]
+    created = not (isinstance(existing_ref, str) and existing_ref)
     if isinstance(existing_ref, str) and existing_ref:
         await engine.update_agent(existing_ref, config)
         ref = existing_ref
     else:
         ref = await engine.create_agent(config)
 
-    await session.execute(
+    # AFTER the write and BEFORE any column claims it landed. Never raises for a vendor
+    # failure — an unreachable read-back is a verdict, not a second way to fail a publish
+    # whose write has already happened.
+    verdict = await verify_publish(engine, ref, config)
+    if verdict.state == "not_applied":
+        if created:
+            _orphaned(agent_id, ref, engine.name, "read_back_proved_not_applied")
+        log.error(
+            "agent_publish_not_applied",
+            extra={
+                "agent_id": str(agent_id),
+                "engine": engine.name,
+                "prompt_applied": verdict.prompt_applied,
+                "disclosure_applied": verdict.disclosure_applied,
+                "voice_applied": verdict.voice_applied,
+            },
+        )
+        raise ProblemError(
+            kind="dependency",
+            code="engine_publish_not_applied",
+            title="The voice platform is not running this change",
+            detail=verdict.detail,
+            remediation=(
+                "Nothing was recorded as live. Try publishing again; if it keeps failing "
+                "the agent may have been edited directly on the voice platform."
+            ),
+        )
+
+    result = await session.execute(
         text(
             "UPDATE agents SET engine_agent_ref = :ref, engine = :engine, status = 'live', "
             "live_tts_voice = :live_voice, live_tts_provider = :live_provider, "
-            "updated_at = now() WHERE id = :aid"
+            "live_verify_state = :verify_state, live_verified_at = :verified_at, "
+            # THE SOFT-DELETE GUARD, and it is not belt-and-braces. `_load_agent` filters
+            # on `deleted_at IS NULL`, but this UPDATE used to name the id alone — so a
+            # delete committed between the two would be silently undone here, resurrecting
+            # a deleted agent to `status = 'live'` AND writing it a routing row that makes
+            # the vendor's next inbound webhook resolve to it. The lock above makes the
+            # window small; the predicate makes it closed. Zero rows is a refusal.
+            "updated_at = now() WHERE id = :aid AND deleted_at IS NULL"
         ),
         {
             "ref": ref,
@@ -225,8 +351,20 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
             # it and our row never over-promises (the `kb.publish_source` ordering).
             "live_voice": config.models.tts_voice,
             "live_provider": config.models.tts_provider,
+            "verify_state": verdict.stored_state,
+            # NULL unless something was actually proven. A timestamp on an `unreachable`
+            # would let a screen render "confirmed just now" over an answer nobody read.
+            "verified_at": datetime.now(UTC) if verdict.proven else None,
         },
     )
+    if rowcount_of(result) == 0:
+        if created:
+            _orphaned(agent_id, ref, engine.name, "agent_deleted_during_publish")
+        raise ProblemError.conflict(
+            "agent_deleted_during_publish",
+            "This agent was deleted while it was being published.",
+            remediation="Nothing was recorded as live. Recreate the agent if it is still needed.",
+        )
     await session.execute(
         text(
             "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
@@ -238,7 +376,16 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
         {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id},
     )
     await republish_running_variants(session, tenant_id=tenant_id, agent_id=agent_id)
-    log.info("agent_published", extra={"agent_id": str(agent_id), "engine": engine.name})
+    log.info(
+        "agent_published",
+        extra={
+            "agent_id": str(agent_id),
+            "engine": engine.name,
+            # The verdict, not the prompt. What an operator needs from this line is
+            # whether "live" was CONFIRMED, and that is one word (hard rule 6).
+            "verify_state": verdict.state,
+        },
+    )
     return ref
 
 
@@ -321,6 +468,32 @@ async def publish_variant(
         ref = existing_ref
     else:
         ref = await engine.create_agent(config)
+    # An ARM answers real callers with its own script and its own disclosure line, so it
+    # gets the same read-back as the agent — verifying the agent and trusting the arms
+    # would leave the traffic actually under test as the one path nobody checked.
+    verdict = await verify_publish(engine, ref, config)
+    if verdict.state == "not_applied":
+        if not existing_ref:
+            _orphaned(agent_id, ref, engine.name, "variant_read_back_proved_not_applied")
+        log.error(
+            "agent_variant_publish_not_applied",
+            extra={
+                "agent_id": str(agent_id),
+                "variant_id": str(variant_id),
+                "engine": engine.name,
+                "prompt_applied": verdict.prompt_applied,
+                "disclosure_applied": verdict.disclosure_applied,
+            },
+        )
+        raise ProblemError(
+            kind="dependency",
+            code="engine_publish_not_applied",
+            title="The voice platform is not running this change",
+            detail=verdict.detail,
+            remediation=(
+                "Nothing was recorded as live for this experiment arm. Try publishing again."
+            ),
+        )
     await session.execute(
         text(
             "UPDATE prompt_experiment_variants SET engine_agent_ref = :ref, updated_at = now() "

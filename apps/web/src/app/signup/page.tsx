@@ -32,6 +32,7 @@ import {
   isSignupClosed,
   isSignupDeferred,
   previewSlug,
+  slugIsDerivable,
   useSignup,
   type SignupLanguage,
 } from "@/lib/api/signup";
@@ -321,6 +322,12 @@ function SignupForm() {
   const [email, setEmail] = useState("");
 
   const derived = slug || previewSlug(businessName);
+  // The server REFUSES to invent a URL for a name it cannot fold to ASCII
+  // (`slug_not_derivable`), which on a Telugu-first product is the ordinary case rather
+  // than an edge one. Asking here, before the POST, rather than letting the refusal come
+  // back: the same reason `SIGNUP_OPEN` exists — a form that cannot succeed is a worse
+  // answer than a form that says what it needs.
+  const mustChooseSlug = businessName.trim().length > 0 && !slugIsDerivable(derived);
   const created = signup.data;
 
   // THE ONLY SOURCE OF A SUCCESS SCREEN. `signup.data` is set by TanStack Query only
@@ -495,6 +502,8 @@ function SignupForm() {
                 <span className="font-mono text-sm text-ink-faint">/c/</span>
                 <input
                   {...props}
+                  required={mustChooseSlug}
+                  minLength={mustChooseSlug ? 3 : undefined}
                   value={slug}
                   onChange={(e) => setSlug(e.target.value)}
                   placeholder={previewSlug(businessName) || "sri-sai-dental"}
@@ -504,13 +513,20 @@ function SignupForm() {
               </div>
             )}
           </Field>
-          {derived && (
-            /* A preview, never a promise: the server checks reserved names and
-               collisions, and may hand back a different one. */
-            <p className="-mt-3 text-xs text-ink-faint">
-              Your workspace will be at{" "}
-              <code className="font-mono">/c/{derived}</code>, unless that name is taken.
+          {mustChooseSlug ? (
+            <p className="-mt-3 text-xs text-ink-muted">
+              We cannot build a web address out of that business name, so please choose
+              one — 3-40 characters of a-z, 0-9 and -.
             </p>
+          ) : (
+            derived && (
+              /* A preview, never a promise: the server checks reserved names and
+                 collisions, and may hand back a different one. */
+              <p className="-mt-3 text-xs text-ink-faint">
+                Your workspace will be at{" "}
+                <code className="font-mono">/c/{derived}</code>, unless that name is taken.
+              </p>
+            )
           )}
 
           <Field

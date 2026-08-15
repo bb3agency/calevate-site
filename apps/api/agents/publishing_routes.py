@@ -4,7 +4,10 @@ Three questions and two buttons:
 
     GET   /v1/agents/lanes                                        what applies when
     GET   /v1/agents/{agent_id}/pending                           what is pending, what it costs,
-                                                                  which voice is configured vs live
+                                                                  which voice is configured vs live,
+                                                                  and what a read-back confirmed
+    GET   /v1/agents/{agent_id}/engine-state                      what the engine is running RIGHT
+                                                                  NOW (one vendor round trip)
     POST  /v1/admin/tenants/{tid}/agents/{aid}/apply              "Apply to live calls"
     POST  /v1/admin/tenants/{tid}/agents/{aid}/undo               "Undo"
     PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-cap           the max call length
@@ -182,6 +185,60 @@ class VoiceStateOut(Strict):
     headline: str
 
 
+class VerificationOut(Strict):
+    """What a read-back CONFIRMED at the last publish — never what we merely sent.
+
+    The third configured/live-shaped answer on this response, and the one the other two
+    rest on: `voice.live` and the applied prompt version record what `publish_agent`
+    HANDED the engine on the strength of a 2xx. This says whether anyone then looked.
+
+    `state` is one of `unverified` (never read back — every agent published before
+    migration c1f6a94d2b07), `applied`, `unreadable` (the adapter could not find the
+    property in the engine's answer) or `unreachable` (the read-back itself failed).
+    There is no `not_applied`: a proven mismatch refuses the publish, so no agent can be
+    displayed as live while carrying one.
+
+    `confirmed` is true only for `applied`. Rendering `state != "unverified"` as
+    confirmation is the exact rounding-up this field exists to stop.
+
+    No field here has a default, deliberately: a Pydantic default generates an OPTIONAL
+    TypeScript property, and a screen that can compile without reading the verdict is a
+    screen that will eventually ship without rendering it.
+    """
+
+    state: str
+    verified_at: datetime | None
+    confirmed: bool
+    headline: str
+
+
+class EngineStateOut(Strict):
+    """The RECONCILIATION read: what the engine is running RIGHT NOW versus our row.
+
+    Distinct from `VerificationOut` because it is asked at a different moment and costs a
+    vendor round trip. It is the only instrument that can see the two divergences that
+    appear with no code of ours running: an edit made in the vendor's own dashboard, and
+    a publish that failed on our side after the vendor had already committed.
+
+    `state` adds `not_published` (there is nothing to compare) and `not_applied` (the
+    engine is running something else) to the four `VerificationOut` values. A
+    `not_applied` here is a finding, not a refusal — nothing is being written.
+    """
+
+    agent_id: UUID
+    engine: str
+    engine_agent_ref: str | None
+    checked: bool
+    state: str
+    in_sync: bool
+    #: Tri-state per property: null means the adapter could not read it back, which is
+    #: neither a match nor a mismatch (`AgentSnapshot`'s `*_readable` doctrine).
+    prompt_applied: bool | None
+    disclosure_applied: bool | None
+    voice_applied: bool | None
+    detail: str
+
+
 class PendingOut(Strict):
     agent_id: UUID
     agent_status: str
@@ -196,6 +253,10 @@ class PendingOut(Strict):
     # every member of it names a `prompt_versions` number, and neither button clears a
     # voice divergence on its own — a publish does. See `publishing.PendingState.voice`.
     voice: VoiceStateOut
+    # Not an entry in `pending` for the same reason `voice` is not: Apply and Undo move
+    # a `prompt_versions` pointer, and neither can turn an unconfirmed publish into a
+    # confirmed one. Publishing again is what does that.
+    engine_verification: VerificationOut
     precedence_rule: str
 
 
@@ -316,7 +377,48 @@ def _render(state: publishing.PendingState) -> PendingOut:
             republish_required=state.voice.republish_required,
             headline=state.voice.headline,
         ),
+        engine_verification=VerificationOut(
+            state=state.engine_verification.state,
+            verified_at=state.engine_verification.verified_at,
+            confirmed=state.engine_verification.confirmed,
+            headline=state.engine_verification.headline,
+        ),
         precedence_rule=state.precedence_rule,
+    )
+
+
+@router.get(
+    "/v1/agents/{agent_id}/engine-state",
+    response_model=EngineStateOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="Read the voice platform back and report any drift from what we published",
+    description=(
+        "Asks the voice platform what it is running RIGHT NOW and compares it with the "
+        "script, disclosure line and voice this agent last published. This is the only "
+        "read that can see an agent edited in the vendor's own dashboard, or a publish "
+        "that failed on our side after the vendor had already accepted it.\n\n"
+        "A READ: it writes nothing and re-publishes nothing. It costs one call to the "
+        "voice platform, so it is a separate endpoint rather than part of "
+        "`/pending` — a banner must not dial a vendor on every page load.\n\n"
+        "`agents:read`, not `agents:write`, for the D-22 reason the other reads here "
+        "are: this is what support opens while looking at a client's screen, and "
+        "impersonation refuses every mutating permission."
+    ),
+)
+async def engine_state(agent_id: UUID, principal: PublishingReader) -> EngineStateOut:
+    assert principal.tenant_id is not None  # `requires()` resolves a tenant for reads
+    drift = await publishing.engine_drift_for(tenant_id=principal.tenant_id, agent_id=agent_id)
+    return EngineStateOut(
+        agent_id=UUID(drift.agent_id),
+        engine=drift.engine,
+        engine_agent_ref=drift.engine_agent_ref,
+        checked=drift.checked,
+        state=drift.state,
+        in_sync=drift.in_sync,
+        prompt_applied=drift.prompt_applied,
+        disclosure_applied=drift.disclosure_applied,
+        voice_applied=drift.voice_applied,
+        detail=drift.detail,
     )
 
 
@@ -462,8 +564,10 @@ __all__ = [
     "AgentVoiceOut",
     "ApplyIn",
     "CallCapOut",
+    "EngineStateOut",
     "PendingOut",
     "SetCallCapIn",
+    "VerificationOut",
     "VoiceStateOut",
     "router",
 ]

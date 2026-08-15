@@ -195,6 +195,11 @@ Nothing outside `engine/` may import a vendor SDK or see a vendor payload shape.
 class VoiceEngine(Protocol):
     async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None
+    async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot   # the read half,
+        # without which update_agent is a write into the dark (D-64). Carries the prompt
+        # as TEXT plus `*_readable` verdicts, so "the field was absent" and "the value is
+        # empty" stay different answers. An unknown ref RAISES — a snapshot for an agent
+        # nobody created is a conclusion drawn from nothing that looks like a measurement
     async def start_outbound_call(self, ref, to: E164, ctx: CallContext) -> CallHandle
     async def end_call(self, call_id: str) -> None
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None
@@ -227,6 +232,29 @@ engine_payload_ref}; TranscriptTurn{call_id, idx, speaker, text, start_ms, end_m
 Raw vendor payloads are archived to object storage for debugging but NEVER read by app code.
 Adapter conformance test suite runs against the `bolna` and `fake` adapters in CI
 (mocked) — the second adapter exists to keep the first one honest.
+
+**ACCEPTED is not APPLIED, and a publish must score the second.** A 2xx from
+`create_agent`/`update_agent` says the vendor took the bytes; whether the agent is
+RUNNING them is a different claim, and it is the one a client's compliance disclosure
+depends on. `publish_agent` therefore reads the agent back through `get_agent` and scores
+it (`apps/api/agents/verification.py`), before any column records the publish:
+
+- **proven mismatch ⇒ REFUSAL.** The transaction rolls back, so `status = 'live'`,
+  `engine_agent_ref`, `live_prompt_id` and `live_tts_voice` never claim a script the
+  engine was observed not to be holding.
+- **unproven ⇒ RECORDED, never rounded up.** `agents.live_verify_state` (migration
+  c1f6a94d2b07) carries `unverified` / `applied` / `unreadable` / `unreachable`, and the
+  screen renders which. "We could not read the field" and "the engine does not have it"
+  are different facts (the `AgentSnapshot.*_readable` tri-state) and only one is evidence.
+- **drift the publish path cannot see** — an agent edited in the vendor's own dashboard,
+  or a publish that failed on our side after the vendor committed — is answered by
+  `GET /v1/agents/{agent_id}/engine-state`, an on-demand read of THEIRS. A read: it
+  reports and re-publishes nothing.
+
+Two properties here genuinely need a vendor account and are recorded as equality-asserted
+entries in `tests/publish_known_gaps_test.py`: whether `POST /v2/agent` honours an
+idempotency key (without one, a create whose response is lost leaves an orphan we are
+billed for), and whether a `delete_agent` exists to compensate one. Neither is guessed.
 
 Bolna integration surface [deep-research-verified Aug 2026 against docs.bolna.ai + the
 bolna-ai/bolna OSS repo; items marked (pilot) need live confirmation on the pilot

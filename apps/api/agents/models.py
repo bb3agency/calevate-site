@@ -102,6 +102,19 @@ class Agent(PKMixin, TimestampMixin, Base):
     # other half.
     live_tts_voice: Mapped[str | None] = mapped_column(Text)
     live_tts_provider: Mapped[str | None] = mapped_column(Text)
+    # WHAT A READ-BACK CONFIRMED, as opposed to what we sent (migration c1f6a94d2b07).
+    # `live_prompt_id` and `live_tts_voice` above record the config `publish_agent`
+    # HANDED the engine on the strength of a 2xx; these two record what
+    # `VoiceEngine.get_agent` was afterwards observed to be holding. One of the four
+    # values in `agents/verification.py::StoredVerifyState`, guarded by a CHECK.
+    # `not_applied` is not among them on purpose: a proven mismatch is a refusal, so no
+    # row ever commits it.
+    live_verify_state: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="unverified"
+    )
+    # Set only under `applied`. A timestamp of EVIDENCE — stamping one for a verdict that
+    # proved nothing would let a screen render "confirmed" over an unread answer.
+    live_verified_at: Mapped[datetime | None]
     # THE DRAFT POINTER: the script the client is editing.
     system_prompt_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("prompt_versions.id", use_alter=True, ondelete="SET NULL")

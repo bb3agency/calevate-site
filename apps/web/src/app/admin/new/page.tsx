@@ -27,6 +27,10 @@ import {
   formatIST,
 } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
+// The SAME derivation the self-serve form previews with, imported rather than re-typed:
+// this wizard carried its own inline copy of the regex, and two previews of one server
+// rule is how the two screens end up disagreeing about what will be submitted.
+import { previewSlug, slugIsDerivable } from "@/lib/api/signup";
 import {
   useCreateTenant,
   useInvite,
@@ -230,8 +234,15 @@ export default function NewClientPage() {
   const createTenant = useCreateTenant();
   const refusal = refusalReason(createTenant.error);
 
-  const derivedSlug =
-    slug || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+  const derivedSlug = slug || previewSlug(name);
+  // The server REFUSES to invent a URL for a name it cannot fold to ASCII
+  // (`slug_not_derivable`). Every character of `మా క్లినిక్` is outside `[a-z0-9]`, so on
+  // a Telugu-first product this is the ordinary case: the operator is asked for the slug
+  // here, before the POST, rather than being handed the refusal afterwards. The old
+  // behaviour was worse than a refusal — the server substituted the constant `client`,
+  // so the FIRST such account silently took `/c/client` and the second was told its slug
+  // was taken.
+  const mustChooseSlug = name.trim().length > 0 && !slugIsDerivable(derivedSlug);
 
   return (
     <div className="max-w-3xl space-y-5">
@@ -260,7 +271,10 @@ export default function NewClientPage() {
               createTenant.mutate(
                 {
                   name,
-                  slug: derivedSlug,
+                  // Sent only when there is one. An empty string here was falsy on the
+                  // server too, so it fell through to the same derivation — but sending
+                  // a value we do not have is how a caller ends up trusting it.
+                  slug: derivedSlug || null,
                   vertical_template: vertical,
                   language,
                   billing_email: email.trim() || null,
@@ -284,15 +298,27 @@ export default function NewClientPage() {
             <label className="block max-w-sm">
               <span className={FIELD_LABEL}>Slug</span>
               <input
+                required={mustChooseSlug}
+                minLength={mustChooseSlug ? 3 : undefined}
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
-                placeholder={derivedSlug || "sunrise-clinic"}
+                placeholder={previewSlug(name) || "sunrise-clinic"}
                 className={`${FIELD} font-mono`}
               />
               <span className={FIELD_HINT}>
                 Appears in every client URL and is IMMUTABLE once created (a DB trigger
-                enforces it). Left blank, we send{" "}
-                <span className="font-mono">{derivedSlug || "—"}</span>.
+                enforces it).{" "}
+                {mustChooseSlug ? (
+                  <span className="text-ink">
+                    We cannot build a web address out of that business name, so please
+                    choose one — 3-40 characters of a-z, 0-9 and -.
+                  </span>
+                ) : (
+                  <>
+                    Left blank, we send{" "}
+                    <span className="font-mono">{derivedSlug || "—"}</span>.
+                  </>
+                )}
               </span>
             </label>
 

@@ -71,9 +71,124 @@ async def tenant_exists(session: AsyncSession, tenant_id: UUID) -> bool:
     return found is not None
 
 
+async def assert_account_open(session: AsyncSession, *, tenant_id: UUID) -> None:
+    """May a key to this account be minted, or redeemed? Absent → 404, closed → 409.
+
+    THE ONE PREDICATE BEHIND BOTH ENDS OF AN INVITATION, for the reason `create_invitation`
+    gives about its own two refusals: an invitation has a mint site and a burn site, and a
+    rule enforced at only one of them is a rule with a hole in it.
+
+    What it refuses, and why each is a support incident rather than a theoretical state:
+
+    - **No row** (a mistyped tenant id, or another tenant's id under RLS). `invitations`
+      carries `fk_invitations_tenant_id_organizations`, so this used to surface as an
+      IntegrityError escaping the route: a 500, an `unhandled_exception` alert, and an
+      operator told nothing. D-65's third answer is a 404, and it is the same answer a
+      tenant the caller cannot see gets — the id is not confirmed either way.
+    - **`churned` or soft-deleted.** These were both a cheerful 201 and, worse, a 200 on
+      the accept: `core/auth.py` resolves memberships with `o.deleted_at IS NULL AND
+      o.status <> 'churned'`, so the invitee burned their single-use token, got a
+      membership row, and was then told "You are not a member of this account" on their
+      very first request — with no way back, because the token is single-use and the
+      account is closed. Handing out a key to an offboarded tenant is also the wrong
+      direction of travel for FLOWS §9: that account is on the retention clock, not
+      taking on staff.
+
+    **`suspended` is deliberately NOT refused.** Suspension is the reversible control
+    (`_LIFECYCLE_FROM` lets it go straight back to `active`), it stops OUTBOUND DIALLING
+    and nothing else, and the account being suspended over non-payment is exactly when
+    someone needs to add the person who will pay. Refusing here would make a billing
+    stop into an access stop, which is a different decision and not this function's to
+    make.
+
+    Reads under the caller's own session on purpose: every caller already runs inside
+    `tenant_session(tenant_id)`, `organizations`' policy matches on `id`, and so a
+    neighbour's id is invisible rather than merely filtered.
+    """
+    row = (
+        await session.execute(
+            text("SELECT status, deleted_at FROM organizations WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Client")
+    status, deleted_at = row
+    if deleted_at is not None or status == "churned":
+        # `account_closed` is `compliance.service.account_stopped_blocker`'s own rule name
+        # for this same condition. Two surfaces refusing one state under two names is how
+        # an operator ends up believing they are two different problems.
+        raise ProblemError.conflict(
+            "account_closed",
+            "This account has been closed.",
+            remediation=(
+                "Closing an account is final — set up a new client account if they are coming back."
+            ),
+        )
+
+
 def slugify(name: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40]
-    return slug or "client"
+    """The ASCII slug a business name yields, or `""` when it yields none.
+
+    **The empty string is a real answer and callers must handle it** — use
+    `derive_slug` rather than this function unless you genuinely want the raw
+    derivation. It used to return the constant `"client"` instead, which on a
+    Telugu-first product (D-36) was the DEFAULT path and not an edge case: every
+    character of `మా క్లినిక్` and `नमस्ते क्लिनिक` is outside `[a-z0-9]`, so the first
+    such client silently became `/c/client` and every one after it was refused
+    `slug_taken` — a 409 with no remediation, on a name the operator never typed.
+
+    Transliteration was the obvious alternative and is not available: no ASCII-folding
+    library is installed (`unidecode`/`text-unidecode`/`python-slugify` are all absent),
+    `unicodedata.normalize("NFKD", …)` folds Latin diacritics but reduces Indic scripts
+    to nothing, and adding a dependency to the tenant-creation path is a supply-chain
+    decision (hard rule 9) rather than a slug fix. Asking is strictly better than
+    guessing here anyway: the slug is IMMUTABLE once written, it appears in every client
+    URL, and the person creating the account is sitting in front of the form.
+
+    Truncation happens BEFORE the strip so a name cut at 40 characters cannot leave a
+    trailing hyphen; `SLUG_RE` would accept `sunrise-clinic-and-diagnostics-centre-hyd-`
+    and nobody wants that in a URL.
+    """
+    return re.sub(r"[^a-z0-9]+", "-", name.lower())[:40].strip("-")
+
+
+def derive_slug(name: str) -> str:
+    """The slug to use when the caller did not pick one — or an actionable refusal.
+
+    The ONE derivation both motions share (the admin wizard and self-serve signup, via
+    `tenancy.signup.derive_slug`), so a business gets the same URL whichever door it
+    came through, and gets the same sentence when we cannot build one.
+
+    A refusal rather than a generated `client-7f3a2b`: an opaque URL is permanent, it is
+    what the client's staff type every day, and the operator can answer the question in
+    two seconds. `fields` names `slug` so the form can focus the input the caller has to
+    fill in — which is also why the old behaviour was worse than it looked, since it
+    reported `invalid_slug` against a field the caller had left blank on purpose.
+    """
+    slug = slugify(name)
+    if not SLUG_RE.match(slug):
+        raise ProblemError(
+            kind="validation",
+            code="slug_not_derivable",
+            title="Choose a web address",
+            detail=(
+                "We could not build a web address out of that business name, so please choose one."
+            ),
+            fields=[
+                {
+                    "field": "slug",
+                    "rule": "required",
+                    "message": "3-40 characters of a-z, 0-9 and -",
+                }
+            ],
+            remediation=(
+                "Enter the web address for this client yourself — for example "
+                "'sri-sai-dental'. It appears in every client URL and cannot be changed "
+                "later."
+            ),
+        )
+    return slug
 
 
 async def assert_slug_available(session: AsyncSession, slug: str) -> None:
@@ -362,7 +477,13 @@ async def create_invitation(
     Returning the id rather than making the caller re-find the row by token hash: the
     hash is the only exact key an outside lookup has, and re-deriving it means hashing
     the secret a second time in a second place.
+
+    THE THIRD REFUSAL, added for the same reason as the first two: the account has to be
+    open. See `assert_account_open` — before it, `POST /v1/admin/tenants/{typo}/invitations`
+    was a 500 and an invitation into a closed account was a 201.
     """
+    await assert_account_open(session, tenant_id=tenant_id)
+
     already = (
         await session.execute(
             text(
@@ -422,7 +543,17 @@ async def create_invitation(
 async def accept_invitation(session: AsyncSession, *, raw_token: str, user_id: UUID) -> UUID:
     """Burn the invitation and create the membership. The burn is a CAS on
     `used_at IS NULL` (BACKEND-PATTERNS §5): two clicks on the same emailed link must
-    produce one membership, not two."""
+    produce one membership, not two.
+
+    THE ACCOUNT IS CHECKED AFTER THE BURN AND THE BURN IS UNDONE BY THE ROLLBACK, which is
+    the point: `assert_account_open` needs a tenant id, and the CAS is what supplies it
+    atomically — reading the invitation first to learn the tenant, then burning, is a
+    read-then-write of exactly the shape BACKEND-PATTERNS §5 refuses. The caller runs this
+    inside `tenant_session`, so the raised refusal rolls the UPDATE back and the invitation
+    is still unused; `tests/tenant_birth_test.py` asserts that, because a closed account
+    silently eating somebody's single-use link would be a worse defect than the one this
+    closes.
+    """
     token_hash = sha256(raw_token.encode()).hexdigest()
     row = (
         await session.execute(
@@ -443,6 +574,7 @@ async def accept_invitation(session: AsyncSession, *, raw_token: str, user_id: U
             remediation="Ask your account manager for a fresh invite.",
         )
     tenant_id, role = row
+    await assert_account_open(session, tenant_id=UUID(str(tenant_id)))
     await session.execute(
         text(
             "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
@@ -572,9 +704,11 @@ __all__ = [
     "INVITE_TTL",
     "TenantRootHook",
     "accept_invitation",
+    "assert_account_open",
     "assert_slug_available",
     "create_invitation",
     "create_organization",
+    "derive_slug",
     "slugify",
     "tenant_overview",
 ]

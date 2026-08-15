@@ -763,6 +763,15 @@ const CLIENT_SCREENS: Screen[] = [
           republish_required: true,
           headline: "Callers still hear anushka; vidya reaches them at the next publish.",
         },
+        // UNCONFIRMED, so the sweep covers the amber "nothing here is wrong yet"
+        // block — the state with the most markup, of which `applied` is a subset.
+        engine_verification: {
+          state: "unreachable",
+          confirmed: false,
+          verified_at: null,
+          headline:
+            "The voice platform accepted this publish and did not answer when we read it back, so we cannot confirm it is running it. Publish again to re-check.",
+        },
       },
     },
   },
@@ -1370,6 +1379,15 @@ const ADMIN_SCREENS: Screen[] = [
           live: { voice_id: "vidya", provider: "sarvam", catalog: null },
           republish_required: true,
           headline: "Callers still hear vidya; anushka reaches them at the next publish.",
+        },
+        // Unconfirmed for the same reason the voice is diverged: the sweep should walk
+        // the branch that renders MORE, not the reassuring one.
+        engine_verification: {
+          state: "unreadable",
+          confirmed: false,
+          verified_at: null,
+          headline:
+            "The voice platform accepted this publish; it did not report back enough for us to confirm it is running it. Publish again to re-check.",
         },
       },
       "/v1/agents/lanes": {

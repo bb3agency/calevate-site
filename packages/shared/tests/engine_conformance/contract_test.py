@@ -192,6 +192,52 @@ async def test_agent_read_back_reports_the_agent_it_was_asked_about(
     )
 
 
+async def test_a_read_back_carries_the_disclosure_line_the_engine_was_given(
+    engine: VoiceEngine,
+) -> None:
+    """HARD RULE 5, SCORED ON THE ENGINE RATHER THAN ON OUR REQUEST BODY.
+
+    Every adapter PREPENDS `disclosure_line` to the prompt so it is spoken first. That is
+    a property of what we SEND, and until this clause nothing checked it survived the
+    round trip — the suite scored the script with a marker the disclosure line does not
+    contain, so an adapter that rendered the greeting into a field its own read-back
+    cannot see would pass every clause above it.
+
+    THIS IS NOW LOAD-BEARING RATHER THAN MERELY DESIRABLE.
+    `apps/api/agents/verification.py` scores every publish by reading the agent back and
+    requiring BOTH the script and the disclosure line to be present; a proven absence is
+    a refusal. So an adapter whose read-back drops the disclosure does not merely go
+    unmeasured — it makes every publish on that engine fail closed, for the whole
+    deployment. Which is the correct direction to fail in, and exactly the reason it must
+    be caught here by a test rather than in production by a client with a dead phone line.
+
+    Containment, for the `carries_prompt_marker` reason: the greeting may be rendered
+    into a welcome message, a preamble or a header, and any rendering that KEPT THE TEXT
+    satisfies both the rule and this clause.
+    """
+    cfg = _agent_config(
+        engine,
+        agent_id="0199a0b0-0000-7000-8000-00000000000c",
+        system_prompt="Receptionist. marker-disclosure",
+    )
+    ref = await engine.create_agent(cfg)
+    snapshot = await engine.get_agent(ref)
+
+    assert snapshot.system_prompt_readable, (
+        "the prompt could not be read back at all, so hard rule 5 is unverifiable on "
+        "this engine and every publish through `verification.judge` reports unreadable"
+    )
+    assert snapshot.carries_prompt_marker(cfg.disclosure_line) is True, (
+        "the disclosure line the adapter prepended is not in what the engine holds — "
+        "either the adapter dropped it (a compliance defect) or its read-back cannot "
+        "see it (a publish that can never be confirmed)"
+    )
+    assert snapshot.carries_prompt_marker(cfg.system_prompt) is True, (
+        "the script we sent is not in what the engine holds, so a publish of it could "
+        "never be scored applied"
+    )
+
+
 async def test_reading_an_agent_the_engine_never_created_is_reported(
     engine: VoiceEngine,
 ) -> None:

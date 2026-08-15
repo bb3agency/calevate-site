@@ -30,6 +30,7 @@ import {
   useSetCallCap,
   useStartExperiment,
   useTenantExperiment,
+  useTenantEngineState,
   useTenantLanes,
   useTenantPending,
   useUndoChanges,
@@ -38,7 +39,11 @@ import {
   type ExperimentVariant,
   type PendingState,
 } from "@/lib/api/publishing";
-import type { AgentVoice, AgentVoiceState } from "@/lib/api/publishing";
+import type {
+  AgentVoice,
+  AgentVoiceState,
+  EngineVerification,
+} from "@/lib/api/publishing";
 import { useSetAgentVoice, useTenantVoiceCatalogue, type Voice } from "@/lib/api/voices";
 
 import { useAdminAccess } from "@/app/admin/access";
@@ -571,8 +576,149 @@ function PublishingPanel({
               : "Nothing was staged, so nothing was discarded."}
           </p>
         )}
+
+        {pending && (
+          <LiveConfirmation
+            slug={slug}
+            agentId={agentId}
+            verification={pending.engine_verification}
+            published={pending.published}
+          />
+        )}
       </div>
     </Card>
+  );
+}
+
+/**
+ * What "live" is actually claiming, and the button that goes and checks.
+ *
+ * THE DEFECT THIS RENDERS. Every other publishing field on this page — the applied
+ * version, `voice.live` — records what we SENT the voice platform on the strength of a
+ * 2xx. A 2xx says the vendor took the bytes; whether the agent is RUNNING them is a
+ * different claim and the one a client's compliance disclosure depends on. The server
+ * now reads the agent back on every publish and stores the verdict, and this is where an
+ * operator sees which of the four answers they have.
+ *
+ * `confirmed` is rendered, never `state !== "unverified"`. The four states are four
+ * different answers and only one of them is evidence: `unreadable` means the voice
+ * platform's reply did not contain the field, `unreachable` means it did not reply.
+ * Collapsing either into "fine" is exactly the rounding-up the read-back exists to stop.
+ *
+ * The RE-CHECK is a button, not a query that runs on mount, because it costs a request
+ * to the vendor per press — a screen that dialled them on every page view would be a
+ * rate-limit incident wearing a reassurance. §52 governs its three states: the pending
+ * fetch is a SKELETON, a failure is a REFUSAL through `ProblemNotice` (never a blank
+ * panel and never a stale green), and the answer is the server's own sentence.
+ */
+function LiveConfirmation({
+  slug,
+  agentId,
+  verification,
+  published,
+}: {
+  slug: string;
+  agentId: string;
+  verification: EngineVerification;
+  published: boolean;
+}) {
+  const [checking, setChecking] = useState(false);
+  const engineState = useTenantEngineState(slug, agentId, checking);
+
+  return (
+    <div className="rounded-card border border-line p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+            What the voice platform was confirmed to be running
+          </p>
+          <p className="mt-1 text-xs text-ink">{verification.headline}</p>
+          {verification.confirmed && verification.verified_at && (
+            <p className="mt-0.5 text-xs text-ink-muted">
+              Confirmed {formatIST(verification.verified_at)}.
+            </p>
+          )}
+        </div>
+        {published && (
+          <button
+            type="button"
+            disabled={engineState.isFetching}
+            onClick={() => {
+              setChecking(true);
+              void engineState.refetch();
+            }}
+            className={SECONDARY_BUTTON_SM}
+          >
+            {engineState.isFetching ? "Checking…" : "Check the voice platform now"}
+          </button>
+        )}
+      </div>
+
+      {!verification.confirmed && published && (
+        /* Amber and unmissable, because the failure this covers looks like success from
+           every other angle: the agent says `live`, the version list says the right
+           number, and nobody has established that a caller hears any of it. */
+        <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+          Nothing here is wrong yet — it is unconfirmed. Publish again, or check now, to
+          find out which.
+        </p>
+      )}
+
+      {checking && (
+        <div className="mt-3 border-t border-line pt-3">
+          {engineState.error != null ? (
+            <ProblemNotice error={engineState.error} onRetry={() => void engineState.refetch()} />
+          ) : engineState.isPending ? (
+            <Skeleton rows={2} />
+          ) : engineState.data ? (
+            <>
+              <p
+                className={
+                  engineState.data.in_sync
+                    ? "text-xs text-ink"
+                    : "text-xs font-medium text-amber-700 dark:text-amber-400"
+                }
+              >
+                {engineState.data.detail}
+              </p>
+              <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
+                <PropertyVerdict label="Script" verdict={engineState.data.prompt_applied} />
+                <PropertyVerdict
+                  label="Disclosure line"
+                  verdict={engineState.data.disclosure_applied}
+                />
+                <PropertyVerdict label="Voice" verdict={engineState.data.voice_applied} />
+              </dl>
+            </>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One read-back property, as a TRI-STATE.
+ *
+ * `null` is "the voice platform's answer did not contain this", which is neither a match
+ * nor a mismatch — the `AgentSnapshot.*_readable` doctrine, carried all the way to the
+ * screen. Rendering it as a cross would send an operator to fix a working agent;
+ * rendering it as a tick would be the lie the whole read-back exists to prevent.
+ */
+function PropertyVerdict({ label, verdict }: { label: string; verdict: boolean | null }) {
+  const reading =
+    verdict === true ? "Matches" : verdict === false ? "Does not match" : "Could not read";
+  const tone =
+    verdict === true
+      ? "text-ink"
+      : verdict === false
+        ? "text-amber-700 dark:text-amber-400"
+        : "text-ink-muted";
+  return (
+    <div>
+      <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">{label}</dt>
+      <dd className={`text-sm font-medium ${tone}`}>{reading}</dd>
+    </div>
   );
 }
 

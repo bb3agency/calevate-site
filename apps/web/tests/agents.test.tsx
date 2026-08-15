@@ -109,6 +109,12 @@ function settled(over: Partial<PendingState> = {}): PendingState {
       republish_required: false,
       headline: "Callers hear Bulbul v3 — premium.",
     },
+    engine_verification: {
+      state: "applied",
+      confirmed: true,
+      verified_at: "2026-08-15T09:20:00Z",
+      headline: "The voice platform was read back and is running this script and voice.",
+    },
     ...over,
   } as PendingState;
 }

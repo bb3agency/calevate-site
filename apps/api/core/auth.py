@@ -638,7 +638,17 @@ async def _load_admin_principal(
             tenant_id=tenant_id,
             role=role,
             # D-22: "view as client" is READ-ONLY and every page view is audit-logged.
-            impersonating=impersonate_slug is not None,
+            #
+            # DERIVED FROM THE RESOLVED TENANT, not from the header. `tenant_id` is set
+            # on exactly one path — the branch above, which has already checked
+            # `admin:impersonate`, resolved the slug and verified the grant — so this
+            # spelling makes the flag's contract structural: `impersonating=True` cannot
+            # exist without an authorised entry, and the `_record_impersonated_read`
+            # call below (guarded on the same value) cannot be skipped for a principal
+            # that carries it. `impersonate_slug is not None` was one blank header away
+            # from being false on both counts (see `_impersonation_slug`), and the flag
+            # is what every mutating dependency in the app reads.
+            impersonating=tenant_id is not None,
         )
         if tenant_id is not None and grant is not None:
             # Recorded HERE, before the route's own permission check runs, so an
@@ -685,8 +695,82 @@ async def current_identity(request: Request) -> tuple[UUID, str]:
     return UUID(str(row[0])), verified.clerk_user_id
 
 
+def _impersonation_slug(request: Request) -> str | None:
+    """WHICH tenant this request asks to be read as — absent, or a non-blank slug.
+
+    ONE reading of `X-Impersonate-Org`, shared by `current_admin`, `current_any` and
+    `current_principal`, because those three used to disagree about what a PRESENT BUT
+    BLANK header means and each disagreement had its own wrong answer:
+
+      - `current_admin` treated `""` as "not a slug to look up" (so no
+        `admin:impersonate` check, no grant, no `admin.impersonation_read` row) while
+        still setting `impersonating=True` from `is not None`. The result was a
+        principal flagged as inside a tenant that had entered none — refused every
+        mutation with "Impersonation is read-only. Perform this action from the admin
+        console." on the admin console itself, and, more importantly, made
+        `Principal.impersonating` mean something weaker than the flag's whole contract
+        ("a grant was verified and a read was audited").
+      - `current_any` read `""` as falsy and fell through to the CLIENT verifier, so
+        an operator met "This token is not valid for this realm" — a realm complaint
+        about a header problem, which sends them to the wrong support desk.
+
+    So a blank value is neither "no header" nor a slug: it is a caller that meant to
+    name a tenant and named nothing, which is a request defect and is answered as one.
+    Whitespace is stripped first for the same reason — ` ` used to reach the directory
+    lookup and answer 404 "Organization not found", which reads as "that client was
+    deleted".
+    """
+    raw = request.headers.get(IMPERSONATE_HEADER)
+    if raw is None:
+        return None
+    slug = raw.strip()
+    if not slug:
+        raise ProblemError(
+            kind="validation",
+            code="impersonate_org_blank",
+            title="No client account named",
+            detail=f"{IMPERSONATE_HEADER} was sent with no account slug.",
+            remediation=(
+                f"Send {IMPERSONATE_HEADER} with the client's slug, or omit it entirely "
+                "to use your own operator session."
+            ),
+        )
+    return slug
+
+
 async def current_principal(request: Request) -> Principal:
-    """The client-realm dependency. Admin routes use `current_admin` instead."""
+    """The client-realm dependency. Admin routes use `current_admin` instead.
+
+    A "view as client" session cannot reach a route declared `realm="client"`: this
+    dependency verifies against the CLIENT application's JWKS, and an operator's token
+    is not one (TRD §11). That refusal is correct and stays — what changes here is what
+    it SAYS. The answer used to be `verify_token`'s "This token is not valid for this
+    realm", which is true of the credential and useless to the operator holding it: it
+    reads as a broken sign-in rather than as "this surface is not part of view-as".
+    Three live routes are in exactly that position (`PUT /v1/billing/caps`,
+    `POST /v1/billing/topups/intent`, `POST /v1/compliance/whatsapp-alerts`), and the
+    sweep in `tests/realm_boundary_test.py` drives every one of them.
+
+    The check is on the HEADER, not on the token, deliberately: deciding "this is an
+    admin's token" would mean verifying it against the admin realm here too, which is a
+    second definition of which realm a request belongs to — the thing this module
+    exists to define once. The header is what the caller asked for, and asking for
+    view-as on a client-realm route is answerable without verifying anything.
+    """
+    if _impersonation_slug(request) is not None:
+        raise ProblemError(
+            kind="permission",
+            code="impersonation_not_available_here",
+            title="Not available in a view-as session",
+            detail=(
+                "This endpoint is part of the client's own sign-in and is not reachable "
+                "from a view-as session."
+            ),
+            remediation=(
+                "Perform this from the operator console's own surfaces for this client, "
+                "or ask someone signed in to the account to do it."
+            ),
+        )
     verified = await verify_token(_bearer(request), "client")
     principal = await _load_client_principal(verified, request.headers.get(ORG_HEADER))
     principal_var.set(principal)
@@ -742,7 +826,7 @@ async def current_admin(request: Request) -> Principal:
     verified = await verify_token(_bearer(request), "admin")
     principal = await _load_admin_principal(
         verified,
-        request.headers.get(IMPERSONATE_HEADER),
+        _impersonation_slug(request),
         impersonation_grant=request.headers.get(IMPERSONATION_GRANT_HEADER),
         ip=_request_ip(request),
         route=_route_template(request),
@@ -757,7 +841,7 @@ async def current_any(request: Request) -> Principal:
     The admin realm is tried FIRST and only when the impersonation header is present,
     so a client token can never be mistaken for an admin one.
     """
-    if request.headers.get(IMPERSONATE_HEADER):
+    if _impersonation_slug(request) is not None:
         return await current_admin(request)
     return await current_principal(request)
 
