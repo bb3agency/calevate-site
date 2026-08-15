@@ -189,13 +189,28 @@ interface RequestOptions {
    * should answer a refusal with a wall of raw JSON.
    */
   confirmAction?: string;
+  /**
+   * RFC 9110 §13.1.1 precondition: the entity-tag this write believes it is replacing.
+   *
+   * Sent verbatim, quotes included, exactly as the read handed it over — an entity-tag is
+   * opaque and nothing outside the issuing module may parse a meaning out of it
+   * (`apps/api/core/platform_config.etag_for`). It lives here beside `confirmAction` for
+   * the same reason that one does: a surface that needed it would otherwise hand-roll a
+   * `fetch` and lose problem+json parsing, and the 412 this header produces is the one
+   * response on `/v1/ops/config` an operator most needs rendered rather than dumped.
+   *
+   * `/v1/ops/config` requires it on every PUT and DELETE and answers 428 without it
+   * (`ops/config_routes.require_if_match`), which is what makes it a transport concern
+   * rather than one screen's option.
+   */
+  ifMatch?: string;
   signal?: AbortSignal;
 }
 
 export async function apiRequest<T>(
   session: Session,
   path: string,
-  { method = "GET", body, idempotencyKey, confirmAction, signal }: RequestOptions = {},
+  { method = "GET", body, idempotencyKey, confirmAction, ifMatch, signal }: RequestOptions = {},
 ): Promise<T> {
   // Resolved HERE, per call, rather than when the session object was built — a Clerk
   // token expires in about a minute (see `TokenSource`). The `await` is skipped when the
@@ -213,6 +228,7 @@ export async function apiRequest<T>(
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (confirmAction) headers["X-Confirm-Action"] = confirmAction;
+  if (ifMatch) headers["If-Match"] = ifMatch;
   if (session.impersonateOrg) {
     // FAIL CLOSED ON THIS SIDE TOO. The API refuses `X-Impersonate-Org` without a grant
     // (`core/auth.py::_load_admin_principal`), so sending the org header alone can only

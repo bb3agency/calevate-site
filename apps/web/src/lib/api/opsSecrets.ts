@@ -10,6 +10,10 @@
  * hold. `last_four` is the only fragment that exists, and the server masks it entirely
  * below eight characters. A future field that carried a plaintext would have to be added
  * here deliberately, which is the point of writing these types out.
+ *
+ * The one place a plaintext DOES exist in this app is the candidate an operator types,
+ * on its way to `/test` or to a PUT — see `CREDENTIAL_MUTATION_GC_MS` below for how long
+ * the library was keeping it afterwards, and what that is set to now.
  */
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
@@ -74,6 +78,30 @@ export interface SecretSetInput {
   reason: string;
 }
 
+/**
+ * WHY BOTH CREDENTIAL MUTATIONS SET `gcTime: 0`.
+ *
+ * TanStack keeps a finished mutation — INCLUDING its `variables` — in the MutationCache
+ * after the last observer unmounts, and collects it `gcTime` later; the default is five
+ * minutes (`removable.ts::updateGcTime`). `reset()` does not help: it calls
+ * `removeObserver`, which only *schedules* the same collection
+ * (`mutation.ts::removeObserver` → `scheduleGc`).
+ *
+ * `variables` here is `{ key, value, reason }` and `value` is the vendor credential in
+ * plaintext. So the shape this console shipped with left a live Sarvam or Bolna key
+ * sitting in a JavaScript object for five minutes after the operator closed the form and
+ * walked away — reachable from any script on the page and from a heap snapshot, for no
+ * benefit at all, since nothing re-reads a mutation's variables here.
+ *
+ * Zero means the mutation is dropped as soon as its last observer goes (the form
+ * unmounts on success or cancel), which is the shortest lifetime the library offers.
+ * It is not a claim that the string is scrubbed from memory — JavaScript cannot promise
+ * that — only that this app stops holding a reference to it the moment it stops needing
+ * one. §7's "a plaintext secret exists only in memory, only during a request", applied to
+ * the browser half of the same rule.
+ */
+const CREDENTIAL_MUTATION_GC_MS = 0;
+
 export function useTestSecret() {
   return useMutation({
     mutationFn: ({ key, value }: { key: string; value: string }) =>
@@ -81,6 +109,7 @@ export function useTestSecret() {
         method: "POST",
         body: { value },
       }),
+    gcTime: CREDENTIAL_MUTATION_GC_MS,
     // NOTHING is invalidated: the test stores nothing, so nothing the console holds has
     // changed. Refetching here would suggest otherwise.
   });
@@ -95,6 +124,7 @@ export function useSetSecret() {
         body: { value, reason },
         confirmAction: secretConfirmation(key),
       }),
+    gcTime: CREDENTIAL_MUTATION_GC_MS,
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: OPS_SECRETS_QUERY_KEY });
       // The key-management panel counts DEKs per KEK, and a new version adds one under

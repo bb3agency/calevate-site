@@ -187,6 +187,12 @@ function configField(over: Partial<ConfigField> = {}): ConfigField {
     editable: true,
     applies: "live",
     caveat: null,
+    // The key's concurrency token, sent back as `If-Match` on every write. A field
+    // WITHOUT one makes the console refuse to offer a form at all — the API answers 428
+    // to an unconditional write (`ops/config_routes.require_if_match`), so a Change
+    // button for a key with no token is a control whose only outcome is a refusal.
+    // `opsHardening.test.tsx` owns that property; this fixture simply has one.
+    etag: '"7"',
     updated_by: null,
     updated_at: null,
     note: null,
@@ -1393,6 +1399,8 @@ describe("the platform configuration panel", () => {
           previous: null,
           field: configField({ value: "7.25", source: "db" }),
           config_version: 43,
+          recorded: true,
+          etag: '"8"',
         },
       }),
     );
@@ -1447,6 +1455,8 @@ describe("the platform configuration panel", () => {
           previous: "7.25",
           field: configField(),
           config_version: 44,
+          recorded: true,
+          etag: '"0"',
         },
       }),
     );
@@ -1589,7 +1599,10 @@ describe("the credentials panel", () => {
     fireEvent.change(secretInput(), { target: { value: secret } });
     fireEvent.click(screen.getByRole("button", { name: /Test with the vendor/ }));
 
-    await screen.findByText("The vendor accepted this credential");
+    // The TITLE carries the epistemic status: this fixture is `verified: false`, which
+    // every probe in this build is, so the box may not read as a plain acceptance.
+    // `opsHardening.test.tsx` owns that property; here it is only the anchor.
+    await screen.findByText("The vendor accepted this credential — indicative, not confirmed");
     // The value went to the API and came back nowhere. The response carries four
     // characters and the screen shows those four and nothing more.
     expect(container.textContent).not.toContain(secret);
@@ -1617,7 +1630,7 @@ describe("the credentials panel", () => {
     fireEvent.change(secretInput(), { target: { value: "a-wrong-key-wxyz" } });
     fireEvent.click(screen.getByRole("button", { name: /Test with the vendor/ }));
 
-    await screen.findByText("The vendor REFUSED this credential");
+    await screen.findByText("The vendor REFUSED this credential — indicative, not confirmed");
     // OPERATIONS §2: an unverified vendor behaviour is a MARKED assumption.
     expect(container.textContent).toContain("not been confirmed against the live vendor");
   });
