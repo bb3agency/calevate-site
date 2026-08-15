@@ -330,6 +330,14 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "gst_supplier_address": AppliesRule(LIVE),
     "gst_supplier_gstin": AppliesRule(LIVE),
     "gst_supply_sac": AppliesRule(LIVE),
+    # The GCP project Vertex AI bills and runs in (D-127). `workers/extraction`
+    # re-reads it per assist. It is plain config and not a credential on purpose — a
+    # project id is in every URL the client builds and is the value an operator gets
+    # wrong first, so it belongs where they can SEE it. The REGION is deliberately not
+    # here and can never be: `calevate_shared.engine.VERTEX_LOCATION` is a `Final`
+    # constant and `scripts/check_model_residency.py` fails the build on any `Settings`
+    # field whose name says region, location, residency, vertex or aiplatform.
+    "gcp_project_id": AppliesRule(LIVE),
     # ---- CREDENTIALS. Same question, higher stakes -------------------------------
     #
     # The Secrets panel implies exactly what the config panel implies — set it and it is
@@ -361,7 +369,32 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "clerk_client_secret_key": AppliesRule(ON_RESTART, "same as the admin secret"),
     # Read at the point of use, per call or per request.
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
+    # D-127 disqualified the AI Studio Developer API this key opens, so nothing sends it
+    # anywhere. It is still `live` and that is not a fiction: `assist_capability()` reads
+    # it per call, and its presence is what turns the generic "no credential" refusal into
+    # the one an operator who installed it needs. Setting it therefore still changes what
+    # the platform does within one poll interval — it changes the SENTENCE, not the
+    # endpoint.
     "gemini_api_key": AppliesRule(LIVE),
+    # The Vertex service-account key (D-127). `live`, and unlike `bolna_api_key` that was
+    # checked rather than assumed: `workers/extraction.vertex_credentials()` parses it
+    # per assist and `VertexGeminiExtractor` is constructed per assist, so a new key
+    # reaches the next request.
+    #
+    # ROTATING WITHIN ONE ACCOUNT IS THE EXCEPTION, and it is stated because it is the
+    # case an operator meets at 3am. The BEARER is cached in `google_oauth` on
+    # `(client_email, scope)`, so replacing a key that keeps the same service-account
+    # address keeps sending the old token for up to an hour. That is deliberate — the
+    # cache is what stops one RS256 signature per assist — and the verb for it is
+    # `google_sheets.reset_caches()`, or a restart. Same behaviour, same caveat, as the
+    # Sheets key below, because it is now literally the same cache.
+    "gcp_service_account_json": AppliesRule(
+        LIVE,
+        "the KEY is read per assist, but a bearer minted from it is cached for up to an "
+        "hour on the service account's address — so rotating to a NEW key for the SAME "
+        "service-account address keeps the old token in flight until it expires. A "
+        "different service account takes effect immediately.",
+    ),
     "cohere_api_key": AppliesRule(LIVE),
     "clerk_webhook_secret": AppliesRule(LIVE),
     "audit_chain_secret": AppliesRule(LIVE),  # compliance/audit._active_key(), per write

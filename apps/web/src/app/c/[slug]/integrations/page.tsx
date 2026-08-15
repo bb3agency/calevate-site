@@ -12,7 +12,7 @@ import {
   formatIST,
 } from "@/components/ui";
 import { ApiProblem, type Session } from "@/lib/api/client";
-import { useMe, useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
+import { useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import {
   EVENT_LABELS,
@@ -90,14 +90,25 @@ export default function IntegrationsPage() {
    * The delivery whose body the client asked to see, or null.
    *
    * `calls:read_raw` gates the offer, read off `/v1/me` — the SERVER's answer about this
-   * session — the same inline way the leads export does, and REFUSED while the answer is
-   * in flight so the screen never offers an action it is about to withdraw. The
-   * permission covers D-22 without a second condition: `operator` does not hold
-   * `calls:read_raw` at all (core/rbac.py), so an impersonating support user keeps the
-   * delivery log — which answers "did it arrive?" — and is never offered the payload.
+   * session — and REFUSED while the answer is in flight so the screen never offers an
+   * action it is about to withdraw. The permission covers D-22 without a second
+   * condition: `operator` does not hold `calls:read_raw` at all (core/rbac.py), so an
+   * impersonating support user keeps the delivery log — which answers "did it arrive?" —
+   * and is never offered the payload.
+   *
+   * Through `useWriteAccess` rather than inline, which is the whole of the fix: the line
+   * this replaced was `me.data?.permissions?.includes("calls:read_raw") ?? false`, and
+   * `me.data` is undefined while `/v1/me` is in flight AND after it fails. So a request
+   * that never landed withdrew the column and said nothing — an owner who holds the
+   * permission shown a screen implying a refusal they never received. `useWriteAccess`
+   * fails closed the same way and answers "We could not check whether you can …", which
+   * is the difference between a refusal and a silence. (Not a mutating permission, so
+   * "write" is the helper's name rather than this call's meaning; it is the one place
+   * this console asks "may this session do X", and a second way to ask would be the
+   * drift CLAUDE.md's "one way per problem" is about.)
    */
-  const me = useMe(session);
-  const mayReadPayload = me.data?.permissions?.includes("calls:read_raw") ?? false;
+  const payloadAccess = useWriteAccess(session, "calls:read_raw", "open a delivered payload");
+  const mayReadPayload = payloadAccess.allowed;
   const [openPayload, setOpenPayload] = useState<string | null>(null);
   const payload = useDeliveryPayload(session, openPayload);
 
@@ -248,6 +259,14 @@ export default function IntegrationsPage() {
       </Card>
 
       <Card title="Recent deliveries">
+        {/* Why the payload column is not here — said ONLY when the answer is ours rather
+            than the server's. A staff reader who genuinely lacks `calls:read_raw` gets no
+            column and no sentence, which is the deliberate design ("a permanently empty
+            column is a promise the screen cannot keep"), and an impersonating operator
+            already has the shell's read-only banner. `unknown` is the case that had no
+            voice at all: a dead `/v1/me` withdrew the column exactly like a refusal. */}
+        <RestrictionNote reason={payloadAccess.unknown ? payloadAccess.reason : null} />
+
         {/* Without this the card falls through to "Nothing sent yet" on a 4xx —
             which is the exact wrong answer to "did my CRM get it?". */}
         {deliveries.error && (

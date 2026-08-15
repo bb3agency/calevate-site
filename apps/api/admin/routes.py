@@ -1201,7 +1201,20 @@ async def provision_number(
     request: Request,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
 ) -> NumberCreatedOut:
+    """A mistyped tenant uuid is a 404, and it used to be a 409 about a NUMBER.
+
+    `provision_number` maps every `IntegrityError` to `number_taken` ("This number is
+    already provisioned — it may belong to another account"), which is the right answer
+    for the UNIQUE index it was written for and the wrong one for the tenant foreign
+    key. An operator who mistyped the client id was told to go looking for whoever
+    holds a number nobody holds. `service.tenant_exists` is the ONE definition of "is
+    this a live organization" and exists so every surface naming a tenant in its path
+    answers a mistyped uuid the same way — asked here rather than the predicate copied,
+    exactly as `set_tenant_status` and `record_commercial_terms` ask it.
+    """
     async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         number_id = await agents_service.provision_number(
             scoped,
             tenant_id=tenant_id,
@@ -1270,7 +1283,16 @@ async def register_template(
     request: Request,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
 ) -> dict[str, str]:
+    """A mistyped tenant uuid is a 404 here, and it used to be a 500.
+
+    `dlt_templates.tenant_id` has an FK, so an id no organization holds reached the
+    INSERT and came back as `internal_error` — an operator was told "the team has been
+    alerted" for a typo they could fix themselves, and the team was alerted for it.
+    Same guard, same predicate and same reason as `record_commercial_terms` above.
+    """
     async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         template_id = await campaigns_service.register_dlt_template(
             scoped,
             tenant_id=tenant_id,
@@ -1493,6 +1515,14 @@ async def record_kyc_verification(
         )
 
     async with tenant_session(tenant_id) as scoped:
+        # A mistyped tenant uuid is a 404, not a 500: `kyc_records.tenant_id` has an FK,
+        # so an id no organization holds reached the upsert and surfaced as
+        # `internal_error`. The two validations above exist so an operator gets a
+        # problem+json naming the missing field instead of an IntegrityError; this is
+        # the same argument for the field they are most likely to get wrong, since it is
+        # the only one they copy rather than type.
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         await record_kyc(
             scoped,
             tenant_id=tenant_id,

@@ -36,11 +36,16 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.api.integrations.egress_guard import EgressRefusedError, assert_public_http_url
 
 log = get_logger(__name__)
 
 PRESIGN_TTL_S = 300
 DOWNLOAD_TIMEOUT_S = 60.0
+#: How many `Location` hops a recording fetch will follow, each one re-vetted. A
+#: presigned URL redirecting once to a CDN is ordinary; a chain is not, and an
+#: unbounded one is a redirect loop a worker would sit in until its timeout.
+RECORDING_REDIRECT_LIMIT = 3
 # A recording copy is worth waiting for: the vendor's S3 link has no documented expiry
 # but no promise either, so a retry should be soon enough to beat a link going away and
 # far enough out to let a storage blip finish.
@@ -134,14 +139,51 @@ def payload_call_prefix(*, tenant_id: UUID, call_id: UUID) -> str:
 
 
 async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> str:
-    """Stream the engine's recording into our bucket. Returns the object key."""
+    """Stream the engine's recording into our bucket. Returns the object key.
+
+    THE URL IS THE VENDOR'S, AND IT IS VETTED LIKE ANY OTHER (D-129). `source_url` arrives
+    on an engine payload or a poller snapshot, so it is not ours and not a tenant's — it
+    is a third party's, which is the category this repo trusts least in every OTHER place
+    it appears (hard rule 2 keeps vendor shapes out of typed columns for the same reason).
+    This was the one outbound path in the tree still fetching an externally supplied
+    address with no address check and `follow_redirects=True`, which is the whole SSRF
+    shape: a compromised or merely wrong vendor response naming `169.254.169.254` — or
+    redirecting to it — would have been fetched by a worker inside our network.
+
+    EVERY HOP IS VETTED, NOT JUST THE FIRST. `follow_redirects=True` would have let httpx
+    chase a `Location` nobody judged, which is exactly how the guard is beaten elsewhere
+    and why `integrations.service.deliver` sets it False. So the redirects are followed by
+    hand, bounded, with `assert_public_http_url` re-run on each hop. A presigned URL that
+    redirects to a CDN still works; one that redirects inward does not.
+
+    `EgressRefusedError` is a `ProblemError`, and this is a worker, so it is converted to
+    `StorageUnavailableError` — the failure the pipeline already knows how to record
+    against the call rather than a 422 nobody is listening for.
+    """
     settings = get_settings()
     key = recording_key(tenant_id, call_id)
     try:
-        async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT_S, follow_redirects=True) as client:
-            response = await client.get(source_url)
-            response.raise_for_status()
-            audio = response.content
+        async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT_S, follow_redirects=False) as client:
+            url = source_url
+            for _hop in range(RECORDING_REDIRECT_LIMIT + 1):
+                await assert_public_http_url(url, field="recording_url")
+                response = await client.get(url)
+                if response.is_redirect and response.has_redirect_location:
+                    url = str(response.next_request.url) if response.next_request else ""
+                    continue
+                response.raise_for_status()
+                audio = response.content
+                break
+            else:
+                raise StorageUnavailableError(
+                    f"recording fetch exceeded {RECORDING_REDIRECT_LIMIT} redirects"
+                )
+    except EgressRefusedError as exc:
+        # The vendor named somewhere we will not go. Not transient, and worth the id in
+        # the log rather than the address (hard rule 6 permits neither a phone nor a
+        # transcript here, and the address is the vendor's, not a subject's).
+        log.error("recording_source_refused", extra={"call_id": str(call_id), "rule": exc.code})
+        raise StorageUnavailableError(f"recording source refused: {exc.code}") from exc
     except httpx.HTTPError as exc:
         raise StorageUnavailableError(f"recording fetch failed: {type(exc).__name__}") from exc
 

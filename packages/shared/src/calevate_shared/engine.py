@@ -251,6 +251,75 @@ SARVAM_RETIRED_LLMS: Final = frozenset(
 )
 
 
+#: THE Vertex AI region, and the only one D-127 permits. Mumbai.
+#:
+#: WHY IT IS A `Final` HERE AND NOT A `Settings` FIELD, which is the half a reviewer would
+#: wave through. `platform_config.managed_fields()` derives the ops console's editable set
+#: from `Settings.model_fields` minus the bootstrap keys minus credential-shaped names, so
+#: a field called `vertex_location` would be editable from a web form the day it was
+#: declared — and a residency posture invertible by a click at 3am is not a posture. Same
+#: doctrine `check_bootstrap_keys` applies to `APP_ENV` (D-95 §4), applied to the one other
+#: value whose change is a compliance event wearing a config diff.
+#:
+#: It lives beside `SARVAM_DEFAULT_LLM` because this is where the repo already keeps the
+#: facts about which model runs where, and because `scripts/check_model_residency.py`
+#: names this file as the home in its own failure text. That guardrail enforces four
+#: things about this constant: it is the only spelling of `asia-south1` in shipped code,
+#: every `*-aiplatform.googleapis.com` host resolves to it, the `locations/…` path segment
+#: interpolates it and nothing else, and no `Settings` field can carry a region at all.
+#:
+#: The region appears TWICE in a Vertex URL — in the host and in the path — and the two
+#: can disagree. One constant is what makes them unable to.
+VERTEX_LOCATION: Final = "asia-south1"
+
+#: The Gemini model the dashboard-AI path sends (D-127; PLAN Part 13).
+#:
+#: 3.x, not 2.5, and the date is the reason: `gemini-2.5-flash-lite` — which
+#: `workers/extraction.py` defaulted to before Part 13 — RETIRES 16 Oct 2026 (BRD R-04),
+#: and Google's own migration target for it is `gemini-3.1-flash-lite`. Shipping a model
+#: identifier with eight weeks of life left is D-105 again with a calendar attached.
+#:
+#: EVIDENCE STANDING: **REPORTED, NOT READ** — searched 15 Aug 2026;
+#: `docs.cloud.google.com` is refused by this environment's egress proxy (the same wall
+#: `check_model_residency`'s docstring records), so nothing below was fetched from this
+#: repository. Multiple independent search summaries agree on three facts: Gemini 3.1
+#: Flash-Lite went generally available 7 May 2026 as the efficiency tier of the Gemini 3.1
+#: generation, at $0.25/$1.50 per 1M input/output tokens with a 1M-token context; it is
+#: the named replacement for `gemini-2.5-flash-lite`; and the retirement date for the 2.5
+#: family is 16 Oct 2026.
+#:
+#: ⚠ WHAT IS NOT CONFIRMED, said here rather than discovered later: that `asia-south1`
+#: SERVES this identifier. Search could establish regional availability for the 2.5 Flash
+#: class in Mumbai and could not establish it for 3.1 Flash-Lite, so this is an
+#: OPERATIONS §2-class vendor gate on the day the GCP project exists, not an engineering
+#: unknown. The failure direction is the safe one: a model a region does not serve answers
+#: 404 from a host that is unambiguously ours, `VertexGeminiExtractor` maps it to the
+#: authored reason `provider_unavailable`, and G-6's disclosed Sarvam fallback carries the
+#: work. The alternative — silently widening the region until something answers — is the
+#: residency inversion this whole guardrail exists to prevent.
+GEMINI_DEFAULT_LLM: Final = "gemini-3.1-flash-lite"
+
+#: Gemini identifiers no shipped module may name. `tests/sarvam_model_identifier_test.py`
+#: scans for them for the reason it scans for the Sarvam ones.
+#:
+#: These are DATED rather than already dead, which is the difference from
+#: `SARVAM_RETIRED_LLMS` and is why they are banned now: 16 Oct 2026 is a date somebody
+#: has to act before, and the only cheap moment to act is the one where the identifier is
+#: being written. A name that dies on a schedule and is caught on the day it dies costs a
+#: post-call pipeline returning empty extractions with a 404 nobody is watching for.
+GEMINI_RETIRED_LLMS: Final = frozenset(
+    {
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-pro",
+    }
+)
+
+
 class ModelConfig(BaseModel):
     """BYOK model selection — plain config strings (D-04/D-20/D-36), so changing a
     model is a config edit + regression run, never a code change."""

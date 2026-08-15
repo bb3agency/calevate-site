@@ -122,8 +122,12 @@ three fields needed to dedupe). `webhook_routes.py` verifies → dedupes (Redis 
 - `redaction.py` — Aadhaar (Verhoeff), PAN, card (Luhn), OTP, email/UPI, Indian mobile
   (keeps last 2 digits), and **spoken digit runs in English + transliterated Telugu**,
   which a regex alone cannot see. 10 behaviour tests.
-- `extraction.py` — Sarvam (D-36 default) / Gemini (fallback, with its residency cost
-  stated) / Offline deterministic. No silent failover between providers.
+- `extraction.py` — Sarvam (D-36; and per D-127 G-7 the permanent runner of the first
+  post-call extraction, because that pass reads the raw transcript) / Offline
+  deterministic / `VertexGeminiExtractor` on Vertex AI `asia-south1` for the
+  user-triggered assist over the REDACTED copy. `GEMINI_EXTRACTION_DEFAULT is False`.
+  No silent failover between providers — and `assist_capability()` is the one place that
+  decides between a DISCLOSED Sarvam fallback and a refusal with a remediation (G-6).
 - `pipeline.py` — `ingest_engine_event` (re-fetches the truth, resolves tenant, upserts
   the call, gates on `billable_ready`) and `run_post_call_pipeline` (recording FIRST →
   transcript+redaction → extraction → lead upsert → metering → outbox notification),
@@ -256,7 +260,10 @@ honest about what it measured rather than flattering.
   per-model baseline of known failures is committed (`eval_baseline.json`), and exit
   code 1 means "a case that used to pass now fails". `--update-baseline` makes an
   improvement a reviewable diff. Baseline is keyed BY MODEL because comparing Sarvam
-  against Gemini on these fixtures is exactly D-36's open question.
+  against Gemini on these fixtures is exactly the question D-36 opened and D-127
+  deliberately did NOT close: D-127 decides WHERE Gemini runs and WHICH pass it may see,
+  never which model extracts better. That run is blocked outside this repo on a Sarvam
+  key and egress.
 - Current baseline (`offline-heuristic`): 3/6 pass. The three failures are real Telugu
   comprehension limits — "iddaru" → 2, "marchali" → reschedule, "tarvata call cheyandi"
   → callback — and are precisely what a real model has to beat.
@@ -3260,6 +3267,96 @@ zero completed calls is `None` by design — so the failure arrived as an arithm
 assertion in a suite of 3,631 tests, with the test passing every time it was re-run alone.
 It now chooses the completed calls FROM THE RECORDED ASSIGNMENTS, half of each arm. A test
 whose fixture depends on a random salt is not deterministic because it looks deterministic.
+
+## §68 — the plan, then seventeen of its eighteen parts, and what an adversary found afterwards
+
+Two audits, a written plan, then the work. `docs/PLAN-HARDENING-AND-GEMINI.md` was produced
+first at the founder's instruction, from two mechanical read-only sweeps — 176 backend
+routes enumerated three independent ways (the live FastAPI table via `iter_api_routes`, the
+generated `openapi.json`, `check_wiring`) and 46 frontend route files with all 77 query
+hooks checked for an unread `isError`. Parts 1–16 and 18 then landed as D-127…D-138. Part
+17 is pilot-gated and stayed unbuilt.
+
+**The plan was wrong in four places, and each correction is worth more than the part it
+came from.**
+
+- **The census was wrong twice.** "27 untested routes" was 21 — and the agent that found
+  that also caught its OWN first answer of 24, because its matcher could not see a quoted
+  key inside an f-string hole. **`_request_ip` was 1 of 83** `request.client.host` call
+  sites, so SEC-COMP §5's `ip` field is satisfied in shape only across ~30 files rather
+  than at the one dependency the audit named.
+- **"Maintenance mode still admits new tenants" was false.** `signup.py` already refuses
+  every non-normal mode. The defect was real but structural — an exemption aimed at a route
+  that does not exist, with a second copy of the rule in the route covering for it — and it
+  shipped as a census rather than a behaviour patch, which is why nothing was red.
+- **The nginx origin lock was not the alternative the plan offered.** It admits every
+  Cloudflare edge range, i.e. the whole internet on a proxied zone; `/healthz/ready` was
+  already behind it, which is precisely why it leaked.
+- **`google-auth` was declined on better grounds than the ones considered.** The lockfile
+  diff was clean; the objections were that this repo already implements the RFC 7523
+  JWT-bearer flow in `google_sheets.py`, and that `google-auth`'s `refresh()` is synchronous
+  over `requests`, which would block an arq event loop. The flow was extracted to
+  `google_oauth.py` and Sheets migrated onto it in the same change — **net lockfile diff:
+  two lines, zero new packages.**
+
+**The single most valuable result is a measurement, not a fix.** The adversarial pass drove
+34 client routes with a neighbouring tenant's REAL row ids and a valid session: every one
+answered 404, none 403, none 2xx. Then it set `ALTER ROLE calevate_app BYPASSRLS` and ran
+the identical sweep — **29 routes leak at once**, including DELETE of a neighbour's lead
+source, webhook endpoint and members. Tenant isolation in this product is the database's
+and nothing else's. That is now a known quantity rather than a belief.
+
+**Three defects it found were all the same shape: a control that declared a number the
+caller could change.** `verify_token` called PyJWT's `get_signing_key_from_jwt` — a
+SYNCHRONOUS `urlopen` with a 30-second default — on the event loop, refetching on an unknown
+`kid` without memoising the failure, reachable by any anonymous caller varying one field of
+an unsigned JWT (measured: 1 heartbeat tick completed during the request, ≥10 after). The
+rate limiter keyed on the raw `Authorization` header, so `Bearer x`, `bearer x` and
+`Bearer  x` were three buckets for one credential — unbounded with whitespace. And
+`BodyLimitMiddleware` read only `Content-Length`, so `Transfer-Encoding: chunked` walked
+past the 2 MiB cap; the "nginx backstops it" comment that made nobody worry was **false**,
+the edge allows 25m.
+
+**On SSRF, the guard is worth reading as a piece of design.** It judges resolved addresses
+rather than strings, which is why `http://2130706433/`, `0177.0.0.1` and `0x7f000001` are
+refused with no special case — glibc parses them the way the connection would. It *measured*
+that `is_global` alone is insufficient on this interpreter (`239.1.1.1` and `ff02::1` both
+report True), and the sabotage that reduced the check to `is_global` came back DID NOT
+RAISE. It re-vets after DNS at connect time, because registration-time DNS can be rebound.
+And when the suite's reserved-name fixtures would all have failed closed, it substituted the
+RESOLVER seam in `conftest` rather than exempting reserved names inside the shipped guard —
+naming that alternative as the "bypass for testing" hard rule 5 forbids in those words. The
+pass then found the one path the guard did not cover: `copy_recording` fetched a
+VENDOR-supplied URL with `follow_redirects=True` and no check at all (D-138).
+
+**Two agents split a question the plan posed as either/or, and were right to.** Six
+curl-only compliance routes did not need one answer: the global-DNC surface got screens
+(nothing external blocks the act, and a runbook had an operator hand-assembling a POST with
+a step-up header against production while answering a regulator), the WhatsApp opt-in got
+screens (those routes were DESIGNED around a console that did not exist — the response
+carries the notice text and version precisely so a screen can render what a client agrees
+to, and **an operator cannot give a client's consent**), and the preference scrub stayed
+curl-only because it records a run on a DLT platform requiring an RTM relationship Calevate
+does not hold.
+
+**On method, the pattern held and sharpened.** Agents self-reported tests that passed for
+the wrong reason in seven of the ten slices — a per-field scorecard whose tests built their
+own inputs and so never exercised the classifier feeding it; a `surfaceStatesGuard` sabotage
+that passed because the fixture's branch held a `<p>` where the rule looks for a control; a
+log assertion reading the `LogRecord` attribute instead of the formatter's output, which
+would have passed for a line shipping `[1 items]` instead of credential names. One agent
+found its own tests were order-dependent only by running each suite eight times in a minute
+rather than once. **The frontend guard's rejected heuristic was revisited and adopted**: its
+own history recorded measuring "does anything read this query's error?" at 22 hits/~20
+correct and rejecting it as an unfixable treadmill — the insight this wave was that *the
+treadmill was a property of the backlog, not the rule*. Re-measured at 9 hits, 9 real, all
+fixed, and `EXEMPT` is now empty.
+
+**The ratchet did its job twice at integration.** It refused a coverage suppression that was
+argued rather than sneaked (a `pragma: no cover` on a genuinely unreachable branch — replaced
+with `.one()`, which deletes the branch instead of hiding it), and then it found that the AI
+quota gate's **success path was untested**: every refusal was proved and the branch that says
+"yes" was not, in a file whose natural bias is ceilings.
 
 ## State of the system — what a future session inherits
 

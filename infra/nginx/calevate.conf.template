@@ -96,6 +96,15 @@ server {
 
     # Ordered most-specific first. nginx picks the longest matching prefix, so the order
     # here is for the reader; the `=` and `^~` markers are what actually pin them.
+    #
+    # THESE STAY OPEN, AND THE RESTRICTION THAT BELONGS HERE IS NOT AN `allow`/`deny`
+    # (D-128). `/healthz/ready` used to publish the NAMES of the credentials this
+    # deployment had not installed. It is fixed in the app — the status word and the
+    # status code answer everybody, the detail answers `ops:manage` — because the
+    # alternative considered here does not work: `calevate-origin.conf` is included by
+    # this server block already, and what it admits is every Cloudflare edge range, i.e.
+    # the whole internet on a proxied zone. A tighter `allow` list here would refuse the
+    # authorised operator alongside the stranger, since both arrive from the same edge.
     location = /healthz          { limit_req zone=health burst=5 nodelay; proxy_pass http://calevate_api; include /etc/nginx/snippets/calevate-proxy.conf; }
     location ^~ /healthz/        { limit_req zone=health burst=5 nodelay; proxy_pass http://calevate_api; include /etc/nginx/snippets/calevate-proxy.conf; }
 

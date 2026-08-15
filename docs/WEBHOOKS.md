@@ -146,6 +146,24 @@ Three rules that matter:
   registers an endpoint (http(s) URLs only, at least one event) and returns the signing
   secret **exactly once**, in that response. Store it in your secrets manager
   immediately — no later API call ever returns it again.
+
+**Where an endpoint may live.** Your URL must resolve to an address on the public
+internet and listen on port **80 or 443**. We resolve the hostname and refuse anything
+that answers with a loopback, link-local, private (RFC 1918 / RFC 4193), multicast,
+reserved or otherwise non-routable address, with `422 webhook_url_not_public` naming
+which it was; a port other than 80 or 443 is `422 webhook_url_port_not_allowed`, and a
+hostname we cannot resolve is `422 webhook_url_unresolvable`. If your receiver runs
+inside your own network, publish it through the reverse proxy or load balancer you
+already use — we cannot deliver to an address only you can reach, and a delivery
+attempted into a private range is an attack against our infrastructure whoever asked
+for it.
+
+**The check is repeated at delivery, not only at registration**, so an endpoint that
+was public when you registered it and later resolves to a private address stops
+receiving leads: the attempt is recorded `failed` on your delivery screen with the same
+reason code and is **not** retried, because the next attempt would resolve identically.
+Redirects are never followed (§1.5), so moving an endpoint means registering the new
+URL, not returning a `3xx` from the old one.
 - `GET /v1/integrations/endpoints` shows each endpoint with a `secret_fingerprint`
   (first 8 hex characters of the secret's SHA-256) so you can confirm *which* secret
   you hold without anyone re-displaying it.

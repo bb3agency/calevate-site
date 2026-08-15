@@ -94,8 +94,9 @@ specific things, and neither has been run:
 
 Bolna (engine, adapter-isolated — D-31) + the **D-36 canonical all-Sarvam BYOK stack**
 (Saaras STT · Sarvam 105B LLM, free + sovereign · Bulbul v3 TTS default, v2 as the value
-tier) — **Gemini 2.5 Flash-Lite is a configurable FALLBACK, not the default; D-04/D-20's
-Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
+tier) — **Gemini 3.x Flash-Lite runs the user-triggered dashboard AI on Vertex AI
+`asia-south1` (D-127); `GEMINI_EXTRACTION_DEFAULT is False`, so the first post-call
+extraction stays on Sarvam. D-04/D-20's Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
 Postgres 16 + RLS (pgvector is a D-28 contingency) · Redis/ARQ · Clerk (two realms) ·
 a Hetzner-class VPS with an India-resident data plane (D-25 moved hosting off
 DigitalOcean; nothing is provisioned yet) · Sentry/OTel (LLM tracing is a named gap, D-49) · setup-fee + retainer + overage pricing, plus the

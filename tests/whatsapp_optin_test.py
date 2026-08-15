@@ -960,3 +960,114 @@ async def test_an_opt_in_that_cannot_name_the_person_giving_it_is_forbidden() ->
     assert caught.value.status == 403
     assert "person giving it" in caught.value.detail
     assert await _rows(tenant_id) == []
+
+
+# --------------------------------------------------------------------------------
+# 11. The operator's READ — what makes the operator's write safe to offer
+
+
+async def test_an_operator_reads_the_owners_state_before_recording_one() -> None:
+    """The read that stops `record_for_client` being a write-only control.
+
+    An operator holding a month-old onboarding form must be able to see that the owner
+    withdrew last week. Without this route the console could only write and then look at
+    what came back, which is the one order in which the mistake is unrecoverable: the
+    ledger is append-only, so the correction is another row, and the alerts resumed in
+    between.
+    """
+    tenant_id, _, _, owner_id = await _tenant("admin-reads")
+    admin_token = await _make_admin()
+
+    async with _client() as client:
+        before = await client.get(
+            ADMIN_ENDPOINT.format(tenant_id=tenant_id),
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert before.status_code == 200, before.text
+        # The default of the world: nobody has asked this owner anything.
+        assert before.json()["status"] == "none"
+        assert before.json()["messageable"] is False
+
+        await _grant(tenant_id, owner_id)
+
+        after = await client.get(
+            ADMIN_ENDPOINT.format(tenant_id=tenant_id),
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+    assert after.status_code == 200, after.text
+    body = after.json()
+    # The OWNER's own self-serve grant, seen from the admin realm — the operator must not
+    # have to write a row to find out one already exists.
+    assert body["status"] == "granted"
+    assert body["channel"] == ALERT_OPTIN_SELF_SERVE
+    assert body["messageable"] is True
+    # Hard rule 6: the subject is resolved server-side and the number never comes back.
+    assert OWNER_E164 not in after.text
+
+
+async def test_the_operator_read_refuses_an_account_with_no_reachable_owner() -> None:
+    """The SAME refusal the write gives, by name.
+
+    Answering `none` here would be a different sentence — "this person has never been
+    asked" — about an account where there is no person to ask, and it would offer the
+    operator a control whose only outcome is the 422 the write raises for exactly this
+    reason. One subject, resolved one way, and both verbs refuse together.
+    """
+    tenant_id, _, _, _ = await _tenant("admin-reads-no-owner", phone=None)
+    admin_token = await _make_admin()
+
+    async with _client() as client:
+        response = await client.get(
+            ADMIN_ENDPOINT.format(tenant_id=tenant_id),
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+    assert response.status_code == 422, response.text
+    assert _code(response) == "alert_optin_no_owner_with_a_number"
+
+
+async def test_the_operator_read_is_refused_to_a_client_session() -> None:
+    """`admin:tenants`, realm admin. A client token is not a support session, and one
+    owner reading another tenant's consent state through this path would be a breach of
+    the boundary the two routers exist to keep."""
+    tenant_id, slug, token, _ = await _tenant("admin-read-realm")
+
+    async with _client() as client:
+        response = await client.get(
+            ADMIN_ENDPOINT.format(tenant_id=tenant_id), headers=_headers(token, slug)
+        )
+
+    assert response.status_code in (401, 403), response.text
+
+
+async def test_the_operator_read_is_not_gated_on_the_permission_to_write() -> None:
+    """The READ declares a non-mutating permission and the WRITE does not — read off the
+    route table, so a flip back fails here as well as in the global sweep.
+
+    D-22 hides every route declaring a `MUTATING_PERMISSIONS` member from a read-only
+    "view as client" session, and this route first shipped with `admin:tenants` on both
+    verbs. That made the one question support is asked about this feature — "why am I not
+    getting WhatsApp alerts?" — unanswerable from inside the session support is in, since
+    the client-realm read deliberately reports no subject state there either.
+    `tests/impersonation_reads_test.py` asserts the RULE over the whole table; this
+    asserts the SPLIT on this pair, where the argument for it lives.
+    """
+    from apps.api.core.rbac import MUTATING_PERMISSIONS, iter_api_routes
+
+    declared = {
+        (route.path, frozenset(route.methods)): (route.openapi_extra or {}).get(
+            "x-calevate-permission"
+        )
+        for route in iter_api_routes(app)
+        if route.path == ADMIN_ENDPOINT.replace("{tenant_id}", "{tenant_id}")
+    }
+    read = next(p for (_, methods), p in declared.items() if "GET" in methods)
+    write = next(p for (_, methods), p in declared.items() if "POST" in methods)
+
+    assert read == "org:read"
+    assert read not in MUTATING_PERMISSIONS, "a read hidden from view-as is the D-22 bug"
+    # The write keeps the permission that names one tenant's support work, and it is
+    # mutating on purpose: an impersonating admin must not manufacture a client's consent.
+    assert write == "admin:tenants"
+    assert write in MUTATING_PERMISSIONS

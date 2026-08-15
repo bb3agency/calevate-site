@@ -252,6 +252,7 @@ dependencies = [
     { name = "opentelemetry-sdk" },
     { name = "pgvector" },
     { name = "psycopg", extra = ["binary", "pool"] },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "sqlalchemy" },
 ]
 
@@ -266,6 +267,7 @@ requires-dist = [
     { name = "opentelemetry-sdk", specifier = ">=1.30" },
     { name = "pgvector", specifier = ">=0.4" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10" },
     { name = "sqlalchemy", specifier = ">=2.0.44" },
 ]
 

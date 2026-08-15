@@ -8,6 +8,7 @@ or extraction payload in here — this object gets logged.
 
 from __future__ import annotations
 
+import re
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Literal
@@ -30,6 +31,51 @@ IMPERSONATE_HEADER = "X-Impersonate-Org"
 # the very mismatch the grant exists to catch — a grant for tenant A presented against
 # tenant B — and would leave `current_any` with nothing cheap to switch realms on.
 IMPERSONATION_GRANT_HEADER = "X-Impersonation-Grant"
+
+# Header values arrive latin-1-decoded, so a raw control byte survives as a character.
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def bearer_token(header_value: str | None) -> str | None:
+    """THE credential an `Authorization` header carries, or None when it carries none.
+
+    HERE, in the leaf module, for the reason the header names above are here — one more
+    thing two layers must agree about, where disagreeing is invisible to curl. The two
+    readers are `core.auth._bearer`, which authenticates with it, and
+    `core.middleware.RateLimitMiddleware._caller`, which keys the per-caller rate-limit
+    bucket on it; the limiter used to key on `fingerprint(<the whole raw header>)`, so
+    `Bearer x`, `bearer x`, `BEARER x`, `Bearer  x` and `Bearer x ` — five spellings the
+    verifier calls ONE credential, and every route accepts as one session — were five
+    buckets. Padding the value with spaces made that unbounded: a single client could
+    spend the whole `bulk_read` allowance (six exports a minute per caller, the profile
+    that exists because "this is the shape data exfiltration takes") as many times as it
+    liked. A limiter whose ceiling the caller chooses is the same defect class as the
+    per-process `hash()` seed D-131 replaced, one layer up, so the fix is the same shape:
+    make the identity a property of the credential rather than of how it was typed.
+
+    It cannot live in `core.auth` — `apps.api.core.middleware` is on voice-runtime's
+    pinned import surface (`tests/voice_runtime_import_surface_test.py`) and `core.auth`
+    pulls `apps.api.compliance`, which that surface FORBIDS under hard rule 3.
+
+    Returns the token with the scheme and surrounding whitespace removed. None means
+    "not a bearer credential" — a missing header, another scheme, an empty token, or one
+    carrying a control byte:
+
+      a credential is ASCII-printable — a JWT is base64url, a dev token is
+      `dev:<realm>:<clerk-user-id>` — so a control byte is not a token that failed to
+      verify. It matters because the token's subject travels into a SQL parameter:
+      `Bearer dev:client:a\\x00b` reached the `users` lookup and psycopg refused it
+      ("PostgreSQL text fields cannot contain NUL"), which is a 500 and an alert, on
+      every authenticated endpoint, for any unauthenticated caller. Rejected here, at
+      the boundary, so every path downstream is spared the case.
+    """
+    scheme, _, token = (header_value or "").partition(" ")
+    if scheme.lower() != "bearer":
+        return None
+    token = token.strip()
+    if not token or _CONTROL_CHARS.search(token):
+        return None
+    return token
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +112,7 @@ __all__ = [
     "ORG_HEADER",
     "Principal",
     "Realm",
+    "bearer_token",
     "correlation_id_var",
     "principal_var",
 ]

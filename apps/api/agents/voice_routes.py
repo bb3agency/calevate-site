@@ -11,6 +11,12 @@ agent sounds like; we change it.
 NOT mounted in `main.py` — the integrator wires this router in, same as
 `agents/prompt_routes.py` and `compliance/export_routes.py`.
 
+WHY THIS ROUTER HAS NO PREFIX
+-----------------------------
+Its two paths live in two spaces — the client realm's `/v1/agents/voices` read and one
+admin mutation under `/v1/admin/tenants/{tenant_id}/...` — so a shared prefix could
+only describe one of them. Same shape and same resolution as `agents/routes.py`.
+
 ⚠ **MOUNT THIS ROUTER BEFORE `agents.routes.router`.** FastAPI matches in declaration
 order and `/v1/agents/{agent_id}` happily matches the literal segment `voices`, so the
 wrong order turns `GET /v1/agents/voices` into a 422 about `agent_id` not being a UUID.
@@ -18,8 +24,8 @@ Verified against the live app, and the same hazard is called out in
 `campaigns/routes.py` for `/numbers` and `/templates`. `tests/agent_voice_test.py`
 mounts both routers in the correct order so a regression here fails a test, not a demo.
 
-WHY THE TENANT IS NAMED IN THE REQUEST BODY
--------------------------------------------
+WHY THE TENANT IS NAMED IN THE PATH
+-----------------------------------
 It looks redundant next to `{agent_id}`, and it is not. D-22 makes admin impersonation
 READ-ONLY, and `requires()` enforces that by refusing every `MUTATING_PERMISSIONS`
 entry — `agents:write` included — whenever `X-Impersonate-Org` is present. So the two
@@ -28,24 +34,33 @@ ways an admin principal could carry a tenant are mutually exclusive with mutatin
 - WITHOUT the impersonation header, `Principal.tenant_id` is None (`_load_admin_principal`).
 - WITH it, the tenant resolves but every write is 403.
 
-`admin/routes.py` already draws the conclusion for the mutating KB routes (its comment
-above `approve_kb`): "an admin reaching a tenant does so by impersonation, and
-impersonation is read-only. The tenant is therefore named in the path rather than
-inferred from a session, which also makes every approval self-documenting in the audit
-log." This endpoint follows that doctrine; the tenant rides in the body only because
-the path was specified as `/v1/agents/{agent_id}/voice`. If the integrator prefers the
-house style exactly, moving this route under
-`/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice` is a prefix change and a
-deleted body field — the handler below is otherwise identical.
+`admin/routes.py` draws the conclusion for the mutating KB routes (its comment above
+`approve_kb`): "an admin reaching a tenant does so by impersonation, and impersonation
+is read-only. The tenant is therefore named in the path rather than inferred from a
+session, which also makes every approval self-documenting in the audit log."
 
-FINDING, reported rather than copied: `POST /v1/agents/{agent_id}/publish`
-(`agents/routes.py`) infers the tenant from `Principal.tenant_id` and is therefore
-**un-callable today**. Exercised against the live app: without the impersonation header
-it 401s (its `Depends(db)` resolves through `current_any`, which falls through to the
-CLIENT verifier and rejects an admin token), and with the header it 403s on
-"Impersonation is read-only". Its `assert principal.tenant_id is not None` is
-unreachable. Not fixed here — that file is out of scope — but this router does not
-reproduce the pattern.
+THE TENANT USED TO RIDE IN THE BODY, on the path `PATCH /v1/agents/{agent_id}/voice`,
+and that shipped one admin-realm route in the CLIENT path space — the only one in the
+app, confirmed by walking the live route table rather than by eye. Three things came
+with it and none of them is cosmetic: the route missed the `/v1/admin` rate-limit
+profile (`core/middleware.py::RateLimitMiddleware.PROFILES`) and took the generic
+`/v1` one; its audit trail was not self-documenting from the path, so "who changed
+what for whom" needed the body to answer; and it was the shape the next author would
+copy, which is how one exception becomes a convention. `tests/route_shape_test.py` now
+asserts the rule over the whole route table, so this cannot come back as a one-off.
+
+**No deprecation window, deliberately.** Hard rule 8's two-step doctrine is about
+columns, and its reasoning — a reader and a writer that deploy at different times —
+does not transfer here: this route is `realm="admin"`, so its only possible caller is
+the admin console, which ships from this repo against a client generated from OUR
+OpenAPI (`apps/web/src/lib/api/voices.ts`, moved in the same change). There is no
+third-party consumer to strand and no partner API. Keeping the old path as an alias
+would leave two ways to do one thing — the exact defect this move exists to remove —
+with the copyable wrong shape still live and still on the wrong limiter. The same call
+was made, for the same reason, when `POST /v1/agents/{agent_id}/publish` moved here
+(`agents/routes.py`), and `test_the_old_publish_path_no_longer_exists` pins it.
+`SetVoiceIn` keeps `extra="forbid"`, so a caller that still sends `tenant_id` in the
+body gets a 422 naming the field rather than a silently ignored parameter.
 
 WHERE THE CURRENT VOICE IS READ
 -------------------------------
@@ -110,8 +125,8 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine import engine_lacks
 
-# No prefix: the two paths differ below `/v1/agents` (a collection of voices vs one
-# agent's voice), and a shared prefix would only hide that.
+# No prefix — see the module docstring: the client-realm read and the admin mutation
+# live in different path spaces, so a shared prefix could only describe one of them.
 router = APIRouter(tags=["agents"])
 
 # `Annotated` aliases rather than `Depends()` defaults: this file is `voice_routes.py`,
@@ -129,12 +144,14 @@ class Strict(BaseModel):
 
 
 class SetVoiceIn(Strict):
-    """`extra="forbid"` so a caller cannot smuggle a second config string (an llm_model,
-    a tts_provider) into a request whose whole point is one curated choice."""
+    """One field, because the tenant and the agent are both in the path now.
 
-    # See the module docstring: an admin principal has no tenant of its own, and the
-    # one way it could get one (impersonation) is refused for mutations by D-22.
-    tenant_id: UUID
+    `extra="forbid"` so a caller cannot smuggle a second config string (an llm_model, a
+    tts_provider) into a request whose whole point is one curated choice — and so a
+    caller still sending the old `tenant_id` body field is told, rather than having it
+    silently dropped while the path decides the tenant.
+    """
+
     # Bounded before it is looked up, so a megabyte of junk is a validation error
     # rather than a dictionary probe. Membership in the catalog is the real check.
     voice_id: str = Field(min_length=1, max_length=64)
@@ -242,19 +259,23 @@ async def list_voices(_: CatalogReader) -> VoiceCatalogueOut:
 
 
 @router.patch(
-    "/v1/agents/{agent_id}/voice",
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
     response_model=SetVoiceOut,
     openapi_extra=permission_meta("agents:write"),
     summary="Set an agent's voice from the catalog (admin realm, D-21)",
     description=(
         "Writes `agents.tts_voice` (and the matching `tts_provider`) and audits it. "
-        "It does NOT reach the voice engine: `publish_agent` re-reads both columns, so "
-        "a live agent keeps its old voice until the next publish — see "
-        "`republish_required` in the response. An id outside the catalog is refused "
-        "with `unknown_voice`."
+        "The tenant is named in the path because an admin principal has no tenant of "
+        "its own and the one way it could get one — impersonation — is read-only by "
+        "D-22; sending `X-Impersonate-Org` here is still refused. It does NOT reach "
+        "the voice engine: `publish_agent` re-reads both columns, so a live agent "
+        "keeps its old voice until the next publish — see `republish_required` in the "
+        "response. An id outside the catalog is refused with `unknown_voice`."
     ),
+    tags=["admin"],
 )
 async def set_agent_voice(
+    tenant_id: UUID,
     agent_id: UUID,
     payload: SetVoiceIn,
     session: AdminSession,
@@ -305,7 +326,7 @@ async def set_agent_voice(
     # The tenant's own RLS scope. An agent belonging to a different tenant is invisible
     # here, so the UPDATE matches zero rows and the answer is 404 — under RLS "not
     # found" and "belongs to someone else" are deliberately the same answer.
-    async with tenant_session(payload.tenant_id) as scoped:
+    async with tenant_session(tenant_id) as scoped:
         row = (
             await scoped.execute(
                 text(
@@ -333,7 +354,7 @@ async def set_agent_voice(
         session,
         action="agent.voice_set",
         actor=principal,
-        tenant_id=payload.tenant_id,
+        tenant_id=tenant_id,
         object_type="agent",
         object_id=str(agent_id),
         ip=request.client.host if request.client else None,

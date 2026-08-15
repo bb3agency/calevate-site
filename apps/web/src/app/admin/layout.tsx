@@ -12,6 +12,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  PhoneOff,
   ShieldCheck,
   SlidersHorizontal,
   UserPlus,
@@ -150,6 +151,18 @@ const NAV: NavGroup[] = [
         icon: SlidersHorizontal,
         permission: "ops:manage",
         action: "open the operations console",
+      },
+      {
+        // Its own entry rather than a panel on Operations, and the reason is discovery
+        // rather than layout: whoever is handling a regulator's complaint is following
+        // `runbooks/dnc-complaint.md`, not scrolling a screen of platform switches — and
+        // the longest-match title rule below means `/admin/ops/dnc` keeps this name
+        // instead of inheriting "Operations".
+        href: "/admin/ops/dnc",
+        label: "Global do-not-call",
+        icon: PhoneOff,
+        permission: "ops:manage",
+        action: "change the platform-wide do-not-call list",
       },
     ],
   },
@@ -396,27 +409,47 @@ function IdentityFooter({ isCollapsed }: { isCollapsed: boolean }) {
  *
  * It reuses `useHeldTenants`, so it shares the queue screen's cache entry and its poll
  * rather than adding a second request for the same list. Nothing renders until the query
- * answers, and a FAILED read renders no badge rather than a zero: "nobody is waiting" is
- * the one claim this queue must never make from a failure, and a `0` in a shell chrome is
- * that claim in its most trusted form.
+ * answers, and a `0` in shell chrome would be "nobody is waiting" in its most trusted
+ * form — the one claim this queue must never make from a failure.
+ *
+ * The `?? 0` that used to stand here made exactly that claim, quietly. It collapsed "we
+ * do not know" into "none", which the badge then rendered as no badge — the same pixels
+ * an all-clear produces. §52's second clause is that failure is a REFUSAL, and nothing is
+ * not a refusal: an operator whose console has lost the API sees a calm header. So the
+ * unknown case is now its own mark, and the label says which of the two it is.
  */
 function HeldCount() {
   const queue = useHeldTenants();
-  const waiting = queue.data?.length ?? 0;
+  /** `undefined` = no answer yet. Never coalesced: see above. */
+  const waiting = queue.data?.length;
 
   return (
     <Link
       href="/admin/holds"
       aria-label={
-        waiting > 0 ? `Held accounts: ${waiting} waiting on us` : "Held accounts"
+        queue.error != null
+          ? "Held accounts: we could not read the queue"
+          : waiting !== undefined && waiting > 0
+            ? `Held accounts: ${waiting} waiting on us`
+            : "Held accounts"
       }
       className="relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
     >
       <Hourglass className="h-4 w-4" />
-      {waiting > 0 && (
-        <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-rose-500 px-1 text-[9px] font-bold text-white">
-          {waiting > 99 ? "99+" : waiting}
+      {queue.error != null ? (
+        <span
+          title="We could not read the hold queue. Open Holds to try again."
+          className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-amber-500 px-1 text-[9px] font-bold text-white"
+        >
+          ?
         </span>
+      ) : (
+        waiting !== undefined &&
+        waiting > 0 && (
+          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-rose-500 px-1 text-[9px] font-bold text-white">
+            {waiting > 99 ? "99+" : waiting}
+          </span>
+        )
       )}
     </Link>
   );

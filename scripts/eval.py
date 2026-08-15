@@ -46,9 +46,32 @@ assertion the day OPERATIONS §3's replay-into-call arrives. What DOES bite toda
 red-team case is the extraction side — `expect_absent` on the fields the attack tried to
 force runs the real extractor over the real attack text.
 
-It runs against WHATEVER extractor is configured (D-36: Sarvam by default, Gemini as a
-configurable fallback, offline when no key is present), and the report names the model
-— comparing runs across different models is the entire point of gate 13.
+It runs against WHATEVER extractor is configured — Sarvam when a key is present and the
+offline baseline when none is (D-127 removed the Gemini branch from `get_extractor()`
+entirely: the first post-call pass reads the RAW transcript, so it stays sovereign) — and
+the report names the model, because comparing runs across models is the point of gate 13.
+
+**`--provider` scores a NAMED extractor, and repeating it scores several head to head.**
+Task #87 ("extraction quality has never been scored against a real model") is blocked
+outside this repo on egress and a Sarvam key; the HARNESS half is not, and it is here:
+
+    uv run python -m scripts.eval --client=ci --provider=sarvam --provider=gemini \
+        --evidence=docs/evidence/extraction-provider-scorecard.md
+
+Three properties, each of which is the reason this is not simply "run it twice":
+
+- **The comparison is PER FIELD, never one aggregate number.** "Sarvam scored 41/58" says
+  nothing a decision can rest on: the choice between two extractors is made on which
+  fields each one reads, misses, files WRONG and invents, and those four are different
+  costs. A model that misses `budget_band` is weaker; a model that files a wrong
+  `callback_number` is unusable at any price (`CAPTURE_WRONG` is unwaivable for the same
+  reason).
+- **An absent key REFUSES, loudly, with exit code 2.** A provider with no credential must
+  never look like a provider that scored badly — that is the one confusion this flag could
+  introduce, and it would be read as evidence in a decision about data residency.
+- **It works today with no credentials at all** (`--provider=offline`), so the harness is
+  exercised by `tests/eval_provider_test.py` on every run rather than waiting for a key to
+  find out whether it works.
 
 Exit code is 1 on a REGRESSION, not on absolute failure. That distinction matters:
 the offline extractor cannot read Telugu numerals, so a suite that failed on any red
@@ -82,14 +105,24 @@ import asyncio
 import json
 import re
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from apps.api.compliance.optout import detect_opt_out
-from apps.workers.extraction import extract_call, get_extractor
+from apps.api.core.settings import get_settings
+from apps.workers.extraction import (
+    GEMINI_PROVIDER,
+    SARVAM_PROVIDER,
+    Extractor,
+    OfflineExtractor,
+    SarvamExtractor,
+    extract_call,
+    get_extractor,
+    vertex_extractor,
+)
 from apps.workers.redaction import redact, spoken_digit_runs
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec
 
@@ -148,6 +181,24 @@ WAIVABLE_KINDS = frozenset({CAPTURE_MISS, OUTCOME, SCHEMA, UNSPECIFIED})
 NON_WAIVABLE_KINDS = frozenset({CAPTURE_WRONG, RESTRAINT, COMPLIANCE, REDACTION, FIXTURE})
 
 
+# --- Per-field verdicts --------------------------------------------------------------
+#
+# The failure KINDS above answer "may this be waived". These answer a different question
+# that the kinds cannot: WHICH FIELD, and how did it go — including the two outcomes that
+# are not failures at all and are therefore invisible to `Failure`.
+#
+# Both non-failures are load-bearing in a provider comparison. `RIGHT` is the denominator
+# ("Sarvam missed one field" means nothing without how many it was asked for), and
+# `RESTRAINED` is the half of restraint that a failure list can never show: a model that
+# invents nothing looks identical to a model nobody asked, unless the cases where it
+# correctly stayed silent are counted too.
+RIGHT = "right"
+MISSED = "missed"
+WRONG = "wrong"
+INVENTED = "invented"
+RESTRAINED = "restrained"
+
+
 @dataclass(frozen=True)
 class Failure:
     kind: str
@@ -169,10 +220,17 @@ class CaseResult:
     failures: list[Failure] = field(default_factory=list)
     captured: dict[str, Any] = field(default_factory=dict)
     outcome: str | None = None
+    #: `{field key: one of RIGHT/MISSED/WRONG/INVENTED/RESTRAINED}` for every field this
+    #: case had an expectation about. Recorded WHERE the comparison already happens, so
+    #: the provider scorecard cannot drift from the gate by re-deriving `_value_matches`.
+    field_verdicts: dict[str, str] = field(default_factory=dict)
 
     def fail(self, kind: str, message: str) -> None:
         self.passed = False
         self.failures.append(Failure(kind=kind, message=message))
+
+    def verdict(self, key: str, verdict: str) -> None:
+        self.field_verdicts[key] = verdict
 
     @property
     def kinds(self) -> set[str]:
@@ -377,7 +435,9 @@ def _check_redaction(case: dict[str, Any], result: CaseResult) -> None:
             result.fail(REDACTION, f"redaction left {_safe(secret)} recoverable")
 
 
-async def run_case(spec: ExtractionSchemaSpec, case: dict[str, Any]) -> CaseResult:
+async def run_case(
+    spec: ExtractionSchemaSpec, case: dict[str, Any], extractor: Extractor | None = None
+) -> CaseResult:
     result = CaseResult(
         case_id=case["id"],
         title=case["title"],
@@ -391,7 +451,11 @@ async def run_case(spec: ExtractionSchemaSpec, case: dict[str, Any]) -> CaseResu
     _check_redaction(case, result)
     _check_red_team(case, result)
 
-    output = await extract_call(spec, transcript)
+    # `extractor=None` keeps `extract_call`'s own `get_extractor()` default, which is what
+    # every existing caller gets. A NAMED provider is handed in instead — the same public
+    # seam `apps/workers/pipeline.py` uses, so the harness never reaches inside the
+    # extraction module to choose a model.
+    output = await extract_call(spec, transcript, extractor=extractor)
     result.captured = output.data
     result.outcome = output.outcome_tag
 
@@ -401,19 +465,26 @@ async def run_case(spec: ExtractionSchemaSpec, case: dict[str, Any]) -> CaseResu
             result.fail(FIXTURE, f"{key} lists no accepted value, so it can never fail")
         elif actual is None:
             # Nothing captured. A weaker model is allowed to be blind here.
+            result.verdict(key, MISSED)
             result.fail(CAPTURE_MISS, f"missed {key} (expected {_safe(expected)})")
         elif not _value_matches(spec.field_by_key(key), expected, actual):
             # Something captured, and it is WRONG. The SMB acts on the CRM row, not
             # on the call: a wrong callback number is worse than a blank one, so this
             # can never sit in a baseline.
+            result.verdict(key, WRONG)
             result.fail(CAPTURE_WRONG, f"{key}: expected {_safe(expected)}, got {_safe(actual)}")
+        else:
+            result.verdict(key, RIGHT)
 
     for key in case.get("expect_absent") or []:
         if output.data.get(key) is not None:
             # The failure mode that quietly ruins a CRM.
+            result.verdict(key, INVENTED)
             result.fail(
                 RESTRAINT, f"invented {key}={_safe(output.data[key])} — the caller never said it"
             )
+        else:
+            result.verdict(key, RESTRAINED)
 
     expected_outcome = case.get("expect_outcome")
     if expected_outcome and output.outcome_tag != expected_outcome:
@@ -426,7 +497,7 @@ async def run_case(spec: ExtractionSchemaSpec, case: dict[str, Any]) -> CaseResu
 
 
 async def run_suite(
-    client: str, vertical: str | None = None
+    client: str, vertical: str | None = None, extractor: Extractor | None = None
 ) -> tuple[list[CaseResult], dict[str, Any]]:
     """Score every case, or only one vertical's.
 
@@ -434,15 +505,21 @@ async def run_suite(
     per CLIENT, and a clinic's QA report listing fifty property calls is not the sales
     asset D-15 describes. CI runs unfiltered — the ratchet is keyed by case id, so a
     filtered run can only ever be a subset of what the gate saw.
+
+    `extractor` names WHICH model to score; `None` keeps the configured one, so the
+    default run and every existing caller are unchanged. `meta["model"]` follows it —
+    reporting `get_extractor()`'s name over another provider's numbers would key the
+    baseline to a model that did not produce them, which is the one way this flag could
+    corrupt the ratchet.
     """
     payload = json.loads(FIXTURES.read_text())
     spec = ExtractionSchemaSpec(version=1, fields=payload["schema"])
     cases = [c for c in payload["cases"] if vertical is None or c["vertical"] == vertical]
-    results = [await run_case(spec, case) for case in cases]
+    results = [await run_case(spec, case, extractor) for case in cases]
     meta = {
         "client": client,
         "vertical": vertical or "all",
-        "model": get_extractor().model_name,
+        "model": (extractor or get_extractor()).model_name,
         "ran_at": datetime.now(UTC).isoformat(),
         "cases": len(results),
         "passed": sum(1 for r in results if r.passed),
@@ -537,6 +614,337 @@ def classify(results: list[CaseResult], baseline: Baseline) -> tuple[list[str], 
     return regressions, sorted(set(baseline) - failing)
 
 
+# --- Providers: which extractor is being scored --------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Provider:
+    """One extractor this harness can be pointed at, and what it needs before it can be.
+
+    `build` returns `None` for "this deployment holds no credential for me" rather than
+    raising, because that is not an error — it is the ordinary state of every machine
+    that has not been given a key, and it has to be reportable as a refusal rather than
+    as a traceback. It is also the only shape that fits both kinds of provider: Sarvam is
+    one string and Vertex is a project id plus a service-account key, and `vertex_extractor()`
+    already owns the decision about when those two amount to a credential (D-127).
+
+    `requires` is carried so the refusal can NAME what to set. "No credential" sends an
+    operator into `Settings` to work out which one; this is the difference between a
+    refusal you can act on and one you resent, on the day somebody finally has a key.
+    """
+
+    name: str
+    #: What must be configured, in the operator's words. `None` needs nothing.
+    requires: str | None
+    #: The extractor, or None when this deployment cannot reach that provider.
+    build: Callable[[], Extractor | None]
+
+
+def _configured() -> Extractor:
+    """Whatever this deployment's config selects — today's default, named.
+
+    Always available by construction: `get_extractor()` ends at `OfflineExtractor`, which
+    needs nothing. That is a fallback the PIPELINE must have (a post-call extraction that
+    fails for want of a key loses a lead), and it is exactly what the named providers
+    below must not do.
+    """
+    return get_extractor()
+
+
+def _sarvam() -> Extractor | None:
+    key = get_settings().sarvam_api_key
+    return SarvamExtractor(key) if key else None
+
+
+def _offline() -> Extractor:
+    return OfflineExtractor()
+
+
+#: Every provider `--provider` accepts.
+#:
+#: `configured` is the default and is deliberately a NAME rather than an absence: a
+#: scorecard column saying "configured" is honest about not knowing which model ran,
+#: where a column silently labelled `sarvam` because that is what the box happened to
+#: hold would be evidence of something nobody checked.
+#:
+#: `gemini` is `vertex_extractor()` and nothing else. An AI Studio `GEMINI_API_KEY`
+#: cannot produce a column here, which is the same refusal D-127 makes everywhere else in
+#: the tree: the endpoint it opens has no India residency, so a score measured through it
+#: would be evidence gathered by the means the decision forbids.
+#:
+#: A new extractor class means one new entry here and nothing else. That is the seam —
+#: this module never asks `get_extractor()` to choose and never reaches past the public
+#: constructors in `apps/workers/extraction.py`.
+PROVIDERS: dict[str, Provider] = {
+    "configured": Provider("configured", None, _configured),
+    SARVAM_PROVIDER: Provider(SARVAM_PROVIDER, "SARVAM_API_KEY", _sarvam),
+    GEMINI_PROVIDER: Provider(
+        GEMINI_PROVIDER,
+        "GCP_PROJECT_ID and GCP_SERVICE_ACCOUNT_JSON (Vertex AI asia-south1 — an AI "
+        "Studio GEMINI_API_KEY opens no door here, D-127 G-1)",
+        vertex_extractor,
+    ),
+    "offline": Provider("offline", None, _offline),
+}
+
+DEFAULT_PROVIDER = "configured"
+
+
+@dataclass(frozen=True, slots=True)
+class MissingCredential:
+    """A provider that was asked for and cannot be scored. NOT a score of zero."""
+
+    provider: str
+    requires: str
+
+    def __str__(self) -> str:
+        return (
+            f"{self.provider}: {self.requires} is not configured, so this provider was "
+            "NOT scored. An unscored provider is not a bad one — nothing was measured."
+        )
+
+
+def resolve_providers(
+    names: Sequence[str],
+) -> tuple[list[tuple[str, Extractor]], list[MissingCredential]]:
+    """(scorable, refused) — never a provider silently downgraded to another one.
+
+    `get_extractor()` falls back deliberately, because a post-call pipeline must keep
+    working without a key. THAT IS EXACTLY WRONG HERE: a comparison run that quietly
+    scored the offline heuristic under the heading "sarvam" would produce a scorecard
+    nobody could tell from a real one, and the decision it feeds — which provider sees an
+    Indian caller's transcript — is a residency decision. So each name is resolved against
+    its own credential and the rest are refused BY NAME.
+    """
+    scorable: list[tuple[str, Extractor]] = []
+    refused: list[MissingCredential] = []
+    for name in names:
+        provider = PROVIDERS[name]
+        extractor = provider.build()
+        if extractor is None:
+            # `requires` is non-None for every entry that can fail to build; the fallback
+            # keeps mypy honest rather than describing a reachable state.
+            refused.append(MissingCredential(provider.name, provider.requires or "its credential"))
+            continue
+        scorable.append((provider.name, extractor))
+    return scorable, refused
+
+
+# --- The per-FIELD comparison ---------------------------------------------------------
+
+
+@dataclass
+class FieldScore:
+    """How one extraction field went, for one provider, across the whole suite."""
+
+    right: int = 0
+    missed: int = 0
+    wrong: int = 0
+    invented: int = 0
+    restrained: int = 0
+
+    @property
+    def asked(self) -> int:
+        """Cases that expected a VALUE here — the denominator for `right`."""
+        return self.right + self.missed + self.wrong
+
+    @property
+    def withheld(self) -> int:
+        """Cases that expected SILENCE here — the denominator for `invented`."""
+        return self.restrained + self.invented
+
+    def record(self, verdict: str) -> None:
+        setattr(self, verdict, getattr(self, verdict) + 1)
+
+    def cell(self) -> str:
+        """One table cell: four numbers, never a percentage.
+
+        A percentage over 58 cases hides the difference between 1 wrong answer and 12,
+        and `wrong` is the count this whole harness exists to keep at zero. The parts are
+        printed and the reader does the division they want.
+        """
+        parts = []
+        if self.asked:
+            parts.append(f"{self.right}/{self.asked} right")
+            if self.missed:
+                parts.append(f"{self.missed} missed")
+            if self.wrong:
+                parts.append(f"**{self.wrong} WRONG**")
+        if self.withheld:
+            parts.append(
+                f"{self.restrained}/{self.withheld} withheld"
+                if not self.invented
+                else f"{self.restrained}/{self.withheld} withheld · **{self.invented} INVENTED**"
+            )
+        # An empty cell means NOT MEASURED and never zero — the rule
+        # `docs/evidence/bolna-pilot-scorecard.md` states about its own cost table.
+        return " · ".join(parts) or "_not measured_"
+
+
+def field_scorecard(results: Sequence[CaseResult]) -> dict[str, FieldScore]:
+    """Every field the suite had an expectation about, scored across the run."""
+    scores: dict[str, FieldScore] = {}
+    for result in results:
+        for key, verdict in result.field_verdicts.items():
+            scores.setdefault(key, FieldScore()).record(verdict)
+    return scores
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderRun:
+    """One provider's whole run — what it scored, and how the ratchet read it."""
+
+    provider: str
+    model: str
+    results: list[CaseResult]
+    regressions: list[str]
+
+    @property
+    def passed(self) -> int:
+        return sum(1 for r in self.results if r.passed)
+
+
+def render_comparison(runs: Sequence[ProviderRun], meta: Mapping[str, Any]) -> str:
+    """The evidence artefact: per provider, then PER FIELD, then what it cannot decide.
+
+    Shape follows `docs/evidence/bolna-pilot-scorecard.md` — the generated-file banner
+    with its regenerate command, the sources that authorise the claim, then tables whose
+    blank cells mean NOT MEASURED. It is committed, so it holds counts and field names
+    and no transcript text (hard rule 6); `_safe` masks every value on the way in and
+    `write_evidence` re-scans the whole document on the way out.
+    """
+    fields = sorted({key for run in runs for key in field_scorecard(run.results)})
+    scores = {run.provider: field_scorecard(run.results) for run in runs}
+    header = " | ".join(run.provider for run in runs)
+    lines = [
+        "# Extraction provider scorecard — EVIDENCE ARTIFACT",
+        "",
+        "<!-- GENERATED FILE — do not hand-edit. -->",
+        f"<!-- Regenerate: {_regenerate_command(runs, meta)} -->",
+        "",
+        "Which extractor reads a Telugu code-mixed call transcript into CRM fields, scored "
+        "on the golden-transcript fixtures (`tests/fixtures/golden_transcripts.json`) rather "
+        "than on somebody else's leaderboard. The published benchmarks do not answer this "
+        "question — nobody has published Telugu code-mixed call transcript → structured CRM "
+        "fields — and this repo owns the right instrument, so the decision is made here.",
+        "",
+        "Decisions: D-36 (canonical BYOK stack), D-15 (regression-on-every-change), and the "
+        "residency argument that makes the provider choice more than a quality question. "
+        "The gate this run feeds is task #87.",
+        "",
+        f"- Client: **{meta['client']}**",
+        f"- Vertical: {meta['vertical']}",
+        f"- Run at: {meta['ran_at']}",
+        f"- Cases per provider: {meta['cases']}",
+        "",
+        "## Providers scored",
+        "",
+        "| Provider | Model | Cases passed | Regressions against its own baseline |",
+        "|---|---|---|---|",
+    ]
+    for run in runs:
+        regressions = ", ".join(run.regressions) if run.regressions else "none"
+        lines.append(
+            f"| {run.provider} | `{run.model}` | {run.passed}/{len(run.results)} | {regressions} |"
+        )
+    lines += [
+        "",
+        "## Per field — the comparison that decides it",
+        "",
+        "`right` is out of the cases that expected a value; `withheld` is out of the cases "
+        "that expected silence. **WRONG** (a different non-null value) and **INVENTED** (a "
+        "field the caller never mentioned) are called out because they are unwaivable on "
+        "every model: a weaker model may miss a field, never file the wrong one. An empty "
+        "cell means NOT MEASURED — it is never a zero.",
+        "",
+        f"| Field | {header} |",
+        "|---|" + "---|" * len(runs),
+    ]
+    for key in fields:
+        cells = " | ".join(scores[run.provider].get(key, FieldScore()).cell() for run in runs)
+        lines.append(f"| `{key}` | {cells} |")
+
+    lines += ["", "## What this run does NOT decide", ""]
+    if len(runs) < 2:
+        lines.append(
+            f"- **Only one provider ran ({runs[0].provider}).** This is a scorecard, not a "
+            "comparison: nothing here says another extractor would do better or worse.",
+        )
+    lines += [
+        "- **It cannot move the FIRST post-call extraction to Gemini.** That pass reads the "
+        "RAW transcript because a callback-number field needs the actual digits, and D-127 "
+        "G-2/G-7 keeps it on Sarvam for that reason alone — `GEMINI_EXTRACTION_DEFAULT is "
+        "False`. A gemini column that wins every field here changes what serves the "
+        "user-triggered assist, over the REDACTED copy, and nothing else.",
+        "- **Residency is not a score.** Sending transcript text to a provider is a D-36 "
+        "decision about where an Indian caller's words are processed, and no column here "
+        "can outvote it.",
+        "- **The fixtures are synthetic.** They are the same cases for every provider, which "
+        "is what makes the columns comparable, and they are not a sample of live traffic.",
+        "- **`compliance`, `redaction` and `fixture` failures score OUR code**, not the "
+        "model's — a provider column carrying one of those is reporting a defect on this "
+        "side of the seam.",
+        "",
+        "## Failures, per provider",
+        "",
+    ]
+    for run in runs:
+        lines.append(f"### {run.provider} (`{run.model}`)")
+        failing = [r for r in run.results if not r.passed]
+        if not failing:
+            lines += ["", "Every case passed.", ""]
+            continue
+        lines.append("")
+        for result in failing:
+            lines.append(f"- **{result.title}** (`{result.case_id}`)")
+            lines += [f"  - {failure}" for failure in result.failures]
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _regenerate_command(runs: Sequence[ProviderRun], meta: Mapping[str, Any]) -> str:
+    """The exact command that reproduces this file, for the banner above it.
+
+    Written out rather than described: `docs/evidence/` is committed, and a generated
+    artefact whose regeneration is folklore gets hand-edited within a month.
+    """
+    providers = " ".join(f"--provider={run.provider}" for run in runs)
+    return (
+        f"uv run python -m scripts.eval --client={meta['client']} {providers} "
+        "--evidence=docs/evidence/extraction-provider-scorecard.md"
+    )
+
+
+class EvidenceLeakError(Exception):
+    """The document reached the writer still carrying something that must not be committed."""
+
+
+def write_evidence(out: Path, document: str) -> None:
+    """Write an artefact to `docs/evidence/`, or refuse.
+
+    `_safe` already masks every value on the way into a failure line, so the second sweep
+    here should never have anything to do. That is exactly why it runs: `scripts/pilot/
+    redact.py` is this repo's one answer to "the last thing before bytes leave to
+    docs/evidence", it owns the free-standing-digit-run rule, and a non-zero count from it
+    means layer 1 has a hole. Git is forever and the repo is shared, so the refusal is the
+    cheap outcome — the pilot harness's own words: a leak in a committed artefact is
+    permanent, a refused write is a minute of someone's day.
+
+    Imported inside the function because `scripts.pilot` pulls in the vendor pilot's
+    dependency surface and this CLI's normal path never touches it.
+    """
+    from scripts.pilot.redact import scrub_text
+
+    scrubbed, masked = scrub_text(document)
+    if masked:
+        raise EvidenceLeakError(
+            f"refusing to write {out}: the redaction sweep masked {masked} value(s) that "
+            "`_safe` should already have caught. Fix the reporting path — a committed "
+            "artefact is permanent."
+        )
+    _write_report(out, scrubbed)
+
+
 def _counts(by_vertical: Mapping[str, int]) -> str:
     return ", ".join(f"{name} {count}" for name, count in sorted(by_vertical.items())) or "none"
 
@@ -568,9 +976,123 @@ def render(results: list[CaseResult], meta: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-async def main_async(
-    client: str, out: Path | None, update_baseline: bool, vertical: str | None = None
+#: Exit code for "this run could not honestly be performed" — as distinct from 1, which
+#: means it WAS performed and something regressed. The existing `--vertical` +
+#: `--update-baseline` refusal already uses it, and an absent credential is the same
+#: class of answer: nothing was measured, so nothing may be concluded.
+CANNOT_RUN = 2
+
+
+async def _score_providers(
+    client: str,
+    names: Sequence[str],
+    *,
+    vertical: str | None,
+    update_baseline: bool,
+    evidence: Path | None,
 ) -> int:
+    """Score each named provider over the same fixtures, and compare them per field.
+
+    ORDER OF REFUSALS MATTERS. Everything that makes the run impossible is answered before
+    a single case is scored, because the failure mode this exists to prevent is a run that
+    produces a plausible-looking scorecard with a column missing or a column that is not
+    what its heading says.
+    """
+    unknown = [name for name in names if name not in PROVIDERS]
+    if unknown:
+        print(f"unknown provider(s): {', '.join(unknown)}. Known: {', '.join(sorted(PROVIDERS))}")
+        return CANNOT_RUN
+    if update_baseline and len(names) > 1:
+        # A baseline is per model and `--update-baseline` is the one automated path that
+        # can move the bar. Moving two at once from one command is a diff no reviewer
+        # reads as two decisions, which is what it is.
+        print("--update-baseline takes one --provider at a time")
+        return CANNOT_RUN
+
+    scorable, refused = resolve_providers(names)
+    if refused:
+        # REFUSE THE WHOLE RUN, not just the column. A comparison silently missing the
+        # provider somebody asked about reads as "we compared them" — and the absent one
+        # is invariably the one the decision is about.
+        print("CANNOT SCORE — nothing was measured:")
+        for missing in refused:
+            print(f"  - {missing}")
+        print(
+            "Set the variable(s) above and run again. Task #87 is blocked on exactly this "
+            "and on egress from this environment; it is not blocked on any code here."
+        )
+        return CANNOT_RUN
+
+    runs: list[ProviderRun] = []
+    shared_meta: dict[str, Any] = {}
+    for provider_name, extractor in scorable:
+        results, meta = await run_suite(client, vertical, extractor)
+        shared_meta = dict(meta)
+        model = str(meta["model"])
+        if update_baseline:
+            if vertical is not None:
+                print("--update-baseline needs the whole suite; drop --vertical")
+                return CANNOT_RUN
+            baseline_refused = save_baseline(model, results)
+            waived = len([r for r in results if not r.passed]) - len(baseline_refused)
+            print(f"baseline for {model}: {waived} case(s) waived")
+            if baseline_refused:
+                print(
+                    "REFUSED to baseline (a wrong value, an invented field, a compliance "
+                    "or redaction miss is not waivable on any model):"
+                )
+                for case_id in baseline_refused:
+                    print(f"  - {case_id}")
+                return 1
+            return 0
+        regressions, _fixed = classify(results, load_baseline().get(model, []))
+        runs.append(
+            ProviderRun(
+                provider=provider_name, model=model, results=results, regressions=regressions
+            )
+        )
+
+    document = render_comparison(runs, shared_meta)
+    print(document)
+    if evidence is not None:
+        write_evidence(evidence, document)
+        print(f"\nevidence written to {evidence}")
+    regressed = sorted({case_id for run in runs for case_id in run.regressions})
+    if regressed:
+        print("\nREGRESSIONS (previously passing, now failing):")
+        for case_id in regressed:
+            print(f"  - {case_id}")
+    # The ratchet still gates a provider run: a comparison is not a licence to stop
+    # noticing that one of the columns got worse than its own committed baseline.
+    return 1 if regressed else 0
+
+
+async def main_async(
+    client: str,
+    out: Path | None,
+    update_baseline: bool,
+    vertical: str | None = None,
+    providers: Sequence[str] = (),
+    evidence: Path | None = None,
+) -> int:
+    """No `--provider` runs exactly as this harness always has; naming one scores it.
+
+    The split is deliberate rather than a branch that grew: `make eval` and `make eval-ci`
+    are a CI gate, and a flag that changed what they measure — even to something better —
+    would be a silent change to the thing that decides whether a release ships.
+    """
+    if providers or evidence is not None:
+        # `--evidence` with no `--provider` scores the configured extractor. Writing an
+        # artefact needs a NAMED column, and "whatever this box was holding" is the one
+        # heading a committed comparison must never carry unlabelled.
+        return await _score_providers(
+            client,
+            list(providers) or [DEFAULT_PROVIDER],
+            vertical=vertical,
+            update_baseline=update_baseline,
+            evidence=evidence,
+        )
+
     results, meta = await run_suite(client, vertical)
     model = str(meta["model"])
 
@@ -631,8 +1153,38 @@ def main() -> int:
         action="store_true",
         help="record the current failures as the accepted baseline for this model",
     )
+    parser.add_argument(
+        "--provider",
+        action="append",
+        default=[],
+        choices=sorted(PROVIDERS),
+        dest="providers",
+        help=(
+            "score this extractor by name; repeat to compare providers head to head. "
+            "Omit for the configured one (the CI gate's behaviour, unchanged). A named "
+            "provider whose key is absent REFUSES the run rather than scoring zero."
+        ),
+    )
+    parser.add_argument(
+        "--evidence",
+        type=Path,
+        default=None,
+        help=(
+            "write the per-field provider comparison here as a committed evidence "
+            "artefact, e.g. docs/evidence/extraction-provider-scorecard.md"
+        ),
+    )
     args = parser.parse_args()
-    return asyncio.run(main_async(args.client, args.out, args.update_baseline, args.vertical))
+    return asyncio.run(
+        main_async(
+            args.client,
+            args.out,
+            args.update_baseline,
+            args.vertical,
+            args.providers,
+            args.evidence,
+        )
+    )
 
 
 if __name__ == "__main__":

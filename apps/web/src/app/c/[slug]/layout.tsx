@@ -7,6 +7,7 @@ import {
   Activity,
   BarChart3,
   Bell,
+  BellRing,
   Blocks,
   Bot,
   BookOpen,
@@ -24,6 +25,7 @@ import {
   ReceiptIndianRupee,
   ScrollText,
   ShieldCheck,
+  Sparkles,
   UserCog,
   Target,
   Users,
@@ -96,8 +98,19 @@ function navigation(slug: string): NavGroup[] {
       heading: "Settings & account",
       items: [
         { href: `/c/${slug}/settings/team`, label: "Team", icon: UserCog },
+        // The one screen where the owner can agree to be messaged about their own
+        // account. It sits here rather than under "Compliance & data" on purpose: that
+        // group is about the client's obligations to their CUSTOMERS, and this is a
+        // setting about what we send to THEM.
+        { href: `/c/${slug}/settings/alerts`, label: "Alerts", icon: BellRing },
         { href: `/c/${slug}/integrations`, label: "Integrations", icon: Blocks },
         { href: `/c/${slug}/usage`, label: "Usage", icon: Activity },
+        // What the console's AI help has used against the allowance the plan includes,
+        // and the one place a person can agree to spend money on more (D-127 G-5). It
+        // sits beside Usage rather than inside it because it is a different wallet
+        // question: Usage is what the CLIENT is billed for, this is what CALEVATE
+        // absorbs until a ceiling.
+        { href: `/c/${slug}/ai-assist`, label: "AI help", icon: Sparkles },
         { href: `/c/${slug}/invoice`, label: "Invoice", icon: ReceiptIndianRupee },
         { href: `/c/${slug}/verification`, label: "Verification", icon: ShieldCheck },
       ],
@@ -266,7 +279,11 @@ function TopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => v
   // always says 3 trains an owner to ignore the badge, which is the opposite of what
   // an alert is for. No count renders until the query answers, and zero renders as no
   // badge at all rather than a "0" that reads like an unread marker.
-  const waiting = attention.data?.total ?? 0;
+  //
+  // `undefined`, never `?? 0`: the coalesce made a failed read indistinguishable from an
+  // all-clear, which is the same "nobody is waiting" claim §52 exists to stop the shell
+  // making. A bell that has lost the API says so.
+  const waiting = attention.data?.total;
 
   return (
     <header className="sticky top-0 z-10 flex h-[72px] shrink-0 items-center justify-between border-b border-line bg-surface px-4 lg:px-8">
@@ -286,15 +303,29 @@ function TopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => v
         <Link
           href={href(`/c/${slug}/attention`)}
           aria-label={
-            waiting > 0 ? `Needs attention: ${waiting} item(s)` : "Needs attention"
+            attention.error != null
+              ? "Needs attention: we could not read your queue"
+              : waiting !== undefined && waiting > 0
+                ? `Needs attention: ${waiting} item(s)`
+                : "Needs attention"
           }
           className="relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
         >
           <Bell className="h-4 w-4" />
-          {waiting > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-rose-500 px-1 text-[9px] font-bold text-white">
-              {waiting > 99 ? "99+" : waiting}
+          {attention.error != null ? (
+            <span
+              title="We could not read what needs your attention. Open the list to try again."
+              className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-amber-500 px-1 text-[9px] font-bold text-white"
+            >
+              ?
             </span>
+          ) : (
+            waiting !== undefined &&
+            waiting > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-rose-500 px-1 text-[9px] font-bold text-white">
+                {waiting > 99 ? "99+" : waiting}
+              </span>
+            )
           )}
         </Link>
       </div>

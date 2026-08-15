@@ -193,6 +193,16 @@ jobs:
         # still cites rule strings the code emits. No database needed.
         run: uv run python -m scripts.check_docs_drift
 
+      - name: "Guardrail: model residency (D-127 asia-south1 only)"
+        if: ${{ !cancelled() }}
+        # No model traffic may reach a global Google endpoint, and the region may not be
+        # settable from the ops console — a residency posture an operator can change from
+        # a web form is one a click can invert. Decidable from syntax, so no database and
+        # no network. Landed in the same change as the guardrail rather than after it:
+        # the step above records what happens when the two lists drift, and this is the
+        # one guardrail whose whole value is that it blocks a merge.
+        run: uv run python -m scripts.check_model_residency
+
       - name: "Guardrail: env parity (fail-fast config)"
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_env_parity

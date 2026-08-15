@@ -58,7 +58,8 @@ export type AgentVoice = Schemas["AgentVoiceOut"];
 /**
  * CONFIGURED versus LIVE, which for a voice are two different facts.
  *
- * `PATCH /v1/agents/{id}/voice` writes our row and does not touch the engine, so a live
+ * `PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice` writes our row and does
+ * not touch the engine, so a live
  * agent keeps its old voice until the next publish. A screen showing one of these and
  * calling it "the voice" would be making a claim about a client's phone line that
  * nobody checked — the same defect `live_prompt_id` fixed for the script.

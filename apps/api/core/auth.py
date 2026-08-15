@@ -39,6 +39,7 @@ and `tests/app_env_required_test.py`.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import re
@@ -49,6 +50,7 @@ from typing import Any, Literal, Protocol, cast
 from uuid import UUID
 
 import jwt
+from calevate_shared.client_address import client_ip
 from fastapi import Depends, Request
 from jwt import PyJWKClient
 from jwt.exceptions import PyJWKClientConnectionError
@@ -63,11 +65,13 @@ from apps.api.core.context import (
     ORG_HEADER,
     Principal,
     Realm,
+    bearer_token,
     principal_var,
 )
 from apps.api.core.errors import ProblemError
 from apps.api.core.impersonation import ImpersonationGrant, verify_grant
 from apps.api.core.logging import get_logger
+from apps.api.core.ratelimit import consume, profile_for, too_many_requests
 from apps.api.core.rbac import MUTATING_PERMISSIONS, Permission, role_has
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
@@ -238,6 +242,18 @@ def jwks_url(realm: Realm) -> str:
     return f"https://{host or 'accounts.calevate.tech'}/.well-known/jwks.json"
 
 
+#: How long we will wait for Clerk's JWKS endpoint, in seconds.
+#:
+#: PyJWKClient's own default is **30**, which is not a timeout so much as a promise to
+#: hold a worker thread for half a minute per unknown `kid`. A JWKS document is a few
+#: hundred bytes from a CDN: if it has not answered in five seconds it is not going to,
+#: and `verify_token` already has an honest answer for that case
+#: (`auth_provider_unavailable`, 503 with a retry) which is strictly better than making
+#: the caller wait. Five is also comfortably above the leeway a cold TLS handshake to
+#: Cloudflare needs from Bangalore.
+JWKS_FETCH_TIMEOUT_S = 5.0
+
+
 def _jwk_client(realm: Realm) -> PyJWKClient:
     if realm not in _jwk_clients:
         settings = get_settings()
@@ -253,8 +269,40 @@ def _jwk_client(realm: Realm) -> PyJWKClient:
                 title="Authentication is not configured",
                 detail="This deployment has no Clerk credentials for that realm.",
             )
-        _jwk_clients[realm] = PyJWKClient(jwks_url(realm), cache_keys=True)
+        _jwk_clients[realm] = PyJWKClient(
+            jwks_url(realm), cache_keys=True, timeout=JWKS_FETCH_TIMEOUT_S
+        )
     return _jwk_clients[realm]
+
+
+async def _signing_key_for(token: str, realm: Realm) -> Any:
+    """This token's signing key, fetched WITHOUT stopping the event loop.
+
+    `PyJWKClient.get_signing_key_from_jwt` is SYNCHRONOUS and does network IO:
+    `jwks_client.fetch_data` calls `urllib.request.urlopen` (read at source, PyJWT
+    2.13.0). Called straight from an `async def`, that is a blocking socket read on the
+    loop thread — every other in-flight request in the process is stopped for its
+    duration, `/healthz` included.
+
+    IT IS NOT ONLY A CACHE-COLD COST, WHICH IS WHY THIS IS NOT PREMATURE. `get_signing_key`
+    refetches the whole set whenever the `kid` is not in it, and a lookup that ends in
+    `PyJWKClientError` is never memoised (the `cache_keys` LRU only holds successes). So
+    ANY caller — no session, no account — can force one fetch per request by varying the
+    `kid` of an unsigned JWT, and on `/healthz*` there is not even a rate-limit profile in
+    front of it (`ratelimit.PROFILES["exempt"]`, because a probe must answer during an
+    incident). Measured on this machine with a JWKS endpoint that takes one second: the
+    loop stalls for the full second per request. That is a denial of service an anonymous
+    caller can aim at the whole process.
+
+    `asyncio.to_thread` rather than a rewrite onto httpx: the blocking call is inside a
+    dependency we do not own, the default executor is exactly what it is for, and the
+    alternative — reimplementing JWKS fetching, caching and `kid` matching over an async
+    client — is a second implementation of the thing PyJWT already does correctly. The
+    remaining cost of a hung endpoint is one worker THREAD rather than the loop, and
+    `JWKS_FETCH_TIMEOUT_S` bounds how long it is held.
+    """
+    client = _jwk_client(realm)
+    return (await asyncio.to_thread(client.get_signing_key_from_jwt, token)).key
 
 
 def _verify_dev_token(token: str, realm: Realm) -> VerifiedToken | None:
@@ -321,10 +369,10 @@ async def verify_token(token: str, realm: Realm) -> VerifiedToken:
         # tells the caller about our deployment instead of about their token.
         raise ProblemError.unauthorized("This token is not valid for this realm.")
     try:
-        signing_key = _jwk_client(realm).get_signing_key_from_jwt(token)
+        signing_key = await _signing_key_for(token, realm)
         claims: dict[str, Any] = jwt.decode(
             token,
-            signing_key.key,
+            signing_key,
             algorithms=["RS256"],
             leeway=CLERK_LEEWAY_S,
             options={"verify_aud": False},
@@ -376,19 +424,8 @@ async def verify_token(token: str, realm: Realm) -> VerifiedToken:
 
 
 def _bearer(request: Request) -> str:
-    header = request.headers.get("authorization", "")
-    scheme, _, token = header.partition(" ")
-    if scheme.lower() != "bearer" or not token:
-        raise ProblemError.unauthorized()
-    token = token.strip()
-    if not token or _CONTROL_CHARS.search(token):
-        # A credential is ASCII-printable — a JWT is base64url, a dev token is
-        # `dev:<realm>:<clerk-user-id>` — so a control byte is not a token that failed
-        # to verify. It matters because the token's subject travels into a SQL
-        # parameter: `Bearer dev:client:a\x00b` reached the `users` lookup and psycopg
-        # refused it ("PostgreSQL text fields cannot contain NUL"), which is a 500 and
-        # an alert, on every authenticated endpoint, for any unauthenticated caller.
-        # Rejected here, at the boundary, so every path downstream is spared the case.
+    token = bearer_token(request.headers.get("authorization"))
+    if token is None:
         raise ProblemError.unauthorized()
     return token
 
@@ -777,24 +814,85 @@ async def current_principal(request: Request) -> Principal:
     verified = await verify_token(_bearer(request), "client")
     principal = await _load_client_principal(verified, request.headers.get(ORG_HEADER))
     principal_var.set(principal)
+    await charge_tenant_quota(request, principal)
     return principal
 
 
-def _request_ip(request: Request) -> str | None:
-    """The peer address, which is what SEC-COMP §5 wants stamped on the audit row.
+#: Set on the ASGI scope once this request has spent its per-tenant budget.
+_TENANT_QUOTA_CHARGED = "calevate_tenant_quota_charged"
 
-    Deliberately the SOCKET peer and not a forwarded header: a header is whatever the
-    caller typed unless the immediate peer is a trusted edge, and this process has no
-    trusted-proxy predicate of its own (voice-runtime's `client_ip` has one because it
-    authenticates an unsigned engine by source IP — a different problem with a
-    different threat model). Behind Cloudflare + nginx this is the edge's address until
-    DEPLOYMENT §5's real-ip restoration is in front of the API, at which point it
-    becomes the operator's. An honest "the request came from our edge" beats a
-    spoofable "it came from 1.2.3.4" in a tamper-evident ledger. Same source
-    `admin/routes.py` already stamps on `admin.impersonation_started`, so both halves
-    of one session's trail agree.
+
+async def charge_tenant_quota(request: Request, principal: Principal) -> None:
+    """Spend one unit of the tenant's per-minute budget for this route's profile.
+
+    WHY HERE AND NOT IN THE MIDDLEWARE. The per-IP and per-caller dimensions are decided
+    before routing, in `RateLimitMiddleware`. This one cannot be: the tenant arrives as
+    `X-Org-Slug` (or the view-as pair), and an UNVERIFIED tenant dimension would be a
+    weapon rather than a control — anyone could put a competitor's slug on an
+    unauthenticated request and exhaust that tenant's bucket. It is charged at the first
+    instant the tenant is a verified fact: the resolved principal.
+
+    WHY IT IS MEMOISED ON THE SCOPE. `requires()` calls `current_principal`/`current_admin`
+    DIRECTLY rather than through `Depends`, so FastAPI's per-request dependency cache does
+    not cover it: a route carrying both `Depends(requires(...))` and `Depends(tenant_of)`
+    resolves a principal twice. Charging twice would make the effective limit depend on
+    which dependencies a route happens to declare, which is the same class of defect as
+    the per-process `hash()` seed it replaces — a limiter that does not mean what it says.
+    `request.scope` is the one object shared by every `Request` wrapper for a request.
+
+    Fails open on a Redis outage (`ratelimit.consume`), like every other dimension.
     """
-    return request.client.host if request.client else None
+    if principal.tenant_id is None or request.scope.get(_TENANT_QUOTA_CHARGED):
+        return
+    request.scope[_TENANT_QUOTA_CHARGED] = True
+    route = _route_template(request)
+    profile = profile_for(route, request.method)
+    if not profile.per_tenant or profile.tenant_from_last_path_segment:
+        return
+    decision = await consume(profile, "tenant", str(principal.tenant_id), profile.per_tenant)
+    if not decision.allowed:
+        log.warning(
+            "rate_limited",
+            extra={"route": route, "profile": profile.name, "dimension": "tenant"},
+        )
+        raise too_many_requests(decision)
+
+
+def client_request_ip(request: Request) -> str | None:
+    """The CALLER's address, which is what SEC-COMP §5 wants stamped on the audit row.
+
+    IT USED TO BE THE SOCKET PEER, and behind the edge that is nginx — so every row this
+    stamped recorded our own proxy, and the ledger satisfied "actor, tenant, at, ip" in
+    shape only. The docstring defended it: "this process has no trusted-proxy predicate
+    of its own". It has one now, and it is not a new one — `client_ip` is the definition
+    voice-runtime has always used to authenticate an unsigned engine by source address,
+    promoted into `calevate_shared` so there is exactly one answer to "who is calling"
+    across both deployables (CLAUDE.md, "one way per problem").
+
+    The other half of that docstring was already stale when it was written: nginx SETS
+    `CF-Connecting-IP` to the real-ip-restored `$remote_addr` on every vhost, api
+    included (`infra/nginx/snippets/calevate-proxy.conf`, included by all four server
+    blocks), so the value is the edge's statement about the caller and a forgery from
+    inside the perimeter is overwritten rather than believed.
+
+    None when the deployment cannot vouch for an address — a peer that is not a trusted
+    proxy, or a missing header. NULL in an evidentiary column is honest; the proxy's
+    address in it is not, and neither is a header nobody checked.
+
+    ⚠ THIS IS NOT YET THE ONLY CALLER OF THAT DEFINITION IN `apps/api`. Eighty handlers
+    still write `ip=request.client.host if request.client else None` inline into
+    `write_audit(...)` — the same defect this function fixes, one copy per audited route
+    — so those rows still record the edge. The migration is mechanical (this call,
+    imported) and is the next thing to do here; it was left out of the change that fixed
+    this one only because it spans ~30 files that were being edited concurrently.
+    `grep -rn "request.client.host" apps/api` is the worklist, and this line is the
+    reason it will not be mistaken for a design.
+    """
+    return client_ip(
+        request.client.host if request.client else None,
+        request.headers,
+        app_env=get_settings().app_env,
+    )
 
 
 def _route_template(request: Request) -> str:
@@ -831,10 +929,15 @@ async def current_admin(request: Request) -> Principal:
         verified,
         _impersonation_slug(request),
         impersonation_grant=request.headers.get(IMPERSONATION_GRANT_HEADER),
-        ip=_request_ip(request),
+        ip=client_request_ip(request),
         route=_route_template(request),
     )
     principal_var.set(principal)
+    # A no-op on the admin surface itself (`admin_api` declares no tenant dimension — an
+    # operator acting on a tenant must not be throttled by that tenant's own dashboard
+    # traffic), and a real charge when a view-as session reads a CLIENT route, where the
+    # profile does declare one and the reads are that tenant's.
+    await charge_tenant_quota(request, principal)
     return principal
 
 
@@ -915,11 +1018,14 @@ __all__ = [
     "IMPERSONATION_AUDIT_WINDOW_S",
     "IMPERSONATION_GRANT_HEADER",
     "IMPERSONATION_READ_ACTION",
+    "JWKS_FETCH_TIMEOUT_S",
     "MFA_REQUIRED_REALMS",
     "ORG_HEADER",
     "SECOND_FACTOR_CLAIM",
     "PermissionDependency",
     "VerifiedToken",
+    "charge_tenant_quota",
+    "client_request_ip",
     "current_admin",
     "current_any",
     "current_identity",

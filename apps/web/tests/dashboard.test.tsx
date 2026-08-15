@@ -5,7 +5,7 @@ import DashboardPage from "@/app/c/[slug]/page";
 import type { CallSummary, Dashboard, Me } from "@/lib/api/client";
 import type { UsagePanel } from "@/lib/api/hooks";
 
-import { problem, renderClientPage } from "./harness";
+import { problem, renderClientPage, stillLoading } from "./harness";
 
 /**
  * The dashboard — the screen a client looks at to decide whether the product is
@@ -202,5 +202,53 @@ describe("the dashboard renders what the server said, or says it could not", () 
     // grouped string is the assertion, and the currency is INR, not the design's "$".
     expect(container.textContent).toContain("₹10,159.00");
     expect(container.textContent).not.toContain("$");
+  });
+});
+
+/**
+ * "Spend this month" — the one tile on this screen fed by a SECOND query, and the one
+ * that had no ladder of its own.
+ *
+ * `formatINR(usage.data?.overage_cost_inr)` returns "—" for undefined, which is honest
+ * for a moment and a lie forever: on a failed `/v1/usage` the money tile sat at "—" with
+ * no skeleton, no notice and no way to retry, so an owner could not tell "nothing billed
+ * yet" from "we could not read it". §52's first two clauses, on the tile that decides
+ * whether somebody rings us about their bill.
+ */
+describe("the money tile says which kind of nothing it is showing", () => {
+  it("refuses, rather than sitting on a dash, when the usage read fails", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/usage": problem(503, {
+          title: "Service unavailable",
+          detail: "We could not read your usage.",
+        }),
+      }),
+    );
+
+    // The refusal is PRESENT, retryable, and IN THE TILE — "no rupee figure" is also
+    // true of a blank card, and an alert somewhere else on the page is not this tile
+    // explaining itself. Awaited on the ALERT rather than on the tile heading, which is
+    // on screen during the loading branch as well.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("We could not read your usage");
+    expect(alert.closest("section")?.querySelector("h2")?.textContent).toBe("Spend this month");
+    expect(container.textContent).not.toContain("₹");
+    // The rest of the screen is unaffected: this tile's failure is not the page's.
+    expect(container.textContent).toContain("Calls today");
+  });
+
+  it("shows a skeleton, not a dash, while the usage read is in flight", async () => {
+    const { container } = await renderClientPage(page, routes({ "/v1/usage": stillLoading() }));
+
+    // Scoped to the tile: this page has other skeletons, and a page-level count would
+    // pass on any one of them.
+    const tile = (await screen.findByText("Spend this month")).closest("section");
+    expect(
+      tile!.querySelectorAll(".animate-pulse").length,
+      "no skeleton in the Spend tile while /v1/usage is in flight",
+    ).toBeGreaterThan(0);
+    expect(container.textContent).not.toContain("₹");
   });
 });

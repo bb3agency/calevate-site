@@ -366,6 +366,128 @@
         "title": "AgentVoiceOut",
         "type": "object"
       },
+      "AiExtraIn": {
+        "additionalProperties": false,
+        "description": "What the person accepted, echoed back from the modal.\n\nNO DEFAULT, deliberately. A Pydantic field with a default generates an OPTIONAL\nTypeScript property in the client this repo generates from OpenAPI, and an optional\nconfirmation is not a confirmation \u2014 the whole value of the echo is that the caller\nhad to state the figure they were shown.",
+        "properties": {
+          "accept_amount_inr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Accept Amount Inr"
+          }
+        },
+        "required": [
+          "accept_amount_inr"
+        ],
+        "title": "AiExtraIn",
+        "type": "object"
+      },
+      "AiQuotaOut": {
+        "additionalProperties": false,
+        "description": "This month's AI allowance, in the two units the screen needs it in.\n\nEVERY FIELD IS REQUIRED \u2014 none carries a Pydantic default \u2014 because a default here\ngenerates an optional property in the typed client, and a screen that can render\n`undefined` as a figure is one \u00a752 violation away from printing a ceiling nobody has.\n\nMoney is an exact decimal STRING throughout (hard rule 7); the counts are the\nESTIMATE the rupee ceiling is worth at a reference price, which the screen renders\nwith \"about\" beside it.",
+        "properties": {
+          "allowance_inr": {
+            "title": "Allowance Inr",
+            "type": "string"
+          },
+          "extra_available": {
+            "title": "Extra Available",
+            "type": "boolean"
+          },
+          "extra_block_inr": {
+            "title": "Extra Block Inr",
+            "type": "string"
+          },
+          "extra_block_requests": {
+            "title": "Extra Block Requests",
+            "type": "integer"
+          },
+          "extra_purchased_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extra Purchased Inr"
+          },
+          "extra_unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extra Unavailable Reason"
+          },
+          "included_inr": {
+            "title": "Included Inr",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "plan_tier": {
+            "title": "Plan Tier",
+            "type": "string"
+          },
+          "remaining_inr": {
+            "title": "Remaining Inr",
+            "type": "string"
+          },
+          "requests_included": {
+            "title": "Requests Included",
+            "type": "integer"
+          },
+          "requests_remaining": {
+            "title": "Requests Remaining",
+            "type": "integer"
+          },
+          "requests_used": {
+            "title": "Requests Used",
+            "type": "integer"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "used_inr": {
+            "title": "Used Inr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "plan_tier",
+          "state",
+          "included_inr",
+          "used_inr",
+          "allowance_inr",
+          "remaining_inr",
+          "requests_used",
+          "requests_included",
+          "requests_remaining",
+          "extra_purchased_inr",
+          "extra_block_inr",
+          "extra_block_requests",
+          "extra_available",
+          "extra_unavailable_reason"
+        ],
+        "title": "AiQuotaOut",
+        "type": "object"
+      },
       "AlertOptInOut": {
         "additionalProperties": false,
         "description": "Never the number. `status: \"none\"` means this person has never been asked, which\nis a 200 and the normal state of the world, not a 404.",
@@ -10297,13 +10419,8 @@
       },
       "SetVoiceIn": {
         "additionalProperties": false,
-        "description": "`extra=\"forbid\"` so a caller cannot smuggle a second config string (an llm_model,\na tts_provider) into a request whose whole point is one curated choice.",
+        "description": "One field, because the tenant and the agent are both in the path now.\n\n`extra=\"forbid\"` so a caller cannot smuggle a second config string (an llm_model, a\ntts_provider) into a request whose whole point is one curated choice \u2014 and so a\ncaller still sending the old `tenant_id` body field is told, rather than having it\nsilently dropped while the path decides the tenant.",
         "properties": {
-          "tenant_id": {
-            "format": "uuid",
-            "title": "Tenant Id",
-            "type": "string"
-          },
           "voice_id": {
             "maxLength": 64,
             "minLength": 1,
@@ -10312,7 +10429,6 @@
           }
         },
         "required": [
-          "tenant_id",
           "voice_id"
         ],
         "title": "SetVoiceIn",
@@ -12736,7 +12852,7 @@
       },
       "VoiceStateOut": {
         "additionalProperties": false,
-        "description": "The voice CONFIGURED on the agent and the voice the engine was last SENT.\n\nTwo fields because they are two facts. `PATCH /v1/agents/{id}/voice` writes our row\nand stops there, so a live agent keeps its old voice until the next publish \u2014 one\nvalue labelled \"the voice\" would be a claim about a client's phone line that nobody\nchecked.\n\n`live` is null when nothing is recorded as sent, which reads two ways and is\ndisambiguated by `PendingOut.published`: an unpublished agent has nothing live, and\na published one was published before the mirror existed (or with no voice set). Both\nresolve to `republish_required` when a voice is configured, because a sync we cannot\nprove is not a sync.",
+        "description": "The voice CONFIGURED on the agent and the voice the engine was last SENT.\n\nTwo fields because they are two facts. `PATCH .../agents/{aid}/voice` writes our row\nand stops there, so a live agent keeps its old voice until the next publish \u2014 one\nvalue labelled \"the voice\" would be a claim about a client's phone line that nobody\nchecked.\n\n`live` is null when nothing is recorded as sent, which reads two ways and is\ndisambiguated by `PendingOut.published`: an unpublished agent has nothing live, and\na published one was published before the mirror existed (or with no voice set). Both\nresolve to `republish_required` when a voice is configured, because a sync we cannot\nprove is not a sync.",
         "properties": {
           "configured": {
             "anyOf": [
@@ -14548,6 +14664,68 @@
         "x-calevate-permission": "agents:write"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice": {
+      "patch": {
+        "description": "Writes `agents.tts_voice` (and the matching `tts_provider`) and audits it. The tenant is named in the path because an admin principal has no tenant of its own and the one way it could get one \u2014 impersonation \u2014 is read-only by D-22; sending `X-Impersonate-Org` here is still refused. It does NOT reach the voice engine: `publish_agent` re-reads both columns, so a live agent keeps its old voice until the next publish \u2014 see `republish_required` in the response. An id outside the catalog is refused with `unknown_voice`.",
+        "operationId": "set_agent_voice_v1_admin_tenants__tenant_id__agents__agent_id__voice_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetVoiceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetVoiceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set an agent's voice from the catalog (admin realm, D-21)",
+        "tags": [
+          "agents",
+          "admin"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
       "post": {
         "description": "The national half of SEC-COMP \u00a73's DNC bullet. An access provider's DLT platform scrubs a submitted list against the customer preference register and returns a reference, a report and a verdict valid until 23:59:59 IST that day; this records the run and marks the numbers it blocked as `dnc_blocked` on the campaign. Until a current run exists, `launch_blockers` and `dispatch_blockers` refuse promotional campaigns with `national_dnd_scrub_missing` or `national_dnd_scrub_expired`.",
@@ -15019,6 +15197,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/dlt-templates": {
       "post": {
+        "description": "A mistyped tenant uuid is a 404 here, and it used to be a 500.\n\n`dlt_templates.tenant_id` has an FK, so an id no organization holds reached the\nINSERT and came back as `internal_error` \u2014 an operator was told \"the team has been\nalerted\" for a typo they could fix themselves, and the team was alerted for it.\nSame guard, same predicate and same reason as `record_commercial_terms` above.",
         "operationId": "register_template_v1_admin_tenants__tenant_id__dlt_templates_post",
         "parameters": [
           {
@@ -15938,6 +16117,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/numbers": {
       "post": {
+        "description": "A mistyped tenant uuid is a 404, and it used to be a 409 about a NUMBER.\n\n`provision_number` maps every `IntegrityError` to `number_taken` (\"This number is\nalready provisioned \u2014 it may belong to another account\"), which is the right answer\nfor the UNIQUE index it was written for and the wrong one for the tenant foreign\nkey. An operator who mistyped the client id was told to go looking for whoever\nholds a number nobody holds. `service.tenant_exists` is the ONE definition of \"is\nthis a live organization\" and exists so every surface naming a tenant in its path\nanswers a mistyped uuid the same way \u2014 asked here rather than the predicate copied,\nexactly as `set_tenant_status` and `record_commercial_terms` ask it.",
         "operationId": "provision_number_v1_admin_tenants__tenant_id__numbers_post",
         "parameters": [
           {
@@ -16102,6 +16282,46 @@
       }
     },
     "/v1/admin/tenants/{tenant_id}/whatsapp-alerts": {
+      "get": {
+        "description": "The owner's current opt-in state, for the operator about to record one from a document. No phone number is returned \u2014 the subject is the tenant's owner, resolved server-side from the same row the alert job would send to.",
+        "operationId": "read_for_client_v1_admin_tenants__tenant_id__whatsapp_alerts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertOptInOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Is this client's owner opted in to WhatsApp alerts?",
+        "tags": [
+          "admin",
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      },
       "post": {
         "description": "For an opt-in given during onboarding rather than on the settings screen. A grant must carry the reference of the document or ticket the client agreed in, and the row names the operator who recorded it.",
         "operationId": "record_for_client_v1_admin_tenants__tenant_id__whatsapp_alerts_post",
@@ -16367,7 +16587,7 @@
     },
     "/v1/agents/{agent_id}/pending": {
       "get": {
-        "description": "Backs the unsaved-changes banner and the voice picker. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).\n\n`voice.configured` is what `PATCH /v1/agents/{agent_id}/voice` wrote; `voice.live` is what the engine was last sent. They differ until a publish, which is what `voice.republish_required` reports. A null `voice.live` on a published agent means we have no record of what it is holding \u2014 read it with `published`, and never as 'in sync'.",
+        "description": "Backs the unsaved-changes banner and the voice picker. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).\n\n`voice.configured` is what `PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice` wrote; `voice.live` is what the engine was last sent. They differ until a publish, which is what `voice.republish_required` reports. A null `voice.live` on a published agent means we have no record of what it is holding \u2014 read it with `published`, and never as 'in sync'.",
         "operationId": "pending_v1_agents__agent_id__pending_get",
         "parameters": [
           {
@@ -16404,57 +16624,6 @@
           "agents"
         ],
         "x-calevate-permission": "agents:read"
-      }
-    },
-    "/v1/agents/{agent_id}/voice": {
-      "patch": {
-        "description": "Writes `agents.tts_voice` (and the matching `tts_provider`) and audits it. It does NOT reach the voice engine: `publish_agent` re-reads both columns, so a live agent keeps its old voice until the next publish \u2014 see `republish_required` in the response. An id outside the catalog is refused with `unknown_voice`.",
-        "operationId": "set_agent_voice_v1_agents__agent_id__voice_patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetVoiceIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SetVoiceOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Set an agent's voice from the catalog (admin realm, D-21)",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "agents:write"
       }
     },
     "/v1/attention": {
@@ -16536,6 +16705,92 @@
         "tags": [
           "signup"
         ]
+      }
+    },
+    "/v1/billing/ai-quota": {
+      "get": {
+        "description": "What the dashboard's AI help has used this month, against the allowance included with the plan. The allowance is a rupee ceiling; the assist counts beside it are an estimate of what that ceiling is worth and are labelled as such. Requires `billing:read`, which account owners hold and staff do not.",
+        "operationId": "get_ai_quota_v1_billing_ai_quota_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiQuotaOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This account's AI help allowance for an IST billing month, and what more costs",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "billing:read"
+      }
+    },
+    "/v1/billing/ai-quota/extra": {
+      "post": {
+        "description": "Debits the wallet ONCE for this billing month and adds the extra AI allowance. `accept_amount_inr` must equal `extra_block_inr` from the read above, as an exact decimal string. Refused before anything moves if the account still has included allowance left, if it is invoiced rather than prepaid, or if AI help is paused platform-wide; a second submission of the same month returns the block already bought and charges nothing. Requires `org:manage`.",
+        "operationId": "buy_ai_extra_v1_billing_ai_quota_extra_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiExtraIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiQuotaOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Accept the charge for more AI help this month \u2014 the only thing that debits it",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/billing/caps": {
@@ -18259,6 +18514,7 @@
         "x-calevate-permission": "org:read"
       },
       "post": {
+        "description": "Register a webhook endpoint. Two things happen here that did not used to.\n\n**The destination is vetted before the row exists.** `assert_public_http_url` resolves\nthe host and refuses loopback, link-local, private, multicast, reserved and\nunroutable addresses, and any port but 80/443 \u2014 see `egress_guard` for the bypass\nclasses and the evidence. It is checked AGAIN in `service.deliver`, because the name\nis one the tenant controls the DNS for and this row outlives the lookup.\n\n**And the registration is audited.** Deactivating an endpoint wrote an `audit_log`\nrow while CREATING one wrote nothing, which had it exactly backwards: registration\nis the act that starts a client's lead PII leaving their tenant, and it was the act\nwith no record of who performed it. Written in the SAME transaction as the INSERT,\nso an endpoint cannot exist without the row naming who made it.\n\nThe summary records the HOST, never the URL. A webhook URL's path and query are\ntenant-authored free text and routinely carry a bearer credential (`?apikey=\u2026`); an\naudit trail that quoted the whole thing would leak the secret it exists to attest\n(hard rule 6). The host is the fact an investigator needs \u2014 where the leads went.",
         "operationId": "create_endpoint_v1_integrations_endpoints_post",
         "requestBody": {
           "content": {

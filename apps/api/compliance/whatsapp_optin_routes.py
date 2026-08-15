@@ -29,6 +29,19 @@ Reading is `org:read`, not `org:manage`: seeing whether alerts are on is not tur
 on, and it must stay visible inside an impersonated session — the recurring bug
 `tests/impersonation_reads_test.py` exists to stop.
 
+**The admin realm makes the SAME split, and getting that wrong was a real defect.** The
+operator read declares `org:read`; only the operator WRITE declares `admin:tenants`. It
+first shipped with `admin:tenants` on both, on the argument that an operator reads the
+state precisely because they are about to record one — and
+`tests/impersonation_reads_test.py` refused it, correctly. `admin:tenants` is in
+`MUTATING_PERMISSIONS`, so D-22 hides every route declaring it from a read-only "view as
+client" session, and that is exactly the session a support person is in when this
+question is asked. The client-realm read cannot answer them either (a view-as session has
+no `users` row, so it deliberately reports no subject state), so gating this one on the
+permission to ACT would leave "why am I not getting WhatsApp alerts?" unanswerable from
+inside the screen where it is asked — the third instance of the bug that sweep exists for.
+Seeing whether alerts are on is not turning them on, in either realm.
+
 **There is no phone number anywhere on these surfaces.** The subject is the authenticated
 principal (client realm) or the tenant's owner (admin realm), and the number is read
 server-side from `users.phone` — the same row `resolve_destination` reads. Nothing echoes
@@ -77,6 +90,12 @@ AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 Owner = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
 Reader = Annotated[Principal, Depends(requires("org:read"))]
 Operator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
+# The READ's own permission, and not a smaller version of the one above. `org:read` is
+# what every admin-realm read of a client's state declares (`admin/health_routes.py`,
+# `quality/sampling_routes.py`), it is NOT in `MUTATING_PERMISSIONS`, and that is the
+# whole point: a support person in a read-only view-as session has to be able to see
+# this. See the module docstring.
+OperatorReader = Annotated[Principal, Depends(requires("org:read", realm="admin"))]
 
 # Spelled as a Literal rather than derived from the tuple so the generated TypeScript
 # client gets a union it can switch on. The tuple in `compliance/models.py` is still the
@@ -301,6 +320,47 @@ async def record(
         },
     )
     return _out(state)
+
+
+@admin_router.get(
+    "",
+    response_model=AlertOptInOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="Is this client's owner opted in to WhatsApp alerts?",
+    description=(
+        "The owner's current opt-in state, for the operator about to record one from a "
+        "document. No phone number is returned — the subject is the tenant's owner, "
+        "resolved server-side from the same row the alert job would send to."
+    ),
+)
+async def read_for_client(tenant_id: UUID, _: OperatorReader) -> AlertOptInOut:
+    """The read the OPERATOR surface needs, and the client-realm GET cannot answer.
+
+    `read` above deliberately returns no subject state to an impersonated session: an
+    admin "view as client" session has no `users` row, and answering the OWNER's state
+    there would leak one human's consent record to another. That is right for the client
+    realm and it leaves the admin realm with no way to ask at all — which made
+    `record_for_client` a WRITE-ONLY control, and a write-only control on an append-only
+    consent ledger is how an operator records a month-old onboarding form over a
+    withdrawal the client made yesterday. The alerts resume, and the ledger says the owner
+    agreed. This is the read that stops that being invisible.
+
+    It carries no number and no evidence document — a status, a channel, two timestamps
+    and the notice version, which is exactly what the POST already returns.
+
+    REFUSES when the tenant has no active owner with a number, rather than answering
+    `none`. The alternative was considered and is worse: `none` means "this person has
+    never been asked", so an operator would be shown a normal-looking control whose only
+    outcome is the 422 the write raises for the same reason. One subject, resolved one
+    way, and the same refusal from both verbs (`_owner_of`).
+    """
+    async with tenant_session(tenant_id) as scoped:
+        owner_id, phone = await _owner_of(scoped, tenant_id)
+        return _out(
+            await whatsapp_optin.read_alert_optin(
+                scoped, tenant_id=tenant_id, user_id=owner_id, phone_e164=phone
+            )
+        )
 
 
 @admin_router.post(

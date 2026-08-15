@@ -206,7 +206,14 @@ export default function LeadsPage() {
    * permission and D-22 impersonation into one `{allowed, reason}` so the select is
    * disabled WITH the sentence rather than clicking into a 403.
    */
-  const mayAssign = useWriteAccess(session, "leads:write", "change who owns a lead");
+  const mayEditLead = useWriteAccess(session, "leads:write", "edit a lead");
+  /**
+   * D-21's dispatch permission, through the same helper rather than re-derived from
+   * `/v1/me` inline. `useWriteAccess` folds the permission, D-22 impersonation AND the
+   * failed-read case into one `{allowed, reason}`; the inline version this replaced had
+   * no answer for the third and read a dead `/v1/me` as a refusal.
+   */
+  const mayDispatch = useWriteAccess(session, "leads:dispatch", "call a lead from this table");
 
   const me = useMe(session);
   /**
@@ -303,14 +310,22 @@ export default function LeadsPage() {
    * "View as client" genuinely lands an operator here, `leads:write` (the status
    * select) is a permission the API will refuse for them — the shell's amber banner
    * says why, so the control is disabled rather than left to answer 403.
+   *
+   * It was `Boolean(me.data?.impersonating)`, which is BUILD-LOG §52's `?? false` in a
+   * different costume: `me.data` is undefined while `/v1/me` is in flight and after it
+   * fails, so a dead permission read answered "you are NOT read-only" and re-opened
+   * every status select to a 403. `mayEditLead` is the same gate the owner column
+   * already uses, and it fails closed WITH a sentence.
    */
-  const readOnly = Boolean(me.data?.impersonating);
+  const readOnly = !mayEditLead.allowed;
 
   /**
    * The id "Assigned to me" means, from the SERVER's answer to `/v1/me` — never guessed
    * and never a literal `me` in the query string. Absent while that request is in
    * flight or failed, in which case the chip does not render at all: a filter we cannot
-   * fill in is a filter that would silently mean "everyone".
+   * fill in is a filter that would silently mean "everyone". `unavailable` below says so
+   * out loud rather than leaving the chip's absence to be read as "there is no such
+   * filter".
    */
   const myUserId = me.data?.user_id ?? undefined;
 
@@ -319,14 +334,31 @@ export default function LeadsPage() {
    * permission: `staff` does not hold it and an impersonating operator (D-22) is refused
    * it, so both cases render no button rather than a 403 waiting to happen.
    */
-  const dialers = (agents.data ?? []).filter(canDial);
-  const selectedAgentId = agentId || dialers[0]?.id || "";
-  const canCall = Boolean(
-    me.data &&
-    me.data.permissions.includes("leads:dispatch") &&
-    !me.data.impersonating &&
-    selectedAgentId,
-  );
+  const dialers = agents.data?.filter(canDial);
+  const selectedAgentId = agentId || dialers?.[0]?.id || "";
+  const canCall = mayDispatch.allowed && selectedAgentId !== "";
+
+  /**
+   * The two reads this table's controls are built from, and what to say when one of
+   * them did not answer — §52's "failure is a refusal", for controls whose absence is
+   * otherwise indistinguishable from "your account does not have this".
+   *
+   * Both used to be spent as though they had answered: `(agents.data ?? []).filter(…)`
+   * made an empty dialer list out of a failed `/v1/agents`, and the permission test read
+   * a missing `/v1/me` as "no". The Call column, the agent picker and the "Assigned to
+   * me" chip then vanished with nothing said — a client who has the feature seeing a
+   * screen identical to one where it was never built.
+   *
+   * A KNOWN refusal is not this: a staff user who genuinely lacks `leads:dispatch` gets
+   * no call controls and no sentence, because "you cannot do this" and "we could not
+   * find out" are different answers and only the second one is ours to explain.
+   */
+  const unavailable =
+    agents.error != null
+      ? "We could not read your agents just now, so no call can be placed from this table. Reload the page to try again."
+      : me.error != null
+        ? "We could not check who you are signed in as, so calls from this table and the “Assigned to me” filter are closed. Reload the page to try again."
+        : null;
 
   const dispatch = (leadId: string) =>
     callLead.mutate(
@@ -358,11 +390,11 @@ export default function LeadsPage() {
       unavailableReason={
         members.error
           ? "We could not read your team just now, so the owner cannot be changed. Reload the page to try again."
-          : mayAssign.reason
+          : mayEditLead.reason
       }
       // Per-ROW pending, not the mutation's global flag: one saving row must not freeze
       // every other row's controls.
-      disabled={!mayAssign.allowed || rows.pendingFor(lead.id)}
+      disabled={!mayEditLead.allowed || rows.pendingFor(lead.id)}
       onChange={(userId) => rows.edit(lead.id, { assigned_to: userId })}
       className={className}
     />
@@ -405,8 +437,8 @@ export default function LeadsPage() {
           <InlineName
             lead={lead}
             href={href(`/c/${session.orgSlug}/leads/${lead.id}`)}
-            canEdit={mayAssign.allowed}
-            editReason={mayAssign.reason}
+            canEdit={mayEditLead.allowed}
+            editReason={mayEditLead.reason}
             saving={rows.pendingFor(lead.id)}
             onCommit={(name) => rows.edit(lead.id, { name })}
           />
@@ -454,7 +486,7 @@ export default function LeadsPage() {
    * a D-22 impersonating operator is refused. Checkboxes that only lead to a 403 are the
    * "deliberate restriction wearing the costume of a broken button" §52 names.
    */
-  const maySelect = mayAssign.allowed;
+  const maySelect = mayEditLead.allowed;
   // Not memoised: `items` is `leads.data?.items ?? []`, a fresh array every render, so a
   // `useMemo` keyed on it would recompute every render anyway while implying it did not.
   const pageIds = items.map((lead) => lead.id);
@@ -690,37 +722,42 @@ export default function LeadsPage() {
 
       {/* Which agent dials decides the script, the voice and the disclosure line, so
           the choice is on screen whenever there is one — same reasoning as the campaign
-          form. No picker and no buttons when nothing here can dial. */}
-      {canCall && (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-          <span>Calls from this table are placed by</span>
-          {dialers.length > 1 ? (
-            <select
-              value={selectedAgentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              aria-label="Agent that places calls from this table"
-              className="rounded-md border border-line bg-transparent px-2 py-1 text-xs text-ink"
-            >
-              {dialers.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span className="font-semibold text-ink">{dialers[0]?.name}</span>
-          )}
-          <span>
-            · every call still goes through the do-not-call, calling-hours and consent checks, and
-            can be refused.
-          </span>
-        </div>
+          form. No picker and no buttons when nothing here can dial, and the sentence
+          instead of the picker when we could not find out whether anything can. */}
+      {unavailable !== null ? (
+        <p className="text-xs text-ink-muted">{unavailable}</p>
+      ) : (
+        canCall && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+            <span>Calls from this table are placed by</span>
+            {dialers !== undefined && dialers.length > 1 ? (
+              <select
+                value={selectedAgentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                aria-label="Agent that places calls from this table"
+                className="rounded-md border border-line bg-transparent px-2 py-1 text-xs text-ink"
+              >
+                {dialers.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="font-semibold text-ink">{dialers?.[0]?.name}</span>
+            )}
+            <span>
+              · every call still goes through the do-not-call, calling-hours and consent checks, and
+              can be refused.
+            </span>
+          </div>
+        )
       )}
 
       {/* The reason the owner column is dead, said once above the table it is dead in.
           `RestrictionNote` renders nothing while `/v1/me` is still in flight, so the
           sentence never flashes and is never retracted. */}
-      <RestrictionNote reason={mayAssign.reason} />
+      <RestrictionNote reason={mayEditLead.reason} />
 
       {/* THE BULK BAR, between the filters and the table it acts on — the set it is
           about is the set above it, and the rows it will change are below it. It renders
@@ -733,8 +770,8 @@ export default function LeadsPage() {
         filteredTotal={leads.data?.total}
         pageSize={items.length}
         members={members.data}
-        canWrite={mayAssign.allowed}
-        writeReason={mayAssign.reason}
+        canWrite={mayEditLead.allowed}
+        writeReason={mayEditLead.reason}
         pending={bulk.isPending}
         error={bulk.error}
         result={bulkResult}

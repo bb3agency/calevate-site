@@ -246,8 +246,39 @@ function ErasurePanel({
   const [reason, setReason] = useState("");
   const [typed, setTyped] = useState("");
   const confirmation = erasureConfirmation(tenantId);
-  const existing = filed.data?.[0];
   const blocked = reason.trim().length < 3 || typed.trim() !== confirmation;
+
+  // §52, and the most expensive instance of it this console has held. `filed.data` is
+  // undefined while the read is in flight AND after it fails, and the branch below reads
+  // that undefined as "no erasure has ever been filed" — so both states fell through to
+  // the FORM. A screen that offers an irreversible, tenant-wide DPDP erasure while
+  // stating that none has been filed is worse than a blank one: the erasure it is
+  // offering to start may already be running, and the operator has been told the
+  // opposite by the only screen that could have told them otherwise.
+  //
+  // The ladder therefore sits ABOVE the `existing` branch, not beside it, and both arms
+  // keep the card so the panel does not silently disappear out of the page either.
+  if (filed.isLoading) {
+    return (
+      <Card title="Data erasure">
+        <Skeleton rows={3} />
+      </Card>
+    );
+  }
+  if (filed.error) {
+    return (
+      <Card title="Data erasure">
+        <ProblemNotice error={filed.error} onRetry={() => void filed.refetch()} />
+        <p className="mt-3 text-sm text-ink-muted">
+          Until this reads, we cannot tell you whether this client&apos;s data has already
+          been erased — so the erasure form stays closed. Filing a second one would start a
+          destructive job over the top of a running one.
+        </p>
+      </Card>
+    );
+  }
+
+  const existing = filed.data?.[0];
 
   if (existing) {
     // Already filed or already done. The certificate stays readable here forever — every

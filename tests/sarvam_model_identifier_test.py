@@ -27,6 +27,21 @@ WHY A SCAN AND NOT A PIN ON THE TWO SITES WE FIXED. Pinning them would be satisf
 this commit and silent on the next one, and the site that hurt most — the pilot gate — is
 precisely the one nobody thought to grep, because it is under `scripts/` and reads like a
 fixture rather than like production. The same argument `engine_name_drift_test` makes.
+
+IT NOW COVERS GEMINI TOO (D-127, PLAN Part 13), and the file keeps its name on purpose:
+`calevate_shared/engine.py`, `scripts/check_model_residency.py` (three times) and
+`tests/money_rounding_mode_test.py` all cite `sarvam_model_identifier_test` by name, and
+renaming a file to widen a docstring would break four citations to fix a label. The
+question is the same question — does shipped code name a model identifier the vendor will
+refuse — and one home for it beats two files that drift.
+
+THE GEMINI HALF DIFFERS IN ONE WAY WORTH STATING: those identifiers are not dead yet.
+`gemini-2.5-flash-lite` — which `workers/extraction.py` defaulted to before Part 13 —
+RETIRES 16 Oct 2026 (BRD R-04), and Google names `gemini-3.1-flash-lite` as its
+replacement. Banning it now rather than on the day is the whole value: a name that dies
+on a schedule costs a post-call pipeline returning empty extractions with a 404 nobody is
+watching for, and the only cheap moment to act is the one where the identifier is being
+written.
 """
 
 from __future__ import annotations
@@ -34,7 +49,12 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from calevate_shared.engine import SARVAM_DEFAULT_LLM, SARVAM_RETIRED_LLMS
+from calevate_shared.engine import (
+    GEMINI_DEFAULT_LLM,
+    GEMINI_RETIRED_LLMS,
+    SARVAM_DEFAULT_LLM,
+    SARVAM_RETIRED_LLMS,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -125,6 +145,58 @@ def test_the_extractor_and_the_pilot_gate_agree_with_the_constant() -> None:
         "scripts/pilot/gates_api.py spells the model identifier instead of importing it — "
         "which passes the retired-name scan and breaks on the next retirement"
     )
+
+
+def test_no_shipped_module_sends_a_retired_gemini_model() -> None:
+    """The same scan, for the vendor whose retirement has a date on it.
+
+    `apps/workers/extraction.py` carried `model: str = "gemini-2.5-flash-lite"` as a
+    default argument until Part 13 — a literal in exactly the shape D-105 was written
+    about, eight weeks from a vendor 404 on a path where the symptom is "extraction is
+    empty" and the first three places anyone looks are the schema, the prompt and the
+    transcript.
+    """
+    offenders: dict[str, set[str]] = {}
+    for path in _shipped_python():
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        if relative == CANONICAL_HOME:
+            continue
+        retired = _string_literals(path) & GEMINI_RETIRED_LLMS
+        if retired:
+            offenders[relative] = retired
+
+    assert not offenders, (
+        "these modules name a Gemini model identifier that is retired or dated for "
+        f"retirement: {ChainMapLike(offenders)}. Import "
+        "`calevate_shared.engine.GEMINI_DEFAULT_LLM` instead."
+    )
+
+
+def test_the_gemini_default_is_not_itself_retired() -> None:
+    """The same blind spot as the Sarvam one, and the same reason it is not hypothetical:
+    `gemini-2.5-flash-lite` WAS the migration target for the 2.0 family before it acquired
+    a retirement date of its own."""
+    assert GEMINI_DEFAULT_LLM not in GEMINI_RETIRED_LLMS, (
+        f"{GEMINI_DEFAULT_LLM} is in the retired set and is also what this repo sends on "
+        "every user-triggered assist"
+    )
+    assert GEMINI_DEFAULT_LLM.startswith("gemini-3"), (
+        "D-127 and BRD R-04 require a 3.x Flash-Lite: the 2.5 family retires 16 Oct 2026"
+    )
+
+
+def test_the_vertex_client_resolves_the_constant_rather_than_spelling_a_model() -> None:
+    """The rewiring half. A file that swapped one literal for another passes the scan and
+    reintroduces the defect the moment Google moves again."""
+    from apps.workers.extraction import VertexGeminiExtractor
+    from apps.workers.google_oauth import ServiceAccount
+
+    account = ServiceAccount(
+        client_email="a@b.iam.gserviceaccount.com",
+        private_key="k",
+        token_uri="https://oauth2.googleapis.com/token",
+    )
+    assert VertexGeminiExtractor(account, "calevate-prod").model_name == GEMINI_DEFAULT_LLM
 
 
 class ChainMapLike:

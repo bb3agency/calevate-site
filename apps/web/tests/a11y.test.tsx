@@ -11,6 +11,7 @@ import TenantCreditsPage from "@/app/admin/tenants/[tenantId]/credits/page";
 import LifecyclePage from "@/app/admin/tenants/[tenantId]/lifecycle/page";
 import HeldAccountsPage from "@/app/admin/holds/page";
 import NewClientPage from "@/app/admin/new/page";
+import GlobalDncPage from "@/app/admin/ops/dnc/page";
 import OpsPage from "@/app/admin/ops/page";
 import AdminClientsPage from "@/app/admin/page";
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
@@ -20,6 +21,7 @@ import TenantInvoicePage from "@/app/admin/tenants/[tenantId]/invoice/page";
 import TenantKycPage from "@/app/admin/tenants/[tenantId]/kyc/page";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import AgentsPage from "@/app/c/[slug]/agents/page";
+import AiAssistPage from "@/app/c/[slug]/ai-assist/page";
 import AttentionPage from "@/app/c/[slug]/attention/page";
 import CallDetailPage from "@/app/c/[slug]/calls/[callId]/page";
 import CallsPage from "@/app/c/[slug]/calls/page";
@@ -40,6 +42,7 @@ import PerformancePage from "@/app/c/[slug]/performance/page";
 import QualityPage from "@/app/c/[slug]/quality/page";
 import QaSamplingPage from "@/app/admin/qa-sampling/page";
 import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
+import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
 import TeamPage from "@/app/c/[slug]/settings/team/page";
 import UsagePage from "@/app/c/[slug]/usage/page";
 import VerificationPage from "@/app/c/[slug]/verification/page";
@@ -282,6 +285,26 @@ const USAGE = {
   credit_balance_inr: null,
 };
 
+/** A self-serve account that has just hit its AI ceiling — the state with the offer on
+ *  it, so the sweep sees the notice, the button and the copy around them. */
+const AI_QUOTA_AT_CEILING = {
+  month: "2026-08",
+  plan_tier: "self_serve",
+  state: "ceiling_reached",
+  included_inr: "100.00",
+  used_inr: "100.00",
+  allowance_inr: "100.00",
+  remaining_inr: "0.00",
+  requests_used: 214,
+  requests_included: 200,
+  requests_remaining: 0,
+  extra_purchased_inr: null,
+  extra_block_inr: "500.00",
+  extra_block_requests: 1000,
+  extra_available: true,
+  extra_unavailable_reason: null,
+};
+
 const DASHBOARD = {
   calls_today: 3,
   calls_7d: 24,
@@ -495,6 +518,21 @@ const TENANT_ROUTES: Routes = {
   "/v1/agents": [AGENT],
   "/v1/campaigns/numbers": [],
   "/v1/campaigns/templates": [],
+  // The owner's WhatsApp alert state, read by the operator panel. GRANTED on purpose:
+  // it renders the "recorded on" line and the withdrawal control, which the never-asked
+  // state does not.
+  "/v1/admin/tenants/t1/whatsapp-alerts": {
+    status: "granted",
+    channel: "self_serve_console",
+    captured_at: "2026-08-12T09:00:00Z",
+    notice_version: "whatsapp-alerts-v1",
+    messageable: true,
+    current_notice_version: "whatsapp-alerts-v1",
+    current_notice_text:
+      "I agree that Calevate may send WhatsApp messages to this number to alert me about activity in my own account, such as a hot lead.",
+    delivery_available: false,
+    delivery_unavailable_reason: "no_credential",
+  },
   "/v1/billing/caps": {
     month: "2026-08",
     plan_cap_minutes: 5000,
@@ -1024,6 +1062,29 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
+    // NOT opted in, and the channel NOT deliverable — the state with the most markup on
+    // it: the notice text, the grant control, and the "we cannot send yet" refusal that
+    // an opted-in account never renders.
+    file: "c/[slug]/settings/alerts/page.tsx",
+    realm: "client",
+    element: () => <AlertsPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/compliance/whatsapp-alerts": {
+        status: "none",
+        channel: null,
+        captured_at: null,
+        notice_version: null,
+        messageable: false,
+        current_notice_version: "whatsapp-alerts-v1",
+        current_notice_text:
+          "I agree that Calevate may send WhatsApp messages to this number to alert me about activity in my own account, such as a hot lead. I can withdraw this at any time from this screen.",
+        delivery_available: false,
+        delivery_unavailable_reason: "no_credential",
+      },
+    },
+  },
+  {
     file: "c/[slug]/settings/team/page.tsx",
     realm: "client",
     element: () => <TeamPage />,
@@ -1050,6 +1111,17 @@ const CLIENT_SCREENS: Screen[] = [
         updated_at: null,
       },
     },
+  },
+  {
+    // Swept AT THE CEILING, which is the state that renders the most: the warning
+    // notice, the offer and the button that opens the money dialog. `within` would
+    // render three tiles and nothing axe has an opinion about. The DIALOG itself is
+    // swept in `aiQuota.test.tsx`, because opening it needs a click and this sweep
+    // renders rather than drives.
+    file: "c/[slug]/ai-assist/page.tsx",
+    realm: "client",
+    element: () => <AiAssistPage />,
+    routes: { "/v1/me": ME, "/v1/billing/ai-quota": AI_QUOTA_AT_CEILING },
   },
   {
     // The client's own invoice — the same sheet the admin entry below renders, from the
@@ -1204,6 +1276,35 @@ const ADMIN_SCREENS: Screen[] = [
       "/v1/ops/config": OPS_CONFIG,
       "/v1/ops/secrets": OPS_SECRETS,
       "/v1/ops/secrets/kek": OPS_KEK,
+    },
+  },
+  {
+    // Populated with TWO entries whose `source` differs, because the row renders the
+    // source in the operator's words and the release confirmation quotes it back — a
+    // one-source fixture would leave half of both strings unscanned.
+    file: "admin/ops/dnc/page.tsx",
+    realm: "admin",
+    element: () => <GlobalDncPage />,
+    routes: {
+      "/v1/admin/me": ADMIN_ME,
+      "/v1/ops/dnc/global?limit=500": [
+        {
+          id: "0192f0aa-7777-7000-8000-000000000001",
+          phone_masked: "+9198••••3210",
+          scope: "global",
+          source: "regulator",
+          added_at: "2026-08-12T09:00:00Z",
+          removable: false,
+        },
+        {
+          id: "0192f0aa-7777-7000-8000-000000000002",
+          phone_masked: "+9198••••7788",
+          scope: "global",
+          source: "platform_block",
+          added_at: "2026-08-11T09:00:00Z",
+          removable: false,
+        },
+      ],
     },
   },
   {

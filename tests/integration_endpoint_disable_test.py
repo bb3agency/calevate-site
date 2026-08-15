@@ -29,11 +29,15 @@ import uuid
 
 import httpx
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.integrations.routes import ENDPOINT_CREATED, ENDPOINT_DISABLED
 from apps.api.main import app
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 
-DISABLED = "integration_endpoint.disabled"
+# Imported from the route rather than retyped here. The disable action used to be a bare
+# literal in both places, and a ledger whose writer and whose only reader spell the
+# action separately is one typo away from an audit trail nobody queries.
+CREATED, DISABLED = ENDPOINT_CREATED, ENDPOINT_DISABLED
 
 
 def _client() -> httpx.AsyncClient:
@@ -172,7 +176,10 @@ async def test_the_no_op_disable_writes_no_audit_row() -> None:
         await http.delete(path, headers=_headers(slug, token))
         await http.delete(path, headers=_headers(slug, token))
 
-    assert await _audit_actions(tenant_id, endpoint_id) == [DISABLED]
+    # CREATED then DISABLED, and nothing for the second click. Registration is now
+    # audited too — it is the act that starts lead PII leaving the tenant — so the
+    # ledger holds the whole life of the endpoint rather than only its end.
+    assert await _audit_actions(tenant_id, endpoint_id) == [CREATED, DISABLED]
 
 
 async def test_two_concurrent_disables_both_succeed_and_audit_once() -> None:
@@ -192,4 +199,4 @@ async def test_two_concurrent_disables_both_succeed_and_audit_once() -> None:
 
     assert [r.status_code for r in both] == [204, 204], [r.text for r in both]
     assert await _active(tenant_id, endpoint_id) is False
-    assert await _audit_actions(tenant_id, endpoint_id) == [DISABLED]
+    assert await _audit_actions(tenant_id, endpoint_id) == [CREATED, DISABLED]

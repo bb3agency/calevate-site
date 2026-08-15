@@ -20,6 +20,14 @@ Version 1.0
 > ≤ ~₹1.5/min), sub-account/agency terms, INR/GST billing, recording
 > retention/deletion API, India data-residency terms, Bulbul V3 exposure, Gemini or
 > OpenAI-compatible LLM support, Telugu quality of the multilingual KB mode.
+> **A Vertex gate rides along**, on our own account rather than Bolna's, and is the one
+> vendor fact D-127 rests on that nobody here could read: `docs.cloud.google.com` is
+> egress-blocked from this repository, so "`asia-south1` serves
+> `calevate_shared.engine.GEMINI_DEFAULT_LLM`" is REPORTED, NOT READ. One
+> `generateContent` call on the day the GCP project exists settles it. It fails LOUD if
+> wrong — a 404 from a host that unambiguously serves our project — and
+> `assist_capability()` answers `provider_unavailable` with a disclosed Sarvam fallback
+> meanwhile, so this is a gate and not a blocker.
 > Items failing ⇒ the engine decision reopens (no fallback engine is designated — D-31).
 
 Budget ~₹3–5k (Bolna gives $5 free signup credits + Sarvam's ₹1,000 free credits, so
@@ -44,8 +52,10 @@ most of this is real PSTN call spend). 5–7 working days alongside other work.
 
 Parallel ask to Sarvam (not a Bolna gate, but it moves our cost model more than the
 platform choice does): **is the Sarvam LLM genuinely free per token** — permanent,
-promotional, or rate-limited? If durable it removes the R-04 Gemini-3.x step
-(~₹0.55–0.65/min). Also pin Bulbul V3's "beta pricing" (₹30/10k chars) — beta prices move.
+promotional, or rate-limited? If durable it removes the R-04 cost step entirely, which
+D-127 has already removed as a *migration*: the one Gemini path was written on 3.x
+Flash-Lite rather than migrated to it, and Sarvam runs the extraction leg permanently
+(`GEMINI_EXTRACTION_DEFAULT is False`). Also pin Bulbul V3's "beta pricing" (₹30/10k chars) — beta prices move.
 
 ### Running it — 1, 2, 6 run on credentials alone; 4, 7, 8, 13 run on an inputs file; 3, 5, 9-12 are human
 
@@ -487,8 +497,9 @@ one differs from a summary below, the runbook is the authority.
   D-31). `client ip not established` = **the EDGE is broken, not the vendor**: outside
   `APP_ENV=local` the receiver takes the client address from `CF-Connecting-IP` and from
   nothing else, refusing when it is absent or is not a single literal IP
-  (`apps/voice-runtime/engine_intake.py::client_ip`). Two nginx facts must hold for that
-  header to mean anything, and both live in `infra/nginx/snippets/`:
+  (`calevate_shared.client_address.client_ip`, the one definition both deployables call).
+  Two nginx facts must hold for that header to mean anything, and both live in
+  `infra/nginx/snippets/`:
   `real_ip_header CF-Connecting-IP` + `real_ip_recursive on` + the `set_real_ip_from` CF
   ranges (`calevate-origin.conf`), and `proxy_set_header CF-Connecting-IP $remote_addr`
   (`calevate-proxy.conf`) so our own nginx — the single trusted hop — is what writes the
@@ -507,8 +518,14 @@ one differs from a summary below, the runbook is the authority.
 - **Runaway campaign**: auto-pause on cap/complaint alarm; verify DNC + template status;
   client comms template ready.
 - **Deletion request**: FLOWS §9 procedure; 7-day internal SLA; proof certificate issued.
-- **Model retirement (e.g., Gemini 2.5 on 16 Oct 2026)**: switch config on staging →
-  full regression suite → promote per client → note in decision log.
+- **Model retirement**: the identifier lives in ONE place per vendor
+  (`calevate_shared.engine.SARVAM_DEFAULT_LLM`, `GEMINI_DEFAULT_LLM`) with the dead names
+  beside it in `SARVAM_RETIRED_LLMS` / `GEMINI_RETIRED_LLMS`, and
+  `tests/sarvam_model_identifier_test.py` fails the build on any shipped module naming
+  one — so this is: move the constant, add the old name to the retired set, run the full
+  regression suite on staging → promote per client → note in the decision log. The 16 Oct
+  2026 Gemini 2.5 retirement is already handled this way (D-127, BRD R-04); it is listed
+  here as the WORKED EXAMPLE, not as outstanding work.
 
 ## 8. Pre-Launch Checklist (client #1 goes live only when all green)
 

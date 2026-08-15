@@ -13,9 +13,22 @@ process: they never consulted the durable row again. Staleness is now bounded by
 key with no expiry is treated as a miss because this module never writes one.
 
 ALWAYS_ALLOWED_PREFIXES is the rule that keeps this from being a foot-gun: health,
-auth, engine webhooks and the ops/admin surface are never shed. **The operator must
-never lock themselves out, and provider callbacks must always land** — a dropped
-engine webhook is a call whose lead never appears.
+engine webhooks, the ops/admin surface and the schema/doc endpoints are never shed.
+**The operator must never lock themselves out, and provider callbacks must always
+land** — a dropped engine webhook is a call whose lead never appears.
+
+It listed `/v1/auth` too, "so signing in survives maintenance", and that exemption was
+aimed at a route this API does not have. Clerk owns sessions (TRD §11); nothing under
+`/v1/auth` mints one. The ONE route the prefix actually covered was
+`POST /v1/auth/signup` — a multi-table write that creates an organization, an agent, an
+extraction schema and a set of retention policies — so the exemption's only effect was
+to let the platform keep manufacturing tenants while it was too degraded to serve the
+ones it had. Removed rather than narrowed: an exemption naming a surface that does not
+exist cannot be narrowed to anything, and if a session route is ever added here it
+should be exempted BY NAME, with the reason, on the day it exists. Its sibling
+`POST /v1/invitations/accept` — the other write reachable by a caller with no
+organization yet — was never exempt and is shed like any other write, which is the
+consistency this restores. `tests/loadshed_exemption_test.py` asserts the census.
 """
 
 from __future__ import annotations
@@ -34,10 +47,15 @@ log = get_logger(__name__)
 
 LoadShedMode = Literal["normal", "reduced", "emergency", "maintenance"]
 
-# Prefixes that bypass shedding entirely, in the order they matter.
+# Prefixes that bypass shedding entirely, in the order they matter. Three admissible
+# reasons and no fourth: the platform must stay OBSERVABLE (`/healthz`, and the schema
+# the console is generated from), the operator must stay ABLE TO ACT (`/v1/ops`,
+# `/v1/admin` — a shed you cannot turn off is an outage you caused), and a provider
+# callback must always LAND (`/hooks` — a dropped engine webhook is a call whose lead
+# never appears). Nothing on this list is exempt because it is important to a customer;
+# expensive customer-facing writes are exactly what shedding is for.
 ALWAYS_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/healthz",
-    "/v1/auth",
     "/hooks",
     "/v1/ops",
     "/v1/admin",

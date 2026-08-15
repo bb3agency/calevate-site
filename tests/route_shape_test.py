@@ -12,10 +12,15 @@ code's shape — not its logic — was the defect:
 3. The SQLAlchemy engine rendered bound parameters into `str(exc)`, so a DB error on
    the transcript insert produced a string quoting the raw turn — hard rule 6, on the
    path least likely to be exercised before production.
+4. `PATCH /v1/agents/{agent_id}/voice` was `realm="admin"` and lived in the CLIENT path
+   space with its tenant in the body — callable, unlike publish, but the only route in
+   the app shaped that way, so it was the precedent the next author would copy. It is
+   now `PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice`.
 
-The structural test at the bottom is the one that generalises: it fails for ANY future
-admin-realm mutation that tries to infer its tenant the way publish did, rather than
-waiting for someone to notice the endpoint has never returned anything but 401.
+The structural tests at the bottom are the ones that generalise: they fail for ANY
+future admin-realm mutation that infers its tenant the way publish did, or that lands
+outside the admin path space the way the voice write did, rather than waiting for
+someone to notice the endpoint has never returned anything but 401.
 
 Concurrency note: this repo's tests share one Postgres. Every case below is scoped to
 a run-unique tenant; nothing asserts a global row count.
@@ -28,6 +33,7 @@ import uuid
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
+from apps.api.agents.voice_routes import SetVoiceIn
 from apps.api.core.auth import tenant_of
 from apps.api.core.rbac import (
     MUTATING_PERMISSIONS,
@@ -405,3 +411,86 @@ async def test_the_publish_route_names_its_tenant_where_the_house_pattern_does()
     assert "tenant_id" in {param.name for param in publish.dependant.path_params}
     assert not _depends_on(publish, tenant_of)
     assert ("agents:write", "admin") in _enforced(publish)
+
+
+# ------------------------------------------------- one path space per realm (PART 7a)
+
+#: The two path spaces an admin-realm route may live in, and what each one IS.
+#:
+#: They are not two conventions: `/v1/admin` is the client-facing console (act on ONE
+#: named tenant) and `/v1/ops` is the platform surface (act on the deployment). Both
+#: are reached only with an admin token, both are in `loadshed.ALWAYS_ALLOWED_PREFIXES`
+#: so an operator cannot be locked out of them, and neither ever appears in a client
+#: session. The client path space (`/v1/agents`, `/v1/leads`, ...) is the opposite of
+#: all three.
+ADMIN_PATH_SPACES: tuple[str, ...] = ("/v1/admin", "/v1/ops")
+
+
+async def test_no_admin_realm_route_lives_outside_the_admin_path_space() -> None:
+    """The general form of PART 7a, and the assertion that closes the class.
+
+    `PATCH /v1/agents/{agent_id}/voice` was `realm="admin"` + `agents:write` and sat in
+    the CLIENT path space with its tenant in the request body. A mechanical walk of the
+    live route table found it to be the ONLY one, which is what made it worth moving
+    rather than tolerating: a single exception is the thing the next author copies, and
+    the copy arrives with a rationale ("the other one does it").
+
+    The path prefix is not decoration here — four separate mechanisms read it and none
+    of them reads the dependency tree:
+
+    - `RateLimitMiddleware.PROFILES` picks the limit by prefix, so an admin route in the
+      client space silently takes the client's limiter profile.
+    - `loadshed.ALWAYS_ALLOWED_PREFIXES` keeps the operator surface reachable during a
+      shed by prefix, so an admin route outside it is shed with the client traffic.
+    - the audit trail reads `/v1/admin/tenants/{tenant_id}/…` as "who did what to whom"
+      without opening the body.
+    - a human reviewer reads the URL to know which console a change belongs to.
+
+    So this is a shape rule with four consequences, not a style preference, and it is
+    cheaper to assert once over the whole table than to re-notice per route.
+    """
+    offenders = []
+    for route in iter_api_routes(app):
+        if any(route.path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
+            continue
+        realms = {realm for _permission, realm in _enforced(route)}
+        if "admin" not in realms:
+            continue
+        if any(route.path.startswith(space) for space in ADMIN_PATH_SPACES):
+            continue
+        offenders.append(f"{sorted(route.methods or [])} {route.path} -> {sorted(realms)}")
+    assert not offenders, (
+        "admin-realm routes outside the admin path space "
+        f"{ADMIN_PATH_SPACES}: {offenders}. They miss the /v1/admin rate-limit profile "
+        "and the load-shed exemption, and their audit rows cannot be read from the "
+        "path. Move them under /v1/admin/tenants/{tenant_id}/… and name the tenant "
+        "there instead of in the body."
+    )
+
+
+async def test_the_voice_write_moved_and_the_old_path_is_gone() -> None:
+    """The instance, both halves — a breaking URL change stated as a test rather than
+    left for someone to find by diffing the OpenAPI snapshot.
+
+    No deprecation window and no alias, deliberately: `realm="admin"` means the only
+    caller that can reach it is our own console, which ships from this repo against a
+    client generated from this schema, so there is no third party to strand. An alias
+    would keep the copyable wrong shape live on the wrong limiter — the defect the move
+    exists to delete. Same call as `POST /v1/agents/{agent_id}/publish` above.
+    """
+    paths = {route.path for route in iter_api_routes(app)}
+    assert "/v1/agents/{agent_id}/voice" not in paths
+    voice = next(
+        route
+        for route in iter_api_routes(app)
+        if route.path == "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice"
+    )
+    assert voice.methods == {"PATCH"}
+    assert "tenant_id" in {param.name for param in voice.dependant.path_params}
+    assert not _depends_on(voice, tenant_of)
+    assert ("agents:write", "admin") in _enforced(voice)
+    # The client-realm READ that shares this router kept its path: a client may still
+    # hear what their agent sounds like (D-21), it is only the write that moved.
+    assert "/v1/agents/voices" in paths
+    # And the tenant left the body with it — one place names the tenant, not two.
+    assert "tenant_id" not in set(SetVoiceIn.model_fields)

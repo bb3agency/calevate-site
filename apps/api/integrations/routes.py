@@ -10,6 +10,13 @@ The signing secret is returned EXACTLY ONCE, at creation. After that the API ans
 with a fingerprint and never the value — a config screen that re-displays a shared
 secret turns every screenshot and every support session into a key disclosure.
 
+**Creating an endpoint is an egress decision, and it is treated as one.** A webhook URL
+is vetted by `egress_guard.assert_public_http_url` before the row exists — and again in
+`service.deliver`, because the tenant owns that name's DNS — and BOTH create routes
+write an `audit_log` row naming who did it. Registration is the act that starts a
+client's lead PII leaving their tenant; it used to be the one mutating route here with
+no record of it, while the DELETE that stops the flow had one.
+
 **Both D-23 kinds are configurable here, and one of them is gated.** See
 `create_sheets_endpoint` for the argument; the short version is that a checkbox for a
 transport that cannot deliver is the defect the sheets work exists to remove, so the
@@ -40,6 +47,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.base import uuid7
 from apps.api.integrations import service
+from apps.api.integrations.egress_guard import assert_public_http_url
 from apps.api.integrations.service import EVENT_TYPES
 
 # The API asking the delivery path whether it can deliver. Imported rather than
@@ -53,6 +61,12 @@ router = APIRouter(prefix="/v1/integrations", tags=["integrations"])
 Session = Annotated[AsyncSession, Depends(db)]
 
 EventName = Literal["lead.created", "lead.updated", "call.completed", "campaign.completed"]
+
+# The two audit actions this module writes. NAMED rather than typed twice: the disable
+# action was a bare literal here and a second bare literal in the test that asserts it,
+# which is one string away from a ledger that records an action nothing searches for.
+ENDPOINT_CREATED = "integration_endpoint.created"
+ENDPOINT_DISABLED = "integration_endpoint.disabled"
 
 
 class Strict(BaseModel):
@@ -103,6 +117,14 @@ class EndpointOptionsOut(Strict):
 class CreateEndpointIn(Strict):
     # HttpUrl rejects a bare hostname and anything that is not http(s) — we sign and
     # POST to whatever lands here, so "looks like a URL" is not good enough.
+    #
+    # AND IT IS NOWHERE NEAR ENOUGH ON ITS OWN. `http://169.254.169.254/latest/meta-data/`
+    # is a perfectly good `HttpUrl`, and this value ends up in `service.deliver`, which
+    # POSTs a signed body carrying a lead's name and phone number to it. The address the
+    # name RESOLVES to is the check that matters, and it is made by
+    # `egress_guard.assert_public_http_url` in the handler — not in this model — because
+    # it needs a DNS lookup and because the same call has to be repeated at delivery
+    # time, where there is no request body to validate.
     url: HttpUrl
     events: list[EventName] = Field(min_length=1)
 
@@ -287,9 +309,30 @@ async def list_endpoints(
 async def create_endpoint(
     payload: CreateEndpointIn,
     session: Session,
+    request: Request,
     principal: Principal = Depends(requires("org:manage")),
 ) -> CreateEndpointOut:
+    """Register a webhook endpoint. Two things happen here that did not used to.
+
+    **The destination is vetted before the row exists.** `assert_public_http_url` resolves
+    the host and refuses loopback, link-local, private, multicast, reserved and
+    unroutable addresses, and any port but 80/443 — see `egress_guard` for the bypass
+    classes and the evidence. It is checked AGAIN in `service.deliver`, because the name
+    is one the tenant controls the DNS for and this row outlives the lookup.
+
+    **And the registration is audited.** Deactivating an endpoint wrote an `audit_log`
+    row while CREATING one wrote nothing, which had it exactly backwards: registration
+    is the act that starts a client's lead PII leaving their tenant, and it was the act
+    with no record of who performed it. Written in the SAME transaction as the INSERT,
+    so an endpoint cannot exist without the row naming who made it.
+
+    The summary records the HOST, never the URL. A webhook URL's path and query are
+    tenant-authored free text and routinely carry a bearer credential (`?apikey=…`); an
+    audit trail that quoted the whole thing would leak the secret it exists to attest
+    (hard rule 6). The host is the fact an investigator needs — where the leads went.
+    """
     assert principal.tenant_id is not None
+    destination = await assert_public_http_url(str(payload.url))
     endpoint_id = uuid7()
     secret = secrets.token_urlsafe(32)
     await session.execute(
@@ -303,6 +346,23 @@ async def create_endpoint(
             "tid": principal.tenant_id,
             "url": str(payload.url),
             "secret": secret,
+            "events": list(payload.events),
+        },
+    )
+    # AFTER the INSERT, deliberately: `write_audit` takes the chain's advisory lock and
+    # holds it to COMMIT (BACKEND-PATTERNS §7), so it belongs late in the transaction.
+    await write_audit(
+        session,
+        action=ENDPOINT_CREATED,
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="outbound_webhook",
+        object_id=str(endpoint_id),
+        ip=request.client.host if request.client else None,
+        summary={
+            "kind": service.WEBHOOK_KIND,
+            "host": destination.host,
+            "port": destination.port,
             "events": list(payload.events),
         },
     )
@@ -334,6 +394,7 @@ async def create_endpoint(
 async def create_sheets_endpoint(
     payload: CreateSheetEndpointIn,
     session: Session,
+    request: Request,
     principal: Principal = Depends(requires("org:manage")),
 ) -> SheetEndpointOut:
     """Configure the OTHER D-23 kind. Ships behind a gate, and the gate is the argument.
@@ -451,6 +512,29 @@ async def create_sheets_endpoint(
             "mapping": json.dumps(mapping) if mapping else None,
         },
     )
+    # The SAME audit action as a webhook, in the same transaction, for the same reason:
+    # this is the other way a tenant starts their lead PII leaving the tenant, and an
+    # investigator asking "who pointed our leads outward, and where" must not have to
+    # know which of the two forms was used to get an answer. There is no `host` to
+    # record — the destination is Google's API and the document id is what identifies
+    # it — so the id takes its place. NO SSRF check on this path, deliberately: nothing
+    # here is ever fetched. `parse_spreadsheet_ref` has already reduced whatever was
+    # pasted to a document id, the delivery goes to `sheets.googleapis.com`, and a URL
+    # the client typed never reaches a socket.
+    await write_audit(
+        session,
+        action=ENDPOINT_CREATED,
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="outbound_webhook",
+        object_id=str(endpoint_id),
+        ip=request.client.host if request.client else None,
+        summary={
+            "kind": service.SHEET_KIND,
+            "spreadsheet_id": spreadsheet_id,
+            "events": list(payload.events),
+        },
+    )
     return SheetEndpointOut(
         id=endpoint_id,
         kind=service.SHEET_KIND,
@@ -504,7 +588,7 @@ async def deactivate_endpoint(
     if await service.deactivate_endpoint(session, endpoint_id=endpoint_id):
         await write_audit(
             session,
-            action="integration_endpoint.disabled",
+            action=ENDPOINT_DISABLED,
             actor=principal,
             tenant_id=principal.tenant_id,
             object_type="outbound_webhook",

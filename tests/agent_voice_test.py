@@ -26,6 +26,12 @@ and mount it AHEAD of `agents.routes.router`, which is the order the real app mu
 (`/v1/agents/{agent_id}` otherwise eats the literal `voices`). Running the boot
 assertion over the assembled app keeps that contract honest: if either route ever loses
 its `permission_meta`, mounting it anywhere starts failing.
+
+THE WRITE MOVED to `PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice`, with
+the tenant in the path instead of the body — it was the one admin-realm route left in
+the client path space, which cost it the `/v1/admin` rate-limit profile and an audit
+trail readable from the URL. `tests/route_shape_test.py` asserts the rule over the
+whole route table and that the old path is gone; the cases below are the behaviour.
 """
 
 from __future__ import annotations
@@ -151,8 +157,8 @@ async def _set_voice(tenant_id: uuid.UUID, agent_id: uuid.UUID, voice_id: str) -
     admin_token = await _admin_token()
     async with _client(_app()) as http:
         response = await http.patch(
-            f"/v1/agents/{agent_id}/voice",
-            json={"tenant_id": str(tenant_id), "voice_id": voice_id},
+            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
+            json={"voice_id": voice_id},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
     assert response.status_code == 200, response.text
@@ -307,8 +313,8 @@ async def test_the_catalog_is_closed_and_the_write_refused_when_the_engine_dicta
                 headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
             )
             write = await http.patch(
-                f"/v1/agents/{agent_id}/voice",
-                json={"tenant_id": str(tenant_id), "voice_id": "bulbul:v3"},
+                f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
+                json={"voice_id": "bulbul:v3"},
                 headers={"Authorization": f"Bearer {admin_token}"},
             )
 
@@ -337,8 +343,8 @@ async def test_a_client_realm_principal_cannot_set_the_voice() -> None:
 
     async with _client(_app()) as http:
         response = await http.patch(
-            f"/v1/agents/{agent_id}/voice",
-            json={"tenant_id": str(tenant_id), "voice_id": "bulbul:v2"},
+            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
+            json={"voice_id": "bulbul:v2"},
             headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
         )
 
@@ -355,8 +361,8 @@ async def test_an_admin_can_set_the_voice_and_it_is_persisted_and_audited() -> N
 
     async with _client(_app()) as http:
         response = await http.patch(
-            f"/v1/agents/{agent_id}/voice",
-            json={"tenant_id": str(tenant_id), "voice_id": "bulbul:v2"},
+            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
+            json={"voice_id": "bulbul:v2"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
 
@@ -403,8 +409,8 @@ async def test_a_published_agent_is_told_the_change_needs_a_republish() -> None:
 
     async with _client(_app()) as http:
         response = await http.patch(
-            f"/v1/agents/{agent_id}/voice",
-            json={"tenant_id": str(tenant_id), "voice_id": "bulbul:v3"},
+            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
+            json={"voice_id": "bulbul:v3"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
 
@@ -426,8 +432,8 @@ async def test_an_unknown_voice_id_is_refused_with_a_named_problem() -> None:
 
     async with _client(_app()) as http:
         response = await http.patch(
-            f"/v1/agents/{agent_id}/voice",
-            json={"tenant_id": str(tenant_id), "voice_id": "elevenlabs:rachel"},
+            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
+            json={"voice_id": "elevenlabs:rachel"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
 
@@ -454,8 +460,8 @@ async def test_setting_the_voice_of_another_tenants_agent_is_a_404() -> None:
 
     async with _client(_app()) as http:
         response = await http.patch(
-            f"/v1/agents/{agent_a}/voice",
-            json={"tenant_id": str(tenant_b), "voice_id": "bulbul:v3"},
+            f"/v1/admin/tenants/{tenant_b}/agents/{agent_a}/voice",
+            json={"voice_id": "bulbul:v3"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
 

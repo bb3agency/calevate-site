@@ -600,7 +600,11 @@ def default_cost_model() -> tuple[CostLine, ...]:
         CostLine(leg="Platform fee (BYOK)", estimate="unpublished; target <= ~INR 1.5/min"),
         CostLine(leg="Sarvam Saaras V3 STT", estimate="INR 0.50/min"),
         CostLine(leg="Sarvam Bulbul V3 TTS", estimate="INR 0.90-1.40/min (beta pricing)"),
-        CostLine(leg="LLM", estimate="INR 0.00 (Sarvam 105B per D-36); Gemini fallback 0.15-0.20"),
+        # Gemini is NOT the alternative here: D-127 puts it on Vertex `asia-south1` for
+        # the post-call assistant only, and an in-call Gemini leg would need a new
+        # India-co-located OpenAI-shaped proxy (PLAN Part 17, pilot-gated). The band is
+        # what a paid in-call LLM would cost if Sarvam's free tier moved.
+        CostLine(leg="LLM", estimate="INR 0.00 (Sarvam 105B per D-36); paid LLM 0.15-0.20"),
         CostLine(leg="Telephony", estimate="INR 0.35-0.50/min"),
         CostLine(
             leg="Built-in KB",

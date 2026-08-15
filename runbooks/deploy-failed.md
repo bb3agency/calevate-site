@@ -96,6 +96,14 @@ curl -sS -i http://127.0.0.1:8100/healthz     # voice-runtime
 process is fine and a dependency is not — check host Postgres and the redis container
 before assuming the release is bad.
 
+**WHICH dependency is not in that body** (D-128): the health endpoints answer an
+uncredentialled caller with the verdict only, because `/healthz/ready` used to name the
+credentials a deployment was missing to anyone on the internet. The detail is in the
+logs of the service you just curled — `health_db_unavailable` / `health_redis_unavailable`
+per failed probe, and `health_not_ready` carrying `degradation_mode`, `queue_depth` and
+`missing_config_keys` — which is the same `docker compose logs` you already have open.
+A session holding `ops:manage` gets it in the response body instead.
+
 **Rolling back the code** (fast, and it is the right first move if the logs point at the
 release rather than at a dependency):
 

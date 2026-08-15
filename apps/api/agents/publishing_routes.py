@@ -14,7 +14,7 @@ Three questions and two buttons:
 
 WHY THE AGENT'S VOICE IS READ HERE AND NOT ON `AgentOut`
 --------------------------------------------------------
-`PATCH /v1/agents/{id}/voice` shipped without any read, so the admin picker could set a
+`PATCH .../agents/{aid}/voice` shipped without any read, so the admin picker could set a
 voice and never show one. The obvious fix — put `tts_voice` on `AgentOut` — was
 rejected, and the reason is the feature itself rather than tidiness:
 
@@ -167,7 +167,7 @@ class AgentVoiceOut(Strict):
 class VoiceStateOut(Strict):
     """The voice CONFIGURED on the agent and the voice the engine was last SENT.
 
-    Two fields because they are two facts. `PATCH /v1/agents/{id}/voice` writes our row
+    Two fields because they are two facts. `PATCH .../agents/{aid}/voice` writes our row
     and stops there, so a live agent keeps its old voice until the next publish — one
     value labelled "the voice" would be a claim about a client's phone line that nobody
     checked.
@@ -331,7 +331,8 @@ async def list_lanes(_: PublishingReader) -> LanesOut:
         "Backs the unsaved-changes banner and the voice picker. `agents:read`, not "
         "`agents:write`: this is the view that explains why an edit has not taken "
         "effect, so it must be readable by someone who may only look (D-22).\n\n"
-        "`voice.configured` is what `PATCH /v1/agents/{agent_id}/voice` wrote; "
+        "`voice.configured` is what "
+        "`PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice` wrote; "
         "`voice.live` is what the engine was last sent. They differ until a publish, "
         "which is what `voice.republish_required` reports. A null `voice.live` on a "
         "published agent means we have no record of what it is holding — read it with "

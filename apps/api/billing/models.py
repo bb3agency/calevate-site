@@ -7,6 +7,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     ForeignKey,
@@ -28,6 +29,28 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 PLAN_TIERS = ("managed", "self_serve", "trial")
 CREDIT_REASONS = ("topup", "usage", "adjustment", "refund")
 
+# The DASHBOARD-AI units (D-127 G-3, migration e1a7c93d5b02). Their own unit types
+# rather than a second meaning for the call-leg ones, and the reason is arithmetic
+# rather than tidiness: `llm_tok_out` is written by `apps/workers/pipeline.py::_meter`
+# as `qty = 1` meaning "one call's LLM leg" priced at the whole leg cost, because the
+# engine bills legs with no token count (TRD §5). Metering real tokens into that column
+# would put two units in one column and quietly change what `billing/service.py`'s cost
+# sums mean. `llm_tok_in` was the other candidate and is worse: it has no writer at all,
+# so it carries no meaning to preserve AND its emptiness is a live finding (PLAN Part 18
+# owns it) that a new writer would erase without fixing.
+#
+# **`ktok`, NOT `tok`, and that is a MONEY decision, not a naming one.** `unit_cost_paid`
+# is NUMERIC(12,4) and every reader multiplies it by `qty`, so the smallest non-zero
+# price this ledger can express is ₹0.0001 per unit of qty. A Gemini Flash-class input
+# token costs on the order of ₹0.000008, which stores as 0.0000 — a per-TOKEN qty would
+# have metered every dashboard assist at exactly zero rupees and the quota would never
+# have moved. Per THOUSAND tokens the same price is ₹0.0083, which the column holds.
+# What the ₹0.0001/1k quantum costs is stated where it lands: it bounds the error on OUR
+# OWN absorbed cost (≤0.6% at the cheapest rung we might buy), and no client-visible
+# rupee is ever derived from it — past the quota a client is charged a FIXED block
+# (`billing/ai_quota.py`), never a token count.
+AI_ASSIST_UNIT_TYPES = ("ai_assist_ktok_in", "ai_assist_ktok_out")
+
 UNIT_TYPES = (
     "telephony_s",
     "stt_s",
@@ -37,6 +60,7 @@ UNIT_TYPES = (
     "platform_min",
     "number_rental",
     "other",
+    *AI_ASSIST_UNIT_TYPES,
 )
 
 MONEY = Numeric(12, 4)
@@ -44,10 +68,39 @@ MONEY = Numeric(12, 4)
 
 class UsageEvent(PKMixin, Base):
     """Append-only ledger. Records OUR cost (unit_cost_paid) next to billable qty —
-    per-client margin is a query (D-12). Maps 1:1 onto Get Call's cost.breakdown."""
+    per-client margin is a query (D-12). Maps 1:1 onto Get Call's cost.breakdown.
+
+    TWO KINDS OF ROW, TWO DISJOINT UNIQUE KEYS, AND THE DISJOINTNESS IS THE DESIGN.
+
+    A CALL row carries `call_id` and no `ref`; a DASHBOARD-AI row carries `ref` and no
+    `call_id`. `ux_usage_events_tenant_call_unit` (migration b8d3f47c2a19) is partial on
+    `call_id IS NOT NULL` and `ux_usage_events_tenant_unit_ref` (migration e1a7c93d5b02)
+    is partial on `ref IS NOT NULL AND call_id IS NULL`, so **no row is in both indexes
+    and no row is in neither by accident** — which is what stops the second key from
+    shadowing the first and stops an AI row from colliding with a call row that happens
+    to share a unit type. It is also why the AI writer could not simply be added to the
+    older index's `unit_type IN (...)` list: that index's leading key is `call_id`, and
+    a row with a NULL there is not "unprotected", it is EXCLUDED by predicate — every
+    duplicate would have been legal and invisible.
+    """
 
     __tablename__ = "usage_events"
-    __table_args__ = (CheckConstraint(f"unit_type IN {UNIT_TYPES!r}", name="unit_type_enum"),)
+    __table_args__ = (
+        CheckConstraint(f"unit_type IN {UNIT_TYPES!r}", name="unit_type_enum"),
+        # Declared here so autogenerate does not propose dropping it; CREATEd
+        # CONCURRENTLY by migration e1a7c93d5b02, which is the source of truth for its
+        # predicate. The predicate is repeated VERBATIM by the writer's `ON CONFLICT`
+        # as an index_predicate — Postgres will not infer a partial index otherwise
+        # (postgresql.org/docs/16/sql-insert.html, "unique index inference").
+        Index(
+            "ux_usage_events_tenant_unit_ref",
+            "tenant_id",
+            "unit_type",
+            "ref",
+            unique=True,
+            postgresql_where=text("ref IS NOT NULL AND call_id IS NULL"),
+        ),
+    )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
@@ -56,6 +109,15 @@ class UsageEvent(PKMixin, Base):
     unit_type: Mapped[str] = mapped_column(String, nullable=False)
     qty: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
     unit_cost_paid: Mapped[Decimal | None] = mapped_column(MONEY)
+    # THE IDEMPOTENCY KEY for a row that has no call to be keyed by. These are console
+    # BUTTON presses, so the realistic duplicate is a double-click and not an ARQ retry:
+    # the caller mints one `ref` per request and re-sends it, and the partial unique
+    # index above makes the second insert a no-op in the DATABASE rather than in a
+    # reader's `if` — the same doctrine `ux_one_time_charges_tenant_kind_ref` states.
+    #
+    # NULL on every call row, deliberately: a call already has a stronger key
+    # (`call_id`), and a second one would be two ways to say one thing.
+    ref: Mapped[str | None] = mapped_column(Text)
     occurred_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     meta: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
@@ -304,6 +366,47 @@ class CreditLedgerEntry(PKMixin, Base):
     occurred_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     meta: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class PlatformAiSpend(Base):
+    """WHAT THE DASHBOARD-AI KEY HAS COST **US** THIS MONTH, across every tenant.
+
+    G-3 says Calevate owns the Gemini credential and absorbs the cost. That makes an
+    unbounded bug a bill addressed to us, and no per-tenant quota can see it: a hundred
+    tenants each politely inside their own ceiling is still a hundred ceilings of our
+    money. This row is the brake that is independent of all of them
+    (`billing/ai_quota.py::platform_brake_tripped`).
+
+    WHY A TABLE AND NOT A SUM OVER `usage_events`. The obvious implementation — sum the
+    AI rows across all tenants — is **unaskable in app code**. `usage_events` is FORCE
+    RLS'd, an untenanted session sees zero rows by design (`db/session.py`), and hard
+    rule 1 forbids reaching for the admin DB role to get around that. So the platform's
+    own total has to be maintained where a tenant transaction can write it and any
+    session can read it: no `tenant_id`, no policy, exactly the shape `platform_state`
+    and `platform_settings` already have and for the same reason.
+
+    WHY NOT A COLUMN ON `platform_state`. That row is the load-shed mode and the big red
+    switch — read on every dispatch tick by every tenant. Incrementing it on every
+    console button press would serialize an unrelated hot path behind an AI counter.
+    Keyed by MONTH here, so the contended row is one per month and rolls over on its own
+    instead of needing a reset job.
+
+    NOT append-only, and it must not be: it is a counter, not a ledger. The LEDGER is
+    `usage_events` — every rupee counted here is re-derivable from the per-tenant rows
+    that produced it, which is what makes a counter safe to keep. `requests` is carried
+    beside the money because a brake that has tripped needs an operator to be able to
+    tell a price spike from a request storm without opening a psql.
+    """
+
+    __tablename__ = "platform_ai_spend"
+
+    # IST billing month, 'YYYY-MM' — the same month `billing/service._IST_MONTH` cuts
+    # the per-tenant rows on, so the platform total and the tenant totals close on the
+    # same instant.
+    month: Mapped[str] = mapped_column(Text, primary_key=True)
+    spend_inr: Mapped[Decimal] = mapped_column(MONEY, nullable=False, server_default="0")
+    requests: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 
 # Referenced (not yet modeled — M2): invoices, engine_capacity.

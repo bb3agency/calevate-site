@@ -18,13 +18,21 @@ from httpx import ASGITransport, AsyncClient
 
 
 async def test_api_health_reports_its_dependencies() -> None:
+    """The wiring proof: the app answers, and it answers "ok", which it can only do
+    after reaching Postgres and Redis (`core/health.py`).
+
+    It used to read `degradation_mode` and `checks` off the body. Those are now
+    disclosed only to an `ops:manage` caller — an anonymous probe learns the verdict and
+    not which of our dependencies is down — so the pair of assertions (hidden here,
+    shown to the operator) lives in `tests/health_disclosure_test.py` where the
+    credential to prove the second half is set up.
+    """
     async with AsyncClient(transport=ASGITransport(app=api_app), base_url="http://api") as client:
         response = await client.get("/healthz")
     body = response.json()
     assert response.status_code == 200, body
     # ONE word for the dashboard (BACKEND-PATTERNS §6).
-    assert body["degradation_mode"] == "none"
-    assert body["checks"] == {"db": True, "redis": True}
+    assert body == {"status": "ok", "service": "api"}
 
 
 async def test_liveness_touches_no_dependency() -> None:

@@ -1,21 +1,58 @@
-"""Extraction runners: the model call, and the offline one that keeps us honest.
+"""Extraction runners: the model calls, the offline one that keeps us honest, and the
+ONE place that decides what happens when a provider cannot serve.
 
-Post-call only, never in-call (TRD §7). Two implementations behind one function:
+Post-call only, never in-call (TRD §7). Three implementations behind two selectors, and
+the split between the selectors is the whole of D-127's G-2/G-7:
 
-- **`SarvamExtractor`** — the D-36 default: Sarvam 105B, free per token and sovereign
-  (no transcript text leaves India, which is the whole point of D-36's residency
-  argument). `GEMINI` stays configurable as the fallback and remains the reference for
-  extraction quality until Sarvam is measured on the golden-transcript fixtures.
+- **`SarvamExtractor`** — Sarvam 105B, free per token and sovereign. It is what
+  `get_extractor()` returns, and after D-127 it is the ONLY thing `get_extractor()` can
+  return besides the offline baseline.
+- **`VertexGeminiExtractor`** — Gemini through Vertex AI `asia-south1` (D-127 G-1). It
+  serves the USER-TRIGGERED work — re-summarise, reshape, ask-about — over the REDACTED
+  copy of a call, and it is reached only through `run_assist()`.
 - **`OfflineExtractor`** — deterministic, no network. Used when no provider key is
   configured, which makes `ENGINE=fake` + no keys a fully working local pipeline, and
   gives the regression harness a stable baseline to diff model output against.
 
-Both return the same `ExtractionOutput`, validated against the schema, so a provider
-swap is a config change (D-04's rationale) and not a code change.
+All three return the same `ExtractionOutput`, validated against the schema, so a
+provider swap is a config change (D-04's rationale) and not a code change.
+
+--------------------------------------------------------------------------------------
+WHY GEMINI IS NOT REACHABLE FROM `get_extractor()` ANY MORE (D-127 G-2 + G-7)
+--------------------------------------------------------------------------------------
+It used to be: Sarvam if a Sarvam key was configured, Gemini if only a Gemini key was.
+That ladder was written before there was a rule about WHOSE DATA each provider sees, and
+it does not survive the rule.
+
+`workers/pipeline.py` computes `redacted = redact(turn.text)` and then appends
+`turn.text` — the RAW turn, one line later, deliberately — to the string it hands
+`extract_call`, because a CRM "callback number" field needs the actual digits and an
+extractor reading `[REDACTED]` returns nothing worth storing. So the first post-call
+extraction is THE raw-PII pass, and G-2 says the Google leg never sees raw PII. A
+config-reachable branch in which it does is not a fallback, it is a residency inversion
+one absent environment variable away — the exact shape `check_model_residency` exists to
+make impossible in URLs, applied to the selector instead.
+
+**`GEMINI_EXTRACTION_DEFAULT is False`**, permanently, and the constant below is the
+greppable form of that sentence so `check_docs_drift` §5 can catch the next document
+that says otherwise. G-7 is not a compromise reached on cost or quality: it is the only
+split under which both halves of D-127 are true at once.
+
+--------------------------------------------------------------------------------------
+AVAILABILITY IS DECIDED ONCE (D-127 G-6, PLAN Part 15)
+--------------------------------------------------------------------------------------
+`assist_capability()` is the only place that answers "what happens when Gemini is
+unconfigured, over quota, or down", and it gives one of two answers: fall back to Sarvam
+and SAY SO, or refuse with a message and a remediation. A silent fallback quietly
+changes output quality with nobody told, which is the one outcome G-6 rules out — so the
+disclosure travels on the capability object rather than being left to each surface to
+remember. The shape is `billing/payments.PaymentCapability`'s, deliberately: one lookup,
+one object, authored reason codes that name OUR configuration state and never a vendor's
+error string.
 
 **Scoring the model path.** The regression harness already runs against whatever
-`get_extractor()` returns and keys its baseline by `model_name`, so scoring Sarvam or
-Gemini against the golden transcripts needs no flag and no new mode — it is
+`get_extractor()` returns and keys its baseline by `model_name`, so scoring Sarvam
+against the golden transcripts needs no flag and no new mode — it is
 
     SARVAM_API_KEY=... uv run python -m scripts.eval --client=<slug> --update-baseline
 
@@ -34,11 +71,12 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 import httpx
-from calevate_shared.engine import SARVAM_DEFAULT_LLM
+from calevate_shared.engine import GEMINI_DEFAULT_LLM, SARVAM_DEFAULT_LLM, VERTEX_LOCATION
 from calevate_shared.extraction import (
+    ExtractionField,
     ExtractionOutput,
     ExtractionSchemaSpec,
     build_extraction_prompt,
@@ -46,14 +84,56 @@ from calevate_shared.extraction import (
 )
 
 from apps.api.core.alerting import record_extraction_failure
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.workers.google_oauth import ServiceAccount, access_token, parse_service_account
+from apps.workers.redaction import redact
 
 log = get_logger(__name__)
 
 SARVAM_CHAT_URL = "https://api.sarvam.ai/v1/chat/completions"
-GEMINI_CHAT_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 EXTRACTION_TIMEOUT_S = 30.0
+
+#: Does the FIRST post-call extraction run on Gemini? No, and D-127 G-7 says never.
+#:
+#: A greppable boolean rather than a paragraph, which is this repo's honesty device
+#: (`PROVIDER_CREATES_ORDERS`, `ENGINE_REPORTS_TTS_MODEL`, `PROVISIONING_IMPLEMENTED`).
+#: It exists because twenty-four `file:line` locations across the doc set stated Gemini's
+#: role in prose that bound nothing, so `check_docs_drift` §5 could not see them drift —
+#: and they had all drifted. Prose that quotes this name by value is now machine-checked
+#: against the tree.
+#:
+#: Flipping it to True would require raw caller PII to reach a second processor, so it is
+#: not a knob: it is a fact about which pass reads `turn.text`.
+GEMINI_EXTRACTION_DEFAULT: Final = False
+
+#: The OAuth2 scope a Vertex bearer needs. `cloud-platform` is the only scope Vertex
+#: publishes for `generateContent`; there is no narrower model-inference scope to ask for.
+VERTEX_SCOPE: Final = "https://www.googleapis.com/auth/cloud-platform"
+
+
+def vertex_generate_url(project: str, model: str) -> str:
+    """The Vertex `generateContent` endpoint for one project and model, pinned to Mumbai.
+
+    THE REGION APPEARS TWICE — in the host and in the `locations/` path segment — and the
+    two can disagree: a host pinned to `asia-south1` with `locations/global` in the path
+    is the global endpoint wearing a regional host, on which Google states the caller
+    cannot control which region processes the request. One `Final` constant
+    (`calevate_shared.engine.VERTEX_LOCATION`) fills both, which is what makes them unable
+    to disagree, and `scripts/check_model_residency.py` reads this f-string's AST to prove
+    it — a plain `.format()` template would say `{loc}` and nothing about where `loc` came
+    from, which is why this is a function over an f-string and not a module constant with
+    three holes in it.
+
+    The project is interpolated rather than validated here; `Settings.gcp_project_id`
+    carries GCP's own 6-30 character pattern, so a value that reaches this point is
+    already the right shape.
+    """
+    return (
+        f"https://{VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/{project}"
+        f"/locations/{VERTEX_LOCATION}/publishers/google/models/{model}:generateContent"
+    )
 
 
 class Extractor(Protocol):
@@ -64,7 +144,14 @@ class Extractor(Protocol):
 
 def _first_json_object(text: str) -> dict[str, Any]:
     """Models wrap JSON in prose and fences no matter how firmly you ask. Take the
-    first balanced object rather than failing the whole extraction on a stray ```."""
+    first balanced object rather than failing the whole extraction on a stray ```.
+
+    A RECOVERY, and a recovery is strictly weaker than a constraint — which is why the
+    Vertex path does not use it: `build_vertex_response_schema` makes valid JSON a
+    model-side guarantee there. It stays for Sarvam, whose chat API publishes
+    `response_format: {"type": "json_object"}` but no per-request schema, and for the
+    offline runner. Deleting it here to "finish the migration" would trade a working
+    recovery for a provider that cannot make the stronger promise."""
     fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     candidate = fenced.group(1) if fenced else None
     if candidate is None:
@@ -121,35 +208,176 @@ class SarvamExtractor:
         return _first_json_object(str(content))
 
 
-class GeminiExtractor:
-    """Configurable fallback (D-36). NOTE the residency consequence: this path sends
-    transcript text to Google, which is exactly the tradeoff D-36 removed by default —
-    so selecting it is a per-deployment decision, never a silent failover."""
+#: How each schema field type is spelled in a Vertex `responseSchema`. Vertex takes a
+#: SUBSET of OpenAPI 3.0 Schema with UPPER-CASE type names, and supports `nullable`,
+#: `required` and `propertyOrdering` on an OBJECT (searched 15 Aug 2026; REPORTED, NOT
+#: READ — `docs.cloud.google.com` is refused by this environment's egress proxy).
+#:
+#: `date` is STRING and not `format: "date"` on purpose. The prompt tells the model to
+#: keep a relative time in the caller's own words ("repu udayam") and `coerce_value`
+#: parses ISO where it can; a schema-level date format would make the model INVENT a
+#: calendar date for "tomorrow morning" to satisfy the type, which is the one thing this
+#: whole path is built not to do.
+_VERTEX_TYPES: Final[dict[str, str]] = {
+    "text": "STRING",
+    "number": "NUMBER",
+    "bool": "BOOLEAN",
+    "enum": "STRING",
+    "date": "STRING",
+}
 
-    def __init__(self, api_key: str, model: str = "gemini-2.5-flash-lite") -> None:
-        self._api_key = api_key
+#: The five keys every extraction returns regardless of schema (TRD §7). Spelled here in
+#: Vertex's dialect so the response schema and `build_extraction_prompt` cannot disagree
+#: about what a complete answer is.
+_VERTEX_FIXED_PROPERTIES: Final[dict[str, dict[str, Any]]] = {
+    "summary": {"type": "STRING"},
+    "sentiment": {"type": "STRING", "enum": ["positive", "neutral", "negative"]},
+    "outcome_tag": {
+        "type": "STRING",
+        "enum": ["resolved", "needs_follow_up", "transferred", "dropped"],
+    },
+    "out_of_scope": {"type": "BOOLEAN"},
+    "callback_requested": {"type": "BOOLEAN"},
+}
+
+
+def _vertex_property(field: ExtractionField) -> dict[str, Any]:
+    """One schema field as a Vertex property. Nullable, always."""
+    prop: dict[str, Any] = {"type": _VERTEX_TYPES[field.type], "nullable": True}
+    if field.type == "enum" and field.enum_values:
+        prop["enum"] = list(field.enum_values)
+    if field.description:
+        prop["description"] = field.description
+    return prop
+
+
+def build_vertex_response_schema(spec: ExtractionSchemaSpec) -> dict[str, Any]:
+    """The `responseSchema` that makes valid JSON a model-side guarantee.
+
+    WHY THIS REPLACES THE PARSER ON THIS PATH AND ONLY THIS PATH. `_first_json_object`
+    exists because models wrap JSON in prose and fences however firmly you ask; it is a
+    recovery, and a recovery is strictly weaker than a constraint. Vertex will not emit a
+    document that violates this schema, so on this path the fence-stripping has nothing
+    left to do. It stays for Sarvam, which publishes `response_format: json_object` but
+    no schema — deleting it there would trade a working recovery for a provider that
+    cannot make the stronger promise.
+
+    WHAT IS AND IS NOT `required`. Only the five fixed keys are, because they are the
+    ones `ExtractionOutput` always carries and a model omitting them is a malformed
+    answer. Every SCHEMA field is optional and nullable, which is the prompt's own rule
+    ("ABSENT MEANS NULL") expressed in a place the model cannot argue with: forcing a
+    client's `callback_number` to be present would push the model to invent one, and a
+    phone number one digit wrong is the worst output this system can produce.
+
+    `propertyOrdering` puts the schema fields first. Generation is left-to-right, so the
+    model reads the transcript for facts before it writes the summary that would
+    otherwise anchor them.
+
+    ⚠ THE SCHEMA IS INPUT. It is serialised into the request and counted against the
+    input token budget — a 30-field schema with descriptions is not free, and it is the
+    reason PLAN Part 14 meters `llm_tok_in`-shaped usage on this path rather than
+    assuming the prompt is the whole cost.
+    """
+    properties: dict[str, Any] = {field.key: _vertex_property(field) for field in spec.fields}
+    properties.update(_VERTEX_FIXED_PROPERTIES)
+    return {
+        "type": "OBJECT",
+        "properties": properties,
+        "required": list(_VERTEX_FIXED_PROPERTIES),
+        "propertyOrdering": [*(field.key for field in spec.fields), *_VERTEX_FIXED_PROPERTIES],
+    }
+
+
+class VertexGeminiExtractor:
+    """Gemini through Vertex AI `asia-south1` (D-127 G-1). NEVER the AI Studio API.
+
+    THE ENDPOINT IS THE DECISION. `generativelanguage.googleapis.com` — what this class
+    reached before PLAN Part 13 — is a global host with no region anywhere in the URL,
+    and on the free tier Google states it uses submitted prompts and responses to improve
+    its products with human reviewers able to read them. For a Processor holding an Indian
+    SMB's callers' transcripts that is not a tradeoff, it is a disclosure we could not
+    make. Vertex `asia-south1` processes and stores in-region for GA generative features
+    and does not train on paid usage, so D-36's guarantee survives even though D-36's
+    ARGUMENT ("Sarvam is sovereign") does not.
+
+    AUTH IS AN OAUTH2 BEARER, NOT AN API KEY, and that is not a preference either: Vertex
+    does not accept `?key=` at all. The bearer is minted from a service-account key
+    through `google_oauth` (RFC 7523 JWT-bearer, one shared implementation with the Sheets
+    adapter) and expires in about an hour, so it is fetched per run through a cache that
+    refreshes five minutes before expiry rather than captured once for the life of a
+    worker — a worker process here outlives an hour routinely.
+
+    WHAT IT IS ALLOWED TO SEE: redacted call data and tenant-authored config (G-2).
+    `run_assist()` is the only caller and enforces that; this class does not re-check,
+    because a guard in two places is a guard whose two halves eventually disagree about
+    which one is authoritative.
+    """
+
+    def __init__(
+        self,
+        account: ServiceAccount,
+        project: str,
+        model: str = GEMINI_DEFAULT_LLM,
+        *,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self._account = account
+        self._project = project
         self.model_name = model
+        # Same injection seam, and the same ownership rule, as `GoogleSheetsTransport`: a
+        # caller-supplied client is the caller's to close. It exists so tests drive this
+        # adapter through httpx's real request plumbing (`httpx.MockTransport`) rather
+        # than a hand-written stand-in that cannot get a URL wrong.
+        self._client = client
 
     async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=EXTRACTION_TIMEOUT_S) as client:
+        owns_client = self._client is None
+        client = self._client or httpx.AsyncClient(
+            timeout=EXTRACTION_TIMEOUT_S, follow_redirects=False
+        )
+        try:
+            token = await access_token(client, self._account, scope=VERTEX_SCOPE)
+            if token is None:
+                # `google_oauth` already logged the status without the body. Raising a
+                # ValueError puts this on `extract_call`'s error ladder, where a model
+                # failure costs the structured fields and never the call — and keeps the
+                # credential out of the traceback, which is the whole reason
+                # `access_token` returns None instead of raising.
+                raise ValueError("vertex_token_unavailable")
             response = await client.post(
-                GEMINI_CHAT_URL.format(model=self.model_name),
-                params={"key": self._api_key},
+                vertex_generate_url(self._project, self.model_name),
+                headers={"Authorization": f"Bearer {token}"},
                 json={
-                    "contents": [{"parts": [{"text": build_extraction_prompt(spec, transcript)}]}],
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": [{"text": build_extraction_prompt(spec, transcript)}],
+                        }
+                    ],
                     "generationConfig": {
                         "temperature": 0,
                         "responseMimeType": "application/json",
+                        "responseSchema": build_vertex_response_schema(spec),
                     },
                 },
             )
+        finally:
+            if owns_client:
+                await client.aclose()
         response.raise_for_status()
         body = response.json()
         # Gemini returns `candidates: []` on a safety block — a documented, ordinary
         # response, not an exception. Same reasoning as the Sarvam path above.
         candidates = body.get("candidates") or []
         parts = (candidates[0].get("content", {}).get("parts") or []) if candidates else []
-        return _first_json_object(str(parts[0].get("text", "")) if parts else "")
+        text = str(parts[0].get("text", "")) if parts else ""
+        # The response schema guarantees a JSON object, so this is `json.loads` and not
+        # the fence-stripper. It still cannot be a bare `json.loads`: a safety block
+        # produces no parts at all, and an empty string is not a document.
+        if not text.strip():
+            return {}
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else {}
 
 
 @dataclass(frozen=True)
@@ -562,14 +790,325 @@ class OfflineExtractor:
 
 
 def get_extractor() -> Extractor:
-    """Config picks the model; there is no silent failover between providers, because
-    they differ on data residency (D-36) and that is not a runtime decision."""
+    """The FIRST post-call extraction's runner. Sarvam, or the offline baseline.
+
+    There is no silent failover between providers, because they differ on data residency
+    and that is not a runtime decision — the principle this docstring has always stated,
+    now with the branch that contradicted it removed.
+
+    GEMINI IS NOT REACHABLE FROM HERE (D-127 G-2/G-7). This function used to return
+    `GeminiExtractor` when a Gemini key was configured and a Sarvam key was not. The
+    caller is `workers/pipeline.py`, which hands over the RAW transcript because a
+    "callback number" field needs the actual digits — so that branch sent raw caller PII
+    to Google whenever one environment variable was absent. `GEMINI_EXTRACTION_DEFAULT is
+    False` is that decision as a fact the tree can be asked about; `run_assist()` is where
+    Gemini serves, over the redacted copy, at a user's request.
+
+    THE CONSEQUENCE, STATED RATHER THAN DISCOVERED: a deployment holding only a Google
+    credential now extracts with `OfflineExtractor` instead of Gemini. That is the
+    intended direction — a deterministic reader that files what the transcript literally
+    says is a smaller loss than a residency inversion — and it is not a state any
+    environment is in: `runtime_config_missing_keys` has required `SARVAM_API_KEY`
+    outside `local` since before D-127, so `/healthz/ready` is already red there.
+    """
     settings = get_settings()
     if settings.sarvam_api_key:
         return SarvamExtractor(settings.sarvam_api_key)
-    if settings.gemini_api_key:
-        return GeminiExtractor(settings.gemini_api_key)
     return OfflineExtractor()
+
+
+# --- G-6: one place decides what happens when Gemini cannot serve -----------------
+#
+# PLAN Part 15. Every reason code below is AUTHORED — it names OUR configuration state,
+# never a vendor's error string, because these reach an alert, a client's screen and a
+# support conversation.
+
+#: No Google credential on this deployment: no project id, no service-account key, or a
+#: key that does not parse. The ordinary state today — no GCP project exists yet.
+NO_CREDENTIAL_REASON: Final = "no_credential"
+#: The tenant is past its included monthly assist quota and has not accepted the charge
+#: (G-5). Supplied BY THE CALLER — see `assist_capability`.
+QUOTA_EXHAUSTED_REASON: Final = "quota_exhausted"
+#: Vertex answered badly, or did not answer. Discovered by trying, so also supplied by
+#: the caller after a failed attempt.
+PROVIDER_UNAVAILABLE_REASON: Final = "provider_unavailable"
+#: A deployment that installed `GEMINI_API_KEY` and expected dashboard AI to work. D-127
+#: disqualified the door that key opens, so this is `no_credential` with the sentence the
+#: operator actually needs instead of the one that would send them to check their typing.
+AI_STUDIO_KEY_REASON: Final = "ai_studio_key_disqualified"
+
+#: Provider names as they appear in a disclosure and in a log line.
+GEMINI_PROVIDER: Final = "gemini"
+SARVAM_PROVIDER: Final = "sarvam"
+
+#: Is a per-tenant assist quota enforced anywhere yet? No — PLAN Part 14 builds the
+#: metering, the ceiling and the wallet modal, and owns `usage_events`. This constant is
+#: the honest form of that gap: `assist_capability()` takes `quota_exhausted` as an
+#: argument and will answer correctly the moment something can compute it, and until then
+#: nothing computes it. A greppable boolean rather than a silence, so a document claiming
+#: quota enforcement exists fails `check_docs_drift` §5 rather than being believed.
+ASSIST_QUOTA_ENFORCED: Final = False
+
+#: What each fallback reason means, in the words the client reads. One sentence per code,
+#: written once: a disclosure composed at each surface is a disclosure that eventually
+#: says something different on two screens about the same event.
+_FALLBACK_DISCLOSURE: Final[dict[str, str]] = {
+    NO_CREDENTIAL_REASON: (
+        "This was written by Sarvam, not the assistant model, because no Google Cloud "
+        "credential is configured on this deployment."
+    ),
+    AI_STUDIO_KEY_REASON: (
+        "This was written by Sarvam, not the assistant model, because this deployment's "
+        "Google credential is not one the assistant can use."
+    ),
+    QUOTA_EXHAUSTED_REASON: (
+        "This was written by Sarvam, not the assistant model, because this month's "
+        "included assistant usage is used up."
+    ),
+    PROVIDER_UNAVAILABLE_REASON: (
+        "This was written by Sarvam, not the assistant model, because the assistant model "
+        "did not answer."
+    ),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class AssistCapability:
+    """What this deployment can actually do about user-triggered AI, as one answer.
+
+    `PaymentCapability`'s shape, for `PaymentCapability`'s reason: a caller must not be
+    able to conclude "the assistant works" and then separately assume "so it is Gemini
+    answering". Both facts are one lookup and one object.
+
+    `reason` is non-None exactly when `available` is False. `fallback_reason` is non-None
+    exactly when `provider` is not the preferred one — and when it is set, `disclosure`
+    is the sentence that MUST travel with the answer, in the response and on the screen
+    (G-6). A fallback nobody is told about silently changes output quality, which is the
+    single outcome that decision rules out.
+    """
+
+    available: bool
+    provider: str | None = None
+    reason: str | None = None
+    fallback_reason: str | None = None
+
+    @property
+    def disclosure(self) -> str | None:
+        """The sentence to show beside a fallback answer, or None when there was none."""
+        if self.fallback_reason is None:
+            return None
+        return _FALLBACK_DISCLOSURE.get(self.fallback_reason)
+
+
+def vertex_credentials() -> tuple[ServiceAccount, str] | None:
+    """The service account and project for Vertex, or None if this deployment has neither.
+
+    THE ONLY read of `gcp_service_account_json`. The key is parsed here, once, so a
+    malformed one is a named refusal on the screen that asked rather than a parse failure
+    inside a request whose next log line would print it (`parse_service_account` returns
+    None rather than raising for that reason).
+    """
+    settings = get_settings()
+    project = (settings.gcp_project_id or "").strip()
+    raw = settings.gcp_service_account_json or ""
+    if not project or not raw:
+        return None
+    account = parse_service_account(raw)
+    if account is None:
+        # Present but unreadable is an operator error and must not be reported as
+        # "unconfigured", which would send them to install a key they already installed.
+        log.error("vertex_credential_unparseable", extra={"project": project})
+        return None
+    return account, project
+
+
+def vertex_extractor(model: str = GEMINI_DEFAULT_LLM) -> VertexGeminiExtractor | None:
+    """A ready Vertex extractor for this deployment, or None if it holds no credential.
+
+    ONE constructor, so nothing outside this module has to know that "the Vertex client"
+    is two configuration values rather than one. `scripts/eval.py`'s provider table wants
+    exactly this: every other provider it scores is built from a single credential string,
+    and Vertex is not — a project id and a service-account key, neither of which is
+    optional. A caller that assembled them itself would be the second place that decides
+    what "configured" means, and the first place is `vertex_credentials()`.
+    """
+    credentials = vertex_credentials()
+    if credentials is None:
+        return None
+    account, project = credentials
+    return VertexGeminiExtractor(account, project, model)
+
+
+def assist_capability(
+    *, quota_exhausted: bool = False, provider_unavailable: bool = False
+) -> AssistCapability:
+    """THE selector (D-127 G-6). Every user-triggered AI surface asks this and nothing
+    re-reads settings for itself.
+
+    THE LADDER, and each rung is a decision rather than a check:
+
+    1. **Gemini serves it** when a credential resolves, the tenant is inside its quota and
+       the provider has not just failed. This is the preferred answer and carries no
+       disclosure, because nothing was substituted.
+    2. **Sarvam serves it, disclosed**, when Gemini cannot. A fallback is honest here:
+       both are instruction-following LLMs over the same redacted text, and the difference
+       is quality, not correctness — so the answer stands and the client is told whose it
+       is. `OfflineExtractor` is deliberately NOT in this ladder: it is a deterministic
+       reader of literal transcript text, and offering its output as "your re-summarised
+       call" would be substituting a different KIND of thing while claiming to substitute
+       a model.
+    3. **Refuse**, with the reason that stopped Gemini, when there is no Sarvam key
+       either. `assist_unavailable()` turns that into a message with a remediation.
+
+    `quota_exhausted` and `provider_unavailable` are ARGUMENTS rather than reads. Neither
+    is knowable from configuration: the first is a per-tenant month-to-date sum that
+    `usage_events` owns (PLAN Part 14 — `ASSIST_QUOTA_ENFORCED is False` until it lands),
+    and the second is only knowable by having just tried. Passing them in keeps this
+    function a pure function of its inputs, which is what lets one test drive all six
+    states without a database.
+    """
+    settings = get_settings()
+    credentials = vertex_credentials()
+
+    blocked: str | None = None
+    if quota_exhausted:
+        # Checked FIRST, and before credentials, because it is the one a user can act on:
+        # a client at their ceiling needs the modal (G-5), not "no credential configured".
+        blocked = QUOTA_EXHAUSTED_REASON
+    elif provider_unavailable:
+        blocked = PROVIDER_UNAVAILABLE_REASON
+    elif credentials is None:
+        blocked = AI_STUDIO_KEY_REASON if settings.gemini_api_key else NO_CREDENTIAL_REASON
+
+    if blocked is None:
+        return AssistCapability(available=True, provider=GEMINI_PROVIDER)
+    if settings.sarvam_api_key:
+        return AssistCapability(available=True, provider=SARVAM_PROVIDER, fallback_reason=blocked)
+    return AssistCapability(available=False, reason=blocked)
+
+
+def assist_unavailable(capability: AssistCapability) -> ProblemError:
+    """The refusal a user meets when nothing can serve. Never a bare 500, never a spinner.
+
+    `remediation` is what SEC-COMP calls the actionable half and what `ProblemNotice`
+    renders verbatim on the screen, so it is written for the person who will read it:
+    a client can act on "top up" and cannot act on "configure a service account", so the
+    two reasons get different sentences even though both are the same HTTP status.
+    """
+    reason = capability.reason or NO_CREDENTIAL_REASON
+    remediation = {
+        QUOTA_EXHAUSTED_REASON: (
+            "This month's included AI assistance is used up. Add credit, or wait for the "
+            "next billing month."
+        ),
+        PROVIDER_UNAVAILABLE_REASON: (
+            "The assistant model did not answer and this deployment has no second model "
+            "configured. Try again in a few minutes; if it persists, contact support."
+        ),
+        AI_STUDIO_KEY_REASON: (
+            "This deployment has a Gemini API key, which reaches the AI Studio Developer "
+            "API — an endpoint D-127 disqualifies because it offers no India data "
+            "residency. Install GCP_PROJECT_ID and GCP_SERVICE_ACCOUNT_JSON for Vertex AI "
+            "asia-south1 instead (DEV-SETUP §4)."
+        ),
+    }.get(
+        reason,
+        "No AI provider is configured on this deployment. Install a Vertex AI service "
+        "account (GCP_PROJECT_ID + GCP_SERVICE_ACCOUNT_JSON) or a Sarvam API key "
+        "(DEV-SETUP §4).",
+    )
+    return ProblemError(
+        kind="dependency",
+        code=f"assist_{reason}",
+        title="AI assistance is not available",
+        detail="This deployment cannot run the AI assistant right now.",
+        remediation=remediation,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class AssistResult:
+    """One user-triggered assist: what came back, and who wrote it."""
+
+    output: ExtractionOutput
+    capability: AssistCapability
+
+
+async def run_assist(spec: ExtractionSchemaSpec, redacted_transcript: str) -> AssistResult:
+    """Run ONE user-triggered assist over REDACTED call text (D-127 G-2, G-6, G-7).
+
+    THE INPUT GUARD IS THE POINT, and it is structural rather than documentary. G-2 says
+    this leg never sees raw PII; a parameter named `redacted_transcript` is a promise, and
+    a promise is what `pipeline.py:750` broke by accident the last time two nearly
+    identical strings sat one line apart. So the text is re-run through `redact()` and
+    REFUSED if that pass still finds something — the caller must hand over
+    `transcript_turns.text_redacted`, not `text`. This costs one regex sweep per assist
+    and removes the whole class.
+
+    THE FALLBACK IS DISCLOSED, NEVER SILENT. Gemini failing mid-flight re-asks the ONE
+    selector with `provider_unavailable=True` rather than deciding locally, so a surface
+    can never grow its own idea of what a failure means; the answer that comes back
+    carries `capability.disclosure`, which the response and the screen must show.
+
+    It deliberately does NOT meter, charge, or check a quota: `usage_events` and the
+    wallet modal are PLAN Part 14's, and a caller that owns the meter passes its verdict
+    in through `assist_capability`. Splitting it the other way would put money inside a
+    model adapter.
+    """
+    if redact(redacted_transcript).changed:
+        # An authored refusal, not an assertion: this is reachable by a caller mistake and
+        # a caller mistake deserves a message. Nothing about the text is logged.
+        raise ProblemError(
+            kind="validation",
+            code="assist_input_not_redacted",
+            title="This text has not been redacted",
+            detail="AI assistance runs on redacted call text only.",
+            remediation=(
+                "Pass `transcript_turns.text_redacted` (or `calls.summary` after "
+                "`crm.service.redacted_summary`), never the raw turn text."
+            ),
+        )
+
+    capability = assist_capability()
+    if not capability.available:
+        raise assist_unavailable(capability)
+
+    if capability.provider == GEMINI_PROVIDER:
+        credentials = vertex_credentials()
+        if credentials is not None:
+            account, project = credentials
+            output = await extract_call(
+                spec, redacted_transcript, extractor=VertexGeminiExtractor(account, project)
+            )
+            failure = output.errors.get("_model")
+            if failure is None:
+                # A schema-invalid FIELD is still an answer (`valid=False`, per-field
+                # errors) and belongs to the client to see. Only `_model` — the ladder's
+                # code for "the provider did not give us anything" — is a provider event.
+                return AssistResult(output=output, capability=capability)
+            # `extract_call` swallows a provider failure into `errors["_model"]` so a
+            # post-call pipeline never loses a call over one. Here the user is waiting
+            # and the answer is empty, so the same event means something different: ask
+            # the ONE selector again, with the fact we now have, rather than deciding
+            # locally what a Gemini outage means.
+            log.warning(
+                "assist_provider_failed",
+                extra={"model": GEMINI_DEFAULT_LLM, "error": failure},
+            )
+        capability = assist_capability(provider_unavailable=True)
+        if not capability.available:
+            raise assist_unavailable(capability)
+
+    settings = get_settings()
+    # Reachable only with `sarvam_api_key` set — `assist_capability` returns
+    # `provider="sarvam"` on no other condition — but mypy cannot see that through the
+    # capability object, and an `assert` here would be a crash where a refusal belongs.
+    if not settings.sarvam_api_key:  # pragma: no cover - unreachable via the selector
+        raise assist_unavailable(AssistCapability(available=False, reason=NO_CREDENTIAL_REASON))
+    output = await extract_call(
+        spec, redacted_transcript, extractor=SarvamExtractor(settings.sarvam_api_key)
+    )
+    return AssistResult(output=output, capability=capability)
 
 
 async def extract_call(
@@ -616,10 +1155,28 @@ async def extract_call(
 
 
 __all__ = [
+    "AI_STUDIO_KEY_REASON",
+    "ASSIST_QUOTA_ENFORCED",
+    "GEMINI_EXTRACTION_DEFAULT",
+    "GEMINI_PROVIDER",
+    "NO_CREDENTIAL_REASON",
+    "PROVIDER_UNAVAILABLE_REASON",
+    "QUOTA_EXHAUSTED_REASON",
+    "SARVAM_PROVIDER",
+    "VERTEX_SCOPE",
+    "AssistCapability",
+    "AssistResult",
     "Extractor",
-    "GeminiExtractor",
     "OfflineExtractor",
     "SarvamExtractor",
+    "VertexGeminiExtractor",
+    "assist_capability",
+    "assist_unavailable",
+    "build_vertex_response_schema",
     "extract_call",
     "get_extractor",
+    "run_assist",
+    "vertex_credentials",
+    "vertex_extractor",
+    "vertex_generate_url",
 ]

@@ -339,6 +339,53 @@ async def test_the_registry_accepts_a_route_that_declares_and_enforces_the_same_
     assert_policy_registry_complete(proper)
 
 
+#: POSTs that READ, each with the reason it is not an instance of the bug the sweep
+#: below hunts. The identifier is personal data, so it travels in a body rather than a
+#: query string (hard rule 6) — which is a fact about the REQUEST, not about whether the
+#: route writes anything. Listed here by path instead of being reclassified as mutations.
+#:
+#: MODULE LEVEL, and a dict rather than a set, for the same reason as its sibling
+#: `impersonation_reads_test.ADMIN_CONSOLE_GETS`: an allowlist that outlives the route it
+#: names is how it stops being an allowlist and becomes a hole, so the reason is stored
+#: beside the path and `test_every_read_shaped_as_a_post_still_names_a_real_route`
+#: requires every entry to still name a live mutating-method route.
+READS_SHAPED_AS_POSTS: dict[str, str] = {
+    "/v1/dnc/check": (
+        "'Is this number suppressed?' — it writes nothing, and the number travels in "
+        "the body because a query string lands in access logs, referrers and history"
+    ),
+    "/v1/compliance/messaging-consent/lookup": (
+        "'May we message this number?' — the same shape and the same reason as `/v1/dnc/check`"
+    ),
+    "/v1/compliance/subject-export": (
+        "a DPDP §11 access request: it reads one data principal's record, and the "
+        "identifier that selects it is the personal data itself"
+    ),
+    "/v1/lead-sources/{webhook_id}/meta/setup": (
+        "hands back a verify token. POST because the RESPONSE is credential-shaped, "
+        "the mirror of `/v1/dnc/check` being POST because the REQUEST is — and it is "
+        "what lets the route keep `org:manage` without a D-22 exemption"
+    ),
+    "/v1/admin/impersonation-grants": (
+        "mints the short-lived, read-only D-22 view-as grant and records that authority "
+        "was issued. It creates no tenant data, and `admin:impersonate` must STAY "
+        "non-mutating: D-22 forbids gating a read on a mutating permission, and every "
+        "read an operator makes inside a client account is gated on this one"
+    ),
+}
+
+
+def _mutating_method_routes() -> set[str]:
+    """Every non-public route the sweep below examines — the exact population an entry
+    in `READS_SHAPED_AS_POSTS` can legitimately name."""
+    return {
+        route.path
+        for route in iter_api_routes(app)
+        if not any(route.path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
+        and (route.methods or set()) & {"POST", "PUT", "PATCH", "DELETE"}
+    }
+
+
 async def test_every_mutating_route_is_gated_by_a_mutating_permission() -> None:
     """D-22's read-only guarantee is only as complete as `MUTATING_PERMISSIONS`.
 
@@ -346,32 +393,13 @@ async def test_every_mutating_route_is_gated_by_a_mutating_permission() -> None:
     else, so a POST/PATCH/DELETE declared with a read permission would be a write an
     admin could perform inside a client's session — the one thing D-22 forbids.
 
-    The two exceptions are POSTs that read: the identifier IS personal data, so it
-    travels in a body rather than a query string (hard rule 6), which is why they are
-    listed here by path instead of being reclassified as mutations.
+    The exceptions are POSTs that read (`READS_SHAPED_AS_POSTS` above).
     """
-    reads_shaped_as_posts = {
-        "/v1/dnc/check",
-        # "May we message this number?" — the same shape and the same reason as
-        # `/v1/dnc/check`: it writes nothing, and the number travels in the body
-        # because a query string lands in access logs, referrers and history.
-        "/v1/compliance/messaging-consent/lookup",
-        "/v1/compliance/subject-export",
-        # Hands back a verify token. POST because the RESPONSE is credential-shaped,
-        # the mirror of `/v1/dnc/check` being POST because the REQUEST is — and it is
-        # what lets the route keep `org:manage` without a D-22 exemption.
-        "/v1/lead-sources/{webhook_id}/meta/setup",
-        # Mints the short-lived, read-only D-22 view-as grant and records that
-        # authority was issued. It creates no tenant data, and `admin:impersonate` must
-        # STAY non-mutating: D-22 forbids gating a read on a mutating permission, and
-        # every read an operator makes inside a client account is gated on this one.
-        "/v1/admin/impersonation-grants",
-    }
     offenders = []
     for route in iter_api_routes(app):
         if any(route.path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
             continue
-        if route.path in reads_shaped_as_posts:
+        if route.path in READS_SHAPED_AS_POSTS:
             continue
         methods = route.methods or set()
         if not methods & {"POST", "PUT", "PATCH", "DELETE"}:
@@ -380,6 +408,29 @@ async def test_every_mutating_route_is_gated_by_a_mutating_permission() -> None:
         if declared not in MUTATING_PERMISSIONS:
             offenders.append(f"{sorted(methods)} {route.path} -> {declared}")
     assert not offenders, f"mutating routes with a non-mutating permission: {offenders}"
+
+
+async def test_every_read_shaped_as_a_post_still_names_a_real_route() -> None:
+    """The staleness guard the sweep above shipped without, and the reason it matters.
+
+    The exemptions are matched by STRING. Rename a route — or delete it, or drop the
+    method that put it in this population — and the entry does not fail; it just stops
+    matching anything, which is invisible. It stays that way until some later route
+    lands on the freed path, and that route is then skipped by a rule written about a
+    different endpoint years earlier: a permanent hole in D-22's read-only guarantee,
+    opened by a rename nobody would think to connect to it.
+
+    Its sibling `impersonation_reads_test.py` already carries exactly this assertion
+    (`test_every_admin_console_exemption_still_names_a_real_route`) over
+    `ADMIN_CONSOLE_GETS`. Two allowlists of the same kind, one guarded — the lesson had
+    been learned in one file and not the other, which is the whole finding.
+    """
+    stale = sorted(set(READS_SHAPED_AS_POSTS) - _mutating_method_routes())
+    assert not stale, (
+        f"READS_SHAPED_AS_POSTS names routes that no longer exist: {stale}. Delete the "
+        "entry or point it at the route's new path — left as-is it is a standing "
+        "exemption for whatever lands on that path next."
+    )
 
 
 # --------------------------------------------------------------- tenant selection

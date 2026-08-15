@@ -54,6 +54,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.publishing_routes import router as publishing_router
     from apps.api.agents.routes import router as agents_router
     from apps.api.agents.voice_routes import router as voice_router
+    from apps.api.billing.ai_quota_routes import router as ai_quota_router
     from apps.api.billing.cap_routes import router as caps_router
     from apps.api.billing.credit_routes import router as credits_admin_router
     from apps.api.billing.payment_routes import router as topups_router
@@ -185,6 +186,10 @@ def _mount_routers(application: FastAPI) -> None:
     # beside the other two `/v1/billing/*` routers for the same reason they are ordered
     # this way: a future `/v1/billing/{something}` router added below cannot swallow it.
     application.include_router(billing_invoice_router)
+    # The dashboard-AI allowance and the one thing a client can buy with it (D-127
+    # G-3/G-4/G-5). Literal `/v1/billing/ai-quota`, declared with the other `/v1/billing/*`
+    # routers and for the same ordering reason they give.
+    application.include_router(ai_quota_router)
     # The client's monthly QA report (SURFACES §2 trust surfaces) and OUR weekly 5%
     # spot-check queue (SURFACES §1). Two realms, one control: the report is the claim
     # we make to the client, the queue is the evidence we collect for it.

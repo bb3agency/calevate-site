@@ -750,3 +750,54 @@ describe("provisioning a lead source", () => {
     expect(container.textContent).not.toContain(CREATED.secret);
   });
 });
+
+/**
+ * The agent picker, which is the difference between a lead source and a lead source that
+ * rings somebody.
+ *
+ * `(agents.data ?? []).map(...)` left the `<select>` holding one option — "Not yet — save
+ * leads, don't call" — on a failed `/v1/agents`. That option is a legitimate choice, so
+ * nothing on screen looked wrong: a client picks the only thing offered and walks away
+ * having built a source that quietly saves leads and never dials, believing they have no
+ * agents. §52's "failure is a refusal", on a form rather than on a table.
+ */
+describe("the agent that answers a new lead source", () => {
+  it("refuses, and blocks the save, rather than offering 'don't call' as the only choice", async () => {
+    const { container } = await renderPage({
+      [AGENTS_PATH]: problem(503, { title: "Service unavailable", retryable: true }),
+    });
+
+    // The refusal is PRESENT — not merely the picker absent, which an empty card also
+    // satisfies — and it says what saving anyway would have done.
+    expect(container.textContent).toContain("We could not read your agents just now");
+    expect(container.textContent).toContain("would create a source that never rings anyone");
+    expect(screen.queryByLabelText("Agent to answer these leads")).toBeNull();
+    expect(container.textContent).not.toContain("Not yet — save leads, don't call");
+
+    // …and the form cannot be sent, because otherwise that sentence is not true.
+    expect(
+      (screen.getByRole("button", { name: "Add lead source" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("offers 'don't call' when the server actually said the account has no agents", async () => {
+    // The premise of the test above. An empty list is a FACT here; the option is right.
+    const { container } = await renderPage({ [AGENTS_PATH]: [] });
+
+    expect(screen.getByLabelText("Agent to answer these leads")).toBeDefined();
+    expect(container.textContent).toContain("Not yet — save leads, don't call");
+    expect(container.textContent).not.toContain("We could not read your agents just now");
+    expect(
+      (screen.getByRole("button", { name: "Add lead source" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("waits rather than claiming the list is empty while it is still reading", async () => {
+    const { container } = await renderPage({ [AGENTS_PATH]: stillLoading() });
+
+    const picker = screen.getByLabelText("Agent to answer these leads") as HTMLSelectElement;
+    expect(picker.disabled).toBe(true);
+    expect(container.textContent).toContain("Reading your agents…");
+    expect(container.textContent).not.toContain("Not yet — save leads, don't call");
+  });
+});

@@ -159,12 +159,19 @@ MUTATING_PERMISSIONS: frozenset[Permission] = frozenset(
 )
 
 # Routes exempt from the boot assertion: unauthenticated by design.
+#
+# `/openapi.json`, `/docs` and `/redoc` USED TO BE LISTED HERE and are not public any
+# more: `create_app` serves them only outside `prod` (see the block that builds the
+# FastAPI instance). Their entries were never load-bearing either — FastAPI mounts the
+# doc endpoints as plain `starlette.routing.Route`s, which `iter_api_routes` does not
+# yield, so the exemption exempted nothing while reading as a standing declaration that
+# the whole schema is a public surface. `integrations/routes.py` cites that declaration
+# as the reason one handler's docstring was rewritten.
 PUBLIC_PREFIXES: tuple[str, ...] = (
+    # The status word and the status code only — `core.health` gates the detail behind
+    # `ops:manage` itself, which is why the prefix can stay exempt from the registry.
     "/healthz",
     "/hooks",
-    "/openapi.json",
-    "/docs",
-    "/redoc",
     "/v1/auth/",
     # Authenticated but membership-less BY DESIGN: accepting an invitation is what
     # creates the membership a permission check would require (see current_identity).

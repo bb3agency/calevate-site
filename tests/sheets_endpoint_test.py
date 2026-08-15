@@ -108,7 +108,8 @@ async def _tenant() -> UUID:
 
 
 def _request() -> Request:
-    """The audit row's `ip` comes off the request, so the route now takes one. Built
+    """The audit row's `ip` comes off the request, so every route that audits takes one —
+    the create routes as well as the delete, since registration is now audited too. Built
     rather than faked: `write_audit` reads `request.client`, and a stub that happened to
     have the attribute would stop matching the day it reads another."""
     return Request(
@@ -323,6 +324,7 @@ async def test_a_deployment_with_no_sheets_provider_refuses_to_create_one(
             await create_sheets_endpoint(
                 CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
                 session,
+                _request(),
                 _principal(tenant_id),
             )
 
@@ -349,6 +351,7 @@ async def test_the_refusal_never_names_the_provider_or_the_environment(
             await create_sheets_endpoint(
                 CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
                 session,
+                _request(),
                 _principal(tenant_id),
             )
     body = json.dumps(excinfo.value.as_problem())
@@ -374,6 +377,7 @@ async def test_a_client_can_configure_a_sheet_where_delivery_exists(
                 worksheet="Enquiries",
             ),
             session,
+            _request(),
             _principal(tenant_id),
         )
 
@@ -409,6 +413,7 @@ async def test_the_route_reports_that_no_credential_is_attached_yet(
         created = await create_sheets_endpoint(
             CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
             session,
+            _request(),
             _principal(tenant_id),
         )
     assert created.credential_attached is False
@@ -424,6 +429,7 @@ async def test_the_default_worksheet_is_the_one_the_worker_would_use(
         created = await create_sheets_endpoint(
             CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
             session,
+            _request(),
             _principal(tenant_id),
         )
         # A tab name that is only whitespace is the same as not naming one — storing it
@@ -431,6 +437,7 @@ async def test_the_default_worksheet_is_the_one_the_worker_would_use(
         blank = await create_sheets_endpoint(
             CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"], worksheet="   "),
             session,
+            _request(),
             _principal(tenant_id),
         )
     assert created.worksheet == service.DEFAULT_WORKSHEET
@@ -455,6 +462,7 @@ async def test_a_url_that_is_not_a_spreadsheet_is_refused(
                 await create_sheets_endpoint(
                     CreateSheetEndpointIn(spreadsheet=candidate, events=["lead.created"]),
                     session,
+                    _request(),
                     _principal(tenant_id),
                 )
         assert excinfo.value.as_problem()["type"].rsplit("/", 1)[-1] == "invalid_spreadsheet_ref"
@@ -487,6 +495,7 @@ async def test_an_event_with_no_column_order_is_refused_at_configuration_time(
                     spreadsheet=SHEET_ID, events=["lead.created", "campaign.completed"]
                 ),
                 session,
+                _request(),
                 _principal(tenant_id),
             )
     problem = excinfo.value.as_problem()
@@ -516,6 +525,7 @@ async def test_the_route_neither_accepts_nor_returns_a_credential(
         created = await create_sheets_endpoint(
             CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
             session,
+            _request(),
             _principal(tenant_id),
         )
     body = created.model_dump_json()
@@ -535,6 +545,7 @@ async def test_what_the_route_creates_is_a_real_subscriber(
         await create_sheets_endpoint(
             CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
             session,
+            _request(),
             _principal(tenant_id),
         )
     async with tenant_session(tenant_id) as session:
@@ -580,6 +591,7 @@ async def test_the_client_can_turn_off_what_they_configured(
         created = await create_sheets_endpoint(
             CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
             session,
+            _request(),
             _principal(tenant_id),
         )
     async with tenant_session(tenant_id) as session:
@@ -614,6 +626,7 @@ async def test_the_row_the_route_writes_is_the_row_the_worker_reads(
         created = await create_sheets_endpoint(
             CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
             session,
+            _request(),
             _principal(tenant_id),
         )
 
@@ -690,6 +703,7 @@ async def test_another_tenants_endpoints_are_zero_rows_on_this_screen(
         created = await create_sheets_endpoint(
             CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
             session,
+            _request(),
             _principal(owner),
         )
 
@@ -720,6 +734,7 @@ async def test_the_session_not_the_principal_decides_whose_endpoint_this_is(
             await create_sheets_endpoint(
                 CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
                 session,
+                _request(),
                 _principal(victim),
             )
     assert "row-level security" in str(excinfo.value).lower(), str(excinfo.value)
@@ -801,6 +816,7 @@ async def test_the_capability_is_true_exactly_where_the_create_route_succeeds(
         created = await create_sheets_endpoint(
             CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
             session,
+            _request(),
             _principal(tenant_id),
         )
     assert isinstance(created, SheetEndpointOut)
@@ -826,6 +842,7 @@ async def test_the_capability_is_false_exactly_where_the_create_route_refuses(
             await create_sheets_endpoint(
                 CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
                 session,
+                _request(),
                 _principal(tenant_id),
             )
     assert excinfo.value.as_problem()["type"].rsplit("/", 1)[-1] == "sheets_delivery_unavailable"
@@ -853,6 +870,7 @@ async def test_a_client_that_believes_sheets_are_available_is_still_refused(
             await create_sheets_endpoint(
                 CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
                 session,
+                _request(),
                 _principal(tenant_id),
             )
     assert excinfo.value.as_problem()["type"].rsplit("/", 1)[-1] == "sheets_delivery_unavailable"

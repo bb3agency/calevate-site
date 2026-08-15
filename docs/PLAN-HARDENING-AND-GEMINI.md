@@ -1,7 +1,15 @@
 # PLAN — Harden every surface, then move dashboard AI to Gemini
 
-**Status: PROPOSED. Nothing in this document has been implemented.**
-Written 15 Aug 2026, revised the same day with the founder's answers folded in.
+**Status: PARTS 1–16 and 18 IMPLEMENTED (D-127 … D-138). PART 17 is pilot-gated.**
+Written 15 Aug 2026, revised the same day with the founder's answers folded in, and again
+when the work landed. The parts below are kept as WRITTEN, not rewritten into the past
+tense: what each one found is recorded in its decision row, and a plan edited to match its
+outcome stops being evidence of what was known beforehand.
+
+Part 17 (BYOK Gemini for the in-call LLM) is the only part not built, and deliberately —
+it needs the Bolna Engine Verification Session to answer whether the custom-LLM config
+accepts auth at all, what a proxy hop costs the latency budget, and where Bolna's own
+servers run. See §6 and Part 17.
 
 Everything here lands **before** external accounts and real keys are wired in — the Bolna
 account, the DLT registration, the DID vendor, the Razorpay secret, the GCP project. The

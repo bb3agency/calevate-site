@@ -146,6 +146,39 @@ const CHOICE_OFF = "border-line bg-surface hover:border-ink-faint";
  */
 type BlockerNote = { text: string; owner?: "calevate" | "client" };
 
+/**
+ * WHY THIS TABLE STILL WINS OVER THE SERVER'S OWN `reason`, and what makes that safe.
+ *
+ * The objection is real: this is a second copy of a server rule, and the render below
+ * prefers it (`note?.text ?? blocker.reason`). Two spellings of one fact is where drift
+ * starts. Two fixes were on the table and only one of them is right here.
+ *
+ * REJECTED — invert the precedence, render `blocker.reason` and let this table only add
+ * the owner badge. It trades a hypothetical drift for a certain regression, because
+ * these sentences are not a paraphrase of the server's: they exist BECAUSE the server's
+ * are wrong for this audience. `launch_blockers` writes for an operator reading an API
+ * response — "The agent must be published first.", "Campaign is running, not draft." —
+ * and `PURCHASED_LIST_REASON` cites "(policy, SEC-COMP §3)", a document the client cannot
+ * open. The three DLT-entity blockers are the sharpest case: the server says the
+ * registration is not active, which reads like a to-do, and this table is the only place
+ * that says WHOSE desk it is on. Making the server's sentence primary puts every one of
+ * those back.
+ *
+ * CHOSEN — machine-check the KEY SET instead, because the key is the part that can go
+ * stale silently. This table is not a copy of the server's sentence; it is a translation
+ * keyed by the server's own identifier, and a translation only becomes a lie when the
+ * thing it is keyed to is renamed, removed or split. `tests/campaignBlockerCopy.test.ts`
+ * asserts every key here is still a rule the compliance gate emits, and fails naming the
+ * key that is not. The reverse direction stays deliberately unchecked: a rule with no
+ * copy falls through to `blocker.reason`, which is terse but true, and that fail-open is
+ * the behaviour we want on the day the API grows a blocker this build has never seen.
+ *
+ * The END STATE is neither of those and needs no test at all — `BlockerOut.rule` typed
+ * as a `Literal[...]` union in `campaigns/routes.py`, so `openapi.json` carries the enum
+ * and this becomes `Record<Blocker["rule"], BlockerNote>` with `tsc` checking it. That is
+ * exactly how `LIST_PROVENANCE_COPY` sixty lines below is already checked, and it is a
+ * BACKEND change, so it is reported rather than made here.
+ */
 const BLOCKER_COPY: Record<string, BlockerNote> = {
   status: { text: "This campaign has already been launched." },
   agent_not_live: { text: "Your agent has to be published before it can make calls." },

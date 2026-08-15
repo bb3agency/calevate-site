@@ -977,7 +977,10 @@ def probe_h1_history_handling(
 
     What the shape tells us:
       * strictly rising input tokens ⇒ full resend, no truncation. The blended average
-        needs a long-call correction and the Gemini fallback's cost is understated.
+        needs a long-call correction and any PRICED in-call LLM is understated. (Not
+        Gemini: D-127 puts Gemini on Vertex `asia-south1` for the POST-call assistant
+        only, and a Gemini in-call leg would cost a new India-co-located deployable —
+        PLAN Part 17, pilot-gated rather than planned.)
       * a plateau or a drop ⇒ truncation or summarisation. Which of the two is NOT
         distinguishable from token counts, and distinguishing them would mean reading
         the prompt the engine sent — caller utterances, hard rule 6. Say "one of the
@@ -1083,8 +1086,8 @@ def probe_h1_history_handling(
                 "Cached-token counts were reported and are zero on every turn: the "
                 "engine does not enable provider context caching on our BYOK key. "
                 "CONSEQUENCE: the full history is re-billed every turn on any priced "
-                "LLM (the Gemini fallback), so R-04's cost step is larger than the "
-                "blended figure suggests.",
+                "LLM, so a paid in-call LLM would cost more than the blended figure "
+                "suggests.",
                 turns_with_cached_tokens=0,
             )
         )
