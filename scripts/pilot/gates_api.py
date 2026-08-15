@@ -41,6 +41,7 @@ from typing import Any
 from apps.api.core.errors import ProblemError
 from calevate_shared.config import Settings
 from calevate_shared.engine import (
+    SARVAM_DEFAULT_LLM,
     AgentConfig,
     CallContext,
     ExecutionListing,
@@ -177,7 +178,7 @@ def _pilot_agent_config(settings: Settings, *, nonce: str, prompt_marker: str) -
         models=ModelConfig(
             stt_provider="sarvam",
             stt_model="saaras:v2.5",
-            llm_model="sarvam-m",
+            llm_model=SARVAM_DEFAULT_LLM,
             tts_provider="sarvam",
             tts_voice="bulbul:v3",
         ),
