@@ -584,6 +584,72 @@ async def test_a_publish_racing_a_soft_delete_refuses_rather_than_resurrecting()
         assert refusal.code == "agent_deleted_during_publish"
 
 
+async def test_a_republish_racing_a_soft_delete_refuses_and_reports_no_orphan(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The same race on the RE-publish, where the refusal is right and the orphan cry
+    would be wrong.
+
+    `publish_agent` reaches its rowcount guard by two roads. On a first publish the
+    vendor object was created inside this transaction, so a rollback strands it and
+    `_orphaned` is the only surviving copy of its id. On a re-publish nothing was
+    created — `engine_agent_ref` was already ours and is still in the row the rollback
+    restores — so the object remains addressable and nothing is stranded. Crying orphan
+    here would put an operator into the vendor's dashboard hunting an object that is not
+    lost, which is how a loud log line stops being read.
+
+    Worth its own test rather than a parameter on the one above, because the two arms
+    disagree about what happened rather than about a value: the refusal is identical and
+    the compensation is not.
+    """
+    tenant_id, agent_id = await _publishable_agent()
+    with _engine(RecordingEngine()) as first:
+        async with tenant_session(tenant_id) as session:
+            ref = await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+    assert isinstance(first, RecordingEngine)
+    assert first.names() == ["create_agent", "get_agent"], "the setup publish must CREATE"
+
+    async with tenant_session(tenant_id) as session:
+
+        class DeletingEngine(RecordingEngine):
+            """Deletes the agent during the vendor call, as above — but this publish
+            UPDATEs an object that already exists, so `created` is False."""
+
+            async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
+                await super().update_agent(ref, cfg)
+                await session.execute(
+                    text("UPDATE agents SET deleted_at = now() WHERE id = :a"), {"a": agent_id}
+                )
+
+        refusal: ProblemError | None = None
+        caplog.clear()
+        with caplog.at_level("ERROR"), _engine(DeletingEngine()) as engine:
+            try:
+                await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+            except ProblemError as exc:
+                refusal = exc
+
+        assert isinstance(engine, RecordingEngine)
+        assert "update_agent" in engine.names(), "this arm must not have created anything"
+        assert "create_agent" not in engine.names()
+
+        row = (
+            await session.execute(
+                text("SELECT status, deleted_at FROM agents WHERE id = :a"),
+                {"a": agent_id},
+            )
+        ).first()
+
+    assert refusal is not None, "the publish reported success for an agent that was deleted"
+    assert refusal.code == "agent_deleted_during_publish"
+    assert row is not None and row[1] is not None, "the delete was undone"
+    assert not [r for r in caplog.records if "orphan" in r.getMessage().lower()], (
+        f"a re-publish of the already-created {ref} reported an orphan; the vendor object "
+        "is still addressable through the ref the rollback restored, and an operator sent "
+        "to hunt it finds nothing missing"
+    )
+
+
 # --- 5. reconciliation: drift the publish path structurally cannot see -------
 
 
