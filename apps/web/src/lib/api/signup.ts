@@ -67,13 +67,32 @@ export const SIGNUP_LANGUAGES: { value: SignupLanguage; label: string }[] = [
 
 /** Mirrors `admin_service.slugify` closely enough to PREVIEW the URL. The server
  * derives, validates, reserves and de-collides the real one — and the slug is
- * immutable once set, so this is a preview and never an authority. */
+ * immutable once set, so this is a preview and never an authority.
+ *
+ * Truncation comes BEFORE the hyphen strip, as it does server-side, so a long name cut
+ * at 40 characters never previews a trailing hyphen the server would not produce.
+ *
+ * **The empty string is a real answer**: every character of `మా క్లినిక్` is outside
+ * `[a-z0-9]`, so a Telugu- or Devanagari-named business derives nothing at all. The
+ * server refuses that with `slug_not_derivable` rather than inventing a URL; callers of
+ * this function must therefore treat "" as "ask the person", never as "let it through"
+ * — see `slugIsDerivable`. */
 export function previewSlug(name: string): string {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40);
+    .slice(0, 40)
+    .replace(/^-|-$/g, "");
+}
+
+/** Would the server accept this as a derived slug, or must the person type one?
+ *
+ * The 3-character floor is `admin_service.SLUG_RE`'s, and it is why a two-letter
+ * business name ("Om") is refused as loudly as a Telugu one. Named rather than inlined
+ * because both signup surfaces ask it and a form that submits what the server will
+ * refuse is the failure `SIGNUP_OPEN` above exists to avoid. */
+export function slugIsDerivable(name: string): boolean {
+  return previewSlug(name).length >= 3;
 }
 
 /**

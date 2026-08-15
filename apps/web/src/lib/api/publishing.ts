@@ -76,6 +76,29 @@ export type PendingState = Schemas["PendingOut"];
 export type PendingChange = Schemas["PendingChangeOut"];
 
 /**
+ * What a READ-BACK confirmed, as opposed to what we sent.
+ *
+ * `AgentVoiceState` above splits CONFIGURED from SENT. This splits SENT from CONFIRMED,
+ * and it is the fact "live" used to assert with no evidence: a 2xx from the voice
+ * platform says it took the bytes, not that the agent is running them.
+ *
+ * `state` is `unverified` | `applied` | `unreadable` | `unreachable`. Render `confirmed`
+ * — never `state !== "unverified"` — because "we could not tell" is not "it matched",
+ * and the whole point of the four values is that they are four different answers.
+ */
+export type EngineVerification = Schemas["VerificationOut"];
+
+/**
+ * What the voice platform is running RIGHT NOW, read on demand.
+ *
+ * A vendor round trip per call, which is why it is a separate query with `enabled`
+ * off by default rather than part of the pending banner. It is the only read that can
+ * see an agent edited in the vendor's own dashboard, or a publish that failed on our
+ * side after the vendor had already accepted it.
+ */
+export type EngineState = Schemas["EngineStateOut"];
+
+/**
  * What `POST …/agents/{id}/publish` answers: the engine's own ref for this agent.
  *
  * The fully-qualified schema key, because `admin/routes.py` has a `PublishOut` of its
@@ -93,6 +116,8 @@ export const publishingKeys = {
   /** Static per deployment, but still org-keyed: one cache per session identity. */
   lanes: (org: string) => ["agent-lanes", org] as const,
   pending: (org: string, agentId: string) => ["agent-pending", org, agentId] as const,
+  engineState: (org: string, agentId: string) =>
+    ["agent-engine-state", org, agentId] as const,
 };
 
 /**
@@ -156,6 +181,32 @@ export function useTenantLanes(slug: string): UseQueryResult<Lanes> {
 export function useTenantPending(slug: string, agentId: string): UseQueryResult<PendingState> {
   const options = pendingOptions(viewAsSession(slug), agentId);
   return useQuery({ ...options, enabled: Boolean(slug) && Boolean(agentId) });
+}
+
+/**
+ * Read the voice platform back, on demand.
+ *
+ * `enabled` is the caller's, and it defaults to OFF everywhere it is used: every call
+ * costs one request to the vendor, so a query that ran on mount would dial them once
+ * per page view of every agent screen. The operator presses a button; that is what
+ * `enabled` flips.
+ *
+ * `staleTime: 0` deliberately: the answer is about the vendor's state at an instant,
+ * and a cached "in sync" is exactly the reassurance this read exists to stop anyone
+ * giving. `gcTime` keeps the last answer on screen between presses.
+ */
+export function useTenantEngineState(
+  slug: string,
+  agentId: string,
+  enabled: boolean,
+): UseQueryResult<EngineState> {
+  const session = viewAsSession(slug);
+  return useQuery({
+    queryKey: publishingKeys.engineState(slug, agentId),
+    queryFn: () => apiRequest<EngineState>(session, `/v1/agents/${agentId}/engine-state`),
+    enabled: enabled && Boolean(slug) && Boolean(agentId),
+    staleTime: 0,
+  });
 }
 
 interface AgentTarget {

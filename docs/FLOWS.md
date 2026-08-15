@@ -12,6 +12,23 @@ Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume
 1. **Profile**: business name → slug auto-generated (immutable; reserved-word check),
    vertical template pick (clinic | real_estate | insurance | education | custom),
    billing email, owner contact.
+   - **A name we cannot build a URL from is ASKED about, never guessed.** `slugify` folds
+     everything outside `[a-z0-9]` away, so every character of a Telugu or Devanagari
+     business name disappears — which on a Telugu-first product (D-36) is the ordinary
+     case. It used to substitute the constant `client`: the FIRST such business silently
+     took `/c/client`, immutable and in every URL their staff types, and the SECOND was
+     refused `slug_taken`, a 409 naming a slug nobody had entered. Both the wizard and
+     the self-serve form now answer `slug_not_derivable` with the `slug` field named, and
+     both screens ask for it before the POST. Transliteration is the nicer answer and is
+     not available (no ASCII-folding library is installed and adding one to the tenant
+     path is a hard-rule-9 decision, not a slug fix).
+   - **The account and the record of who created it commit together.** The audit row is
+     the birth transaction's last write via `create_organization(on_created=…)` — the
+     same hook self-serve signup uses — rather than a second transaction that could fail
+     on its own and leave a client account nobody recorded creating.
+   - **Two operators racing one slug get one account.** The availability probe runs in
+     its own transaction and can be passed by both; the UNIQUE index is the arbiter, and
+     its violation is translated back into the same 409 the probe would have given.
 2. **Plan**: setup fee, retainer, included minutes, overage rate, hard caps → plans row.
 3. **Intake (the real work)**: guided form collecting business hours, address/branches,
    services + prices, top FAQs, staff names/pronunciations, booking rules, escalation
@@ -54,6 +71,16 @@ Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume
      `admin.service.create_invitation`, the one statement that mints the row, rather than
      to the client-realm caller that used to hold them. The wizard's Create-invite button
      pressed twice was putting two live owner credentials for one account into one inbox.
+   - **A CLOSED account can be given no key, and can have none redeemed into it.**
+     `admin.service.assert_account_open` is asked at both ends — the one statement that
+     mints the row and the one that burns it — because a rule enforced at only one end of
+     an invitation is a rule with a hole in it. A churned or soft-deleted tenant answers
+     409 `account_closed` (the dial gate's own rule name for the same state); a tenant id
+     that names nothing answers 404, where it used to be an FK violation escaping as a
+     500. A refused redemption rolls back, so the invitee's single-use link is still
+     redeemable. **`suspended` is deliberately NOT refused**: suspension stops outbound
+     dialling only, and an account suspended over non-payment is exactly when someone
+     needs to add the person who will pay.
    - Because the refusal is real, the console has the exit: `GET`/`DELETE
      /v1/admin/tenants/{id}/invitations[/{id}]` list and cancel the unredeemed links
      (addresses masked). It cannot be done by impersonation — D-22 makes that read-only —
@@ -83,6 +110,15 @@ Custom domain `accounts.calevate.tech` so the flow is ours end to end.
 3. **Managed onboarding** — the admin wizard (§1) creates the org first, then invites the
    owner. Same invitation machinery as (2); the difference is who does the setup, not the
    auth path.
+
+**There is no Clerk ORGANIZATION to keep in step.** Creating a client touches Clerk's
+`users` mirror and nothing else: D-10's tenancy is flat and admin-driven, so
+`clerk_webhooks.py` acknowledges `organization*` events and ignores them rather than
+inventing a tenant from an upstream one. Tenant birth is therefore a single Postgres
+transaction (org + retention policies + agent + extraction schema + tier + owner
+membership + audit row), not a two-system distributed transaction — the only cross-system
+ordering left is that the `user.created` mirror must land before an invite can be
+accepted or a self-serve org created.
 
 **Clerk ↔ our DB (D-37):** Clerk authenticates; it does **not** own our data model.
 Webhooks (`user.created/updated/deleted`, `organizationMembership.*`) mirror identities
@@ -292,6 +328,22 @@ Client churns: export bundle (leads CSV, transcripts redacted, recordings zip vi
 presigned) → retention countdown per policy → deletion_requests execution (our storage +
 engine records via adapter) → proof certificate → org status churned; number released or
 ported per client wish.
+
+- **The countdown really does keep running.** `apply_retention` is deliberately
+  unfiltered on `organizations.status` AND on `deleted_at`, so an offboarded client's
+  recordings and leads age out on exactly the schedule their policies name. The obvious
+  "skip dead tenants" optimisation would stop the sweep for the one account whose data
+  MUST expire; both halves are pinned (`tests/tenant_birth_test.py` through the real
+  `churned` transition, `tests/pipeline_audit_test.py` for the soft-deleted case).
+- **`churned` is terminal and reversal is a new agreement**, not a button:
+  `core/auth.py` already excludes a churned org from every membership resolution, the
+  dial gate refuses it as `account_closed`, and the lifecycle route's `from_statuses` has
+  no exit. A soft-deleted client is a 404 on that route rather than a 409 — it is not a
+  client any more, and the directory route has always said so.
+- **`organizations.deleted_at` still has no writer.** Every reader of it is correct and
+  tested; nothing in `apps/` sets it, because tenant-level erasure has no execution path
+  (`deletion_requests` is per data subject). Recorded with its remedy in
+  `tests/tenant_birth_known_gaps_test.py`.
 
 ## 10. Number Provisioning & DLT Roles (reference)
 

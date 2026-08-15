@@ -253,11 +253,39 @@ async def get_tenant(
 )
 async def create_tenant(
     payload: CreateOrgIn,
-    session: GlobalSession,
     request: Request,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
 ) -> CreateOrgOut:
-    slug = payload.slug or service.slugify(payload.name)
+    """The audit row is the birth transaction's LAST WRITE, not a second transaction.
+
+    `on_created` is the hook `admin/service.py` already exposes for exactly this and
+    self-serve signup already uses (`tenancy/signup.py::_audit`); the wizard was writing
+    its row afterwards, on a different session, which is a second way of doing one thing
+    and — when that write is the one that fails — a client account whose creation nobody
+    recorded. Same transaction now: the tenant and the record of who created it commit
+    together or not at all.
+
+    The `global_db` dependency this route used to carry went with it: it existed only to
+    give the second transaction a session, and a dependency nobody reads is a session
+    opened per request for nothing.
+    """
+    # `derive_slug` REFUSES rather than inventing one when the name yields no ASCII —
+    # which on a Telugu-first product is the ordinary case, not an edge one. See it for
+    # what the old constant fallback did to the second client with a Telugu name.
+    slug = payload.slug or service.derive_slug(payload.name)
+
+    async def _audit(scoped: AsyncSession, tenant_id: UUID) -> None:
+        await write_audit(
+            scoped,
+            action="admin.tenant_created",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="organization",
+            object_id=str(tenant_id),
+            ip=request.client.host if request.client else None,
+            summary={"slug": slug, "vertical": payload.vertical_template},
+        )
+
     created = await service.create_organization(
         name=payload.name,
         slug=slug,
@@ -265,16 +293,7 @@ async def create_tenant(
         billing_email=str(payload.billing_email) if payload.billing_email else None,
         language=payload.language,
         created_by=principal.user_id,
-    )
-    await write_audit(
-        session,
-        action="admin.tenant_created",
-        actor=principal,
-        tenant_id=UUID(str(created["id"])),
-        object_type="organization",
-        object_id=str(created["id"]),
-        ip=request.client.host if request.client else None,
-        summary={"slug": slug, "vertical": payload.vertical_template},
+        on_created=_audit,
     )
     return CreateOrgOut.model_validate(created)
 
@@ -289,14 +308,21 @@ async def create_tenant(
 async def invite_member(
     tenant_id: UUID,
     payload: InviteIn,
-    session: GlobalSession,
     request: Request,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
 ) -> InviteOut:
-    # `global_db` has no tenant GUC, and `invitations` is RLS'd — so scope explicitly
-    # to the tenant being invited into rather than reusing the admin's own context.
-    from apps.api.db.session import tenant_session
+    """One transaction: the key and the record of who cut it.
 
+    The audit used to run on a separate `global_db` session AFTER the invitation had
+    committed, so the failure mode was a live owner credential for a client account with
+    nothing anywhere saying who issued it — the single worst row in this table to be
+    missing. It is written last inside the tenant's own transaction now (`write_audit`
+    appends in the caller's transaction by design, and `audit_log` is not tenant-RLS'd),
+    which is what `tenancy/signup.py` and `create_tenant` above already do.
+
+    The tenant session is not merely a scope: `invitations` is RLS'd, so this is also
+    what makes `create_invitation`'s reads answer about THIS account only.
+    """
     async with tenant_session(tenant_id) as scoped:
         invitation_id, token = await service.create_invitation(
             scoped,
@@ -305,17 +331,18 @@ async def invite_member(
             role=payload.role,
             created_by=principal.user_id,
         )
-    await write_audit(
-        session,
-        action="admin.invitation_created",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="invitation",
-        ip=request.client.host if request.client else None,
-        # The email is redacted by the audit summary sanitizer; the ROLE is what a
-        # later review actually needs.
-        summary={"role": payload.role},
-    )
+        await write_audit(
+            scoped,
+            action="admin.invitation_created",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="invitation",
+            object_id=str(invitation_id),
+            ip=request.client.host if request.client else None,
+            # The email is redacted by the audit summary sanitizer; the ROLE is what a
+            # later review actually needs.
+            summary={"role": payload.role},
+        )
     return InviteOut(
         id=invitation_id,
         token=token,
@@ -406,7 +433,6 @@ async def list_tenant_invitations(
 async def revoke_tenant_invitation(
     tenant_id: UUID,
     invitation_id: UUID,
-    session: GlobalSession,
     request: Request,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
 ) -> None:
@@ -422,21 +448,25 @@ async def revoke_tenant_invitation(
     scope, so an id belonging to another tenant is invisible and answers 404 rather than
     confirming it exists (D-65). 204: there is nothing to say about a row that is gone,
     and the caller already knows which id it asked about.
+
+    The DELETE and its audit row share one transaction, for the reason `invite_member`
+    above gives: the row is deleted rather than flagged, so `audit_log` is the ONLY
+    record that this key ever existed, and a separate transaction is a way for it not to
+    be written.
     """
-    from apps.api.db.session import tenant_session
     from apps.api.tenancy import members as members_service
 
     async with tenant_session(tenant_id) as scoped:
         role = await members_service.revoke_invitation(scoped, invitation_id)
-    await write_audit(
-        session,
-        action=f"admin.invitation_revoked:{role}",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="invitation",
-        object_id=str(invitation_id),
-        ip=request.client.host if request.client else None,
-    )
+        await write_audit(
+            scoped,
+            action=f"admin.invitation_revoked:{role}",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="invitation",
+            object_id=str(invitation_id),
+            ip=request.client.host if request.client else None,
+        )
 
 
 class IntakeOut(BaseModel):
@@ -1997,8 +2027,21 @@ async def set_tenant_status(
     last statement at ₹0.00 (`billing/plans.py` — an ended window prices nothing, on
     purpose). Terms are ended where terms are agreed: a dated row on the commercials
     surface, whose `effective_to` an operator sets knowing what it costs.
+
+    **A soft-deleted client is a 404 here, and that had to be said explicitly.**
+    `transition_status` keys on the id alone, and `organizations.deleted_at` is not part
+    of any status: an offboarded tenant therefore answered 200 `changed: true` to a
+    suspend, while `GET /v1/admin/tenants/{id}` — which filters `deleted_at IS NULL` —
+    answered 404 for that same id on the screen the operator was looking at.
+    `service.tenant_exists` is the ONE definition of "is this a live organization" (it
+    exists precisely so every surface naming a tenant in its path answers a mistyped uuid
+    the same way), so it is asked here rather than having the predicate copied. `churned`
+    still reaches the transition and still gets the 409 that names it: closed and deleted
+    are different facts and only one of them is reversible.
     """
     async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         changed = await transition_status(
             scoped,
             table="organizations",

@@ -146,6 +146,13 @@ function render(routes: Partial<Routes> = {}) {
         call_cap_is_platform_default: true,
         worst_case_call_cost_inr: null,
         precedence_rule: "Script decides content.",
+        engine_verification: {
+          state: "applied",
+          confirmed: true,
+          verified_at: "2026-08-15T09:20:00Z",
+          headline:
+            "The voice platform was read back and is running this script and voice.",
+        },
       },
       [LANES_PATH]: {
         precedence_rule: "Script decides content.",

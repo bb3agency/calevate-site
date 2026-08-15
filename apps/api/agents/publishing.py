@@ -105,6 +105,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_MIN_S
 from apps.api.agents.service import effective_call_cap, publish_agent
+from apps.api.agents.verification import EngineDrift, verify_publish
 from apps.api.agents.voices import Voice, get_voice
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.billing.service import to_paise
@@ -112,6 +113,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
+from apps.api.engine import get_engine
 
 log = get_logger(__name__)
 
@@ -245,6 +247,29 @@ class VoiceState:
 
 
 @dataclass(frozen=True, slots=True)
+class VerificationState:
+    """WHAT WAS CONFIRMED, as opposed to what was sent (migration c1f6a94d2b07).
+
+    `VoiceState` above splits CONFIGURED from SENT. This splits SENT from CONFIRMED, and
+    it is the third field on this screen answering one shape of question, for the third
+    time, for the same reason: a screen that renders one of two facts as "the" answer is
+    wrong on exactly the agents where the difference matters.
+
+    `state` is the stored verdict, so it is a fact about the LAST PUBLISH rather than
+    about this instant. `agents/publishing.py::engine_drift_for` is the read that asks the
+    engine right now — deliberately a separate, explicit call, because it costs a vendor
+    round trip and a banner must not.
+    """
+
+    state: str
+    verified_at: datetime | None
+    #: True only for `applied`. Never true by default — an unread property is not a
+    #: passed one, which is the entire `AgentSnapshot.*_readable` doctrine.
+    confirmed: bool
+    headline: str
+
+
+@dataclass(frozen=True, slots=True)
 class PendingChange:
     """One staged, unapplied change. Version NUMBERS and a lane, never a body."""
 
@@ -284,6 +309,10 @@ class PendingState:
     # mirror is written by `publish_agent` wherever it is called from, so the answer
     # stays correct either way.)
     voice: VoiceState
+    #: What a read-back CONFIRMED at the last publish. Not a member of `pending` for the
+    #: same reason `voice` is not: neither Apply nor Undo acts on it, and an unconfirmed
+    #: publish is cleared by publishing again, not by moving a pointer.
+    engine_verification: VerificationState
     precedence_rule: str = PRECEDENCE_RULE
     lanes: tuple[LaneEntry, ...] = field(default=LANES)
 
@@ -326,6 +355,8 @@ class _AgentRow:
     tts_provider: str | None
     live_tts_voice: str | None
     live_tts_provider: str | None
+    verify_state: str
+    verified_at: datetime | None
 
     @property
     def is_live(self) -> bool:
@@ -349,7 +380,7 @@ class _AgentRow:
 _AGENT_SQL = (
     "SELECT a.status, a.engine_agent_ref, d.version, d.created_at, l.version, "
     "a.max_call_duration_s, a.tts_voice, a.tts_provider, a.live_tts_voice, "
-    "a.live_tts_provider FROM agents a "
+    "a.live_tts_provider, a.live_verify_state, a.live_verified_at FROM agents a "
     "LEFT JOIN prompt_versions d ON d.id = a.system_prompt_id "
     "LEFT JOIN prompt_versions l ON l.id = a.live_prompt_id "
     "WHERE a.id = :aid AND a.deleted_at IS NULL"
@@ -371,6 +402,8 @@ async def _load(session: AsyncSession, agent_id: UUID) -> _AgentRow:
         tts_provider=row[7],
         live_tts_voice=row[8],
         live_tts_provider=row[9],
+        verify_state=str(row[10]),
+        verified_at=row[11],
     )
 
 
@@ -506,6 +539,49 @@ def _voice_state(row: _AgentRow) -> VoiceState:
     )
 
 
+# One sentence per stored verdict, composed here for the reason `_voice_headline` is:
+# a screen that paraphrases "we could not read it back" as "not live" is how an operator
+# is sent to re-publish a working agent, and paraphrasing it as "live" is how a client is
+# told their disclosure line is being spoken when nobody checked.
+_VERIFY_HEADLINE: dict[str, str] = {
+    "applied": "The voice platform was read back and is running this script and voice.",
+    "unreadable": (
+        "The voice platform accepted this publish; it did not report back enough for us "
+        "to confirm it is running it. Publish again to re-check."
+    ),
+    "unreachable": (
+        "The voice platform accepted this publish and did not answer when we read it "
+        "back, so we cannot confirm it is running it. Publish again to re-check."
+    ),
+    "unverified": (
+        "This agent was published before we started reading the voice platform back, so "
+        "what it is running has never been confirmed. Publish again to confirm it."
+    ),
+}
+
+
+def _verification_state(row: _AgentRow) -> VerificationState:
+    if not row.published:
+        return VerificationState(
+            state=row.verify_state,
+            verified_at=None,
+            confirmed=False,
+            headline="This agent is not on the voice platform yet; there is nothing to confirm.",
+        )
+    return VerificationState(
+        state=row.verify_state,
+        # Only ever set alongside `applied` (`publish_agent` passes NULL otherwise), and
+        # re-derived here rather than trusted, so a hand-edited row cannot make an
+        # unconfirmed agent render a confirmation time.
+        verified_at=row.verified_at if row.verify_state == "applied" else None,
+        confirmed=row.verify_state == "applied",
+        headline=_VERIFY_HEADLINE.get(
+            row.verify_state,
+            "We hold no readable verdict about what the voice platform is running.",
+        ),
+    )
+
+
 async def _state(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> PendingState:
     row = await _load(session, agent_id)
     cap = effective_call_cap(row.max_call_duration_s)
@@ -519,6 +595,7 @@ async def _state(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> Pend
         call_cap_is_platform_default=row.max_call_duration_s is None,
         worst_case_call_cost_inr=worst_case_cost(cap, await _overage_rate(session, tenant_id)),
         voice=_voice_state(row),
+        engine_verification=_verification_state(row),
     )
 
 
@@ -530,6 +607,80 @@ async def pending_state_for(*, tenant_id: UUID, agent_id: UUID) -> PendingState:
     """
     async with tenant_session(tenant_id) as session:
         return await _state(session, tenant_id, agent_id)
+
+
+async def engine_drift_for(*, tenant_id: UUID, agent_id: UUID) -> EngineDrift:
+    """Ask the ENGINE, right now, what it is running — and compare it with our row.
+
+    THE CASE `live_verify_state` STRUCTURALLY CANNOT COVER. That column records what a
+    read-back found AT THE LAST PUBLISH. Two divergences appear afterwards and neither
+    involves any code of ours running:
+
+    * somebody edits the agent in the VENDOR'S OWN DASHBOARD. Our row is untouched, so
+      every table we own agrees with itself and is wrong.
+    * a publish failed on OUR side after the vendor committed — a connection reset on the
+      response, a soft-delete landing between the write and the UPDATE. Our transaction
+      rolled back to the previous script; the engine kept the new one. The divergence
+      points the OTHER WAY, and re-reading our own tables can never find it.
+
+    So this is a read of THEIRS, and it is a separate explicit endpoint rather than part
+    of the pending banner because it costs a vendor round trip: a banner that silently
+    dialled the vendor on every page load would be a rate-limit incident wearing a
+    reassurance.
+
+    A READ, not a repair. It reports; it writes nothing and it does not re-publish. What
+    to do about a drift is a decision with a blast radius (re-publishing overwrites
+    whatever the vendor's dashboard was used to change, which may have been the correct
+    emergency edit), and this function exists so a human can make it with evidence.
+
+    Reuses `service._to_config` so the comparison is against the EXACT config a publish
+    would send. Rebuilding a config here would compare the engine against a second
+    rendering of our intent, and the two would drift on the field nobody looks at — which
+    is the defect `_variant_config` is built on `_to_config` to avoid.
+    """
+    from apps.api.agents.service import _load_agent, _to_config
+
+    engine = get_engine()
+    async with tenant_session(tenant_id) as session:
+        row = await _load_agent(session, tenant_id, agent_id)
+        ref = row["engine_agent_ref"]
+        if not isinstance(ref, str) or not ref:
+            return EngineDrift(
+                agent_id=str(agent_id),
+                engine=engine.name,
+                engine_agent_ref=None,
+                checked=False,
+                state="not_published",
+                prompt_applied=None,
+                disclosure_applied=None,
+                voice_applied=None,
+                detail="This agent is not on the voice platform, so there is nothing to compare.",
+            )
+        config = _to_config(tenant_id, row)
+
+    verdict = await verify_publish(engine, ref, config)
+    log.info(
+        "agent_engine_drift_checked",
+        extra={"agent_id": str(agent_id), "engine": engine.name, "verify_state": verdict.state},
+    )
+    return EngineDrift(
+        agent_id=str(agent_id),
+        engine=engine.name,
+        engine_agent_ref=ref,
+        checked=True,
+        state=verdict.state,
+        prompt_applied=verdict.prompt_applied,
+        disclosure_applied=verdict.disclosure_applied,
+        voice_applied=verdict.voice_applied,
+        detail=(
+            # `verify_publish`'s wording assumes a write just happened. Here nothing did,
+            # so the one verdict whose sentence would be actively misleading is respelled.
+            "The voice platform is running a different script, disclosure line or voice "
+            "from the one this agent last published."
+            if verdict.state == "not_applied"
+            else verdict.detail
+        ),
+    )
 
 
 async def apply_to_live(
@@ -738,13 +889,16 @@ __all__ = [
     "AgentVoice",
     "ApplyResult",
     "CallCapResult",
+    "EngineDrift",
     "Lane",
     "LaneEntry",
     "PendingChange",
     "PendingState",
     "UndoResult",
+    "VerificationState",
     "VoiceState",
     "apply_to_live",
+    "engine_drift_for",
     "lane_of",
     "pending_state_for",
     "set_call_cap",

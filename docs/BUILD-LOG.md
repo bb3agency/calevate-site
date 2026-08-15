@@ -3192,6 +3192,75 @@ bug in D-107's migration — the downgrade dropped a trigger but not its functio
 `downgrade`→`upgrade` failed `DuplicateFunction`, and a downgrade that cannot be followed
 by an upgrade is not reversible.
 
+## §67 — the deep hardening wave on one path: a founder signs a client, that client's agent goes live
+
+A readiness audit scored this repo 6/10 for a first supervised test call and 3/10 for a
+paying client #1. The second number is the whole of the path from an operator opening the
+admin console to a dialable agent, minus the parts that are not ours (a legal entity, a
+DLT registration, a vendor account, a signed commercial term). Three agents took one
+segment each — the credential that crosses the realm boundary, the birth of the tenant,
+and the meaning of the word "live" — and the wave is worth reading for a pattern the three
+findings share rather than for its line count.
+
+**Every one of the three found the same shape: a claim the code made about the world,
+derived from a fact about ourselves.**
+
+- `Principal.impersonating` was read by every mutating dependency as "a grant was
+  verified and this read was audited". `X-Impersonate-Org:` with an EMPTY value satisfied
+  `header is not None`, so the flag went true while the falsy slug skipped the permission
+  check, the grant requirement and the audit row (D-119).
+- The wizard reported `status: live` and wrote the routing row for an agent with no
+  script, publishing a hardcoded `"You are a helpful receptionist."` — nine words of
+  English with no hours, no prices and no business name, on a Telugu clinic's line
+  (D-118, carried into this wave's tests).
+- `publish_agent` never called `get_agent`. `status='live'`, `engine_agent_ref`,
+  `live_prompt_id` and `live_tts_voice` were four assertions about the vendor derived
+  from one fact about us: our HTTP call returned without raising. D-64 had built the
+  entire read-back surface — `carries_prompt_marker`, `holds_speech`, three `*_readable`
+  tri-states — and nothing in production ever called any of it (D-121).
+
+**The most instructive defect is the one two copies of a typo made invisible.**
+`permission_meta("agents:reed")` beside `requires("agents:reed")` satisfies every check
+this repo had, because declared equals enforced and an identity resolves. `role_has` then
+answers False for every role the database enums allow, so the route is a 403 for the
+entire population — a dead endpoint that reads as a guarded one, with no happy-path test
+to go red. mypy catches the literal spelling, but it does not run at boot, cannot see a
+permission built from a variable, and never looks at the route table. The registry now
+validates every declared string against `get_args(Permission)` and against
+`GRANTED_PERMISSIONS`, and the mutation sweep drives all 66 mutating routes with a real
+minted grant, each required to refuse with one of exactly two known codes.
+
+**A Telugu-first product folded Telugu to the empty string.** `slugify` returned `""` for
+any non-Latin name and a constant was substituted, so the FIRST such client silently took
+the immutable slug `client` and the second was refused `slug_taken` naming a slug nobody
+had typed. That is the DEFAULT path for this market, not an edge case. Transliteration was
+rejected for a stated reason rather than an aesthetic one — no ASCII-folding library is
+installed and adding one to the tenant-birth path is a hard-rule-9 supply-chain decision —
+so the product asks, on both screens, before the POST (D-120).
+
+**Concurrency turned an ordinary case into the orphan.** `publish_agent` was a
+read-then-write over `engine_agent_ref` with a vendor round trip in the middle and no
+lock: two concurrent publishes both saw "no ref", both created, and one vendor agent
+became unaddressable and undeletable. Proving it needed a double that mints a fresh id per
+create — FakeEngine's deterministic ref hides the bug entirely — plus 50ms of vendor
+latency, because `asyncio.gather` with no yield inside the vendor window runs each
+transaction in turn and measures nothing. That sabotage was GREEN first time and the test
+was wrong, not the code.
+
+**On method, and one flake worth naming.** Twenty-three sabotages across the three slices,
+each verified landed by grep with a green baseline asserted either side; two of them could
+not be made red from application code at all and are recorded as DATABASE-enforced
+guarantees rather than dropped, because `calevate_app` is NOBYPASSRLS and cannot `SET
+ROLE`. Separately, `tests/prompt_experiment_test.py` carried a **once-in-a-thousand-runs**
+failure that had nothing to do with this wave and everything to do with how it read: it
+completed "the ten lowest numbers" and asserted arm A's rate was 1.0, but which arm a
+number lands in is salted by the EXPERIMENT ID, which is fresh every run. Measured over
+200,000 synthetic salts, arm A is empty in that slice 0.093% of the time, and `rate` over
+zero completed calls is `None` by design — so the failure arrived as an arithmetic-looking
+assertion in a suite of 3,631 tests, with the test passing every time it was re-run alone.
+It now chooses the completed calls FROM THE RECORDED ASSIGNMENTS, half of each arm. A test
+whose fixture depends on a random salt is not deterministic because it looks deterministic.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"

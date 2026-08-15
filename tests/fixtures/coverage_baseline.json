@@ -6,7 +6,7 @@
     "ledgers-and-money": 1,
     "platform-credentials": 4,
     "redaction": 7,
-    "tenancy-session": 4,
+    "tenancy-session": 3,
     "voice-runtime-ack": 0
   }
 }

@@ -351,7 +351,21 @@ export interface paths {
         /** Client directory — every account, with the counters that sit beside a name */
         get: operations["list_tenants_v1_admin_tenants_get"];
         put?: never;
-        /** New-client wizard step 1 — org, retention defaults, agent draft, schema */
+        /**
+         * New-client wizard step 1 — org, retention defaults, agent draft, schema
+         * @description The audit row is the birth transaction's LAST WRITE, not a second transaction.
+         *
+         *     `on_created` is the hook `admin/service.py` already exposes for exactly this and
+         *     self-serve signup already uses (`tenancy/signup.py::_audit`); the wizard was writing
+         *     its row afterwards, on a different session, which is a second way of doing one thing
+         *     and — when that write is the one that fails — a client account whose creation nobody
+         *     recorded. Same transaction now: the tenant and the record of who created it commit
+         *     together or not at all.
+         *
+         *     The `global_db` dependency this route used to carry went with it: it existed only to
+         *     give the second transaction a session, and a dependency nobody reads is a session
+         *     opened per request for nothing.
+         */
         post: operations["create_tenant_v1_admin_tenants_post"];
         delete?: never;
         options?: never;
@@ -850,7 +864,20 @@ export interface paths {
          */
         get: operations["list_tenant_invitations_v1_admin_tenants__tenant_id__invitations_get"];
         put?: never;
-        /** Wizard step 8 — single-use 72h invite (token hashed at rest) */
+        /**
+         * Wizard step 8 — single-use 72h invite (token hashed at rest)
+         * @description One transaction: the key and the record of who cut it.
+         *
+         *     The audit used to run on a separate `global_db` session AFTER the invitation had
+         *     committed, so the failure mode was a live owner credential for a client account with
+         *     nothing anywhere saying who issued it — the single worst row in this table to be
+         *     missing. It is written last inside the tenant's own transaction now (`write_audit`
+         *     appends in the caller's transaction by design, and `audit_log` is not tenant-RLS'd),
+         *     which is what `tenancy/signup.py` and `create_tenant` above already do.
+         *
+         *     The tenant session is not merely a scope: `invitations` is RLS'd, so this is also
+         *     what makes `create_invitation`'s reads answer about THIS account only.
+         */
         post: operations["invite_member_v1_admin_tenants__tenant_id__invitations_post"];
         delete?: never;
         options?: never;
@@ -1155,6 +1182,30 @@ export interface paths {
         };
         /** Get Agent */
         get: operations["get_agent_v1_agents__agent_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/engine-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the voice platform back and report any drift from what we published
+         * @description Asks the voice platform what it is running RIGHT NOW and compares it with the script, disclosure line and voice this agent last published. This is the only read that can see an agent edited in the vendor's own dashboard, or a publish that failed on our side after the vendor had already accepted it.
+         *
+         *     A READ: it writes nothing and re-publishes nothing. It costs one call to the voice platform, so it is a separate endpoint rather than part of `/pending` — a banner must not dial a vendor on every page load.
+         *
+         *     `agents:read`, not `agents:write`, for the D-22 reason the other reads here are: this is what support opens while looking at a client's screen, and impersonation refuses every mutating permission.
+         */
+        get: operations["engine_state_v1_agents__agent_id__engine_state_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4661,6 +4712,44 @@ export interface components {
             url: string | null;
         };
         /**
+         * EngineStateOut
+         * @description The RECONCILIATION read: what the engine is running RIGHT NOW versus our row.
+         *
+         *     Distinct from `VerificationOut` because it is asked at a different moment and costs a
+         *     vendor round trip. It is the only instrument that can see the two divergences that
+         *     appear with no code of ours running: an edit made in the vendor's own dashboard, and
+         *     a publish that failed on our side after the vendor had already committed.
+         *
+         *     `state` adds `not_published` (there is nothing to compare) and `not_applied` (the
+         *     engine is running something else) to the four `VerificationOut` values. A
+         *     `not_applied` here is a finding, not a refusal — nothing is being written.
+         */
+        EngineStateOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Checked */
+            checked: boolean;
+            /** Detail */
+            detail: string;
+            /** Disclosure Applied */
+            disclosure_applied: boolean | null;
+            /** Engine */
+            engine: string;
+            /** Engine Agent Ref */
+            engine_agent_ref: string | null;
+            /** In Sync */
+            in_sync: boolean;
+            /** Prompt Applied */
+            prompt_applied: boolean | null;
+            /** State */
+            state: string;
+            /** Voice Applied */
+            voice_applied: boolean | null;
+        };
+        /**
          * ErasureLimitationOut
          * @description One thing the erasure did NOT destroy, and the rule that stopped it.
          *
@@ -6487,6 +6576,7 @@ export interface components {
             call_cap_is_platform_default: boolean;
             /** Effective Call Cap S */
             effective_call_cap_s: number;
+            engine_verification: components["schemas"]["VerificationOut"];
             /** Has Pending */
             has_pending: boolean;
             /** Pending */
@@ -8157,6 +8247,37 @@ export interface components {
             variant_id: string;
             /** Weight Bp */
             weight_bp: number;
+        };
+        /**
+         * VerificationOut
+         * @description What a read-back CONFIRMED at the last publish — never what we merely sent.
+         *
+         *     The third configured/live-shaped answer on this response, and the one the other two
+         *     rest on: `voice.live` and the applied prompt version record what `publish_agent`
+         *     HANDED the engine on the strength of a 2xx. This says whether anyone then looked.
+         *
+         *     `state` is one of `unverified` (never read back — every agent published before
+         *     migration c1f6a94d2b07), `applied`, `unreadable` (the adapter could not find the
+         *     property in the engine's answer) or `unreachable` (the read-back itself failed).
+         *     There is no `not_applied`: a proven mismatch refuses the publish, so no agent can be
+         *     displayed as live while carrying one.
+         *
+         *     `confirmed` is true only for `applied`. Rendering `state != "unverified"` as
+         *     confirmation is the exact rounding-up this field exists to stop.
+         *
+         *     No field here has a default, deliberately: a Pydantic default generates an OPTIONAL
+         *     TypeScript property, and a screen that can compile without reading the verdict is a
+         *     screen that will eventually ship without rendering it.
+         */
+        VerificationOut: {
+            /** Confirmed */
+            confirmed: boolean;
+            /** Headline */
+            headline: string;
+            /** State */
+            state: string;
+            /** Verified At */
+            verified_at: string | null;
         };
         /**
          * Voice
@@ -10378,6 +10499,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    engine_state_v1_agents__agent_id__engine_state_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineStateOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

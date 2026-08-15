@@ -357,6 +357,19 @@ Identity & access
     is the named next step and needs a browser reverification flow — OPERATIONS §8.
 - RBAC: admin{superadmin,operator}; client{owner,staff}. Staff cannot access billing,
   org settings, raw transcripts, or exports containing unredacted data.
+  - The endpoint→permission map is asserted AT BOOT (`core/rbac.py::
+    assert_policy_registry_complete`), and the assertion is non-vacuous in four
+    directions: a route with no declaration, a declaration with no lock behind it, a
+    declaration that names a different permission than the lock checks, and — since a
+    permission that does not exist satisfied all three by being wrong twice — a declared
+    string that is not in the `Permission` type or that no role in `ROLE_PERMISSIONS`
+    holds. The last one is a lock with no key: `role_has` refuses every caller, so the
+    route 403s the whole population while reading as guarded.
+  - The two realms' roles live in ONE `ROLE_PERMISSIONS` dict, so their separation is a
+    convention in Python and a CHECK constraint in Postgres
+    (`ck_memberships_role_enum`, `ck_admin_users_role_enum`). The constraint is the
+    enforcement — a colliding role name cannot be STORED — and
+    `tests/rbac_registry_test.py` holds the two statements of that fact to each other.
 - Admin impersonation (D-22): READ-ONLY "view as client" — a scoped read-only session
   against the client realm, never a client credential; session start + every page view
   audit-logged (actor=admin_user, tenant, at, ip). No mutations while impersonating.
@@ -378,6 +391,27 @@ Identity & access
     for tenant Y at T from IP I"), and `admin.impersonation_read` is at most one per
     (admin, tenant) per minute ("data was actually reached"). They carry the same
     `grant_id` so a session's two halves join exactly.
+  - `X-Impersonate-Org` is either ABSENT or a slug. A present-but-blank value is a
+    request defect and is refused `422 impersonate_org_blank`, because the third state
+    it used to produce was worse than either: `impersonating=True` with no
+    `admin:impersonate` check, no grant and no audit row. The flag is now derived from
+    the RESOLVED tenant, so `Principal.impersonating` cannot be true unless a grant was
+    verified and a read was recorded — which is what every mutating dependency reads it
+    for. Driven in `tests/realm_boundary_test.py`.
+  - A route declared `realm="client"` is not part of view-as and says so:
+    `403 impersonation_not_available_here`, not the verifier's "this token is not valid
+    for this realm". The refusal was always correct; the sentence sent an operator to
+    whoever owns Clerk instead of to whoever owns the console. The client-realm
+    mutations an operator can reach from a client's screen (`PUT /v1/billing/caps`,
+    `POST /v1/billing/topups/intent`, `POST /v1/compliance/whatsapp-alerts`) are the
+    live instances.
+  - LIFECYCLE, and the asymmetry is deliberate: a `churned` organization locks out its
+    own members (`_load_client_principal` filters `status <> 'churned'`) and stays
+    reachable by an audited operator, because the questions that arrive after a client
+    leaves — a DPDP erasure to verify, a final invoice to explain, a complaint to answer
+    — are not answerable from outside the tenant. `suspended` locks out nobody; a
+    SOFT-DELETED tenant is refused to both. Nothing about the departed-client entry is
+    quieter: same permission, same grant, same two ledger rows, same read-only rule.
 - Invitations: 72h single-use signed tokens, hash-at-rest, burned on use. **"Account
   creation only via invitation" is no longer true of the client realm** — D-34/D-39 put
   self-serve in scope and `POST /v1/auth/signup` ships (SURFACES §2c): a Clerk-verified

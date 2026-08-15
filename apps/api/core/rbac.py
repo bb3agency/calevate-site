@@ -16,7 +16,7 @@ Role tables (DATA-MODEL §2):
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
-from typing import Literal
+from typing import Literal, get_args
 
 from fastapi import FastAPI
 from fastapi.dependencies.models import Dependant
@@ -181,6 +181,16 @@ IDENTITY_DEPENDENCIES: frozenset[str] = frozenset(
 )
 
 
+#: Every string the `Permission` Literal admits. Read off the type rather than restated,
+#: so widening the type cannot leave the boot assertion behind.
+KNOWN_PERMISSIONS: frozenset[str] = frozenset(get_args(Permission))
+
+#: Every permission SOME role holds. A permission held by no role names a lock with no
+#: key: `role_has` answers False for every role the DB enums allow, so the route is a
+#: 403 for the entire population — a dead route that reads as a guarded one.
+GRANTED_PERMISSIONS: frozenset[str] = frozenset[str]().union(*ROLE_PERMISSIONS.values())
+
+
 def role_has(role: str, permission: Permission) -> bool:
     return permission in ROLE_PERMISSIONS.get(role, frozenset())
 
@@ -264,6 +274,24 @@ def assert_policy_registry_complete(app: FastAPI) -> None:
         if not declared:
             offenders.append(name)
             continue
+        # THE REGISTRY MUST NOT PASS ON A NAME THAT MEANS NOTHING. Until these two
+        # clauses, `permission_meta("agents:reed")` + `requires("agents:reed")` sailed
+        # through: declared and enforced agreed, so the check was satisfied by two
+        # copies of the same typo. `role_has` then answered False for every role, and
+        # the route was a 403 for everybody — a guarded-looking dead endpoint that no
+        # test of a HAPPY path would ever be written against, because there is none.
+        # mypy catches the literal spelling; it does not catch a permission that is
+        # spelled correctly and granted to nobody, and neither of them is a check that
+        # runs at boot on the route table the process is about to serve.
+        if declared not in KNOWN_PERMISSIONS:
+            offenders.append(f"{name} declares {declared!r}, which is not a Permission")
+            continue
+        if declared not in GRANTED_PERMISSIONS:
+            offenders.append(
+                f"{name} declares {declared!r}, which no role in ROLE_PERMISSIONS holds — "
+                "the route would refuse every caller"
+            )
+            continue
         enforced, identified = route_enforcement(route)
         if not identified:
             offenders.append(f"{name} declares {declared} but authenticates nobody")
@@ -293,7 +321,9 @@ def permission_meta(permission: Permission) -> dict[str, object]:
 
 
 __all__ = [
+    "GRANTED_PERMISSIONS",
     "IDENTITY_DEPENDENCIES",
+    "KNOWN_PERMISSIONS",
     "MUTATING_PERMISSIONS",
     "PERMISSION_ATTR",
     "PUBLIC_PREFIXES",

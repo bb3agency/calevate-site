@@ -90,8 +90,14 @@ QUOTA_WINDOW_S: Final = 3600
 
 def derive_slug(name: str) -> str:
     """The slug we offer when the caller does not pick one. Deliberately the wizard's
-    `slugify`, so a business gets the same URL whichever motion it arrives through."""
-    return admin_service.slugify(name)
+    own derivation, so a business gets the same URL — and, when the name yields no ASCII
+    at all, the same actionable refusal — whichever motion it arrives through.
+
+    A delegate rather than a re-export, because the two motions genuinely could diverge
+    (this one has no operator to catch a bad answer) and the seam is where that argument
+    would live. It has not diverged; see `admin_service.derive_slug`.
+    """
+    return admin_service.derive_slug(name)
 
 
 async def assert_signup_open() -> None:

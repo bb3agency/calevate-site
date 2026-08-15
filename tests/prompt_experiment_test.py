@@ -363,13 +363,26 @@ async def test_the_tally_counts_completed_calls_of_the_arm_recorded() -> None:
     for n in range(20):
         await _dial(tenant_id, agent_id, f"+91900002{n:04d}")
 
+    # WHICH arm a given number lands in is salted by the experiment id (see
+    # assignment.py), and the id is fresh on every run — so "the ten lowest numbers"
+    # is not a fixed slice of the arms. Completing that slice left arm A empty roughly
+    # once in a thousand runs, and `rate` over zero completed calls is None by design,
+    # so the tally test failed as a once-a-suite flake with an arithmetic-looking
+    # message. Choose the completed calls FROM THE RECORDED ASSIGNMENTS instead: half
+    # of each arm, so both arms carry a denominator no matter how the hash fell.
+    assigned = await _assignments(tenant_id)
+    assert len(assigned) == 20
+    per_arm = {"A": sorted(p for p, v in assigned.items() if v == "A")}
+    per_arm["B"] = sorted(p for p, v in assigned.items() if v == "B")
+    assert per_arm["A"] and per_arm["B"], "a 50/50 split that drew one arm only"
+    completed_phones = [p for arm in per_arm.values() for p in arm[: max(1, len(arm) // 2)]]
+    assert 0 < len(completed_phones) < 20, "the denominator must differ from the dialled count"
+
     async with tenant_session(tenant_id) as session:
-        # Half the calls complete; of those, the ones on arm A resolve.
+        # Some of the calls complete; of those, the ones on arm A resolve.
         await session.execute(
-            text(
-                "UPDATE calls SET status = 'completed' WHERE id IN ("
-                "  SELECT id FROM calls ORDER BY to_e164 LIMIT 10)"
-            )
+            text("UPDATE calls SET status = 'completed' WHERE to_e164 = ANY(:phones)"),
+            {"phones": completed_phones},
         )
         await session.execute(
             text(
@@ -383,7 +396,9 @@ async def test_the_tally_counts_completed_calls_of_the_arm_recorded() -> None:
     assert results is not None
     by_label = {v.label: v for v in results.variants}
     assert sum(v.outbound_dialled for v in results.variants) == 20
-    assert sum(v.completed for v in results.variants) == 10
+    assert sum(v.completed for v in results.variants) == len(completed_phones)
+    for label, arm in per_arm.items():
+        assert by_label[label].completed == max(1, len(arm) // 2)
     # Every call here was placed by us, so none of the denominator is unrandomised.
     assert [v.inbound_completed for v in results.variants] == [0, 0]
     assert by_label["B"].conversions == 0

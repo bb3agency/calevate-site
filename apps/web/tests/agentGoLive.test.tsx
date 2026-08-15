@@ -71,6 +71,14 @@ function pending(over: Record<string, unknown> = {}) {
       republish_required: false,
       headline: "No voice has been set on this agent.",
     },
+    // Never read back: this agent has never been published (`published: false`), which
+    // is exactly what `unverified` means and what the screen must not round up.
+    engine_verification: {
+      state: "unverified",
+      confirmed: false,
+      verified_at: null,
+      headline: "This agent is not on the voice platform yet; there is nothing to confirm.",
+    },
     ...over,
   };
 }
