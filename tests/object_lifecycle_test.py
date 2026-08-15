@@ -39,8 +39,10 @@ import importlib.util
 import json
 import socket
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -274,48 +276,161 @@ def _endpoint_reachable(endpoint: str) -> bool:
         return False
 
 
-@pytest.mark.skipif(
-    not _endpoint_reachable("http://localhost:9000"),
-    reason="local MinIO not running (`make up`); the offline checks above still apply",
-)
-def test_minio_accepts_and_returns_the_policy(policy: dict) -> None:
-    """The one check that proves the store ACCEPTS this document rather than that it is
-    well-formed. Requires `make up` and AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY set to
-    the local MinIO root credentials from docker-compose.yml — no credential is
-    committed here, deliberately.
+#: Rules MinIO cannot be asked about, and why. Not an exemption list — the two tests
+#: below assert this set from BOTH directions, so an entry cannot outlive its reason.
+#:
+#: MinIO does not implement `AbortIncompleteMultipartUpload` in `PutBucketLifecycle`; its
+#: own S3-compatibility page says so and `minio-go`'s lifecycle package repeats it. Every
+#: shape was tried against `RELEASE.2025-09-07T16-13-09Z` before writing this —
+#: `Filter: {"Prefix": ""}`, `Filter: {}`, no `Filter`, the legacy top-level `Prefix`, and
+#: a non-empty prefix — and all five are rejected `InvalidArgument`.
+#:
+#: THE RULE STAYS IN `policy.json`. Production is Cloudflare R2 (DEPLOYMENT §1), which
+#: implements the action, and deleting a real growth control so a local emulator goes
+#: green would be weakening the thing to fit the test. What was wrong was the test's
+#: CLAIM — "the document survives a real S3 implementation's parser" — which was never
+#: true of this document and had never been executed to find out, because MinIO was down
+#: on every previous run and the whole check skipped.
+MINIO_UNSUPPORTED_RULE_IDS: frozenset[str] = frozenset({"abort-incomplete-multipart-uploads"})
 
-    MinIO is not R2. This proves the document survives a real S3 implementation's
-    parser, which is strictly more than the offline check proves and strictly less than
-    a dry run against the production bucket.
+
+@contextlib.contextmanager
+def _minio_client() -> Iterator[Any]:
+    """DECLARED credentials, not borrowed, and held for the WHOLE body.
+
+    `tests/conftest._no_ambient_credentials` strips the machine's `AWS_*` for the session
+    so local matches CI; these are the MinIO root credentials from `docker-compose.yml` —
+    not a secret, and the only values that can work against the local store anyway.
+
+    A CONTEXT MANAGER rather than a factory, because a factory that returned the client
+    after leaving the patch would put the credential resolution and the requests on
+    opposite sides of it. That is a variant of the ambient-credential class this suite
+    already closed once, and it is easier to reintroduce than to notice.
     """
     import os
     from unittest import mock
 
-    # DECLARED, not borrowed. `tests/conftest._no_ambient_credentials` strips the
-    # machine's `AWS_*` for the whole suite so local matches CI, and these are the MinIO
-    # root credentials from `docker-compose.yml` — not a secret, and the only values
-    # that can work against the local store anyway. The skip below is now about whether
-    # MinIO is RUNNING, which is the real precondition; it used to be about whether the
-    # developer happened to have exported something.
     with mock.patch.dict(
         os.environ,
         {"AWS_ACCESS_KEY_ID": "calevate", "AWS_SECRET_ACCESS_KEY": "calevate123"},
     ):
-        _run_minio_policy_check(policy)
+        yield applier._client("http://localhost:9000")
 
 
-def _run_minio_policy_check(policy: dict) -> None:
+@contextlib.contextmanager
+def _scratch_bucket(client: Any) -> Iterator[str]:
     from botocore.exceptions import ClientError
 
-    client = applier._client("http://localhost:9000")
     bucket = f"lifecycle-test-{uuid4().hex[:12]}"
     client.create_bucket(Bucket=bucket)
     try:
-        client.put_bucket_lifecycle_configuration(Bucket=bucket, LifecycleConfiguration=policy)
-        roundtripped = applier.current_policy(client, bucket)
-        assert roundtripped is not None
-        returned_ids = {rule["ID"] for rule in roundtripped["Rules"]}
-        assert {rule["ID"] for rule in policy["Rules"]} <= returned_ids
+        yield bucket
     finally:
         with contextlib.suppress(ClientError):
             client.delete_bucket(Bucket=bucket)
+
+
+@pytest.mark.skipif(
+    not _endpoint_reachable("http://localhost:9000"),
+    reason="local MinIO not running (`make up`); the offline checks above still apply",
+)
+def test_minio_accepts_the_rules_it_implements(policy: dict) -> None:
+    """Every rule MinIO CAN parse survives a real S3 implementation's parser.
+
+    Strictly more than the offline check proves and strictly less than a dry run against
+    the production bucket. Scoped to the supported rules so the check has a definite
+    subject: asserting the whole document only ever proved that MinIO and R2 differ,
+    which is a fact about MinIO and not about our policy.
+    """
+    checked = [rule for rule in policy["Rules"] if rule["ID"] not in MINIO_UNSUPPORTED_RULE_IDS]
+    assert checked, "every rule is excluded — this check has no subject left"
+
+    with _minio_client() as client, _scratch_bucket(client) as bucket:
+        client.put_bucket_lifecycle_configuration(
+            Bucket=bucket, LifecycleConfiguration={"Rules": checked}
+        )
+        roundtripped = applier.current_policy(client, bucket)
+        assert roundtripped is not None
+        returned = {rule["ID"] for rule in roundtripped["Rules"]}
+        assert {rule["ID"] for rule in checked} <= returned
+
+
+@pytest.mark.skipif(
+    not _endpoint_reachable("http://localhost:9000"),
+    reason="local MinIO not running (`make up`); the offline checks above still apply",
+)
+def test_the_excluded_rule_is_excluded_because_minio_still_refuses_it(policy: dict) -> None:
+    """The exclusion above is MEASURED on every run, not asserted once and inherited.
+
+    An exclusion list nobody re-checks becomes permanent, and this one has an expiry
+    condition: the moment MinIO implements the action, this test fails and tells whoever
+    is reading to delete the entry. The failure is the good news.
+    """
+    excluded = [rule for rule in policy["Rules"] if rule["ID"] in MINIO_UNSUPPORTED_RULE_IDS]
+    assert len(excluded) == len(MINIO_UNSUPPORTED_RULE_IDS), (
+        "MINIO_UNSUPPORTED_RULE_IDS names a rule that is not in policy.json — an "
+        "exclusion for a rule that no longer exists hides the next real one"
+    )
+
+    with _minio_client() as client:
+        for rule in excluded:
+            _assert_minio_refuses(client, rule)
+
+
+def _assert_minio_refuses(client: Any, rule: dict) -> None:
+    """One rule, one throwaway bucket, and the vendor's own error code.
+
+    `InvalidArgument` specifically, not "any ClientError": a 403 from a credential
+    mix-up is also a `ClientError`, and accepting it would let this test go green for
+    the wrong reason — which is exactly what happened before `_client` stopped using
+    boto3's process-global session.
+    """
+    from botocore.exceptions import ClientError
+
+    with _scratch_bucket(client) as bucket:
+        with pytest.raises(ClientError) as caught:
+            client.put_bucket_lifecycle_configuration(
+                Bucket=bucket, LifecycleConfiguration={"Rules": [rule]}
+            )
+        assert caught.value.response["Error"]["Code"] == "InvalidArgument", (
+            f"MinIO answered something new for {rule['ID']}; re-measure before trusting either list"
+        )
+
+
+@pytest.mark.skipif(
+    not _endpoint_reachable("http://localhost:9000"),
+    reason="local MinIO not running (`make up`); the offline checks above still apply",
+)
+def test_minio_silently_drops_the_abort_action_when_it_is_not_alone() -> None:
+    """THE TRAP, pinned — and the reason the two tests above are shaped the way they are.
+
+    MinIO rejects a rule whose ONLY action it cannot implement. Combine that action with
+    one it can, and it ACCEPTS the rule and discards the action: the PUT returns 200 and
+    the stored rule comes back carrying the `Expiration` alone.
+
+    That is the obvious way somebody makes this failure go away — fold the abort into an
+    existing expiration rule — and it produces a green suite, a 200 from the store, and a
+    lifecycle policy where the multipart growth control does not exist. A loud rejection
+    is recoverable; a silent drop is the failure mode that gets discovered by a storage
+    bill. If MinIO ever starts preserving the action, this fails and the exclusion above
+    can go.
+    """
+    merged = {
+        "ID": "merged-probe",
+        "Status": "Enabled",
+        "Filter": {"Prefix": "recordings/"},
+        "Expiration": {"Days": 2555},
+        "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7},
+    }
+    with _minio_client() as client, _scratch_bucket(client) as bucket:
+        client.put_bucket_lifecycle_configuration(
+            Bucket=bucket, LifecycleConfiguration={"Rules": [merged]}
+        )
+        stored = applier.current_policy(client, bucket)
+        assert stored is not None
+        rule = next(r for r in stored["Rules"] if r["ID"] == "merged-probe")
+        assert rule.get("Expiration") == {"Days": 2555}
+        assert "AbortIncompleteMultipartUpload" not in rule, (
+            "MinIO now PRESERVES the abort action when combined with an expiration — "
+            "re-measure the standalone case; the exclusion may no longer be needed"
+        )

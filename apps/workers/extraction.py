@@ -37,6 +37,7 @@ from functools import lru_cache
 from typing import Any, Protocol
 
 import httpx
+from calevate_shared.engine import SARVAM_DEFAULT_LLM
 from calevate_shared.extraction import (
     ExtractionOutput,
     ExtractionSchemaSpec,
@@ -91,7 +92,7 @@ def _first_json_object(text: str) -> dict[str, Any]:
 class SarvamExtractor:
     """D-36 default. Sarvam's chat API is OpenAI-compatible."""
 
-    def __init__(self, api_key: str, model: str = "sarvam-m") -> None:
+    def __init__(self, api_key: str, model: str = SARVAM_DEFAULT_LLM) -> None:
         self._api_key = api_key
         self.model_name = model
 

@@ -452,7 +452,10 @@ Extraction runs POST-CALL in workers (never in-call): input = full transcript; c
 ≈ ₹0.02–0.05/call. Same pass also emits: sentiment, summary, resolved|needs_follow_up tag,
 out_of_scope flags, callback intent. Every extraction stores prompt_version + model for
 auditability. **Model, as shipped**: `workers/extraction.get_extractor()` picks by config
-and there is NO silent failover between providers — Sarvam (`sarvam-m`) when a Sarvam key
+and there is NO silent failover between providers — Sarvam
+(`calevate_shared.engine.SARVAM_DEFAULT_LLM`, today `sarvam-105b`; the literal
+`sarvam-m` shipped here until D-105 and Sarvam has since RETIRED it, so the code was
+aimed at a model that no longer answers while §10 priced the 105B) when a Sarvam key
 is present, Gemini (`gemini-2.5-flash-lite`) when only a Gemini key is, and an offline
 heuristic runner otherwise, which is what keeps the regression harness's baseline stable.
 D-36 makes Sarvam the default; the §5 note that Gemini "remains the reference for the

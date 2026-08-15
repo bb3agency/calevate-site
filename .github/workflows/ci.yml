@@ -62,6 +62,35 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages
 
+      - name: Start MinIO
+        # NOT a `services:` entry, and it cannot be one: MinIO needs `server /data` and
+        # GitHub Actions service containers accept no `command`. `docker run` in a step is
+        # the documented way round that, and the runner already has a daemon.
+        #
+        # WHY IT IS HERE AT ALL (D-106). `tests/object_lifecycle_test.py`'s three
+        # store-backed checks guard the lifecycle policy that deletes recording AUDIO —
+        # the only retention mechanism that touches bytes rather than pointers. Their
+        # skipif is "is localhost:9000 reachable", and with no MinIO in CI the answer was
+        # always no, so they had never executed ANYWHERE. When one finally ran on a
+        # developer machine it failed immediately, and the failure was real.
+        #
+        # Credentials match `docker-compose.yml` so local and CI are the same shape; they
+        # are the emulator's root user, not a secret.
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=calevate -e MINIO_ROOT_PASSWORD=calevate123 \
+            minio/minio server /data
+          # Poll rather than sleep: the image is pulled here, so a fixed wait is either
+          # wrong on a cold cache or wasted on a warm one. A failure to come up must fail
+          # the job — a silent timeout would put the skip back, which is the whole defect.
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && exit 0
+            sleep 2
+          done
+          echo "MinIO did not become healthy; object-lifecycle checks would silently skip"
+          docker logs minio || true
+          exit 1
+
       - name: Create the unprivileged app role
         # Migrations grant to this role, so it must exist before `alembic upgrade`.
         run: |

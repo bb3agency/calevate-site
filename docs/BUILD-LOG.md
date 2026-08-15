@@ -3088,6 +3088,35 @@ deriving from `SELECTABLE_ENGINES` makes model and database agree in PYTHON whil
 database keeps whatever the last migration wrote. Sabotaging the live constraint behind
 the model's back is red on that test alone.
 
+**The constant-with-no-home class claimed a third victim, and this one was pointed at a
+vendor (D-105).** `"sarvam-m"` was a literal in two places — the post-call extractor and
+the pilot gate's agent config — and Sarvam has RETIRED that identifier: a Chat Completions
+request naming it fails. So extraction was aimed at a model that no longer answers, and
+pilot gate 1 would have configured a real agent on a real telephone number with a dead
+LLM. TRD §10 has priced the LLM leg at ₹0.00 on "Sarvam 105B, free per token" since D-36,
+so the code and the unit economics disagreed about which model was running, on the one leg
+whose entire contribution is that it costs nothing. `sarvam-30b` is in the retired set too
+— it was `sarvam-m`'s own migration target — which is the detail that argues for keeping
+the set rather than just correcting the string. Evidence is REPORTED, NOT READ and says so
+at the constant: `docs.sarvam.ai` is egress-blocked here.
+
+**A test that had never run failed the first time it ran (D-106).** `object_lifecycle_test`
+guards the policy that deletes recording AUDIO — the only retention mechanism that touches
+bytes rather than pointers — and its store-backed check is gated on `localhost:9000` being
+reachable. MinIO was down on every previous run and CI declares no MinIO service, so "1
+skipped" was the line nobody read. Restarting the container for an unrelated reason ran it,
+and MinIO rejected the policy. **The cause is a documented MinIO limitation, not a bad
+policy** — `AbortIncompleteMultipartUpload` is unsupported in its `PutBucketLifecycle`,
+while R2 (production, DEPLOYMENT §1) implements it — so `policy.json` is unchanged and the
+test's CLAIM changed instead. The finding that outranks the failure is the silent one: fold
+that action into a rule MinIO CAN implement and it answers 200 and discards the action.
+That is the obvious way to make the red test go away, and it yields a green suite and a
+policy where the growth control does not exist; it is now pinned. Two more things fell out:
+`apply_lifecycle._client` used boto3's process-global `DEFAULT_SESSION`, so the first
+caller anywhere in the process fixed the credentials every later caller signed with — which
+made the three checks pass alone and fail in the suite with `InvalidAccessKeyId` — and CI
+now starts MinIO as a step, because a guard that skips everywhere is not a guard.
+
 **A doctrine landed in CLAUDE.md and AGENTS.md rather than a file**: there is no "later".
 Work that can be done now is done now, and the only scheduling distinction that survives
 is whether a thing is ours to do or waits on someone else — a credential, a regulator, a

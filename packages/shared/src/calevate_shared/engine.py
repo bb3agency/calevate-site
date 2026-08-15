@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Final, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -214,6 +214,41 @@ WEBHOOK_AUTH_BY_ENGINE: dict[str, WebhookAuthMethod] = {
     # "unsigned, so an IP allowlist will do".
     "cartesia": "hmac",
 }
+
+
+#: The D-36 canonical LLM, as the vendor spells it (D-105).
+#:
+#: WHY THIS IS A CONSTANT AND NOT A STRING AT TWO CALL SITES. It was
+#: `model: str = "sarvam-m"` in `workers/extraction.py` and `llm_model="sarvam-m"` in
+#: `scripts/pilot/gates_api.py`, and **Sarvam retired `sarvam-m`** — their changelog says
+#: a Chat Completions request carrying it FAILS. So post-call extraction was aimed at a
+#: model that no longer answers, and pilot gate 1 would have configured a live agent with
+#: a dead LLM. Neither site was wrong when it was written; there was simply nowhere for
+#: the correction to land once, and two places for it to be missed.
+#:
+#: It is also what TRD §10 has always PRICED — the ₹0.00 LLM leg is "Sarvam 105B, free per
+#: token", never the 24B — so the code and the cost model disagreed about which model was
+#: running, on the one leg the margin depends on being free.
+#:
+#: EVIDENCE STANDING: **REPORTED, NOT READ.** `docs.sarvam.ai` is refused by this
+#: environment's egress proxy (CONNECT → 403), so this is two independent search summaries
+#: of their changelog agreeing, not a page anyone here has fetched. Both report the same
+#: three facts: `sarvam-m` is deprecated and rejected; `sarvam-30b` is deprecated in turn
+#: with `sarvam-105b` as the migration target; and the fixed-context variants
+#: `sarvam-30b-16k` / `sarvam-105b-32k` were retired when the base models grew to their
+#: full 64K/128K windows. A wrong identifier fails LOUD — the vendor 400s and
+#: `extraction.py`'s error ladder records it — which is the safe direction to be wrong in
+#: and the reason this is shipped rather than gated.
+SARVAM_DEFAULT_LLM: Final = "sarvam-105b"
+
+#: Identifiers the vendor has RETIRED. Kept as data rather than deleted, because the
+#: failure they cause is a 400 from a third party at post-call time — the point in the
+#: pipeline furthest from anyone watching — and "why is extraction empty" is a much harder
+#: question than "this name is dead". `tests/sarvam_model_identifier_test.py` fails on any
+#: of these appearing in shipped code.
+SARVAM_RETIRED_LLMS: Final = frozenset(
+    {"sarvam-m", "sarvam-30b", "sarvam-30b-16k", "sarvam-105b-32k"}
+)
 
 
 class ModelConfig(BaseModel):

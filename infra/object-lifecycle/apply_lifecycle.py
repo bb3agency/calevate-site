@@ -165,7 +165,15 @@ def _client(endpoint: str) -> Any:
     ]
     if missing:
         raise PolicyError(f"credentials not in environment: {', '.join(missing)}")
-    return boto3.client(
+    # `boto3.Session()`, never the module-level `boto3.client(...)`. That helper reuses a
+    # process-global `DEFAULT_SESSION`, so the FIRST caller anywhere in the process fixes
+    # the credentials every later caller signs with — and the resolution is cached, so a
+    # changed environment does not reach it. Benign while this file is a standalone
+    # script; it stopped being benign the moment the test suite exercised it after another
+    # module had already built a client, where it produced `InvalidAccessKeyId` against a
+    # store whose credentials were right there in the environment (D-106). An own session
+    # costs nothing and cannot be poisoned by a stranger.
+    return boto3.Session().client(
         "s3",
         endpoint_url=endpoint,
         # R2 ignores the region but the SDK insists on one; "auto" is what Cloudflare
