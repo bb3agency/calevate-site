@@ -201,8 +201,21 @@ class TestRlsCoverage:
 
     def test_exemption_list_is_pinned(self) -> None:
         """Adding an RLS exemption must cost a visible diff in a TEST, not one line in
-        a dict. If this fails, review the new exemption on its merits and update it."""
-        assert set(RLS_EXEMPT_TENANT_COLUMNS) == {"audit_log", "engine_agent_routes"}
+        a dict. If this fails, review the new exemption on its merits and update it.
+
+        The two `platform_*` entries are the second SHAPE this list now carries: tables
+        with no `tenant_id` at all, exempt because they are platform state rather than
+        because a tenant policy was skipped (PLATFORM-CONFIG §5). They are in the same
+        dict on purpose — one list answering "what is not tenant-isolated, and why" is
+        reviewable; two lists is one list nobody reads.
+        """
+        assert set(RLS_EXEMPT_TENANT_COLUMNS) == {
+            "audit_log",
+            "engine_agent_routes",
+            "platform_settings",
+            "platform_config_version",
+            "platform_secrets",
+        }
 
 
 # ============================================================================
@@ -500,6 +513,39 @@ class TestRedactionExposure:
         assert any("SubjectExportOut" in o and "phone_e164" in o for o in offenders)
         assert any("SubjectExportLeadOut" in o and "phone_e164" in o for o in offenders)
 
+    def test_catches_a_phone_added_to_the_lead_source_dry_run(
+        self, live_spec: dict[str, Any]
+    ) -> None:
+        """The dry run is INSPECTED now, and this is the proof rather than the claim.
+
+        `POST /v1/lead-sources/{id}/test` answered `dict[str, Any]` while holding a
+        normalized caller number in scope two lines above its `return` — so it was not a
+        response this check judged safe, it was one the check could not see, exactly like
+        D-71's subject export. Adding a phone-shaped field to the step model must now be
+        reported; if this test stops failing, the route has gone back to a bare dict or
+        the model has stopped being reachable from the response.
+        """
+        spec = copy.deepcopy(live_spec)
+        spec["components"]["schemas"]["LeadSourceDryRunStepOut"]["properties"]["phone_e164"] = {
+            "type": "string"
+        }
+        offenders = check_redaction_exposure.check(spec)
+        assert any(
+            "/v1/lead-sources/{webhook_id}/test" in o and "phone_e164" in o for o in offenders
+        )
+
+    def test_catches_a_phone_added_to_the_intake_receipt(self, live_spec: dict[str, Any]) -> None:
+        """The same proof for the machine-facing half. `POST /hooks/v1/ingest/{id}` has
+        the sender's ENTIRE payload in scope of its `return`, and the guardrail walks
+        `/hooks` paths exactly like `/v1` ones — asserted, because a check that silently
+        skipped the unauthenticated-by-session surface would be blind where it matters."""
+        spec = copy.deepcopy(live_spec)
+        spec["components"]["schemas"]["IngestAckOut"]["properties"]["caller_e164"] = {
+            "type": "string"
+        }
+        offenders = check_redaction_exposure.check(spec)
+        assert any("/hooks/v1/ingest/{webhook_id}" in o and "caller_e164" in o for o in offenders)
+
     def test_exemption_registries_are_pinned(self) -> None:
         """Every raw-PII exemption costs a diff here as well as in the script."""
         assert set(check_redaction_exposure.ALLOWED_ROUTES) == {
@@ -561,7 +607,10 @@ class TestEnvParity:
 
         fields = set(Settings.model_fields) | {"whatsapp_token"}
         failures = check_env_parity.evaluate(declared, fields, {})
-        assert any("whatsapp_token" in f and "not .env.example" in f for f in failures)
+        # The message changed when the console became a second place a key can be
+        # declared (PLATFORM-CONFIG §12): the failure is now "in neither", which is the
+        # claim that was always doing the work.
+        assert any("whatsapp_token" in f and "not in .env.example" in f for f in failures)
 
     def test_catches_a_worker_reading_the_environment_directly(self) -> None:
         """The direction the old check had no way to see: a key that exists in neither
@@ -601,7 +650,13 @@ class TestEnvParity:
 
         fields = set(Settings.model_fields)
         for key in check_env_parity.direct_env_reads():
-            assert key in check_env_parity.INFRA_ENV_KEYS or key.lower() in fields
+            assert (
+                key in check_env_parity.INFRA_ENV_KEYS
+                # Operator tooling that runs outside every deployable (the restore
+                # drill), each entry carrying the reason it is not application config.
+                or key in check_env_parity.DRILL_ENV_KEYS
+                or key.lower() in fields
+            ), key
 
 
 # ============================================================================

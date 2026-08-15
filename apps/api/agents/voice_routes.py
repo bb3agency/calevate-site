@@ -93,14 +93,22 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.voices import CATALOG, Voice, get_voice, voice_ids
+from apps.api.agents.voices import (
+    Voice,
+    VoiceSelectionCapability,
+    get_voice,
+    voice_ids,
+    voice_selection_capability,
+)
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
+from apps.api.engine import engine_lacks
 
 # No prefix: the two paths differ below `/v1/agents` (a collection of voices vs one
 # agent's voice), and a shared prefix would only hide that.
@@ -157,25 +165,80 @@ class SetVoiceOut(Strict):
     next_step: str
 
 
+class VoiceCatalogueOut(Strict):
+    """The catalog AND whether it may be chosen from (D-93).
+
+    IT USED TO BE A BARE `list[Voice]`, and that shape cannot express the one answer this
+    endpoint now has to be able to give. On an engine that supplies its own voices the
+    honest response is "no selection here, and that is normal" — and a bare list has
+    exactly one way to say it, `[]`, which the console reads as "this agent has no voices
+    available" and renders as a claim about the product. (The console's own comment in
+    `VoicePanel` says exactly that, which is how the shape was found to be wrong.) An
+    empty list and a closed choice are different facts, and the envelope keeps them
+    different.
+
+    The same argument `ExecutionListing` makes: the caller needs the rows AND the verdict
+    about them, and inferring the verdict from the length of the rows is the bug.
+
+    NO FIELD HERE HAS A DEFAULT. A Pydantic field with a default is OPTIONAL in the
+    generated TypeScript, and every one of these is a field the console must trust: a
+    `selectable` that can arrive undefined would be read as falsy and hide the picker on
+    a perfectly capable engine.
+    """
+
+    #: Who chooses the TTS leg on this deployment's engine — `ours` or `engine`.
+    control: str
+    #: True when a voice may be set on an agent here. When False, `voices` is empty
+    #: because there is nothing to offer, NOT because the catalog failed to load.
+    selectable: bool
+    voices: list[Voice]
+    #: One sentence a UI prints verbatim. Always present, so a surface never has to
+    #: compose the explanation out of the two fields above and get the tone wrong — the
+    #: closed case is a product fact, not an error, and it should not read like one.
+    note: str
+
+
+def _catalogue_note(capability: VoiceSelectionCapability) -> str:
+    if capability.available:
+        return (
+            "Pick the voice this agent speaks in. Entries marked unverified have not yet "
+            "been confirmed on the voice platform."
+        )
+    return (
+        "The voice platform in use supplies its own voices, so a voice cannot be chosen "
+        "here. Nothing is wrong with this agent."
+    )
+
+
 @router.get(
     "/v1/agents/voices",
-    response_model=list[Voice],
+    response_model=VoiceCatalogueOut,
     openapi_extra=permission_meta("agents:read"),
     summary="The voices an agent may speak in (client-readable; D-36's premium/value ladder)",
 )
-async def list_voices(_: CatalogReader) -> list[Voice]:
-    """Static data, deliberately: no DB, no engine call, no tenant scoping.
+async def list_voices(_: CatalogReader) -> VoiceCatalogueOut:
+    """Static data plus one capability read: no DB, no network, no tenant scoping.
 
     Client-realm readable on purpose — a client is legally the Principal Entity and
     should be able to see what their own agent sounds like, exactly as they can read
     its disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to
     `realm="any"`, so an admin (including one impersonating, since this is a read) gets
-    the same list — one catalog, no realm-specific truth.
+    the same answer — one catalog, no realm-specific truth.
 
     Entries carry `verified: false` until the Bolna pilot confirms each string is
     selectable (OPERATIONS §2 gate 3); render that, do not hide it.
+
+    The capability read is the SAME selector `set_agent_voice` uses, and that is the whole
+    point: this endpoint is what the picker is built from, so if the two could disagree
+    the console would offer precisely the choice the write refuses.
     """
-    return list(CATALOG)
+    capability = voice_selection_capability()
+    return VoiceCatalogueOut(
+        control=capability.control,
+        selectable=capability.available,
+        voices=list(capability.voices),
+        note=_catalogue_note(capability),
+    )
 
 
 @router.patch(
@@ -209,7 +272,19 @@ async def set_agent_voice(
     pair is only meaningful together: the adapter sends `synthesizer.provider` and
     `synthesizer.provider_config.voice` as one object, and the onboarding wizard leaves
     both NULL, so setting the voice alone would produce a half-configured synthesizer.
+
+    THE CAPABILITY CHECK COMES FIRST, before even the catalog lookup (D-93). On an engine
+    that supplies its own voices there is no id that would be correct, so refusing with
+    `unknown_voice` would send an operator hunting for the right string forever. It is
+    also a check the picker already made — `GET /v1/agents/voices` answers
+    `selectable: false` — and this is the backstop that makes the picker's answer
+    trustworthy rather than decorative: a screen built from a stale schema, a script, or
+    a curl still cannot write a voice the engine will silently ignore.
     """
+    capability = voice_selection_capability()
+    if not capability.available:
+        raise engine_lacks("tts", engine=get_settings().engine)
+
     voice = get_voice(payload.voice_id)
     if voice is None:
         raise ProblemError(

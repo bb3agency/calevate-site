@@ -107,7 +107,12 @@ class _LockProbingSession:
 
     async def execute(self, statement: Any, params: Any = None) -> Any:
         sql = str(statement)
-        if "FROM credit_ledger" in sql and "reason = 'topup'" in sql:
+        # The reason-scoped ledger lookup, and only that one — `_newest_balance` reads
+        # the same table with no reason clause, and the advisory lock statement is not a
+        # ledger read at all. Matched on the BOUND PARAMETER rather than on `'topup'`:
+        # `find_topup` now delegates to `find_entry_by_ref`, which carries the reason as
+        # a parameter so the adjustment path can share one lookup instead of copying it.
+        if "FROM credit_ledger" in sql and "reason = :reason" in sql:
             self.lock_free_at_lookup = await _lock_is_free(self._tenant_id)
         return await self._inner.execute(statement, params)
 

@@ -103,11 +103,20 @@ export interface paths {
          *     2. verify the signature over those RAW bytes, before any parse;
          *     3. only then parse, normalize, and do work.
          *
-         *     The answer is always 200 once the signature holds, including for the deliveries we
-         *     refuse. Meta retries a non-2xx with backoff for hours and eventually unsubscribes
-         *     the Page — and our refusal is permanent (no retriever), so retrying could only
-         *     delay the verdict and end with the client's integration switched off. The refusal
-         *     is recorded instead, against the `leadgen_id`, where the client can see it.
+         *     The answer is 200 once the signature holds, including for the deliveries we REFUSE.
+         *     Meta retries a non-2xx with backoff for hours and eventually unsubscribes the Page,
+         *     and a refusal here is a verdict — an unreadable lead, a number we cannot dial, an
+         *     agent nobody published — so retrying could only delay it and end with the client's
+         *     integration switched off. The refusal is recorded instead, against the `leadgen_id`,
+         *     where the client can see it.
+         *
+         *     THE ONE EXCEPTION IS A TRANSIENT FAILURE, and it is 503 on purpose. A Graph timeout
+         *     or a 5xx is not a verdict about the lead; it is us being unable to ask. Acking it
+         *     200 would silently drop the enquiry the whole product exists to catch, and Meta's
+         *     at-least-once ladder is a retry mechanism we already have — so we use it rather than
+         *     building a second one. Redelivery is free because the `leadgen_id` claim absorbs the
+         *     siblings that already committed: a batch of three with one deferred comes back as
+         *     two duplicates and one fresh attempt.
          */
         post: operations["meta_leadgen_hooks_v1_ingest_meta__webhook_id__post"];
         delete?: never;
@@ -206,6 +215,26 @@ export interface paths {
         get: operations["list_held_tenants_v1_admin_compliance_holds_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/impersonation-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint the short-lived grant a READ-ONLY view-as session needs (D-22)
+         * @description Begins a read-only 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant, expires in minutes, and never authorises a mutation — an impersonating session is read-only, and writes go through the admin surfaces with the tenant in the path.
+         */
+        post: operations["mint_impersonation_grant_v1_admin_impersonation_grants_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -423,7 +452,7 @@ export interface paths {
         put?: never;
         /**
          * Stop the test, and optionally promote an arm through the publish path
-         * @description Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS §7) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears — the test still ends. Idempotent: a test that already ended the way you asked returns 200 with `changed: false`, promotes nothing a second time and writes no audit row. 409 names the ending it found when that ending is a different one. 404 means this account has no such test.
+         * @description `experiment_id` names the test being concluded and is required: the request is answered about the test it names and is NEVER redirected onto whichever test happens to be running, so a retry that arrives after a later test started cannot end that one. Promotion mints a NEW prompt version from the winning arm (copy-forward, FLOWS §7) and applies it with the same 'Apply to live calls' mechanism the prompt screen uses. If the apply fails, the version is left STAGED and the ordinary Apply banner appears — the test still ends. Idempotent: a test that already ended the way you asked returns 200 with `changed: false`, promotes nothing a second time and writes no audit row. 409 names the ending it found when that ending is a different one. 404 means this account has no such test on this agent.
          */
         post: operations["conclude_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_conclude_post"];
         delete?: never;
@@ -600,6 +629,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/credits/adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Correct a wrong ledger entry by APPENDING a compensating adjustment
+         * @description The ledger is append-only, so a wrong entry is never edited or removed — it stays where it is, because it is the evidence, and a new entry with the opposite sign cancels it. Name the entry to correct and how much of it to take back (a positive amount; the direction is derived from that entry). Sending the same correction again returns the entry that already exists and moves nothing. Taking credit AWAY additionally needs the header `X-Confirm-Action: adjust_credits:<corrects_entry_id>`; crediting back does not. The balance MAY go negative — a wrong credit that was partly spent cannot be fully reversed otherwise — and `stops_dialling` says whether that has blocked this client's outbound calling.
+         */
+        post: operations["record_adjustment_v1_admin_tenants__tenant_id__credits_adjustments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/credits/restatements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restate an UNDER-credited payment to the amount the bank actually moved
+         * @description For a payment recorded for less than the bank transferred. Send the payment's own reference and the TOTAL the bank moved — not the difference; the route credits what is missing as a second entry against the same reference, so the wallet still shows one bank transfer and reconciliation keeps balancing. Sending the same total again returns the entry that already exists and moves nothing. Every call needs the header `X-Confirm-Action: restate_topup:<payment_ref>:<corrected_amount_inr>`, which echoes the amount because this correction has no ceiling but the statement in front of you. A total at or below what the reference already credits is refused — crediting less is an adjustment against the entry that was wrong.
+         */
+        post: operations["record_restatement_v1_admin_tenants__tenant_id__credits_restatements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/dlt-registration": {
         parameters: {
             query?: never;
@@ -742,23 +811,6 @@ export interface paths {
          * @description Records that a person at Calevate reviewed this account's first campaign. `approved` releases the account: this rule never blocks another of its campaigns. `rejected` keeps it held and shows the client the reason. Upserts, so a release can be withdrawn when complaints arrive and granted again afterwards — every call writes its own audit entry, so the history is the ledger rather than this row.
          */
         post: operations["decide_v1_admin_tenants__tenant_id__first_campaign_review_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/tenants/{tenant_id}/impersonate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Begin a READ-ONLY view-as session (D-22) — audited, never acting-as */
-        post: operations["start_impersonation_v1_admin_tenants__tenant_id__impersonate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -959,6 +1011,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/whatsapp-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record that a client's owner agreed to WhatsApp alerts (append-only)
+         * @description For an opt-in given during onboarding rather than on the settings screen. A grant must carry the reference of the document or ticket the client agreed in, and the row names the operator who recorded it.
+         */
+        post: operations["record_for_client_v1_admin_tenants__tenant_id__whatsapp_alerts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents": {
         parameters: {
             query?: never;
@@ -1006,16 +1078,20 @@ export interface paths {
         };
         /**
          * The voices an agent may speak in (client-readable; D-36's premium/value ladder)
-         * @description Static data, deliberately: no DB, no engine call, no tenant scoping.
+         * @description Static data plus one capability read: no DB, no network, no tenant scoping.
          *
          *     Client-realm readable on purpose — a client is legally the Principal Entity and
          *     should be able to see what their own agent sounds like, exactly as they can read
          *     its disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to
          *     `realm="any"`, so an admin (including one impersonating, since this is a read) gets
-         *     the same list — one catalog, no realm-specific truth.
+         *     the same answer — one catalog, no realm-specific truth.
          *
          *     Entries carry `verified: false` until the Bolna pilot confirms each string is
          *     selectable (OPERATIONS §2 gate 3); render that, do not hide it.
+         *
+         *     The capability read is the SAME selector `set_agent_voice` uses, and that is the whole
+         *     point: this endpoint is what the picker is built from, so if the two could disagree
+         *     the console would offer precisely the choice the write refuses.
          */
         get: operations["list_voices_v1_agents_voices_get"];
         put?: never;
@@ -1172,6 +1248,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/billing/invoice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This account's own invoice statement for an IST billing month
+         * @description The same statement the Calevate team sees for this account, recomputed from the usage ledger on every request — there is no stored invoice row to go stale. Requires `billing:read`, which account owners hold and staff do not. The document states whether it is a tax invoice or a proforma; it is a proforma until Calevate's GST registration is recorded, because an unregistered supplier may not collect tax (CGST s.32).
+         */
+        get: operations["my_invoice_v1_billing_invoice_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/topups/capability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Can this deployment take an online payment, and can it create an order?
+         * @description A RENDERING HINT, never the check (D-75). The intent route asks the same selector and remains the authority; a stale answer here costs a refusal, never a payment.
+         */
+        get: operations["read_topup_capability_v1_billing_topups_capability_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/billing/topups/intent": {
         parameters: {
             query?: never;
@@ -1182,8 +1298,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Start a prepaid top-up — prices it and binds it to this tenant (D-34)
-         * @description Returns what a checkout needs. It does NOT create the provider-side order: that requires API credentials this deployment does not hold, so `provider_order_id` is null and `provider_order_pending` is true.
+         * Start a prepaid top-up — prices it, binds it to this tenant, creates the order (D-98)
+         * @description Creates the provider-side order when this deployment holds the API secret. It does not today — no Razorpay account is provisioned — so `provider_order_id` is null and `provider_order_pending` is true. Idempotent on a server-derived key: the same tenant asking for the same amount twice gets one order.
          */
         post: operations["create_topup_intent_v1_billing_topups_intent_post"];
         delete?: never;
@@ -1379,6 +1495,16 @@ export interface paths {
          *     exactly the kind of statement that has to be attributable later — it is the record
          *     §3's "refused, in writing" refers to. `leads:dispatch`, not a read permission,
          *     because declaring provenance is what unlocks dialling.
+         *
+         *     **204, and the alternative considered was a body naming the resulting blocker.** The
+         *     interesting half of this answer is that `purchased_list` is recorded and then refused
+         *     (`consent_source_refused`), and a client deserves to see that — but `GET
+         *     /launch-check` is the one authority on what blocks a launch, and the screen re-reads
+         *     it the moment this returns. A second copy of that verdict here would be a second
+         *     thing to keep in step with the gate, which is how the list and the check come to
+         *     disagree. `{"status": "recorded"}` was the third option and the worst of them: a
+         *     constant the caller already knows, shaped like a model, invisible to the generated
+         *     client and to the redaction guardrail alike.
          */
         post: operations["declare_consent_provenance_v1_campaigns__campaign_id__consent_provenance_post"];
         delete?: never;
@@ -1449,7 +1575,7 @@ export interface paths {
         put?: never;
         /**
          * Stop dialling now — idempotent, so a panicked double-click is not an error
-         * @description Pause a running campaign. Idempotent: pausing a campaign that is already paused returns 200, so a second click and the retry of a request whose response was lost are both safe. 409 means the campaign is in some other state (cancelled, or still a draft) and the response names it. 404 means no campaign of yours has that id.
+         * @description Pause a running campaign. Idempotent: pausing a campaign that is already paused returns 204, so a second click and the retry of a request whose response was lost are both safe. 409 means the campaign is in some other state (cancelled, or still a draft) and the response names it. 404 means no campaign of yours has that id.
          */
         post: operations["pause_v1_campaigns__campaign_id__pause_post"];
         delete?: never;
@@ -1502,7 +1628,7 @@ export interface paths {
         put?: never;
         /**
          * Dial again from where it stopped — the compliance re-check is at dial time
-         * @description Resume a paused campaign. Idempotent: resuming a campaign that is already running returns 200. 409 means the campaign is in some other state and the response names it. 404 means no campaign of yours has that id. Resuming does not re-run the launch gate — the per-dial compliance check does, on every contact, which is what catches paperwork that lapsed while it was paused.
+         * @description Resume a paused campaign. Idempotent: resuming a campaign that is already running returns 204. 409 means the campaign is in some other state and the response names it. 404 means no campaign of yours has that id. Resuming does not re-run the launch gate — the per-dial compliance check does, on every contact, which is what catches paperwork that lapsed while it was paused.
          */
         post: operations["resume_v1_campaigns__campaign_id__resume_post"];
         delete?: never;
@@ -1548,6 +1674,9 @@ export interface paths {
          *     "draft" this used to return: a campaign that was waiting goes back to draft, and a
          *     campaign that is dialling keeps dialling — stopping a repeat means "do not start this
          *     again", never "abandon the calls going out now" (`scheduling.unschedule_campaign`).
+         *
+         *     This one keeps a body where its neighbours became 204, and the two facts it carries
+         *     are why: both are answers the caller cannot derive from the request it sent.
          */
         delete: operations["unschedule_v1_campaigns__campaign_id__schedule_delete"];
         options?: never;
@@ -1757,6 +1886,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/compliance/whatsapp-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Are WhatsApp hot-lead alerts on for me?
+         * @description The current state of your own WhatsApp alert opt-in, plus the wording in force and whether this deployment can deliver on the channel at all. No phone number is accepted or returned.
+         */
+        get: operations["read_v1_compliance_whatsapp_alerts_get"];
+        put?: never;
+        /**
+         * Turn your own WhatsApp hot-lead alerts on or off (append-only)
+         * @description Appends one row to the opt-in ledger. Withdrawing is a new row with `status: withdrawn`, never an edit of the opt-in it supersedes. Only the account owner can record their own opt-in, and an impersonated session cannot.
+         */
+        post: operations["record_v1_compliance_whatsapp_alerts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/dashboard": {
         parameters: {
             query?: never;
@@ -1819,7 +1972,21 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Undo a hand-added suppression — never a consumer opt-out, always audited */
+        /**
+         * Undo a hand-added suppression — never a consumer opt-out, always audited
+         * @description 204, and the two alternatives were both worse.
+         *
+         *     `{"status": "removed"}` said nothing a 200 on a DELETE did not already say, in a
+         *     shape the generated TypeScript client cannot describe and the redaction guardrail
+         *     cannot inspect — the whole class of defect D-71 and D-75 fixed elsewhere. Echoing
+         *     the entry back was the other option and is the one to avoid hardest: the row we
+         *     just deleted holds a phone number, and the response to "please forget this" is not
+         *     the place to repeat it. The `source` this reads is for the AUDIT row, which is
+         *     where "who un-suppressed what, and what kind of entry it was" belongs.
+         *
+         *     Same shape as `DELETE /v1/lead-sources/{id}` and `DELETE /v1/leads/views/{id}`,
+         *     which is the answer this repo already gives for a delete with nothing to report.
+         */
         delete: operations["remove_v1_dnc__entry_id__delete"];
         options?: never;
         head?: never;
@@ -2234,6 +2401,10 @@ export interface paths {
          *     same function, same live DNC read — and its verdict is reported instead of acted
          *     on. The difference between this and a bypass is the direction of the arrow: a
          *     bypass dials without asking; this asks without dialling.
+         *
+         *     The number the sample carries is normalized here and never leaves: every step
+         *     reports a verdict, `mapped_fields` reports KEYS, and the model above is what makes
+         *     that a rule the guardrail enforces rather than a habit this function has.
          */
         post: operations["test_webhook_v1_lead_sources__webhook_id__test_post"];
         delete?: never;
@@ -2583,6 +2754,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every managed platform setting, with its value, source and provenance
+         * @description Lists every `Settings` field that can be managed from the console: its current value in the serving process, where that value came from (`env` / `db` / `default`), who set it and when. A key set in the environment is reported `source: env` and `editable: false` — the environment always wins over the store, so offering to change it here would be a field that does nothing. Credentials are NOT in this list; they live encrypted in platform_secrets.
+         */
+        get: operations["read_config_v1_ops_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/config/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set one platform setting (step-up confirmed, audited)
+         * @description Validates the value against the same `Settings` model the application loads at boot — including the field's own constraints — and refuses it here if the app would refuse it there. Requires `X-Confirm-Action: set_config:<key>`. The change reaches every other process within a few seconds without a restart; a field whose `applies` is `on_restart` is the exception and says so.
+         */
+        put: operations["set_config_v1_ops_config__key__put"];
+        post?: never;
+        /**
+         * Revert one platform setting to its code default (step-up confirmed, audited)
+         * @description Deletes the stored row so the value falls back to the environment, or to the code default when the environment does not set it. Requires `X-Confirm-Action: revert_config:<key>` — a DIFFERENT string from setting it, because reverting puts a value nobody has looked at recently back into force.
+         */
+        delete: operations["revert_config_v1_ops_config__key__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/outbox/replay": {
         parameters: {
             query?: never;
@@ -2657,6 +2872,103 @@ export interface paths {
          * @description The company half of SEC-COMP §3's first bullet. While this is not `active`, NO tenant can launch an outbound campaign, however complete their own Principal Entity registration is. Inbound answering is unaffected.
          */
         post: operations["set_tm_registration_route_v1_ops_platform_tm_registration_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which credentials are installed — key, last-4, version, who, when
+         * @description Lists every vendor credential this deployment uses, whether one is installed, its last four characters and who installed it. **No plaintext, ever, on any route.** A credential the environment also sets is reported `shadowed_by_env: true` — the environment wins, so the stored value is inert.
+         */
+        get: operations["list_secrets_v1_ops_secrets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/secrets/kek": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which KEK is live, and how many DEKs are still wrapped under another */
+        get: operations["read_kek_v1_ops_secrets_kek_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/secrets/kek/rewrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-wrap every DEK under the current KEK (step-up confirmed, audited)
+         * @description Runs after a KEK rotation: every stored secret version has its DEK unwrapped with whichever configured key opens it and re-wrapped under the current one. The credentials themselves are NEVER decrypted — only the 32-byte DEKs — so this is safe to run against a live platform. Requires `X-Confirm-Action: rewrap_platform_keks`. Until `pending` reaches 0, PLATFORM_KEK_RETIRED must stay set.
+         */
+        post: operations["rewrap_keks_v1_ops_secrets_kek_rewrap_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/secrets/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Install or rotate a credential (step-up confirmed, audited, alerted)
+         * @description Seals the value with a fresh DEK and stores it as a NEW VERSION — the previous version is retired, never overwritten, so which key was live when a call was billed stays answerable. Requires `X-Confirm-Action: set_secret:<key>`. The value is never returned, logged or traced. Test it first: `POST /v1/ops/secrets/{key}/test`.
+         */
+        put: operations["set_secret_route_v1_ops_secrets__key__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/secrets/{key}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the vendor whether a candidate credential works — stores nothing
+         * @description Sends ONE cheap authenticated request to the vendor with the candidate value and reports whether they accepted it. Nothing is stored, so a wrong key is refused at the screen rather than at the next call. `no_probe` means this build cannot test that vendor — which is an answer, not a pass.
+         */
+        post: operations["test_secret_v1_ops_secrets__key__test_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2800,6 +3112,55 @@ export interface components {
             malformed: number;
         };
         /**
+         * AdjustmentIn
+         * @description A compensating entry, described by what it corrects rather than by what it moves.
+         *
+         *     `amount_inr` is a POSITIVE magnitude — how much of the named entry to take back. The
+         *     direction is derived from that entry (`CorrectableEntry.compensating_delta`), so the
+         *     one thing a form here cannot get wrong is the sign.
+         */
+        AdjustmentIn: {
+            /** Amount Inr */
+            amount_inr: number | string;
+            /**
+             * Corrects Entry Id
+             * Format: uuid
+             */
+            corrects_entry_id: string;
+            /** Reason */
+            reason: string;
+        };
+        /** AdjustmentOut */
+        AdjustmentOut: {
+            /** Balance Inr */
+            balance_inr: string;
+            /**
+             * Corrects Entry Id
+             * Format: uuid
+             */
+            corrects_entry_id: string;
+            /** Delta Inr */
+            delta_inr: string;
+            /**
+             * Entry Id
+             * Format: uuid
+             */
+            entry_id: string;
+            /** Is Low */
+            is_low: boolean;
+            /** Recorded */
+            recorded: boolean;
+            /** Ref */
+            ref: string;
+            /** Stops Dialling */
+            stops_dialling: boolean;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
          * AdminMeOut
          * @description The admin realm's own identity document.
          *
@@ -2868,6 +3229,31 @@ export interface components {
             provider: string | null;
             /** Voice Id */
             voice_id: string;
+        };
+        /**
+         * AlertOptInOut
+         * @description Never the number. `status: "none"` means this person has never been asked, which
+         *     is a 200 and the normal state of the world, not a 404.
+         */
+        AlertOptInOut: {
+            /** Captured At */
+            captured_at: string | null;
+            /** Channel */
+            channel: string | null;
+            /** Current Notice Text */
+            current_notice_text: string;
+            /** Current Notice Version */
+            current_notice_version: string;
+            /** Delivery Available */
+            delivery_available: boolean;
+            /** Delivery Unavailable Reason */
+            delivery_unavailable_reason: string | null;
+            /** Messageable */
+            messageable: boolean;
+            /** Notice Version */
+            notice_version: string | null;
+            /** Status */
+            status: string;
         };
         /**
          * ApplyIn
@@ -2951,6 +3337,32 @@ export interface components {
             reason: string;
             /** Rule */
             rule: string;
+        };
+        /**
+         * BootstrapKeyOut
+         * @description A §4 bootstrap key: real, required, and changeable ONLY on the VPS.
+         *
+         *     THESE ARE NOT IN `fields` AND NEVER WILL BE, and that absence was the problem. An
+         *     operator looking for `APP_ENV` on this screen found nothing at all, which reads
+         *     identically to "this build does not have that setting" — so the one class of key that
+         *     genuinely does need an SSH session and a restart was the one the console said nothing
+         *     about. It says it here instead, with the reason, beside the keys it CAN change.
+         *
+         *     NO VALUE, EVER. Two of the six are `PLATFORM_KEK` and `PLATFORM_KEK_RETIRED` — the
+         *     keys that open the credential store — and one is `DATABASE_URL`, which carries a
+         *     password. `configured` is presence and nothing more, which is the only fact an
+         *     operator needs from a screen (hard rule 6 applies to a response body exactly as it
+         *     applies to a log line).
+         */
+        BootstrapKeyOut: {
+            /** Configured */
+            configured: boolean;
+            /** Env Var */
+            env_var: string;
+            /** Key */
+            key: string;
+            /** Reason */
+            reason: string;
         };
         /** Branch */
         Branch: {
@@ -3277,6 +3689,8 @@ export interface components {
             complete: boolean;
             /** Entries Checked */
             entries_checked: number;
+            /** Entries Under Retired Key */
+            entries_under_retired_key: number;
             /** First Bad Entry Id */
             first_bad_entry_id: string | null;
             /** Newest Checked At */
@@ -3407,10 +3821,26 @@ export interface components {
         };
         /**
          * ConcludeExperimentIn
-         * @description `promote` is null for "stop it and keep the control" — the commonest honest
-         *     ending of an A/B test, and a first-class option rather than a cancel button.
+         * @description WHICH test, and how it ends.
+         *
+         *     `experiment_id` is REQUIRED, and the requirement is the feature. Concluding used to
+         *     be keyed on the agent alone and resolved "the running test", so a retry that arrived
+         *     after that test ended and the next one started concluded the NEXT one — promoting an
+         *     arm nobody had read, onto live phone lines, with an audit row that looked deliberate
+         *     (`experiments.conclude` carries the full argument, including why this is a body field
+         *     rather than a path segment or an `If-Match`). No default: an omitted id is a 422
+         *     naming the field, because the one caller that would ever take a default is the stale
+         *     request this exists to refuse.
+         *
+         *     `promote` is null for "stop it and keep the control" — the commonest honest ending of
+         *     an A/B test, and a first-class option rather than a cancel button.
          */
         ConcludeExperimentIn: {
+            /**
+             * Experiment Id
+             * Format: uuid
+             */
+            experiment_id: string;
             /** Promote */
             promote?: string | null;
         };
@@ -3439,6 +3869,100 @@ export interface components {
             new_version: number | null;
             /** Promoted Label */
             promoted_label: string | null;
+        };
+        /**
+         * ConfigFieldOut
+         * @description One managed key, as the console renders it.
+         *
+         *     NO FIELD HERE CARRIES A DEFAULT, and that is load-bearing rather than tidy. A
+         *     Pydantic field with a default is OPTIONAL in the generated TypeScript, so the
+         *     console would have to write `field.editable ?? true` — and the fallback for
+         *     "we do not know whether this is editable" would be "offer the form". Every fact the
+         *     console must trust is required on the wire; `null` is used where the answer
+         *     genuinely has no value, which is a different thing from absent.
+         */
+        ConfigFieldOut: {
+            /** Applies */
+            applies: string;
+            /** Caveat */
+            caveat: string | null;
+            /** Default */
+            default: string | boolean | number | null;
+            /** Editable */
+            editable: boolean;
+            /** Env Var */
+            env_var: string;
+            /** Etag */
+            etag: string;
+            /** Has Default */
+            has_default: boolean;
+            /** Key */
+            key: string;
+            /** Kind */
+            kind: string;
+            /** Note */
+            note: string | null;
+            /** Options */
+            options: string[];
+            /** Source */
+            source: string;
+            /** Updated At */
+            updated_at: string | null;
+            /** Updated By */
+            updated_by: string | null;
+            /** Value */
+            value: string | boolean | number | null;
+        };
+        /**
+         * ConfigOut
+         * @description The whole managed surface, plus how much this answer can be trusted.
+         *
+         *     `config_version` and `stale` ride along for the §52 reason: a console that showed
+         *     values without saying whether the process could still reach the store would render a
+         *     snapshot from an hour ago identically to a live one.
+         */
+        ConfigOut: {
+            /** Bootstrap */
+            bootstrap: components["schemas"]["BootstrapKeyOut"][];
+            /** Config Changed At */
+            config_changed_at: string | null;
+            /** Config Version */
+            config_version: number;
+            /** Fields */
+            fields: components["schemas"]["ConfigFieldOut"][];
+            /** Never Loaded */
+            never_loaded: boolean;
+            /** Stale */
+            stale: boolean;
+        };
+        /** ConfigSetIn */
+        ConfigSetIn: {
+            /** Reason */
+            reason: string;
+            /** Value */
+            value: string | boolean | number | null;
+        };
+        /**
+         * ConfigWriteOut
+         * @description What changed, and the field as it now stands.
+         *
+         *     The FIELD is returned rather than a bare acknowledgement so the console re-renders
+         *     from the server's own view — including `source`, which is the one thing a write can
+         *     change in a way the form would not predict (a value equal to the default still
+         *     reports `db`, because a row exists and reverting it is now a distinct act).
+         */
+        ConfigWriteOut: {
+            /** Config Version */
+            config_version: number;
+            /** Etag */
+            etag: string;
+            field: components["schemas"]["ConfigFieldOut"];
+            /** Key */
+            key: string;
+            /** Previous */
+            previous: string | boolean | number | null;
+            /** Recorded */
+            recorded: boolean;
         };
         /**
          * ConsentProvenanceIn
@@ -3610,6 +4134,8 @@ export interface components {
             is_low: boolean;
             /** Low Balance Threshold Inr */
             low_balance_threshold_inr: string;
+            /** Payments */
+            payments: components["schemas"]["PaymentOut"][];
             /**
              * Tenant Id
              * Format: uuid
@@ -4453,6 +4979,53 @@ export interface components {
              */
             tenant_id: string;
         };
+        /** ImpersonationGrantIn */
+        ImpersonationGrantIn: {
+            /** Slug */
+            slug: string;
+        };
+        /** ImpersonationGrantOut */
+        ImpersonationGrantOut: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Grant */
+            grant: string;
+            /** Slug */
+            slug: string;
+        };
+        /**
+         * IngestAckOut
+         * @description What the SENDER is told about one delivery: ids and verdicts, never the lead.
+         *
+         *     Declared rather than `dict[str, Any]`, and this is the response on this router where
+         *     that matters most: the handler holds the sender's ENTIRE payload in scope, and an
+         *     untyped return is one `**payload` away from echoing a customer's name and number back
+         *     over a channel authenticated by a secret that gets pasted into form vendors. An
+         *     untyped return is not a shape `scripts/check_redaction_exposure.py` judges safe — it
+         *     inspects response MODELS, so it is a shape the guardrail cannot see at all (D-71).
+         *
+         *     **On a `duplicate` every other field is null**, because THIS delivery decided
+         *     nothing. The first one made the lead and the dial; re-deriving what it did from an
+         *     inbox row that does not record it would be a claim we cannot back, and `dispatched:
+         *     false` next to `status: duplicate` reads as "nobody was called", which is the one
+         *     thing it must not be allowed to mean.
+         */
+        IngestAckOut: {
+            /** Blocked */
+            blocked?: string | null;
+            /** Dispatched */
+            dispatched?: boolean | null;
+            /** Lead Id */
+            lead_id?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "duplicate";
+        };
         /**
          * IngestActivityItemOut
          * @description One inbound source's rolled-up delivery record from the durable inbox.
@@ -4716,6 +5289,8 @@ export interface components {
             description: string;
             /** Qty */
             qty: string;
+            /** Sac */
+            sac: string | null;
             /** Unit Inr */
             unit_inr: string;
         };
@@ -4723,21 +5298,33 @@ export interface components {
         InvoiceOrganizationOut: {
             /** Billing Email */
             billing_email: string | null;
+            /** Gstin */
+            gstin: string | null;
             /** Id */
             id: string;
             /** Name */
             name: string;
+            /** State Name */
+            state_name: string | null;
         };
         /**
          * InvoiceOut
-         * @description The structured statement a future PDF/UI renders (billing/invoice.py).
+         * @description The structured statement a PDF/UI renders (billing/invoice.py).
          *
          *     Money is a string throughout for the reason hard rule 7 exists: these are exact
          *     NUMERIC rupee amounts, and a JSON float cannot hold them. `qty * unit_inr` must
          *     still reproduce `amount_inr` when a client checks it by hand, which is why the
          *     overage rate is published at its true precision rather than rounded like a rupee.
+         *
+         *     ONE model for both realms. The client and the operator receive byte-identical
+         *     documents for the same tenant-month (`generated_at` aside), which is asserted in
+         *     `tests/invoice_gst_test.py` and is the property that makes this feature trustworthy.
          */
         InvoiceOut: {
+            /** Document Blockers */
+            document_blockers: string[];
+            /** Document Type */
+            document_type: string;
             /** Generated At */
             generated_at: string;
             /** Gst Inr */
@@ -4751,11 +5338,70 @@ export interface components {
             /** Month */
             month: string;
             organization: components["schemas"]["InvoiceOrganizationOut"];
+            place_of_supply: components["schemas"]["InvoicePlaceOfSupplyOut"];
             /** Subtotal Inr */
             subtotal_inr: string;
+            supplier: components["schemas"]["InvoiceSupplierOut"];
+            /** Tax Components */
+            tax_components: components["schemas"]["InvoiceTaxComponentOut"][];
             /** Total Inr */
             total_inr: string;
             usage: components["schemas"]["InvoiceUsageOut"];
+        };
+        /**
+         * InvoicePlaceOfSupplyOut
+         * @description Rule 46(n) — and the field that decides which taxes were charged.
+         *
+         *     `basis` is published rather than kept in the server's head because place of supply is
+         *     the particular most likely to be questioned, and the question is always "why this
+         *     one". IGST Act s.12(2) in one sentence beats a support ticket.
+         */
+        InvoicePlaceOfSupplyOut: {
+            /** Basis */
+            basis: string;
+            /** State Code */
+            state_code: string | null;
+            /** State Name */
+            state_name: string | null;
+            /** Supply Type */
+            supply_type: string;
+        };
+        /**
+         * InvoiceSupplierOut
+         * @description Who issued this document (Rule 46(a)-(b), CGST Rules 2017).
+         *
+         *     EVERY FIELD IS NULLABLE and today every one of them is null: the legal entity has not
+         *     been chosen, so there is no GSTIN to print (ROADMAP M0). That is not a gap in this
+         *     schema, it is the state the schema exists to represent honestly — see
+         *     `document_type`.
+         */
+        InvoiceSupplierOut: {
+            /** Address */
+            address: string | null;
+            /** Gstin */
+            gstin: string | null;
+            /** Legal Name */
+            legal_name: string | null;
+            /** Sac */
+            sac: string | null;
+            /** State Name */
+            state_name: string | null;
+        };
+        /**
+         * InvoiceTaxComponentOut
+         * @description One head of tax, itemised as Rule 46(l)-(m) requires.
+         *
+         *     The flat "GST @ 18%" this replaces was not merely terse: CGST, SGST/UTGST and IGST
+         *     are three different ledgers on the recipient's side, and tax charged without saying
+         *     which one cannot be claimed. The components always sum to `gst_inr` exactly.
+         */
+        InvoiceTaxComponentOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Label */
+            label: string;
+            /** Rate Pct */
+            rate_pct: string;
         };
         /** InvoiceUsageOut */
         InvoiceUsageOut: {
@@ -4765,6 +5411,28 @@ export interface components {
             included_minutes: number;
             /** Minutes Used */
             minutes_used: string;
+        };
+        /**
+         * KekOut
+         * @description The key-management panel's read (§8 panel 4): which KEK is live, and what is
+         *     still wrapped under something else.
+         *
+         *     `pending` is the number that decides whether a rotation is FINISHED. While it is
+         *     above zero the retired KEK must stay in the environment, because removing it would
+         *     make those rows permanently unreadable — and that is a decision an operator makes
+         *     from this number, so it is published rather than implied.
+         */
+        KekOut: {
+            /** Active Kek Id */
+            active_kek_id: number;
+            /** Current */
+            current: number;
+            /** Has Retired Kek */
+            has_retired_kek: boolean;
+            /** Pending */
+            pending: number;
+            /** Versions */
+            versions: number;
         };
         /**
          * KycRecordIn
@@ -5081,6 +5749,52 @@ export interface components {
             /** Source */
             source: string;
         };
+        /**
+         * LeadSourceDryRunOut
+         * @description Would a submission like this get a call right now, and every decision behind it.
+         *
+         *     `would_call` is present tense on purpose: the gate reads the DNC list and the calling
+         *     window live, so this is what would happen NOW rather than a property of the source.
+         */
+        LeadSourceDryRunOut: {
+            /** Steps */
+            steps: components["schemas"]["LeadSourceDryRunStepOut"][];
+            /** Would Call */
+            would_call: boolean;
+        };
+        /**
+         * LeadSourceDryRunStepOut
+         * @description One decision the real ingest path would have made, reported instead of acted on.
+         *
+         *     **A caller's phone number is in scope where these are built, and it is not on this
+         *     model.** The dry run normalizes the sample's number to decide whether it is dialable
+         *     and to ask the compliance gate about it; what it reports is the VERDICT. Declaring
+         *     the shape is what makes that structural rather than merely careful — `extra="forbid"`
+         *     means a number can only ship from here if somebody ADDS a field, and
+         *     `scripts/check_redaction_exposure.py` reports that field the moment they do.
+         *
+         *     Until this model existed it could not: the guardrail inspects response MODELS, and
+         *     this route answered `dict[str, Any]`, so it was not a route the check judged safe —
+         *     it was a route the check could not see (the same defect as D-71's subject export and
+         *     D-75's event catalogue). The half a schema walk still cannot judge is whether a
+         *     STRING carries a number; `tests/response_shape_test.py` asserts the sample's own
+         *     digits appear nowhere in the body.
+         */
+        LeadSourceDryRunStepOut: {
+            /** Detail */
+            detail: string;
+            /** Mapped Fields */
+            mapped_fields?: string[] | null;
+            /** Ok */
+            ok: boolean;
+            /** Rule */
+            rule?: string | null;
+            /**
+             * Step
+             * @enum {string}
+             */
+            step: "field_mapping" | "phone_number" | "agent" | "form_consent" | "compliance_gate";
+        };
         /** LeadSourceListOut */
         LeadSourceListOut: {
             /** Items */
@@ -5216,6 +5930,8 @@ export interface components {
             reason: string;
             /** Ref */
             ref: string | null;
+            /** Reversible Inr */
+            reversible_inr: string;
         };
         /** LifecycleIn */
         LifecycleIn: {
@@ -5366,6 +6082,26 @@ export interface components {
             status: string;
         };
         /**
+         * MetaLeadgenAckOut
+         * @description One verified Meta delivery, accounted for four ways.
+         *
+         *     Meta itself reads only the status code; these counts are for US — they are what the
+         *     delivery log and an operator tailing the response see, and `received != accepted +
+         *     duplicate + refused` is the arithmetic that says a notification went missing.
+         *     Declared for `IngestAckOut`'s reason: a counts-only response is safe by construction
+         *     today and invisible to the redaction guardrail while it stays a bare dict.
+         */
+        MetaLeadgenAckOut: {
+            /** Accepted */
+            accepted: number;
+            /** Duplicate */
+            duplicate: number;
+            /** Received */
+            received: number;
+            /** Refused */
+            refused: number;
+        };
+        /**
          * MetaSetupOut
          * @description Everything a client needs to point a Meta app at this lead source, and the one
          *     thing they need to know before they bother.
@@ -5461,6 +6197,28 @@ export interface components {
             status: string;
             /** Vertical Template */
             vertical_template?: string | null;
+        };
+        /**
+         * PaymentOut
+         * @description One bank transfer, as the wallet holds it — the reconciliation view.
+         *
+         *     Published because a correction that had to be spread over two ledger rows must still
+         *     read as ONE payment to the person holding a bank statement. They compare
+         *     `credited_inr` against the statement line; `entries` tells them how many rows it took
+         *     to get there, which is the only place a restatement is visible as such.
+         */
+        PaymentOut: {
+            /** Credited Inr */
+            credited_inr: string;
+            /** Entries */
+            entries: number;
+            /**
+             * First At
+             * Format: date-time
+             */
+            first_at: string;
+            /** Payment Ref */
+            payment_ref: string;
         };
         /**
          * PeRegistrationOut
@@ -5829,6 +6587,21 @@ export interface components {
              */
             week_start: string;
         };
+        /**
+         * RecordAlertOptInIn
+         * @description No phone field, deliberately — see the module docstring. The number is read from
+         *     the principal's own profile so the consent key and the delivery key are the same
+         *     read.
+         */
+        RecordAlertOptInIn: {
+            /** Notice Version */
+            notice_version: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "granted" | "withdrawn";
+        };
         /** RecordConsentIn */
         RecordConsentIn: {
             /** Call Id */
@@ -5849,6 +6622,21 @@ export interface components {
              * @enum {string}
              */
             status: "granted" | "declined" | "withdrawn";
+        };
+        /**
+         * RecordOperatorOptInIn
+         * @description An operator recording that the owner already agreed. Carries the document.
+         */
+        RecordOperatorOptInIn: {
+            /** Evidence */
+            evidence?: {
+                [key: string]: string;
+            } | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "granted" | "withdrawn";
         };
         /** RecordTermsOut */
         RecordTermsOut: {
@@ -5976,6 +6764,62 @@ export interface components {
             job: string | null;
             /** Replayed */
             replayed: number;
+        };
+        /**
+         * RestatementIn
+         * @description A payment that credited LESS than the bank moved, described by the TRUE TOTAL.
+         *
+         *     It does NOT inherit `MoneyIn`, and the field is not called `amount_inr`. The other
+         *     two writes on this router take an amount to MOVE; this one takes the amount the
+         *     payment WAS. One name for two meanings on one router is the confusion that would
+         *     eventually be resolved at 2am by a tired operator, so the names differ and the
+         *     shared part — the float refusal — is shared as a function.
+         */
+        RestatementIn: {
+            /** Corrected Amount Inr */
+            corrected_amount_inr: number | string;
+            /** Payment Ref */
+            payment_ref: string;
+            /** Reason */
+            reason: string;
+        };
+        /** RestatementOut */
+        RestatementOut: {
+            /** Added Inr */
+            added_inr: string;
+            /** Balance Inr */
+            balance_inr: string;
+            /** Credited Inr */
+            credited_inr: string;
+            /**
+             * Entry Id
+             * Format: uuid
+             */
+            entry_id: string;
+            /** Is Low */
+            is_low: boolean;
+            /** Payment Ref */
+            payment_ref: string;
+            /** Recorded */
+            recorded: boolean;
+            /** Ref */
+            ref: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /** RewrapOut */
+        RewrapOut: {
+            /** Active Kek Id */
+            active_kek_id: number;
+            /** Examined */
+            examined: number;
+            /** Rewrapped */
+            rewrapped: number;
+            /** Unreadable */
+            unreadable: string[];
         };
         /** RollbackIn */
         RollbackIn: {
@@ -6130,6 +6974,33 @@ export interface components {
             scenario: number;
         };
         /**
+         * ScheduleCancelledOut
+         * @description What was stopped, and what the campaign is NOW.
+         *
+         *     Two facts, and the caller can derive neither from the request it sent. `cancelled`
+         *     because ONE button stops both kinds of promise: "I stopped the weekly repeat" and "I
+         *     cancelled Monday's start" are different answers, and the screen that rendered the
+         *     button is guessing which one it got. `status` because stopping a repeat on a RUNNING
+         *     campaign leaves it running — this route once answered the constant "draft" for every
+         *     cancellation, which reported a state the campaign was not in.
+         *
+         *     `status` stays `str`, matching `ProgressOut.status` and `CampaignSummaryOut.status`:
+         *     one spelling of campaign status across the API, and adding a member to
+         *     `campaigns.models.CAMPAIGN_STATUSES` must not turn a cancel that already committed
+         *     into a 500 out of response validation (D-75's lesson, in the direction that costs
+         *     least). `cancelled` is a Literal because its two values are written by
+         *     `campaigns/scheduling.py` and by nothing else.
+         */
+        ScheduleCancelledOut: {
+            /**
+             * Cancelled
+             * @enum {string}
+             */
+            cancelled: "one_time" | "recurring";
+            /** Status */
+            status: string;
+        };
+        /**
          * ScheduleIn
          * @description When a one-time start should happen.
          *
@@ -6169,6 +7040,86 @@ export interface components {
              * Format: date-time
              */
             start_at: string;
+        };
+        /**
+         * SecretOut
+         * @description One credential, as much as anyone may ever see of it.
+         *
+         *     NO VALUE FIELD, ON ANY ROUTE, EVER. `last_four` is the only fragment that exists, and
+         *     `core/envelope.last_four` masks it entirely below eight characters.
+         *
+         *     No field carries a default: the console must not have to write `installed ?? true`
+         *     for a fact that decides whether it offers to rotate or to install.
+         */
+        SecretOut: {
+            /** Applies */
+            applies: string;
+            /** Caveat */
+            caveat: string | null;
+            /** Created At */
+            created_at: string | null;
+            /** Created By */
+            created_by: string | null;
+            /** Env Var */
+            env_var: string;
+            /** Installed */
+            installed: boolean;
+            /** Kek Id */
+            kek_id: number;
+            /** Key */
+            key: string;
+            /** Last Four */
+            last_four: string;
+            /** Shadowed By Env */
+            shadowed_by_env: boolean;
+            /** Testable */
+            testable: boolean;
+            /** Version */
+            version: number;
+            /** Versions */
+            versions: number;
+        };
+        /** SecretSetIn */
+        SecretSetIn: {
+            /** Reason */
+            reason: string;
+            /** Value */
+            value: string;
+        };
+        /** SecretTestIn */
+        SecretTestIn: {
+            /** Value */
+            value: string;
+        };
+        /**
+         * SecretTestOut
+         * @description The vendor's verdict, in OUR vocabulary.
+         *
+         *     `outcome` is one of `accepted` / `rejected` / `unreachable` / `no_probe`, and the
+         *     last two are deliberately NOT collapsed into a failure: "we could not check this" and
+         *     "the vendor said no" send an operator to different systems.
+         */
+        SecretTestOut: {
+            /** Candidate Last Four */
+            candidate_last_four: string;
+            /** Detail */
+            detail: string;
+            /** Key */
+            key: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "accepted" | "rejected" | "unreachable" | "no_probe";
+            /** Status */
+            status: number | null;
+            /** Verified */
+            verified: boolean;
+        };
+        /** SecretsOut */
+        SecretsOut: {
+            /** Secrets */
+            secrets: components["schemas"]["SecretOut"][];
         };
         /**
          * ServiceItem
@@ -6685,6 +7636,28 @@ export interface components {
             /** Verified At */
             verified_at: string | null;
         };
+        /**
+         * TopUpCapabilityOut
+         * @description What this deployment can do about money, asked before the click (D-75's shape).
+         *
+         *     Two booleans because they are two facts and a screen needs both:
+         *     `online_payments_available` decides whether the top-up form is offered at all, and
+         *     `provider_orders_available` decides what the screen may promise once it is submitted.
+         *
+         *     Neither carries a default, for the reason on `TopUpIntentOut.provider_order_id`: a
+         *     missing key must not read as `false`, which would render "online payment is switched
+         *     off for your account" out of our own ignorance rather than out of the server's answer.
+         *
+         *     NO reason code is published. `reason` names OUR configuration state and a client
+         *     cannot act on "no_webhook_secret"; telling them which of our secrets is missing is an
+         *     internals leak. It is logged where an operator can reach it (`payments_unavailable`).
+         */
+        TopUpCapabilityOut: {
+            /** Online Payments Available */
+            online_payments_available: boolean;
+            /** Provider Orders Available */
+            provider_orders_available: boolean;
+        };
         /** TopUpIn */
         TopUpIn: {
             /** Amount Inr */
@@ -6717,11 +7690,8 @@ export interface components {
                 [key: string]: string;
             };
             /** Provider Order Id */
-            provider_order_id?: string | null;
-            /**
-             * Provider Order Pending
-             * @default true
-             */
+            provider_order_id: string | null;
+            /** Provider Order Pending */
             provider_order_pending: boolean;
             /** Receipt */
             receipt: string;
@@ -6945,6 +7915,37 @@ export interface components {
              * @default false
              */
             verified: boolean;
+        };
+        /**
+         * VoiceCatalogueOut
+         * @description The catalog AND whether it may be chosen from (D-93).
+         *
+         *     IT USED TO BE A BARE `list[Voice]`, and that shape cannot express the one answer this
+         *     endpoint now has to be able to give. On an engine that supplies its own voices the
+         *     honest response is "no selection here, and that is normal" — and a bare list has
+         *     exactly one way to say it, `[]`, which the console reads as "this agent has no voices
+         *     available" and renders as a claim about the product. (The console's own comment in
+         *     `VoicePanel` says exactly that, which is how the shape was found to be wrong.) An
+         *     empty list and a closed choice are different facts, and the envelope keeps them
+         *     different.
+         *
+         *     The same argument `ExecutionListing` makes: the caller needs the rows AND the verdict
+         *     about them, and inferring the verdict from the length of the rows is the bug.
+         *
+         *     NO FIELD HERE HAS A DEFAULT. A Pydantic field with a default is OPTIONAL in the
+         *     generated TypeScript, and every one of these is a field the console must trust: a
+         *     `selectable` that can arrive undefined would be read as falsy and hide the picker on
+         *     a perfectly capable engine.
+         */
+        VoiceCatalogueOut: {
+            /** Control */
+            control: string;
+            /** Note */
+            note: string;
+            /** Selectable */
+            selectable: boolean;
+            /** Voices */
+            voices: components["schemas"]["Voice"][];
         };
         /**
          * VoiceStateOut
@@ -7253,9 +8254,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: number;
-                    };
+                    "application/json": components["schemas"]["MetaLeadgenAckOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -7286,9 +8285,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["IngestAckOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -7376,6 +8373,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HeldTenantOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    mint_impersonation_grant_v1_admin_impersonation_grants_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImpersonationGrantIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImpersonationGrantOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -8191,6 +9221,80 @@ export interface operations {
             };
         };
     };
+    record_adjustment_v1_admin_tenants__tenant_id__credits_adjustments_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdjustmentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdjustmentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_restatement_v1_admin_tenants__tenant_id__credits_restatements_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestatementIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestatementOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     record_dlt_registration_v1_admin_tenants__tenant_id__dlt_registration_post: {
         parameters: {
             query?: never;
@@ -8390,39 +9494,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FirstCampaignDecisionOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    start_impersonation_v1_admin_tenants__tenant_id__impersonate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -8784,6 +9855,41 @@ export interface operations {
             };
         };
     };
+    record_for_client_v1_admin_tenants__tenant_id__whatsapp_alerts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordOperatorOptInIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertOptInOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_agents_v1_agents_get: {
         parameters: {
             query?: never;
@@ -8857,7 +9963,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Voice"][];
+                    "application/json": components["schemas"]["VoiceCatalogueOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -9112,6 +10218,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CapsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    my_invoice_v1_billing_invoice_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_topup_capability_v1_billing_topups_capability_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopUpCapabilityOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -9514,15 +10680,11 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -9644,15 +10806,11 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -9712,15 +10870,11 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -9785,9 +10939,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["ScheduleCancelledOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -10082,6 +11234,68 @@ export interface operations {
             };
         };
     };
+    read_v1_compliance_whatsapp_alerts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertOptInOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_v1_compliance_whatsapp_alerts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordAlertOptInIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertOptInOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_dashboard_v1_dashboard_get: {
         parameters: {
             query?: never;
@@ -10220,15 +11434,11 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -10915,9 +12125,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["LeadSourceDryRunOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -11487,9 +12695,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": unknown;
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -11519,6 +12725,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChainVerifyOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_config_v1_ops_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_config_v1_ops_config__key__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+                "if-match"?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigSetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    revert_config_v1_ops_config__key__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+                "if-match"?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigWriteOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -11651,6 +12958,167 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TmRegistrationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_secrets_v1_ops_secrets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_kek_v1_ops_secrets_kek_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KekOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rewrap_keks_v1_ops_secrets_kek_rewrap_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RewrapOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_secret_route_v1_ops_secrets__key__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretSetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    test_secret_v1_ops_secrets__key__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretTestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretTestOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

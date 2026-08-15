@@ -294,6 +294,24 @@ Identity & access
 - Admin impersonation (D-22): READ-ONLY "view as client" — a scoped read-only session
   against the client realm, never a client credential; session start + every page view
   audit-logged (actor=admin_user, tenant, at, ip). No mutations while impersonating.
+  - **Entry requires a short-lived signed GRANT**, minted by `POST /v1/admin/
+    impersonation-grants` and presented as `X-Impersonation-Grant` beside
+    `X-Impersonate-Org` (`apps/api/core/impersonation.py`). The grant is bound to the
+    operator (`act.sub` = `admin_users.id`) and the tenant (`sub` = `organizations.id`)
+    — RFC 8693's delegation claim shape, chosen because D-22's "no dual attribution"
+    is exactly what that claim exists to express — plus a fixed audience and a
+    minutes-long expiry. Absent, malformed, expired, another operator's or another
+    tenant's are all refused; nothing degrades to a plain admin session.
+  - It is **not a credential**: it never replaces the operator's admin-realm Clerk
+    token, which is verified (and MFA-gated) on every request, and whose `admin_users`
+    row and role are re-read from the database on every request. Revocation is
+    therefore instant — sign-out, row deletion or losing `admin:impersonate` refuses
+    the next request — which is why there is no denylist and no grants table.
+  - The two ledger rows mean different things and both are needed:
+    `admin.impersonation_started` is ONE PER GRANT ("authority was issued to operator X
+    for tenant Y at T from IP I"), and `admin.impersonation_read` is at most one per
+    (admin, tenant) per minute ("data was actually reached"). They carry the same
+    `grant_id` so a session's two halves join exactly.
 - Invitations: 72h single-use signed tokens, hash-at-rest, burned on use. **"Account
   creation only via invitation" is no longer true of the client realm** — D-34/D-39 put
   self-serve in scope and `POST /v1/auth/signup` ships (SURFACES §2c): a Clerk-verified

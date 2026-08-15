@@ -12,12 +12,24 @@ Two surfaces, two routers, because they have nothing in common but the money:
   signature rather than a session, inbox-deduped, and idempotent on the provider's own
   identifier.
 
-**What is honestly unfinished is marked as such.** There are no Razorpay credentials
-here, so the intent does NOT create an order with the provider — it returns
-`provider_order_id: null` and a note saying so, rather than a fabricated id. The
-signing scheme and payload paths the receiver reads are our best reading of the
-provider's contract and are flagged UNVERIFIED in `billing/payments.py`; if they are
-wrong, every event is refused and nothing is credited. See that module's docstring.
+**What is honestly unfinished is marked as such.** Since D-98 the intent DOES create the
+provider-side order — `RazorpayOrders.create_order`, a real `POST /v1/orders` — but only
+on a deployment that holds the API secret, and none does: no Razorpay account has been
+provisioned, so `capability.creates_orders` is False everywhere and the response is still
+`provider_order_id: null` / `provider_order_pending: true`. The difference is that it is
+now a NAMED state (`no_api_secret`) rather than an absence. The signing scheme is READ AT
+SOURCE from the vendor's own SDK; the webhook payload paths remain UNVERIFIED. See
+`billing/payments.py`.
+
+A third surface, small and deliberate:
+
+- `GET /v1/billing/topups/capability` — what this deployment can do about money, asked
+  BEFORE the click. D-75's shape (`KycRecordOut.number_purchase_available`): the
+  capability is a RENDERING HINT and never the check, so the intent route stays the
+  authority and a stale hint costs a refusal rather than a payment. Without it the top-up
+  form on `/c/{slug}/usage` offers a control that this deployment's default configuration
+  refuses every single time — §52's "loading is a skeleton, failure is a refusal" applied
+  one step earlier, to a control that should not have been offered at all.
 
 Permissions. The intent is `org:manage`: spending the client's money is not a read,
 and `org:manage` is already in `MUTATING_PERMISSIONS`, so an impersonating admin (D-22)
@@ -31,6 +43,8 @@ NOT mounted here — the integrator wires both routers into `main.py`.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -49,8 +63,11 @@ from apps.api.billing.payments import (
     event_name,
     extract_captured_payment,
     find_topup,
+    inr_to_paise,
     payment_capability,
     payments_not_configured,
+    razorpay_orders,
+    topup_receipt,
     verify_signature,
 )
 from apps.api.billing.service import get_balance, plan_tier_of, to_paise
@@ -61,9 +78,16 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
-from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
-from apps.api.reliability.service import body_hash, claim_inbox_event, mark_inbox_processed
+from apps.api.reliability.service import (
+    body_hash,
+    claim_idempotency,
+    claim_inbox_event,
+    complete_idempotency,
+    fail_idempotency,
+    mark_inbox_processed,
+    scope_key,
+)
 
 log = get_logger(__name__)
 
@@ -73,6 +97,14 @@ webhook_router = APIRouter(prefix="/hooks/v1", tags=["billing-webhooks"])
 # Annotated dependency rather than `Depends()` in a default: this file is not
 # `routes.py`, so it is not covered by the B008 per-file ignore.
 TopUpWrite = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
+# The READ is a genuinely different permission, never the write's reused: D-22 forbids a
+# GET requiring `org:manage`, and `billing:read` is what the surrounding usage screen
+# already requires, so the two cannot disagree about who may see them.
+TopUpRead = Annotated[Principal, Depends(requires("billing:read", realm="client"))]
+
+# The route this intent claims its idempotency key under. A literal, matching the
+# `crm/routes.py` convention of naming the templated path rather than the resolved one.
+INTENT_ROUTE = "/v1/billing/topups/intent"
 
 # The band a self-serve top-up must fall in. The floor stops the ₹1 test payments that
 # cost more in provider fees than they add; the ceiling is a typo guard — ₹100,000 is
@@ -121,11 +153,38 @@ class TopUpIntentOut(Strict):
     # exactly this, so it is not decoration.
     notes: dict[str, str]
     key_id: str
-    # ALWAYS null today: creating the order is a server-to-server call with credentials
-    # this deployment does not have (module docstring). The field exists so the gap is
-    # visible in the API contract instead of being discovered at integration time.
-    provider_order_id: str | None = None
-    provider_order_pending: bool = True
+    # The provider's order id, or null when this deployment could not create one.
+    #
+    # NO DEFAULT ON EITHER FIELD, and that is load-bearing rather than tidy: a Pydantic
+    # field with a default generates an OPTIONAL property in the TypeScript client, and
+    # the console must be able to tell "there is no order" from "the server did not say".
+    # This repository has been bitten by that four times. `str | None` with no default is
+    # a REQUIRED `string | null` in the generated types.
+    provider_order_id: str | None
+    # True = there is no order and one is still owed. Never inverted from a local
+    # condition — it is `not capability.creates_orders`, and the capability is the one
+    # place that knows whether the adapter AND the credential are both present.
+    provider_order_pending: bool
+
+
+class TopUpCapabilityOut(Strict):
+    """What this deployment can do about money, asked before the click (D-75's shape).
+
+    Two booleans because they are two facts and a screen needs both:
+    `online_payments_available` decides whether the top-up form is offered at all, and
+    `provider_orders_available` decides what the screen may promise once it is submitted.
+
+    Neither carries a default, for the reason on `TopUpIntentOut.provider_order_id`: a
+    missing key must not read as `false`, which would render "online payment is switched
+    off for your account" out of our own ignorance rather than out of the server's answer.
+
+    NO reason code is published. `reason` names OUR configuration state and a client
+    cannot act on "no_webhook_secret"; telling them which of our secrets is missing is an
+    internals leak. It is logged where an operator can reach it (`payments_unavailable`).
+    """
+
+    online_payments_available: bool
+    provider_orders_available: bool
 
 
 class WebhookAck(Strict):
@@ -137,20 +196,57 @@ class WebhookAck(Strict):
     balance_inr: Decimal | None = None
 
 
+@router.get(
+    "/capability",
+    response_model=TopUpCapabilityOut,
+    openapi_extra=permission_meta("billing:read"),
+    summary="Can this deployment take an online payment, and can it create an order?",
+    description=(
+        "A RENDERING HINT, never the check (D-75). The intent route asks the same "
+        "selector and remains the authority; a stale answer here costs a refusal, "
+        "never a payment."
+    ),
+)
+async def read_topup_capability(_principal: TopUpRead) -> TopUpCapabilityOut:
+    """Answered from `payment_capability()` — the SAME selector every other surface
+    asks, so a screen cannot offer what the route will refuse. No settings are read
+    here; that is the entire point of the seam."""
+    capability = payment_capability()
+    if not capability.available:
+        # Logged, not returned. An operator reading `payments_unavailable` gets the
+        # authored reason; the client gets two booleans they can act on.
+        log.info("topup_capability_unavailable", extra={"reason": capability.reason or "unknown"})
+    elif not capability.creates_orders:
+        log.info(
+            "topup_orders_unavailable",
+            extra={"reason": capability.orders_reason or "unknown"},
+        )
+    return TopUpCapabilityOut(
+        online_payments_available=capability.available,
+        provider_orders_available=capability.creates_orders,
+    )
+
+
 @router.post(
     "/intent",
     response_model=TopUpIntentOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="Start a prepaid top-up — prices it and binds it to this tenant (D-34)",
+    summary="Start a prepaid top-up — prices it, binds it to this tenant, creates the order (D-98)",
     description=(
-        "Returns what a checkout needs. It does NOT create the provider-side order: "
-        "that requires API credentials this deployment does not hold, so "
-        "`provider_order_id` is null and `provider_order_pending` is true."
+        "Creates the provider-side order when this deployment holds the API secret. "
+        "It does not today — no Razorpay account is provisioned — so `provider_order_id` "
+        "is null and `provider_order_pending` is true. Idempotent on a server-derived "
+        "key: the same tenant asking for the same amount twice gets one order."
     ),
 )
 async def create_topup_intent(payload: TopUpIntentIn, principal: TopUpWrite) -> TopUpIntentOut:
     """The tenant comes from the verified session, never from the body — a top-up
-    intent that named its own tenant would let anyone bind a payment to anyone."""
+    intent that named its own tenant would let anyone bind a payment to anyone.
+
+    Order of operations is the correctness argument, and each step is cheap-before-dear:
+    validate, then ask the seam, then check the plan, and only then spend a network call
+    on the provider. Everything that can refuse, refuses before anything is written.
+    """
     assert principal.tenant_id is not None
     tenant_id = principal.tenant_id
     amount = to_paise(payload.amount_inr)
@@ -170,8 +266,8 @@ async def create_topup_intent(payload: TopUpIntentIn, principal: TopUpWrite) -> 
     capability = payment_capability()
     if not capability.available:
         raise payments_not_configured(capability.reason)
-    settings = get_settings()
-    assert settings.razorpay_key_id is not None, "the capability check proved this is set"
+    key_id = get_settings().razorpay_key_id
+    assert key_id is not None, "the capability check proved this is set"
 
     async with tenant_session(tenant_id) as session:
         tier = await plan_tier_of(session, tenant_id)
@@ -182,23 +278,113 @@ async def create_topup_intent(payload: TopUpIntentIn, principal: TopUpWrite) -> 
             remediation="Your plan is billed on its retainer; there is nothing to top up.",
         )
 
-    # Exact by construction: `amount` is quantized to two decimals above, so this is a
-    # whole number of paise and never a float multiplication.
-    amount_paise = int((amount * 100).to_integral_exact())
-    return TopUpIntentOut(
-        tenant_id=tenant_id,
-        receipt=f"clv_{uuid7().hex}",
-        amount_inr=amount,
-        amount_paise=amount_paise,
-        currency=SUPPORTED_CURRENCY,
-        notes={NOTES_TENANT_KEY: str(tenant_id)},
-        key_id=settings.razorpay_key_id,
-        # Never inverted here from a local condition: the capability is the one place
-        # that knows whether an order-creation adapter exists, and today it does not
-        # (`PROVIDER_CREATES_ORDERS`). SURFACES §2c:205 documents this field as the way
-        # the gap lives in the contract rather than surfacing at integration time.
-        provider_order_pending=not capability.creates_orders,
+    # THE one conversion to the provider's unit, and it refuses rather than rounds
+    # (`payments.inr_to_paise`). It used to be an inline `to_integral_exact()` here,
+    # which silently rounded — see that function for why that was correct only by
+    # accident. One way per problem: the adapter converts through the same function.
+    amount_paise = inr_to_paise(amount)
+    receipt = topup_receipt(tenant_id=tenant_id, amount_inr=amount, at=datetime.now(UTC))
+    notes = {NOTES_TENANT_KEY: str(tenant_id)}
+
+    def _intent(order_id: str | None) -> TopUpIntentOut:
+        return TopUpIntentOut(
+            tenant_id=tenant_id,
+            receipt=receipt,
+            amount_inr=amount,
+            amount_paise=amount_paise,
+            currency=SUPPORTED_CURRENCY,
+            notes=notes,
+            key_id=key_id,
+            provider_order_id=order_id,
+            provider_order_pending=order_id is None,
+        )
+
+    if not capability.creates_orders:
+        # No API secret on this deployment (`no_api_secret`), which is every deployment
+        # today. The receipt is real and the amount is priced, so the bank-transfer path
+        # in `runbooks/topup-payments.md` §3 has a reference to quote; nothing is
+        # fabricated in `provider_order_id`.
+        log.info(
+            "topup_intent_without_order",
+            extra={"tenant_id": str(tenant_id), "reason": capability.orders_reason or "unknown"},
+        )
+        return _intent(None)
+
+    return await _create_order_once(
+        tenant_id=tenant_id, amount_inr=amount, receipt=receipt, notes=notes, build=_intent
     )
+
+
+async def _create_order_once(
+    *,
+    tenant_id: UUID,
+    amount_inr: Decimal,
+    receipt: str,
+    notes: dict[str, str],
+    build: Callable[[str | None], TopUpIntentOut],
+) -> TopUpIntentOut:
+    """Create at most ONE provider order per derived key, and replay it thereafter.
+
+    `claim_idempotency` is this repository's answer to "the same client-initiated
+    mutation, twice", and the key is derived server-side by `topup_receipt` rather than
+    read off a header — `crm.routes.call_back`'s pattern, because a second CLICK mints a
+    second header and would place the side effect twice.
+
+    **The claim commits BEFORE the network call, in its own transaction.** Two clicks
+    racing would otherwise both be inside `INSERT … ON CONFLICT`, so the loser blocks on
+    the unique index until the winner's transaction ends — i.e. a database lock held
+    across a call to a payment provider, which is the one thing BACKEND-PATTERNS §5 names
+    outright. Committing first turns that into the CAS the machinery is designed around:
+    the loser reads `processing` and gets `idempotent_request_in_flight` with a
+    `Retry-After`, and a crashed attempt is retaken after `CLAIM_LEASE`.
+
+    The scope is the TENANT, with no user: `scope_key(tenant_id=…, user_id=None)`. A
+    top-up belongs to the organization's wallet, not to whoever clicked — two owners
+    submitting the same amount at the same moment want one order, not one each.
+    """
+    scope = scope_key(tenant_id=tenant_id, user_id=None)
+    request_hash = body_hash({"tenant_id": str(tenant_id), "receipt": receipt})
+
+    async with tenant_session(tenant_id) as session:
+        claim = await claim_idempotency(
+            session,
+            scope=scope,
+            route=INTENT_ROUTE,
+            method="POST",
+            key=receipt,
+            request_hash=request_hash,
+        )
+    if claim.state == "replay" and claim.response_payload:
+        # The SAME order, re-served. Money is stored and re-read as digit strings
+        # (`model_dump(mode="json")`), so a replay cannot be the place a Decimal becomes
+        # a float.
+        return TopUpIntentOut.model_validate(claim.response_payload)
+
+    try:
+        order = await razorpay_orders().create_order(
+            amount_inr=amount_inr, receipt=receipt, notes=notes
+        )
+    except Exception:
+        # Never swallowed, and never left `processing`: a failed attempt that kept the
+        # claim would refuse the client's own retry as "already in flight" for ten
+        # minutes. Marking it failed lets the very next click retake it by CAS.
+        async with tenant_session(tenant_id) as session:
+            await fail_idempotency(session, record_id=claim.record_id)
+        raise
+
+    result: TopUpIntentOut = build(order.order_id)
+    async with tenant_session(tenant_id) as session:
+        await complete_idempotency(
+            session,
+            record_id=claim.record_id,
+            response_status=200,
+            response_payload=result.model_dump(mode="json"),
+        )
+    log.info(
+        "topup_order_created",
+        extra={"tenant_id": str(tenant_id), "order_id": order.order_id},
+    )
+    return result
 
 
 @webhook_router.post(
@@ -313,4 +499,12 @@ async def razorpay_webhook(request: Request) -> WebhookAck:
     )
 
 
-__all__ = ["MAX_TOPUP_INR", "MIN_TOPUP_INR", "router", "webhook_router"]
+__all__ = [
+    "INTENT_ROUTE",
+    "MAX_TOPUP_INR",
+    "MIN_TOPUP_INR",
+    "TopUpCapabilityOut",
+    "TopUpIntentOut",
+    "router",
+    "webhook_router",
+]

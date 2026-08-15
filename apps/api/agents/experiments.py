@@ -501,6 +501,9 @@ def _counts_sql(conversion_predicate: str) -> str:
     )
 
 
+# The READ's header: the running experiment if there is one, else the most recent. It is
+# a reasonable answer to "what should this screen show?" and a WRONG one to "what am I
+# ending?" — see `conclude`, which used to share it and now names its row instead.
 _LATEST_SQL = (
     "SELECT e.id, e.name, e.status, e.conversion_metric, e.started_at, e.concluded_at, "
     "pv.label FROM prompt_experiments e "
@@ -737,13 +740,31 @@ async def results_for(*, tenant_id: UUID, agent_id: UUID) -> ExperimentResults |
     )
 
 
+# The arm to promote, scoped by AGENT as well as by experiment. The experiment id is the
+# caller's now, so an id naming ANOTHER agent's test must not resolve an arm here and then
+# be refused two statements later — the arm lookup runs first (its id has to go into the
+# CAS's SET), so it is the first statement that has to be scoped.
+_ARM_SQL = (
+    "SELECT v.id, v.disclosure_line, pv.body, pv.version "
+    "FROM prompt_experiment_variants v "
+    "JOIN prompt_versions pv ON pv.id = v.prompt_version_id "
+    "JOIN prompt_experiments e ON e.id = v.experiment_id "
+    "WHERE v.experiment_id = :eid AND e.agent_id = :aid AND v.label = :label"
+)
+
+# The same scope, as `transition_status`'s visibility predicate. It reaches the CAS and
+# the discriminating SELECT both, which is what makes "another agent's test" and "no such
+# test" one answer rather than a 409 naming a status the caller may not know it has
+# (db/transition.py's module docstring argues it at length; D-77 added the parameter).
+_ON_THIS_AGENT = "agent_id = :aid"
+
+
 async def _recorded_promotion(session: AsyncSession, experiment_id: UUID) -> str | None:
     """The arm a concluded experiment promoted, or None for "stopped, kept the control".
 
-    Read on the LOSING path only — after the CAS has already failed — so it cannot
-    reintroduce a read-then-write. It is a second read rather than a reuse of the
-    `_LATEST_SQL` row because that row was fetched before the CAS: in the two-operators
-    case it says `running`, which is exactly the fact the CAS has just disproved.
+    Read on the LOSING path only — after the CAS has already failed, and therefore after
+    `visible_where` has already established that the row is this agent's — so it cannot
+    reintroduce a read-then-write and needs no scope of its own.
     """
     label = (
         await session.execute(
@@ -763,8 +784,8 @@ def _ended_differently(recorded: str | None, requested: str | None) -> ProblemEr
 
     NAMES what was found, per `db/transition.py`'s contract — "conflict" with no state
     in it leaves an operator with nothing to reload towards. The CODE stays
-    `no_running_experiment`: it is what the console already switches on, and it is still
-    the literal reason the request cannot be honoured.
+    `no_running_experiment`: it is the published code for this refusal, nothing switches
+    on a different one, and it is still the literal reason the request cannot be honoured.
     """
     found = f"promoting variant {recorded}" if recorded else "with no promotion"
     wanted = f"promote variant {requested}" if requested else "end with no promotion"
@@ -776,9 +797,51 @@ def _ended_differently(recorded: str | None, requested: str | None) -> ProblemEr
 
 
 async def conclude(
-    *, tenant_id: UUID, agent_id: UUID, promote_label: str | None, created_by: UUID | None = None
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    experiment_id: UUID,
+    promote_label: str | None,
+    created_by: UUID | None = None,
 ) -> ConcludeResult:
-    """Stop the experiment, and optionally make one arm the agent's script.
+    """Stop the NAMED experiment, and optionally make one arm the agent's script.
+
+    THE CALLER NAMES THE TEST, AND THAT IS THE WHOLE POINT OF THE PARAMETER
+    -----------------------------------------------------------------------
+    This used to be keyed on the AGENT: it resolved `_LATEST_SQL`, which prefers the
+    RUNNING experiment. So a conclude that took the slow path — a retried request whose
+    response was lost, a proxy replay, an operator's second click after a colleague ended
+    the test and started the next one — arrived at an agent whose "current" experiment was
+    no longer the one the request was about, and ended THAT one instead. It promoted an
+    arm of a test nobody had read the results of, published a script to real phone lines,
+    and wrote an audit row that looked like a deliberate decision. Nothing in the request
+    was wrong; the server simply had no way to tell which test it meant.
+
+    `experiment_id` is a REQUIRED body field, and the alternatives were:
+
+    * **A path segment** (`.../experiments/{id}/conclude`) is the more RESTful spelling
+      and was rejected on what this action actually mutates: it promotes a prompt version
+      ONTO THE AGENT, moves the agent's disclosure line and republishes the agent — the
+      audit row's `object_id` is the agent for that reason. The route stays agent-scoped
+      because the effect is, and the experiment id rides as the precondition it is.
+    * **`If-Match` on the results read** was rejected on a fact about this resource: the
+      results representation changes with every completed call, so an ETag over it would
+      refuse a perfectly good conclude because a phone rang while the operator was
+      reading. A precondition that fails for reasons unrelated to the hazard trains people
+      to retry blindly, which is the behaviour that caused this defect.
+    * **Optional, defaulting to "the running one"**, was rejected outright: it is this
+      bug behind a flag, and the one caller that would use the default is the stale retry.
+
+    So the console sends the id it is displaying (it has `experiment_id` on every read),
+    and a request that names a test which is not the current one is answered ABOUT THE
+    TEST IT NAMED — never redirected onto the current one. Concretely, with the arms'
+    labels being A/B and the tests being older/newer:
+
+    * named test ended the way you asked -> 200, `changed=False` (the D-65 idempotency,
+      RFC 9110 §9.2.2). The existence of a LATER test is not a fact about this request.
+    * named test ended some OTHER way -> 409 naming the ending it found.
+    * named test is not visible on this agent — another agent's, another tenant's, or an
+      id that names nothing -> 404, via `visible_where`.
 
     ENDING IS PART OF THE FEATURE. Three things happen and they happen in this order:
 
@@ -806,15 +869,17 @@ async def conclude(
     THE THREE ANSWERS A CONCLUDE OWES ITS CALLER
     ---------------------------------------------
     This path answered ONE 409 (`no_running_experiment`) to all three, which told an
-    operator "conflict" for an agent id that names nothing at all and confirmed a row
-    exists that RLS deliberately hides:
+    operator "conflict" for an id that names nothing at all and confirmed a row exists
+    that RLS deliberately hides:
 
-    * **No test to end** — an agent with no experiment ever, an agent that is not this
-      tenant's, or an id that names nothing — is a **404**. A 409 asserts a conflict
-      with a resource that is there; here there is none, and under RLS a neighbour's
-      agent must be indistinguishable from a typo (`ProblemError.not_found`).
+    * **No test to end** — an experiment id that names nothing, one belonging to another
+      agent, or one belonging to another tenant — is a **404**. A 409 asserts a conflict
+      with a resource that is there; here there is none, and under RLS a neighbour's row
+      must be indistinguishable from a typo (`ProblemError.not_found`). It comes from
+      `transition_status`'s own zero-row discriminator plus `visible_where`, so the CAS
+      and the SELECT that explains it agree about which rows exist.
       Deliberately NOT preceded by an `_agent` lookup: "this agent does not exist" and
-      "this agent never ran a test" are one answer to the caller of THIS route, and a
+      "this agent never ran that test" are one answer to the caller of THIS route, and a
       separate agent probe would also start refusing to end the running test of an agent
       somebody soft-deleted mid-experiment.
     * **Already ended the way you asked** — the retry of a lost response, the second
@@ -841,29 +906,23 @@ async def conclude(
 
     new_version: int | None = None
     async with tenant_session(tenant_id) as session:
-        header = (await session.execute(text(_LATEST_SQL), {"aid": agent_id})).first()
-        if header is None:
-            # Nothing to end, rather than a conflict with something. Same answer for an
-            # agent this tenant cannot see, deliberately (hard rule 1).
-            raise ProblemError.not_found("Script test")
-        experiment_id = UUID(str(header[0]))
-
         promoted_id: UUID | None = None
         arm: Any = None
         if promote_label is not None:
+            # Before the CAS because its id is part of the CAS's SET — and therefore the
+            # first statement that has to be scoped to the agent in the path.
             arm = (
                 await session.execute(
-                    text(
-                        "SELECT v.id, v.disclosure_line, pv.body, pv.version "
-                        "FROM prompt_experiment_variants v "
-                        "JOIN prompt_versions pv ON pv.id = v.prompt_version_id "
-                        "WHERE v.experiment_id = :eid AND v.label = :label"
-                    ),
-                    {"eid": experiment_id, "label": promote_label},
+                    text(_ARM_SQL),
+                    {"eid": experiment_id, "aid": agent_id, "label": promote_label},
                 )
             ).first()
             if arm is None:
-                raise ProblemError.not_found("Variant")
+                # "Script test", not "Variant": the label is already constrained to A/B
+                # above and `start` writes both arms in the same transaction as the
+                # experiment, so the row that is missing here is the EXPERIMENT — or it
+                # is one this caller may not see, which is the same answer (hard rule 1).
+                raise ProblemError.not_found("Script test")
             promoted_id = UUID(str(arm[0]))
 
         changed = await transition_status(
@@ -874,7 +933,10 @@ async def conclude(
             to_status="concluded",
             from_statuses=("running",),
             extra_set="concluded_at = now(), promoted_variant_id = :pid",
-            params={"pid": promoted_id},
+            # The caller's id is only ever acted on for THIS agent. There is no fallback
+            # to the agent's current test — that fallback WAS the defect.
+            visible_where=_ON_THIS_AGENT,
+            params={"pid": promoted_id, "aid": agent_id},
         )
         if not changed:
             # It was already over — either before this request, or by the operator who

@@ -333,7 +333,7 @@ class _Transport:
         self.attempts = 0
         self.last: whatsapp.WhatsAppMessage | None = None
 
-    def send(self, message: whatsapp.WhatsAppMessage) -> SendResult:
+    async def send(self, message: whatsapp.WhatsAppMessage) -> SendResult:
         self.attempts += 1
         self.last = message
         return self.result

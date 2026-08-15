@@ -37,7 +37,16 @@ import itertools
 import uuid
 
 import pytest
-from apps.api.compliance.audit import GENESIS, lock_chain, verify_chain, write_audit
+from apps.api.compliance.audit import (
+    _MAX_REPORTED_BREAKS,
+    GENESIS,
+    _active_key,
+    _entry_hash,
+    lock_chain,
+    verify_chain,
+    write_audit,
+)
+from apps.api.db.base import uuid7
 from apps.api.db.session import untenanted_session
 from sqlalchemy import text
 
@@ -263,6 +272,146 @@ async def test_a_break_does_not_stop_the_walk() -> None:
             raise _AbortError
 
     # And the sabotage really is gone, so the next test sees the log it started with.
+    async with untenanted_session() as session:
+        left_behind = (
+            await session.execute(
+                text("SELECT count(*) FROM audit_log WHERE action LIKE :like"),
+                {"like": f"{marker}.%"},
+            )
+        ).scalar()
+    assert left_behind == 0, "the sabotage must not survive the test that used it"
+
+
+async def test_a_stale_head_is_reported_as_a_broken_link_not_as_an_edited_row() -> None:
+    """An entry that hashes correctly but names the WRONG predecessor must be reported
+    as `link`, never as `content`.
+
+    The two kinds decide what an operator does next and are not interchangeable.
+    `content` says "somebody edited this row's fields" and sends them looking for the
+    edit; `link` says "the row is intact but the chain around it is not" and sends them
+    looking for what is MISSING or misordered — a deleted entry, a reordered pair, or
+    (the case staged here, and the one that really happened in this repo before the
+    chain lock was consulted) two writers that both chained onto the same head. Because
+    the recompute runs against the row's OWN `prev_hash`, this row passes the content
+    check and can only be caught by the link check; testing content against the EXPECTED
+    prev instead would conflate them and report every entry after a deletion as edited.
+
+    THE SABOTAGE IS ROLLED BACK, for the reason `test_a_break_does_not_stop_the_walk`
+    gives: `audit_log` is append-only (hard rule 4, and a trigger enforces it), so a
+    scar made by a test could never be removed afterwards.
+    """
+    marker = f"test.chain_link.{uuid.uuid4().hex[:12]}"
+
+    with pytest.raises(_AbortError):
+        async with untenanted_session() as session:
+            await lock_chain(session)
+            before = (await verify_chain(session)).breaks_found
+
+            await write_audit(session, action=f"{marker}.first", actor_type="system")
+            stale_head = (
+                await session.execute(
+                    text("SELECT entry_hash FROM audit_log WHERE action = :a"),
+                    {"a": f"{marker}.first"},
+                )
+            ).scalar()
+            await write_audit(session, action=f"{marker}.second", actor_type="system")
+
+            # The racing writer: it read the head before `.second` landed, so its row is
+            # perfectly signed and points one entry too far back.
+            orphan_id = uuid7()
+            payload = {
+                "id": str(orphan_id),
+                "actor_type": "system",
+                "actor_id": None,
+                "tenant_id": None,
+                "action": f"{marker}.raced",
+                "object_type": None,
+                "object_id": None,
+            }
+            await session.execute(
+                text(
+                    "INSERT INTO audit_log (id, actor_type, action, at, prev_hash, "
+                    "entry_hash, created_at) VALUES (:id, 'system', :a, clock_timestamp(), "
+                    ":prev, :hash, clock_timestamp())"
+                ),
+                {
+                    "id": orphan_id,
+                    "a": f"{marker}.raced",
+                    "prev": str(stale_head),
+                    "hash": _entry_hash(str(stale_head), payload, _active_key()),
+                },
+            )
+
+            verdict = await verify_chain(session)
+
+            assert verdict.breaks_found == before + 1, (
+                "one misplaced entry is one break, not one per row after it"
+            )
+            named = [b for b in verdict.breaks if b.entry_id == str(orphan_id)]
+            assert named, f"the misplaced entry must be named: {verdict.breaks}"
+            assert named[0].kind == "link", (
+                "an intact row in the wrong place is a broken LINK — calling it "
+                f"`content` sends the investigation after an edit that never happened, "
+                f"got {named[0].kind}"
+            )
+            assert named[0].at is not None, "a break an operator cannot date is a break"
+            assert not verdict.ok
+
+            raise _AbortError
+
+    async with untenanted_session() as session:
+        left_behind = (
+            await session.execute(
+                text("SELECT count(*) FROM audit_log WHERE action LIKE :like"),
+                {"like": f"{marker}.%"},
+            )
+        ).scalar()
+    assert left_behind == 0, "the sabotage must not survive the test that used it"
+
+
+async def test_the_report_cap_bounds_what_is_listed_and_never_what_is_counted() -> None:
+    """Past `_MAX_REPORTED_BREAKS` the verdict stops LISTING breaks. It must not stop
+    COUNTING them.
+
+    An operator reads two numbers off this verdict, and the cap is a trap for exactly
+    one of them: a wholesale rewrite of the ledger would show up as a full list of 20
+    and, if the count were capped too, as "20 breaks" — which reads like a bounded,
+    survivable incident rather than the unbounded one it is. `breaks_found` is kept as
+    its own field so the size of the damage survives the truncation of its detail.
+    """
+    marker = f"test.chain_cap.{uuid.uuid4().hex[:12]}"
+    forged = _MAX_REPORTED_BREAKS + 3
+
+    with pytest.raises(_AbortError):
+        async with untenanted_session() as session:
+            await lock_chain(session)
+            before = (await verify_chain(session)).breaks_found
+
+            for index in range(forged):
+                await session.execute(
+                    text(
+                        "INSERT INTO audit_log (id, actor_type, action, at, prev_hash, "
+                        "entry_hash, created_at) VALUES (gen_random_uuid(), 'system', :a, "
+                        "clock_timestamp(), :bad, :bad, clock_timestamp())"
+                    ),
+                    {"a": f"{marker}.{index}", "bad": f"{index:02d}" + "f" * 62},
+                )
+
+            verdict = await verify_chain(session)
+
+            assert verdict.breaks_found == before + forged, (
+                "the count is the size of the damage and must not be truncated"
+            )
+            assert len(verdict.breaks) == _MAX_REPORTED_BREAKS, (
+                "the listed detail is bounded, so a corrupt log cannot exhaust memory"
+            )
+            assert verdict.breaks_found > len(verdict.breaks), (
+                "an operator must be able to see that the list is not the whole story"
+            )
+            assert verdict.first_bad_entry_id == verdict.breaks[0].entry_id
+
+            raise _AbortError
+
     async with untenanted_session() as session:
         left_behind = (
             await session.execute(

@@ -96,6 +96,79 @@ async def test_charging_the_same_call_twice_does_not_double_bill() -> None:
     assert balance.amount_inr == Decimal("470.0000")
 
 
+async def _entry_count(tenant_id: uuid.UUID) -> int:
+    async with tenant_session(tenant_id) as session:
+        return int(
+            (
+                await session.execute(
+                    text("SELECT count(*) FROM credit_ledger WHERE tenant_id = :t"),
+                    {"t": tenant_id},
+                )
+            ).scalar()
+            or 0
+        )
+
+
+async def test_an_entry_that_moves_nothing_is_not_written_to_the_ledger() -> None:
+    """A zero delta is not an event. `credit_ledger` is append-only (hard rule 4), so
+    nothing that lands on it can ever be tidied away — and a ledger that records "₹0.00,
+    usage" every time a free-tier or zero-cost call completes buries the entries that
+    describe real money under rows that describe none.
+
+    The balance answer must still be correct and must still be a `Balance`, because the
+    caller uses the return value: pipelines read it to decide whether the wallet is
+    exhausted, and returning None or a bare Decimal for the zero case would move the
+    failure into them.
+
+    A zero delta must also not take the per-tenant advisory lock: it has nothing to
+    serialize against, and a metering run over a batch of zero-cost calls would
+    otherwise queue behind every other writer for that tenant.
+    """
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await record_entry(session, tenant_id=tenant_id, delta=Decimal("250.00"), reason="topup")
+        unchanged = await record_entry(
+            session, tenant_id=tenant_id, delta=Decimal("0"), reason="usage", ref="zero-cost-call"
+        )
+        # `Decimal("0.0000")` is the same number spelled differently — the guard must be
+        # numeric, not a string or an `is` comparison.
+        also_unchanged = await record_entry(
+            session, tenant_id=tenant_id, delta=Decimal("0.0000"), reason="adjustment"
+        )
+
+    assert unchanged.amount_inr == Decimal("250.0000")
+    assert str(unchanged.amount_inr) == "250.0000", "hard rule 7: exact digits, never a float"
+    assert also_unchanged.amount_inr == Decimal("250.0000")
+    assert unchanged.is_exhausted is False
+    assert await _entry_count(tenant_id) == 1, "only the top-up belongs on the ledger"
+
+
+async def test_a_call_that_cost_nothing_leaves_the_wallet_alone() -> None:
+    """The same rule at the caller the post-call pipeline actually uses.
+
+    A completed call with no billable cost is ordinary — an inbound call on a plan whose
+    telephony is included, a call that failed before connecting, a metering run where
+    the engine reported no cost yet. Charging ₹0.00 for it would put a row on an
+    append-only ledger for every such call, and a NEGATIVE amount arriving here (a cost
+    correction sent to the wrong function) must not be silently converted into a CREDIT:
+    `charge_for_call` debits, and a refund is a compensating `adjustment` entry that
+    somebody decides on.
+    """
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await record_entry(session, tenant_id=tenant_id, delta=Decimal("100.00"), reason="topup")
+        await charge_for_call(
+            session, tenant_id=tenant_id, call_id=uuid.uuid4(), amount_inr=Decimal("0")
+        )
+        await charge_for_call(
+            session, tenant_id=tenant_id, call_id=uuid.uuid4(), amount_inr=Decimal("-5.00")
+        )
+        balance = await get_balance(session, tenant_id=tenant_id)
+
+    assert str(balance.amount_inr) == "100.0000", "neither call may move the wallet"
+    assert await _entry_count(tenant_id) == 1, "only the top-up belongs on the ledger"
+
+
 async def test_concurrent_charges_cannot_both_read_the_same_starting_balance() -> None:
     """The race the FOR UPDATE exists for: two charges landing at once must serialize,
     or a wallet with ₹100 pays for two ₹80 calls."""

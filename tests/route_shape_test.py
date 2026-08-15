@@ -41,6 +41,7 @@ from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from tests.impersonation_grant_test import view_as_headers
 
 # A realistic Telugu turn with an E.164 number inside it — the exact pair hard rule 6
 # names (transcript text AND a phone number), so a leak of either fails the assertion.
@@ -242,14 +243,15 @@ async def test_publishing_is_still_refused_while_impersonating() -> None:
     async with _client() as http:
         response = await http.post(
             f"/v1/admin/tenants/{org['id']}/agents/{org['agent_id']}/publish",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "X-Impersonate-Org": str(org["slug"]),
-            },
+            # A REAL grant, so the refusal is D-22's read-only rule and not the grant
+            # check standing in front of it. A 403 for the wrong reason would let this
+            # test survive the exact regression it names.
+            headers=await view_as_headers(http, token, str(org["slug"])),
         )
 
     assert response.status_code == 403, response.text
     assert response.json()["kind"] == "permission"
+    assert "read-only" in response.json()["detail"].lower(), response.text
     assert "read-only" in response.json()["detail"].lower()
 
 

@@ -12,6 +12,20 @@ import {
   type PlatformState,
 } from "@/lib/api/admin";
 
+import {
+  OPS_SECRETS_PATH,
+  secretConfirmation,
+  type KekState,
+  type SecretsList,
+} from "@/lib/api/opsSecrets";
+import {
+  OPS_CONFIG_PATH,
+  configConfirmation,
+  revertConfirmation,
+  type ConfigField,
+  type ConfigList,
+} from "@/lib/api/opsConfig";
+
 import { problem, renderAdminPage, type Routes } from "./harness";
 
 /**
@@ -74,7 +88,13 @@ function me(permissions: string[]): AdminMe {
   } as AdminMe;
 }
 
-const SUPERADMIN = me(["org:read", "admin:tenants", "ops:manage"]);
+const SUPERADMIN = me([
+  "org:read",
+  "admin:tenants",
+  "ops:manage",
+  "platform:config",
+  "platform:secrets",
+]);
 const OPERATOR = me(["org:read", "admin:tenants"]);
 
 /**
@@ -89,7 +109,126 @@ function routes(
   identity: unknown = SUPERADMIN,
   extra: Routes = {},
 ): Routes {
-  return { [PLATFORM]: platformAnswer, [ADMIN_ME_PATH]: identity, ...extra };
+  // The config panel rides this screen, so its read is part of every case's premise —
+  // the harness THROWS on an unrouted request rather than 404ing, which is right: an
+  // unstubbed endpoint is a hole in the premise. Overridable through `extra`, which the
+  // config cases use to make the read fail or to change one field.
+  return {
+    [PLATFORM]: platformAnswer,
+    [ADMIN_ME_PATH]: identity,
+    [OPS_CONFIG_PATH]: configList(),
+    [OPS_SECRETS_PATH]: secretsList(),
+    [`${OPS_SECRETS_PATH}/kek`]: kekState(),
+    ...extra,
+  };
+}
+
+/** Two credentials on purpose: one INSTALLED and one that is not, plus one shadowed by
+ *  the environment — three different pieces of markup that a single-row fixture would
+ *  leave unscanned. */
+function secretsList(over: Partial<SecretsList> = {}): SecretsList {
+  return { ...SECRETS_FIXTURE, ...over };
+}
+
+const SECRETS_FIXTURE: SecretsList = {
+  secrets: [
+    {
+      key: "bolna_api_key",
+      env_var: "BOLNA_API_KEY",
+      installed: true,
+      version: 2,
+      versions: 2,
+      last_four: "9f3c",
+      kek_id: 1633907231,
+      created_at: "2026-08-10T06:30:00Z",
+      created_by: "Ops",
+      shadowed_by_env: false,
+      testable: true,
+      applies: "on_restart",
+      caveat: "the engine adapter captures this key at construction (D-101)",
+    },
+    {
+      key: "sarvam_api_key",
+      env_var: "SARVAM_API_KEY",
+      installed: false,
+      version: 0,
+      versions: 0,
+      last_four: "",
+      kek_id: 0,
+      created_at: null,
+      created_by: null,
+      shadowed_by_env: true,
+      testable: true,
+      applies: "live",
+      caveat: null,
+    },
+  ],
+};
+
+function kekState(over: Partial<KekState> = {}): KekState {
+  return { ...KEK_FIXTURE, ...over };
+}
+
+const KEK_FIXTURE: KekState = {
+  active_kek_id: 1633907231,
+  has_retired_kek: false,
+  versions: 2,
+  current: 2,
+  pending: 0,
+};
+
+/** One managed setting, as `GET /v1/ops/config` returns it. */
+function configField(over: Partial<ConfigField> = {}): ConfigField {
+  return {
+    key: "self_serve_inr_per_min",
+    env_var: "SELF_SERVE_INR_PER_MIN",
+    value: "6.00",
+    source: "default",
+    default: "6.00",
+    has_default: true,
+    kind: "decimal",
+    options: [],
+    editable: true,
+    applies: "live",
+    caveat: null,
+    // The key's concurrency token, sent back as `If-Match` on every write. A field
+    // WITHOUT one makes the console refuse to offer a form at all — the API answers 428
+    // to an unconditional write (`ops/config_routes.require_if_match`), so a Change
+    // button for a key with no token is a control whose only outcome is a refusal.
+    // `opsHardening.test.tsx` owns that property; this fixture simply has one.
+    etag: '"7"',
+    updated_by: null,
+    updated_at: null,
+    note: null,
+    ...over,
+  };
+}
+
+function configList(over: Partial<ConfigList> = {}): ConfigList {
+  return {
+    // Required since D-101: the six keys that can only change with an SSH session and a
+    // restart. Their ABSENCE used to read identically to "this build has no such
+    // setting", which is why the server states them rather than the console inferring.
+    bootstrap: [],
+    fields: [
+      configField(),
+      configField({
+        key: "object_store_bucket",
+        env_var: "OBJECT_STORE_BUCKET",
+        value: "calevate-prod",
+        source: "env",
+        editable: false,
+        kind: "string",
+        default: null,
+        has_default: false,
+      }),
+    ],
+    config_version: 42,
+    stale: false,
+    never_loaded: false,
+    config_changed_at: "2026-08-12T09:00:00Z",
+    ...over,
+  };
 }
 
 /**
@@ -903,6 +1042,10 @@ describe("the audit chain verification", () => {
     newest_checked_at: "2026-08-13T09:15:00Z",
     breaks: [],
     breaks_found: 0,
+    // Zero is the honest default for a deployment that has always been configured, and
+    // it is the value that must render NOTHING — an "0 entries under a retired key"
+    // line would be a caveat about a problem this log does not have.
+    entries_under_retired_key: 0,
     ...over,
   });
 
@@ -1091,6 +1234,64 @@ describe("the audit chain verification", () => {
     expect(container.textContent).toContain("says nothing about the rest of the log");
   });
 
+  it("names the weakly-attested era on an INTACT log, because ok is not the whole answer", async () => {
+    /* `entries_under_retired_key` is not a break and does not move `ok` — those rows
+       hash correctly. What they lack is attestation STRENGTH: they were signed before
+       this deployment had its own AUDIT_CHAIN_SECRET, when the key was a constant in
+       the source, so anyone who could read the repository could have produced one that
+       verifies. A green box that says only "intact" is what puts that era into an
+       evidence export unremarked. */
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [VERIFY]: verdict({ ok: true, entries_under_retired_key: 812 }),
+      }),
+    );
+
+    fireEvent.click(await armVerify());
+
+    await screen.findByText("Chain intact for the entries checked");
+    expect(container.textContent).toContain("812 entries verified under a retired signing key");
+    // Still intact — the caveat must not be written as a failure.
+    expect(container.textContent).toContain("they are not a break");
+  });
+
+  it("says nothing about retired keys when there are none", async () => {
+    // Zero is the answer on a deployment that has always been configured, and a caveat
+    // about a problem the log does not have is how operators learn to skim caveats.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, { [VERIFY]: verdict() }),
+    );
+
+    fireEvent.click(await armVerify());
+
+    await screen.findByText("Chain intact for the entries checked");
+    expect(container.textContent).not.toContain("retired signing key");
+  });
+
+  it("carries the retired-key caveat onto a FAILED verdict too", async () => {
+    // The two facts are independent: a log can be broken AND partly weakly attested,
+    // and the era question applies either side of the break.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [VERIFY]: verdict({
+          ok: false,
+          first_bad_entry_id: chainBreak().entry_id,
+          breaks: [chainBreak()],
+          breaks_found: 1,
+          entries_under_retired_key: 3,
+        }),
+      }),
+    );
+
+    fireEvent.click(await armVerify());
+
+    await screen.findByText("AUDIT CHAIN VERIFICATION FAILED");
+    expect(container.textContent).toContain("3 entries verified under a retired signing key");
+  });
+
   it("asks for no typed confirmation, because it writes nothing", async () => {
     // Stated as a property rather than left implicit: a confirmation on a read is friction
     // whose only lesson is that confirmations are things you type past, and the two
@@ -1142,5 +1343,404 @@ describe("our own telemarketer registration", () => {
     // The panel needs the read to render at all, so the refused session gets no form —
     // which is the strongest form of "disabled with its reason" available here.
     expect(screen.queryByRole("button", { name: /Record registration/ })).toBeNull();
+  });
+});
+
+/**
+ * The platform-configuration panel (PLATFORM-CONFIG §8 panel 2).
+ *
+ * Ranked by what each failure costs, worst first — the same ordering the rest of this
+ * file uses, because it is the same screen and the same operator:
+ *
+ * 1. **A read we could not make must never render as a table of values.** Every other
+ *    panel here can lie about one fact; this one would lie about thirty-six at once, each
+ *    of them a plausible-looking default an operator would then act on. §52's rule, at
+ *    its highest stake on this screen.
+ * 2. **A key the ENVIRONMENT pins is read-only WITH the reason.** The store cannot win
+ *    against `os.environ` (§4), so an editable box for such a key would be a control
+ *    whose only outcome is a refusal — "a field that silently does nothing is worse than
+ *    no field" (§8). The screen must show the value, refuse the edit, and name the
+ *    variable to change instead.
+ * 3. **A write is not one click, and its confirmation is bound to the KEY.** The header
+ *    on the wire is what the API checks, so a test that only asserted the button worked
+ *    would pass with the binding removed — and a confirmation captured while raising a
+ *    pool size would switch the voice engine.
+ * 4. **Staleness is stated.** A process that has never read the store is running on its
+ *    environment and its defaults, and a change made on this screen may not be reflected
+ *    by it. That is a sentence, not a silence.
+ */
+describe("the platform configuration panel", () => {
+  it("refuses to show values it did not receive", async () => {
+    renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [OPS_CONFIG_PATH]: problem(503, {
+          title: "Service unavailable",
+          detail: "The database is not reachable.",
+        }),
+      }),
+    );
+
+    await screen.findByText("We could not read the platform configuration");
+    // Not a table of defaults, and not an empty state that reads as "nothing is managed".
+    expect(screen.queryByText("self_serve_inr_per_min")).toBeNull();
+  });
+
+  it("renders an env-pinned key read-only, with the variable that pins it", async () => {
+    const { container } = renderAdminPage(<OpsPage />, routes(platform()));
+
+    await screen.findByText("object_store_bucket");
+    // The value is SHOWN — hiding it would leave an operator hunting for a setting they
+    // can see in .env.
+    expect(screen.getByText("calevate-prod")).toBeTruthy();
+    // …and the refusal names the variable, so they know where to go instead.
+    expect(container.textContent).toContain("OBJECT_STORE_BUCKET");
+    expect(container.textContent).toContain("The environment always wins over the console");
+  });
+
+  it("sends the confirmation bound to the key it is changing", async () => {
+    const { calls } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [`PUT ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
+          key: "self_serve_inr_per_min",
+          previous: null,
+          field: configField({ value: "7.25", source: "db" }),
+          config_version: 43,
+          recorded: true,
+          etag: '"8"',
+        },
+      }),
+    );
+
+    await screen.findByText("self_serve_inr_per_min");
+    fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
+
+    const [valueInput] = screen.getAllByDisplayValue("6.00");
+    fireEvent.change(valueInput, { target: { value: "7.25" } });
+    fireEvent.change(screen.getByPlaceholderText(/Q3 price change/), {
+      target: { value: "Q3 self-serve price change" },
+    });
+
+    const save = screen.getByRole("button", { name: /^Save$/ });
+    // Dead until the key itself has been typed — the same shape as the switches above.
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(screen.getByPlaceholderText("SELF_SERVE_INR_PER_MIN"), {
+      target: { value: "SELF_SERVE_INR_PER_MIN" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    await waitFor(() => {
+      expect(calls.some((c) => c.method === "PUT")).toBe(true);
+    });
+    const write = calls.find((c) => c.method === "PUT");
+    expect(write?.path).toBe(`${OPS_CONFIG_PATH}/self_serve_inr_per_min`);
+    // THE BINDING, on the wire. The API refuses a header that names another key.
+    // The literal, for the reason the credential test above records: an assertion
+    // against the function under test cannot see the two sides move together.
+    expect(write?.headers["X-Confirm-Action"]).toBe("set_config:self_serve_inr_per_min");
+    expect(configConfirmation("self_serve_inr_per_min")).toBe(
+      "set_config:self_serve_inr_per_min",
+    );
+    // Money leaves as a STRING. A `number` input would have handed us a float, and
+    // `usd_inr_rate` is stamped into usage_events.meta (hard rule 7).
+    expect(JSON.parse(write?.body ?? "{}")).toEqual({
+      value: "7.25",
+      reason: "Q3 self-serve price change",
+    });
+  });
+
+  it("uses a DIFFERENT confirmation string to revert", async () => {
+    const { calls } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({
+          fields: [configField({ value: "7.25", source: "db", updated_by: "Ops" })],
+        }),
+        [`DELETE ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
+          key: "self_serve_inr_per_min",
+          previous: "7.25",
+          field: configField(),
+          config_version: 44,
+          recorded: true,
+          etag: '"0"',
+        },
+      }),
+    );
+
+    await screen.findByText("self_serve_inr_per_min");
+    fireEvent.click(screen.getByRole("button", { name: /Change/ }));
+    fireEvent.change(screen.getByPlaceholderText("SELF_SERVE_INR_PER_MIN"), {
+      target: { value: "SELF_SERVE_INR_PER_MIN" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Revert to default/ }));
+
+    await waitFor(() => {
+      expect(calls.some((c) => c.method === "DELETE")).toBe(true);
+    });
+    const revert = calls.find((c) => c.method === "DELETE");
+    expect(revert?.headers["X-Confirm-Action"]).toBe("revert_config:self_serve_inr_per_min");
+    expect(revertConfirmation("self_serve_inr_per_min")).toBe(
+      "revert_config:self_serve_inr_per_min",
+    );
+    // Not the same string as a set: reverting puts a value nobody has looked at in
+    // months back into force, and a header captured for either must not authorise the
+    // other.
+    expect(revert?.headers["X-Confirm-Action"]).not.toBe(
+      configConfirmation("self_serve_inr_per_min"),
+    );
+  });
+
+  it("says so when the serving process has never read the store", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({ never_loaded: true, config_version: 0 }),
+      }),
+    );
+
+    await screen.findByText("This process has never read the configuration store");
+    expect(container.textContent).toContain(
+      "nothing set from this console is in force here",
+    );
+  });
+
+  it("distinguishes a stale refresh from a process that never loaded", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({ stale: true }),
+      }),
+    );
+
+    await screen.findByText("The last refresh of the configuration failed");
+    // The values are REAL, just possibly behind — the opposite reading from `never_loaded`,
+    // and the operator's next move differs.
+    expect(container.textContent).toContain("last ones read successfully");
+    expect(screen.queryByText("This process has never read the configuration store")).toBeNull();
+  });
+
+  it("warns on a setting that will not take effect until a restart", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({
+          fields: [
+            configField({
+              key: "db_pool_size",
+              env_var: "DB_POOL_SIZE",
+              value: 16,
+              default: 16,
+              kind: "integer",
+              applies: "on_restart",
+              caveat: "the SQLAlchemy engine is built once per process",
+            }),
+          ],
+        }),
+      }),
+    );
+
+    await screen.findByText("db_pool_size");
+    // A field that quietly does nothing for six hours is §8's defect wearing a delay.
+    expect(container.textContent).toContain("Needs a restart to take effect");
+  });
+
+  it("keeps the controls dead for a session without platform:config", async () => {
+    renderAdminPage(<OpsPage />, routes(platform(), OPERATOR));
+
+    await screen.findByText("self_serve_inr_per_min");
+    const change = screen.getAllByRole("button", { name: /Change/ })[0] as HTMLButtonElement;
+    // The permission is NOT ops:manage — an operator who may run the recovery tools
+    // still has no business switching the platform's voice engine (§7).
+    expect(change.disabled).toBe(true);
+  });
+});
+
+/**
+ * Credentials and key management (PLATFORM-CONFIG §8 panels 3-4).
+ *
+ * Ranked by cost, worst first:
+ *
+ * 1. **No plaintext, on any screen, ever.** §7's rule is a property of the API, and this
+ *    asserts the console never grows a field for one — including through the `/test`
+ *    flow, which is the one place a credential is in the browser's memory.
+ * 2. **A read we could not make must not render as "not installed".** That reads as "this
+ *    platform has no Sarvam key", and an operator would install one over a working
+ *    credential. §52 at its highest stake on this screen.
+ * 3. **A credential the environment shadows says so.** Otherwise an operator rotates a
+ *    key here and the platform goes on using the one in `.env` — §4's precedence turning
+ *    into a silent no-op.
+ * 4. **`pending > 0` blocks the environment cleanup, in those words.** The whole point of
+ *    the key-management panel is that removing `PLATFORM_KEK_RETIRED` too early makes
+ *    rows permanently unreadable.
+ */
+/** The credential box. `type="password"` has no accessible role, so it is addressed the
+ *  way a browser would find it rather than through a label this panel deliberately keeps
+ *  short — and it throws rather than returning null, so a form that failed to open reads
+ *  as the premise failure it is instead of an unhelpful "cannot fire change". */
+function secretInput(): HTMLInputElement {
+  const input = document.querySelector<HTMLInputElement>('input[type="password"]');
+  if (!input) throw new Error("the credential form is not open — did the button render disabled?");
+  return input;
+}
+
+describe("the credentials panel", () => {
+  it("never puts a credential on screen, including after a test", async () => {
+    const { container, calls } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [`POST ${OPS_SECRETS_PATH}/bolna_api_key/test`]: {
+          key: "bolna_api_key",
+          outcome: "accepted",
+          status: 200,
+          detail: "The vendor accepted this credential for one authenticated read.",
+          verified: false,
+          candidate_last_four: "cdef",
+        },
+      }),
+    );
+
+    await screen.findByText("bolna_api_key");
+    fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
+    const secret = "bn-live-secret-abcdef";
+    fireEvent.change(secretInput(), { target: { value: secret } });
+    fireEvent.click(screen.getByRole("button", { name: /Test with the vendor/ }));
+
+    // The TITLE carries the epistemic status: this fixture is `verified: false`, which
+    // every probe in this build is, so the box may not read as a plain acceptance.
+    // `opsHardening.test.tsx` owns that property; here it is only the anchor.
+    await screen.findByText("The vendor accepted this credential — indicative, not confirmed");
+    // The value went to the API and came back nowhere. The response carries four
+    // characters and the screen shows those four and nothing more.
+    expect(container.textContent).not.toContain(secret);
+    expect(container.textContent).toContain("…cdef");
+    // And the test STORED nothing: no PUT was made.
+    expect(calls.some((c) => c.method === "PUT")).toBe(false);
+  });
+
+  it("marks an unverified probe as indicative rather than authoritative", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [`POST ${OPS_SECRETS_PATH}/bolna_api_key/test`]: {
+          key: "bolna_api_key",
+          outcome: "rejected",
+          status: 401,
+          detail: "The vendor refused this credential.",
+          verified: false,
+          candidate_last_four: "wxyz",
+        },
+      }),
+    );
+    await screen.findByText("bolna_api_key");
+    fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
+    fireEvent.change(secretInput(), { target: { value: "a-wrong-key-wxyz" } });
+    fireEvent.click(screen.getByRole("button", { name: /Test with the vendor/ }));
+
+    await screen.findByText("The vendor REFUSED this credential — indicative, not confirmed");
+    // OPERATIONS §2: an unverified vendor behaviour is a MARKED assumption.
+    expect(container.textContent).toContain("not been confirmed against the live vendor");
+  });
+
+  it("refuses to report 'not installed' from a read that failed", async () => {
+    renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [OPS_SECRETS_PATH]: problem(503, { title: "Service unavailable" }),
+      }),
+    );
+    await screen.findByText("We could not read which credentials are installed");
+    expect(screen.queryByText("bolna_api_key")).toBeNull();
+  });
+
+  it("says when a stored credential is inert because the environment sets it", async () => {
+    const { container } = renderAdminPage(<OpsPage />, routes(platform()));
+    await screen.findByText("sarvam_api_key");
+    expect(container.textContent).toContain("SARVAM_API_KEY");
+    expect(container.textContent).toContain("the environment always wins");
+  });
+
+  it("sends the key-bound confirmation when installing", async () => {
+    const { calls } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [`PUT ${OPS_SECRETS_PATH}/bolna_api_key`]: {
+          ...SECRETS_FIXTURE.secrets[0],
+          version: 3,
+          versions: 3,
+        },
+      }),
+    );
+    await screen.findByText("bolna_api_key");
+    fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
+    fireEvent.change(secretInput(), { target: { value: "bn-live-new-key-0001" } });
+    fireEvent.change(screen.getByPlaceholderText(/rotating after/), {
+      target: { value: "vendor breach notice" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("BOLNA_API_KEY"), {
+      target: { value: "BOLNA_API_KEY" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Rotate$/ }));
+
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    const write = calls.find((c) => c.method === "PUT");
+    // THE LITERAL, not `secretConfirmation("bolna_api_key")`. Comparing the header
+    // against the same function that produced it asserts nothing — a sabotage that
+    // unbound the string left this green, because both sides moved together. The API
+    // owns this vocabulary (`ops/secret_routes.secret_confirmation`) and a runbook
+    // prints it, so the console's copy is pinned to the literal it must match.
+    expect(write?.headers["X-Confirm-Action"]).toBe("set_secret:bolna_api_key");
+    expect(secretConfirmation("bolna_api_key")).toBe("set_secret:bolna_api_key");
+  });
+});
+
+describe("the key-management panel", () => {
+  it("tells the operator NOT to remove the retired key while any DEK is pending", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [`${OPS_SECRETS_PATH}/kek`]: kekState({
+          has_retired_kek: true,
+          versions: 5,
+          current: 2,
+          pending: 3,
+        }),
+      }),
+    );
+    await screen.findByText("3 stored versions are still wrapped under another key");
+    // The sentence that prevents permanent data loss, in the imperative.
+    expect(container.textContent).toContain(
+      "Do not remove PLATFORM_KEK_RETIRED from the environment yet",
+    );
+  });
+
+  it("names the versions a rewrap could not open rather than counting them away", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [`POST ${OPS_SECRETS_PATH}/kek/rewrap`]: {
+          examined: 4,
+          rewrapped: 3,
+          unreadable: ["sarvam_api_key#1"],
+          active_kek_id: 1633907231,
+        },
+      }),
+    );
+    await screen.findByText("Every stored key is wrapped under the current KEK");
+    fireEvent.change(screen.getByPlaceholderText("REWRAP"), { target: { value: "REWRAP" } });
+    fireEvent.click(screen.getByRole("button", { name: /Re-wrap every key/ }));
+
+    await screen.findByText("3 of 4 versions re-wrapped");
+    // A row nobody can open is the one that will be LOST, so it is named.
+    expect(container.textContent).toContain("sarvam_api_key#1");
+    expect(container.textContent).toContain("will be lost if the retired key is removed");
+  });
+
+  it("keeps the rewrap dead for a session without platform:secrets", async () => {
+    renderAdminPage(<OpsPage />, routes(platform(), OPERATOR));
+    await screen.findByText("Key management");
+    const button = screen.getByRole("button", { name: /Re-wrap every key/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
   });
 });

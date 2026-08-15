@@ -191,6 +191,36 @@ async def test_the_same_payment_reference_credits_exactly_once() -> None:
     assert entries[0] == ("topup", Decimal("1000.0000"), "UTR-DUPLICATE-1")
 
 
+async def test_a_reference_that_is_only_whitespace_is_refused_before_it_becomes_a_key() -> None:
+    """The payment reference IS the idempotency key, and it is normalized by stripping —
+    which is what makes `"UTR-1 "` and `"UTR-1"` one payment instead of two.
+
+    That normalization has a hole at the bottom that `min_length` alone does not close:
+    `"   "` is three characters, so it passes the length constraint and then strips to
+    nothing. An empty key on an append-only ledger is the worst kind: the NEXT payment
+    recorded with a blank reference collides with it, so an operator who fat-fingered
+    the field once would see a real second payment answered "already recorded" and a
+    client would be short the money with no row to point at.
+
+    So it is refused at the boundary as a field error naming `payment_ref` — before a
+    transaction opens, and with nothing on the ledger.
+    """
+    token = await _make_admin()
+    tenant_id = await _tenant()
+
+    async with _client() as http:
+        for ref in ("   ", "\t\n ", " a "):
+            response = await http.post(
+                f"/v1/admin/tenants/{tenant_id}/credits",
+                headers=_headers(token),
+                json={"amount_inr": "1000.00", "payment_ref": ref},
+            )
+            assert response.status_code == 422, f"{ref!r}: {response.text}"
+            assert response.json()["fields"][0]["field"] == "payment_ref", ref
+
+    assert await _ledger(tenant_id) == [], "a refused reference never reaches the ledger"
+
+
 async def test_two_operators_recording_one_payment_at_once_credit_it_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

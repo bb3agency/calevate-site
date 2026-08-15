@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections import Counter
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -69,12 +70,66 @@ SECRET_HEADER = "X-Ingest-Secret"
 META_SOURCE = "meta_lead_ads"
 
 
+class IngestAckOut(BaseModel):
+    """What the SENDER is told about one delivery: ids and verdicts, never the lead.
+
+    Declared rather than `dict[str, Any]`, and this is the response on this router where
+    that matters most: the handler holds the sender's ENTIRE payload in scope, and an
+    untyped return is one `**payload` away from echoing a customer's name and number back
+    over a channel authenticated by a secret that gets pasted into form vendors. An
+    untyped return is not a shape `scripts/check_redaction_exposure.py` judges safe — it
+    inspects response MODELS, so it is a shape the guardrail cannot see at all (D-71).
+
+    **On a `duplicate` every other field is null**, because THIS delivery decided
+    nothing. The first one made the lead and the dial; re-deriving what it did from an
+    inbox row that does not record it would be a claim we cannot back, and `dispatched:
+    false` next to `status: duplicate` reads as "nobody was called", which is the one
+    thing it must not be allowed to mean.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["accepted", "duplicate"]
+    lead_id: UUID | None = None
+    # Whether THIS delivery placed the call. `false` with a `blocked` rule beside it is
+    # the normal lawful outcome, not an error: the lead lands, the dial does not.
+    dispatched: bool | None = None
+    # The compliance rule that refused the dial (`dnc`, `no_form_consent`, `quiet_hours`,
+    # …) — OUR authored rule name, never an exception's message. Null when nothing
+    # refused it.
+    blocked: str | None = None
+
+
+class MetaLeadgenAckOut(BaseModel):
+    """One verified Meta delivery, accounted for four ways.
+
+    Meta itself reads only the status code; these counts are for US — they are what the
+    delivery log and an operator tailing the response see, and `received != accepted +
+    duplicate + refused` is the arithmetic that says a notification went missing.
+    Declared for `IngestAckOut`'s reason: a counts-only response is safe by construction
+    today and invisible to the redaction guardrail while it stays a bare dict.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Lead notifications in the batch. Meta batches, so this is rarely 1.
+    received: int
+    accepted: int
+    # Retries we absorbed without ringing the customer twice (deduped on `leadgen_id`).
+    duplicate: int
+    # Recorded against the `leadgen_id` with a reason the client can read, rather than
+    # retried: our refusals here are permanent, and Meta unsubscribes a Page it cannot
+    # deliver to.
+    refused: int
+
+
 @router.post(
     "/ingest/{webhook_id}",
     status_code=202,
+    response_model=IngestAckOut,
     summary="Per-client lead intake → compliance-gated instant callback (FLOWS §4)",
 )
-async def ingest(webhook_id: UUID, request: Request) -> dict[str, Any]:
+async def ingest(webhook_id: UUID, request: Request) -> IngestAckOut:
     received_at = time.time()
 
     # Config lookup happens before any tenant is known — the webhook id IS the
@@ -114,17 +169,17 @@ async def ingest(webhook_id: UUID, request: Request) -> dict[str, Any]:
             event_name=config.source,
         )
         if claim.state == "duplicate":
-            return {"status": "duplicate"}
+            return IngestAckOut(status="duplicate")
 
         result = await ingest_lead(session, config=config, payload=payload, received_at=received_at)
         await mark_inbox_processed(session, row_id=claim.row_id)
 
-    return {
-        "status": "accepted",
-        "lead_id": str(result["lead_id"]),
-        "dispatched": result["dispatched"],
-        **({"blocked": result["blocked"]} if result.get("blocked") else {}),
-    }
+    return IngestAckOut(
+        status="accepted",
+        lead_id=result["lead_id"],
+        dispatched=bool(result["dispatched"]),
+        blocked=result.get("blocked"),
+    )
 
 
 async def _meta_config(webhook_id: UUID) -> IngestConfig:
@@ -187,9 +242,10 @@ async def meta_verify(
 
 @router.post(
     "/ingest/meta/{webhook_id}",
+    response_model=MetaLeadgenAckOut,
     summary="Meta Lead Ads leadgen notifications, X-Hub-Signature-256 verified (SURFACES §2b)",
 )
-async def meta_leadgen(webhook_id: UUID, request: Request) -> dict[str, int]:
+async def meta_leadgen(webhook_id: UUID, request: Request) -> MetaLeadgenAckOut:
     """One verified delivery → n leads, deduped per `leadgen_id`.
 
     Order is the security argument, and it is the same one `billing/payments.py` and
@@ -201,11 +257,20 @@ async def meta_leadgen(webhook_id: UUID, request: Request) -> dict[str, int]:
     2. verify the signature over those RAW bytes, before any parse;
     3. only then parse, normalize, and do work.
 
-    The answer is always 200 once the signature holds, including for the deliveries we
-    refuse. Meta retries a non-2xx with backoff for hours and eventually unsubscribes
-    the Page — and our refusal is permanent (no retriever), so retrying could only
-    delay the verdict and end with the client's integration switched off. The refusal
-    is recorded instead, against the `leadgen_id`, where the client can see it.
+    The answer is 200 once the signature holds, including for the deliveries we REFUSE.
+    Meta retries a non-2xx with backoff for hours and eventually unsubscribes the Page,
+    and a refusal here is a verdict — an unreadable lead, a number we cannot dial, an
+    agent nobody published — so retrying could only delay it and end with the client's
+    integration switched off. The refusal is recorded instead, against the `leadgen_id`,
+    where the client can see it.
+
+    THE ONE EXCEPTION IS A TRANSIENT FAILURE, and it is 503 on purpose. A Graph timeout
+    or a 5xx is not a verdict about the lead; it is us being unable to ask. Acking it
+    200 would silently drop the enquiry the whole product exists to catch, and Meta's
+    at-least-once ladder is a retry mechanism we already have — so we use it rather than
+    building a second one. Redelivery is free because the `leadgen_id` claim absorbs the
+    siblings that already committed: a batch of three with one deferred comes back as
+    two duplicates and one fresh attempt.
     """
     received_at = time.time()
     config = await _meta_config(webhook_id)
@@ -249,17 +314,55 @@ async def meta_leadgen(webhook_id: UUID, request: Request) -> dict[str, int]:
         ) from exc
 
     notifications = meta.extract_lead_notifications(payload)
-    counts = {"received": len(notifications), "accepted": 0, "duplicate": 0, "refused": 0}
+    outcomes: Counter[str] = Counter()
     for notification in notifications:
-        outcome = await _absorb_leadgen(
-            webhook_id=webhook_id,
-            config=config,
-            notification=notification,
-            received_at=received_at,
+        outcomes[
+            await _absorb_leadgen(
+                webhook_id=webhook_id,
+                config=config,
+                notification=notification,
+                received_at=received_at,
+            )
+        ] += 1
+    ack = MetaLeadgenAckOut(
+        received=len(notifications),
+        accepted=outcomes["accepted"],
+        duplicate=outcomes["duplicate"],
+        refused=outcomes["refused"],
+    )
+    log.info(
+        "meta_leadgen_received",
+        extra={
+            "webhook_id": str(webhook_id),
+            **ack.model_dump(),
+            # Not on the ack model, and not because it is unimportant: a deferred count
+            # never travels in a 200 body, since the whole point of the 503 below is
+            # that this delivery is NOT accounted for yet.
+            "deferred": outcomes[_DEFERRED],
+        },
+    )
+    if outcomes[_DEFERRED]:
+        # Reached only when a lead could not be read for a reason that trying again can
+        # fix. Everything that DID land above is committed and claimed, so Meta's
+        # redelivery re-does exactly the part that failed.
+        raise ProblemError(
+            kind="transient",
+            code="meta_lead_retrieval_deferred",
+            title="Lead answers could not be fetched",
+            # 503 is the one status allowed to keep a detailed message
+            # (BACKEND-PATTERNS §3) and Meta reads only the code, so this sentence is
+            # for the operator tailing the response. It names no lead and no reason
+            # code: the reason is on the inbox row, where it belongs.
+            detail="Fetching this lead's answers failed for a reason a retry can fix.",
+            remediation="Meta will redeliver this notification; no action is needed.",
         )
-        counts[outcome] += 1
-    log.info("meta_leadgen_received", extra={"webhook_id": str(webhook_id), **counts})
-    return counts
+    return ack
+
+
+# The fourth outcome, spelled once. It is deliberately NOT a field of
+# `MetaLeadgenAckOut`: a deferred delivery never travels in a 200 body, because the 503
+# it produces is the statement that this delivery has not been accounted for yet.
+_DEFERRED: Literal["deferred"] = "deferred"
 
 
 async def _absorb_leadgen(
@@ -268,7 +371,7 @@ async def _absorb_leadgen(
     config: IngestConfig,
     notification: meta.LeadNotification,
     received_at: float,
-) -> Literal["accepted", "duplicate", "refused"]:
+) -> Literal["accepted", "duplicate", "refused", "deferred"]:
     """One lead, one transaction — the unit of work Meta actually delivers.
 
     One transaction PER NOTIFICATION rather than per delivery: Meta batches, and one
@@ -305,22 +408,44 @@ async def _absorb_leadgen(
         if claim.state == "duplicate":
             return "duplicate"
 
-    retriever = meta.get_lead_retriever()
-    if retriever is None:
-        # THE HONEST HOLE (meta.py's docstring). We hold the notification and not the
-        # answers, so there is no lead to write — and writing one out of metadata we
-        # cannot read would be inventing it. Recorded as failed with OUR reason code,
-        # which the activity view renders as `rejected`, and re-claimable by CAS the
-        # day a retriever exists.
+    # ONE lookup for "may we read this client's leads" and "with what" — the capability
+    # carries the retriever precisely so a second read cannot disagree with the first.
+    # The question is per LEAD SOURCE, not per deployment: an adapter that holds no
+    # token for this client is unavailable to this client, and says which.
+    capability = meta.lead_retrieval_capability(source_id=webhook_id)
+    if capability.retriever is None:
+        # We hold the notification and not the answers, so there is no lead to write —
+        # and writing one out of metadata we cannot read would be inventing it. Recorded
+        # as failed with OUR reason code, which the activity view renders as `rejected`,
+        # and re-claimable by CAS the moment a credential is attached.
         return await _record_refusal(
             config,
             claim.row_id,
             webhook_id=webhook_id,
-            reason=meta.lead_retrieval_capability().reason or "",
+            reason=capability.reason or meta.NO_RETRIEVER_REASON,
         )
 
-    answers = meta.flatten_field_data(await retriever.fetch_field_data(notification.leadgen_id))
+    retrieved = await capability.retriever.fetch_answers(
+        source_id=webhook_id, leadgen_id=notification.leadgen_id
+    )
+    if retrieved.status is meta.RetrievalStatus.TRANSIENT:
+        # Mark the claim failed — which is what makes it RE-CLAIMABLE by CAS — and defer.
+        # Not `mark_inbox_processed`: a row recorded as done is a lead nobody will ever
+        # look at again, and this one is coming back.
+        await _record_refusal(
+            config, claim.row_id, webhook_id=webhook_id, reason=retrieved.reason or ""
+        )
+        return _DEFERRED
+    if retrieved.status is meta.RetrievalStatus.PERMANENT:
+        return await _record_refusal(
+            config, claim.row_id, webhook_id=webhook_id, reason=retrieved.reason or ""
+        )
+
+    answers = retrieved.answers
     if not answers:
+        # A lead with no answers at all is not a lead: there is no number to dial and
+        # nothing to put in a row. Distinct from a Graph refusal, because the fix is
+        # different — this one is about the client's form.
         return await _record_refusal(
             config, claim.row_id, webhook_id=webhook_id, reason=meta.NO_ANSWERS_REASON
         )
@@ -374,6 +499,58 @@ class TestWebhookIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     payload: dict[str, Any]
+
+
+class LeadSourceDryRunStepOut(BaseModel):
+    """One decision the real ingest path would have made, reported instead of acted on.
+
+    **A caller's phone number is in scope where these are built, and it is not on this
+    model.** The dry run normalizes the sample's number to decide whether it is dialable
+    and to ask the compliance gate about it; what it reports is the VERDICT. Declaring
+    the shape is what makes that structural rather than merely careful — `extra="forbid"`
+    means a number can only ship from here if somebody ADDS a field, and
+    `scripts/check_redaction_exposure.py` reports that field the moment they do.
+
+    Until this model existed it could not: the guardrail inspects response MODELS, and
+    this route answered `dict[str, Any]`, so it was not a route the check judged safe —
+    it was a route the check could not see (the same defect as D-71's subject export and
+    D-75's event catalogue). The half a schema walk still cannot judge is whether a
+    STRING carries a number; `tests/response_shape_test.py` asserts the sample's own
+    digits appear nowhere in the body.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # The five checks, in the order the real path applies them. A Literal rather than
+    # `str`: the set is closed by construction — every value is emitted by the one
+    # handler below — so the generated TypeScript client can switch on it exhaustively.
+    # (This is NOT the case D-75 refused to narrow: there the server's list was a
+    # DEPLOYMENT fact and the client's union a build-time one. These five are neither.)
+    step: Literal["field_mapping", "phone_number", "agent", "form_consent", "compliance_gate"]
+    ok: bool
+    # A sentence for the person who pressed the button, never a value from their sample:
+    # the only interpolation is the client's own CONFIGURED field name.
+    detail: str
+    # The compliance gate's rule name (`dnc`, `quiet_hours`, …) on the gate step. Null on
+    # every other step, which is a different fact from "no rule fired".
+    rule: str | None = None
+    # Which of the client's configured fields the sample filled in — KEYS, never values.
+    # Null where the question does not apply; `[]` on `field_mapping` is a real answer
+    # ("your mapping matched nothing in this sample"), which is why it is not conflated.
+    mapped_fields: list[str] | None = None
+
+
+class LeadSourceDryRunOut(BaseModel):
+    """Would a submission like this get a call right now, and every decision behind it.
+
+    `would_call` is present tense on purpose: the gate reads the DNC list and the calling
+    window live, so this is what would happen NOW rather than a property of the source.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    would_call: bool
+    steps: list[LeadSourceDryRunStepOut]
 
 
 # --- provisioning (SURFACES §2b) ----------------------------------------------
@@ -621,7 +798,10 @@ async def meta_setup(
     config = await load_config(session, webhook_id)
     if config is None or config.source != META_SOURCE:
         raise ProblemError.not_found("Lead source")
-    capability = meta.lead_retrieval_capability()
+    # PER LEAD SOURCE, not per deployment. A deployment with the Graph adapter selected
+    # and no token attached for THIS source can no more fetch this client's answers than
+    # one with no adapter at all, and the reason code says which of the two it is.
+    capability = meta.lead_retrieval_capability(source_id=webhook_id)
     return MetaSetupOut(
         callback_path=f"/hooks/v1/ingest/meta/{webhook_id}",
         verify_token=meta.verify_token_for(webhook_id=webhook_id, app_secret=config.secret_ref),
@@ -634,6 +814,7 @@ async def meta_setup(
 
 @sources_router.post(
     "/{webhook_id}/test",
+    response_model=LeadSourceDryRunOut,
     openapi_extra=permission_meta("org:manage"),
     summary="Dry-run a sample lead end-to-end WITHOUT placing a call (SURFACES §2b)",
 )
@@ -642,7 +823,7 @@ async def test_webhook(
     body: TestWebhookIn,
     session: SessionDep,
     principal: Principal = Depends(requires("org:manage")),
-) -> dict[str, Any]:
+) -> LeadSourceDryRunOut:
     """Everything the real path would decide, nothing it would do.
 
     This is NOT a compliance-gate bypass (hard rule 5 forbids those): no lead row is
@@ -650,6 +831,10 @@ async def test_webhook(
     same function, same live DNC read — and its verdict is reported instead of acted
     on. The difference between this and a bypass is the direction of the arrow: a
     bypass dials without asking; this asks without dialling.
+
+    The number the sample carries is normalized here and never leaves: every step
+    reports a verdict, `mapped_fields` reports KEYS, and the model above is what makes
+    that a rule the guardrail enforces rather than a habit this function has.
     """
     assert principal.tenant_id is not None
     config = await load_config(session, webhook_id)
@@ -660,29 +845,31 @@ async def test_webhook(
     raw_phone = str(mapped.get("phone") or mapped.get("phone_number") or "")
     phone = normalize_phone(raw_phone) if raw_phone else None
 
-    steps: list[dict[str, Any]] = [
-        {
-            "step": "field_mapping",
-            "ok": bool(mapped),
-            "detail": f"{len(mapped)} of your configured fields matched the sample.",
-            "mapped_fields": sorted(mapped.keys()),
-        },
-        {
-            "step": "phone_number",
-            "ok": phone is not None,
-            "detail": (
+    steps: list[LeadSourceDryRunStepOut] = [
+        LeadSourceDryRunStepOut(
+            step="field_mapping",
+            ok=bool(mapped),
+            detail=f"{len(mapped)} of your configured fields matched the sample.",
+            mapped_fields=sorted(mapped.keys()),
+        ),
+        LeadSourceDryRunStepOut(
+            step="phone_number",
+            ok=phone is not None,
+            detail=(
                 "Found a dialable Indian number."
                 if phone
                 else "No dialable phone number — the real webhook would answer 422."
             ),
-        },
+        ),
     ]
     if phone is None or config.agent_id is None:
         if config.agent_id is None:
             steps.append(
-                {"step": "agent", "ok": False, "detail": "No agent attached to this source."}
+                LeadSourceDryRunStepOut(
+                    step="agent", ok=False, detail="No agent attached to this source."
+                )
             )
-        return {"would_call": False, "steps": steps}
+        return LeadSourceDryRunOut(would_call=False, steps=steps)
 
     consent_field = config.mapping.get("consent_field")
     if isinstance(consent_field, str) and consent_field:
@@ -693,36 +880,36 @@ async def test_webhook(
             "on",
         )
         steps.append(
-            {
-                "step": "form_consent",
-                "ok": affirmed,
-                "detail": (
+            LeadSourceDryRunStepOut(
+                step="form_consent",
+                ok=affirmed,
+                detail=(
                     f"The '{consent_field}' field confirms permission to call."
                     if affirmed
                     else f"The '{consent_field}' field does not confirm permission — the lead "
                     "would be saved but never dialled."
                 ),
-            }
+            )
         )
         if not affirmed:
-            return {"would_call": False, "steps": steps}
+            return LeadSourceDryRunOut(would_call=False, steps=steps)
 
     decision = await check_dispatch(
         session, tenant_id=principal.tenant_id, agent_id=config.agent_id, phone_e164=phone
     )
     steps.append(
-        {
-            "step": "compliance_gate",
-            "ok": decision.allowed,
-            "detail": (
+        LeadSourceDryRunStepOut(
+            step="compliance_gate",
+            ok=decision.allowed,
+            detail=(
                 "The call would be placed."
                 if decision.allowed
                 else decision.reason or "The gate would refuse this dial."
             ),
-            "rule": decision.rule,
-        }
+            rule=decision.rule,
+        )
     )
-    return {"would_call": decision.allowed, "steps": steps}
+    return LeadSourceDryRunOut(would_call=decision.allowed, steps=steps)
 
 
 def _ingest_path(webhook_id: UUID, source: str) -> str:

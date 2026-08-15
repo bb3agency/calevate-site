@@ -92,6 +92,21 @@ FIRST_CAMPAIGN_REVIEW_APPROVED = "approved"
 # rather than an anonymous release with the name left off — see the migration.
 FIRST_CAMPAIGN_DECISION_SOURCES = ("operator", "migration_backfill")
 CONSENT_STATUSES = ("granted", "declined", "withdrawn")
+# The CLIENT-side WhatsApp opt-in (migration e6b2d94f31a7) — our own customer's owner
+# agreeing to receive hot-lead alerts from the Calevate WABA. Deliberately a separate
+# vocabulary from `CONSENT_STATUSES` above, which describes a CONSUMER's statement about
+# a client's messages: there is no `declined` here because nobody asks a client on our
+# behalf and records the no — an owner who has not opted in simply has no row, and
+# absence is the default of the world.
+ALERT_OPTIN_STATUSES = ("granted", "withdrawn")
+# HOW the agreement was obtained. The asymmetry is argued in the migration: a self-serve
+# row must have been recorded BY its own subject, an operator's row must name the
+# operator and the document. Both are grant-capable; neither may be unevidenced.
+ALERT_OPTIN_CHANNELS = ("self_serve_console", "operator_recorded")
+# The one channel a client owner can reach themselves. Named so the route, the CHECK and
+# the service cannot drift into three spellings of the same idea.
+ALERT_OPTIN_SELF_SERVE = "self_serve_console"
+ALERT_OPTIN_OPERATOR = "operator_recorded"
 DATA_CATEGORIES = ("recording", "transcript", "lead", "consent_log")
 RETENTION_ACTIONS = ("delete", "anonymize")
 ACTOR_TYPES = ("admin", "user", "system")
@@ -148,6 +163,103 @@ class ConsentLedgerEntry(PKMixin, Base):
     consent_source: Mapped[str | None] = mapped_column(Text)
     captured_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     evidence: Mapped[dict[str, object] | None] = mapped_column(JSONB)  # e.g. transcript span
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class WhatsAppAlertOptIn(PKMixin, Base):
+    """A named person at a client agreed to receive WhatsApp alerts from OUR WABA.
+
+    The client-side twin of `ConsentLedgerEntry`'s `messaging` purpose, and deliberately
+    a different table: that ledger holds a CONSUMER's statement about being messaged by
+    a client, keyed to the number a client's caller rang from. This holds our own
+    contracting counterparty's statement about being messaged by US. Different party,
+    different fiduciary, different regime — Meta's opt-in policy plus DPDP, with no
+    TRAI/DLT leg at all, because a service notification to a paying customer about their
+    own account is not commercial traffic to a subscriber.
+
+    INSERT-only (hard rule 4). A withdrawal is a NEW row with `status='withdrawn'`; the
+    current state of a (tenant, user, phone) is the LATEST row for it, and the
+    `whatsapp_alert_optin_ledger_append_only` trigger enforces that at the database.
+    The grant it supersedes survives, because "were we allowed to send that alert in
+    March?" is a question asked in April.
+
+    **There is no expiry column and that is a decision, not an omission** — the migration
+    argues it. The consumer ledger's 365-day window stands in for a relationship we
+    cannot observe; here the relationship is observable on every send, so the expiry is
+    structural: the row names the `user_id` (so an owner handover does not inherit it)
+    and the `phone_e164` it was given for (so a changed number fails closed), and
+    `resolve_destination` already excludes deactivated users and non-owners. A clock
+    would switch a client's hot-lead alerts off on a day nobody is watching, which is
+    the failure the feature exists to prevent.
+
+    The constraints below mirror migration `e6b2d94f31a7` — the CHECKs are the source of
+    truth and this tuple must not drift from them (DATA-MODEL §10).
+    """
+
+    __tablename__ = "whatsapp_alert_optin_ledger"
+    __table_args__ = (
+        CheckConstraint(f"status IN {ALERT_OPTIN_STATUSES!r}", name="status_enum"),
+        CheckConstraint(f"channel IN {ALERT_OPTIN_CHANNELS!r}", name="channel_enum"),
+        # The three things Meta expects a business to produce when a number is
+        # challenged, as a constraint rather than a convention: the wording the person
+        # agreed to, and — per channel — who stands behind the record. A self-serve
+        # grant nobody's own subject recorded, and an operator grant with no document,
+        # are both unrepresentable. Withdrawals are exempt: consent must be evidenced, a
+        # refusal must never be obstructed.
+        CheckConstraint(
+            "status <> 'granted' OR (notice_version IS NOT NULL AND ("
+            f"(channel = {ALERT_OPTIN_SELF_SERVE!r} AND recorded_by_user_id = user_id) "
+            f"OR (channel = {ALERT_OPTIN_OPERATOR!r} AND recorded_by_admin_id IS NOT NULL "
+            "AND evidence IS NOT NULL)))",
+            name="granted_optin_is_evidenced",
+        ),
+        # Exactly one accountable recorder. Neither is an anonymous consent record; both
+        # is two parties for one act, which resolves to neither.
+        CheckConstraint(
+            "(recorded_by_user_id IS NULL) <> (recorded_by_admin_id IS NULL)",
+            name="names_one_recorder",
+        ),
+        # The read: latest row for one (tenant, user, phone). Declared with a DESC
+        # ordering and an INCLUDE, so autogenerate cannot faithfully diff it; the
+        # migration is the source of truth for its existence.
+        Index(
+            "ix_whatsapp_alert_optin_current",
+            "tenant_id",
+            "user_id",
+            "phone_e164",
+            text("captured_at DESC"),
+            text("created_at DESC"),
+            postgresql_include=["status"],
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    # WHOSE agreement. An opt-in is obtained from the person who receives the messages,
+    # so a handover of the owner role does not carry it.
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    # The number it was given FOR — the subject of the statement, not a second copy of
+    # `users.phone`. Compared against the live number at send time.
+    phone_e164: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    channel: Mapped[str] = mapped_column(String, nullable=False)
+    # WHICH wording they agreed to (`whatsapp_optin.ALERT_NOTICE_VERSION`). Pinned by
+    # version rather than copied, so the notice lives in one place and the row records
+    # which one was shown.
+    notice_version: Mapped[str | None] = mapped_column(Text)
+    captured_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    recorded_by_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT")
+    )
+    recorded_by_admin_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="RESTRICT")
+    )
+    # A REFERENCE to what an operator's record rests on (onboarding pack, ticket id),
+    # never the document itself.
+    evidence: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 

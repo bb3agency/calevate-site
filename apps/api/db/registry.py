@@ -14,6 +14,7 @@ from apps.api.db.base import Base
 from apps.api.flags import models as flags_models
 from apps.api.integrations import models as integrations_models
 from apps.api.kb import models as kb_models
+from apps.api.ops import models as ops_models
 from apps.api.quality import models as quality_models
 from apps.api.reliability import models as reliability_models
 from apps.api.tenancy import models as tenancy_models
@@ -30,6 +31,7 @@ __all__ = [
     "flags_models",
     "integrations_models",
     "kb_models",
+    "ops_models",
     "quality_models",
     "reliability_models",
     "tenancy_models",
@@ -70,6 +72,11 @@ TENANT_TABLES = [
     "one_time_charges",
     "spend_state",
     "consent_ledger",
+    # The CLIENT-side WhatsApp opt-in (migration e6b2d94f31a7): our own customer's owner
+    # agreeing to receive hot-lead alerts from the Calevate WABA. Tenant data — it names
+    # a person at one client and the number they opted in on — and the read that decides
+    # whether `notify_hot_lead_whatsapp` may send runs inside `tenant_session`.
+    "whatsapp_alert_optin_ledger",
     # dnc_list is listed but its policy is HAND-WRITTEN (asymmetric read/write): the
     # standard tenant_id = GUC form would hide global entries from every tenant, and a
     # nationally suppressed number would keep getting dialled.
@@ -105,8 +112,16 @@ TENANT_TABLES = [
     "qa_call_samples",
 ]
 
-# Tables carrying tenant_id that are deliberately NOT tenant-RLS'd, with reasons —
-# the RLS coverage guardrail requires every exception to be listed here.
+# Tables deliberately OUTSIDE tenant isolation, with reasons — the RLS coverage
+# guardrail requires every exception to be listed here.
+#
+# Two shapes live in one dict, and the name is now narrower than the contents:
+# `audit_log` and `engine_agent_routes` CARRY a tenant_id and are not policied on it,
+# while the `platform_*` tables carry no tenant_id at all because they are platform
+# state. They share the only property that matters to a reviewer — "this table is
+# deliberately not tenant-isolated, and here is why" — so they share one list rather
+# than growing a second one nobody would think to read. `check_rls_coverage` judges
+# both: an entry must still name a table this repo actually has, whichever shape it is.
 #
 # This dict is the cheapest way to smuggle a tenant table past hard rule 1, so it is
 # fenced on three sides: `check_rls_coverage` rejects an entry whose table no longer
@@ -127,6 +142,33 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "this two-id lookup in its own global table is what lets `agents` stay FORCE-RLS'd "
         "(hard rule 1) instead of needing an exemption. Carries no PII and no call data."
     ),
+    "platform_settings": (
+        "platform-scoped, admin realm only (PLATFORM-CONFIG §5). One engine selection, "
+        "one calling window, for every client at the same instant — there is no tenant "
+        "whose row this could be, so it carries no tenant_id rather than a decorative "
+        "one that would make it LOOK tenant-scoped to every column-driven sweep. "
+        "Reachable only behind `platform:config` in the admin realm; every write is "
+        "step-up confirmed and lands an audit_log row in the same transaction. Holds no "
+        "PII and no credential — a key whose NAME marks it as a credential is refused "
+        "at the boundary and lives encrypted in platform_secrets instead."
+    ),
+    "platform_secrets": (
+        "platform-scoped, admin realm only (PLATFORM-CONFIG §5). Vendor credentials for "
+        "the whole deployment — one Bolna key, one Sarvam key — so there is no tenant "
+        "whose row this could be and it carries no tenant_id. Reachable only behind "
+        "`platform:secrets` in the admin realm, and NO route returns plaintext on any "
+        "surface: a session gives write access, never read access. What stops PII "
+        "leaking is that nothing here is PII and nothing here is readable — the only "
+        "plaintext fragment on disk is `last_four`. Per-TENANT credentials are a "
+        "different table (§11) and that one carries tenant_id + FORCEd RLS."
+    ),
+    "platform_config_version": (
+        "platform-scoped, admin realm only (PLATFORM-CONFIG §6). One integer that every "
+        "process polls to learn whether the config changed; it is bumped by a trigger on "
+        "platform_settings rather than by any application write. No tenant_id, because "
+        "the fact it carries is 'the platform's configuration moved' — there is no "
+        "per-tenant version of that. Holds no PII, no credential and no tenant data."
+    ),
 }
 
 # INSERT-only ledgers (hard rule 4): immutability triggers in the migration.
@@ -136,4 +178,17 @@ APPEND_ONLY_TABLES = [
     "audit_log",
     "credit_ledger",
     "one_time_charges",
+    # A withdrawn WhatsApp alert opt-in is a NEW row, never an edit of the grant it
+    # supersedes: DPDP §6(6) requires withdrawal to be as easy as consent, not that it
+    # erase the evidence of the consent that was live when we sent last month's alerts.
+    "whatsapp_alert_optin_ledger",
+    # Vendor credentials, versioned (PLATFORM-CONFIG §5). A new value is a new VERSION so
+    # that "which key was live when this call was billed?" stays answerable a year later.
+    # Its trigger is NOT the blanket `calevate_forbid_mutation` the others carry: a KEK
+    # rotation must re-wrap historical DEKs in place, or the retired KEK could never be
+    # removed from the environment. The trigger permits exactly `dek_wrapped`,
+    # `dek_nonce`, `kek_version` and `retired_at` to change and RAISEs on everything else
+    # including every DELETE — migration b8e3f2a71c04 argues it and records the rejected
+    # alternative.
+    "platform_secrets",
 ]

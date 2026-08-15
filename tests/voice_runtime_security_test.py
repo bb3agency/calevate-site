@@ -27,8 +27,9 @@ Notes for whoever reads this next:
 from __future__ import annotations
 
 import secrets
+import time
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 import pytest
@@ -38,6 +39,7 @@ from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.reliability.service import InboxClaim, body_hash
+from engine_intake import KNOWN_ENGINES, client_ip, is_trusted_peer, verify_source
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
 from sqlalchemy import text
@@ -830,3 +832,153 @@ async def test_the_fake_engine_hook_is_closed_on_a_deployment_that_runs_bolna(
     assert accepted.status_code == 202, accepted.text
     assert accepted.json()["status"] == "accepted"
     assert await _counts(execution_id=execution_id, event_type=status, engine="fake") == (1, 1)
+
+
+# --- 11. a peer the socket cannot name ----------------------------------------
+
+
+async def test_a_delivery_whose_peer_we_cannot_see_is_refused_however_good_its_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No peer address, no trusted hop — and therefore no caller we can vouch for.
+
+    ASGI omits `client` when the connection has no address to report: a unix-socket
+    upstream is the shape that does it in production (uvicorn sets `client` to None on a
+    UDS), and `is_trusted_peer` is then asked about the empty string. It must answer
+    False rather than raise, because the alternative on this path is a 500 out of the
+    authenticity check on the only unauthenticated endpoint we expose.
+
+    The header is deliberately PERFECT here — `CF-Connecting-IP` naming the allowlisted
+    egress address, exactly what a genuine delivery carries. It still must not get in:
+    the header means something only because a trusted hop wrote it, and a connection
+    with no visible peer is a connection where nothing proved that hop exists. Believing
+    it would turn the header into a password that anyone who read DEPLOYMENT §5 knows.
+    """
+    monkeypatch.setattr(get_settings(), "app_env", "staging")
+
+    # The unit answer first, so a regression says which half moved.
+    assert client_ip(None, {"cf-connecting-ip": ENGINE_EGRESS_IP}) is None
+    assert is_trusted_peer("") is False, "an unparseable peer is not a trusted proxy"
+    assert is_trusted_peer("not-an-ip") is False
+
+    execution_id, status, body = _event()
+    peerless = AsyncClient(
+        transport=ASGITransport(app=voice_app, client=None),
+        base_url="http://runtime",
+    )
+    async with peerless as http:
+        response = await http.post(HOOK, json=body, headers={"CF-Connecting-IP": ENGINE_EGRESS_IP})
+
+    assert response.status_code == 401, response.text
+    assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
+
+
+# --- 12. the engine name decides the METHOD, and two of them are refusals ------
+
+
+def test_an_engine_that_signs_is_refused_until_a_verifier_exists_not_waved_through() -> None:
+    """`WEBHOOK_AUTH_BY_ENGINE` is the one table this receiver reads (D-93), and it now
+    carries an engine that SIGNS — Cartesia Line, whose scheme is unsourced.
+
+    The failure this pins is the tempting one: an engine whose declared method is `hmac`
+    arriving at a receiver that implements no signature check, and the check falling
+    through to "well, the IP looked fine" or to a bare accept. Either would record a
+    delivery we never authenticated as one we did — `signature_valid` in the forensic
+    row is derived from `verdict.method == "hmac"`, so a wave-through does not merely
+    accept a forgery, it FILES it as signed.
+
+    So the verdict must be a refusal, and it must say which work is missing rather than
+    which caller was wrong: "signature verification not implemented" is a message about
+    us, and the operator reading it needs to know the deliveries are being dropped
+    deliberately (the poller is still the guarantee of record, D-31).
+    """
+    verdict = verify_source("cartesia", ENGINE_EGRESS_IP)
+    assert verdict.ok is False
+    assert verdict.method == "hmac"
+    assert verdict.reason == "signature verification not implemented"
+
+    # The declaration is what makes it hmac — not the engine's name — so the fixture
+    # adapter that declares the same method gets the same answer.
+    assert verify_source("fake-restricted", ENGINE_EGRESS_IP).ok is False
+    # And an allowlisted source address does not rescue it: source-IP evidence is not
+    # signature evidence, and treating one as the other is the whole point of the table.
+    assert verify_source("cartesia", ENGINE_EGRESS_IP) == verify_source("cartesia", ATTACKER_IP)
+
+
+def test_an_engine_this_deployment_never_heard_of_is_refused_and_never_labelled() -> None:
+    """`{engine}` is a path segment, so on the refusal path it is a stranger's string.
+
+    Two properties, and the second is why the first is not enough. It must REFUSE — an
+    engine we do not run has no authenticity story at all, so there is nothing to check
+    and nothing to accept. And the string must not reach the metrics pipeline as a
+    label: `_refuse` bounds it to `KNOWN_ENGINES` precisely so that anyone who found the
+    URL cannot mint unbounded label cardinality and blind the monitoring of the service
+    they are probing.
+    """
+    verdict = verify_source("twilio", ENGINE_EGRESS_IP)
+    assert verdict.ok is False
+    assert verdict.method == "none"
+    assert verdict.reason == "unknown engine"
+
+    assert "twilio" not in KNOWN_ENGINES
+    labels: list[str] = []
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr(
+            webhook_routes,
+            "record_webhook_ack_ms",
+            lambda elapsed, provider: labels.append(provider),
+        )
+        webhook_routes._refuse(time.perf_counter(), "twilio")
+        webhook_routes._refuse(time.perf_counter(), "bolna")
+    assert labels == ["unknown", "bolna"], "a stranger's engine name must not become a label"
+
+
+async def test_an_unknown_engine_delivery_is_refused_over_http_and_writes_nothing() -> None:
+    """The same verdict through the whole stack, because a unit-level refusal that the
+    route does not honour is not a refusal."""
+    execution_id, status, body = _event()
+    async with _client(EDGE_PROXY_IP) as http:
+        response = await http.post(
+            "/hooks/v1/engine/twilio", json=body, headers={"CF-Connecting-IP": ENGINE_EGRESS_IP}
+        )
+    assert response.status_code == 401, response.text
+    assert await _counts(execution_id=execution_id, event_type=status, engine="twilio") == (0, 0)
+
+
+# --- 13. the body cap holds even when the caller declares nothing --------------
+
+
+async def test_a_body_with_no_declared_length_is_still_cut_off_at_the_cap() -> None:
+    """The declared `Content-Length` is a hint from the same stranger who sent the body.
+
+    A chunked POST declares nothing, so the only thing standing between an
+    unauthenticated caller and an unbounded allocation on the latency-critical service
+    is the running total inside the stream loop. This sends two megabytes with no
+    declared length — the length check cannot fire, and the stream must be abandoned at
+    the megabyte rather than buffered to the end.
+
+    The answer is the same named 413 the declared case gets: the payload is only a hint
+    (D-31), so refusing costs one poller cycle, while buffering whatever arrives costs
+    the service. Nothing is claimed and nothing is queued, so the execution is still the
+    poller's to recover.
+    """
+
+    async def _two_megabytes() -> AsyncIterator[bytes]:
+        for _ in range(32):
+            yield b"x" * 65_536
+
+    execution_id, status, _ = _event()
+    async with _client(EDGE_PROXY_IP) as http:
+        response = await http.post(
+            HOOK,
+            content=_two_megabytes(),
+            headers={"CF-Connecting-IP": ENGINE_EGRESS_IP, "content-type": "application/json"},
+        )
+
+    assert "content-length" not in {k.lower() for k in response.request.headers}, (
+        "this test only means something while the request is chunked"
+    )
+    assert response.status_code == 413, response.text
+    assert response.json()["type"].endswith("/payload_too_large")
+    assert "X-Ack-Ms" in response.headers
+    assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)

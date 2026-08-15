@@ -171,15 +171,17 @@ stored), `X-Hub-Signature-256` verified against the raw bytes with the app secre
 before any parse, dedupe keyed on `leadgen_id` (the lead is the unit of work — Meta
 batches and re-batches), the form-field mapping, and consent that is never assumed: a
 lead-ad fill with no opt-in question on the form is saved and **not** dialled
-(`no_consent_field_configured`). (*Still NOT built and not to be claimed: the Graph
-read that carries the answers. `GET /{leadgen_id}?fields=field_data` needs a Page
-access token with `leads_retrieval`, and this deployment holds no Meta credentials —
-so a verified delivery today lands as a RECORDED refusal
+(`no_consent_field_configured`). (*The Graph read that carries the answers is **built**
+— this parenthetical said it was not, for a wave after D-90 landed it.
+`GET /{leadgen_id}?fields=field_data` sits behind the `LeadRetriever` Protocol with
+`field_data` → flat-map normalization feeding the same consent gate, and
+`LEAD_RETRIEVAL_IMPLEMENTED = True` is the greppable constant. What is missing is the
+CREDENTIAL: it needs a Page access token with `leads_retrieval` and this deployment
+holds no Meta credentials, so a verified delivery today still lands as a RECORDED refusal
 (`meta_lead_retrieval_unavailable`) against its `leadgen_id`, visible in the activity
-view and re-claimable the day an adapter exists. `apps/api/ingest/meta.py` states
-this, `POST /v1/lead-sources/{webhook_id}/meta/setup` answers it (a POST because the
-response carries a verify token — the mirror of `/v1/dnc/check`), and
-`LEAD_RETRIEVAL_IMPLEMENTED = False` is the greppable constant.*);
+view and re-claimable the day a token exists. `apps/api/ingest/meta.py` states this, and
+`POST /v1/lead-sources/{webhook_id}/meta/setup` answers the handshake half — a POST
+because the response carries a verify token, the mirror of `/v1/dnc/check`.*);
 typed+validated extraction (theirs is untyped — the "Delhi
 in a quantity field" bug); full version history with diffs and audit (they keep 3
 versions, no diff); and **DNC on every dispatch path** including instant, which is where
@@ -229,6 +231,19 @@ Client realm (`/c/<slug>/…`)
   **`/usage`** (usage panel + the §2b client cap editor).
 
 Admin realm (`/admin/…`)
+- **Begin a view-as session** (`POST /v1/admin/impersonation-grants`,
+  `admin:impersonate`, admin realm) — takes a tenant SLUG and returns the short-lived
+  signed grant every impersonated request must carry as `X-Impersonation-Grant` beside
+  `X-Impersonate-Org`. It replaced `POST /v1/admin/tenants/{tenant_id}/impersonate`,
+  which minted nothing and which the console never called — so D-22's "session start
+  audit-logged" row was absent for every session that ever happened. The grant is bound
+  to this operator AND this tenant and is refused against any other; minting is what
+  writes `admin.impersonation_started`, so that row can no longer be skipped. Addressed
+  by slug because every place view-as is initiated holds one (including
+  `/c/<slug>?view=admin`, where no tenant id is in scope), and bound to the id because
+  that is what RLS keys off. See SECURITY-COMPLIANCE §5 and `apps/api/core/
+  impersonation.py`. Read-only is unchanged: `requires()` still refuses every mutating
+  permission to an impersonating principal, grant or no grant.
 - **Who this operator is** (`GET /v1/admin/me`, `org:read`, admin realm) — the console's
   own identity read: the `admin_users` id, the role and the role's permission set, with no
   tenant touched and no impersonation header accepted as a substitute. It exists because
@@ -280,8 +295,17 @@ Admin realm (`/admin/…`)
 - **Printable invoice statement** (`/admin/tenants/{id}/invoice`;
   `GET /v1/admin/tenants/{tenant_id}/invoice`) — a white, print-first document. It is a
   DERIVED statement, not a stored row (see DATA-MODEL §8).
-- **Credit top-up** (`POST|GET /v1/admin/tenants/{tenant_id}/credits`) — admin-recorded
-  today; the self-serve wallet UI in §2b is still M2.
+- **Credit top-up and corrections** (`/admin/tenants/[tenantId]/credits` —
+  `POST|GET /v1/admin/tenants/{tenant_id}/credits`, `POST .../credits/adjustments`) —
+  **SHIPPED** (D-82, D-87). The screen records a payment against its bank reference, which
+  doubles as the idempotency key and as the typed confirmation — different every time, so
+  it cannot become muscle memory. Corrections are APPENDED against a named ledger row
+  (hard rule 4: the wrong entry stays, because it is the evidence), bounded by that
+  entry's remaining reversible amount, and step-up-confirmed only in the direction that
+  takes credit AWAY. The response's `stops_dialling` is the dial gate's own verdict on the
+  balance the write produced, rendered as a stop-toned notice — never re-derived on the
+  client. `runbooks/topup-payments.md` §3 no longer describes hand-constructing the call.
+  The self-serve wallet UI in §2b is separately still M2.
 - **Ops** (`/admin/ops`; `/v1/ops/platform`, `/v1/ops/outbox/replay`, `/v1/ops/audit/verify`).
   `GET /v1/ops/platform` returns the load-shed mode, the outbound halt, **`halt_reason`**
   and the TM registration in ONE row read — a halt shown beside a reason from a different

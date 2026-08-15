@@ -69,6 +69,14 @@ services:
       - --host=0.0.0.0
       - --port=8000
       - --workers=${API_WORKERS:-2}
+      # BOUNDS THE DRAIN, and it needs bounding now that the drain works. D-101 fixed a
+      # SIGTERM handler that had been replacing uvicorn's, so `Server.shutdown()` never
+      # closed sockets and waited; with it fixed, uvicorn waits for open connections
+      # INDEFINITELY by default, and the only thing that would ever end a deploy is
+      # docker's `stop_grace_period` arriving with SIGKILL — which kills the lifespan's
+      # `finally` (Redis close, span flush) as surely as the old bug did. 25s leaves 5s
+      # of the api's 30s grace for that shutdown to complete.
+      - --timeout-graceful-shutdown=25
     environment:
       # Per-process pool. DEPLOYMENT §2a's connection budget is arithmetic over the
       # CLUSTER (DB_POOL_SIZE x processes must fit under the host's max_connections), so
@@ -105,6 +113,13 @@ services:
       # 4 at 250 concurrent in production, 2 at 100 for staging/pilot. NEVER more than
       # the host has vCPU — each worker saturates one core.
       - --workers=${VOICE_RUNTIME_WORKERS:-4}
+      # 20s against a 30s grace — a wider margin than the api's because this is the
+      # service carrying live calls, and the 10s remainder is what the lifespan gets to
+      # flush spans and close Redis before docker escalates. A webhook that cannot be
+      # acked in 20s is not going to be acked (the ack budget is 500ms and
+      # `_DURABLE_DEADLINE_S` is 2s), so waiting longer buys nothing and delays every
+      # deploy.
+      - --timeout-graceful-shutdown=20
     environment:
       DB_POOL_SIZE: ${VOICE_RUNTIME_DB_POOL_SIZE:-12}
     ports: ["127.0.0.1:8100:8100"]

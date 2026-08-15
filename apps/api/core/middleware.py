@@ -23,6 +23,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from apps.api.core.context import (
     IMPERSONATE_HEADER,
+    IMPERSONATION_GRANT_HEADER,
     ORG_HEADER,
     correlation_id_var,
     principal_var,
@@ -302,7 +303,9 @@ def install_middleware(app: FastAPI, *, cors_origins: list[str]) -> None:
         # the PREFLIGHT and the request never reaches a handler — which looks like a
         # dead API rather than a config gap. X-Org-Slug carries tenant selection and
         # X-Impersonate-Org carries D-22 view-as, so omitting either breaks the whole
-        # client realm while curl keeps working.
+        # client realm while curl keeps working. X-Impersonation-Grant is the other half
+        # of that pair — without it here, view-as fails the preflight and every client
+        # screen an operator opens is a 403 the browser will not explain.
         allow_headers=[
             "Authorization",
             "Content-Type",
@@ -310,6 +313,7 @@ def install_middleware(app: FastAPI, *, cors_origins: list[str]) -> None:
             "Idempotency-Key",
             ORG_HEADER,
             IMPERSONATE_HEADER,
+            IMPERSONATION_GRANT_HEADER,
             "X-Confirm-Action",
         ],
         expose_headers=[CORRELATION_HEADER, "Idempotent-Replayed", "Retry-After"],

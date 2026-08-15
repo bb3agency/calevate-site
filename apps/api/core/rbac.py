@@ -37,6 +37,38 @@ Permission = Literal[
     "admin:tenants",
     "admin:impersonate",
     "ops:manage",
+    # Reading and changing PLATFORM configuration — the engine selection, the calling
+    # windows, the rate limits (PLATFORM-CONFIG §7).
+    #
+    # A NEW PERMISSION RATHER THAN A REUSE OF `admin:tenants`, and the spec argues why:
+    # the blast radii are not comparable. `admin:tenants` is "act on one client";
+    # this is "change what every client's platform does at the same instant" — switch
+    # the voice engine, move a calling window outside TRAI's permitted hours, raise a
+    # rate limit. An operator who onboards clients does not need it, and the whole
+    # point of a separate name is that it can be held by fewer people.
+    #
+    # It is deliberately NOT `ops:manage` either, even though both are superadmin-only
+    # today and both live under `/v1/ops`. `ops:manage` is the INCIDENT surface — the
+    # big red switch, the DLQ replay, the audit-chain check — and its holders are
+    # whoever is on call. Config is a change-management surface. Merging them would mean
+    # the next person given the pager could also switch the engine, which is exactly the
+    # separation §7 asks for and the one phase 4's `platform:secrets` deepens.
+    "platform:config",
+    # Installing and rotating VENDOR CREDENTIALS (PLATFORM-CONFIG §7).
+    #
+    # SEPARATE FROM `platform:config`, and the separation is the mitigation §10 rests on
+    # rather than tidiness. The trade this console makes is stated plainly there: today,
+    # stealing every vendor credential requires VPS access; after this, one compromised
+    # admin session is enough. What keeps that acceptable is that the permission is held
+    # by fewer people than any other on this list, that no route returns plaintext — so
+    # a session gives WRITE access, never READ access — and that every write is audited
+    # into the hash-chained ledger with an alert on `platform.secret_set` in production.
+    #
+    # A holder can BREAK the platform or point it at their own vendor account; they
+    # cannot quietly exfiltrate what is already installed. That asymmetry is deliberate
+    # and is why this is not merged into `platform:config`, whose blast radius stops at
+    # "the platform misbehaves visibly".
+    "platform:secrets",
 ]
 
 ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
@@ -94,6 +126,8 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             "admin:tenants",
             "admin:impersonate",
             "ops:manage",
+            "platform:config",
+            "platform:secrets",
         }
     ),
 }
@@ -109,6 +143,18 @@ MUTATING_PERMISSIONS: frozenset[Permission] = frozenset(
         "kb:write",
         "ops:manage",
         "admin:tenants",
+        # An impersonating admin (D-22, read-only "view as client") is refused this even
+        # though `superadmin` grants it. A view-as session exists to SEE a client's
+        # screens; nothing about that job needs to change what engine the platform dials
+        # on. `GET /v1/ops/config` therefore also becomes invisible under impersonation,
+        # which is correct and is why it is listed in `ADMIN_CONSOLE_GETS`
+        # (tests/impersonation_reads_test.py): it is an admin-console read that
+        # impersonation never reaches, not a view a client's screen depends on.
+        "platform:config",
+        # Same rule, higher stakes: a read-only "view as client" session must never be
+        # able to install a vendor credential. `GET /v1/ops/secrets` returns no plaintext
+        # at all, so hiding it from impersonation costs a support person nothing.
+        "platform:secrets",
     }
 )
 

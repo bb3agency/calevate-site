@@ -13,7 +13,13 @@ import {
   formatCount,
   formatINR,
 } from "@/components/ui";
-import { MAX_TOPUP_INR, MIN_TOPUP_INR, isPrepaid, useTopUpIntent } from "@/lib/api/billing";
+import {
+  MAX_TOPUP_INR,
+  MIN_TOPUP_INR,
+  isPrepaid,
+  useTopUpCapability,
+  useTopUpIntent,
+} from "@/lib/api/billing";
 import { useCaps, useSetCaps } from "@/lib/api/caps";
 import { useClientSession } from "@/lib/api/session";
 import { useMe, useUsage, useWriteAccess } from "@/lib/api/hooks";
@@ -445,25 +451,70 @@ function Field({
  *
  * The symptom: a prepaid client whose wallet empties has outbound calling refused, and
  * there was nowhere in the product to add money. The fix is honest rather than complete,
- * because the backend is honest rather than complete: `POST /v1/billing/topups/intent`
- * prices the top-up and mints a receipt, but returns `provider_order_id: null` /
- * `provider_order_pending: true` — creating the provider order needs credentials this
- * deployment does not hold.
+ * because the backend is honest rather than complete.
  *
- * So this renders NO pay button, no checkout, no spinner waiting on a payment window. A
+ * ## What the capability changed (D-98)
+ *
+ * This panel used to offer the form unconditionally — and `PAYMENT_PROVIDER` is unset by
+ * default, so on every deployment the click could only ever return
+ * `payments_not_configured`. A control whose single possible outcome is a red notice is
+ * §52's defect one step earlier than §52 usually catches it: not a failure rendered as a
+ * state, but a state offered that is really a failure. `GET /v1/billing/topups/capability`
+ * answers it before the form exists, and the three renders are the §52 three:
+ *
+ * - **loading is a skeleton** — never a form, and never the "not available" sentence,
+ *   which would be an explanation we are about to withdraw;
+ * - **failure is a refusal** — the problem notice with a retry, and no form under it,
+ *   because we do not know whether the form would work;
+ * - **unavailable is a statement, not an empty state** — the bank-transfer path, which is
+ *   the path that actually works today (runbooks/topup-payments.md §3).
+ *
+ * The hint is never the gate: the route asks the same selector server-side, so a stale
+ * `true` here costs a refusal after the click and can never cost a payment.
+ *
+ * ## Why there is still no pay button
+ *
+ * There is no checkout in this build and the panel says so rather than implying one. A
  * "Pay ₹2,000" button that cannot charge anything is worse than no button: the client
  * believes they have paid, keeps not being able to dial, and calls support about a
- * payment that was never taken. What they get instead is a real reference for a real
- * amount, with the true statement that nothing has been charged and how to actually pay.
- * When the server starts returning an order id, the checkout opens from exactly here.
+ * payment that was never taken. When an order id DOES come back it is rendered as a
+ * second reference to quote — Razorpay's own support and dashboard key on it — beside the
+ * true statement that nothing has been charged.
  */
 function TopUp({ session }: { session: Session }) {
   const [amount, setAmount] = useState("");
+  const capability = useTopUpCapability(session);
   const intent = useTopUpIntent(session);
   // `org:manage` is what the endpoint requires — staff should see the balance and not a
   // form that will 403 them, and an operator in "view as client" cannot spend a client's
   // money from a client screen (D-22).
   const write = useWriteAccess(session, "org:manage", "add credit");
+
+  if (capability.isLoading) return <Skeleton rows={2} />;
+  if (capability.error) {
+    return (
+      <div className="mt-4 border-t border-line pt-4">
+        <ProblemNotice error={capability.error} onRetry={() => void capability.refetch()} />
+      </div>
+    );
+  }
+  if (!capability.data) return null;
+
+  if (!capability.data.online_payments_available) {
+    /* Not an empty state and not an error: a true statement about this deployment, with
+       the path that works. The server's authored reason is deliberately NOT shown — a
+       client cannot act on "no_webhook_secret" and naming our missing secret is an
+       internals leak. */
+    return (
+      <div className="mt-4 border-t border-line pt-4 text-sm text-ink-muted">
+        <p>
+          We cannot take card or UPI payment on this account. To add credit, transfer the
+          amount to us by bank — talk to your account manager for the details — and the
+          credit appears here once the payment lands.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-4 space-y-3 border-t border-line pt-4">
@@ -509,7 +560,7 @@ function TopUp({ session }: { session: Session }) {
           <p className="font-semibold text-ink">
             {formatINR(intent.data.amount_inr)} — nothing has been charged yet.
           </p>
-          {intent.data.provider_order_id === null || intent.data.provider_order_pending ? (
+          {intent.data.provider_order_id === null ? (
             <p className="mt-1">
               We cannot take card or UPI payment on this account yet. Transfer{" "}
               <strong className="font-semibold text-ink">
@@ -520,14 +571,26 @@ function TopUp({ session }: { session: Session }) {
               balance above will not change until then.
             </p>
           ) : (
-            /* The server has started creating provider orders. There is still no
-               checkout in this build, so it says so instead of implying one. */
+            /* An order EXISTS with the payment provider. There is still no checkout in
+               this build, so the order id is rendered as the thing to quote — it is what
+               the provider's own support and dashboard key on — rather than dressed up as
+               a payment in progress. */
             <p className="mt-1">
-              A payment order is ready. Online checkout is not available in this version —
-              send this reference to your account manager to complete it.
+              A payment for{" "}
+              <strong className="font-semibold text-ink">
+                {formatINR(intent.data.amount_inr)}
+              </strong>{" "}
+              is set up and waiting. There is no online checkout in this version — send both
+              references below to your account manager to complete it. Your balance will not
+              change until the payment is confirmed.
             </p>
           )}
           <p className="mt-2 font-mono text-xs text-ink-faint">ref {intent.data.receipt}</p>
+          {intent.data.provider_order_id !== null && (
+            <p className="font-mono text-xs text-ink-faint">
+              order {intent.data.provider_order_id}
+            </p>
+          )}
         </div>
       )}
     </div>

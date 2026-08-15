@@ -6,7 +6,10 @@ Linux (CI, VPS) is unaffected.
 """
 
 import asyncio
+import os
+import shutil
 import sys
+import tempfile
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 
@@ -22,6 +25,56 @@ def event_loop_policy() -> asyncio.AbstractEventLoopPolicy:
     if sys.platform == "win32":
         policy = asyncio.WindowsSelectorEventLoopPolicy()
     return policy
+
+
+#: Credentials a library will silently find on the machine — botocore searches the
+#: environment and `~/.aws`, and pydantic reads `.env`. A test that needs one must SAY
+#: so; see `_no_ambient_credentials`.
+AMBIENT_CREDENTIALS = (
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_PROFILE",
+)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _no_ambient_credentials() -> Iterator[None]:
+    """Make the machine's credentials invisible to the suite, so local matches CI.
+
+    TWO TESTS PASSED EVERYWHERE AND FAILED IN CI, and both failed the same way: they
+    asserted about an environment they had BORROWED rather than one they declared. The
+    precedence test used `COHERE_API_KEY` because this repo's `.env` happened to carry
+    it. The presign test needed botocore to find an access key, and it found one in an
+    exported `AWS_*` or in `~/.aws`. CI has neither, so nine consecutive runs were red —
+    and because every guardrail is a later step in the same job, all twelve were
+    reported `skipped` for two days.
+
+    Detecting that by grepping test sources was tried and thrown away: it flagged three
+    files that merely NAME a credential in an assertion and caught neither real
+    offender. So this removes the ambient values instead. Borrowing stops being a
+    mistake you can make rather than one we notice afterwards.
+
+    `HOME` is redirected too, because botocore reads `~/.aws/credentials` and
+    `~/.aws/config` and would otherwise find a profile the environment no longer names.
+
+    A test that legitimately needs a credential declares it with
+    `mock.patch.dict(os.environ, ...)` — which is now the ONLY way to have one, and
+    makes the dependency visible in the test that has it.
+    """
+    saved = {name: os.environ.pop(name, None) for name in AMBIENT_CREDENTIALS}
+    saved_home = os.environ.get("HOME")
+    empty_home = tempfile.mkdtemp(prefix="calevate-no-aws-")
+    os.environ["HOME"] = empty_home
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is not None:
+                os.environ[name] = value
+        if saved_home is not None:
+            os.environ["HOME"] = saved_home
+        shutil.rmtree(empty_home, ignore_errors=True)
 
 
 @pytest.fixture(scope="session", autouse=True)

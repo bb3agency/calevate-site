@@ -289,10 +289,22 @@ def test_minio_accepts_and_returns_the_policy(policy: dict) -> None:
     a dry run against the production bucket.
     """
     import os
+    from unittest import mock
 
-    if not os.environ.get("AWS_ACCESS_KEY_ID"):
-        pytest.skip("no S3 credentials in the environment")
+    # DECLARED, not borrowed. `tests/conftest._no_ambient_credentials` strips the
+    # machine's `AWS_*` for the whole suite so local matches CI, and these are the MinIO
+    # root credentials from `docker-compose.yml` — not a secret, and the only values
+    # that can work against the local store anyway. The skip below is now about whether
+    # MinIO is RUNNING, which is the real precondition; it used to be about whether the
+    # developer happened to have exported something.
+    with mock.patch.dict(
+        os.environ,
+        {"AWS_ACCESS_KEY_ID": "calevate", "AWS_SECRET_ACCESS_KEY": "calevate123"},
+    ):
+        _run_minio_policy_check(policy)
 
+
+def _run_minio_policy_check(policy: dict) -> None:
     from botocore.exceptions import ClientError
 
     client = applier._client("http://localhost:9000")

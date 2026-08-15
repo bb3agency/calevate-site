@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 
 import { useAdminAccess, type AdminAccess } from "@/app/admin/access";
+import { ConfigPanel } from "@/app/admin/ops/ConfigPanel";
+import { KeyManagementPanel, SecretsPanel } from "@/app/admin/ops/SecretsPanel";
 import {
   Card,
   DANGER_BUTTON,
@@ -350,6 +352,15 @@ export default function OpsPage() {
   // letter queue. `useAdminMe` shares one query key, so this is a second verdict on one
   // request, not a second request.
   const mayRecover = useAdminAccess("ops:manage", "run the platform recovery tools");
+  // A DIFFERENT permission from the three panels above (`platform:config`, not
+  // `ops:manage`). The config panel reads no platform-row state, so it is gated on the
+  // permission alone — the same rule the replay and the audit-chain panels follow.
+  const mayConfigure = useAdminAccess("platform:config", "change platform configuration");
+  // A THIRD permission, and the narrowest one on this screen. `platform:secrets` is held
+  // by fewer people than anything else (§10's first mitigation), so the credential and
+  // key-management panels gate on it alone — an operator who may change the calling
+  // window does not thereby get to replace the Bolna key.
+  const maySecrets = useAdminAccess("platform:secrets", "install or rotate credentials");
   const access = opsAccess(mayManage, state);
 
   return (
@@ -384,6 +395,19 @@ export default function OpsPage() {
           disable themselves, with the reason, for a session that lacks `ops:manage`. */}
       <OutboxReplayPanel access={mayRecover} queue={deadLetterState(state)} />
       <AuditChainPanel access={mayRecover} />
+
+      {/* Gated on `platform:config`, NOT on `ops:manage`, and that is the point of the
+          separate permission: the incident levers above are held by whoever is on call,
+          and changing what engine the platform dials on is change management. The panel
+          lives here because §8 puts it beside the other ops panels, and it disables
+          itself with its own reason for a session that lacks its own permission. */}
+      <ConfigPanel access={mayConfigure} />
+
+      {/* Credentials and the keys that protect them (§8 panels 3 and 4). Gated on
+          `platform:secrets`, not on `platform:config`: the blast radii are not
+          comparable, and the separation IS the mitigation §10's accepted trade rests on. */}
+      <SecretsPanel access={maySecrets} />
+      <KeyManagementPanel access={maySecrets} />
 
       <Card title="What is never shed">
         <ul className="space-y-1.5 text-sm text-ink-muted">
@@ -1401,6 +1425,37 @@ function OutboxReplayPanel({
  * an implicit "as of", and one left on screen while an operator works elsewhere is
  * otherwise indistinguishable from a live one.
  */
+/**
+ * The weakly-attested era, rendered beside the verdict rather than under it.
+ *
+ * `entries_under_retired_key` is NOT a break and is not a component of `ok` — those
+ * entries hash correctly. What they lack is attestation STRENGTH: on most deployments
+ * they are the rows written before `AUDIT_CHAIN_SECRET` was required, when the chain
+ * was signed with a constant that was printed in the source, so anyone who could read
+ * the repository could have produced a row that verifies. That distinction only matters
+ * at one moment — when an operator exports this log as evidence — and a caveat that
+ * lives in a runbook reaches nobody at that moment.
+ *
+ * It renders on the intact verdict AND on the failed one, because the two facts are
+ * independent: a log can be unbroken and still partly weakly attested, and a log with a
+ * break has the same era question about everything either side of it.
+ */
+function WeaklyAttestedNote({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <p className="mt-2">
+      <span className="font-semibold">
+        {formatCount(count)} {count === 1 ? "entry" : "entries"} verified under a retired
+        signing key.
+      </span>{" "}
+      Those rows are intact — they are not a break — but they were signed before this
+      deployment had its own <span className="font-mono">AUDIT_CHAIN_SECRET</span>, when
+      the key was a constant in the source. Treat them as weaker evidence than the rest:
+      if you are exporting this log for a dispute or an audit, say where that era ends.
+    </p>
+  );
+}
+
 function AuditChainPanel({ access }: { access: OpsAccess }) {
   const verify = useVerifyAuditChain();
   const asOf = verify.data ? formatIST(new Date(verify.submittedAt).toISOString()) : null;
@@ -1474,6 +1529,7 @@ function AuditChainPanel({ access }: { access: OpsAccess }) {
               Do not re-run and move on: capture the entry ids above, and do not let anyone
               &quot;repair&quot; the rows — the break is the evidence.
             </p>
+            <WeaklyAttestedNote count={verify.data.entries_under_retired_key} />
             <p className="mt-2 text-xs">
               {verify.data.complete
                 ? `Whole log checked — ${formatCount(verify.data.entries_checked)} entries. Checked at ${asOf}.`
@@ -1501,6 +1557,7 @@ function AuditChainPanel({ access }: { access: OpsAccess }) {
                 ? `Whole log checked — ${formatCount(verify.data.entries_checked)} entries, from the first row to the last.`
                 : `This covers ${formatCount(verify.data.entries_checked)} entries only, so it says nothing about the rest of the log.`}
             </p>
+            <WeaklyAttestedNote count={verify.data.entries_under_retired_key} />
             <p className="mt-2 text-xs">Checked at {asOf}.</p>
           </NoticeBox>
         )}

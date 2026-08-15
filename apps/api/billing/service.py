@@ -30,10 +30,11 @@ rupee amount is rounded in exactly one function, `to_paise`, with one explicit m
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Literal, NamedTuple
+from typing import Any, Final, Literal, NamedTuple
 from uuid import UUID
 
 from sqlalchemy import text
@@ -216,21 +217,21 @@ async def record_entry(
     return Balance(amount_inr=new_balance, is_low=new_balance < LOW_BALANCE_INR)
 
 
-class TopUpEntry(NamedTuple):
-    """An existing top-up on the ledger. A NamedTuple because both callers of the
-    lookup read it differently — one by name, one positionally — and one shape that
-    answers both beats a second dataclass that has to be kept in step."""
+class LedgerEntryRef(NamedTuple):
+    """One ledger entry, located by its `ref`. A NamedTuple because the callers of the
+    lookup read it differently — some by name, one positionally — and one shape that
+    answers all of them beats a second dataclass that has to be kept in step."""
 
     entry_id: UUID
     amount_inr: Decimal
 
 
-async def find_topup(session: AsyncSession, *, tenant_id: UUID, ref: str) -> TopUpEntry | None:
-    """Has this payment reference already been credited? THE idempotency lookup for
-    every top-up path — the manual UTR route and the Razorpay receiver both call this
-    one function, so the two cannot drift apart on the next fix.
+async def find_entry_by_ref(
+    session: AsyncSession, *, tenant_id: UUID, reason: CreditReason, ref: str
+) -> LedgerEntryRef | None:
+    """THE idempotency lookup for every keyed writer on this ledger.
 
-    **It takes the lock itself, and that is the point.** Both call sites used to carry
+    **It takes the lock itself, and that is the point.** The call sites used to carry
     their own copy of this query and rely on their author remembering to call
     `lock_tenant_credits` first; a check-then-write outside that lock is precisely how
     duplicate pairs got onto this ledger, because two concurrent runs both read "not
@@ -238,25 +239,359 @@ async def find_topup(session: AsyncSession, *, tenant_id: UUID, ref: str) -> Top
     ordering is not something a future caller can get wrong: there is no way to reach
     this read from outside the critical section. `pg_advisory_xact_lock` is re-entrant
     within a transaction and released at its end, so a caller that also takes the lock
-    explicitly (both do, at the top of their transaction, to cover the writes around
+    explicitly (they do, at the top of their transaction, to cover the writes around
     this read as well) costs nothing and deadlocks nothing.
 
-    Scoped to `reason = 'topup'` so a payment reference can never collide with the call
-    id a usage row carries in the same column.
+    **`reason` IS PART OF THE KEY, never an afterthought.** `ref` is not one namespace:
+    a `usage` row carries a call id, a `topup` row carries whatever the bank printed,
+    and an `adjustment` row carries a reference this module derives. The system
+    TOLERATES the collision rather than preventing it, in exactly the same three places
+    `ux_credit_ledger_tenant_reason_ref` does (migration f9c2b41a8e57), so a lookup that
+    dropped the reason would answer for the wrong entry.
     """
     await lock_tenant_credits(session, tenant_id)
     row = (
         await session.execute(
             text(
                 "SELECT id, delta FROM credit_ledger WHERE tenant_id = :tid "
-                "AND reason = 'topup' AND ref = :ref ORDER BY occurred_at DESC, id DESC LIMIT 1"
+                "AND reason = :reason AND ref = :ref ORDER BY occurred_at DESC, id DESC LIMIT 1"
             ),
-            {"tid": tenant_id, "ref": ref},
+            {"tid": tenant_id, "reason": reason, "ref": ref},
         )
     ).first()
     if row is None:
         return None
-    return TopUpEntry(entry_id=UUID(str(row[0])), amount_inr=Decimal(str(row[1])))
+    return LedgerEntryRef(entry_id=UUID(str(row[0])), amount_inr=Decimal(str(row[1])))
+
+
+async def find_topup(session: AsyncSession, *, tenant_id: UUID, ref: str) -> LedgerEntryRef | None:
+    """Has this payment reference already been credited?
+
+    The manual UTR route and the Razorpay receiver both call this one function, so the
+    two cannot drift apart on the next fix. It keeps its own name rather than every
+    caller spelling `reason="topup"` because the SCOPE is the contract: a payment
+    reference must never collide with the call id a usage row carries in the same
+    column, and a name says that where an argument only implies it.
+    """
+    return await find_entry_by_ref(session, tenant_id=tenant_id, reason="topup", ref=ref)
+
+
+# --- compensating adjustments (SURFACES §1) ------------------------------------
+#
+# Hard rule 4 in the one place it costs an operator something: an entry written to the
+# wrong wallet, or for the wrong amount, cannot be edited or deleted. It is corrected by
+# APPENDING a new entry with the opposite sign, and these three primitives are what the
+# admin route appends with. `scripts/reconcile_credit_ledger.py` does the same thing for
+# the one failure it can detect on its own (a duplicated `(ref, reason)` group); this is
+# the same repair for the failures only a human can see.
+
+ADJUSTMENT_REF_PREFIX: Final = "adjust"
+
+# The `meta.kind` every operator-issued adjustment carries. `reason` is constrained to
+# four values by `ck_credit_ledger_reason_enum`, so WHAT an adjustment is lives in the
+# ref prefix and in `meta.kind` rather than in a fifth reason — the same choice the
+# reconciler made for `duplicate_ledger_entry`.
+ADJUSTMENT_META_KIND: Final = "operator_adjustment"
+
+
+def adjustment_ref(*, entry_id: UUID, amount_inr: Decimal) -> str:
+    """The compensating entry's own reference — traceable, distinct, and THE idempotency
+    key, enforced by `ux_credit_ledger_tenant_reason_ref` rather than by a reader's `if`
+    (D-63's argument, applied to the writer that has no bank reference of its own).
+
+    Three jobs, each of which constrains the shape:
+
+    1. **Traceability.** It names the entry it corrects, so a reader who finds this row
+       on the ledger can go straight to the row that caused it without opening `meta`.
+    2. **It must not be the corrected entry's own ref.** Reusing `UTR-900011` would put
+       two rows on one `(tenant_id, reason, ref)` key for `topup`… and none at all for a
+       correction of a `usage` row, which shares the column with call ids.
+    3. **It is content-addressed over (entry, amount), so a double submission is a
+       no-op.** An adjustment has no UTR — nothing external identifies it — so the key
+       has to be derived from what the operator is asking for. The same request twice
+       derives the same ref, the unique index refuses the second insert, and the route
+       returns the entry that already exists. A caller-minted key was rejected for
+       precisely the failure this must survive: a second CLICK, which mints a second
+       key and would deduct twice.
+
+    The cost is stated rather than hidden: two GENUINELY distinct corrections of the
+    same amount against the same entry collapse onto one key, and the second is reported
+    as an already-recorded replay. That is visible (the route names the existing entry
+    and says nothing moved), it is the safe direction on money leaving a client's
+    wallet, and the operator's remedy — a different amount, or the entry the second
+    error actually belongs to — is one field away.
+
+    The amount is quantized through `to_paise` so `50000.0` and `50000.00` are one key
+    and not two.
+    """
+    return f"{ADJUSTMENT_REF_PREFIX}:{entry_id}:{to_paise(amount_inr)}"
+
+
+@dataclass(frozen=True, slots=True)
+class CorrectableEntry:
+    """A ledger entry as a correction target: what it moved, and what is left to undo."""
+
+    entry_id: UUID
+    delta: Decimal
+    reason: str
+    #: The magnitude already taken back by adjustments naming this entry.
+    reversed_inr: Decimal
+
+    @property
+    def reversible_inr(self) -> Decimal:
+        """How much of this entry can still be compensated.
+
+        Clamped at zero rather than allowed to go negative: a fully reversed entry has
+        nothing left to give, and a negative "remaining" would read as a licence to
+        reverse in the other direction.
+
+        **ONE LEVEL, and the residual is deliberate.** An adjustment is itself a ledger
+        entry and may itself be corrected ("I corrected the wrong line"), which is why
+        `read_correctable_entry` accepts one as a target. This figure does NOT net that
+        second correction back out of the FIRST entry's ceiling: reverse a ₹1,000 top-up
+        and then reverse the reversal, and the top-up still reads ₹0.00 left even though
+        the money is back on the wallet.
+
+        Netting it out properly is an alternating sum over the whole correction chain
+        (`|A| minus |B| plus |C| ...`), which is a recursive walk with a cycle guard on the money
+        path — and it would buy nothing an operator needs, because the correction chain
+        does not dead-end: the entry to correct next is the NEWEST one, which carries its
+        own full ceiling and is the row at the top of the ledger they are looking at.
+        Erring SHORT is also the safe direction — this ceiling exists to catch a typo, and
+        a ceiling that is occasionally too tight refuses a correction, while one that is
+        occasionally too loose lets somebody take back more than an entry ever put in.
+        """
+        return max(Decimal("0"), abs(self.delta) - self.reversed_inr)
+
+    def compensating_delta(self, amount_inr: Decimal) -> Decimal:
+        """The signed delta that takes `amount_inr` of this entry back.
+
+        **The sign is derived from the entry, never from the operator.** Reversing a
+        top-up is a debit and reversing a usage charge is a credit; asking a human to
+        get that right on a form is asking for the one mistake that cannot be undone by
+        another form. The API therefore takes a positive magnitude and this decides the
+        direction.
+        """
+        return -amount_inr if self.delta > 0 else amount_inr
+
+
+async def reversed_amounts(
+    session: AsyncSession, *, tenant_id: UUID, entry_ids: Sequence[UUID]
+) -> dict[UUID, Decimal]:
+    """How much of each of these entries adjustments have already taken back.
+
+    Keyed on `meta.corrects_entry_id` ALONE, deliberately — not on `meta.kind` as well.
+    Any adjustment that claims to correct an entry counts against what is left of it; a
+    filter on our own `kind` would understate the total the moment a second writer
+    appears, and understating it is what would let one entry be reversed twice over.
+
+    Bounded by the ids asked about rather than scanning the wallet's whole history, so
+    the ledger read that calls this stays proportional to the page it is rendering.
+    """
+    if not entry_ids:
+        return {}
+    rows = (
+        await session.execute(
+            text(
+                "SELECT meta->>'corrects_entry_id', COALESCE(SUM(abs(delta)), 0) "
+                "FROM credit_ledger WHERE tenant_id = :tid AND reason = 'adjustment' "
+                "AND meta->>'corrects_entry_id' = ANY(CAST(:ids AS text[])) "
+                "GROUP BY 1"
+            ),
+            {"tid": tenant_id, "ids": [str(entry_id) for entry_id in entry_ids]},
+        )
+    ).all()
+    return {UUID(str(row[0])): Decimal(str(row[1])) for row in rows}
+
+
+async def read_correctable_entry(
+    session: AsyncSession, *, tenant_id: UUID, entry_id: UUID
+) -> CorrectableEntry | None:
+    """One entry of this wallet, with the arithmetic a correction needs. None = absent.
+
+    `tenant_id` is in the predicate as well as in RLS, for the reason `charge_for_call`
+    gives: RLS fails the query closed either way, and naming it makes the answer depend
+    on the argument rather than on which session happened to be handed in.
+
+    MUST be called with `lock_tenant_credits` held when a write depends on it — the
+    remaining-reversible figure is the check half of a check-then-write.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT id, delta, reason FROM credit_ledger WHERE tenant_id = :tid AND id = :eid"
+            ),
+            {"tid": tenant_id, "eid": entry_id},
+        )
+    ).first()
+    if row is None:
+        return None
+    already = await reversed_amounts(session, tenant_id=tenant_id, entry_ids=[entry_id])
+    return CorrectableEntry(
+        entry_id=UUID(str(row[0])),
+        delta=Decimal(str(row[1])),
+        reason=str(row[2]),
+        reversed_inr=already.get(entry_id, Decimal("0")),
+    )
+
+
+# --- restating an UNDER-credited payment (D-89) --------------------------------
+#
+# The adjustment above answers ONE of the two ways a recorded payment can be wrong. It
+# takes credit back off a NAMED ENTRY, bounded by what that entry moved — so it closes
+# over-crediting and cannot touch the opposite mistake: ₹5,000 recorded against a UTR
+# the bank actually moved ₹50,000 on. Re-posting the reference with the right amount is
+# a 409 (deliberately — that refusal is the only thing stopping one bank transfer being
+# credited twice), and there is nothing on the ledger to take back.
+#
+# The repair is a SECOND `topup` row for the SAME bank transfer, and the whole design
+# turns on the pair still reading as one payment:
+#
+#     ref  = restated:<payment_ref>:<the corrected TOTAL>
+#     meta = {"kind": "topup_restatement", "payment_ref": <payment_ref>, …}
+#
+# The workaround this replaces was a second top-up under an ANNOTATED reference
+# (`UTR-123-part2`). That is not a smaller version of the same thing: it puts a string
+# on the ledger that the bank never printed, so the wallet carries two payment
+# references for one transfer and a reconciliation keyed on the reference — the entire
+# reason the reference is the idempotency key — silently stops balancing. Here the
+# reference is never re-invented; the second row NAMES it.
+
+# WHICH BANK TRANSFER a ledger row belongs to, as SQL. NULL for every row that is not a
+# payment: `ref` is three namespaces sharing one column (a call id on `usage`, a key we
+# derive on `adjustment`, whatever the bank printed on `topup` — migration f9c2b41a8e57
+# argues this at length), so a grouping that dropped the reason would fold a call id in
+# beside a UTR.
+#
+# `COALESCE(meta->>'payment_ref', ref)` rather than a column of its own, and that is a
+# decision rather than a shortcut. The ANCHOR row's `ref` IS the payment reference —
+# `find_topup` and `ux_credit_ledger_tenant_reason_ref` both depend on that and neither
+# may change — so a restatement CANNOT reuse it and carries the reference in `meta`
+# instead. Reading both makes the pairing true for every row ever written, including the
+# Razorpay receiver's and everything that predates this feature, with no backfill and no
+# migration. Adding `payment_ref` to the anchor row as well was rejected: it would create
+# two columns that must agree for ever on the hottest path in this module, with nothing
+# able to bring them back into step once they did not.
+PAYMENT_REF_SQL: Final = "CASE WHEN reason = 'topup' THEN COALESCE(meta->>'payment_ref', ref) END"
+
+RESTATEMENT_REF_PREFIX: Final = "restated"
+
+# The `meta.kind` every restating entry carries, for the reason `ADJUSTMENT_META_KIND`
+# exists: `reason` is constrained to four values by `ck_credit_ledger_reason_enum`, and
+# this row's reason is `topup` because the money genuinely IS a top-up — it is part of a
+# bank transfer that arrived. Filing it as an `adjustment` would understate "payments
+# received this month" by the difference and overstate corrections by the same figure,
+# and `runbooks/topup-payments.md` §5 — whose first query is `WHERE reason = 'topup'` —
+# would stop showing the row that answers "the payment went through and the wallet did
+# not move".
+RESTATEMENT_META_KIND: Final = "topup_restatement"
+
+
+def restatement_ref(*, payment_ref: str, credited_total_inr: Decimal) -> str:
+    """The restating entry's own reference — THE idempotency key, enforced by
+    `ux_credit_ledger_tenant_reason_ref` rather than by a reader's `if` (D-63).
+
+    Content-addressed like `adjustment_ref`, and over the CORRECTED TOTAL rather than
+    over the difference it happens to credit. That single choice is what makes this key
+    strictly better than the adjustment's, and it is worth spelling out because the
+    adjustment had to state a real cost:
+
+    - `adjustment_ref` keys on a MAGNITUDE TO MOVE. Two genuinely distinct partial
+      corrections of the same size against one entry therefore collapse onto one key,
+      and the second is reported as an already-recorded replay — a real act lost, in the
+      safe direction.
+    - This keys on a STATE TO REACH. Two assertions that this UTR moved ₹50,000 are not
+      two acts colliding; they are one assertion made twice, and the second time it is
+      already true. There is no distinct act left to lose, so the collision has no cost
+      at all.
+
+    It is also why a second click is safe with no reader involved: the key is a function
+    of what the operator asserts, never of when they asserted it. A double submission
+    derives one ref, the index refuses the second insert, and the route hands back the
+    row the first click wrote. A caller-minted key was rejected for the same failure
+    D-87 rejected it for — a second click mints a second key.
+
+    It names the payment it restates, so a reader who finds this row on the ledger can
+    pair it with the bank transfer without opening `meta`. Quantized through `to_paise`,
+    so `50000.0` and `50000.00` are one key and not two.
+    """
+    return f"{RESTATEMENT_REF_PREFIX}:{payment_ref}:{to_paise(credited_total_inr)}"
+
+
+@dataclass(frozen=True, slots=True)
+class RecordedPayment:
+    """One bank transfer, as this wallet holds it — however many rows that took."""
+
+    payment_ref: str
+    #: EVERYTHING this reference has credited: the anchor entry plus every restatement of
+    #: it. Deliberately NOT reduced by adjustments — an adjustment is a separate,
+    #: explained layer with its own row and its own reason, and this figure answers "what
+    #: have we credited against this UTR", which is the question a bank statement asks.
+    credited_inr: Decimal
+    #: How many ledger rows make up the payment. 1 = it has never been restated.
+    rows: int
+    #: When the payment first landed on the ledger. The anchor's instant, not the newest
+    #: restatement's — a payment is dated by when it arrived.
+    first_at: datetime
+
+
+async def recorded_payments(
+    session: AsyncSession, *, tenant_id: UUID, payment_refs: Sequence[str]
+) -> dict[str, RecordedPayment]:
+    """What each of these bank transfers has credited, in ONE grouped read.
+
+    Bounded by the references asked about rather than scanning a wallet's whole history
+    — the shape `reversed_amounts` uses, for the same reason. But each total is summed
+    over ALL of that payment's rows, on or off the page that asked: a figure that
+    silently omitted an older row would be a lie about money, which costs more than a
+    slower query ever does.
+
+    The empty case returns without touching the database, for the reason
+    `reversed_amounts` does: a wallet with no payments is the first thing every new
+    tenant has, and `= ANY('{}')` is a degenerate predicate to build on the commonest
+    path in the product.
+    """
+    if not payment_refs:
+        return {}
+    rows = (
+        await session.execute(
+            text(
+                # `reason = 'topup'` is in the predicate as well as inside PAYMENT_REF_SQL
+                # because it is what keeps this an index-eligible scan of one tenant's
+                # payments rather than an evaluation of the CASE over every row they own.
+                f"SELECT {PAYMENT_REF_SQL} AS payment_ref, COALESCE(SUM(delta), 0), "
+                "COUNT(*), MIN(occurred_at) FROM credit_ledger "
+                "WHERE tenant_id = :tid AND reason = 'topup' "
+                f"AND {PAYMENT_REF_SQL} = ANY(CAST(:refs AS text[])) "
+                "GROUP BY 1"
+            ),
+            {"tid": tenant_id, "refs": list(payment_refs)},
+        )
+    ).all()
+    return {
+        str(row[0]): RecordedPayment(
+            payment_ref=str(row[0]),
+            credited_inr=Decimal(str(row[1])),
+            rows=int(row[2]),
+            first_at=row[3],
+        )
+        for row in rows
+    }
+
+
+async def read_recorded_payment(
+    session: AsyncSession, *, tenant_id: UUID, payment_ref: str
+) -> RecordedPayment | None:
+    """This one bank transfer, or None when nothing on this wallet carries the reference.
+
+    MUST be called with `lock_tenant_credits` held when a write depends on it: the
+    credited total is the check half of a check-then-write, exactly as
+    `read_correctable_entry`'s remaining-reversible figure is. Two operators restating
+    one payment at the same moment would otherwise both read the same starting total and
+    both credit the difference.
+    """
+    found = await recorded_payments(session, tenant_id=tenant_id, payment_refs=[payment_ref])
+    return found.get(payment_ref)
 
 
 async def charge_for_call(
@@ -694,8 +1029,15 @@ async def record_tier_correction(
     synthesized (today: from the model vendor's own usage export).
 
     Returns the delta written, or None when there was nothing to correct — the tiers
-    agreed, or this `ref` has already been applied. Idempotent under a per-tenant
-    advisory lock, because a replayed ops script must not credit twice.
+    agreed, or this `ref` has already been applied to THIS call. Idempotent under a
+    per-tenant advisory lock, because a replayed ops script must not credit twice.
+
+    BOTH LEDGERS ARE KEYED ON (tenant, call, ref). One ops reference may legitimately
+    cover a batch of calls, so keying the wallet entry on the reference alone made the
+    second and every later call in a batch a correction that was recorded and never
+    refunded — the client's cost ledger said "put right" while their balance did not
+    move. A correction that only half-happens is worse than one that fails, because
+    nothing reads as wrong afterwards.
     """
     delta = tier_correction_inr(chars=chars, billed_tier=billed_tier, actual_tier=actual_tier)
     if delta == 0:
@@ -760,30 +1102,38 @@ async def record_tier_correction(
     # Managed clients are invoiced against a retainer and their wallet is not part of
     # the charge, so nothing is written for them.
     if await plan_tier_of(session, tenant_id) in ("self_serve", "trial"):
-        wallet_ref = f"tier-correction:{ref}"
-        seen = (
-            await session.execute(
-                text(
-                    "SELECT 1 FROM credit_ledger WHERE tenant_id = :tid AND ref = :ref "
-                    "AND reason = 'adjustment' LIMIT 1"
-                ),
-                {"tid": tenant_id, "ref": wallet_ref},
-            )
-        ).first()
-        if not seen:
-            await record_entry(
-                session,
-                tenant_id=tenant_id,
-                # The ledger's sign convention is the wallet's, not the cost ledger's:
-                # a NEGATIVE cost correction (we overbilled) is a POSITIVE credit back.
-                delta=-delta,
-                reason="adjustment",
-                ref=wallet_ref,
-                meta={"call_id": str(call_id), "billed_tier": billed_tier, "actual": actual_tier},
-                # The call already happened; a correction that refuses to record is a
-                # correction that leaves the client overcharged.
-                allow_negative=True,
-            )
+        # KEYED ON THE CALL AS WELL AS THE REF, and this is a fix rather than a detail.
+        # The cost-ledger dedupe above is `(tenant, call_id, correction_ref)` while this
+        # one used the ref alone, so a single ops reference covering a BATCH of calls
+        # produced one cost correction per call and exactly ONE wallet refund — every
+        # call after the first was corrected on paper and never refunded. The two keys
+        # now agree, which is the property that makes "corrected" and "refunded" the
+        # same set. (`ux_credit_ledger_tenant_reason_ref` is the second line of defence:
+        # a duplicate is a UniqueViolation rather than a double credit — a 500 instead
+        # of a wrong balance, which is the safe direction but not an answer.)
+        wallet_ref = f"tier-correction:{call_id}:{ref}"
+        # NO SECOND REPLAY CHECK HERE, and its removal is part of the same fix. This
+        # block used to re-ask "has this wallet ref been used?" because its key differed
+        # from the cost ledger's; now that both are (tenant, call, ref), the `already`
+        # guard at the top of this function returns before control can reach here on a
+        # replay, so the check could never fire. A reader's `if` that cannot fire is not
+        # defence in depth, it is a second way to answer one question — and the real
+        # enforcement was never the SELECT anyway: `ux_credit_ledger_tenant_reason_ref`
+        # makes a duplicate a UniqueViolation rather than a double credit (D-63: the
+        # index is the guarantee, not the reader).
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            # The ledger's sign convention is the wallet's, not the cost ledger's:
+            # a NEGATIVE cost correction (we overbilled) is a POSITIVE credit back.
+            delta=-delta,
+            reason="adjustment",
+            ref=wallet_ref,
+            meta={"call_id": str(call_id), "billed_tier": billed_tier, "actual": actual_tier},
+            # The call already happened; a correction that refuses to record is a
+            # correction that leaves the client overcharged.
+            allow_negative=True,
+        )
 
     log.info(
         "tts_tier_correction",
@@ -842,22 +1192,36 @@ async def margin_for_tenant(
 
 
 __all__ = [
+    "ADJUSTMENT_META_KIND",
+    "ADJUSTMENT_REF_PREFIX",
     "LOW_BALANCE_INR",
     "PAISE",
+    "PAYMENT_REF_SQL",
+    "RESTATEMENT_META_KIND",
+    "RESTATEMENT_REF_PREFIX",
     "ROUNDING",
     "Balance",
+    "CorrectableEntry",
     "CreditReason",
-    "TopUpEntry",
+    "LedgerEntryRef",
+    "RecordedPayment",
+    "adjustment_ref",
     "charge_for_call",
     "current_billing_month",
+    "find_entry_by_ref",
     "find_topup",
     "get_balance",
     "lock_tenant_credits",
     "margin_for_tenant",
     "plan_tier_of",
     "rate_to_display",
+    "read_correctable_entry",
+    "read_recorded_payment",
     "record_entry",
     "record_tier_correction",
+    "recorded_payments",
+    "restatement_ref",
+    "reversed_amounts",
     "split_overage",
     "tier_usage",
     "to_paise",

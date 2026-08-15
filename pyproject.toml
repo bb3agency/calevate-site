@@ -73,7 +73,11 @@ source_modules = [
     "apps.api.core",
     "apps.workers",
 ]
-forbidden_modules = ["apps.api.engine.bolna", "apps.api.engine.fake"]
+forbidden_modules = [
+    "apps.api.engine.bolna",
+    "apps.api.engine.cartesia",
+    "apps.api.engine.fake",
+]
 # DIRECT imports only. The factory in `apps.api.engine` obviously imports the adapters —
 # that is what a factory does — and forbidding the transitive chain would forbid having
 # a factory at all. What leaks a vendor shape into a module is that module NAMING the

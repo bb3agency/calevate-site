@@ -7,6 +7,7 @@ import ClientSignInPage from "@/app/(auth)/sign-in/[[...sign-in]]/page";
 import ClientSignUpPage from "@/app/(auth)/sign-up/[[...sign-up]]/page";
 import ClientHealthPage from "@/app/admin/health/page";
 import CommercialsPage from "@/app/admin/tenants/[tenantId]/commercials/page";
+import TenantCreditsPage from "@/app/admin/tenants/[tenantId]/credits/page";
 import LifecyclePage from "@/app/admin/tenants/[tenantId]/lifecycle/page";
 import HeldAccountsPage from "@/app/admin/holds/page";
 import NewClientPage from "@/app/admin/new/page";
@@ -25,6 +26,7 @@ import CallsPage from "@/app/c/[slug]/calls/page";
 import CampaignReviewPage from "@/app/c/[slug]/campaign-review/page";
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
+import ClientInvoicePage from "@/app/c/[slug]/invoice/page";
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
@@ -129,10 +131,59 @@ interface Screen {
   routes: Routes;
 }
 
-/** The invoice screen asks for the CURRENT IST month, so the fixture key must follow it. */
+/** The invoice screens ask for the CURRENT IST month, so the fixture key must follow it. */
 const IST_MONTH = new Date()
   .toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
   .slice(0, 7);
+
+/**
+ * One invoice fixture for BOTH realms, because there is one document: the admin screen
+ * and the client screen render the same `components/invoiceDocument.tsx`. A configured,
+ * GST-registered supply, so the sweep sees the fullest markup — identity block, place of
+ * supply, per-line SAC and a tax head — rather than the proforma's shorter sheet.
+ */
+const INVOICE = {
+  invoice_number: "CAL-202608-0192f0aa",
+  month: IST_MONTH,
+  generated_at: "2026-08-13T04:30:00Z",
+  document_type: "tax_invoice",
+  document_blockers: [],
+  supplier: {
+    legal_name: "Calevate Technologies Private Limited",
+    address: "Plot 42, Madhapur, Hyderabad 500081",
+    gstin: "36AABCC1234D1Z5",
+    state_name: "Telangana",
+    sac: "998315",
+  },
+  organization: {
+    id: "t1",
+    name: "Sri Traders",
+    billing_email: "accounts@example.com",
+    gstin: "29AAACR5055K1Z6",
+    state_name: "Karnataka",
+  },
+  place_of_supply: {
+    state_code: "29",
+    state_name: "Karnataka",
+    supply_type: "interstate",
+    basis: "Location of the recipient, a registered person (IGST Act s.12(2)(a)).",
+  },
+  line_items: [
+    {
+      description: "Monthly plan fee",
+      qty: "1",
+      unit_inr: "9999.00",
+      amount_inr: "9999.00",
+      sac: "998315",
+    },
+  ],
+  subtotal_inr: "9999.00",
+  gst_inr: "1799.82",
+  gst_rate_pct: "18",
+  tax_components: [{ label: "IGST", rate_pct: "18", amount_inr: "1799.82" }],
+  total_inr: "11798.82",
+  usage: { calls: 412, included_minutes: 500, minutes_used: "120.5" },
+};
 
 const slug = Promise.resolve({ slug: "acme" });
 const tenant = Promise.resolve({ tenantId: "t1" });
@@ -287,6 +338,97 @@ const PLATFORM = {
     verified_at: "2026-08-01T06:30:00Z",
     is_live: true,
   },
+};
+
+/**
+ * The platform-configuration panel's read (PLATFORM-CONFIG §8 panel 2).
+ *
+ * Two fields rather than one, and not for volume: an EDITABLE row and an `env`-pinned
+ * READ-ONLY row are different markup — one renders a button, the other renders the
+ * refusal sentence with the variable name in it — so a one-row fixture would scan half
+ * the panel.
+ */
+/** One installed credential and one that is not — different markup, so a one-row
+ *  fixture would scan half the panel. Nothing here carries a value: there is no field
+ *  on the wire that could. */
+const OPS_SECRETS = {
+  secrets: [
+    {
+      key: "bolna_api_key",
+      env_var: "BOLNA_API_KEY",
+      installed: true,
+      version: 2,
+      versions: 2,
+      last_four: "9f3c",
+      kek_id: 1633907231,
+      created_at: "2026-08-10T06:30:00Z",
+      created_by: "Ops",
+      shadowed_by_env: false,
+      testable: true,
+    },
+    {
+      key: "sarvam_api_key",
+      env_var: "SARVAM_API_KEY",
+      installed: false,
+      version: 0,
+      versions: 0,
+      last_four: "",
+      kek_id: 0,
+      created_at: null,
+      created_by: null,
+      shadowed_by_env: true,
+      testable: true,
+    },
+  ],
+};
+
+const OPS_KEK = {
+  active_kek_id: 1633907231,
+  has_retired_kek: false,
+  versions: 2,
+  current: 2,
+  pending: 0,
+};
+
+const OPS_CONFIG = {
+  fields: [
+    {
+      key: "self_serve_inr_per_min",
+      env_var: "SELF_SERVE_INR_PER_MIN",
+      value: "6.00",
+      source: "db",
+      default: "6.00",
+      has_default: true,
+      kind: "decimal",
+      options: [],
+      editable: true,
+      applies: "live",
+      caveat: null,
+      updated_by: "Ops",
+      updated_at: "2026-08-12T09:00:00Z",
+      note: "Q3 price change",
+    },
+    {
+      key: "object_store_bucket",
+      env_var: "OBJECT_STORE_BUCKET",
+      value: "calevate-prod",
+      source: "env",
+      default: null,
+      has_default: false,
+      kind: "string",
+      options: [],
+      editable: false,
+      applies: "live",
+      caveat: null,
+      updated_by: null,
+      updated_at: null,
+      note: null,
+    },
+  ],
+  config_version: 42,
+  stale: false,
+  never_loaded: false,
+  config_changed_at: "2026-08-12T09:00:00Z",
 };
 
 /**
@@ -901,6 +1043,14 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
+    // The client's own invoice — the same sheet the admin entry below renders, from the
+    // same fixture, because it is the same document (SLICE AL).
+    file: "c/[slug]/invoice/page.tsx",
+    realm: "client",
+    element: () => <ClientInvoicePage />,
+    routes: { "/v1/me": ME, [`/v1/billing/invoice?month=${IST_MONTH}`]: INVOICE },
+  },
+  {
     file: "c/[slug]/verification/page.tsx",
     realm: "client",
     element: () => <VerificationPage />,
@@ -1039,7 +1189,13 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/ops/page.tsx",
     realm: "admin",
     element: () => <OpsPage />,
-    routes: { "/v1/admin/me": ADMIN_ME, "/v1/ops/platform": PLATFORM },
+    routes: {
+      "/v1/admin/me": ADMIN_ME,
+      "/v1/ops/platform": PLATFORM,
+      "/v1/ops/config": OPS_CONFIG,
+      "/v1/ops/secrets": OPS_SECRETS,
+      "/v1/ops/secrets/kek": OPS_KEK,
+    },
   },
   {
     file: "admin/tenants/[tenantId]/page.tsx",
@@ -1066,6 +1222,56 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
+    // A wallet that is LOW and has both a credit and a debit on it: the low-balance
+    // notice, both movement signs and the ledger table are four separate pieces of
+    // markup, and a fresh, empty, healthy wallet would scan none of them. All three
+    // forms' inputs render on every branch of a successful read, and one entry is left
+    // FULLY corrected so the correction panel's select renders with an option missing
+    // rather than with everything on the ledger. `payments` is the SAME wallet grouped
+    // by bank transfer (D-89) and is what the restatement panel and the payments table
+    // render from — a page-level fixture without it renders neither.
+    file: "admin/tenants/[tenantId]/credits/page.tsx",
+    realm: "admin",
+    element: () => <TenantCreditsPage params={tenant} />,
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/admin/tenants/t1/credits?limit=50": {
+        tenant_id: "t1",
+        balance_inr: "150.00",
+        is_low: true,
+        low_balance_threshold_inr: "200.00",
+        entries: [
+          {
+            id: "0192f0aa-5555-7000-8000-000000000002",
+            delta_inr: "-2350.00",
+            reason: "usage",
+            ref: "0192f0aa-5555-7000-8000-0000000000c9",
+            balance_after_inr: "150.00",
+            occurred_at: "2026-08-13T05:30:00Z",
+            reversible_inr: "0.00",
+          },
+          {
+            id: "0192f0aa-5555-7000-8000-000000000001",
+            delta_inr: "2500.00",
+            reason: "topup",
+            ref: "UTR-902311",
+            balance_after_inr: "2500.00",
+            occurred_at: "2026-08-12T05:30:00Z",
+            reversible_inr: "2500.00",
+          },
+        ],
+        payments: [
+          {
+            payment_ref: "UTR-902311",
+            credited_inr: "2500.00",
+            entries: 1,
+            first_at: "2026-08-12T05:30:00Z",
+          },
+        ],
+      },
+    },
+  },
+  {
     file: "admin/tenants/[tenantId]/lifecycle/page.tsx",
     realm: "admin",
     element: () => <LifecyclePage params={tenant} />,
@@ -1081,22 +1287,7 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/tenants/[tenantId]/invoice/page.tsx",
     realm: "admin",
     element: () => <TenantInvoicePage params={tenant} />,
-    routes: {
-      [`/v1/admin/tenants/t1/invoice?month=${IST_MONTH}`]: {
-        invoice_number: "CAL-202608-0192f0aa",
-        month: IST_MONTH,
-        generated_at: "2026-08-13T04:30:00Z",
-        organization: { id: "t1", name: "Sri Traders", billing_email: "accounts@example.com" },
-        line_items: [
-          { description: "Monthly plan fee", qty: "1", unit_inr: "9999.00", amount_inr: "9999.00" },
-        ],
-        subtotal_inr: "9999.00",
-        gst_inr: "1799.82",
-        gst_rate_pct: "18",
-        total_inr: "11798.82",
-        usage: { calls: 412, included_minutes: 500, minutes_used: "120.5" },
-      },
-    },
+    routes: { [`/v1/admin/tenants/t1/invoice?month=${IST_MONTH}`]: INVOICE },
   },
   {
     file: "admin/tenants/[tenantId]/first-campaign-review/page.tsx",

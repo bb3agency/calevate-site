@@ -49,16 +49,37 @@ const ROUTE = `${PATH}?month=${encodeURIComponent(MONTH)}`;
  *
  * Every figure is a STRING, as the API sends them. The premium rung is quoted at four
  * decimals — a real plan shape, and the one `formatINR` would silently destroy.
+ *
+ * The identity block is a CONFIGURED, GST-registered supply (SLICE AL), so this file
+ * keeps testing the money questions it was written for. What the document does when the
+ * identity is absent is `clientInvoice.test.tsx`'s first test, on the same shared sheet.
  */
 function invoice(over: Partial<Invoice> = {}): Invoice {
   return {
     invoice_number: "CAL-202608-0192f0aa",
     month: MONTH,
     generated_at: "2026-08-13T04:30:00Z",
+    document_type: "tax_invoice",
+    document_blockers: [],
+    supplier: {
+      legal_name: "Calevate Technologies Private Limited",
+      address: "Plot 42, Madhapur, Hyderabad 500081",
+      gstin: "36AABCC1234D1Z5",
+      state_name: "Telangana",
+      sac: "998315",
+    },
     organization: {
       id: TENANT,
       name: "Sri Traders",
       billing_email: "accounts@sritraders.example",
+      gstin: "29AAACR5055K1Z6",
+      state_name: "Karnataka",
+    },
+    place_of_supply: {
+      state_code: "29",
+      state_name: "Karnataka",
+      supply_type: "interstate",
+      basis: "Location of the recipient, a registered person (IGST Act s.12(2)(a)).",
     },
     line_items: [
       {
@@ -66,6 +87,7 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
         qty: "1",
         unit_inr: "9999.00",
         amount_inr: "9999.00",
+        sac: "998315",
       },
       {
         // Deliberately does NOT quote the rate: the server's real description does, and
@@ -75,11 +97,13 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
         qty: "20.5",
         unit_inr: "7.1250",
         amount_inr: "146.06",
+        sac: "998315",
       },
     ],
     subtotal_inr: "1015900.00",
     gst_rate_pct: "18",
     gst_inr: "182862.00",
+    tax_components: [{ label: "IGST", rate_pct: "18", amount_inr: "182862.00" }],
     total_inr: "1198762.00",
     usage: { minutes_used: "220.5", calls: 118, included_minutes: 200 },
     ...over,

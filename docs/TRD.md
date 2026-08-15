@@ -537,7 +537,7 @@ Telephony (~₹0.35–0.50) is likewise constant. Only the platform fee and late
 | LiveKit Cloud (phase-2 candidate) | marginal ₹1.23 (agent + third-party SIP, two meters) but **$50/mo Ship floor dominates**: ₹4.40/min @1k min, ₹0.88/min @5k min; concurrency capped 5/20/600 | ✅ ap-south (Mumbai) VERIFIED — best-evidenced |
 | Pipecat Cloud (phase-2 candidate) | ~₹0.88 claimed — **entirely unverified** | regions unverified |
 | Self-host (DO BLR / Vultr Mumbai) | ₹2.1/min @1k, ₹0.85–1.2/min @5k (₹2,112/node ≈ 8–9 concurrent) | best possible physics (co-located), unmeasured |
-| ~~Cartesia **Line**~~ | ₹5.28/min ($0.06/min agent, verified) — but this is a **bundled** rate that appears to include their own models, so it is **not** comparable to Vapi's orchestration-only tax below. It sits level with Bolna's *bundled* 6.00¢. Eliminated because **BYOK support is unverified** (Line docs auth-gated) and Telugu depends on bringing Sarvam; plus monthly tiers to $299, agent concurrency 1/3/5/10 slots, and no India telephony/DLT story | India region **unverified** (docs auth-gated) |
+| ~~Cartesia **Line**~~ (D-88, re-examined Aug 2026) | ₹5.28/min ($0.06/min, Free→Startup) — **bundled, and now CONFIRMED bundled**: Line's LLM is fully BYOK via LiteLLM (`model=` + `api_key=`, 100+ providers) but **STT and TTS are not** — Ink 2 and Sonic 3.5 are the product and the SDK exposes no swap interface (first-party: the Line SDK README, `github.com/cartesia-ai/line`). So it is not comparable to a BYOK fee, and it **cannot host D-36's Sarvam stack**. Scale tier $0.014/min (₹1.23) is enterprise-negotiated with an unpublished commitment. Monthly plans to $299 (₹26,312); agent concurrency capped 1/3/5/10 by tier. Eliminated on **telephony**, not price: Cartesia numbers / imported Twilio / Voximplant, none of which is a DLT-registered Indian number | India story is REAL but enterprise-shaped: Blue Machines AI partnership (~Feb 2026) for India-**resident** processing, Bangalore office, Sonic 3 across the top 9 Indic languages incl. Telugu, on-prem/VPC/air-gapped, SOC 2 Type II + HIPAA + PCI L1. The earlier "English-first TTS" reading was **stale and is withdrawn**. Self-serve India region still unverified — `docs.cartesia.ai` and `www.cartesia.ai` are unreachable from our build environment |
 | ~~Vapi~~ | ~~₹4.40/min~~ — survives full BYOK; exceeds the entire all-in target alone | ❌ US/EU only: +230–260ms hairpin |
 
 Two rules this table encodes (D-32): at launch volume **monthly floors dominate
@@ -767,6 +767,256 @@ Phase triggers (numeric, pre-committed):
   is engineering the barge-in/turn-taking 20%, hence the volume gate.
 - **Phase 3 (self-host models on GPU):** sustained > ~50k min/month AND Telugu-quality
   open TTS exists. Below that, a 24/7 GPU at ~$0.72–0.79/hr loses to APIs on utilization.
+
+### 10.4 Scenario model: Bolna BYOK vs Cartesia Line at four volumes (Aug 2026, D-88)
+
+§10.1 prices the legs and §10.2 amortizes the base. This section is the same arithmetic
+run against a **named alternative**, because R6 forbids comparing platforms on headline
+rates and the only honest comparison is effective ₹/min at a stated volume, per path.
+
+**Two inputs are new since §10.1 and both change the answer.** First, **Bolna's BYOK
+platform fee is observed at 2¢/min ≈ ₹1.76** (from the Bolna dashboard, Aug 2026) — that
+sits INSIDE §10's assumed ₹1.50–2.00 band but **ABOVE OPERATIONS gate 12's negotiation
+target of ≤₹1.50**, so the gate is not satisfied by the observation and still needs the
+number in writing. Second, **Cartesia Line's $0.06 is confirmed bundled** (D-88), so it
+must be compared against Bolna's *platform + models*, never against the platform fee
+alone. FX ₹88/USD throughout, matching §10's existing figures.
+
+| Leg | Bolna (BYOK) | Cartesia Line (Startup) |
+|---|---|---|
+| Platform fee | ₹1.76 (2¢) | ₹5.28 ($0.06) — **includes STT + TTS** |
+| STT | ₹0.50 (Saaras) | *in the fee (Ink 2)* |
+| TTS | ₹0.54–0.81 (Bulbul v2) · ₹1.08–1.62 (v3) | *in the fee (Sonic 3.5)* |
+| LLM | ₹0.00 (Sarvam 105B) | ₹0.00 (BYOK Sarvam; Cartesia's own LLM line is "free for a limited time" — do not model on it) |
+| Telephony, blended in/out | ₹0.50–1.35 | ₹0.50–1.35 |
+| **Variable total** | **₹3.30–4.42** (v2) · **₹3.84–5.23** (v3) | **₹5.78–6.63** |
+| Midpoint used below | **₹3.87** (v2 stack) | **₹6.21** |
+
+Fixed monthly: infra ₹8,500 + ~₹300/client DID rental *(assumption — the Exotel/Vobiz
+rate card is still an open gate, ROADMAP §1)*. The Bolna path additionally buys a
+**Sarvam plan tier for RATE LIMITS, not price** (60 → 200 rpm ₹10k → 1,000 rpm ₹50k);
+the Cartesia path does not, because it is not calling Sarvam for speech. The Cartesia
+path instead carries **$299/mo ≈ ₹26,312** for the Startup plan.
+
+| | S1 · 1 client<br>1,000 min | S2 · 3 clients<br>5,000 min | S3 · 10 clients<br>20,000 min | S4 · 25 clients<br>60,000 min |
+|---|---|---|---|---|
+| Bolna — variable | ₹3,870 | ₹19,350 | ₹77,400 | ₹232,200 |
+| Bolna — fixed | ₹8,800 | ₹9,400 | ₹21,500¹ | ₹26,000¹ |
+| **Bolna — effective ₹/min** | **₹12.67** | **₹5.75** | **₹4.95** | **₹4.30** |
+| Cartesia — variable | ₹6,210 | ₹31,050 | ₹124,200 | *concurrency cap* |
+| Cartesia — fixed | ₹35,112 | ₹35,712 | ₹37,812 | *enterprise* |
+| **Cartesia — effective ₹/min** | **₹41.32** | **₹13.35** | **₹8.10** | **n/a self-serve** |
+
+¹ Sarvam Pro (₹10k) assumed from S3 for the 200 rpm ceiling — the one line where not
+using Sarvam speech genuinely helps Cartesia, and it is nowhere near enough to pay for
+itself.
+
+**The concurrency wall is the part a price table hides.** At 22 working days × 8 hours,
+average concurrency is `min ÷ 10,560`; peak runs ~4× average. S3 needs ~8 slots against
+Line's **10-slot self-serve ceiling**; S4 needs ~23 and has no self-serve tier at all.
+Bolna has no concurrency tier and no monthly floor (prepaid credits).
+
+**Break-even against retail**, solving `(variable × min + fixed) / min = retail` at
+S2-scale fixed costs:
+
+| Retail | Bolna break-even | Cartesia Startup break-even |
+|---|---|---|
+| ₹5/min | 8,319 min/mo | never (variable ₹6.21 > ₹5) |
+| ₹6/min | 4,413 min/mo | never |
+| ₹7/min | 3,003 min/mo | **45,205 min/mo** |
+
+That last cell is the elimination in one number **for the Startup tier**: it needs ~45,000
+min/month to break even at ₹7/min, which needs ~17 concurrent slots, which the tier caps
+at 10. There is no volume at which the Startup tier works.
+
+### 10.4a The Scale tier — CORRECTION to the paragraph this replaces
+
+The first version of this section called Scale "enterprise-negotiated with an unpublished
+commitment". **That was wrong and is withdrawn.** Scale is published and self-serve:
+**$239/month on annual billing** ($2,868/year ≈ **₹252,384**) or $299/month monthly, and
+it drops the Line rate from $0.06 to **$0.014/min (₹1.23)**, models still included, with
+8M model credits and $299 of prepaid Line minutes in the plan. The commitment is a known
+₹21,032/month, not an unknown. That changes the arithmetic materially and in Cartesia's
+favour, so it is corrected here rather than left flattering to the incumbent.
+
+| | S1 · 1,000 min | S2 · 5,000 min | S3 · 20,000 min | S4 · 60,000 min |
+|---|---|---|---|---|
+| Bolna effective ₹/min | ₹12.67 | ₹5.75 | ₹4.95 | ₹4.30 |
+| Cartesia **Scale** effective ₹/min | ₹31.99 | ₹8.25 | **₹3.79** | ₹2.78 *(unreachable — see below)* |
+| Monthly delta | +₹19,322 | +₹12,482 | **−₹23,168** | — |
+
+**Crossover ≈ 12,300 min/month**, solving `1.71 × min = ₹21,032` (the ₹1.71/min variable
+advantage against the plan fee). It arrives earlier still — ≈6,450 min/month — once the
+Bolna path needs the Sarvam Pro tier for rate limits, since the Cartesia path buys no
+Sarvam speech and therefore does not.
+
+**And there is an upper bound, which is the part a price table hides.** Scale caps agent
+concurrency at 10 slots. At 22 working days × 8 hours with peaks ~4× average, 10 slots is
+~26,400 min/month. So the Scale window is roughly **12,300 → 26,400 min/month**; above it
+the tier is Enterprise and genuinely unpublished again.
+
+That window is real and it is narrow, and it is exactly the volume band where the four
+blockers below bite hardest — Indian DLT telephony above all, since a saving you cannot
+legally dial through is not a saving. §10.5 is what to do about that.
+
+**Two things this table says about OUR path, independent of Cartesia:**
+
+1. **Closing gate 12's ₹0.26 fee gap is worth ₹5,200/month at S3 and ₹15,600 at S4.**
+   Real money, and a reason to run the negotiation properly — but not a crisis, and not
+   something switching orchestrators fixes.
+2. **The larger lever is Bulbul v2 vs v3** — ₹0.68 vs ₹1.35 at the midpoint, which is
+   ₹13,400/month at S3 and ₹40,200 at S4, *bigger than the entire platform-fee gap*. It
+   is decided by a Telugu ear test at the pilot (§10.1), not by a rate card.
+
+**Caveat carried forward, and it is ours:** §10 and FLOWS §257 price telephony at
+₹0.40–0.90 inbound / ₹0.60–1.80 outbound while §10.1 estimates ₹0.35–0.50. This table
+uses the wider band. If outbound really lands at ₹1.80, every Bolna figure above rises
+~₹0.45/min and the ₹5/min tier stops working below ~12,000 min/month.
+
+### 10.5 The orchestrator exit plan — build for the switch, do not build the switch
+
+D-31 rents an engine. §10.4a shows a real cost window in which Cartesia Line beats that
+choice. The decision this section records is **not** "switch"; it is **"make switching a
+configuration change, and pre-commit the trigger that makes it one worth making."**
+
+**Why this is not speculative work.** The exit door already exists by construction: hard
+rule 2 isolates every vendor shape inside `apps/api/engine/`, `VoiceEngine` in
+`packages/shared` is the port, and `make conformance` runs both adapters against one
+contract. What has never been tested is whether that contract is vendor-NEUTRAL or merely
+Bolna-shaped — and those look identical while only one vendor exists. A second adapter
+written on the day of the switch is the expensive way to find out.
+
+**The one thing the founder's instinct got right, and the one it got wrong.** Right: our
+**Sarvam LLM key works on Cartesia Line** — Line routes through LiteLLM, Sarvam is a
+first-class LiteLLM provider (`sarvam/` prefix) with an OpenAI-compatible endpoint at
+`https://api.sarvam.ai/v1`, so the free-per-token LLM leg of D-36 survives the move
+intact. Wrong: **the speech legs do not.** Line's TTS configuration takes a Cartesia
+`voice_id` and a Cartesia `model` (`sonic-3.5`/`sonic-2`) — there is no provider field,
+and Ink 2/Sonic are the product rather than a default. So "BYOK Sarvam into Cartesia"
+is true for one leg of three, and D-36's residency argument rests on the other two.
+
+**What a switch actually costs, itemised.** These are capability DIFFERENCES, which is
+why the engine port is where the work belongs:
+
+| Capability | Bolna | Cartesia Line | Consequence for us |
+|---|---|---|---|
+| BYOK LLM | yes | **yes** (LiteLLM) | Sarvam 105B survives the move |
+| BYOK STT | yes (Saaras) | **no** (Ink 2) | D-36 residency argument weakens; new ear test |
+| BYOK TTS | yes (Bulbul) | **no** (Sonic) | agent voice picker becomes a lie unless capability-driven |
+| Engine-side campaigns | yes (unverified, TRD §5) | no | we already dispatch in our layer — no loss |
+| Built-in KB | yes, `rag_id` (D-33) | **yes** — CORRECTED, see below | no forced loss; the shapes differ, the capability does not |
+| Webhook auth | unsigned → IP allowlist + execution-id dedupe | signed | receiver must not hard-code one model |
+| Indian DID / DLT 140/160 | yes | **no** | **the blocker** — see below |
+| Concurrency | no tier cap | 1/3/5/10 by tier | a business constraint, not a code one |
+
+> ⚠ **CORRECTION (recorded the day it was found).** This table first said Cartesia Line
+> has **no** built-in knowledge base, and concluded that T0 retrieval would need our own
+> path. **That was wrong.** Reading the Line SDK at source (`github.com/cartesia-ai/line`
+> @ `3062c978`) shows `line/knowledge_base.py` as a first-class client and
+> `knowledge_base` as a shipped built-in tool. The KB capability survives a move; only its
+> shape differs. The wrong version is left visible rather than silently edited, because it
+> was reasoned from an absence of evidence — the failure mode `RESEARCH-DISCIPLINE.md`
+> exists to catch.
+
+**The blocker is telephony, and it is the only one that is not ours to fix in code.** Our
+entire compliance spine — PE/TM registration, DLT headers and templates, the
+promotional-vs-service series classification in `campaigns/service.py`, DNC before every
+dispatch tick — presumes an Indian carrier relationship. Cartesia's number paths are
+Cartesia-provisioned, imported Twilio, or Voximplant, and none of those yields a
+DLT-registered 140/160-series Indian number. **Whether Line accepts SIP from an arbitrary
+carrier (BYOC) is the single question that decides whether this exit is available at all,
+and it is UNVERIFIED — their docs are unreachable from our build environment.** If BYOC
+works, an Indian carrier (Exotel/Vobiz class) can front Line and the exit is live. If it
+does not, §10.4a's window is unreachable regardless of price. **Ask this before anything
+else; it is cheap to ask and it gates everything downstream.**
+
+**Pre-committed triggers, in the style of §10.2's phase gates.** Re-evaluate the
+orchestrator when ALL of:
+
+1. sustained volume **> 12,500 min/month** (§10.4a's crossover), AND
+2. Line **BYOC SIP from an Indian DLT-registered carrier is confirmed in writing**, AND
+3. **Sonic Telugu passes the same ear test Bulbul passed** for D-36 — a spec claim about
+   9 Indic languages is not the test, and D-36 was decided by listening.
+
+Below 12,500 min/month the plan fee dominates and the answer is Bolna. Above ~26,400
+min/month the Scale tier's concurrency cap has been passed and the comparison is against
+an unpublished Enterprise price, which resets the analysis rather than continuing it.
+
+**What we build NOW, and what we deliberately do not.** We build the capability
+descriptor on the engine port, we make the conformance suite prove a capability claim
+rather than trust it, and we run the whole system in tests against a capability-restricted
+engine that dictates speech and answers the KB question differently — the Cartesia shape — so the places
+that cannot survive those answers are found now, cheaply, and not on a migration weekend.
+We do **not** write a Cartesia adapter. This repo's own doctrine says an adapter written
+against an imagined API is worse than none because it looks finished, and Cartesia's docs
+are egress-blocked here, so any adapter written today would be invention with a version
+number on it. The day the trigger fires, the vendor work is one class against a contract
+that has already been proven neutral.
+
+### 10.6 Running two engines at once — the concrete Cartesia implementation plan
+
+§10.5 says build FOR the switch. This is what that means in files, in order, with the one
+architectural change that actually matters.
+
+**The architectural change: engine selection is currently GLOBAL and must become
+per-tenant.** `apps/api/engine/__init__.py::get_engine()` resolves one engine per
+deployment from `ENGINE=`, whose permitted values are `calevate_shared.config.EngineName`
+— today `fake|bolna|cartesia`, and never spelled out again anywhere else (D-103). That is
+a fine shape for one vendor and the wrong
+shape for a migration, because it makes the switch a single irreversible flip for every
+client at once. Nobody sane migrates a phone system that way.
+
+The good news is that half the work is already done and nobody planned it that way:
+**`engine_agent_routes` already carries an `engine` column per agent.** Inbound resolution
+— "which agent is this webhook about, and on which engine does it live" — therefore
+already works across two engines. What is missing is the WRITE side: `get_engine()` has
+no tenant argument, so agent creation, KB pushes and outbound dials all go to the one
+globally-configured vendor.
+
+| Layer | State today | What the plan changes |
+|---|---|---|
+| Inbound routing | `engine_agent_routes.engine` per agent — **already multi-engine** | nothing |
+| Write path (`get_engine()`) | global `ENGINE` env | resolves per tenant, defaulting to the platform value |
+| Capability differences | implicit, Bolna-shaped | explicit descriptor, conformance-proven (D-93) |
+| Webhook auth | Bolna's unsigned + IP allowlist + execution-id dedupe | per-engine: Cartesia signs, so the receiver picks by engine, not by config |
+| Cost breakdown | Bolna's `cost.breakdown` legs | per-engine mapping into our `usage_events` legs |
+| Voice picker | free choice of TTS vendor | capability-driven — an engine that dictates speech offers its own catalogue |
+
+**Build order, each step independently shippable:**
+
+1. **Capability descriptor + conformance proves the claim** (D-93, in flight). This lands
+   first because everything downstream reads it.
+2. **`apps/api/engine/cartesia.py`** — the adapter, written to the Razorpay precedent:
+   documented shapes, every unsourced field marked UNVERIFIED at the line with the source
+   used, and the API version **pinned**. Passes the conformance suite. Its
+   `provision_number` refuses by name — Cartesia has no DLT-registered 140/160 path, and
+   an adapter that pretends otherwise is worse than one that refuses.
+3. **voice-runtime intake per engine.** Cartesia signs its webhooks; Bolna does not, which
+   is why our receiver uses an IP allowlist plus execution-id dedupe (TRD §5). The
+   receiver must choose its verification by the engine the route resolves to, never by a
+   global setting — a deployment running both engines has two authenticity models live at
+   once, and getting that wrong means either rejecting good calls or accepting forged ones.
+4. **`get_engine(tenant_id)`** — per-tenant resolution, with the platform value as the
+   default. This is the canary lever: one client moves, the rest do not.
+5. **Ops console engine panel** (D-95 phase 3) — which adapter is live per tenant, its
+   capability descriptor rendered from the API rather than hard-coded, and its credential
+   status. Switching a tenant's engine becomes a screen action with a step-up
+   confirmation and an audit row.
+6. **The cutover runbook.** This is the part a config flag cannot do, and pretending
+   otherwise is how a migration weekend goes wrong: agents must be re-created on the new
+   engine, knowledge bases re-uploaded and re-attached, numbers re-pointed at the new
+   webhook URL, and the old engine's agents left in place until the new ones are verified.
+   `engine_agent_routes` makes the two coexist; it does not make the objects appear.
+
+**What stays ours regardless of engine, and therefore never migrates:** the compliance
+gate, DNC, the consent ledger, DLT template and header state, number classification,
+campaign dispatch, the post-call pipeline, extraction, billing. That list is why the
+engine is a rented component rather than the product.
+
+**Still UNVERIFIED and gating step 2's usefulness rather than its existence:** whether
+Line accepts BYOC SIP from an Indian DLT-registered carrier (§10.5). The adapter can be
+built and conformance-proven without that answer. It cannot legally dial an Indian
+consumer without it.
 
 ## 11. Multi-Tenancy & Security (engineering-level; full detail in SECURITY-COMPLIANCE.md)
 

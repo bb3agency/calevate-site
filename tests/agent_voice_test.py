@@ -31,6 +31,8 @@ its `permission_meta`, mounting it anywhere starts failing.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from apps.api.admin import service as admin_service
 from apps.api.agents import publishing
@@ -49,7 +51,7 @@ from apps.api.core.errors import install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
-from apps.api.engine.fake import FakeEngine
+from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -160,6 +162,31 @@ async def _publish(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> FakeEngine:
     return engine
 
 
+@contextmanager
+def _dictating_engine() -> Iterator[FakeEngine]:
+    """Run the block against an engine that SUPPLIES ITS OWN VOICES.
+
+    The same `FakeEngine` class with a different capability descriptor — no speculative
+    adapter and no imagined vendor API, because every difference that matters here is an
+    ANSWER rather than an endpoint (`fake.DICTATED_SPEECH_CAPABILITIES`).
+
+    It reaches into `apps.api.engine`'s instance cache because that is what the route
+    resolves through, and it restores the cache afterwards so the next test gets the
+    ordinary BYOK engine back — a leaked descriptor would make an unrelated suite fail
+    somewhere far from here.
+    """
+    import apps.api.engine as engine_module
+
+    engine = FakeEngine(capabilities=DICTATED_SPEECH_CAPABILITIES)
+    previous = dict(engine_module._instances)
+    engine_module._instances["fake"] = engine
+    try:
+        yield engine
+    finally:
+        engine_module._instances.clear()
+        engine_module._instances.update(previous)
+
+
 # --- The catalog itself -------------------------------------------------------
 
 
@@ -214,7 +241,15 @@ def test_no_entry_claims_to_be_pilot_verified() -> None:
 
 async def test_a_client_can_read_the_catalog() -> None:
     """A client is the Principal Entity; they get to hear what their agent sounds like.
-    Also pins the mount order — a 422 here means the router was mounted too late."""
+    Also pins the mount order — a 422 here means the router was mounted too late.
+
+    The response is an ENVELOPE, not a bare list (D-93). On an engine that supplies its
+    own voices the honest answer is "no selection here, and that is normal", and a bare
+    list can only say that with `[]` — which the console renders as "this agent has no
+    voices available", a claim about the product rather than about the engine. So the
+    verdict travels beside the rows: `selectable` and `control` say whether choosing is
+    possible at all, and `note` is the sentence a surface prints either way.
+    """
     _tenant_id, _agent_id, slug, token = await _tenant()
     async with _client(_app()) as http:
         response = await http.get(
@@ -223,9 +258,60 @@ async def test_a_client_can_read_the_catalog() -> None:
         )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert len(body) == len(CATALOG)
-    assert {entry["id"] for entry in body} == set(voice_ids())
-    assert {entry["tier"] for entry in body} == {"premium", "value"}
+    # `ENGINE=fake` in tests, and the fake adapter is BYOK on every leg, so the full
+    # catalog is offerable here — which is also Bolna's answer (`BOLNA_CAPABILITIES`).
+    assert body["control"] == "ours"
+    assert body["selectable"] is True
+    assert body["note"]
+    assert len(body["voices"]) == len(CATALOG)
+    assert {entry["id"] for entry in body["voices"]} == set(voice_ids())
+    assert {entry["tier"] for entry in body["voices"]} == {"premium", "value"}
+
+
+async def test_the_catalog_is_closed_and_the_write_refused_when_the_engine_dictates_tts() -> None:
+    """The TTS answer for an engine that supplies its own voices (D-93).
+
+    Both halves are asserted together because the failure this prevents is precisely the
+    two halves disagreeing: a picker built from a catalog the write endpoint will refuse.
+    `selectable: false` with an EMPTY `voices` and a `note` is the whole contract — a
+    surface that renders the note says something true and calm, and one that renders the
+    (empty) list has nothing to offer, which is now the correct outcome rather than an
+    accident that reads as a broken product.
+
+    The refusal names the capability rather than the voice: on such an engine there is no
+    voice id that would have worked, so `unknown_voice` would send an operator hunting
+    for the right string forever.
+    """
+    tenant_id, agent_id, slug, token = await _tenant()
+    admin_token = await _admin_token()
+    before = await _stored_voice(tenant_id, agent_id)
+
+    with _dictating_engine():
+        async with _client(_app()) as http:
+            catalogue = await http.get(
+                "/v1/agents/voices",
+                headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+            )
+            write = await http.patch(
+                f"/v1/agents/{agent_id}/voice",
+                json={"tenant_id": str(tenant_id), "voice_id": "bulbul:v3"},
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
+
+    assert catalogue.status_code == 200, catalogue.text
+    listing = catalogue.json()
+    assert listing["selectable"] is False
+    assert listing["control"] == "engine"
+    assert listing["voices"] == [], "a voice this engine cannot speak is not an option"
+    assert "supplies its own voices" in listing["note"]
+
+    assert write.status_code >= 400, write.text
+    problem = write.json()
+    assert problem["type"].rsplit("/", 1)[-1] == "engine_capability_absent"
+    assert problem["remediation"], "an operator must be told what to do instead"
+    # Nothing was written. A refusal that still stored the voice would leave the row
+    # claiming a voice no caller will ever hear — the exact state this refuses to create.
+    assert await _stored_voice(tenant_id, agent_id) == before
 
 
 async def test_a_client_realm_principal_cannot_set_the_voice() -> None:

@@ -20,11 +20,24 @@ target_metadata = Base.metadata
 
 
 def _database_url() -> str:
-    # Migrations run as the OWNER role (DDL, roles, policies); the app's
-    # DATABASE_URL is the unprivileged calevate_app role and must not be used here.
-    url = os.environ.get("ALEMBIC_DATABASE_URL") or os.environ.get("DATABASE_URL")
+    # Migrations run as the OWNER role (DDL, roles, policies); the app's DATABASE_URL is
+    # the unprivileged `calevate_app` role (NOSUPERUSER NOBYPASSRLS) and must not be used
+    # here.
+    #
+    # THERE IS NO FALLBACK TO `DATABASE_URL`, and there used to be. The comment above has
+    # always said migrations must never run as the app role, while the code immediately
+    # below offered exactly that when the variable was absent — so a deploy that forgot
+    # `ALEMBIC_DATABASE_URL` did not get "it is not set", it got a migration running as a
+    # role that cannot create a policy, and a permission error naming whichever statement
+    # happened to need the privilege first. A silently wrong role is worse than a refusal
+    # on the one path whose whole job is to install the RLS that hard rule 1 rests on.
+    url = os.environ.get("ALEMBIC_DATABASE_URL")
     if not url:
-        raise RuntimeError("ALEMBIC_DATABASE_URL is not set (copy .env.example to .env)")
+        raise RuntimeError(
+            "ALEMBIC_DATABASE_URL is not set. Migrations run as the OWNER role; the app's "
+            "DATABASE_URL is the unprivileged calevate_app role and will fail partway "
+            "through, having already applied some DDL. Copy .env.example to .env."
+        )
     # Alembic runs sync; the app may use an async driver suffix later.
     return url.replace("+asyncpg", "+psycopg")
 

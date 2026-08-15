@@ -400,11 +400,52 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
 
 ## 6. Secrets (three tiers, raghava model mapped to our stack)
 
-1. **VPS `.env`** — bootstrap only (DATABASE_URL, REDIS_URL, object-store keys,
-   Clerk keys, BOLNA_API_KEY, APP_ENV=prod). Never in git, never written by scripts;
-   `vps-deploy.sh` aborts if absent, warns if it is not mode 600, and never prints a
-   value. Pydantic Settings fails fast on missing keys, and §4 step 6 runs that check in
-   the new image before any container is swapped.
+1. **VPS `.env`** — **the bootstrap eight, and nothing else** (D-95, PLATFORM-CONFIG §4).
+   Provisioning a VPS means writing these and only these:
+
+   ```
+   APP_ENV=prod
+   DATABASE_URL=…            # host.docker.internal, the app role
+   ALEMBIC_DATABASE_URL=…    # host.docker.internal, the owner role
+   REDIS_URL=redis://redis:6379/0
+   PLATFORM_KEK=…            # base64 of 32 random bytes — generate ONCE, back it up
+   PLATFORM_KEK_RETIRED=     # empty until the first rotation
+   OBJECT_STORE_ENDPOINT=…
+   OBJECT_STORE_BUCKET=…
+   ```
+
+   Everything else — Clerk keys, `BOLNA_API_KEY`, Sarvam, SMTP, Razorpay, the GST
+   invoice identity, `ENGINE`, calling windows, `USD_INR_RATE`, `ALERTS_EMAIL`, all 50 of
+   them — is set afterwards from `admin.calevate.tech/ops`, live, without an SSH session
+   and without a restart. **That screen is now part of go-live** (§9): a freshly
+   provisioned VPS boots into a running platform with unconfigured integrations, each of
+   which refuses by name rather than pretending to work, and an operator finishes the
+   configuration from a browser.
+
+   **The bootstrap ordering problem, stated plainly: the console cannot configure the
+   thing the console needs in order to start.** Resolution order is `os.environ` →
+   `platform_settings`/`platform_secrets` → code default → refuse, so a key is only
+   readable from the store by a process that already reached the store. `APP_ENV` decides
+   the security posture (D-49), the two DSNs *are* the store, `REDIS_URL` carries the
+   config sentinel, and `PLATFORM_KEK` decrypts every stored secret — a KEK inside the
+   database it unlocks is theatre. The two `OBJECT_STORE_*` keys are here for a
+   mechanical reason and are why the floor is 8 rather than §4's 6: they are REQUIRED
+   `Settings` fields with no default, so `Settings()` cannot construct without them and
+   the process cannot boot far enough to look them up. The console does manage them; set
+   here, they display as source `env` and read-only.
+
+   **Losing `PLATFORM_KEK` loses every stored secret.** It is not in the database, not in
+   any backup of the database, and cannot be recovered from one — it belongs in the same
+   offline custody as the `age` backup identity (§7, `infra/backup/README.md`). Restoring
+   a database onto a host with a different KEK gives you a platform whose credentials all
+   fail to decrypt. Back it up when you generate it, not later.
+
+   **Env still wins over the store, deliberately** (§4): pasting a key into this file and
+   restarting is the escape hatch for the night the console itself is what is broken.
+
+   Never in git, never written by scripts; `vps-deploy.sh` aborts if absent, warns if it
+   is not mode 600, and never prints a value. Pydantic Settings fails fast on missing
+   keys, and §4 step 6 runs that check in the new image before any container is swapped.
    **Write the DSNs as the CONTAINERS see them**: `DATABASE_URL` and
    `ALEMBIC_DATABASE_URL` point at `host.docker.internal` (the host Postgres, D-26),
    `REDIS_URL` at `redis` by service name. Every Python process — including migrations —
@@ -558,6 +599,17 @@ hand after being read) →
 the one this order previously assumed away)** → 10. configure Bolna per-agent webhook URLs against hooks.calevate.tech + verify the
 source-IP allowlist (13.203.39.153 via CF real_ip, D-27/D-31) rejects a spoofed test
 delivery and accepts a real one → 11. pre-launch checklist (OPERATIONS §8).
+
+**Step 4 places the bootstrap EIGHT only (§6 tier 1); the other 50 keys are step 10a.**
+After the first deploy the platform is running and its integrations are unconfigured —
+each refusing by name, none pretending to work. Open `admin.calevate.tech/ops` and set
+them: engine + `BOLNA_API_KEY`, the Sarvam stack, the Clerk secrets, SMTP +
+`ALERTS_EMAIL`, `USD_INR_RATE`, and the GST invoice identity when the entity exists.
+`POST /v1/ops/secrets/{key}/test` asks the vendor a cheap authenticated question before a
+credential goes live, so a wrong key is refused at the screen rather than at the first
+call. `GET /v1/ops/config` is also the pre-launch audit: it shows every key with its
+source, so "is anything still on a code default in production" is one screen rather than
+an SSH session — worth reading before ticking OPERATIONS §8.
 
 **Step 9 in full — `infra/backup/README.md` §8 is the ordered checklist; the shape of it:**
 create the R2 **backup** bucket + a token scoped to it alone → install wal-g (v3.0.8,

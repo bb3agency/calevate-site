@@ -2,8 +2,23 @@
 (ENGINEERING-PRACTICES §2; fail-fast config doctrine, DEV-SETUP §4).
 
 Every key in `.env.example` must be a Settings field, every Settings field must appear
-in `.env.example` — and every environment variable the code actually READS must be a
-Settings field. That third direction is the one a worker slips through: a job that
+in `.env.example` **or be managed in the ops console** — and every environment variable
+the code actually READS must be a Settings field.
+
+THE SECOND DIRECTION LEARNED A NEW SOURCE OF TRUTH (PLATFORM-CONFIG §12). Before the
+console existed, `.env.example` was the only place a key could be declared, so "in
+Settings but not in the example" was always a documentation gap. It is not any more: a
+key an operator sets at `admin.calevate.tech/ops` is DECLARED THERE, and requiring it in
+the example as well would fail this guardrail the day the first key moves — with the
+tempting fix being to weaken the guardrail. So a console-managed key is declared, and a
+key that is in NEITHER place is still a failure, which is the half that was doing the
+work all along.
+
+The BOOTSTRAP SIX are exempt from that allowance in the other direction: they can never
+be console-managed (§4), so they must be in `.env.example`, and `check_bootstrap_keys`
+is what proves they stayed env-only.
+
+That third direction is the one a worker slips through: a job that
 calls `os.getenv("SOME_NEW_KEY")` is config that nobody documented, nobody validates at
 boot, and that is simply absent in production until someone notices the feature is off.
 
@@ -46,6 +61,34 @@ INFRA_ENV_KEYS: frozenset[str] = frozenset(
         "HOSTNAME",
     }
 )
+
+# Variables read by OPERATOR TOOLING that runs outside the application, with the reason.
+#
+# These are not application config: no deployable reads them, they never reach a request
+# path, and putting them in `Settings` would make every process carry a field only a
+# drill script uses — which is the opposite of what the fail-fast doctrine is for. They
+# are listed rather than pattern-matched so that adding one is a visible diff.
+DRILL_ENV_KEYS: dict[str, str] = {
+    "DRILL_S3_ACCESS_KEY": (
+        "scripts/restore_drill.py — the scratch bucket's access key, for the same reason "
+        "and with the same scope as DRILL_S3_ENDPOINT below. A drill credential is not a "
+        "platform credential: it reaches a scratch bucket an operator created for the "
+        "drill, no deployable reads it, and it must not become a field every process "
+        "carries."
+    ),
+    "DRILL_S3_SECRET_KEY": (
+        "scripts/restore_drill.py — the scratch bucket's secret key. Same scope, same "
+        "reasoning: operator tooling that runs outside every deployable, against a "
+        "scratch bucket, and deliberately not reusing the application's own credentials."
+    ),
+    "DRILL_S3_ENDPOINT": (
+        "scripts/restore_drill.py — the object-store endpoint the RESTORE DRILL reads "
+        "from, as the default for its own `--s3-endpoint` flag. The drill runs against a "
+        "scratch database and a scratch bucket, by an operator, outside every deployable; "
+        "`Settings.object_store_endpoint` is the application's and is deliberately not "
+        "reused, because a drill must be able to point somewhere the app cannot."
+    ),
+}
 
 _KEY_RE = re.compile(r"^([A-Z][A-Z0-9_]*)=")
 _ENV_READERS = ("getenv", "environ")
@@ -145,23 +188,43 @@ def bootstrap_contract_failures(declared: set[str]) -> list[str]:
     return failures
 
 
+def console_managed() -> set[str]:
+    """Keys an operator can set without an SSH session (PLATFORM-CONFIG §7).
+
+    Imported from the modules that actually SERVE those surfaces, not re-listed: this
+    check has to be asking "is it declared somewhere a person can find it", and a second
+    copy of the managed set would answer a question about itself.
+    """
+    from apps.api.core.platform_config import managed_fields
+    from apps.api.ops.secret_service import manageable_secret_keys
+
+    return set(managed_fields()) | set(manageable_secret_keys())
+
+
 def evaluate(
     declared: set[str],
     settings_fields: set[str],
     reads: dict[str, list[str]],
     duplicates: list[str] | None = None,
+    managed: set[str] | None = None,
 ) -> list[str]:
     failures: list[str] = []
+    manageable = console_managed() if managed is None else managed
     only_example = sorted(declared - settings_fields)
-    only_settings = sorted(settings_fields - declared)
+    # A field is DECLARED if a person can find it: in the template, or on the console.
+    # Anything in neither is config nobody can discover.
+    only_settings = sorted(settings_fields - declared - manageable)
     if only_example:
         failures.append(f"in .env.example but not Settings: {only_example}")
     if only_settings:
-        failures.append(f"in Settings but not .env.example: {only_settings}")
+        failures.append(
+            f"in Settings, not in .env.example, and not manageable from the ops console: "
+            f"{only_settings} — nobody can discover these"
+        )
     for key in duplicates or []:
         failures.append(f"{key.upper()} is declared twice in .env.example")
     for key, sites in sorted(reads.items()):
-        if key in INFRA_ENV_KEYS or key.lower() in settings_fields:
+        if key in INFRA_ENV_KEYS or key in DRILL_ENV_KEYS or key.lower() in settings_fields:
             continue
         failures.append(
             f"{key} is read directly from the environment ({', '.join(sorted(sites))}) "

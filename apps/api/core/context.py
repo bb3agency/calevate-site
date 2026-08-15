@@ -22,6 +22,14 @@ correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", defaul
 # a mismatch between those two is invisible to curl and fatal in a browser.
 ORG_HEADER = "X-Org-Slug"
 IMPERSONATE_HEADER = "X-Impersonate-Org"
+# The two impersonation headers are ADDRESSING and AUTHORISATION, which is why there are
+# two rather than one. `X-Impersonate-Org` names WHICH tenant this request is for (a
+# slug, because D-10 addresses clients by slug and ~15 console call sites already hold
+# one); `X-Impersonation-Grant` is the signed proof that this operator may enter it
+# (`core/impersonation.py`). Collapsing them into one self-describing token would remove
+# the very mismatch the grant exists to catch — a grant for tenant A presented against
+# tenant B — and would leave `current_any` with nothing cheap to switch realms on.
+IMPERSONATION_GRANT_HEADER = "X-Impersonation-Grant"
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +62,7 @@ principal_var: ContextVar[Principal | None] = ContextVar("principal", default=No
 
 __all__ = [
     "IMPERSONATE_HEADER",
+    "IMPERSONATION_GRANT_HEADER",
     "ORG_HEADER",
     "Principal",
     "Realm",

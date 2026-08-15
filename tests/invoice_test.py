@@ -10,9 +10,12 @@ from __future__ import annotations
 import re
 import uuid
 from decimal import Decimal
+from typing import Any
 
+import pytest
 from apps.api.admin import service as admin_service
-from apps.api.billing.invoice import build_invoice
+from apps.api.billing.invoice import _reconcile_overage, build_invoice
+from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
@@ -168,3 +171,79 @@ async def test_a_tenant_with_no_plan_still_gets_a_statement() -> None:
     assert invoice["gst_inr"] == Decimal("0.00")
     assert invoice["total_inr"] == Decimal("0.00")
     assert invoice["usage"]["minutes_used"] == Decimal("30.00")
+
+
+# --- the two-rung overage reconciles to the figure the client was already shown ----
+
+
+def test_the_rung_lines_sum_to_the_total_the_panel_already_showed() -> None:
+    """The panel prices the whole overage in ONE quantization; the invoice shows each
+    TTS rung on its own line, which is two. Those disagree by a paisa often enough to
+    matter, and the panel's figure is the one the client has already seen and the one
+    `margin_for_tenant` is computed from — so the invoice has to move, and the drift has
+    to land on the LAST line where a hand-checker expects the remainder.
+
+    An unreconciled invoice is not a rounding curiosity: it is a document whose lines do
+    not add up to its own total, which is the first thing an accountant checks and the
+    fastest way to lose an argument about a bill that is otherwise correct.
+    """
+    rungs = [
+        {"description": "premium", "amount_inr": Decimal("100.01")},
+        {"description": "value", "amount_inr": Decimal("50.01")},
+    ]
+    _reconcile_overage(rungs, Decimal("150.00"))
+
+    assert sum((r["amount_inr"] for r in rungs), start=Decimal("0")) == Decimal("150.00")
+    assert rungs[0]["amount_inr"] == Decimal("100.01"), "the first line is left alone"
+    # The remainder lands whole on the last line, quantized to paise and exact —
+    # 50.01 - 0.02. Compared as digits, because a float 49.99 is not this number.
+    assert str(rungs[1]["amount_inr"]) == "49.99"
+
+    # The other direction: the panel's total ABOVE the sum of the rungs.
+    short = [{"amount_inr": Decimal("10.00")}, {"amount_inr": Decimal("5.00")}]
+    _reconcile_overage(short, Decimal("15.03"))
+    assert str(short[1]["amount_inr"]) == "5.03"
+
+    # And a total the rungs already sum to is left untouched, so the reconciliation
+    # cannot invent a difference of its own.
+    exact = [{"amount_inr": Decimal("7.50")}, {"amount_inr": Decimal("2.50")}]
+    _reconcile_overage(exact, Decimal("10.00"))
+    assert [str(r["amount_inr"]) for r in exact] == ["7.50", "2.50"]
+
+
+def test_an_invoice_with_no_overage_rungs_has_nothing_to_reconcile() -> None:
+    """A month entirely inside the included minutes builds NO rung lines, and the
+    reconciliation must return without touching anything.
+
+    The failure it guards is an indexing one, not an arithmetic one: `rungs[-1]` on an
+    empty list is an `IndexError`, which would turn "this client used less than their
+    plan allows" — the most ordinary month there is — into a 500 on the invoice route.
+    """
+    empty: list[dict[str, Any]] = []
+    _reconcile_overage(empty, Decimal("0.00"))
+    assert empty == []
+
+    # Not even a non-zero total (which cannot happen while the caller only reconciles a
+    # list it built from priced rungs) may make it reach for a line that is not there.
+    _reconcile_overage(empty, Decimal("12.34"))
+    assert empty == []
+
+
+async def test_an_invoice_for_a_tenant_that_does_not_exist_is_a_404_not_a_blank_document() -> None:
+    """The statement's face — the client's name and billing email — comes from
+    `organizations`. With no row there is no supply to invoice and no recipient to
+    address it to.
+
+    The answer must be the RFC-9457 404 rather than a document with empty identity
+    fields: an invoice is the artefact a client pays against, and one that renders with
+    a blank recipient over real usage totals is a document that can be sent by mistake.
+    A deleted tenant is exactly when this happens, which is also exactly when nobody is
+    watching the batch that generated it.
+    """
+    missing = uuid.uuid4()
+    async with tenant_session(missing) as session:
+        with pytest.raises(ProblemError) as refused:
+            await build_invoice(session, tenant_id=missing)
+
+    assert refused.value.status == 404
+    assert refused.value.code == "not_found"

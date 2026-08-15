@@ -237,7 +237,7 @@ async def test_pausing_and_resuming_are_written_down_once_each() -> None:
     async with _client() as client:
         paused = await client.post(f"/v1/campaigns/{campaign_id}/pause", headers=headers)
         resumed = await client.post(f"/v1/campaigns/{campaign_id}/resume", headers=headers)
-    assert (paused.status_code, resumed.status_code) == (200, 200)
+    assert (paused.status_code, resumed.status_code) == (204, 204)
     assert await _audit_actions(tenant_id, campaign_id) == [
         "campaign.paused",
         "campaign.resumed",
@@ -262,8 +262,12 @@ async def test_a_second_click_is_still_a_success_and_still_writes_nothing() -> N
     async with _client() as client:
         first = await client.post(f"/v1/campaigns/{campaign_id}/pause", headers=headers)
         second = await client.post(f"/v1/campaigns/{campaign_id}/pause", headers=headers)
-    assert (first.status_code, second.status_code) == (200, 200)
-    assert second.json() == {"status": "paused"}
+    assert (first.status_code, second.status_code) == (204, 204)
+    # 204 and EMPTY, both halves asserted: the transition answers with no body at all
+    # (the constant `{"status": "paused"}` it used to return said only what the URL
+    # already did, in a shape neither the generated client nor the redaction guardrail
+    # could describe). A 204 carrying bytes is a contradiction some frameworks ship.
+    assert second.content == b""
     assert await _audit_actions(tenant_id, campaign_id) == ["campaign.paused"]
 
 

@@ -4,12 +4,14 @@ Every route here is `realm="admin"`, so a client token cannot reach any of them 
 if it somehow carried the permission — the realms are separate Clerk applications and
 `verify_token` will not accept one realm's token for the other.
 
-Impersonation (D-22) is READ-ONLY and audited on both halves: this module's start
-endpoint records the *intent* ("operator X began viewing tenant Y at T"), and
-`core/auth.py::_record_impersonated_read` records the READS — because the start
-endpoint mints no credential, so nothing forces an operator through it and its row can
-simply be absent. The read-path row is the one that cannot be skipped; this one is what
-makes a later "why did you look at this account" question answerable.
+Impersonation (D-22) is READ-ONLY and audited on both halves, and both halves are now
+real. `POST /v1/admin/impersonation-grants` here MINTS the short-lived, tenant-bound
+grant without which `core/auth.py` refuses every impersonated request, and writes
+`admin.impersonation_started` in the same transaction — so "authority was issued to
+operator X for tenant Y at T" cannot be missing for a session that happened.
+`core/auth.py::_record_impersonated_read` records the READS, coalesced per minute, and
+carries the same `grant_id` so the two halves join. See `core/impersonation.py` for the
+grant's shape, its bindings and why it needs no revocation list.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import intake, service
@@ -33,9 +36,10 @@ from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.kyc import record_kyc
 from apps.api.core.auth import requires
-from apps.api.core.context import IMPERSONATE_HEADER, Principal
+from apps.api.core.context import IMPERSONATE_HEADER, IMPERSONATION_GRANT_HEADER, Principal
 from apps.api.core.deps import admin_db, db, global_db
 from apps.api.core.errors import ProblemError
+from apps.api.core.impersonation import GRANT_TTL, mint_grant
 from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta, role_has
 from apps.api.core.stepup import require_step_up
 from apps.api.db.session import tenant_session
@@ -598,55 +602,111 @@ async def list_unfinished_onboardings(
     ]
 
 
+class ImpersonationGrantIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The tenant to view, by SLUG — the same handle `X-Impersonate-Org` carries, the
+    #: same one client URLs use (D-10), and the only one every console call site holds.
+    #: See the route for why the grant is addressed by slug and bound to the id.
+    slug: str = Field(min_length=1, max_length=100)
+
+
+class ImpersonationGrantOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Echoed so the caller can be sure the session it caches is the one it asked for.
+    slug: str
+    #: The wire form of the grant, for `X-Impersonation-Grant`. Opaque to the console.
+    grant: str
+    #: When it stops being accepted. The console re-mints shortly before this rather
+    #: than discovering the expiry as a failed request in front of an operator.
+    expires_at: datetime
+
+
 @router.post(
-    "/tenants/{tenant_id}/impersonate",
+    "/impersonation-grants",
     openapi_extra=permission_meta("admin:impersonate"),
-    summary="Begin a READ-ONLY view-as session (D-22) — audited, never acting-as",
+    summary="Mint the short-lived grant a READ-ONLY view-as session needs (D-22)",
+    description=(
+        "Begins a read-only 'view as client' session and returns the grant that "
+        f"authorises it. Send it as `{IMPERSONATION_GRANT_HEADER}` alongside "
+        f"`{IMPERSONATE_HEADER}: <slug>` on every request into that account; without it "
+        "the request is refused. The grant is bound to this operator and this tenant, "
+        "expires in minutes, and never authorises a mutation — an impersonating session "
+        "is read-only, and writes go through the admin surfaces with the tenant in the "
+        "path."
+    ),
 )
-async def start_impersonation(
-    tenant_id: UUID,
+async def mint_impersonation_grant(
+    payload: ImpersonationGrantIn,
     session: AdminSession,
     request: Request,
     principal: Principal = Depends(requires("admin:impersonate", realm="admin")),
-) -> dict[str, str]:
+) -> ImpersonationGrantOut:
+    """Issue one grant, and record that authority was issued.
+
+    **This route replaced `POST /tenants/{tenant_id}/impersonate`, which minted nothing.**
+    That endpoint wrote `admin.impersonation_started` and handed back the header name;
+    entry to a tenant was the header alone, so nothing forced an operator through it and
+    the console never called it. The row was therefore absent for every real session —
+    D-22's "session start ... audit-logged" was decorative. `core/auth.py` now refuses
+    any impersonated request without a grant, so the row cannot be skipped: a grant
+    cannot exist without it.
+
+    **Addressed by SLUG, bound to the ID.** The tenant-in-the-path convention exists so
+    an admin WRITE names its target unambiguously in the audit log; this creates no
+    tenant data, and its caller is the browser, which holds a slug everywhere view-as is
+    initiated (including `/c/<slug>?view=admin`, where no id is in scope at all). Making
+    the console resolve an id to ask for a grant that resolves it back would be a lookup
+    invented for one caller. What matters for safety is the BINDING, and that is the
+    immutable id: `core/impersonation.py` puts `organizations.id` in the grant and
+    compares it against the id the request's slug resolves to.
+
+    **An impersonating session may not mint.** RFC 8693 allows chained delegation
+    (nested `act`); we do not, and this is where that is refused rather than merely
+    unimplemented. `admin:impersonate` is deliberately not a mutating permission — D-22
+    forbids gating reads on one — so `requires()` would not have caught it.
+    """
+    if principal.impersonating:
+        raise ProblemError.forbidden(
+            "Start view-as from the operator console, not from inside another account."
+        )
+    admin_id = principal.user_id
+    if admin_id is None:
+        # Unreachable: `current_admin` resolves an `admin_users` row or refuses. Stated
+        # rather than asserted so a future change to Principal cannot make it silent.
+        raise ProblemError.forbidden("This account has no admin access.")
+
+    tenant_id = (
+        await session.execute(
+            text("SELECT id FROM organizations WHERE slug = :slug AND deleted_at IS NULL"),
+            {"slug": payload.slug},
+        )
+    ).scalar()
+    if tenant_id is None:
+        raise ProblemError.not_found("Organization")
+
+    token, grant = mint_grant(tenant_id=UUID(str(tenant_id)), admin_id=admin_id)
+    # In the SAME transaction as nothing else: the row is the whole side effect, and it
+    # commits with the response. A grant handed out whose start row rolled back is the
+    # exact defect this route exists to remove.
     await write_audit(
         session,
         action="admin.impersonation_started",
         actor=principal,
-        tenant_id=tenant_id,
+        tenant_id=grant.tenant_id,
         object_type="organization",
-        object_id=str(tenant_id),
+        object_id=str(grant.tenant_id),
         ip=request.client.host if request.client else None,
+        # `grant_id` is what joins this row to the `admin.impersonation_read` rows the
+        # session goes on to produce (`core/auth.py`). Ids and an instant only.
+        summary={
+            "grant_id": str(grant.grant_id),
+            "expires_at": grant.expires_at.isoformat(),
+            "ttl_s": int(GRANT_TTL.total_seconds()),
+        },
     )
-    # The header carries the SLUG, matching how the auth layer resolves it (and how
-    # client URLs are addressed, D-10) — returning a raw uuid here would look right and
-    # fail at the first request.
-    from sqlalchemy import text as sql
-
-    slug = (
-        await session.execute(
-            sql("SELECT slug FROM organizations WHERE id = :tid"), {"tid": tenant_id}
-        )
-    ).scalar()
-    if slug is None:
-        raise ProblemError.not_found("Organization")
-
-    # NO CREDENTIAL IS MINTED, and that is a NAMED, OPEN GAP rather than a design: the
-    # admin keeps their own token and adds the X-Impersonate-Org header, which the auth
-    # layer turns into a read-only principal — so an operator can enter a tenant without
-    # ever calling this endpoint, and this row will simply be missing for that session.
-    # Issuing a *client* credential is the wrong fix (it makes the audit trail ambiguous
-    # about who acted); the right one is a short-lived signed grant this endpoint mints
-    # and `current_admin` requires, which needs `apps/web` to hold it and a decision-log
-    # entry for its lifetime and revocation. Until that lands, the guarantee that an
-    # impersonated read is recorded comes from the READ path
-    # (`core/auth.py::_record_impersonated_read`), not from this endpoint.
-    return {
-        "mode": "read_only",
-        "header": IMPERSONATE_HEADER,
-        "value": str(slug),
-        "note": "Mutations are refused while impersonating.",
-    }
+    return ImpersonationGrantOut(slug=payload.slug, grant=token, expires_at=grant.expires_at)
 
 
 # --- Knowledge base: the MUTATING half (FLOWS §7) ------------------------------

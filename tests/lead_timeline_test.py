@@ -38,6 +38,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
+from tests.impersonation_grant_test import view_as_headers
 from tests.lead_assignment_test import (
     _colleague,
     _headers,
@@ -423,11 +424,9 @@ async def test_a_read_only_impersonating_admin_can_read_the_timeline() -> None:
     async with _client() as http:
         response = await http.get(
             f"/v1/leads/{lead_id}/timeline",
-            headers={
-                "Authorization": f"Bearer dev:admin:{admin_clerk}",
-                "X-Org-Slug": slug,
-                "X-Impersonate-Org": slug,
-            },
+            headers=await view_as_headers(
+                http, f"dev:admin:{admin_clerk}", slug, **{"X-Org-Slug": slug}
+            ),
         )
     assert response.status_code == 200, response.text
     assert response.json()["items"][0]["title"] == "Moved to hot"

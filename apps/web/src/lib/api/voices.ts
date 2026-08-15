@@ -59,6 +59,18 @@ type Schemas = components["schemas"];
 /** One catalogue entry: the id we send the engine, plus what an operator needs to choose. */
 export type Voice = Schemas["Voice"];
 export type VoiceTier = Voice["tier"];
+
+/**
+ * The catalogue AND whether it may be chosen from (D-93).
+ *
+ * Every field is REQUIRED on the wire — none carries a Pydantic default — and that is
+ * deliberate: an optional `selectable` would arrive `undefined`, read as falsy, and hide
+ * the picker on a perfectly capable engine. `control` says who owns the TTS leg; when it
+ * is the engine's, `voices` is empty BY DESIGN rather than by failure, and `note` is the
+ * sentence to print verbatim in either state.
+ */
+export type VoiceCatalogue = Schemas["VoiceCatalogueOut"];
+
 export type SetVoiceIn = Schemas["SetVoiceIn"];
 export type SetVoiceOut = Schemas["SetVoiceOut"];
 
@@ -70,19 +82,20 @@ export const voiceKeys = { catalogue: ["agent-voices"] as const };
 function catalogueOptions(session: Session) {
   return {
     queryKey: voiceKeys.catalogue,
-    queryFn: () => apiRequest<Voice[]>(session, VOICES_PATH),
-    // Static per deployment — `list_voices` touches no database and no engine.
+    queryFn: () => apiRequest<VoiceCatalogue>(session, VOICES_PATH),
+    // Static per deployment — `list_voices` touches no database and makes no network
+    // call; the capability it reads is a declared attribute of the selected adapter.
     staleTime: 30 * 60_000,
   };
 }
 
 /** The catalogue, client realm. */
-export function useVoiceCatalogue(session: Session): UseQueryResult<Voice[]> {
+export function useVoiceCatalogue(session: Session): UseQueryResult<VoiceCatalogue> {
   return useQuery(catalogueOptions(session));
 }
 
 /** The same catalogue from the console, through the impersonation session (see above). */
-export function useTenantVoiceCatalogue(slug: string): UseQueryResult<Voice[]> {
+export function useTenantVoiceCatalogue(slug: string): UseQueryResult<VoiceCatalogue> {
   return useQuery({ ...catalogueOptions(viewAsSession(slug)), enabled: Boolean(slug) });
 }
 

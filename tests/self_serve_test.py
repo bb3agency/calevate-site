@@ -39,6 +39,7 @@ import pytest
 from apps.api.billing import payments
 from apps.api.billing.payment_routes import router as topup_router
 from apps.api.billing.payment_routes import webhook_router
+from apps.api.billing.service import get_balance
 from apps.api.compliance.service import credits_exhausted
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
@@ -604,6 +605,187 @@ async def test_an_uninteresting_event_is_acknowledged_and_ignored() -> None:
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "ignored"
     assert await _ledger(tenant_id) == []
+
+
+async def test_a_zero_or_negative_capture_is_refused_rather_than_debiting_the_wallet() -> None:
+    """A "capture" for nothing, or for less than nothing, must never reach `record_entry`.
+
+    `record_entry` takes a signed delta — that is how usage is debited — so a negative
+    amount arriving down the payment path would sail straight through and TAKE credit
+    away from a client on a provider callback. Hard rule 4 says the reversal of a
+    payment is a compensating entry somebody decides on, not one we infer from a
+    webhook, and a zero-rupee capture is a payload we do not understand rather than a
+    free top-up.
+
+    So the refusal is at the conversion, before any of it becomes money, and its
+    remediation says which of the two happened.
+    """
+    for paise in (0, -1, -250000):
+        with pytest.raises(ProblemError) as refused:
+            payments.paise_to_inr(paise)
+        assert refused.value.code == "payment_amount_unrecognized", paise
+        assert "refund" in (refused.value.remediation or "").lower(), (
+            "an operator reading this needs to be told where a reversal actually goes"
+        )
+
+    # And through the whole receiver, because a unit refusal the route does not honour
+    # is not a refusal.
+    tenant_id, _ = await _self_serve_tenant()
+    raw, headers = _sign(
+        _envelope(payment_id=_payment_id("NEGATIVE"), tenant_id=tenant_id, amount=-250000)
+    )
+    async with _client() as http:
+        response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+
+    assert response.status_code == 422, response.text
+    assert response.json()["type"].endswith("/payment_amount_unrecognized")
+    assert await _ledger(tenant_id) == [], "nothing may move on an amount we refused to read"
+
+
+@pytest.mark.parametrize(
+    ("label", "envelope"),
+    [
+        ("the envelope is not an object", ["payment.captured"]),
+        ("no payload at all", {"event": "payment.captured"}),
+        ("payload is not an object", {"event": "payment.captured", "payload": "entity"}),
+        ("no payment inside the payload", {"event": "payment.captured", "payload": {}}),
+        (
+            "payment is not an object",
+            {"event": "payment.captured", "payload": {"payment": 7}},
+        ),
+        (
+            "no entity inside the payment",
+            {"event": "payment.captured", "payload": {"payment": {}}},
+        ),
+        (
+            "entity is not an object",
+            {"event": "payment.captured", "payload": {"payment": {"entity": []}}},
+        ),
+    ],
+)
+def test_an_envelope_that_is_not_the_shape_we_read_is_refused_by_name(
+    label: str, envelope: Any
+) -> None:
+    """EVERY field path in `extract_captured_payment` is an UNVERIFIED assumption about
+    a vendor contract (D-31/D-32), so the failure mode that matters is the one where the
+    contract turns out to be different from the guess.
+
+    The required answer is `payment_payload_unrecognized` — one named refusal, at the
+    top of the read, crediting nothing. What must NOT happen is a `TypeError` or an
+    `AttributeError` escaping as a 500 (the provider retries a 5xx, so a shape we cannot
+    read would become a retry storm) and, worse, a PARTIAL read: an envelope that yields
+    an amount but no payment id would be a credit with no idempotency key, and the next
+    redelivery would credit it again.
+    """
+    with pytest.raises(ProblemError) as refused:
+        payments.extract_captured_payment(envelope)
+    assert refused.value.code == "payment_payload_unrecognized", label
+    assert "credited" in (refused.value.remediation or "").lower(), label
+
+
+@pytest.mark.parametrize("payment_id", [None, "", "   ", 12345, {"id": "pay_1"}])
+def test_a_capture_with_no_usable_payment_id_is_refused_because_the_id_is_the_key(
+    payment_id: Any,
+) -> None:
+    """The payment id is not decoration: it is the ledger `ref`, and the ledger `ref` is
+    the only permanent thing that makes a credit happen once (the inbox row can be
+    swept, the provider retries forever).
+
+    So a capture whose identifier is missing, blank or not a string cannot be credited
+    "anyway" — it would be a wallet credit no redelivery could ever be matched against,
+    which is the double-credit this whole path is built to prevent. Refuse, and let an
+    operator record it manually against a reference they can see on the statement.
+    """
+    envelope = _envelope(payment_id="placeholder", tenant_id=uuid.uuid4())
+    envelope["payload"]["payment"]["entity"]["id"] = payment_id
+    with pytest.raises(ProblemError) as refused:
+        payments.extract_captured_payment(envelope)
+    assert refused.value.code == "payment_payload_unrecognized"
+
+
+async def test_a_signed_body_that_is_not_a_capture_envelope_is_acked_not_500ed() -> None:
+    """The signature proves WHO sent the bytes, never WHAT is in them.
+
+    A provider that ships a new event shape, a proxy that re-encodes a body, a
+    misconfigured endpoint receiving another product's callbacks — all arrive correctly
+    signed. Each must be acked and ignored: a 5xx makes the provider retry the same
+    unreadable body forever, and a crash on the payment receiver is a receiver that is
+    down when a real capture arrives a second later.
+
+    Ignoring is safe exactly BECAUSE it is not a capture: no money is described in any
+    of these bodies, so there is nothing to lose by dropping them, and the ones that
+    matter (`payment.captured`) are answered by the tests above.
+    """
+    tenant_id, _ = await _self_serve_tenant()
+    for label, raw in (
+        ("not JSON at all", b"{ not json"),
+        ("a JSON list, not an envelope", b'["payment.captured"]'),
+        ("a bare JSON string", b'"payment.captured"'),
+        ("an object with no event", b"{}"),
+        ("an event this deployment ignores", b'{"event": "payment.failed"}'),
+    ):
+        signature = hmac.new(WEBHOOK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
+        async with _client() as http:
+            response = await http.post(
+                "/hooks/v1/razorpay",
+                content=raw,
+                headers={
+                    payments.SIGNATURE_HEADER: signature,
+                    "Content-Type": "application/json",
+                },
+            )
+        assert response.status_code == 200, f"{label}: {response.text}"
+        assert response.json()["status"] == "ignored", label
+
+    assert await _ledger(tenant_id) == []
+
+
+async def test_one_payment_id_credited_for_two_amounts_is_a_conflict_not_a_replay() -> None:
+    """The idempotency key is the payment id, and idempotency is only honest while the
+    key names the same fact.
+
+    Two different amounts under one payment id means one of them is wrong — a provider
+    correction, a re-used identifier, or something worse — and both available quiet
+    answers are bad: crediting again double-pays, while absorbing it as a replay
+    swallows the difference silently and the ledger then disagrees with the settlement
+    statement by an amount nobody will ever look for.
+
+    So it refuses, loudly, and the first credit stands untouched: exactly one row, for
+    exactly the rupees that were first recorded.
+    """
+    tenant_id, _ = await _self_serve_tenant()
+    payment_id = _payment_id("CONFLICT")
+    first = payments.CapturedPayment(
+        payment_id=payment_id,
+        tenant_id=tenant_id,
+        amount_inr=Decimal("2500.00"),
+        currency="INR",
+    )
+    restated = payments.CapturedPayment(
+        payment_id=payment_id,
+        tenant_id=tenant_id,
+        amount_inr=Decimal("25000.00"),
+        currency="INR",
+    )
+
+    async with tenant_session(tenant_id) as session:
+        credited = await payments.credit_captured_payment(session, payment=first)
+        assert credited.recorded is True
+
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as refused:
+            await payments.credit_captured_payment(session, payment=restated)
+    assert refused.value.code == "payment_amount_conflict"
+    assert refused.value.status == 409
+
+    entries = await _ledger(tenant_id)
+    assert entries == [("topup", Decimal("2500.0000"), payment_id)], (
+        "the disputed second amount must not have moved the wallet"
+    )
+    # Hard rule 7: the balance is the exact rupee figure, never a float that rounds to it.
+    async with tenant_session(tenant_id) as session:
+        balance = await get_balance(session, tenant_id=tenant_id)
+    assert str(balance.amount_inr) == "2500.0000"
 
 
 async def test_a_credited_payment_carries_an_audit_row() -> None:

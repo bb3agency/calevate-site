@@ -21,6 +21,10 @@ and are all closed by two non-code actions: the Engine Verification Session
    taxonomy, testing structure.
 5. **SECURITY-COMPLIANCE.md** — TRAI/DLT/DPDP obligations mapped to features; call-level
    and campaign gates; threat model; compliance calendar.
+   - **PLATFORM-CONFIG.md** (read with it) — the `admin.calevate.tech/ops` console:
+     where core config lives, where SECRETS live (envelope encryption in Postgres, KEK
+     in the environment and nowhere else), the six bootstrap keys that may never move
+     out of `.env`, and the security trade the console makes explicit. D-95.
 6. **FLOWS.md** — onboarding wizard, invitations/auth, inbound call lifecycle, instant
    lead callback, bulk campaigns, post-call pipeline, KB updates, billing, offboarding.
 7. **OPERATIONS.md** — engine verification checklist (do this first), per-client
@@ -93,6 +97,7 @@ Bolna (engine, adapter-isolated — D-31) + the **D-36 canonical all-Sarvam BYOK
 tier) — **Gemini 2.5 Flash-Lite is a configurable FALLBACK, not the default; D-04/D-20's
 Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
 Postgres 16 + RLS (pgvector is a D-28 contingency) · Redis/ARQ · Clerk (two realms) ·
-DO Bangalore · Sentry/OTel (LLM tracing is a named gap, D-49) · setup-fee + retainer + overage pricing, plus the
+a Hetzner-class VPS with an India-resident data plane (D-25 moved hosting off
+DigitalOcean; nothing is provisioned yet) · Sentry/OTel (LLM tracing is a named gap, D-49) · setup-fee + retainer + overage pricing, plus the
 D-34 self-serve prepaid tier · all-in target ≈ ₹3.1–3.6/min (D-36; verified floor ₹2.9 on
 Bulbul v2 + Sarvam LLM), ₹1.7–2.3/min at phase 2.

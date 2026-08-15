@@ -662,6 +662,22 @@ function VoicePanel({
             }
             onRetry={() => void catalogue.refetch()}
           />
+        ) : !catalogue.data.selectable ? (
+          /* THE ENGINE SUPPLIES ITS OWN VOICES (D-93), which is a product fact and not a
+             fault — so it is stated, in the server's own words, and NOT rendered through
+             `ProblemNotice`. An error card here would send an operator to a runbook for
+             a deployment that is working exactly as intended.
+
+             The picker is not rendered at all rather than rendered-and-disabled: a
+             disabled dropdown full of Bulbul entries still tells the reader those are the
+             voices this agent might speak, and they are not. `voices` is empty from the
+             server for the same reason. What IS still shown is `VoiceInForce`, because
+             "what do callers hear right now" remains a fair question — the answer is just
+             not ours to change here. */
+          <>
+            <VoiceInForce state={state} published={pending?.published} />
+            <p className="text-xs text-ink-muted">{catalogue.data.note}</p>
+          </>
         ) : (
           <>
             <VoiceInForce state={state} published={pending?.published} />
@@ -682,7 +698,7 @@ function VoicePanel({
                   className={FIELD}
                 >
                   <option value="">Choose a voice</option>
-                  {catalogue.data.map((voice) => (
+                  {catalogue.data.voices.map((voice) => (
                     <option key={voice.id} value={voice.id}>
                       {voiceReading(voice)}
                     </option>
@@ -698,7 +714,7 @@ function VoicePanel({
               </button>
             </form>
 
-            <VoiceDetail voice={catalogue.data.find((entry) => entry.id === selected)} />
+            <VoiceDetail voice={catalogue.data.voices.find((entry) => entry.id === selected)} />
           </>
         )}
 
@@ -839,6 +855,11 @@ function voiceReading(voice: Voice): string {
  * to derive the same fact from `promoted_label != null && new_version == null` because
  * the generated client predated the field; the two agree by construction, but the
  * derivation was a second way of knowing one thing and this is the first.
+ *
+ * "This test" is exact rather than loose: the request names an `experiment_id`, so the
+ * response is about the test that was on screen — never about whichever one happens to
+ * be running now. That is what makes "reload" honest advice; before the id, the reply
+ * could be describing a test the operator had not looked at.
  */
 function concludeMessage(data: ConcludeExperimentOut): string {
   if (!data.promoted_label) {
@@ -938,12 +959,22 @@ function ExperimentPanel({
             {experiment && <ExperimentResults experiment={experiment} />}
             {running ? (
               <div className="flex flex-wrap items-center gap-2">
+                {/* Every ending names the test ON SCREEN, never "whatever is running".
+                    This panel's read is cached and refetched on focus, so the id under
+                    the button can be a test a colleague has already ended — and if they
+                    started the next one, an unnamed conclude would promote an arm of a
+                    test this operator has not read a single number of. */}
                 {experiment.variants.map((variant) => (
                   <button
                     key={variant.label}
                     type="button"
                     disabled={conclude.isPending || !write.allowed}
-                    onClick={() => conclude.mutate({ promote: variant.label })}
+                    onClick={() =>
+                      conclude.mutate({
+                        experiment_id: experiment.experiment_id,
+                        promote: variant.label,
+                      })
+                    }
                     className={SECONDARY_BUTTON_SM}
                   >
                     Promote {variant.label} (v{variant.prompt_version})
@@ -952,7 +983,9 @@ function ExperimentPanel({
                 <button
                   type="button"
                   disabled={conclude.isPending || !write.allowed}
-                  onClick={() => conclude.mutate({ promote: null })}
+                  onClick={() =>
+                    conclude.mutate({ experiment_id: experiment.experiment_id, promote: null })
+                  }
                   className={SECONDARY_BUTTON_SM}
                 >
                   Stop, keep the control

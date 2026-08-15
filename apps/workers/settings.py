@@ -25,7 +25,11 @@ from apps.api.core.observability import (
     tracing_enabled,
 )
 from apps.api.core.queue import WORKER_MAX_TRIES, redis_settings
-from apps.api.core.settings import runtime_config_missing_keys, validate_bootstrap_env
+from apps.api.core.settings import (
+    runtime_config_missing_keys,
+    settings_scope,
+    validate_bootstrap_env,
+)
 from apps.workers.billing import issue_one_time_charges
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.dispatcher import dispatch_outbox, report_stalled_pipeline, sweep_expired
@@ -176,6 +180,43 @@ async def startup(ctx: dict[str, Any]) -> None:
     )
 
 
+#: Where a job's settings pin lives between the two hooks below. Keyed with a leading
+#: underscore so it cannot collide with anything a job puts in `ctx`.
+_SCOPE_KEY = "_settings_pin"
+
+
+async def on_job_start(ctx: dict[str, Any]) -> None:
+    """Pin `Settings` for the life of THIS job (D-101 completes here).
+
+    Requests got this in `create_app`'s middleware; jobs were the half left open, and
+    they are the half that runs longest. A post-call pipeline reading `usd_inr_rate`
+    when it prices a call and again when it writes the usage row could read a different
+    rate each time if a console change landed in between — one call billed at two rates,
+    which is a WRONG number in an append-only ledger, not a stale one.
+
+    Entered here rather than wrapped around each job function because arq calls this
+    inside the same task that then awaits the function, so the ContextVar set here is
+    visible to it — and because a wrapper is a thing 20 job functions have to remember.
+    Tasks copy the context at creation, so two jobs running concurrently in one worker
+    each get their own pin rather than sharing one.
+
+    The big red switch is deliberately NOT covered by this, and must not be: it is
+    `platform_state` read through `core/loadshed`, not a `Settings` field, precisely so
+    a halt reaches a dispatch tick already in progress.
+    """
+    scope = settings_scope()
+    scope.__enter__()
+    ctx[_SCOPE_KEY] = scope
+
+
+async def on_job_end(ctx: dict[str, Any]) -> None:
+    """Release the pin. Runs even when the job raised — arq calls this either way, which
+    is what stops a failed job leaking its pin into whatever the worker runs next."""
+    scope = ctx.pop(_SCOPE_KEY, None)
+    if scope is not None:
+        scope.__exit__(None, None, None)
+
+
 async def shutdown(ctx: dict[str, Any]) -> None:
     log.info("worker_stop")
     # Drain the batch processor: a worker stopping mid-pipeline is exactly the trace
@@ -189,6 +230,9 @@ class WorkerSettings:
     redis_settings = redis_settings()
     on_startup = startup
     on_shutdown = shutdown
+    # One resolution per job, released even on failure. See `on_job_start`.
+    on_job_start = on_job_start
+    on_job_end = on_job_end
     max_tries = WORKER_MAX_TRIES
     # `max_tries` only counts attempts for jobs that ask to be retried. arq 0.28 retries
     # a job for `arq.Retry`, `RetryJob` or `CancelledError` and for NOTHING else — a job

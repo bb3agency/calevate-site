@@ -601,3 +601,32 @@ async def test_launch_campaign_raises_the_hold_rather_than_logging_it() -> None:
         async with tenant_session(tenant_id) as session:
             await campaigns.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
     assert raised.value.code == "campaign_launch_blocked"
+
+
+async def test_a_release_cannot_cite_another_tenants_campaign_as_the_thing_reviewed() -> None:
+    """`reviewed_campaign_id` must name a campaign of the tenant being released, or the
+    decision is refused as not-found.
+
+    The evidence field is the whole point of the review: it records WHICH list, script
+    and disclosure line a human actually read before letting a self-serve account dial
+    strangers. A pointer at another tenant's campaign records that a human reviewed
+    something they were never shown — and the foreign key alone would have accepted it,
+    because `campaigns.id` is globally unique and says nothing about whose it is. RLS
+    inside the operator's scoped session is what turns that into a 404.
+
+    404 rather than 422 is also the tenancy answer: under RLS "no such campaign" and
+    "another tenant's campaign" are deliberately the same sentence.
+    """
+    org, campaign_id = await _ready()
+    neighbour, neighbours_campaign = await _ready()
+    assert str(org["id"]) != str(neighbour["id"])
+
+    refused = await _decide(org, decision="approved", campaign_id=neighbours_campaign)
+
+    assert refused.status_code == 404, refused.text
+    assert "campaign" in refused.json()["title"].lower()
+
+    # Nothing was recorded, so the account is still held and still cannot dial.
+    blocked = await _launch(org, campaign_id)
+    assert blocked.status_code == 422, blocked.text
+    assert "first_campaign_review_pending" in _rules(blocked)

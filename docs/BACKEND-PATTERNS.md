@@ -63,7 +63,10 @@ serialization is the whitelist the redaction-exposure guardrail checks.
 
 **Idempotency table** (client-initiated mutations: call-this-lead, campaign launch,
 KB publish): unique `(scope_key, route, method, idempotency_key)`; `scope_key` is an
-HMAC fingerprint of tenant/user (raw ids never stored); `request_hash` of the body —
+HMAC fingerprint of tenant/user under `IDEMPOTENCY_SCOPE_SECRET` (raw ids never stored;
+required outside `local`, since a keyed hash is a pseudonym only while the key is
+secret, and NEVER accepted from the wire — it is derived from the verified principal, so
+a predictable value cannot be submitted); `request_hash` of the body —
 same key + different body = 409; `PROCESSING` in-flight = 409; `COMPLETED` = replay
 stored response with an `Idempotent-Replayed: true` header; `FAILED` retried via
 compare-and-swap. TTL ~24h.
@@ -128,7 +131,8 @@ boot** (endpoint→permission map asserted at startup, not discovered at first u
 pairs with our route-discipline guardrail.
 
 **Audit hash chain** (ADOPTED for `audit_log`): each entry's hash =
-HMAC(secret, previous_hash + entry), written under `pg_advisory_xact_lock('audit:chain')`
+HMAC(`AUDIT_CHAIN_SECRET`, previous_hash + entry), written under
+`pg_advisory_xact_lock('audit:chain')`
 held on the caller's transaction (§5). **The head has exactly one home: the last row of
 `audit_log`.** It is deliberately NOT cached in Redis — a head published inside the
 caller's transaction is erased by a ROLLBACK, and one published after COMMIT is lost by
@@ -145,6 +149,33 @@ depth-capped, length-capped, key-pattern-redacted before persisting.
 `GET /v1/ops/audit/verify` walks the WHOLE log by default and reports
 `entries_checked` / `complete` alongside the verdict: a bounded walk that renders as a
 plain green tick is a verification of the part nobody was worried about.
+
+**THE SIGNING KEY IS REQUIRED AND VERIFICATION WALKS A KEY RING.** `AUDIT_CHAIN_SECRET`
+is mandatory outside `local` (>=32 bytes — RFC 2104 §3, NIST SP 800-107 Rev. 1 §5.3.4 —
+with a present-but-short key refused exactly like an absent one, via the one ladder in
+`core/settings.py::resolve_hmac_key`); absent, the API refuses to write or verify an
+entry and `/healthz/ready` is red. It used to fall back to the constant
+`local-dev:{app_env}` in EVERY environment, so a deploy that forgot it signed its
+evidence with a string printed in the source.
+
+Requiring it is only safe because verification dispatches PER ENTRY on which key
+reproduces it, oldest generation being that same public constant. A chain outlives its
+key, and a verifier that knows only the current one reports the whole history as
+`content`-broken — every prior row, not one boundary — which would make our own deploy
+manufacture the signal the ledger exists to produce. Rotation is therefore supported
+rather than a drill: put the outgoing value in `AUDIT_CHAIN_SECRET_RETIRED` in the same
+deploy. `entries_under_retired_key` on the verdict counts entries that verified under a
+retired generation — intact, but attested only as well as that generation's key was
+secret. **No entry is ever re-signed**: `audit_log` is append-only (hard rule 4) and
+rewriting hashes from current content would launder tampering into a clean chain.
+Monotonicity is enforced — an entry may not verify under a generation the chain has
+already moved past — because generation 0 is public and would otherwise be a forgery
+key for recent rows.
+
+**Idempotency scope fingerprints have their OWN key** (`IDEMPOTENCY_SCOPE_SECRET`, §4),
+not the chain's, which they used to share: that fingerprint must stay stable — changing
+it makes in-flight `Idempotency-Key`s miss their stored record, so a retry re-executes —
+and the chain's key is the one that rotates.
 
 ## 8. Alerting & metrics taxonomy (ADOPTED)
 

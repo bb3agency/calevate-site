@@ -27,7 +27,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.transition import transition_status
-from apps.api.engine import get_engine
+from apps.api.engine import get_engine, require_capability
 
 log = get_logger(__name__)
 
@@ -644,6 +644,20 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     chunks = await _chunks_of(session, source_id)
 
     engine = get_engine()
+    # BEFORE anything is withdrawn (D-93). This whole function is built around an engine
+    # with a built-in knowledge base: it detaches the superseded version, attaches the new
+    # one, and records the engine's handle. On an engine that has none, every one of those
+    # calls refuses — and finding that out THREE calls in would mean discovering it after
+    # `_detach_superseded` had already withdrawn the live version, i.e. taking a client's
+    # knowledge down in order to report that we could not replace it.
+    #
+    # Refusing here is the cheap, correct half. The expensive half is NOT done and is not
+    # pretended: an engine with no knowledge base does not mean this client loses their
+    # knowledge, it means T3 retrieval has to come from our own in-call RAG tool endpoint
+    # while T0 keeps working (the [T0 FACTS] recompile below is engine-independent and
+    # would still carry the ~80% of questions TRD §6 assigns it). Building that fallback
+    # is a decision-log entry and a milestone, not a line in this function.
+    require_capability("knowledge_base", engine=engine)
     superseded = await _superseded_versions(
         session, agent_id=agent_id, name=str(name), keep=source_id
     )

@@ -10,8 +10,9 @@ that CLAIMS to have created a policy:
    write rows into another tenant;
 3. no OTHER policy on a tenant table opens it back up (policies are OR'd: one extra
    permissive `USING (true)` defeats every careful policy next to it);
-4. the exemption list itself stays honest — every entry must still name a real
-   tenant_id table and carry a reason a reviewer can weigh;
+4. the exemption list itself stays honest — every entry must still name a real TABLE
+   (with or without a tenant_id: platform-scoped tables are exempt for a different
+   reason and are listed in the same place) and carry a reason a reviewer can weigh;
 5. the registry's `TENANT_TABLES` stays in sync with reality, both directions;
 6. every append-only ledger has an immutability trigger that actually blocks
    (shared with `check_ledger_immutability`, so the two cannot drift).
@@ -58,6 +59,15 @@ _TENANT_COLUMN_SQL = text(
     "AND a.attname = 'tenant_id' AND a.attnum > 0 AND NOT a.attisdropped"
 )
 
+# Every ordinary/partitioned table in `public`, whatever columns it has. Same catalog
+# view and same reasoning as above: `information_schema` hides what the current role
+# cannot see, and a guardrail that cannot see a table passes on it.
+_ALL_TABLE_SQL = text(
+    "SELECT c.relname FROM pg_class c "
+    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')"
+)
+
 _POLICY_SQL = text(
     "SELECT c.relname, p.polname, c.relrowsecurity, c.relforcerowsecurity, "
     "pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid), "
@@ -89,6 +99,12 @@ class SchemaState:
     tenant_column_tables: frozenset[str]
     policies: tuple[PolicyFacts, ...]
     model_tables: frozenset[str]
+    #: EVERY ordinary table in `public`, not only the ones carrying `tenant_id`. Read so
+    #: that an exemption naming a platform-scoped table (one with no tenant_id at all —
+    #: see rule 4) can be told apart from an exemption naming nothing. Defaulted so the
+    #: synthetic states in `tests/guardrail_audit_test.py` keep constructing, and empty
+    #: is safe there because the staleness rule also accepts `model_tables`.
+    all_tables: frozenset[str] = frozenset()
 
     def for_table(self, table: str) -> list[PolicyFacts]:
         return [p for p in self.policies if p.table == table]
@@ -97,6 +113,7 @@ class SchemaState:
 def fetch_state(engine: Engine) -> SchemaState:
     with engine.connect() as conn:
         tenant_tables = {r[0] for r in conn.execute(_TENANT_COLUMN_SQL)}
+        all_tables = {r[0] for r in conn.execute(_ALL_TABLE_SQL)}
         policies = tuple(
             PolicyFacts(
                 table=r[0],
@@ -114,6 +131,7 @@ def fetch_state(engine: Engine) -> SchemaState:
         tenant_column_tables=frozenset(tenant_tables),
         policies=policies,
         model_tables=frozenset(Base.metadata.tables),
+        all_tables=frozenset(all_tables),
     )
 
 
@@ -174,10 +192,24 @@ def evaluate(
 
     # 4. The exemption list is where a new tenant table would be hidden. Make each
     #    entry keep earning its place.
+    #
+    #    STALENESS IS "NO SUCH TABLE", NOT "NO SUCH TENANT_ID COLUMN". It used to be the
+    #    latter, which was right while every exemption was a table that HAD the column
+    #    and was not policied on it. PLATFORM-CONFIG §5 adds the other shape: tables that
+    #    are deliberately outside tenant isolation because they are platform state and
+    #    carry no tenant_id at all, listed here — with the reason — so that one list
+    #    still answers "what is not tenant-isolated, and why". Under the old rule they
+    #    would have been reported as stale, and the tempting fix would have been to give
+    #    them a decorative tenant_id or to start a second exemption list; both are worse
+    #    than widening what counts as a real table.
+    #
+    #    A typo, a renamed table and a dropped table are all still caught: the entry has
+    #    to name something the live schema or this repo's own model metadata knows about.
+    known_tables = state.tenant_column_tables | state.all_tables | state.model_tables
     for table, reason in sorted(exempt.items()):
-        if table not in state.tenant_column_tables:
+        if table not in known_tables:
             failures.append(
-                f"{table}: STALE RLS exemption — no such table with a tenant_id column. "
+                f"{table}: STALE RLS exemption — no such table. "
                 "Remove the entry; a dead exemption hides the next real gap."
             )
         if table in registry_tables:

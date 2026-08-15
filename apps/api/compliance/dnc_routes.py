@@ -173,6 +173,7 @@ async def check(
 
 @router.delete(
     "/{entry_id}",
+    status_code=204,
     openapi_extra=permission_meta("leads:dispatch"),
     summary="Undo a hand-added suppression — never a consumer opt-out, always audited",
 )
@@ -181,7 +182,20 @@ async def remove(
     session: Session,
     request: Request,
     principal: Dispatcher,
-) -> dict[str, str]:
+) -> None:
+    """204, and the two alternatives were both worse.
+
+    `{"status": "removed"}` said nothing a 200 on a DELETE did not already say, in a
+    shape the generated TypeScript client cannot describe and the redaction guardrail
+    cannot inspect — the whole class of defect D-71 and D-75 fixed elsewhere. Echoing
+    the entry back was the other option and is the one to avoid hardest: the row we
+    just deleted holds a phone number, and the response to "please forget this" is not
+    the place to repeat it. The `source` this reads is for the AUDIT row, which is
+    where "who un-suppressed what, and what kind of entry it was" belongs.
+
+    Same shape as `DELETE /v1/lead-sources/{id}` and `DELETE /v1/leads/views/{id}`,
+    which is the answer this repo already gives for a delete with nothing to report.
+    """
     source = await dnc.remove_entry(session, entry_id=entry_id)
     await write_audit(
         session,
@@ -193,7 +207,6 @@ async def remove(
         ip=request.client.host if request.client else None,
         summary={"source": source},
     )
-    return {"status": "removed"}
 
 
 __all__ = ["router"]

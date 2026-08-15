@@ -161,7 +161,7 @@ class _WhatsAppTransport:
         self.result = result
         self.attempts = 0
 
-    def send(self, message: whatsapp.WhatsAppMessage) -> whatsapp.SendResult:
+    async def send(self, message: whatsapp.WhatsAppMessage) -> whatsapp.SendResult:
         self.attempts += 1
         return self.result
 

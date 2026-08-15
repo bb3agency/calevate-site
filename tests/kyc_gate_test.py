@@ -536,3 +536,43 @@ async def test_tenant_b_cannot_see_tenant_as_kyc_record() -> None:
     async with untenanted_session() as session:
         blind = await read_kyc(session, tenant_id=uuid.UUID(str(tenant_a["id"])))
     assert blind.recorded is False, "no GUC ⇒ zero rows (fail closed)"
+
+
+async def test_is_verified_is_false_for_a_rejection_which_is_a_filed_record() -> None:
+    """`read_kyc(...).is_verified` — the value `provisioning.py` gates on — must be
+    False for every state that is not a live verification, INCLUDING a rejection.
+
+    A rejection is the dangerous one: it is a FILED record, so any check shaped like
+    "do we have something on file?" reads it as satisfied. Getting that wrong buys a
+    phone number for a business nobody cleared, and the DLT registration behind that
+    number is one TRAI holds Calevate liable for.
+
+    Written through the real recording route rather than a raw INSERT, because the
+    table's CHECKs are the guarantee here — a `verified` row must name what, against
+    what, by whom and when — and a test that bypassed them would pin the boolean while
+    saying nothing about the evidence behind it.
+    """
+    from apps.api.compliance.kyc import read_kyc
+
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+
+    async with tenant_session(tenant_id) as session:
+        assert (await read_kyc(session, tenant_id=tenant_id)).is_verified is False, (
+            "nothing on file is not verified"
+        )
+
+    rejected = await _record(
+        org,
+        status="rejected",
+        rejection_reason="the signatory named is not a director of the entity",
+    )
+    assert rejected.status_code == 200, rejected.text
+    async with tenant_session(tenant_id) as session:
+        record = await read_kyc(session, tenant_id=tenant_id)
+    assert record.recorded is True, "a rejection IS on file — that is what makes it risky"
+    assert record.is_verified is False, "a rejected record is filed, and filed is not cleared"
+
+    await _verify(org)
+    async with tenant_session(tenant_id) as session:
+        assert (await read_kyc(session, tenant_id=tenant_id)).is_verified is True

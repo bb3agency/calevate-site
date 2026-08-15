@@ -178,7 +178,11 @@ class _Transport:
         self.attempts = 0
         self.last: WhatsAppMessage | None = None
 
-    def send(self, message: WhatsAppMessage) -> SendResult:
+    # `async`, because `WhatsAppTransport.send` is — and both shipped transports and the
+    # Meta Cloud API adapter are too. A synchronous stub here type-checks (a Protocol is
+    # structural and `Awaitable` is not declared in the annotation) while making the one
+    # call site raise `TypeError: object SendResult can't be used in 'await' expression`.
+    async def send(self, message: WhatsAppMessage) -> SendResult:
         self.attempts += 1
         self.last = message
         return self.result
@@ -215,20 +219,22 @@ def test_local_without_a_provider_uses_the_dev_sink(monkeypatch: pytest.MonkeyPa
     assert isinstance(get_whatsapp_transport(), ConsoleWhatsAppTransport)
 
 
-def test_a_named_provider_refuses_rather_than_pretending(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_named_provider_refuses_rather_than_pretending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """No BSP is chosen in the decision log, so no adapter exists. Naming one in config
     must fail loudly — a silent no-op would look exactly like a working integration."""
     settings = get_settings()
     monkeypatch.setattr(settings, "whatsapp_provider", "some-bsp")
     monkeypatch.setattr(settings, "app_env", "prod")
     transport = get_whatsapp_transport()
-    result = transport.send(WhatsAppMessage(OWNER_TEST_E164, "t", "en", ("x",)))
+    result = await transport.send(WhatsAppMessage(OWNER_TEST_E164, "t", "en", ("x",)))
     assert result.status is SendStatus.REJECTED
     assert result.reason.startswith("provider_not_implemented")
     assert result.retryable is False, "a missing adapter is not a blip"
 
 
-def test_a_non_local_env_without_a_provider_reports_failure(
+async def test_a_non_local_env_without_a_provider_reports_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The property the whole module exists for: silence is reported, never swallowed."""
@@ -237,16 +243,19 @@ def test_a_non_local_env_without_a_provider_reports_failure(
     monkeypatch.setattr(settings, "app_env", "prod")
     transport = get_whatsapp_transport()
     assert isinstance(transport, UnconfiguredWhatsAppTransport)
-    assert transport.send(WhatsAppMessage(OWNER_TEST_E164, "t", "en", ("x",))).delivered is False
+    sent = await transport.send(WhatsAppMessage(OWNER_TEST_E164, "t", "en", ("x",)))
+    assert sent.delivered is False
 
 
-def test_the_dev_sink_is_refused_outside_local(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_the_dev_sink_is_refused_outside_local(monkeypatch: pytest.MonkeyPatch) -> None:
     """`WHATSAPP_PROVIDER=console` in staging would report every alert delivered
     forever. Operator error, but the kind that hides the failure it causes."""
     settings = get_settings()
     monkeypatch.setattr(settings, "whatsapp_provider", "console")
     monkeypatch.setattr(settings, "app_env", "staging")
-    result = get_whatsapp_transport().send(WhatsAppMessage(OWNER_TEST_E164, "t", "en", ("x",)))
+    result = await get_whatsapp_transport().send(
+        WhatsAppMessage(OWNER_TEST_E164, "t", "en", ("x",))
+    )
     assert result.reason == "dev_sink_refused_outside_local"
 
 
@@ -520,7 +529,7 @@ async def test_the_console_sink_logs_the_template_not_the_recipient(
 ) -> None:
     formatter = JsonFormatter()
     with caplog.at_level(logging.DEBUG):
-        result = ConsoleWhatsAppTransport().send(
+        result = await ConsoleWhatsAppTransport().send(
             WhatsAppMessage(OWNER_TEST_E164, "calevate_hot_lead_v1", "en", ("urgency",))
         )
     assert result.delivered is True, "it really did deliver — to a terminal"

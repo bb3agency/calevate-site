@@ -18,9 +18,10 @@ So these tests hold the payment surfaces to the rule that refusal implies:
    never credit it (key id, no webhook secret) is refused on BOTH.
 3. **A refusal writes nothing** — no receipt, no inbox claim, no ledger row — and it is
    RFC-9457 with the machine code as the LAST SEGMENT of `type`.
-4. **The order-creation gap stays in the contract.** `PROVIDER_CREATES_ORDERS` is False
-   and the response says so; this file fails the moment it is flipped without an adapter
-   behind it.
+4. **The order-creation adapter exists and the CREDENTIAL still does not** (D-98).
+   `PROVIDER_CREATES_ORDERS` is True because somebody wrote `RazorpayOrders.create_order`;
+   `capability.creates_orders` is False on every deployment because no Razorpay account
+   has been provisioned. This file pins both halves, so neither can drift into the other.
 5. **No vendor library, no invented shapes.** The lockfile has no Razorpay client and no
    HTTP call is made from any payment path.
 
@@ -39,6 +40,7 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing.payment_routes import TopUpIntentIn, create_topup_intent
 from apps.api.billing.payments import (
+    NO_API_SECRET_REASON,
     NO_KEY_REASON,
     NO_PROVIDER_REASON,
     NO_WEBHOOK_SECRET_REASON,
@@ -98,9 +100,18 @@ async def _prepaid_tenant() -> tuple[UUID, Principal]:
 
 
 def test_the_setting_exists_and_is_declared_in_env_parity() -> None:
+    """The claim is DISCOVERABILITY, and its home moved (PLATFORM-CONFIG §4, D-95).
+
+    This used to read `.env.example`, which was the only place a key could be declared.
+    The template is now the 8-key bootstrap set, and `payment_provider` is one of the 50
+    keys an operator sets at `admin.calevate.tech/ops` instead — so the check that keeps
+    the original meaning is "the console offers it", which is also the exact condition
+    `check_env_parity` treats as declared.
+    """
+    from apps.api.core.platform_config import managed_fields
+
     assert "payment_provider" in Settings.model_fields
-    example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
-    assert "PAYMENT_PROVIDER=" in example
+    assert "payment_provider" in managed_fields()
 
 
 def test_no_provider_means_this_deployment_takes_no_online_payments(
@@ -245,27 +256,48 @@ async def test_the_webhook_refuses_on_the_same_selector_the_intent_uses(
 async def test_the_intent_still_says_the_provider_order_is_pending(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """SURFACES §2c:205's contract, unchanged. The seam decides whether we are ALLOWED
-    to talk to the provider; it does not pretend to know how to create their order."""
+    """SURFACES §2c:205's contract, unchanged — but for a NAMED reason now.
+
+    A deployment with a provider, a key id and a webhook secret still cannot create an
+    order, because the API SECRET is a fourth credential and no Razorpay account has been
+    provisioned. The property: `available` is not pulled down by that (a deployment can
+    still credit payments taken elsewhere), and `creates_orders` says so on its own.
+    """
     _payments_configured(monkeypatch)
     _tenant_id, principal = await _prepaid_tenant()
+
+    capability = payment_capability()
+    assert capability.available is True, "the ORDER credential must not refuse the webhook"
+    assert capability.creates_orders is False
+    assert capability.orders_reason == NO_API_SECRET_REASON
 
     intent = await create_topup_intent(TopUpIntentIn(amount_inr=Decimal("500.00")), principal)
     assert intent.provider_order_id is None
     assert intent.provider_order_pending is True
-    assert payment_capability().creates_orders is False
 
 
-def test_flipping_the_order_creation_constant_requires_an_adapter() -> None:
-    """`PROVIDER_CREATES_ORDERS` is a claim about code, not about config. Flipping it
-    without writing the server-to-server call would make the contract lie — so this test
-    is what has to be updated at the same moment the adapter lands."""
-    assert PROVIDER_CREATES_ORDERS is False
+def test_the_order_creation_constant_is_true_only_while_the_adapter_exists() -> None:
+    """`PROVIDER_CREATES_ORDERS` is a claim about CODE, not about config (D-98).
+
+    It flipped to True because `RazorpayOrders.create_order` was written. This is the
+    tripwire in the other direction now: the constant may not claim an adapter that is
+    not there, so the module must still contain a real HTTP POST to a real pinned host.
+    """
+    assert PROVIDER_CREATES_ORDERS is True
     payments = (REPO_ROOT / "apps/api/billing/payments.py").read_text(encoding="utf-8")
-    for invented in ("api.razorpay.com", "httpx.post", "requests.post", "aiohttp"):
-        assert invented not in payments, (
-            f"no vendor call belongs here until the contract is verified: {invented}"
-        )
+    assert "https://api.razorpay.com" in payments, "the constant claims an adapter"
+    assert "client.post(" in payments, "the adapter must actually issue the request"
+
+
+def test_the_api_version_is_pinned_rather_than_inherited() -> None:
+    """An unpinned version is a silent breaking change on somebody else's release
+    schedule. Razorpay versions in the PATH — their own SDK carries both `V1` and `V2` —
+    so the pin is a constant in our module and the request is built from it."""
+    from apps.api.billing.payments import API_VERSION_PATH, BASE_URL, ORDERS_PATH
+
+    assert API_VERSION_PATH == "/v1"
+    assert BASE_URL == "https://api.razorpay.com"
+    assert f"{BASE_URL}{API_VERSION_PATH}{ORDERS_PATH}" == "https://api.razorpay.com/v1/orders"
 
 
 # ============================================================================

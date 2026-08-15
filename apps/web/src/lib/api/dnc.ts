@@ -85,11 +85,17 @@ export function useCheckDncNumber(session: Session) {
   });
 }
 
+/**
+ * 204, with nothing read back — and on this endpoint that is a compliance property, not
+ * a convenience. The row being deleted holds a phone number, and the response to "please
+ * forget this" is the last place to repeat it; the `{"status": "removed"}` it used to
+ * return said nothing a 2xx on a DELETE did not. The list is invalidated instead.
+ */
 export function useRemoveDncEntry(session: Session) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (entryId: string) =>
-      apiRequest<Record<string, string>>(session, `/v1/dnc/${entryId}`, { method: "DELETE" }),
+      apiRequest<void>(session, `/v1/dnc/${entryId}`, { method: "DELETE" }),
     onSuccess: () => void client.invalidateQueries({ queryKey: dncKeys.list(session.orgSlug) }),
   });
 }

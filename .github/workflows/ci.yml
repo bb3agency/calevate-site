@@ -94,9 +94,22 @@ jobs:
         # is deliberate: this job is where "empty stores" is guaranteed rather than
         # remembered (a migrated+seeded database and a service container Redis that has
         # never served a suite), and the manifest is how the next step knows it.
+        #
+        # A FAILING SUITE NO LONGER SKIPS THE GUARDRAILS. Every guardrail below is a
+        # later step in this job, so one broken test used to mark all twelve `skipped` —
+        # the run where something broke was the one run that never asked whether RLS
+        # coverage had regressed, whether a ledger had lost its trigger, or whether a
+        # secret had become loggable. CI was red for nine consecutive commits that way.
+        #
+        # The fix is `if: ${{ !cancelled() }}` on each guardrail, NOT
+        # `continue-on-error` here: this step must still fail the job by itself, and
+        # `tests/coverage_ratchet_guard_test.py` bans that key outright — correctly,
+        # because "we re-raise it in a later step" is exactly the argument someone would
+        # make while quietly making the gate ignorable.
         run: uv run coverage run -m pytest -q -p scripts.check_coverage_ratchet
 
       - name: "Guardrail: coverage ratchet (D-29 coverage:ratchet)"
+        if: ${{ !cancelled() }}
         # Uncovered units per HARD-RULE SURFACE, each with a budget that only goes down.
         # Reads the `.coverage` the step above wrote, plus the manifest beside it. Exit 1
         # = a verdict (cover the branch or argue the budget); exit 2 = REFUSED, the run
@@ -107,24 +120,38 @@ jobs:
 
       # --- The guardrail pack (D-29 §2). A red guardrail blocks merge. -----------
       - name: "Guardrail: engine isolation (hard rule 2)"
+        if: ${{ !cancelled() }}
         run: uv run lint-imports
 
       - name: "Guardrail: RLS coverage (hard rule 1)"
+        if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_rls_coverage
 
       - name: "Guardrail: ledger immutability (hard rule 4)"
+        if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_ledger_immutability
 
+      - name: "Guardrail: bootstrap keys stay environment-only (D-95 §4)"
+        if: ${{ !cancelled() }}
+        run: uv run python -m scripts.check_bootstrap_keys
+
+      - name: "Guardrail: config applies + bounds (D-101)"
+        if: ${{ !cancelled() }}
+        run: uv run python -m scripts.check_config_applies
+
       - name: "Guardrail: redaction exposure (hard rule 5)"
+        if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_redaction_exposure
 
       - name: "Guardrail: compliance invariants (hard rule 5)"
+        if: ${{ !cancelled() }}
         # Every dial path passes the gate and OBEYS it, no bypass exists, and the schema
         # still carries the invariants the code assumes. Runs after `Migrate` because its
         # last section reads pg_catalog rather than trusting the migration.
         run: uv run python -m scripts.check_compliance_invariants
 
       - name: "Guardrail: nothing half-wired (CLAUDE.md)"
+        if: ${{ !cancelled() }}
         # Was in `make guardrails` and in no CI step — the local gate ran it and the gate
         # that blocks merge did not. `tests/guardrail_audit_test.py` now globs
         # `scripts/check_*.py` and requires every one of them in BOTH files, so the two
@@ -132,14 +159,17 @@ jobs:
         run: uv run python -m scripts.check_wiring
 
       - name: "Guardrail: docs drift (D-29 check:docs-drift)"
+        if: ${{ !cancelled() }}
         # Commands the docs name resolve, `D-xx` references resolve, and SEC-COMP §3
         # still cites rule strings the code emits. No database needed.
         run: uv run python -m scripts.check_docs_drift
 
       - name: "Guardrail: env parity (fail-fast config)"
+        if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_env_parity
 
       - name: "Guardrail: web env parity (browser config)"
+        if: ${{ !cancelled() }}
         # The other tier's half of the same rule. `next build` inlines NEXT_PUBLIC_*, so a
         # key that is undeclared, misspelled or secret-shaped ships as an empty string
         # instead of failing — this is where that becomes a failed build. Runs in THIS job
@@ -147,9 +177,11 @@ jobs:
         run: uv run python -m scripts.check_web_env_parity
 
       - name: "Guardrail: OpenAPI snapshot freshness"
+        if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_openapi_fresh
 
       - name: "Quality gate: regression suite (ratchet)"
+        if: ${{ !cancelled() }}
         # Exits non-zero only on a REGRESSION against the committed per-model baseline,
         # not on absolute failure — see scripts/eval.py.
         run: uv run python -m scripts.eval --client=ci

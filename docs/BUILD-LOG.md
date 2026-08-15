@@ -2843,12 +2843,275 @@ test would have sent down the override branch.
 the experiment, so a stale retry arriving after a NEW test started would conclude the new
 test. Fixing it moves the request shape and the console, so it wants its own slice.
 
+## §62 — two carried findings, and a survey that says the blocker is not the code
+
+**A stale retry could end the wrong experiment (D-80).** `conclude` was keyed on the AGENT,
+so a request for test one arriving after test two had started concluded test two — losing a
+running experiment and promoting an arm nobody chose. It now names the experiment, and is
+answered about the test it named rather than redirected. The sabotage is the evidence that
+D-65's three-answer work had not covered this: restoring the agent-fallback turned exactly
+ONE test red while all 27 others passed.
+
+**The screen was inventing a rule the server does not have (D-81).** Scheduling runs no gate
+at arm time by design — the gate runs at fire time, every time — but both arming forms lived
+inside the launch panel's `ready` branch, so a client with blockers today could not arm a
+start for next Tuesday. Fixed on the screen; the server was right. The price of exposing the
+control is three stated consequences, and one of them closed a gap nobody had reported: an
+armed schedule said only "Starts Monday, 10:00 IST", so a doomed schedule's first evidence
+would have been calls that never happened.
+
+### The survey: where this actually stands
+
+A full read-only survey ran alongside this wave. Its answer to "could this take a paying
+client on Monday" is **no, and the reason is not the code**. Milestone 0 — which ROADMAP §1
+says to start immediately and which is ENTIRELY NON-CODE — has not had one item completed:
+no legal entity, no DLT PE registration, no GST registration, no Bolna account, no telephony
+vendor, and nothing deployed anywhere. The engine is `fake` and all 13 pilot gates read NOT
+RUN. **The legal-entity decision is the root of the tree**: it blocks DLT registration, GST
+registration and every identity field on the invoice.
+
+It found NO regressions across the eight subsystems the last four waves moved, and confirmed
+§58's three carried findings are all genuinely fixed.
+
+**The three things that would embarrass us first, all buildable now:**
+
+1. **Money reaches a wallet only by a hand-constructed API call.** The credits endpoint is
+   complete, idempotent-by-UTR and audited; nothing in `apps/web` calls it, and
+   `runbooks/topup-payments.md` tells an operator to hit the API by hand off a bank
+   statement. It is the ONLY way money gets in.
+2. **The client cannot see their own invoice** — admin-realm only, while BRD names the client
+   persona as the one who pays it.
+3. **The invoice is not a valid Indian tax invoice** — 18% GST charged with no supplier or
+   recipient GSTIN, no HSN/SAC, no place of supply, no entity address. The VALUES wait on the
+   entity decision; the CODE does not.
+
+### Six documented claims the code contradicted, now corrected
+
+Five were in THIS file, and one of them contradicted §49 of this same file: the state-of-the
+-system list still described `inbound_webhooks` as having no writer, when a client
+self-provisioning their own lead source had shipped — a SELLABLE capability listed as inert.
+Also corrected: "eleven checks in the guardrail target" (it is ten; the eleventh, the
+coverage ratchet, is a separate target with different preconditions, so a reader who trusts
+that sentence gets a weaker gate than they think), a stale frontend test count, a stale
+"re-verified at §50" pointer, `SURFACES.md` listing credit top-up under "shipped today" when
+no screen exists, and a `check_wiring` docstring citing an example that has since been fixed
+while the blind spot it illustrates remains real.
+
+**The root cause is worth acting on**: `check_docs_drift` guards commands, D-references,
+SEC-COMP §3 vocabulary and the rate-zone table — it cannot see BUILD-LOG PROSE. The section
+every future session reads first is the one section with no guard on it.
+
+## §63 — the wave that made the money paths real, and found the invoice was not one
+
+The survey at §62 said the code was not the blocker and then named three things that
+would embarrass us first. All three are closed here, and two of them were worse than the
+survey could see from the outside.
+
+**The invoice was not merely missing fields — its arithmetic was structurally
+unclaimable (D-83).** It charged a flat 18% GST, and CGST, SGST and IGST are three
+SEPARATE credit ledgers: tax charged without naming the head cannot be claimed at all. The
+old shape also could not express a Union Territory without a legislature (CGST+UTGST) in
+any form. And the refusal we asked for turned out to be a legal position rather than a
+style choice — **CGST s.32 prohibits an unregistered person from collecting tax**, so with
+no GSTIN there is no tax invoice to issue.
+
+The judgement call worth keeping: **zeroing the tax when unregistered was rejected**,
+despite being the literal reading of s.32, because one forgotten environment variable would
+then silently under-bill every client by 18%. A missing config key changes what a document
+CLAIMS, never what a client OWES.
+
+It also declined to fake a fix: the invoice serial is 19 characters against Rule 46(b)'s
+16-character cap and is deterministic rather than consecutive. Those requirements genuinely
+conflict with D-46's derived statement, truncating would trade a length breach for a
+collision, and a test now fails the day somebody changes the scheme.
+
+**Money now reaches a wallet through a screen (D-82)**, and the confirmation is the payment
+reference itself rather than a fixed word — different every time so it cannot become muscle
+memory, and doubling as the double-keying check on the one field where the error is
+unrecoverable. Its duplicate warning is deliberately ONE-DIRECTIONAL: a match warns, an
+absence never reassures, because the screen holds fifty entries and the server checks the
+whole ledger. Found on the way: SURFACES promises credit adjustments and nothing implements
+them, so a credit to the wrong tenant or the wrong amount still has NO tool.
+
+**Impersonation now mints a delegation grant (D-85)**, and the spec reading is the good
+part: RFC 8693's `act` claim carries DELEGATION semantics while a token without it carries
+IMPERSONATION semantics — which is D-22's own rule written by someone else first, since
+D-22 forbids acting-as precisely to avoid dual attribution. So the feature called
+impersonation deliberately gets a delegation-shaped credential. The design follows from one
+sentence: **the grant is not a credential.** It never travels in `Authorization` and does
+nothing alone, so revocation lag is one request rather than one token lifetime, and no
+denylist or grants table is needed.
+
+**The untyped-2xx sweep ran a third time (D-84)** and its best decisions were refusals:
+four acks returning a constant became 204 rather than models, because modelling a constant
+satisfies both tools and teaches the next reader nothing; `/v1/numbers/purchase` became
+`NoReturn` so that the day provisioning lands, mypy forces the author to declare a real
+contract instead of inheriting a shape for a body that cannot exist.
+
+**Two findings carried, both reported rather than quietly fixed:** there is no
+compensating-adjustment endpoint, so `POST .../credits` refuses a negative amount with a
+remediation pointing at a tool that does not exist; and `audit_chain_secret` falls back to
+the guessable constant `local-dev:{app_env}` in EVERY environment including prod, so a
+deploy that forgot it has an unverifiable audit chain.
+
+## §64 — the two carried findings, closed; and a vendor re-examination that corrected us
+
+§63 carried two findings rather than fixing them. Both are closed here, and the more
+interesting half of the wave was neither: a question about the orchestrator produced a
+correction to our own doc set.
+
+**The audit chain's signing secret is now required, and the era it protected is
+published (D-86).** The old fallback `local-dev:{app_env}` applied in EVERY environment,
+so a prod deploy that forgot the variable signed an append-only ledger with a constant
+printed in this repository — forgeable by anyone who can read the source, while the
+console reported "chain intact". The fix that matters most is not the refusal but the
+**shape** of it: one resolver, `resolve_hmac_key()`, now serves all three HMAC secrets,
+and **a present-but-short key is refused with the same code as an absent one** — to a
+caller they are one condition, and failing closed on absence while accepting a weak key
+guards the easier half of a single mistake. The 32-byte floor is the strictest of three
+converging authorities (RFC 2104 §3, NIST SP 800-107 Rev. 1 §5.3.4, RFC 7518 §3.2), cited
+where it is enforced.
+
+The consequence for existing deployments is the part worth remembering: history signed
+with the old constant still has to verify, so `AUDIT_CHAIN_SECRET_RETIRED` verifies
+(never signs) and `entries_under_retired_key` publishes how much of the log rests on it.
+**That count is deliberately not a component of `ok`** — those rows are intact; what they
+lack is attestation STRENGTH, which matters at exactly one moment (exporting the log as
+evidence) and is therefore rendered beside both verdicts rather than left in a runbook.
+
+**Credit adjustments exist (D-87)**, and the design question was the idempotency key. A
+caller-minted key was rejected because the failure being defended against is a SECOND
+CLICK, which mints a second key; the key is content-addressed on `(entry, amount)` and
+enforced by an index that already existed, not by a reader's `if`. The cost is written
+where a reader will meet it: two genuinely distinct corrections of the same amount
+against one entry collapse, and the second reads as "already corrected, nothing moved" —
+the safe direction when money is leaving. The balance is allowed to go negative because
+the alternative is a ledger that permanently claims credit the client never had; and
+because that must not be silent, `stops_dialling` carries the dial gate's own predicate
+evaluated inside the write's transaction rather than a second copy of the rule.
+
+**The vendor question corrected our documentation, which is the part to carry
+forward (D-88).** Asked why Bolna over Cartesia, the honest answer required reading
+Cartesia rather than repeating our teardown — and the teardown was stale. Cartesia Line's
+LLM is fully BYOK (LiteLLM, 100+ providers); its **STT and TTS are not** — Ink 2 and
+Sonic 3.5 have no swap interface, from Cartesia's own SDK README. So Line cannot host
+D-36's Sarvam stack, and its $0.06/min is a bundled rate that was never comparable to a
+BYOK platform fee. Meanwhile our "English-first TTS" characterisation was simply false by
+Aug 2026: Sonic 3 covers the top 9 Indic languages including Telugu, and the Blue
+Machines partnership targets India-**resident** processing. D-31's conclusion survives —
+on **telephony**, not price, since none of Line's number paths yields a DLT-registered
+Indian number — but its stated reason did not, and a stale rationale is how a settled
+decision gets re-litigated badly.
+
+Two numbers came out of that work and both are now in TRD §10.4: **Bolna's BYOK platform
+fee is observed at 2¢/min ≈ ₹1.76**, which is inside §10's assumed band but ~17% above
+gate 12's ≤₹1.50 target (worth ₹5,200/month at 20k platform-minutes); and **the larger
+cost lever is Bulbul v2 vs v3** — ₹13,400/month at the same volume, bigger than the whole
+platform-fee gap, and decided by a Telugu ear test rather than a rate card.
+
+## §65 — nine red CI runs from borrowed credentials, a drain that had never drained, and two guards pointed at the doc set
+
+The wave's largest finding was not in a feature. **`_install_signal_handlers` destroyed
+the drain its own docstring described (D-101).** `Server.serve()` enters uvicorn's
+`capture_signals()` and *then* runs the lifespan, so our handler replaced `handle_exit`
+with one raising `KeyboardInterrupt`; the exception escaped `asyncio.run`, so
+`Server.shutdown()` never closed sockets and never waited, and the lifespan's `finally`
+never flushed. Measured with a real server and a sleeping request — before, `ESCAPED
+KeyboardInterrupt` and no in-flight line at all; after, `INFLIGHT 200` then exit 143. On
+`hooks.calevate.tech` that made every deploy an abort of whatever webhook was in flight,
+on an at-most-once feed with no retry (D-31), and `stop_grace_period: 30s` had nothing to
+give its seconds to. DEPLOYMENT §4b's promise is true for the first time.
+
+**Nine consecutive CI runs were red on two tests that asserted about an environment they
+had borrowed rather than declared**, and because every guardrail is a later step in the
+same job, all twelve were reported `skipped` for those nine commits — which is the part
+worth carrying: `skipped` was read as `ok` here, by me, in a readiness audit. One test
+proved secret precedence using `COHERE_API_KEY` because this repo's `.env` happened to
+carry it; the other needed botocore to find an access key and found the developer's
+exported `AWS_*`. The individual fixes are small. What closes the CLASS is
+`tests/conftest._no_ambient_credentials`, which strips `AWS_*` and repoints `HOME` for the
+whole session, so borrowing is impossible rather than detectable — a test that needs a
+credential now declares it, which puts the dependency in the test that has it. **The
+grep-shaped guard written first was thrown away**: it flagged three files that merely NAME
+a credential inside an assertion and caught neither real offender, and a check that
+produces only false positives is worse than none. Two structural facts keep local and CI
+the same shape and are asserted: no committed `.env`, and `.env.example` held to the eight
+bootstrap keys.
+
+Also closed: **ARQ jobs now pin `Settings` for their duration** via `on_job_start` /
+`on_job_end`, the half left open when D-101's `settings_scope()` landed in both HTTP
+deployables. Jobs are the half that runs LONGEST — a post-call pipeline can be alive for
+many seconds while a console change propagates in ~5 — and a job that reads
+`usd_inr_rate` when it prices a call and again when it writes the usage row could bill one
+call at two rates, in an append-only ledger where the fix is a compensating entry. And the
+graceful-shutdown timeouts in `compose.prod.yml` are now stated with their arithmetic
+rather than left to a default that outlives `stop_grace_period`.
+
+**Two guards were pointed at the doc set, in opposite directions.** D-102 gives the
+greppable-constant device its reverse check: prose that STATES a capability constant's
+value is compared against the AST-discovered constant, because every error the readiness
+audit found ran the same way — the capability was BUILT and the doc still said missing.
+`PROVIDER_CREATES_ORDERS` had been True since D-98 while four documents said no checkout
+could be opened. Understating is not the safe error: it is how a shipped checkout gets
+rebuilt, and `docs/` is authoritative, so a reader believes the doc over the code.
+Value-stating rather than name-mentioning, adjacency rather than proximity, present tense
+only — 20 value-statements in the tree, 4 genuine offenders, 0 false positives.
+
+D-103 points the other way, at code. **The set of engine names had three spellings**, and
+the drifted copy in the voice-runtime receiver did not open a hole — Cartesia deliveries
+were already refused twice over — it created a BLIND SPOT: `_refuse` labels anything
+outside `KNOWN_ENGINES` as `"unknown"`, so on `ENGINE=cartesia` every 401 was attributed
+to a stranger probing the URL rather than to our own unimplemented verifier. The set now
+has exactly two definitions, both in `calevate_shared`, and an AST scan fails the build on
+a third rather than pinning the two we found. That matters because **the third copy is the
+one nobody looked for**: `agents/models.py::ENGINES` renders a CHECK constraint, so
+`ENGINE=cartesia` fails client creation with a raw `IntegrityError`. It needs a migration,
+so it is reported as a strict `xfail` and an equality-asserted `KNOWN_OPEN_COPIES` entry —
+fixing the constant fails the test and forces the entry's deletion, so the list cannot rot
+into a permanent exemption.
+
+**D-104 closed both defects D-103 reported and could not fix**, and they turned out to
+share a root: a fact about a vendor written down outside `apps/api/engine/`. The CHECK
+constraint was the worse one, because a constraint is not advisory — on `ENGINE=cartesia`
+the first thing a new client did, exist, failed with an `IntegrityError` naming a
+constraint whose text disagreed with the setting that produced the value. The second was
+quieter and reaches further: `/healthz/ready` named `BOLNA_API_KEY` under one hardcoded
+vendor clause, so a credential-less Cartesia box reported itself fit for traffic on the
+probe an orchestrator uses to decide whether to send it any. The obvious patch — a second
+`if` — is the shape that produced the bug, so the adapter now answers both halves:
+`holds_credentials()` for the verdict and a new `credential_env_keys` for the NAME,
+because "not ready" without the key to set is a red light with no next step. Two things
+that had to exist before the fix was correct: `build_engine`, split out of `get_engine`
+because the cache is keyed on engine NAME and would answer readiness about a configuration
+that is not deployed; and a test that reads `pg_get_constraintdef`, because `ENGINES`
+deriving from `SELECTABLE_ENGINES` makes model and database agree in PYTHON while the
+database keeps whatever the last migration wrote. Sabotaging the live constraint behind
+the model's back is red on that test alone.
+
+**A doctrine landed in CLAUDE.md and AGENTS.md rather than a file**: there is no "later".
+Work that can be done now is done now, and the only scheduling distinction that survives
+is whether a thing is ours to do or waits on someone else — a credential, a regulator, a
+vendor reply. It does not license shortcuts; it forbids narrating a schedule instead of
+finishing a seam.
+
 ## State of the system — what a future session inherits
 
-Written after the sweep above, grep-verified against the tree at this commit, and
-deliberately separated into four states, because "built" has meant four different things
-in this repo and conflating them is how a session re-derives a decision that was already
-taken.
+Written after the sweep above and deliberately separated into four states, because "built"
+has meant four different things in this repo and conflating them is how a session
+re-derives a decision that was already taken.
+
+⚠ **This paragraph used to say "grep-verified against the tree at this commit". It was
+not**, and a readiness audit found four claims that were wrong — every one of them in the
+same direction: a capability had been BUILT and this inventory still described it as
+missing (`PROVIDER_CREATES_ORDERS`, WhatsApp's adapter, the guardrail count, and ROADMAP
+§5's twin of the first). Understating is not the safe error. Somebody reads "no checkout
+can be opened" and rebuilds the checkout. **Section 5 of `scripts/check_docs_drift.py`
+(D-102) now enforces the part of that promise a machine can hold**: any sentence in this
+repo that STATES a capability constant's value is compared against the constant, and CI
+fails if they disagree. What is still on a human is the class no matcher can decide — a
+paragraph that describes a capability without quoting a constant, which is exactly how the
+WhatsApp row stayed wrong. When you write an entry here, quote the constant with its
+value; that is the half that cannot rot silently.
 
 **Built and working end to end** — meaning: code, tests, a mounted route, a screen where
 the surface is client- or operator-facing, and a guardrail where a rule needs one. One
@@ -2870,9 +3133,17 @@ caps with the ops recompute. KYC and the first-campaign hold, both gates plus bo
 plus the client's own screens plus the cross-tenant hold queue. Outbound CRM sync (webhook
 half). OTel tracing across every boundary, Sentry, and `alert()` with a real email
 transport. Outbound CRM sync's Sheets half, adapter included, though nothing has yet spoken
-to a real Google project. Eleven checks in the guardrail target — the newest being
-half-wiring, compliance invariants, docs drift, the coverage ratchet and the web tier's env
-parity — and the frontend gate beside it, now 364 tests over every screen in both realms.
+to a real Google project. **Twelve** checks in `make guardrails` — `lint-imports` plus the
+eleven `scripts/check_*` modules the target invokes; count them in the recipe, not here,
+because this number has been wrong twice (it said ten while the tree ran twelve). The
+newest two are bootstrap-key isolation (D-95) and config `applies` classification (D-101),
+joining half-wiring, compliance invariants, docs drift and the web tier's env parity. The
+coverage ratchet is NOT among them: it is a SEPARATE target with different preconditions
+(both stores empty), and a reader who runs `make guardrails` believing it covers the
+ratchet gets a weaker gate than they think.
+Beside it the frontend gate, 638 tests over every screen in both realms at
+§61 (this said 364 for several sections; the number moves every wave and is not worth
+chasing — read `pnpm -C apps/web test` if the exact figure matters).
 The console speaks one design language from tokens in `globals.css`, and sign-in exists for
 both Clerk realms behind two guards that refuse to ship the dev credential.
 
@@ -2882,22 +3153,46 @@ decision wide, and each is named by a greppable selector rather than faked, so t
 is honest at the surface rather than silent in a worker:
 - **The whole backup tree.** `infra/backup/` has been applied to nothing and **no wal-g
   command has ever been run**. Nothing is deployed, every secret is a reference.
-- **Razorpay order creation.** The capability is expressible and both surfaces ask one
-  selector; `PROVIDER_CREATES_ORDERS` is False, so no checkout can be opened from a top-up
-  intent. The signing scheme itself is unverified against a live account.
-- **WhatsApp.** A transport protocol, a console dev sink, delivery records and a retry
-  ladder, with no vendor adapter, because no decision picks a BSP. The escalation path is
-  complete except for the send.
+- **Razorpay order creation.** ⚠ **This entry said the adapter did not exist. It does**
+  (D-98): `PROVIDER_CREATES_ORDERS` is True, `RazorpayOrders.create_order` is written,
+  `POST /v1/orders` is mounted and the order is created SERVER-SIDE so
+  `notes.calevate_tenant_id` reaches the provider by construction. What is inert is the
+  DEPLOYMENT, and D-98 exists to keep the two facts apart: `PaymentCapability.creates_orders`
+  is False on every box we run, with its own reason `no_api_secret` — no Razorpay API
+  secret is configured anywhere, so no checkout can be opened from a top-up intent today.
+  "An adapter exists" and "this box can take a payment" are different sentences and the
+  first one is now true. The signing scheme is still unverified against a live account,
+  and no checkout widget was built at all (`checkout.js` is a supply-chain decision,
+  hard rule 9); the signed webhook, never the browser callback, is the source of truth.
+- **WhatsApp.** ⚠ **This entry said "no vendor adapter, because no decision picks a BSP".
+  Both halves were false**: D-91 picked the **Meta Cloud API** (direct, no BSP reseller),
+  and `apps/workers/whatsapp_cloud.py` implements the transport — one POST to
+  `/{phone-number-id}/messages`, template gate encoded, status classification, driven
+  through `httpx.MockTransport` in tests. What is inert is the vendor relationship:
+  `CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA` is False, we hold no WABA, no phone number id
+  and no token, and this module has never exchanged a byte with Meta. Everything above
+  the send — transport protocol, console dev sink, delivery records, retry ladder,
+  escalation path — was already complete and remains so.
 - **Google Sheets sync.** Delivered through the same job as the webhook half; refused at
   endpoint creation while no service account exists.
-- **Meta Lead Ads field retrieval.** Intake is native; the Graph read that carries the form
-  answers needs a Page token this deployment does not hold.
+- **Meta Lead Ads field retrieval.** Intake is native and the Graph read is **built**
+  (D-90): `LEAD_RETRIEVAL_IMPLEMENTED` is True and `GET /{leadgen_id}?fields=field_data`
+  sits behind the `LeadRetriever` Protocol, feeding the existing consent gate. Inert for
+  a credential only — the Page token with `leads_retrieval` that this deployment does not
+  hold — so a verified delivery still lands as a recorded `meta_lead_retrieval_unavailable`
+  refusal, re-claimable the day a token exists.
 - ~~**`redact_trace_payload`.**~~ No longer inert and no longer present: it was DELETED
   (D-61) once the audit found that hard rule 6 was being broken on the tracing path by the
   OTel SDK's own exception events. Redaction is now automatic in `_RedactingSpanExporter`.
 - **`kb_retrieval_logs`.** No producer, and cannot have one until the engine reports a
   retrieval — three of its columns are the dated deferrals in `UNWIRED_BASELINE`.
-- **`inbound_webhooks` rows**, still provisioned out of band because nothing writes them.
+- ~~**`inbound_webhooks` rows**, provisioned out of band because nothing writes them.~~
+  **FALSE SINCE `61e8470`, and this file contradicted ITSELF for eleven sections** — §49
+  above already records that "`inbound_webhooks` finally has a writer".
+  `ingest/service.py` INSERTs them, `POST /v1/lead-sources` is the client-realm creator,
+  and `/c/[slug]/lead-sources` is the screen. A client provisioning their own lead source
+  is a SELLABLE capability that this list was describing as inert. Kept struck through as
+  the standing example of why this section needs re-reading against the code, not trusted.
 - **`self_serve_signup_enabled`**, defaulting OFF. All six R-11 mitigations now hold in
   code, so this is a business switch rather than a blocked one.
 - **`plans.overage_rate_value`**, present and NULL on every plan until a retail number is
@@ -2935,7 +3230,11 @@ scheme and payload paths.
 
 ### Where the next session should start
 
-1. **Founder decisions, none of them code.** Re-verified at the close of §50 and all still
+1. **Founder decisions, none of them code.** Re-verified at §62 and all still open — but
+   note the TOOLING around two of them moved after this paragraph was written: the retail
+   value-tier rate is now SETTABLE per tenant through the commercials screen (D-66), so it
+   is a number somebody must choose rather than a place to put it. Originally verified at
+   the close of §50 and all still
    open; neither §49 nor §50 touched any of them: the retail value-tier rate
    (`plans.overage_rate_value` exists and is NULL on every seeded plan); the retention TTL
    divergence (docs 24 months, seed 365 transcript / 1095 lead / 90 recording — SEC-COMP §4

@@ -15,11 +15,12 @@ from __future__ import annotations
 import ipaddress
 import re
 from dataclasses import dataclass
-from typing import Any, Literal, get_args
+from typing import Any
 
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from calevate_shared.config import bolna_source_ips
+from calevate_shared.engine import WEBHOOK_AUTH_BY_ENGINE, WebhookAuthMethod
 
 log = get_logger(__name__)
 
@@ -50,20 +51,40 @@ TRUSTED_PROXY_CIDRS: tuple[str, ...] = (
 # have written it. Everything about that choice is argued in `client_ip` below.
 _EDGE_CLIENT_IP_HEADER = "cf-connecting-ip"
 
-EngineName = Literal["bolna", "fake"]
-VerifyMethod = Literal["hmac", "source_ip", "none"]
-
-# The engines this service will answer for at all. Derived from the type rather than
-# retyped, so the two can never drift. Used to bound anything the URL's `{engine}`
-# segment is allowed to become — a metric label, in particular: on the refusal path that
-# segment is an unauthenticated stranger's string.
-KNOWN_ENGINES: frozenset[str] = frozenset(get_args(EngineName))
+# The engines this service will answer for at all — the SAME set `verify_source` below
+# consults, so "known" and "has an authenticity story" are provably one answer rather than
+# two that agree today (`tests/engine_name_drift_test.py` asserts the equality both ways).
+#
+# THIS FILE USED TO DEFINE THE SET ITSELF, and that is the defect D-103 closes. It was
+# `EngineName = Literal["bolna", "fake"]` here plus `Literal["fake", "bolna", "cartesia"]`
+# in `calevate_shared.config` — a second copy of a union, which drifted the moment
+# `cartesia` was added to the first and this one was not. Nothing could see it: the two
+# lived in different deployables, `check_wiring` looks at routers and migration heads, and
+# the receiver went on refusing every Cartesia delivery for the RIGHT reason (no signature
+# verifier, below) while labelling the refusals `unknown` — the one word that makes a
+# self-inflicted refusal storm look exactly like a stranger probing the URL.
+#
+# `WEBHOOK_AUTH_BY_ENGINE` is the right source rather than `config.SELECTABLE_ENGINES`
+# because the question this set answers is "does this name have an authenticity story",
+# not "may an operator select it". The conformance fixture `fake-restricted` is the case
+# that separates them: it is deliberately unselectable, it is the only engine in the tree
+# that declares `hmac`, and the receiver must still answer for it identically or the one
+# test that exercises the signature branch would be testing a different code path from the
+# one production runs.
+#
+# What the set BOUNDS is anything the URL's `{engine}` segment is allowed to become — a
+# metric label, in particular: on the refusal path that segment is an unauthenticated
+# stranger's string, and an unbounded label is a way to blind our own monitoring.
+KNOWN_ENGINES: frozenset[str] = frozenset(WEBHOOK_AUTH_BY_ENGINE)
 
 
 @dataclass(frozen=True, slots=True)
 class IntakeVerdict:
     ok: bool
-    method: VerifyMethod
+    # `WebhookAuthMethod`, not a local `Literal["hmac", "source_ip", "none"]` — which is
+    # what this was, character for character. Two spellings of one vocabulary is how the
+    # receiver ends up reporting a method the adapter cannot express (D-103).
+    method: WebhookAuthMethod
     reason: str | None = None
 
 
@@ -175,8 +196,21 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
     `CF-Connecting-IP` line in `calevate-proxy.conf` is gone, or something is reaching the
     container without going through nginx). Two very different runbook entries, and an
     unsigned engine cannot afford them to look alike.
+
+    WHICH METHOD APPLIES IS LOOKED UP, NOT HARD-CODED (D-93). This function used to open
+    `if engine == "bolna":` — a vendor name compiled into the latency-critical receiver,
+    so adopting an engine that SIGNS its webhooks meant editing this service and
+    redeploying it in lockstep with the adapter, which hard rule 3's last clause exists to
+    prevent. `WEBHOOK_AUTH_BY_ENGINE` is the one table both readers share (the adapters'
+    own declarations are asserted equal to it by the conformance suite), and reading it
+    costs one dict lookup on a path that must ack in under 500ms.
+
+    It stays a TABLE rather than an import of the adapter's descriptor because hard rule 3
+    forbids the heavy import here: reaching `EngineCapabilities` through
+    `apps.api.engine` would pull httpx and the vendor client into the ack path.
     """
-    if engine == "bolna":
+    method = WEBHOOK_AUTH_BY_ENGINE.get(engine)
+    if method == "source_ip":
         if source_ip is not None and source_ip in bolna_source_ips(get_settings()):
             # `source_ip`, not `hmac`: the caller must keep treating this as a hint.
             return IntakeVerdict(ok=True, method="source_ip")
@@ -187,17 +221,52 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
             if source_ip is not None
             else "client ip not established",
         )
-    if engine == "fake":
-        # The fake engine verifies NOTHING by design — that is how the whole pipeline
-        # runs offline (DEV-SETUP §3). Which makes this route an unauthenticated write
-        # endpoint, and the route table is identical in every environment: on a prod box
-        # running ENGINE=bolna, `/hooks/v1/engine/fake` would hand any stranger who
-        # found the URL an inbox claim, a forensic row and an ARQ job.
+    if method == "hmac":
+        # DECLARED BY AN ADAPTER, NOT IMPLEMENTED HERE — and refused rather than waved
+        # through, which is the only safe direction. Writing a signature verifier for an
+        # engine we have not adopted would mean inventing the header, the canonical string
+        # and the digest, and an unverified vendor contract is exactly what D-31/D-32
+        # forbid; getting any of the three wrong would produce a receiver that rejects
+        # every real delivery and accepts nothing but our own test vectors.
         #
-        # So the door is open exactly where the fake engine is the engine. Nothing about
-        # this widens trust anywhere else, and a deployment cannot receive events for an
-        # engine it does not run.
-        if get_settings().engine == "fake":
+        # THE PREVIOUS COMMENT HERE SAID THIS WAS UNREACHABLE — "no signing engine is
+        # selectable as `ENGINE=`" — and that stopped being true when D-93 put `cartesia`
+        # in `config.EngineName`. It is reachable now, on purpose, and the answer is the
+        # same one: `CartesiaEngine.verify_webhook` fails closed for the identical reason
+        # (`SIGNATURE_UNIMPLEMENTED_REASON`), so the receiver and the adapter refuse
+        # together rather than one of them deciding to be helpful.
+        #
+        # WHY THE REFUSAL MUST OUTLIVE THE TEMPTATION TO SOFTEN IT. `webhook_routes`
+        # derives the forensic row's `signature_valid` from `verdict.method == "hmac"`, so
+        # a wave-through here would not merely accept a forgery — it would FILE one as
+        # signed, and a later investigation would read the strongest evidence we can
+        # record next to a payload nobody checked. Falling back to the source-IP allowlist
+        # would be the same defect in a friendlier shape: an allowlist is evidence about a
+        # DIFFERENT engine's egress, and reusing it here would authenticate Cartesia
+        # deliveries against Bolna's addresses.
+        #
+        # The cost of refusing is bounded and known: every delivery 401s and the 10-minute
+        # reconciliation poller stays the guarantee of record (D-31). The cost of the other
+        # direction is not bounded at all.
+        return IntakeVerdict(
+            ok=False, method="hmac", reason="signature verification not implemented"
+        )
+    if method == "none":
+        # An engine that declares NO authenticity control at all. Today that is the fake
+        # engine, and it is by design — that is how the whole pipeline runs offline
+        # (DEV-SETUP §3). Which makes this route an unauthenticated write endpoint, and
+        # the route table is identical in every environment: on a prod box running
+        # ENGINE=bolna, `/hooks/v1/engine/fake` would hand any stranger who found the URL
+        # an inbox claim, a forensic row and an ARQ job.
+        #
+        # So the door is open exactly where that engine IS this deployment's engine.
+        # Matched against the declared method and the requested name rather than against
+        # the literal `"fake"`, which is what this used to do: a hard-coded vendor name in
+        # the latency-critical receiver is the thing D-93 removed from the branch above,
+        # and leaving one here meant the same class of drift survived in the same
+        # function. The generalisation changes no answer today — `fake` is the only
+        # engine declaring `none` — and it makes the gate follow the declaration.
+        if get_settings().engine == engine:
             return IntakeVerdict(ok=True, method="none", reason="fake engine")
         return IntakeVerdict(
             ok=False, method="none", reason="fake engine is not enabled in this environment"
@@ -278,7 +347,6 @@ def extract(payload: dict[str, Any]) -> IntakeEvent | None:
 __all__ = [
     "KNOWN_ENGINES",
     "TRUSTED_PROXY_CIDRS",
-    "EngineName",
     "IntakeEvent",
     "IntakeVerdict",
     "client_ip",

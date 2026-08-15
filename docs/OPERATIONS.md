@@ -39,7 +39,7 @@ most of this is real PSTN call spend). 5–7 working days alongside other work.
 | 9 H | Compute region + residency [NEW, D-32] | Where does the call actually execute? (Recordings sit on S3 us-east-1 — storage ≠ compute, but both matter.) Get India data-residency terms + price in writing. This is the one axis where LiveKit beats Bolna on verified evidence today. |
 | 10 H | Agency model | Confirm in writing that multiple end-clients under one account is permitted. **Verify the sub-accounts tier discrepancy**: the pricing page lists "Sub-accounts access" under Pilots, the docs call it Enterprise-only. If Pilots includes it, our tenancy model lands far earlier. |
 | 11 H | The humans | Open two support threads (one technical, one commercial) during the pilot; record response time and answer quality. **This is the gate ThinnestAI failed** — a good product with unresponsive people is the same trap twice. |
-| 12 H | Commercials in writing | **(a) the BYOK platform fee — the single number that decides ₹3–3.6/min; target ≤ ~₹1.5/min**; (b) whether volume tiers apply to BYOK; (c) INR/GST invoicing; (d) price-change notice period (60–90 days); (e) data-export commitment on exit; (f) recording retention + DPDP deletion API; **(g) is the built-in KB (`rag_id`) billed separately, or included in the platform fee? No KB line appears on the pricing page — we have INFERRED "included" and that inference is load-bearing for TRD §6.2 (D-33). Get it in writing, including any per-document/storage/query charge.** Anchors: their published bundled rate is 6.00¢→4.51¢/min; Vapi's comparable orchestration tax is ₹4.40/min (D-32). |
+| 12 H | Commercials in writing | **(a) the BYOK platform fee — the single number that decides ₹3–3.6/min; target ≤ ~₹1.5/min**; (b) whether volume tiers apply to BYOK; (c) INR/GST invoicing; (d) price-change notice period (60–90 days); (e) data-export commitment on exit; (f) recording retention + DPDP deletion API; **(g) is the built-in KB (`rag_id`) billed separately, or included in the platform fee? No KB line appears on the pricing page — we have INFERRED "included" and that inference is load-bearing for TRD §6.2 (D-33). Get it in writing, including any per-document/storage/query charge.** Anchors: their published bundled rate is 6.00¢→4.51¢/min; Vapi's comparable orchestration tax is ₹4.40/min (D-32). **OBSERVED Aug 2026, still ungated: the BYOK platform fee shows as 2¢/min ≈ ₹1.76 in the Bolna dashboard.** That is inside TRD §10's assumed ₹1.50–2.00 band but ~17% ABOVE this gate's ≤₹1.50 target, so the observation does NOT close (a) — a dashboard figure is not a commercial term, and the gap is worth ₹5,200/month at 20k platform-min and ₹15,600 at 60k (TRD §10.4). Open the negotiation on the ₹1.50 number with those two figures in hand. |
 | 13 S | Concurrency ceiling | Pilots advertises 100 concurrent and two customers run 250+ in production (D-32); confirm OUR ceiling, behavior at the limit (queue vs reject + error shape), and the outbound dispatch rate limit (unpublished — measure it; it becomes our dispatcher config, FLOWS §5). Also ask Sarvam (BYOK-tier model concurrency) and Exotel/Vobiz (SIP trunk channels). Effective ceiling = MIN of all three — record all three. |
 
 Parallel ask to Sarvam (not a Bolna gate, but it moves our cost model more than the
@@ -369,10 +369,11 @@ one differs from a summary below, the runbook is the authority.
   (`recipient_not_opted_in`, `whatsapp_disabled`, every `blocked_*` from the dispatch
   gate). Covers both states of the `messaging` consent purpose.
 - **Top-ups and payments** — `runbooks/topup-payments.md`. `payment_capability()` and what
-  each refusal means; server-side order creation is NOT implemented
-  (`PROVIDER_CREATES_ORDERS = False`) and what to tell a client who wants to pay today;
-  the Razorpay signing scheme and payload paths are UNVERIFIED against a live account, so
-  the first real payment is an attended test, not a routine.
+  each refusal means; the order adapter IS built (`PROVIDER_CREATES_ORDERS` is True, D-98)
+  but no deployment holds a Razorpay API secret, so `creates_orders` answers False with
+  reason `no_api_secret` — and what to tell a client who wants to pay today; the Razorpay
+  signing scheme and payload paths are UNVERIFIED against a live account, so the first
+  real payment is an attended test, not a routine.
 - **Knowledge base out of sync with the engine** — `runbooks/kb-out-of-sync.md`.
   `kb_engine_ref_unknown` vs `kb_engine_out_of_sync`: same disease, different cures, and
   the wrong cure leaves a client's agent quoting old prices. Includes the manual

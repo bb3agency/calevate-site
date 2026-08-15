@@ -1,6 +1,7 @@
-"""Native Meta Lead Ads ingest (SURFACES §2b): the receiver, and the honest hole.
+"""Native Meta Lead Ads ingest (SURFACES §2b): the receiver, and what it now retrieves.
 
-Two properties are under test, and they pull in opposite directions on purpose:
+Three properties are under test, and the first two pull in opposite directions on
+purpose:
 
 1. **Nothing unverified gets through.** A forged, absent, or body-swapped
    `X-Hub-Signature-256` writes nothing at all — no inbox row, no lead, no call. The
@@ -8,10 +9,15 @@ Two properties are under test, and they pull in opposite directions on purpose:
    attacker will ever exercise.
 2. **What we cannot do is refused OUT LOUD.** Meta's leadgen notification carries no
    answers (`docs` links in `apps/api/ingest/meta.py`); the person's name and phone
-   live behind a Graph API read that needs a Page access token this deployment does
-   not hold. So a verified delivery lands as a RECORDED refusal keyed on the
-   `leadgen_id` — visible in the client's activity view, and re-claimable the day a
-   retriever exists — never a silent 200.
+   live behind a Graph read that needs a Page access token, and a deployment or a
+   CLIENT without one still gets a RECORDED refusal keyed on the `leadgen_id` —
+   visible in the activity view, re-claimable — never a silent 200.
+3. **A lead we may not call is taken and refused, never called.** The answers now
+   arrive, which means the consent question on the client's own form now has an answer,
+   and it flows into the SAME gate `ingest_lead` already applied to every other source.
+
+`tests/meta_graph_test.py` holds the vendor half: the request shape, the version pin
+and the error-code mapping, driven through httpx's real plumbing.
 
 Scope discipline: other suites hammer the same Postgres. Every tenant here carries a
 `meta-` slug and every assertion is scoped to this file's own webhook ids.
@@ -27,6 +33,7 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import pytest
 from apps.api.admin import service as admin_service
@@ -34,6 +41,7 @@ from apps.api.core.context import Principal
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
 from apps.api.ingest import meta
+from apps.api.ingest.recorded import RecordedLeadRetriever
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -52,28 +60,51 @@ def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: fixed)
 
 
-class _FakeRetriever:
-    """The adapter this repository deliberately does NOT ship.
+def _wire(
+    monkeypatch: pytest.MonkeyPatch,
+    retriever: meta.LeadRetriever | None,
+    *,
+    reason: str = meta.NO_RETRIEVER_REASON,
+) -> None:
+    """Substitute the SELECTOR, which is the only thing any surface consults.
 
-    It exists here for the same reason the `fake` voice engine exists (TRD §5): the
-    seam is only proven by a second implementation. It invents no vendor HTTP — it is
-    handed the answers a Graph read WOULD have returned, in Meta's documented
-    `field_data` shape, and nothing more.
+    Not the settings and not a module-level slot: `lead_retrieval_capability` is THE
+    selector by design, so a test that replaced anything else would be exercising a
+    path production does not take. `retriever=None` is the unconfigured deployment, and
+    `reason` says WHICH kind of unconfigured.
+
+    The per-source question is DERIVED from `holds_credential_for` here, exactly as the
+    real selector derives it, so a retriever scoped to somebody else's lead source is
+    refused by the same ladder production uses rather than by a hardcoded answer.
     """
 
-    def __init__(
-        self,
-        field_data: list[dict[str, Any]],
-        *,
-        per_lead: dict[str, list[dict[str, Any]]] | None = None,
-    ) -> None:
-        self._field_data = field_data
-        self._per_lead = per_lead or {}
-        self.calls: list[str] = []
+    def _capability(*, source_id: UUID) -> meta.RetrievalCapability:
+        if retriever is None:
+            return meta.RetrievalCapability(available=False, reason=reason)
+        if not retriever.holds_credential_for(source_id):
+            return meta.RetrievalCapability(available=False, reason=meta.NO_TOKEN_REASON)
+        return meta.RetrievalCapability(available=True, retriever=retriever)
 
-    async def fetch_field_data(self, leadgen_id: str) -> list[dict[str, Any]]:
-        self.calls.append(leadgen_id)
-        return self._per_lead.get(leadgen_id, self._field_data)
+    monkeypatch.setattr(meta, "lead_retrieval_capability", _capability)
+
+
+def _retriever(
+    *,
+    phone: str,
+    name: str,
+    consent: str | None,
+    per_lead: dict[str, list[dict[str, Any]]] | None = None,
+    sources: frozenset[UUID] | None = None,
+) -> RecordedLeadRetriever:
+    """THE SHIPPED second implementation, not a stand-in written for this file.
+
+    `recorded.py` is selectable by config and runs the local dev box; using it here is
+    what makes "the seam has two implementations" a fact rather than a claim, and it
+    means the fixtures below are Meta's own `field_data` shape rather than our flat map.
+    """
+    return RecordedLeadRetriever(
+        _field_data(phone=phone, name=name, consent=consent), per_lead=per_lead, sources=sources
+    )
 
 
 def _field_data(*, phone: str, name: str, consent: str | None) -> list[dict[str, Any]]:
@@ -329,6 +360,11 @@ async def test_a_website_form_source_is_not_a_meta_endpoint() -> None:
 
 
 # --- the honest refusal --------------------------------------------------------
+#
+# These run on the SETTINGS THIS SUITE INHERITS, with `META_LEAD_RETRIEVER` unset —
+# which is the correct value for local and CI and is not a broken configuration. That
+# makes them the regression test for the state every deployment starts in: an adapter
+# exists in the tree, and this deployment still cannot read a lead, and says so.
 
 
 async def test_a_verified_delivery_we_cannot_read_is_recorded_not_swallowed() -> None:
@@ -369,12 +405,13 @@ async def test_a_replayed_delivery_of_a_completed_lead_rings_the_customer_once(
     tenant_id, _, webhook_id = await _tenant_with_meta_source(
         mapping={"phone": "phone_number", "name": "full_name", "consent_field": CONSENT_QUESTION}
     )
-    monkeypatch.setattr(
-        meta,
-        "LEAD_RETRIEVER",
-        _FakeRetriever(
-            _field_data(phone="9876504044", name="Rang Once", consent="yes"),
-            # A different leadgen_id is a different person, and the fake says so —
+    _wire(
+        monkeypatch,
+        _retriever(
+            phone="9876504044",
+            name="Rang Once",
+            consent="yes",
+            # A different leadgen_id is a different person, and the fixture says so —
             # otherwise "one ring" would be proved by a coincidence in the fixture.
             per_lead={
                 "900000000000021": _field_data(
@@ -422,8 +459,8 @@ async def test_a_replayed_refusal_is_retried_not_absorbed() -> None:
     A refused delivery is a claim nobody completed, so `claim_inbox_event` re-claims it
     by CAS and Meta's next retry gets a fresh attempt at the same verdict — cheap
     (no lead, no dial) and the only thing that makes the lead recoverable the moment a
-    retriever exists. What must never change is the row count: one lead, one row, one
-    `leadgen_id`, however many times Meta sends it.
+    credential is attached. What must never change is the row count: one lead, one row,
+    one `leadgen_id`, however many times Meta sends it.
     """
     tenant_id, _, webhook_id = await _tenant_with_meta_source()
     body = _notification(leadgen_id="900000000000022")
@@ -443,7 +480,7 @@ async def test_a_replayed_refusal_is_retried_not_absorbed() -> None:
     assert leads == 0
 
 
-async def test_the_refusal_is_resumable_the_day_a_retriever_exists(
+async def test_the_refusal_is_resumable_once_a_credential_is_attached(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The whole point of recording the refusal against the `leadgen_id`: it is not a
@@ -456,8 +493,8 @@ async def test_the_refusal_is_resumable_the_day_a_retriever_exists(
         raw, headers = _signed(body)
         await http.post(f"/hooks/v1/ingest/meta/{webhook_id}", content=raw, headers=headers)
 
-        retriever = _FakeRetriever(_field_data(phone="9876504040", name="Anitha Rao", consent=None))
-        monkeypatch.setattr(meta, "LEAD_RETRIEVER", retriever)
+        retriever = _retriever(phone="9876504040", name="Anitha Rao", consent=None)
+        _wire(monkeypatch, retriever)
         raw, headers = _signed(body)
         second = await http.post(
             f"/hooks/v1/ingest/meta/{webhook_id}", content=raw, headers=headers
@@ -478,6 +515,245 @@ async def test_the_refusal_is_resumable_the_day_a_retriever_exists(
     )
 
 
+# --- the per-tenant seam -------------------------------------------------------
+
+
+async def test_a_client_with_no_token_is_unavailable_even_where_the_adapter_is_wired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ "This deployment can retrieve leads" is not a fact about any client.
+
+    The adapter is selected and holds credentials for SOMEBODY — just not for this lead
+    source. That must land as its own reason, distinct from "nobody wired this up": one
+    is fixed by attaching a token for this client, the other by configuring the
+    deployment, and a support thread that cannot tell them apart burns a day.
+    """
+    tenant_id, _, webhook_id = await _tenant_with_meta_source()
+    # A retriever holding a credential for a DIFFERENT lead source, and answers ready to
+    # hand over if anything ever asks it. `holds_credential_for` is the retriever
+    # answering about itself, which is what keeps the capability and the read from ever
+    # disagreeing — and it is what must stop these answers reaching this tenant.
+    other_source = _retriever(
+        phone="9876504060", name="Somebody Else", consent="yes", sources=frozenset({uuid.uuid4()})
+    )
+    _wire(monkeypatch, other_source)
+
+    raw, headers = _signed(_notification(leadgen_id="900000000000060"))
+    async with _client() as http:
+        response = await http.post(
+            f"/hooks/v1/ingest/meta/{webhook_id}", content=raw, headers=headers
+        )
+    assert response.status_code == 200
+    assert response.json()["refused"] == 1
+
+    rows = await _inbox(webhook_id)
+    assert [(r[0], r[1], r[3]) for r in rows] == [
+        ("900000000000060", "failed", meta.NO_TOKEN_REASON)
+    ], "the reason names the client's missing credential, not the deployment's"
+    assert other_source.calls == [], "and the other client's retriever was never asked"
+    async with tenant_session(tenant_id) as session:
+        leads = (await session.execute(text("SELECT count(*) FROM leads"))).scalar()
+    assert leads == 0
+
+
+async def test_the_real_selector_reports_the_per_source_credential_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The selector itself, unmonkeypatched — the one every surface actually calls.
+
+    Everything else in this file substitutes it, so without this the per-tenant ladder
+    would be asserted only against a stand-in. Four states, four reasons, one function.
+    """
+    from apps.api.core.settings import get_settings
+
+    settings = get_settings()
+    mine, theirs = uuid.uuid4(), uuid.uuid4()
+
+    monkeypatch.setattr(settings, "meta_lead_retriever", None)
+    assert meta.lead_retrieval_capability(source_id=mine).reason == meta.NO_RETRIEVER_REASON
+
+    monkeypatch.setattr(settings, "meta_lead_retriever", "leadsbridge")
+    unknown = meta.lead_retrieval_capability(source_id=mine)
+    assert unknown.available is False
+    assert unknown.reason == f"{meta.PROVIDER_NOT_IMPLEMENTED_REASON}:leadsbridge", (
+        "a provider with nothing behind it fails loudly rather than looking configured"
+    )
+
+    monkeypatch.setattr(settings, "meta_lead_retriever", meta.GRAPH_PROVIDER)
+    monkeypatch.setattr(settings, "meta_page_access_tokens", json.dumps({str(theirs): "EAAG-x"}))
+    assert meta.lead_retrieval_capability(source_id=mine).reason == meta.NO_TOKEN_REASON
+
+    monkeypatch.setattr(
+        settings,
+        "meta_page_access_tokens",
+        json.dumps({str(mine): "EAAG-mine", str(theirs): "EAAG-theirs"}),
+    )
+    available = meta.lead_retrieval_capability(source_id=mine)
+    assert available.available is True
+    assert available.reason is None
+    assert available.retriever is not None, "the capability carries what it authorises"
+    assert available.retriever.holds_credential_for(mine) is True
+    assert available.retriever.holds_credential_for(uuid.uuid4()) is False, (
+        "one map, many clients — a source not in it holds nothing, and borrows nothing"
+    )
+
+
+async def test_the_recorded_retriever_is_refused_outside_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """It would fabricate a person and hand them to the compliance gate, which has no
+    way to doubt they exist. A staging box gets a named refusal, not a fake lead."""
+    from apps.api.core.settings import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "meta_lead_retriever", meta.RECORDED_PROVIDER)
+    monkeypatch.setattr(settings, "app_env", "prod")
+    refused = meta.lead_retrieval_capability(source_id=uuid.uuid4())
+    assert refused.available is False
+    assert refused.reason == meta.RECORDED_OUTSIDE_LOCAL_REASON
+
+    monkeypatch.setattr(settings, "app_env", "local")
+    assert meta.lead_retrieval_capability(source_id=uuid.uuid4()).available is True
+
+
+# --- transient vs verdict ------------------------------------------------------
+
+
+async def test_a_transient_graph_failure_is_deferred_to_metas_own_retry_ladder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The failure mode this slice exists to avoid: a 30-second Graph blip losing a lead.
+
+    A verdict is acked 200 (Meta unsubscribes a Page it cannot deliver to). A transient
+    is NOT a verdict, so it answers 503 and Meta's own at-least-once ladder redelivers —
+    and the claim is left `failed`, which is what makes the redelivery re-claimable
+    rather than absorbed as a duplicate.
+    """
+    tenant_id, _, webhook_id = await _tenant_with_meta_source()
+    from apps.api.ingest.graph import UNAVAILABLE_REASON
+
+    _wire(
+        monkeypatch,
+        RecordedLeadRetriever(
+            answers_with=meta.RetrievedLead(
+                status=meta.RetrievalStatus.TRANSIENT, reason=UNAVAILABLE_REASON
+            )
+        ),
+    )
+    raw, headers = _signed(_notification(leadgen_id="900000000000070"))
+    async with _client() as http:
+        deferred = await http.post(
+            f"/hooks/v1/ingest/meta/{webhook_id}", content=raw, headers=headers
+        )
+    assert deferred.status_code == 503, deferred.text
+    assert deferred.json()["retryable"] is True
+    rows = await _inbox(webhook_id)
+    assert [(r[0], r[1], r[3]) for r in rows] == [("900000000000070", "failed", UNAVAILABLE_REASON)]
+
+    # ...and the redelivery, once Graph is back, lands the lead for real.
+    _wire(monkeypatch, _retriever(phone="9876504070", name="Late But Landed", consent=None))
+    async with _client() as http:
+        raw, headers = _signed(_notification(leadgen_id="900000000000070"))
+        landed = await http.post(
+            f"/hooks/v1/ingest/meta/{webhook_id}", content=raw, headers=headers
+        )
+    assert landed.json() == {"received": 1, "accepted": 1, "duplicate": 0, "refused": 0}
+    async with tenant_session(tenant_id) as session:
+        phone = (await session.execute(text("SELECT phone_e164 FROM leads"))).scalar()
+    assert phone == "+919876504070", "the deferred lead was not lost, only late"
+
+
+async def test_a_deferred_sibling_does_not_undo_the_leads_that_landed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One 503 for a batch, and the redelivery must not ring the healthy lead twice.
+
+    This is the load-bearing half of the 503: Meta redelivers the WHOLE notification,
+    so the siblings that already committed have to absorb as duplicates. They do,
+    because the unit of work is the `leadgen_id` and not the body.
+    """
+    tenant_id, _, webhook_id = await _tenant_with_meta_source()
+
+    class _OneSickLead:
+        """Answers for one lead and fails transiently for the other."""
+
+        name = "test"
+
+        def holds_credential_for(self, source_id: UUID) -> bool:
+            return True
+
+        async def fetch_answers(self, *, source_id: UUID, leadgen_id: str) -> meta.RetrievedLead:
+            if leadgen_id == "900000000000081":
+                return meta.RetrievedLead(
+                    status=meta.RetrievalStatus.TRANSIENT, reason="meta_graph_unavailable"
+                )
+            return meta.RetrievedLead(
+                status=meta.RetrievalStatus.RETRIEVED,
+                answers=meta.flatten_field_data(
+                    _field_data(phone="9876504080", name="Healthy", consent=None)
+                ),
+            )
+
+    _wire(monkeypatch, _OneSickLead())
+    batch = {
+        "object": "page",
+        "entry": [
+            _notification(leadgen_id="900000000000080")["entry"][0],
+            _notification(leadgen_id="900000000000081")["entry"][0],
+        ],
+    }
+    async with _client() as http:
+        raw, headers = _signed(batch)
+        first = await http.post(f"/hooks/v1/ingest/meta/{webhook_id}", content=raw, headers=headers)
+        raw, headers = _signed(batch)
+        second = await http.post(
+            f"/hooks/v1/ingest/meta/{webhook_id}", content=raw, headers=headers
+        )
+
+    assert (first.status_code, second.status_code) == (503, 503), "still one sick lead"
+    rows = {r[0]: (r[1], r[2]) for r in await _inbox(webhook_id)}
+    assert rows["900000000000080"] == ("processed", 1), "the healthy lead: one row, one replay"
+    assert rows["900000000000081"][0] == "failed"
+    async with tenant_session(tenant_id) as session:
+        rang = (
+            await session.execute(
+                text("SELECT count(*) FROM calls WHERE to_e164 = :p"), {"p": "+919876504080"}
+            )
+        ).scalar()
+        leads = (await session.execute(text("SELECT count(*) FROM leads"))).scalar()
+    assert (rang, leads) == (0, 1), "no consent question on the form, so saved and not dialled"
+
+
+async def test_a_dead_page_token_is_a_verdict_and_is_acked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A revoked or invalidated token will not fix itself in 36 hours.
+
+    Retrying it is how a client's Page gets unsubscribed while nobody is told why, so
+    it is acked 200, recorded with OUR code, and the alert is what carries the urgency.
+    """
+    _, _, webhook_id = await _tenant_with_meta_source()
+    from apps.api.ingest.graph import TOKEN_INVALID_REASON
+
+    _wire(
+        monkeypatch,
+        RecordedLeadRetriever(
+            answers_with=meta.RetrievedLead(
+                status=meta.RetrievalStatus.PERMANENT, reason=TOKEN_INVALID_REASON
+            )
+        ),
+    )
+    raw, headers = _signed(_notification(leadgen_id="900000000000090"))
+    async with _client() as http:
+        response = await http.post(
+            f"/hooks/v1/ingest/meta/{webhook_id}", content=raw, headers=headers
+        )
+    assert response.status_code == 200, "a verdict must never make Meta retry for 36 hours"
+    assert response.json()["refused"] == 1
+    rows = await _inbox(webhook_id)
+    assert rows[0][3] == TOKEN_INVALID_REASON
+
+
 # --- consent (hard rule 5) -----------------------------------------------------
 
 
@@ -487,11 +763,7 @@ async def test_a_lead_ad_fill_is_never_by_itself_permission_to_dial(
     """Somebody tapping a lead ad gave Meta their number. That is not consent to be
     telephoned by a voice agent, and this path must never record it as if it were."""
     tenant_id, _, webhook_id = await _tenant_with_meta_source()
-    monkeypatch.setattr(
-        meta,
-        "LEAD_RETRIEVER",
-        _FakeRetriever(_field_data(phone="9876504041", name="Unconsented", consent=None)),
-    )
+    _wire(monkeypatch, _retriever(phone="9876504041", name="Unconsented", consent=None))
     raw, headers = _signed(_notification(leadgen_id="900000000000040"))
     async with _client() as http:
         response = await http.post(
@@ -525,11 +797,7 @@ async def test_a_form_that_asked_permission_gets_the_instant_callback(
             "consent_field": CONSENT_QUESTION,
         }
     )
-    monkeypatch.setattr(
-        meta,
-        "LEAD_RETRIEVER",
-        _FakeRetriever(_field_data(phone="9876504042", name="Consented", consent="yes")),
-    )
+    _wire(monkeypatch, _retriever(phone="9876504042", name="Consented", consent="yes"))
     raw, headers = _signed(_notification(leadgen_id="900000000000041"))
     async with _client() as http:
         response = await http.post(
@@ -552,11 +820,7 @@ async def test_a_form_that_asked_and_was_told_no_saves_the_lead_and_stops(
             "consent_field": CONSENT_QUESTION,
         }
     )
-    monkeypatch.setattr(
-        meta,
-        "LEAD_RETRIEVER",
-        _FakeRetriever(_field_data(phone="9876504043", name="Said No", consent="no")),
-    )
+    _wire(monkeypatch, _retriever(phone="9876504043", name="Said No", consent="no"))
     raw, headers = _signed(_notification(leadgen_id="900000000000042"))
     async with _client() as http:
         await http.post(f"/hooks/v1/ingest/meta/{webhook_id}", content=raw, headers=headers)
@@ -618,6 +882,46 @@ async def test_the_setup_view_states_the_capability_and_hands_over_the_token() -
     assert setup.subscribe_field == meta.LEADGEN_FIELD
     assert setup.lead_retrieval_available is False
     assert setup.lead_retrieval_reason == meta.NO_RETRIEVER_REASON
+
+
+async def test_the_setup_view_answers_for_this_source_and_not_for_the_deployment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two lead sources, one deployment, two different answers.
+
+    The card is what a client reads before spending twenty minutes in the Meta App
+    Dashboard, so it has to be about THEIR source. A deployment-wide "yes" would send
+    the client whose token nobody attached into that dashboard to configure something
+    that refuses every delivery.
+    """
+    wired_tenant, _, wired = await _tenant_with_meta_source()
+    bare_tenant, _, bare = await _tenant_with_meta_source()
+    _wire(
+        monkeypatch,
+        _retriever(phone="9876504100", name="Wired", consent="yes", sources=frozenset({wired})),
+    )
+    from apps.api.ingest.routes import meta_setup
+
+    def _principal(tenant_id: uuid.UUID) -> Principal:
+        return Principal(
+            realm="client",
+            user_id=uuid.uuid4(),
+            clerk_user_id="u",
+            tenant_id=tenant_id,
+            role="owner",
+            impersonating=False,
+        )
+
+    async with tenant_session(wired_tenant) as session:
+        ready = await meta_setup(wired, session, _principal(wired_tenant))
+    assert (ready.lead_retrieval_available, ready.lead_retrieval_reason) == (True, None)
+
+    # The neighbour's source, read under its OWN tenant session — RLS is what makes the
+    # second `meta_setup` resolve at all, and the capability is what makes it honest.
+    async with tenant_session(bare_tenant) as session:
+        unconfigured = await meta_setup(bare, session, _principal(bare_tenant))
+    assert unconfigured.lead_retrieval_available is False
+    assert unconfigured.lead_retrieval_reason == meta.NO_TOKEN_REASON
 
 
 # --- the pure functions --------------------------------------------------------

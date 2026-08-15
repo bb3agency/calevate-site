@@ -9,10 +9,10 @@
  * on it — see apps/api/ingest/routes.py `test_webhook` for why that is not a
  * gate bypass.
  *
- * The ACTIVITY shapes are aliased from the generated schema. The DRY-RUN shapes
- * below still are not: `POST /v1/lead-sources/{id}/test` returns a plain dict, so
- * there is nothing generated to alias yet — swap them the day it grows a response
- * model, the way the activity types just were.
+ * Every shape here is aliased from the generated schema. The dry-run pair was
+ * hand-written while `POST /v1/lead-sources/{id}/test` still answered a plain dict; it
+ * now answers `LeadSourceDryRunOut` (D-84's untyped-2xx sweep), so the mirrors are gone
+ * and there is one source of truth again.
  */
 
 import {
@@ -45,21 +45,17 @@ export type IngestActivityItem = Schemas["IngestActivityItemOut"];
 
 export type IngestActivity = Schemas["IngestActivityOut"];
 
-/** One decision the real ingest path would have made, reported instead of acted on. */
-export interface TestWebhookStep {
-  step: string;
-  ok: boolean;
-  detail: string;
-  /** Present on the compliance_gate step: which rule allowed/refused the dial. */
-  rule?: string | null;
-  /** Present on the field_mapping step: which configured fields the sample hit. */
-  mapped_fields?: string[];
-}
+/**
+ * One decision the real ingest path would have made, reported instead of acted on.
+ *
+ * `step` is the server's closed set, so a screen can switch on it exhaustively. Nothing
+ * here carries the sample's own values: `mapped_fields` is the client's configured field
+ * NAMES, and the number the dry run normalized to answer the question never leaves the
+ * server (apps/api/ingest/routes.py).
+ */
+export type LeadSourceDryRunStep = Schemas["LeadSourceDryRunStepOut"];
 
-export interface TestWebhookResult {
-  would_call: boolean;
-  steps: TestWebhookStep[];
-}
+export type LeadSourceDryRun = Schemas["LeadSourceDryRunOut"];
 
 export function useIngestActivity(session: Session): UseQueryResult<IngestActivity> {
   return useQuery({
@@ -206,7 +202,7 @@ export function useTestWebhook(session: Session) {
     // No cache invalidation on success: the dry-run writes nothing server-side
     // (no lead row, no inbox row), so there is nothing stale to refetch.
     mutationFn: ({ webhookId, payload }: { webhookId: string; payload: object }) =>
-      apiRequest<TestWebhookResult>(session, `/v1/lead-sources/${webhookId}/test`, {
+      apiRequest<LeadSourceDryRun>(session, `/v1/lead-sources/${webhookId}/test`, {
         method: "POST",
         body: { payload },
       }),

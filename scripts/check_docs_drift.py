@@ -7,7 +7,7 @@ which is exactly why drift here is expensive: an agent or a new hire reads the d
 the command it names, and gets `No rule to make target`. The doc was believed — it was
 just wrong about a fact nobody re-checked.
 
-So this file does NOT judge prose. It answers four questions that have exactly one right
+So this file does NOT judge prose. It answers five questions that have exactly one right
 answer, each against a LIVE artefact rather than against a list of what we remember:
 
 1. **Commands resolve.** Every `make <target>`, `pnpm <script>` and `python -m <module>`
@@ -32,6 +32,18 @@ answer, each against a LIVE artefact rather than against a list of what we remem
 4. **The rate-zone table mirrors the nginx template** — the moment that template exists.
    See DEFERRED_MIRRORS below: the config half of this claim has never been in the repo,
    the deferral says so, and the deferral FAILS the day the file lands.
+5. **Prose that STATES a capability constant's value states the value the tree has.**
+   This repo's defence against overclaiming is a greppable boolean beside the code —
+   `PROVIDER_CREATES_ORDERS`, `LEAD_RETRIEVAL_IMPLEMENTED`, `PROVISIONING_IMPLEMENTED`,
+   `CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA`, `ENGINE_REPORTS_TTS_MODEL` — so that "is this
+   built" is answered by `grep`, not by a paragraph. It works in one direction only: it
+   stops us claiming a capability we do not have. It has never noticed the REVERSE, which
+   is what D-102 was written for and what an audit found four times over — a constant
+   flips to True and every sentence quoting its old value keeps saying "not built". That
+   understates the system, which reads as modesty and is just as wrong: it is why a
+   shipped checkout sat behind three docs saying no checkout existed. See
+   `capability_drift()` for the matching rule and, more importantly, for the false
+   positives it is shaped to avoid.
 
 Docs win over code (CLAUDE.md), so nothing here rewrites anything or picks a side: every
 failure names the artefact it read, the file and line the claim is on, and the artefact
@@ -74,6 +86,18 @@ WHAT THIS DELIBERATELY DOES NOT DO, AND WHY
   is not drift: `big_red_switch`, `calling_hours`, `dnc`, `agent_not_live` are dial-time
   rules that SEC-COMP §2 and §3 discuss in prose without quoting the string, and a check
   demanding a mention for each would fire on correct docs.
+* **No judging a capability sentence that quotes no constant.** Section 5 reads
+  `NAME is False`, never "WhatsApp has no vendor adapter, because no decision picks a
+  BSP" — which was live drift in BUILD-LOG's inventory (D-91 picked Meta Cloud API and
+  `apps/workers/whatsapp_cloud.py` implements the transport) and which no matcher can
+  decide, because the sentence names nothing a machine can look up. Deliberately given
+  up rather than approximated: a grep-shaped guard over this class was written for the
+  credential rule earlier in the same day, flagged three files that merely NAMED a
+  credential, caught neither real offender, and was thrown away. Half of a mechanically
+  decidable question is worth more than all of an undecidable one. What closes the other
+  half is a constant: a capability worth a paragraph is worth a greppable boolean, and
+  the moment WhatsApp's got one — `CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA` — the prose
+  about it became checkable here.
 
 Run: `uv run python -m scripts.check_docs_drift`  (also in `make guardrails`)
 
@@ -112,11 +136,14 @@ rather than the conclusion:
 from __future__ import annotations
 
 import ast
+import io
 import json
 import re
 import sys
+import tokenize
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -130,6 +157,25 @@ EXTRA_DOCS: tuple[Path, ...] = (REPO_ROOT / "CLAUDE.md", REPO_ROOT / "README.md"
 # Where the code's own vocabulary comes from (section 3). Not `tests/`: a test naming a
 # rule string is a consumer of the name, not a definition of it.
 CODE_ROOTS: tuple[Path, ...] = (REPO_ROOT / "apps", REPO_ROOT / "packages")
+
+# Section 5's two halves. CAPABILITY_ROOTS is where a capability constant may be DEFINED
+# and where Python prose about one may live; `tests/` is in it for the prose half (a test
+# docstring quoting a constant's value drifts exactly like a doc's) and costs nothing on
+# the definition half, because no test defines a module-level boolean.
+CAPABILITY_ROOTS: tuple[Path, ...] = (
+    REPO_ROOT / "apps",
+    REPO_ROOT / "packages",
+    REPO_ROOT / "scripts",
+    REPO_ROOT / "alembic",
+    REPO_ROOT / "tests",
+    REPO_ROOT / "infra",
+)
+# The console carries the same claims in JSDoc above the screens that render the refusal
+# (`/c/[slug]/verification` explains why there is no purchase form). Scanned as raw text
+# rather than through a JS comment parser: `True`/`False` are Python spellings, TypeScript
+# writes `true`/`false`, and no `.ts` file binds these names — so a hit in this tree is
+# necessarily prose ABOUT the Python constant and never TypeScript source.
+WEB_SOURCE_ROOT = REPO_ROOT / "apps" / "web" / "src"
 
 # Every place a `D-xx` may be cited. Wider than the doc set on purpose: a citation in a
 # migration or a guardrail is exactly as dangling as one in a doc.
@@ -230,6 +276,42 @@ _CONF_ZONE = re.compile(r"zone=([a-z_]+):\S*\s+rate=(\d+)r/([sm])")
 # a pipeline.
 _SEGMENT = re.compile(r"&&|\|\||;|\s\|\s")
 
+# Section 5's matching rule, and every character of it is a narrowing. Read
+# `capability_drift()` for the argument; the shape is: an UPPER_SNAKE name, then a
+# PRESENT-TENSE copula, then a boolean literal, with nothing between them but markdown
+# punctuation. Adjacency is the whole design — proximity would report
+# "`LEAD_RETRIEVAL_IMPLEMENTED` use — and it stays False" (whatsapp_cloud.py, where the
+# "it" is a different constant) and a check that does that gets deleted within a month.
+_VALUE_CLAIM = re.compile(
+    r"(?P<name>[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)"  # UPPER_SNAKE; one underscore minimum
+    r"[`*]*\s*"  # a code span or bold run may close right after the name
+    r"(?:"
+    r"={1,2}"  # `NAME = False` — how the code writes it, so how docs quote it
+    r"|is(?:\s+(?:now|still|currently|already))?"
+    r"|stays|remains"
+    r"|flips\s+to"
+    r")"
+    r"\s*[`*]*"
+    r"(?P<value>True|False)"
+    r"(?!\w)"
+)
+# The doc set's own way of saying "this sentence is withdrawn" — BUILD-LOG uses it for
+# exactly that (§"`redact_trace_payload`", §"`inbound_webhooks` rows"). A retracted claim
+# is not a claim, and a check that fired on the correct way to retract one would be
+# pushing people to delete the record instead, which is the opposite of what this file
+# is for.
+#
+# Bounded at a blank line, matching GFM: strikethrough is inline emphasis and cannot
+# cross a paragraph. Without the bound, ONE stray `~~` and the next one four sections
+# later would mask everything between them — a silent blind spot is a worse failure here
+# than a missed retraction, because nothing announces it.
+_STRUCK = re.compile(r"~~(?:[^\n]|\n(?!\s*\n))+?~~")
+
+
+def _mask(match: re.Match[str]) -> str:
+    """Blank a span in place, keeping newlines so every later line keeps its number."""
+    return re.sub(r"[^\n]", " ", match.group())
+
 
 @dataclass(frozen=True, slots=True)
 class Claim:
@@ -242,6 +324,35 @@ class Claim:
     @property
     def where(self) -> str:
         return f"{self.doc}:{self.line}"
+
+
+@dataclass(frozen=True, slots=True)
+class ValueClaim:
+    """A sentence that STATES a capability constant's value, and where it says so."""
+
+    doc: str
+    line: int
+    name: str
+    stated: bool
+    sentence: str
+
+    @property
+    def where(self) -> str:
+        return f"{self.doc}:{self.line}"
+
+
+@dataclass(frozen=True, slots=True)
+class ConstantFact:
+    """A module-level boolean constant as the AST reads it — the side that cannot lie."""
+
+    name: str
+    module: str
+    line: int
+    value: bool
+
+    @property
+    def where(self) -> str:
+        return f"{self.module}:{self.line}"
 
 
 # --- reading the artefacts ------------------------------------------------------
@@ -770,6 +881,289 @@ def stale_deferrals(root: Path | None = None, deferrals: dict[str, str] | None =
     return failures
 
 
+# --- 5. prose that quotes a capability constant's value quotes the right one ----
+
+
+def _boolean_definitions(roots: Iterable[Path] | None = None) -> dict[str, list[ConstantFact]]:
+    """`{name: every module-level boolean definition of it}` — the raw reading."""
+    definitions: dict[str, list[ConstantFact]] = {}
+    for path, _, tree in _python_sources(roots):
+        module = _rel(path)
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                targets: list[ast.expr] = list(node.targets)
+            elif isinstance(node, ast.AnnAssign):
+                targets = [node.target]
+            else:
+                continue
+            value = node.value
+            if not isinstance(value, ast.Constant) or not isinstance(value.value, bool):
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id.isupper():
+                    definitions.setdefault(target.id, []).append(
+                        ConstantFact(target.id, module, node.lineno, bool(value.value))
+                    )
+    return definitions
+
+
+def capability_constants(roots: Iterable[Path] | None = None) -> dict[str, ConstantFact]:
+    """Every module-level `NAME = <bool literal>` in the repo's Python, by name.
+
+    Discovered, never listed. A hand-written registry of "the capability constants" would
+    be the exemption list this file refuses everywhere else: the fifth one
+    (`rates.ENGINE_REPORTS_TTS_MODEL`) was not in the audit's list of four and is checked
+    anyway because the AST found it, and the sixth will be checked the day it is written.
+    The selection rule is mechanical rather than semantic — UPPER_SNAKE, module level,
+    literal `True`/`False` — which on today's tree selects exactly the honesty device and
+    nothing else, because a boolean somebody wanted to CHANGE at runtime would be config
+    or a feature flag (D-78), not a `Final` in a module.
+
+    A name defined twice with disagreeing values is not returned: `capability_ambiguities`
+    reports it through `blind_spots()` instead, because a doc quoting an ambiguous name
+    cannot be judged and picking one definition silently would be inventing the answer.
+    """
+    return {
+        name: facts[-1]
+        for name, facts in _boolean_definitions(roots).items()
+        if len({fact.value for fact in facts}) == 1
+    }
+
+
+def capability_ambiguities(roots: Iterable[Path] | None = None) -> list[str]:
+    """Names two modules define as different booleans. Reported, never resolved."""
+    return [
+        f"`{name}` is defined as a module-level boolean in more than one place with "
+        f"disagreeing values ({', '.join(fact.where for fact in facts)}). No sentence "
+        "quoting that name can be judged, so section 5 is blind to it until one of them "
+        "is renamed."
+        for name, facts in sorted(_boolean_definitions(roots).items())
+        if len({fact.value for fact in facts}) > 1
+    ]
+
+
+def module_level_names(roots: Iterable[Path] | None = None) -> set[str]:
+    """Every UPPER_SNAKE name ASSIGNED at module level in the repo's Python, any value.
+
+    Wider than `capability_constants()` on purpose, and used only to answer "does the tree
+    still define this name". `PAYMENT_PROVIDER` is not a boolean, so a doc quoting a value
+    for it would be nonsense — but it is not the RENAME the second half of
+    `capability_drift()` is looking for, and reporting it would be a guess about intent.
+
+    Assignments only: `from ... import PROVIDER_CREATES_ORDERS` is deliberately NOT a
+    spelling of the name. Measured, because the first run of the rename negative control
+    stayed green on it — a half-finished rename leaves exactly that stale import behind
+    (in `payments_provider_seam_test.py`, here), and counting it would let the import
+    shield every doc sentence quoting the old name from ever being compared again. Costs
+    nothing on today's tree: dropping imports adds zero findings.
+    """
+    names: set[str] = set()
+    for _, _, tree in _python_sources(roots):
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                names.add(node.target.id)
+    return {name for name in names if name.isupper()}
+
+
+def _capability_python(roots: Iterable[Path] | None = None) -> Iterator[Path]:
+    for root in CAPABILITY_ROOTS if roots is None else roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*.py")):
+            if "__pycache__" not in path.parts:
+                yield path
+
+
+@cache
+def _default_python_sources() -> tuple[tuple[Path, str, ast.Module], ...]:
+    """Every Python file section 5 reads, parsed ONCE.
+
+    Section 5 asks four questions of the same syntax trees (what booleans are defined,
+    what UPPER names exist at all, what the docstrings say, whether two modules disagree),
+    and `blind_spots()` asks two of them again before `main()` prints the OK line. Parsing
+    ~400 files six times cost more than every other section of this check combined.
+
+    Safe to memoise because this is a one-shot process: it parses, reports and exits.
+    Callers that mutate a tree between calls — the negative controls — pass explicit
+    `roots`, which never touches this cache; `cache_clear()` is there for anything that
+    ever needs to.
+    """
+    return tuple(_parse_python(path) for path in _capability_python())
+
+
+def _parse_python(path: Path) -> tuple[Path, str, ast.Module]:
+    source = path.read_text(encoding="utf-8")
+    return path, source, ast.parse(source, filename=str(path))
+
+
+def _python_sources(
+    roots: Iterable[Path] | None = None,
+) -> tuple[tuple[Path, str, ast.Module], ...]:
+    if roots is None:
+        return _default_python_sources()
+    return tuple(_parse_python(path) for path in _capability_python(roots))
+
+
+def _python_prose(text: str, tree: ast.Module) -> Iterator[tuple[int, str]]:
+    """`(first line, text)` for each docstring and each run of `#` comments.
+
+    Prose only. The definition line, the `assert X is True` in a test and the
+    `capability = X and credentials()` in a service are CODE — they are the thing being
+    described, they cannot drift from themselves, and judging them would make the
+    offender message ("a doc states…") a lie about half its hits.
+
+    Runs of consecutive comment lines are joined, and each line's `#` marker is stripped,
+    so a claim wrapping across two of them reads as the one sentence it is. Without the
+    stripping the marker sits between the name and its value and defeats the adjacency
+    rule — the matcher would go blind at exactly the 100-column margin where a long
+    comment wraps, which is where this repo's comments live.
+    """
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        first = node.body[0] if node.body else None
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            yield first.value.lineno, first.value.value
+    run: list[str] = []
+    start = 0
+    previous = -2
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type != tokenize.COMMENT:
+            continue
+        if token.start[0] != previous + 1:
+            if run:
+                yield start, "\n".join(run)
+            run, start = [], token.start[0]
+        run.append(token.string.lstrip("#"))
+        previous = token.start[0]
+    if run:
+        yield start, "\n".join(run)
+
+
+def prose_blocks(
+    docs: Iterable[Path] | None = None,
+    roots: Iterable[Path] | None = None,
+    web: Path | None = None,
+) -> Iterator[tuple[str, int, str]]:
+    """`(file, first line, text)` for everywhere in this repo a claim can be written.
+
+    Three kinds, because the claim is written in all three: markdown (`doc_files()`),
+    Python docstrings and comments, and the console's JSDoc. A section that read only
+    `docs/` would miss the commonest home of the claim — the module docstring sitting
+    directly above the constant.
+    """
+    for path in doc_files() if docs is None else list(docs):
+        yield _rel(path), 1, path.read_text(encoding="utf-8")
+    for path, source, tree in _python_sources(roots):
+        for line, text in _python_prose(source, tree):
+            yield _rel(path), line, text
+    web_root = WEB_SOURCE_ROOT if web is None else web
+    if web_root.exists():
+        for path in sorted(web_root.rglob("*.ts*")):
+            if "node_modules" not in path.parts:
+                yield _rel(path), 1, path.read_text(encoding="utf-8")
+
+
+@cache
+def _default_value_claims() -> tuple[ValueClaim, ...]:
+    """Scanned once. `blind_spots()`, `capability_drift()` and the OK line all want it."""
+    return tuple(value_claims(prose_blocks()))
+
+
+def value_claims(blocks: Iterable[tuple[str, int, str]] | None = None) -> list[ValueClaim]:
+    """Every present-tense statement of a boolean's value, anywhere in the repo.
+
+    Lines are matched in overlapping PAIRS and a hit is kept only when the NAME starts in
+    the first of them, so a claim wrapped by an 88-column doc is still seen exactly once
+    and attributed to the line the name is on.
+    """
+    if blocks is None:
+        return list(_default_value_claims())
+    claims: list[ValueClaim] = []
+    for where, first_line, text in blocks:
+        lines = _STRUCK.sub(_mask, text).splitlines()
+        for index, line in enumerate(lines):
+            window = line if index + 1 >= len(lines) else f"{line}\n{lines[index + 1]}"
+            for match in _VALUE_CLAIM.finditer(window):
+                if match.start("name") >= len(line):
+                    continue  # belongs to the next line; that line's own window has it
+                claims.append(
+                    ValueClaim(
+                        doc=where,
+                        line=first_line + index,
+                        name=match.group("name"),
+                        stated=match.group("value") == "True",
+                        sentence=" ".join(window.split())[:120],
+                    )
+                )
+    return claims
+
+
+def capability_drift(
+    claims: Iterable[ValueClaim] | None = None,
+    constants: dict[str, ConstantFact] | None = None,
+    known: set[str] | None = None,
+) -> list[str]:
+    """The reverse check this repo never had: prose quoting a constant it has outgrown.
+
+    THE MATCHING RULE, and why it does not cry wolf. Three narrowings do the work, and
+    each was measured against the real tree before it was kept:
+
+    * **Stating a value, not naming the constant.** `payments.py` names
+      `PROVIDER_CREATES_ORDERS` four times without stating what it is; so do
+      `flags/registry.py`, `provisioning_routes.py` and a runbook heading. None of them
+      is judged, because none of them can be wrong about a value it does not give. Only
+      the joined forms are — `NAME = False`, `NAME is False`, `is now`, `is still`,
+      `stays`, `remains`, `flips to` — which is the whole difference between this check
+      and the occurrence-grep that was thrown away for flagging three files that merely
+      mentioned a credential.
+    * **Adjacency, not proximity.** Nothing may sit between the copula and the literal but
+      backticks and asterisks. `whatsapp_cloud.py` writes "the same device
+      `payments.py::PROVIDER_CREATES_ORDERS` and `ingest/meta.py::LEAD_RETRIEVAL_IMPLEMENTED`
+      use — and it stays False", where the "it" is a THIRD constant and both named ones
+      are True. Any window-based rule reports that line twice and is wrong twice.
+    * **Present tense only.** BUILD-LOG is a chronological log whose older sessions
+      correctly record states that have since changed. "was False", "had been False",
+      "will be True", "must be False" are history, plan or requirement — none of them a
+      claim about this tree — and none of them matches. The four real offenders all wrote
+      "is False" or "= False", in the present, about now.
+
+    What it costs: a doc CAN dodge the check by never stating the value, and that is
+    fine — the constant is still greppable and the doc has claimed nothing. What it buys
+    is that the sentence which sounds authoritative is the one that has to be right.
+    """
+    facts = capability_constants() if constants is None else constants
+    spelled = module_level_names() if known is None else known
+    failures: list[str] = []
+    for claim in value_claims() if claims is None else claims:
+        fact = facts.get(claim.name)
+        if fact is not None:
+            if fact.value != claim.stated:
+                failures.append(
+                    f"{claim.where} states `{claim.name}` is {claim.stated}, and "
+                    f"{fact.where} defines it {fact.value}. The greppable constant is this "
+                    "repo's answer to 'is it built' — when it flips, the prose quoting it "
+                    "moves in the same change or the doc is confidently wrong in the "
+                    f"direction nobody audits. Sentence: {claim.sentence!r}"
+                )
+            continue
+        if claim.name not in spelled:
+            failures.append(
+                f"{claim.where} states `{claim.name}` is {claim.stated}, and no module-level "
+                f"name in {[_rel(root) for root in CAPABILITY_ROOTS]} spells it. A renamed "
+                "capability constant takes every sentence quoting it out of this check's "
+                "sight while leaving them all readable and wrong — rename the prose too. "
+                f"Sentence: {claim.sentence!r}"
+            )
+    return failures
+
+
 # --- has the tree moved out from under this check? ------------------------------
 
 
@@ -827,6 +1221,22 @@ def blind_spots() -> list[str]:
             f"{_rel(DEPLOYMENT)} §5.4's rate-zone table did not parse — section 4 would "
             "accept any template that ever lands"
         )
+    constants = capability_constants()
+    if len(constants) < 3:
+        failures.append(
+            f"only {len(constants)} module-level boolean constant(s) found in "
+            f"{[_rel(root) for root in CAPABILITY_ROOTS]} — the honesty device this repo "
+            "runs on has either been deleted or stopped being discoverable, and section 5 "
+            "would pass on any prose"
+        )
+    stated = value_claims()
+    if len(stated) < 8:
+        failures.append(
+            f"only {len(stated)} sentence(s) in the whole repo state a boolean constant's "
+            "value — the matcher has stopped matching (a markdown or docstring convention "
+            "moved), so section 5 would report OK on a doc that contradicts every constant"
+        )
+    failures.extend(capability_ambiguities())
     return failures
 
 
@@ -842,6 +1252,7 @@ def main() -> int:
         ("a compliance rule name the code no longer has", unknown_rule_names()),
         ("the rate-zone table and the nginx template disagree", rate_zone_drift()),
         ("a deferral that no longer holds", stale_deferrals()),
+        ("prose states a capability constant's value, and the tree disagrees", capability_drift()),
     )
     failed = False
     for title, offenders in sections:
@@ -863,6 +1274,8 @@ def main() -> int:
         f"{len(decision_ids())} decisions with no dangling reference, "
         f"{len(compliance_section_tokens())} names in SEC-COMP §3 still in the code, "
         f"{len(doc_rate_zones())} rate zones declared, "
+        f"{len(value_claims())} sentences quote one of "
+        f"{len(capability_constants())} capability constants correctly, "
         f"{len(DEFERRED_MIRRORS)} deferred mirror)"
     )
     return 0

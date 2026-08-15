@@ -17,6 +17,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb import service
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.impersonation_grant_test import view_as_headers
 
 
 async def _tenant_with_published_agent() -> tuple[uuid.UUID, uuid.UUID]:
@@ -337,21 +338,13 @@ async def test_the_approval_queue_is_readable_through_impersonation() -> None:
     slug = await _slug_of(tenant_id)
     admin_token = await _make_admin_token()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
-        listed = await http.get(
-            "/v1/kb/sources?status=pending_approval",
-            headers={
-                "Authorization": f"Bearer {admin_token}",
-                "X-Org-Slug": slug,
-                "X-Impersonate-Org": slug,
-            },
-        )
+        # A real D-22 grant, so the 403 below is the read-only rule refusing the write
+        # rather than the grant check refusing before that rule is reached.
+        headers = await view_as_headers(http, admin_token, slug, **{"X-Org-Slug": slug})
+        listed = await http.get("/v1/kb/sources?status=pending_approval", headers=headers)
         submitted = await http.post(
             "/v1/kb/sources",
-            headers={
-                "Authorization": f"Bearer {admin_token}",
-                "X-Org-Slug": slug,
-                "X-Impersonate-Org": slug,
-            },
+            headers=headers,
             json={"agent_id": str(agent_id), "name": "Sneaky", "body": "x" * 20, "kind": "text"},
         )
     assert listed.status_code == 200, listed.text

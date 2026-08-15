@@ -21,7 +21,7 @@ There is no half-provisioned state to reconcile because there is no state.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, NoReturn
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
@@ -68,6 +68,14 @@ class NumberPurchaseIn(BaseModel):
 @router.post(
     "/purchase",
     status_code=202,
+    # No response model, because there is no success response to model. The route ends
+    # in a `raise` on every path (see below), so `dict[str, str]` was not a contract a
+    # client could code against — it was the SHAPE of a contract, published for a body
+    # that cannot be produced, and the generated client turned it into a
+    # `Record<string, string>` nobody will ever receive. `NoReturn` states the same fact
+    # to mypy, which is what makes it enforceable: the day a provisioning adapter lands,
+    # the author cannot return a value without declaring what it is.
+    response_model=None,
     openapi_extra=permission_meta("org:manage"),
     summary="Buy a phone number — gated on verified KYC, and not implemented yet",
     description=(
@@ -84,7 +92,7 @@ async def purchase_number(
     payload: NumberPurchaseIn,
     session: Session,
     principal: NumberBuyer,
-) -> dict[str, str]:
+) -> NoReturn:
     """Both gates, then the part that does not exist.
 
     The client-side gate first (`kyc_not_verified` — actionable), then the deployment
@@ -96,7 +104,9 @@ async def purchase_number(
     use them does not exist. They are in the contract now rather than later so the shape
     a client codes against does not change on the day provisioning starts working — the
     same reason `create_topup_intent` publishes `provider_order_id: null` instead of
-    omitting the field.
+    omitting the field. That argument holds for the REQUEST, which is a real shape a
+    client can send today; it never held for the response, which is why the declared
+    `dict[str, str]` is now `NoReturn` (see the decorator).
     """
     assert principal.tenant_id is not None
     await assert_kyc_verified_for_provisioning(session, tenant_id=principal.tenant_id)

@@ -10,14 +10,37 @@ The bootstrap order is locked in `core/bootstrap.py` (BACKEND-PATTERNS §2) — 
 file only declares WHICH routers the monolith mounts.
 """
 
+from collections.abc import AsyncIterator
+
 from fastapi import FastAPI
 
 from apps.api.core.bootstrap import create_app
 from apps.api.core.errors import install_error_handlers
+from apps.api.core.platform_config import start_config_refresher
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.flags.registry import assert_flag_registry_wellformed
 
-app: FastAPI = create_app(service="api", title="Calevate API", version="0.1.0")
+
+async def _startup() -> AsyncIterator[None]:
+    """Begin polling `platform_config_version` (PLATFORM-CONFIG §6).
+
+    ONE LINE, and it is the whole adoption surface: from here on, a value changed in the
+    ops console — or in psql at 3am — reaches this process within a few seconds with no
+    restart, through the `get_settings()` every handler already calls. A deployable that
+    does NOT call this runs on `os.environ` plus code defaults, exactly as it did before
+    this feature existed, which is what makes the adoption per-service and reversible.
+
+    It is started here rather than inside `create_app` deliberately. `create_app` is
+    shared with voice-runtime, and putting a background poll into every service by
+    default would decide hard rule 3's question — what may run beside the webhook path —
+    on that service's behalf, in a file its owner does not read. `start_config_refresher`
+    is idempotent, so adopting it there later is the same single line.
+    """
+    start_config_refresher()
+    yield
+
+
+app: FastAPI = create_app(service="api", title="Calevate API", version="0.1.0", on_startup=_startup)
 install_error_handlers(app)
 
 
@@ -35,6 +58,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.credit_routes import router as credits_admin_router
     from apps.api.billing.payment_routes import router as topups_router
     from apps.api.billing.payment_routes import webhook_router as razorpay_router
+    from apps.api.billing.routes import client_router as billing_invoice_router
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
@@ -48,13 +72,19 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.compliance.first_campaign_routes import router as first_campaign_router
     from apps.api.compliance.kyc_routes import router as kyc_router
     from apps.api.compliance.registration_routes import router as dlt_registration_router
+    from apps.api.compliance.whatsapp_optin_routes import (
+        admin_router as whatsapp_optin_admin_router,
+    )
+    from apps.api.compliance.whatsapp_optin_routes import router as whatsapp_optin_router
     from apps.api.crm.routes import router as crm_router
     from apps.api.flags.routes import router as feature_flags_router
     from apps.api.ingest.routes import router as ingest_router
     from apps.api.ingest.routes import sources_router as lead_sources_router
     from apps.api.integrations.routes import router as integrations_router
     from apps.api.kb.routes import router as kb_router
+    from apps.api.ops.config_routes import router as ops_config_router
     from apps.api.ops.routes import router as ops_router
+    from apps.api.ops.secret_routes import router as ops_secrets_router
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
     from apps.api.tenancy.clerk_webhooks import router as clerk_router
@@ -111,6 +141,14 @@ def _mount_routers(application: FastAPI) -> None:
     # package owns its admin publishing routes.
     application.include_router(first_campaign_router)
     application.include_router(first_campaign_admin_router)
+    # The CLIENT's own WhatsApp alert opt-in (FLOWS §6, migration e6b2d94f31a7) and the
+    # operator's record of one given during onboarding. Two realms, one ledger: the
+    # client half is the owner speaking for themselves, the admin half is an operator
+    # recording that they did, with the document to show for it. Same package/prefix
+    # split as the first-campaign pair above, for the same reason — the compliance
+    # package owns the table.
+    application.include_router(whatsapp_optin_router)
+    application.include_router(whatsapp_optin_admin_router)
     # Per-tenant feature flags (SURFACES §1). Its own
     # `/v1/admin/tenants/{tenant_id}/feature-flags` prefix, like every other per-tenant
     # admin surface that owns its own table — the flags package owns `tenant_feature_flags`
@@ -124,12 +162,24 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(caps_router)
     application.include_router(topups_router)
     application.include_router(razorpay_router)
+    # The client's own invoice — the same `build_invoice` the admin route serves, in the
+    # realm of the persona BRD §51 says pays it. Literal `/v1/billing/invoice`, declared
+    # beside the other two `/v1/billing/*` routers for the same reason they are ordered
+    # this way: a future `/v1/billing/{something}` router added below cannot swallow it.
+    application.include_router(billing_invoice_router)
     # The client's monthly QA report (SURFACES §2 trust surfaces) and OUR weekly 5%
     # spot-check queue (SURFACES §1). Two realms, one control: the report is the claim
     # we make to the client, the queue is the evidence we collect for it.
     application.include_router(quality_router)
     application.include_router(qa_sampling_router)
     application.include_router(ops_router)
+    # Platform configuration (PLATFORM-CONFIG §7). Its own router beside the ops
+    # switchboard, and its own permission: `ops:manage` is the incident surface, this is
+    # change management, and the two are held by different people on purpose.
+    application.include_router(ops_config_router)
+    # Credentials — its OWN permission (`platform:secrets`), held by fewer people than
+    # anything else on this list. No route on it returns plaintext (§7).
+    application.include_router(ops_secrets_router)
 
 
 _mount_routers(app)

@@ -13,7 +13,9 @@ fallback, not the default. Our code: admin console,
 client dashboards, schema-driven extraction + mini-CRM, RAG (managed service — D-28), metering/billing,
 TRAI/DLT/DPDP compliance. Stack: FastAPI + Python 3.12, Next.js 15 + TypeScript,
 Postgres 16 (RLS; pgvector only as D-28 contingency), Redis + ARQ, Clerk auth
-(two realms — reaffirmed D-37), DO Bangalore.
+(two realms — reaffirmed D-37). Hosting is a general-purpose Hetzner-class VPS (D-25
+superseded D-13's "DO Bangalore"; India co-location is required only for in-call-path
+services), and nothing has been deployed — `infra/` is templates nobody has applied.
 
 ## Setup & commands
 
@@ -62,6 +64,21 @@ make web-check                # frontend: typecheck + lint + vitest (D-53)
 7. Migrations reversible; column removal is two-step across releases.
 8. Don't add: vector DBs, brokers, second backend language, new deployables — those need
    a decision-log entry in `docs/ROADMAP.md §6` first.
+
+## Tempo: there is no later
+
+This repository was built from nothing in about a week of continuous work and is still
+being built that way. **There is no next sprint and no backlog.** Plan in hours.
+
+- **If it can be done now, do it now.** Do not file a finding you can fix. The only
+  things that legitimately wait are those needing something OUTSIDE this repo — a legal
+  entity, a DLT registration, a vendor account, a signed commercial term. Name which.
+- **"Ours" vs "not ours" is the only scheduling distinction.** An engineering task has no
+  timeline; an external blocker has a real one and cannot be coded around.
+- **Do not narrate schedules** — no "this week", no "a future milestone". A deferral is a
+  decision-log entry naming what closes it, or it is not a deferral.
+- **Finish the seam.** Half-wired is a defect shipped, not progress deferred.
+- This licenses no shortcuts. The pace has held because nothing has had to be redone.
 
 ## Quality bar: write it the way the industry writes it
 

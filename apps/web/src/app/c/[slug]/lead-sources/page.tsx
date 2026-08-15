@@ -41,9 +41,9 @@ import {
   useSetLeadSourceActive,
   useTestWebhook,
   type LeadSource,
+  type LeadSourceDryRun,
   type MetaSetup,
   type NewLeadSource,
-  type TestWebhookResult,
 } from "@/lib/api/leadSources";
 import { lookup } from "@/lib/lookup";
 
@@ -186,7 +186,7 @@ export default function LeadSourcesPage() {
   const [metaSourceId, setMetaSourceId] = useState("");
   const [payloadText, setPayloadText] = useState(SAMPLE_PAYLOAD);
   const [jsonError, setJsonError] = useState<string | null>(null);
-  const [result, setResult] = useState<TestWebhookResult | null>(null);
+  const [result, setResult] = useState<LeadSourceDryRun | null>(null);
 
   const runTest = () => {
     setJsonError(null);
@@ -953,14 +953,20 @@ function LeadSourceRow({
 /**
  * The setup card's result — capability first, credential last and hidden.
  *
- * Order is the argument. `lead_retrieval_available` is `false` in this deployment: the
- * receiver verifies Meta's signature and records the delivery, but reading the answers
- * the person typed into the form needs a Graph token we do not hold, so each verified
- * delivery lands as a RECORDED refusal. Someone about to spend twenty minutes in the
- * Meta App Dashboard should read that before they start, not discover it in the
- * rejections column afterwards — which is why the notice sits above the credentials
- * rather than in a footnote (the same argument `payment_capability` makes about
- * rendering a pay button for a deployment that cannot take payments).
+ * Order is the argument. `lead_retrieval_available` is an answer about THIS lead source,
+ * not about the platform: the Graph adapter exists, but reading the answers a person
+ * typed into a form needs a Page access token attached to this source, and until one is
+ * every verified delivery lands as a RECORDED refusal. Someone about to spend twenty
+ * minutes in the Meta App Dashboard should read that before they start, not discover it
+ * in the rejections column afterwards — which is why the notice sits above the
+ * credentials rather than in a footnote (the same argument `payment_capability` makes
+ * about rendering a pay button for a deployment that cannot take payments).
+ *
+ * The reason code is SHOWN rather than translated into prose per value. It is the exact
+ * string the deliveries table below prints against the refusal and the one support will
+ * ask for, and a client-side lookup table would be a second place for that vocabulary to
+ * live — the first time the server added a reason, this screen would confidently render
+ * the wrong sentence for it.
  *
  * The verify token is treated as the credential the endpoint's own docstring says it
  * is: not fetched until asked for, never interpolated into a URL, and masked until
@@ -994,14 +1000,15 @@ function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
           <p className="mt-1">
             We verify each notification Meta sends and record it, so the connection
             itself will work and you will see every delivery below. But fetching what
-            the person actually typed into your form needs a Meta access token this
-            deployment does not hold — so each lead is recorded as{" "}
+            the person actually typed into your form needs a Meta Page access token for
+            this lead source, and we do not hold one yet — so each lead is recorded as{" "}
             <span className="font-mono text-xs">
               {setup.lead_retrieval_reason ?? "unavailable"}
             </span>{" "}
             instead of becoming a lead you can call. Nothing is lost: every delivery is
-            kept against its Meta lead ID and can be claimed once that is in place.
-            Talk to us before pointing live ad spend at this.
+            kept against its Meta lead ID and is claimed once the token is in place.
+            Talk to us before pointing live ad spend at this — attaching it is a step we
+            do for you, and it takes minutes.
           </p>
         </div>
       )}

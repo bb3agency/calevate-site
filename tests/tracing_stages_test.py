@@ -44,6 +44,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.workers.pipeline import ingest_engine_event, run_post_call_pipeline
+from fastapi import Response
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
 from sqlalchemy import text
@@ -396,6 +397,81 @@ async def test_the_receiver_answers_identically_with_no_collector_configured() -
     assert response.json()["status"] == "accepted"
     assert "X-Ack-Ms" in response.headers
     assert float(response.headers["X-Ack-Ms"]) < 500, "hard rule 3's number"
+
+
+async def test_the_ack_time_lands_on_the_request_span_that_carries_the_claim(
+    spans: Any,
+) -> None:
+    """The ack being slow is a metric. "The ack was slow AND its inbox claim took 480ms
+    of it" is the thing an operator can act on — and it needs both halves on ONE trace.
+
+    So with tracing on, `_ack` must find the request's own span and stamp the measured
+    ack onto it, above the `webhook.inbox_claim` child that accounts for the Postgres
+    round trip. If it stamped a fresh span of its own instead, the two numbers would sit
+    in different traces and the only question worth asking (where did the 480ms go?)
+    would need a human to join them by timestamp.
+
+    The number stamped must be the SAME number the caller was handed in `X-Ack-Ms`, not
+    a second measurement taken later: an operator comparing a vendor's timing complaint
+    against our trace is comparing exactly those two values.
+
+    WHICH span carries it is deliberately NOT asserted by name. `_server_span` reads
+    whatever the ASGI stack made current — `TracingMiddleware`'s server span in a
+    deployment with a collector, and here the client span the request is issued under,
+    because `main.app` was built at import time when tracing was off and the middleware
+    is therefore not in this chain. Pinning a name would pin the harness. What must hold
+    is the property: the ack is stamped ONCE, on a span in the SAME TRACE as the claim.
+    """
+    execution_id = f"exec_{uuid.uuid4().hex[:12]}"
+    with span("http.request", kind="server"):
+        async with AsyncClient(
+            transport=ASGITransport(app=voice_app), base_url="http://rt"
+        ) as client:
+            response = await client.post(
+                "/hooks/v1/engine/fake",
+                json={"execution_id": execution_id, "status": "completed"},
+            )
+    assert response.status_code == 202, response.text
+
+    exported = finished(spans)
+    claim = [s for s in exported if s.name == "webhook.inbox_claim"]
+    assert len(claim) == 1, "the claim child is half of the pair"
+    acked = [s for s in exported if "ack_ms" in (s.attributes or {})]
+    assert len(acked) == 1, f"the ack belongs on exactly one span, got {[s.name for s in acked]}"
+
+    assert acked[0].context.trace_id == claim[0].context.trace_id, (
+        "an ack in a different trace from its claim leaves 'where did the time go?' "
+        "to be answered by matching timestamps"
+    )
+    assert acked[0].attributes["engine"] == "fake"
+    assert acked[0].attributes["ack_ms"] == pytest.approx(
+        float(response.headers["X-Ack-Ms"]), abs=0.05
+    ), "the span, the header and the metric must all carry the one measurement"
+
+
+def test_the_receiver_acks_even_when_there_is_no_span_to_annotate(spans: Any) -> None:
+    """Tracing ON and nothing current to write on — the shape a deploy has between
+    enabling a collector and the middleware being in the chain, and the shape every
+    non-HTTP caller of this handler has.
+
+    `_server_span` must answer None rather than hand `set_span_attributes` an invalid
+    span, and `_ack` must go on to measure, header and return exactly as it always does.
+    A receiver that could be broken by the absence of a span would be a phone system
+    taken down by its own observability, which is what hard rule 3 keeps off this path.
+    """
+    from webhook_routes import _ack, _server_span
+
+    assert tracing_enabled() is True
+    assert _server_span() is None, "an invalid current span is not a span to annotate"
+
+    response = Response()
+    body = _ack(response, time.perf_counter(), "fake", {"status": "accepted"})
+
+    assert body == {"status": "accepted"}
+    assert float(response.headers["X-Ack-Ms"]) < 500, "hard rule 3's number, still measured"
+    assert not [s for s in finished(spans) if "ack_ms" in (s.attributes or {})], (
+        "with nothing to annotate the receiver must annotate nothing, not invent a span"
+    )
 
 
 def test_the_added_instrumentation_costs_microseconds_when_tracing_is_off() -> None:

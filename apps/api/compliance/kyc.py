@@ -61,8 +61,13 @@ WHO THE GATE APPLIES TO — THE MANAGED/SELF-SERVE QUESTION, ANSWERED IN TWO PAR
 blocks every existing client or leaves the real risk open. It is two questions, not one,
 and they get different answers:
 
-* **Provisioning a number is gated for EVERY tier.** `provisioning.py` asks
-  `kyc_verified()` with no tier test at all. The obligation attaches to the connection,
+* **Provisioning a number is gated for EVERY tier.** `provisioning.py` reads
+  `read_kyc()` and tests `is_verified` with no tier test at all — it needs the whole
+  record, not a boolean, because its refusal has to tell "nothing on file" apart from
+  "filed and not cleared". A boolean-only `kyc_verified()` selector existed here for
+  exactly one release and had no callers: the one seam it was named for could not use
+  it without a second read, so it was deleted rather than kept as a second way to ask
+  one question. The obligation attaches to the connection,
   and it attaches identically whether the subscriber pays us a retainer or a top-up —
   the DoT does not have a managed-client exemption. This is also what makes the gate
   un-bypassable: `plan_tier` is an admin-settable column, so a control keyed on it
@@ -214,11 +219,6 @@ async def read_kyc(session: AsyncSession, *, tenant_id: UUID) -> KycRecord:
     )
 
 
-async def kyc_verified(session: AsyncSession, *, tenant_id: UUID) -> bool:
-    """The boolean the provisioning seam asks. One selector, no second read."""
-    return (await read_kyc(session, tenant_id=tenant_id)).is_verified
-
-
 async def record_kyc(
     session: AsyncSession,
     *,
@@ -289,7 +289,6 @@ __all__ = [
     "NOT_RECORDED",
     "KycRecord",
     "kyc_not_verified_reason",
-    "kyc_verified",
     "read_kyc",
     "record_kyc",
 ]

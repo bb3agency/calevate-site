@@ -53,6 +53,7 @@ from apps.api.main import app
 from apps.api.ops.service import read_tm_registration, set_tm_registration
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.impersonation_grant_test import view_as_headers
 
 pytestmark = [pytest.mark.rls]
 
@@ -712,15 +713,14 @@ async def test_the_admin_registration_route_is_refused_while_impersonating() -> 
     async with _client() as http:
         response = await http.post(
             f"/v1/admin/tenants/{org['id']}/dlt-registration",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "X-Impersonate-Org": str(org["slug"]),
-            },
+            # A REAL grant, so the 403 is the read-only rule rather than a missing one.
+            headers=await view_as_headers(http, token, str(org["slug"])),
             json={"status": "submitted", "tm_link_status": "pending"},
         )
 
     assert response.status_code == 403, response.text
     assert response.json()["kind"] == "permission"
+    assert "read-only" in response.json()["detail"].lower(), response.text
 
 
 async def test_both_new_routes_sit_where_the_house_pattern_puts_them() -> None:
