@@ -382,9 +382,14 @@ describe("the counts come from the server or are not shown", () => {
   it("renders the server's stage counts, not a tally of the rows it happens to hold", async () => {
     const { calls } = await filterToHot();
 
-    const tally = (await screen.findByText(/by stage/)).parentElement;
     // The chips filter SERVER-side — that is the behaviour the counts have to survive.
-    expect(calls.some((c) => c.path === "/v1/leads?status=hot&limit=100")).toBe(true);
+    // Awaited for the reason the search case is: a positive assertion about a REQUEST
+    // cannot be read synchronously off a list the request may not have reached yet.
+    await vi.waitFor(() => {
+      expect(calls.some((c) => c.path === "/v1/leads?status=hot&limit=100")).toBe(true);
+    });
+
+    const tally = (await screen.findByText(/by stage/)).parentElement;
 
     // Pre-fix, every stage but `hot` was counted over a page the server had already
     // narrowed to `hot`, so this row read "new 0 · contacted 0 · interested 0 · won 0".
@@ -453,8 +458,18 @@ describe("the counts come from the server or are not shown", () => {
     fireEvent.change(screen.getByLabelText("Search leads"), { target: { value: "ram" } });
     // The box is debounced by 300ms, so this also asserts the debounce still fires — and
     // that the search is a SERVER-side filter rather than a slice of a capped page.
+    // WAIT FOR THE REQUEST, not for a sentence that renders near it. This awaited the
+    // sentence and then read `calls` SYNCHRONOUSLY, which is a race, and CI lost it:
+    // TanStack keeps the previous page's data, so "matching your search" can render off
+    // the PRE-search response while the 300ms debounce has not yet fired. Probed both
+    // ways on this machine — the assertion sits exactly on the boundary, which is why it
+    // passed here and failed there. `adminImpersonationGrant.test.tsx` documents the
+    // idiom: "these tests assert on the REQUESTS, so the wait has to be explicit or they
+    // pass by inspecting an empty list."
+    await vi.waitFor(() => {
+      expect(calls.some((c) => c.path === "/v1/leads?search=ram&limit=100")).toBe(true);
+    });
     await screen.findByText(/matching your search/);
-    expect(calls.some((c) => c.path === "/v1/leads?search=ram&limit=100")).toBe(true);
 
     // Awaited rather than read off `container` synchronously: the searched page is a
     // second request, and the sentence is about ITS total.
