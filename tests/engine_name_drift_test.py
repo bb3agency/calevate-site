@@ -41,12 +41,13 @@ names, so a third copy fails on the commit that introduces it, wherever it is.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 from typing import Any
 
-import pytest
 from calevate_shared.config import SELECTABLE_ENGINES
 from calevate_shared.engine import WEBHOOK_AUTH_BY_ENGINE
+from sqlalchemy import text
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -75,27 +76,19 @@ CANONICAL_HOMES: dict[str, str] = {
 #: it would be a lie, not a fix.
 SCANNED_TREES: tuple[str, ...] = ("apps", "packages/shared/src", "scripts")
 
-#: Copies that exist TODAY, cannot be fixed from inside this slice, and are therefore
-#: recorded here rather than left to be rediscovered. This is an equality assertion, not
-#: an exemption list: adding a copy fails, and FIXING one of these fails too, so the entry
-#: cannot outlive the defect it describes.
+#: Copies that exist TODAY, cannot be fixed from inside the slice that found them, and are
+#: therefore recorded rather than left to be rediscovered. This is an equality assertion,
+#: not an exemption list: adding a copy fails, and FIXING one of these fails too, so an
+#: entry cannot outlive the defect it describes.
 #:
-#: `apps/api/agents/models.py::ENGINES` is not a cosmetic disagreement. It renders the
-#: `ck_agents_engine_enum` CHECK constraint (migration 05bba2f3c19c writes
-#: `engine IN ('fake', 'bolna')`), and `admin/service.py::_default_engine` inserts
-#: `get_settings().engine` into that column when a tenant is born. So on a deployment
-#: running `ENGINE=cartesia` — a configuration `config.EngineName` accepts — creating a
-#: client fails with an IntegrityError from Postgres, not with a named refusal.
-#:
-#: Closing it is two edits this slice does not own: `ENGINES = tuple(sorted(
-#: SELECTABLE_ENGINES))` in that module, and a migration widening the CHECK. When both
-#: land, delete this entry — this test will tell you to.
-KNOWN_OPEN_COPIES: dict[str, str] = {
-    "apps/api/agents/models.py": (
-        "ENGINES renders ck_agents_engine_enum and is still ('fake', 'bolna'); widening "
-        "it needs a migration, so it is REPORTED by D-103 rather than fixed by it"
-    ),
-}
+#: EMPTY, and it got here the way it was designed to. D-103 recorded
+#: `apps/api/agents/models.py::ENGINES` — the copy with teeth, because it renders the
+#: `ck_agents_engine_enum` CHECK and `admin/service.py::_default_engine` writes
+#: `get_settings().engine` into that column at tenant birth, so `ENGINE=cartesia` failed
+#: client creation with an IntegrityError. D-104 derived that tuple from
+#: `SELECTABLE_ENGINES` and widened the constraint in migration `d7b1c48a2e93`, and the
+#: equality assertion below is what forced this entry's deletion in the same change.
+KNOWN_OPEN_COPIES: dict[str, str] = {}
 
 
 def _literal_strings(node: ast.AST) -> set[str]:
@@ -231,34 +224,60 @@ def test_every_selectable_engine_has_an_authenticity_story() -> None:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPEN DEFECT, reported by D-103 and not fixable from this slice: "
-        "apps/api/agents/models.py::ENGINES renders ck_agents_engine_enum as "
-        "engine IN ('fake', 'bolna'), so a deployment running ENGINE=cartesia cannot "
-        "insert an agent row. Fix = derive ENGINES from SELECTABLE_ENGINES + a migration "
-        "widening the CHECK; then delete this marker (xfail_strict makes it fail if you "
-        "do not) and its KNOWN_OPEN_COPIES entry."
-    ),
-)
-def test_an_agent_row_may_carry_any_selectable_engine() -> None:
-    """The CONSEQUENCE of the third copy, pinned where a reader will meet it.
+def test_the_model_admits_every_selectable_engine() -> None:
+    """The CONSEQUENCE of the third copy, closed by D-104 and kept closed here.
 
     `admin/service.py::_default_engine` writes `get_settings().engine` into `agents.engine`
     on the tenant-birth path, and that column carries a CHECK rendered from `ENGINES`. So
-    the drift is not a style complaint about a tuple: under `ENGINE=cartesia` the first
-    thing a new client does — exist — fails with an IntegrityError out of Postgres rather
+    the drift was never a style complaint about a tuple: under `ENGINE=cartesia` the first
+    thing a new client does — exist — failed with an IntegrityError out of Postgres rather
     than with a refusal anyone authored.
 
-    An xfail rather than a comment because `xfail_strict = true` (pyproject) turns this
-    into the repo's documented way to PIN A KNOWN DEFECT: green while the defect stands,
-    and a hard failure the moment somebody fixes it without removing the pin.
+    This was a strict `xfail` for the wave between D-103 finding it and D-104 fixing it.
     """
     from apps.api.agents.models import ENGINES
 
-    admitted_by_the_check_constraint = set(ENGINES)
-    assert admitted_by_the_check_constraint >= SELECTABLE_ENGINES
+    assert set(ENGINES) >= SELECTABLE_ENGINES, (
+        "agents.engine cannot store an engine ENGINE= can select; creating a client on "
+        "that deployment fails with an IntegrityError instead of a named refusal"
+    )
+
+
+async def test_the_live_check_constraint_admits_every_selectable_engine() -> None:
+    """The half the model constant cannot prove, read from `pg_catalog`.
+
+    `ENGINES` deriving from `SELECTABLE_ENGINES` makes the two agree IN PYTHON. The
+    database does not re-read that tuple: its CHECK is whatever the last migration wrote,
+    so adding a fourth engine to `EngineName` and shipping without a migration leaves the
+    model permissive, the constraint narrow, and the failure deferred to a client's first
+    insert on a deployment nobody tested. That is the exact shape of the defect D-103
+    found, one layer down, and the model-level assertion above cannot see it.
+
+    Parsed rather than string-compared: `pg_get_constraintdef` renders its own spacing,
+    quoting and column casts, so an equality test here would fail on a formatting change
+    and teach the next reader to loosen it.
+    """
+    from apps.api.db.session import untenanted_session
+
+    async with untenanted_session() as session:
+        definition = (
+            await session.execute(
+                text(
+                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                    "WHERE conname = 'ck_agents_engine_enum'"
+                )
+            )
+        ).scalar_one_or_none()
+
+    assert definition is not None, (
+        "ck_agents_engine_enum is missing from the live schema — the column that decides "
+        "which engine an agent runs on is unconstrained"
+    )
+    admitted = set(re.findall(r"'([a-z0-9_-]+)'", definition))
+    assert admitted >= SELECTABLE_ENGINES, (
+        f"the live CHECK admits {sorted(admitted)} but ENGINE= may be "
+        f"{sorted(SELECTABLE_ENGINES)}; a migration widening it is missing"
+    )
 
 
 __all__: list[Any] = []

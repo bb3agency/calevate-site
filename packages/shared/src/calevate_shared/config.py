@@ -31,10 +31,11 @@ EngineName = Literal["fake", "bolna", "cartesia"]
 #: WHY IT EXISTS AT ALL (D-103). It did not, and the absence is what let three copies of
 #: this set grow: `apps/voice-runtime/engine_intake.py` retyped it as its own `Literal`
 #: and drifted to `("bolna", "fake")` after `cartesia` was added here, and
-#: `apps/api/agents/models.py::ENGINES` still is `("fake", "bolna")` — which is not a
-#: cosmetic disagreement, because that tuple renders the `ck_agents_engine_enum` CHECK
-#: constraint, so a deployment running `ENGINE=cartesia` cannot insert an agent row at
-#: all. A set nobody can import is a set everybody retypes.
+#: `apps/api/agents/models.py::ENGINES` was `("fake", "bolna")` — which was not a cosmetic
+#: disagreement, because that tuple renders the `ck_agents_engine_enum` CHECK constraint,
+#: so a deployment running `ENGINE=cartesia` could not insert an agent row at all. It
+#: imports this now and the constraint was widened in `d7b1c48a2e93` (D-104). A set nobody
+#: can import is a set everybody retypes.
 #:
 #: `tests/engine_name_drift_test.py` walks the tree for a second spelling and fails on
 #: one, which is the part that keeps this the ONE definition rather than the first of

@@ -543,6 +543,23 @@ class VoiceEngine(Protocol):
     #: `apps.api.engine.engine_capabilities()`, never by touching an adapter.
     capabilities: EngineCapabilities
 
+    #: The environment keys this adapter reads for its credentials, in the order an
+    #: operator should set them (D-104). Empty for an adapter that IS its own vendor.
+    #:
+    #: This is the NAME half of `holds_credentials`, and it lives here for the same reason
+    #: `capabilities` does: "Bolna needs `BOLNA_API_KEY`" is a fact about a vendor, and
+    #: hard rule 2 says only `apps/api/engine/` may hold one. It used to live in
+    #: `core/settings.py` as `if cfg.engine == "bolna"`, which is why `/healthz/ready` was
+    #: green on a credential-less Cartesia deployment — the second vendor arrived and the
+    #: hardcoded first one still answered for it.
+    #:
+    #: It must name what `holds_credentials` actually gates on and nothing more: a key the
+    #: adapter merely PREFERS (Cartesia's `CARTESIA_FROM_NUMBER_ID`, needed to dial out but
+    #: not to reach the vendor) belongs to the refusal that needs it, not to readiness —
+    #: reporting it here would hold a whole deployment down for a control that refuses
+    #: cleanly on its own.
+    credential_env_keys: tuple[str, ...]
+
     def holds_credentials(self) -> bool:
         """Can this adapter actually talk to its vendor?
 

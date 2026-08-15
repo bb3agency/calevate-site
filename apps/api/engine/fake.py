@@ -156,6 +156,12 @@ class FakeEngine:
     #: declaring different webhook authentication would make that table ambiguous.
     name = "fake"
 
+    #: Empty, and permanently so: this adapter IS its own vendor, so there is no key an
+    #: operator could set. `holds_credentials()` is always True, so readiness never reads
+    #: this — but an empty tuple states the fact, where omitting the attribute would
+    #: leave the Protocol unsatisfied and the reason unrecorded.
+    credential_env_keys: tuple[str, ...] = ()
+
     #: How many executions one `list_executions` call will return. Real vendors cap
     #: their listings; a fake that returns everything forever would let a caller that
     #: ignores `ExecutionListing.complete` pass the conformance suite. 100 keeps local

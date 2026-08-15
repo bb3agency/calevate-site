@@ -3070,6 +3070,24 @@ so it is reported as a strict `xfail` and an equality-asserted `KNOWN_OPEN_COPIE
 fixing the constant fails the test and forces the entry's deletion, so the list cannot rot
 into a permanent exemption.
 
+**D-104 closed both defects D-103 reported and could not fix**, and they turned out to
+share a root: a fact about a vendor written down outside `apps/api/engine/`. The CHECK
+constraint was the worse one, because a constraint is not advisory — on `ENGINE=cartesia`
+the first thing a new client did, exist, failed with an `IntegrityError` naming a
+constraint whose text disagreed with the setting that produced the value. The second was
+quieter and reaches further: `/healthz/ready` named `BOLNA_API_KEY` under one hardcoded
+vendor clause, so a credential-less Cartesia box reported itself fit for traffic on the
+probe an orchestrator uses to decide whether to send it any. The obvious patch — a second
+`if` — is the shape that produced the bug, so the adapter now answers both halves:
+`holds_credentials()` for the verdict and a new `credential_env_keys` for the NAME,
+because "not ready" without the key to set is a red light with no next step. Two things
+that had to exist before the fix was correct: `build_engine`, split out of `get_engine`
+because the cache is keyed on engine NAME and would answer readiness about a configuration
+that is not deployed; and a test that reads `pg_get_constraintdef`, because `ENGINES`
+deriving from `SELECTABLE_ENGINES` makes model and database agree in PYTHON while the
+database keeps whatever the last migration wrote. Sabotaging the live constraint behind
+the model's back is red on that test alone.
+
 **A doctrine landed in CLAUDE.md and AGENTS.md rather than a file**: there is no "later".
 Work that can be done now is done now, and the only scheduling distinction that survives
 is whether a thing is ours to do or waits on someone else — a credential, a regulator, a

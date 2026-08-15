@@ -453,8 +453,15 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
     """
     cfg = settings or get_settings()
     missing: list[str] = []
-    if cfg.engine == "bolna" and not cfg.bolna_api_key:
-        missing.append("BOLNA_API_KEY")
+    # The engine layer answers for its own vendors (D-104). This was
+    # `if cfg.engine == "bolna" and not cfg.bolna_api_key` — one vendor, hardcoded here —
+    # so `/healthz/ready` was GREEN on a credential-less `ENGINE=cartesia` deployment: a
+    # box that cannot place one call, reporting itself fit for traffic. Imported inside
+    # the function because `apps.api.engine` imports this module; the same idiom
+    # `capabilities._selected_engine` uses.
+    from apps.api.engine import missing_engine_credential_keys
+
+    missing.extend(missing_engine_credential_keys(cfg))
     if cfg.app_env != "local":
         # The canonical D-36 stack is all-Sarvam; Gemini is a configurable fallback,
         # so its absence is not a readiness failure.

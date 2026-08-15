@@ -5,8 +5,10 @@ Hard rule 2 in one sentence: everything else consumes the normalized models in
 is a change in this directory and nowhere else. The import-linter contract in
 `pyproject.toml` enforces it in CI; this docstring only explains why.
 
-Selection is per-environment config (`ENGINE=fake|bolna`), never a code branch in a
-business module.
+Selection is per-environment config (`ENGINE=`, validated against
+`calevate_shared.config.EngineName`), never a code branch in a business module. The
+permitted names are not respelled here — D-103 removed the second copy of that set and
+`tests/engine_name_drift_test.py` fails on a third.
 
 WHAT AN ENGINE CAN DO is a second question, and it is answered here too (D-93). Every
 adapter declares an `EngineCapabilities` descriptor, and `engine_capabilities()` is THE
@@ -18,7 +20,7 @@ engine and to ask what it can do.
 
 from __future__ import annotations
 
-from calevate_shared.config import Settings
+from calevate_shared.config import EngineName, Settings
 from calevate_shared.engine import EngineCapabilities, VoiceEngine
 
 from apps.api.core.settings import get_settings
@@ -36,43 +38,75 @@ from apps.api.engine.capabilities import (
 _instances: dict[str, VoiceEngine] = {}
 
 
+def build_engine(cfg: Settings) -> VoiceEngine:
+    """THE branch, and the only one: engine name → adapter, built from THESE settings.
+
+    Split out of `get_engine` (D-104) so a caller that must not see a cached answer has
+    somewhere honest to go. `get_engine` keys its cache on the engine NAME alone, which is
+    right for the request path — one process serves one deployment, and `bolna_api_key` is
+    classified `on_restart` precisely because the adapter copies it at construction. It is
+    WRONG for a caller that hands in a `Settings` it built itself: it would get back an
+    adapter constructed from a different one and never know. `runtime_config_missing_keys`
+    is exactly that caller, and readiness answering about the wrong configuration is worse
+    than readiness not answering.
+
+    The `EngineName` annotation is load-bearing again: it was widened to `str` while
+    `cartesia` was missing from the literal, and mypy's `warn_unreachable` now proves the
+    `else` is reachable only by `fake` — so a name added to `EngineName` without a branch
+    here is a type error rather than a silently-fake engine.
+    """
+    name: EngineName = cfg.engine
+    if name == "bolna":
+        from apps.api.engine.bolna import BolnaEngine
+
+        return BolnaEngine(api_key=cfg.bolna_api_key, fx_rate=cfg.usd_inr_rate)
+    if name == "cartesia":
+        from apps.api.engine.cartesia import CartesiaEngine
+
+        # Both fields default to None, and that is the part that matters: it makes the
+        # capability selector report the engine unconfigured and every surface refuse,
+        # which is the correct behaviour for an adapter with no account behind it and the
+        # same shape `payment_capability` uses.
+        return CartesiaEngine(
+            api_key=cfg.cartesia_api_key,
+            from_number_id=cfg.cartesia_from_number_id,
+        )
+    from apps.api.engine.fake import FakeEngine
+
+    return FakeEngine()
+
+
 def get_engine(settings: Settings | None = None) -> VoiceEngine:
     """One adapter instance per engine name per process (httpx clients are reused)."""
     cfg = settings or get_settings()
-    # Widened to `str`, and the reason for widening it is GONE. This said `EngineName`
-    # "does NOT yet include `cartesia`"; it does — D-93/D-94 landed the literal in
-    # `calevate_shared/config.py` (`Literal["fake", "bolna", "cartesia"]`), so every
-    # member reaches a branch below and mypy's `warn_unreachable` has nothing to object
-    # to under the narrow type. The annotation is now vestigial rather than load-bearing:
-    # narrowing it back to `EngineName` is a typing-only change with no runtime effect.
-    # What the original note got right and is worth keeping: shipping the branch BEFORE
-    # the literal was correct, because the alternative is the "route nobody mounted"
-    # defect — an adapter that exists, passes conformance, and no configuration can reach.
-    name: str = cfg.engine
+    name = cfg.engine
     if name not in _instances:
-        if name == "bolna":
-            from apps.api.engine.bolna import BolnaEngine
-
-            _instances[name] = BolnaEngine(api_key=cfg.bolna_api_key, fx_rate=cfg.usd_inr_rate)
-        elif name == "cartesia":
-            from apps.api.engine.cartesia import CartesiaEngine
-
-            # `getattr` is vestigial for the same reason as the widening above: both keys
-            # ARE real `Settings` fields now (`cartesia_api_key`,
-            # `cartesia_from_number_id` in `calevate_shared/config.py`, D-93/D-94), each
-            # defaulting to None. The None default is the part that still matters — it
-            # makes the capability selector report the engine unconfigured and every
-            # request refuse, which is the correct behaviour for an adapter with no
-            # credentials and the same shape `payment_capability` uses.
-            _instances[name] = CartesiaEngine(
-                api_key=getattr(cfg, "cartesia_api_key", None),
-                from_number_id=getattr(cfg, "cartesia_from_number_id", None),
-            )
-        else:
-            from apps.api.engine.fake import FakeEngine
-
-            _instances[name] = FakeEngine()
+        _instances[name] = build_engine(cfg)
     return _instances[name]
+
+
+def missing_engine_credential_keys(cfg: Settings) -> tuple[str, ...]:
+    """The environment keys the SELECTED engine needs and does not have.
+
+    THE DEFECT THIS REPLACES (D-104). `runtime_config_missing_keys` carried
+    `if cfg.engine == "bolna" and not cfg.bolna_api_key` — one vendor, hardcoded, in
+    `core/settings.py`. So `/healthz/ready` was GREEN on a credential-less
+    `ENGINE=cartesia` deployment: a box that cannot place a single call, reporting itself
+    fit to take traffic. The obvious patch is a second `if` for Cartesia, and that is the
+    shape that produced the bug — the third engine would need a third, and whoever adds it
+    is editing a core module to record a fact about a vendor, which hard rule 2 says only
+    `apps/api/engine/` may hold.
+
+    So the adapter answers both halves: `holds_credentials()` for whether it can reach its
+    vendor (already the one authority — `engine_availability` derives from it too), and
+    `credential_env_keys` for what to NAME in the readiness response. Readiness needs the
+    name, not just the verdict, because "not ready" without the key an operator must set
+    is a red light with no next step.
+
+    Built uncached from `cfg`, never `get_engine` — see `build_engine`.
+    """
+    adapter = build_engine(cfg)
+    return () if adapter.holds_credentials() else adapter.credential_env_keys
 
 
 def reset_engine_cache() -> None:
@@ -84,11 +118,13 @@ __all__ = [
     "EngineAvailability",
     "EngineCapabilities",
     "EngineCapabilityAbsentError",
+    "build_engine",
     "engine_availability",
     "engine_capabilities",
     "engine_lacks",
     "engine_not_configured",
     "get_engine",
+    "missing_engine_credential_keys",
     "require_capability",
     "require_speech_leg",
     "reset_engine_cache",

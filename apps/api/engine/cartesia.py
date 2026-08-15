@@ -272,6 +272,12 @@ class CartesiaEngine:
 
     name = "cartesia"
     capabilities = CARTESIA_CAPABILITIES
+    #: `CARTESIA_API_KEY` only, matching `holds_credentials` exactly.
+    #: `CARTESIA_FROM_NUMBER_ID` is deliberately NOT here: without it this adapter can
+    #: still reach the vendor and serve every read, and only `start_outbound_call`
+    #: refuses — with its own named reason. Listing it would make one missing dialling
+    #: detail read as "this deployment cannot take traffic".
+    credential_env_keys: tuple[str, ...] = ("CARTESIA_API_KEY",)
 
     def __init__(
         self,

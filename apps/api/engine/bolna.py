@@ -538,6 +538,12 @@ class BolnaEngine:
 
     name = "bolna"
     capabilities = BOLNA_CAPABILITIES
+    #: `BOLNA_API_KEY` only. An injected client also satisfies `holds_credentials`, but no
+    #: operator can set one from a console, so it is not a key readiness may name.
+    # Annotated, not inferred: without it mypy reads `tuple[str]` (a ONE-element tuple
+    # type), and a Protocol's mutable attributes are invariant, so the adapter would stop
+    # satisfying `VoiceEngine` the moment a second key is added. Same for every adapter.
+    credential_env_keys: tuple[str, ...] = ("BOLNA_API_KEY",)
 
     def __init__(
         self,

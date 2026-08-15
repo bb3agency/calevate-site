@@ -7,6 +7,7 @@ agents) use use_alter so Alembic emits them as separate ALTERs after both tables
 from datetime import datetime
 from uuid import UUID
 
+from calevate_shared.config import SELECTABLE_ENGINES
 from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
@@ -23,7 +24,22 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 AGENT_DIRECTIONS = ("inbound", "outbound", "both")
 AGENT_STATUSES = ("draft", "live", "paused")
-ENGINES = ("fake", "bolna")  # ThinnestAI retired by D-31 — do not re-add
+
+#: Derived, never retyped (D-104). This WAS `("fake", "bolna")`, spelled here by hand, and
+#: it is the copy that had teeth: it renders `ck_agents_engine_enum`, and
+#: `admin/service.py::_default_engine` writes `get_settings().engine` into that column
+#: when a tenant is born. So on a deployment running `ENGINE=cartesia` — a value
+#: `config.EngineName` accepts and the whole adapter exists for — the first thing a new
+#: client does, exist, failed with an IntegrityError out of Postgres rather than with a
+#: refusal anyone authored. `tests/engine_name_drift_test.py` fails on a fourth spelling.
+#:
+#: Sorted so the rendered CHECK is stable: an unordered frozenset would produce a
+#: different constraint text per interpreter run, and `alembic revision --autogenerate`
+#: would offer a spurious diff on every invocation.
+#:
+#: ThinnestAI is absent because D-31 retired it — do not re-add. It cannot come back by
+#: accident now: it would have to be added to `EngineName`, where the decision is cited.
+ENGINES = tuple(sorted(SELECTABLE_ENGINES))
 NUMBER_SERIES = ("140", "160", "standard")
 DLT_STATUSES = ("pending", "registered", "blocked")
 
