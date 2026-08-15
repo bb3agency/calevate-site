@@ -44,6 +44,22 @@ from .service import to_paise, usage_summary
 # Union territory tax, and a recipient credits those to three different ledgers. The
 # split is derived in `billing/gst.py` from the place of supply; only the total rate
 # lives here.
+#
+# **THE RATE, RE-VERIFIED Aug 2026 — REPORTED, NOT READ** (`billing/payments.py`'s three-
+# rung evidence ladder). cbic-gst.gov.in is not reachable from this network, so this is
+# not a first-party read. Four independent secondaries agree that a cloud-delivered
+# software service supplied in India is taxed at **18%**, classified under **SAC 998315**
+# (hosting / IT infrastructure provisioning) — the same 18% that covers B2B telecom and
+# most business support services. That single figure is what makes the CGST/SGST split
+# 9+9 in `gst.split_tax`. It is spelled ONCE, here: no doc in this repo states a GST
+# percentage as a value-claim, so there is no second home for it to drift from — and if
+# one is ever written, it belongs in `scripts/check_docs_drift.py` beside §4b's rate-card
+# diff rather than in prose.
+#
+# NOT a config key, deliberately. A statutory rate is not a deployment's choice, and an
+# operator able to type one into the ops console is an operator able to under-collect tax
+# on every invoice the platform issues (CGST s.32 runs the other way, but the exposure is
+# the same shape). It moves when the Council moves it, in a diff with a citation.
 GST_RATE_PCT = Decimal("18")
 
 # THE INVOICE NUMBER IS NOT YET RULE 46(b) COMPLIANT, and this note is the honest half of

@@ -67,8 +67,13 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
    execution-id dedupe, payloads as hints, poller as truth — TRD §5), ack < 500ms,
    defer all real work to ARQ. No heavy imports, no synchronous LLM calls, no DB writes beyond the
    minimal event row. Never couple its deploy to `api` changes.
-4. **Append-only ledgers**: `usage_events`, `consent_ledger`, `audit_log` are INSERT-only.
-   No UPDATE/DELETE anywhere in code; fixes are compensating entries.
+4. **Append-only ledgers**: every table in `apps/api/db/registry.APPEND_ONLY_TABLES` is
+   INSERT-only. No UPDATE/DELETE anywhere in code; fixes are compensating entries.
+   The list is NAMED here rather than copied because this rule shipped enumerating three
+   (`usage_events`, `consent_ledger`, `audit_log`) and the set has more than doubled since
+   — a count in prose is the defect class D-103/D-105 exist for. `check_ledger_immutability`
+   reads the constant and verifies the DB trigger on each; a bounded exception (D-97's
+   KEK re-wrap) is one file-scoped entry there, never a relaxation of the trigger.
 5. **Compliance invariants**: agents always have a non-null disclosure line; campaign
    launch path must call the compliance gate (SECURITY-COMPLIANCE.md §3) — never add a
    bypass "for testing" (use staging fixtures instead); DNC additions propagate before

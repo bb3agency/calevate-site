@@ -451,6 +451,65 @@ async def mark_outbox_failed(
         )
 
 
+# How long a claimed message waits after a SYSTEMIC publish failure, per attempt already
+# spent. `defer_outbox_claim` below argues why this exists at all; the shape is the same
+# real backoff `pipeline.RETRY_BACKOFF_S` and `outbound_webhooks.RETRY_BACKOFF_S` use,
+# and the numbers are sized against THIS loop's tick rather than against a worker's.
+#
+# The dispatcher runs every 10 seconds, so an undeferred budget of five attempts is spent
+# in 50 seconds — less than a Redis restart. Linear on the attempt count and capped, the
+# budget covers 30+60+90+120 = five minutes of a queue being unreachable before the first
+# message is dead-lettered, which is the difference between "a blip" and "an operator has
+# to replay the entire outbox by hand".
+OUTBOX_SYSTEMIC_BACKOFF_S = 30
+OUTBOX_SYSTEMIC_BACKOFF_CAP_S = 300
+
+
+async def defer_outbox_claim(session: AsyncSession, *, message_ids: list[UUID], error: str) -> int:
+    """Hand claimed messages back to the queue, held off for a backoff — no status move.
+
+    THE FAILURE THIS SEPARATES OUT. `mark_outbox_failed` counts a publish failure against
+    the MESSAGE's poison budget, which is right when the message is what failed and wrong
+    when the QUEUE is: a Redis restart makes every row in the batch fail identically, and
+    at a 10-second tick with five attempts the entire outbox is dead-lettered in under a
+    minute. Nothing was ever wrong with those messages, and recovering them costs a
+    step-up-confirmed operator replay (`ops/routes.py::replay_outbox`).
+
+    So a systemic failure gets a WAIT instead of a verdict. The attempt the claim already
+    charged still stands — an uncommitted attempt is how a poison message loops forever,
+    which `claim_outbox_batch` argues at length — but the next one is not spent ten
+    seconds later.
+
+    `locked_until` carries the wait, and that is the established shape rather than a new
+    column: a single visibility timestamp doing double duty as lease and as retry
+    backoff is how Postgres-backed queues do it (SQS's ChangeMessageVisibility is the
+    same primitive, and `river`, `pgmq` and `graphile-worker` all schedule a retry by
+    pushing one `visible_at`/`scheduled_at` column forward). `claim_outbox_batch` already
+    skips rows whose `locked_until` is in the future, so nothing downstream changes.
+
+    `AND status = 'pending'` is the CAS guard (§5): a message another dispatcher
+    published while this batch was failing must not be pulled back under a lease.
+    """
+    if not message_ids:
+        return 0
+    result = await session.execute(
+        text(
+            "UPDATE outbox_messages SET "
+            "locked_until = now() + make_interval("
+            "  secs => LEAST(:base * GREATEST(attempt_count, 1), :cap)), "
+            "last_error = :error, updated_at = now() "
+            "WHERE id = ANY(:ids) AND status = 'pending'"
+        ),
+        {
+            "ids": message_ids,
+            "base": OUTBOX_SYSTEMIC_BACKOFF_S,
+            "cap": OUTBOX_SYSTEMIC_BACKOFF_CAP_S,
+            "error": error[:500],
+        },
+    )
+    return int(rowcount_of(result) or 0)
+
+
 @dataclass(frozen=True, slots=True)
 class DeadLetterJobDepth:
     """One `job`'s share of the dead-letter queue."""
@@ -736,6 +795,8 @@ __all__ = [
     "IDEMPOTENCY_TTL",
     "OUTBOX_CLAIM_LEASE",
     "OUTBOX_MAX_ATTEMPTS",
+    "OUTBOX_SYSTEMIC_BACKOFF_CAP_S",
+    "OUTBOX_SYSTEMIC_BACKOFF_S",
     "DeadLetterJobDepth",
     "DeadLetterQueue",
     "IdempotencyClaim",
@@ -746,6 +807,7 @@ __all__ = [
     "claim_inbox_event",
     "claim_outbox_batch",
     "complete_idempotency",
+    "defer_outbox_claim",
     "enqueue_outbox",
     "fail_idempotency",
     "mark_inbox_enqueued",

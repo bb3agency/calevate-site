@@ -41,7 +41,14 @@ class SubmitIn(Strict):
     agent_id: UUID
     name: str = Field(min_length=2, max_length=120)
     body: str = Field(min_length=10, max_length=200_000)
+    # `url` and `file` are DECLARED here and REFUSED by the service
+    # (`kb.service.SUPPORTED_SUBMISSION_KINDS`, which carries the argument and names the
+    # external blocker). They are still in the Literal because narrowing it regenerates
+    # the OpenAPI schema and the typed client, which is a whole-tree change; what mattered
+    # was that the endpoint stopped answering 201 to a fetch it never performed.
     kind: Literal["text", "url", "file"] = "text"
+    #: Where the content came from, for kinds we cannot yet read. Written, never read —
+    #: no fetcher and no parser exists (TRD §6's offline ingestion step).
     uri: str | None = None
 
 

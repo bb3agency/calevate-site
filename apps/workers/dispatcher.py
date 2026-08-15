@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,17 +24,25 @@ from apps.api.core.queue import enqueue, job_id_for
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.reliability.service import (
     claim_outbox_batch,
+    defer_outbox_claim,
     mark_outbox_failed,
     mark_outbox_published,
     record_outbox_metrics,
     sweep_idempotency,
 )
+from apps.workers.pipeline import EXTRACTION_OWED_SQL, PIPELINE_STALL_AFTER
 
 log = get_logger(__name__)
 
-# A completed call with no extraction after this long is a call the pipeline dropped
-# (post-call SLO: lead visible in under 2 minutes, OPERATIONS §4).
-STALL_AFTER_MINUTES = 10
+# A completed call whose extraction is still owed after this long is a call the pipeline
+# dropped (post-call SLO: lead visible in under 2 minutes, OPERATIONS §4).
+#
+# IMPORTED, NOT RESTATED. The same number decides when `pipeline._pipeline_settled` will
+# let the reconciliation poller re-drive a call, and the two have to be one number: the
+# alarm's whole meaning is "the poller is about to try, or has tried and failed", and a
+# threshold that drifted would produce either an alarm for calls nothing repairs or a
+# repair for calls nothing alarms about.
+STALL_AFTER_MINUTES = int(PIPELINE_STALL_AFTER.total_seconds() // 60)
 # ...and one older than this is history, not an incident. Without an upper bound the
 # alarm counts every call ever left unextracted — a number that only grows, fires on
 # every tick, and tells an operator nothing about today. The cron runs twice an hour,
@@ -42,11 +51,32 @@ STALL_WINDOW_HOURS = 24
 
 
 async def dispatch_outbox(ctx: dict[str, Any]) -> str:
-    """Runs every few seconds. Publishes claimed rows; failures walk to the DLQ."""
+    """Runs every few seconds. Publishes claimed rows; failures walk to the DLQ.
+
+    TWO KINDS OF FAILURE, AND THEY MUST NOT BE TREATED ALIKE.
+
+    A message whose payload the queue refuses is poison: it is charged an attempt, it
+    stays `pending` while it has budget, and it walks to the DLQ. That is the loop's
+    original behaviour and the reason the `except` exists at all — one bad payload must
+    never stall every other tenant's notifications.
+
+    A queue that is UNREACHABLE is not any message's fault. Every row in the batch fails
+    identically, and charging each one an attempt at a ten-second tick dead-letters the
+    whole outbox in under a minute — shorter than a Redis restart — leaving a
+    step-up-confirmed operator replay as the only way back. So the tick stops on the
+    first systemic failure, hands the untried remainder back with a backoff
+    (`defer_outbox_claim`), and says so once.
+
+    `RedisError, OSError` is the same pair `apps/api/core/queue.py`'s callers already
+    treat as "the queue is down" (`tests/reliability_audit_test.py::
+    test_enqueueing_against_a_dead_redis_fails_fast` pins it): redis-py raises its own
+    `ConnectionError`/`TimeoutError` under `RedisError`, and a DNS or socket failure
+    before that arrives as `OSError`.
+    """
     published = 0
     async with untenanted_session() as session:
         batch = await claim_outbox_batch(session)
-        for message in batch:
+        for index, message in enumerate(batch):
             try:
                 job_id = await enqueue(
                     message.job,
@@ -57,6 +87,24 @@ async def dispatch_outbox(ctx: dict[str, Any]) -> str:
                     session, message_id=message.id, job_id=job_id or "deduped"
                 )
                 published += 1
+            except (RedisError, OSError) as exc:
+                # The queue itself. Nothing after this one would fare differently, so
+                # trying them would spend 49 more attempts to learn what this one said.
+                reason = f"{type(exc).__name__}: {exc}"
+                deferred = await defer_outbox_claim(
+                    session,
+                    message_ids=[m.id for m in batch[index:]],
+                    error=reason,
+                )
+                alert(
+                    "OUTBOX_DISPATCH",
+                    # A stable code so the alerter's per-fingerprint suppression folds a
+                    # Redis outage into one notice rather than one per tick.
+                    "outbox_queue_unreachable",
+                    detail=f"{reason[:160]}; {deferred} message(s) deferred, not dead-lettered",
+                )
+                log.warning("outbox_queue_unreachable", extra={"deferred": deferred})
+                break
             except Exception as exc:
                 # Never let one poisoned message stop the batch — that is how a single
                 # bad payload stalls every tenant's notifications.
@@ -107,14 +155,31 @@ async def _count_stalled(session: AsyncSession) -> int:
 
     MUST run inside a `tenant_session`. Counts only — no phone numbers, no transcript
     text ever leaves this query (hard rule 6).
+
+    **"OWED" IS THE PIPELINE'S OWN RULE, NOT "HAS NO ROW".** `EXTRACTION_OWED_SQL` is the
+    SQL form of `_post_call_stages`'s `needs_extraction`, imported rather than restated.
+    Without it this counted every completed call with no `call_extractions` row, and a
+    silent call on an agent with no schema fields legitimately has none — the pipeline
+    finishes it perfectly and writes nothing. Those calls sit inside the 24-hour window
+    for the whole 24 hours, so the alarm fired twice an hour on healthy traffic, and an
+    alarm that is always on is an alarm nobody reads when a real stall arrives. It
+    matters more now than it did: the reconciliation poller repairs the calls this alarm
+    used to be the only sign of, so what is left in it should be the residue that needs
+    a human, not the calls that were never broken.
     """
     stalled = (
         await session.execute(
             text(
-                "SELECT count(*) FROM calls c WHERE c.status = 'completed' "
+                "SELECT count(*) FROM calls c "
+                # LEFT, so a call whose agent row was removed still counts on its
+                # transcript alone rather than vanishing from the alarm.
+                "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
+                "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
+                "WHERE c.status = 'completed' "
                 "AND c.ended_at < now() - make_interval(mins => :after) "
                 "AND c.ended_at > now() - make_interval(hours => :window) "
-                "AND NOT EXISTS (SELECT 1 FROM call_extractions e WHERE e.call_id = c.id)"
+                "AND NOT EXISTS (SELECT 1 FROM call_extractions e WHERE e.call_id = c.id) "
+                f"AND {EXTRACTION_OWED_SQL}"
             ),
             {"after": STALL_AFTER_MINUTES, "window": STALL_WINDOW_HOURS},
         )

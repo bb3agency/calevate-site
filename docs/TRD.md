@@ -413,6 +413,37 @@ instead of forbidding external services):
   one — repeat-caller context injection (their webhook's ~5s budget), post-call
   memory writes, CRM semantic features, knowledge-gap analysis.
 
+**MEASURED, 15 Aug 2026 — the server half of the 100ms budget, which had never been
+measured despite CLAUDE.md saying to.** The budget names an in-call RAG tool endpoint that
+does not exist (D-33 keeps T3 in the engine, and
+`tests/kb_tiers_test.py::test_in_call_retrieval_is_not_reimplemented_on_our_side` fails
+the day one appears). What DOES sit on the audio path is the engine custom function
+`POST /tools/v1/{engine}/opt-out`, which shares every layer a retrieval endpoint would
+need before it retrieved anything — source verification, bounded read, JSON parse, ack
+accounting, ARQ hand-off. Measured against the real handler, real Redis, nothing stubbed
+(`tests/tool_endpoint_budget_test.py` holds the harness, the full table and the caveats):
+
+| in flight | 1 | 8 | 24 | 96 | 250 |
+|---|---|---|---|---|---|
+| server-measured ack p50 (ms) | 0.9 | 6.3 | 15.1 | 48.5 | 143.0 |
+| server-measured ack p95 (ms) | 0.9 | 6.8 | 17.1 | 51.1 | 187.7 |
+
+At one call in flight the handler spends **p50 1.0ms, p95 1.4ms, max 3.8ms** over n=500,
+reaching Postgres **zero** times — 1.4% of the budget. The cost is CONCURRENCY, not the
+handler: the distribution is flat at every width (D-55's convoy signature — one event
+loop, ~1,750 acks/s per process), so `latency ≈ in-flight ÷ 1,750` and **100ms is reached
+at ~175 concurrent in-flight tool calls per process**. D-32 records Bolna at 100
+concurrent on Pilots and 250+ in production, so at production width our own server time
+exceeds the whole budget before any network is counted — a process-count question
+(DEPLOYMENT §2a), on this endpoint as on the receiver.
+
+**What that does and does not settle.** It settles the half we own: the server side is
+affordable at one call in flight and is a sizing problem above ~175. It settles nothing
+about the ROUND TRIP, which is the number this section's "+150–400ms" estimate is about
+and which only a live call can produce — pilot gate 8's `custom_function_tool_call_budget`
+(`scripts/pilot/knowledge.py`), still NOT RUN. The two are different quantities and are
+deliberately kept in different places.
+
 Tier model (unchanged in intent; T1–T3 now provider-backed):
 - **T0 Compiled context (0ms):** hot facts compiled into the system prompt at
   agent-publish time; regenerated on KB change. Answers ~80% with zero retrieval.
@@ -519,11 +550,23 @@ Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-
 
 ## 10. Cost Model (verified July 2026; re-verify quarterly)
 
-Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · LLM 0.04–0.10 · TTS
-1.20–1.35 (Bulbul V3 — the v2 ₹0.60 band is likely gone; their docs list only V3
-[Jul 2026]; confirm pricing on account) · telephony 0.40–0.90 inbound / 0.60–1.80
-outbound. **Blended all-in ≈ 3.3–3.6 (launch) → 1.7–2.3 (phase 2)** — the low end of
-the old 3.0 blend assumed v2 TTS. Actual per-call cost comes from Get Call's
+Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · TTS 1.08–1.62 (Bulbul v3)
+· LLM 0.00 (Sarvam 105B) · telephony 0.40–0.90 inbound / 0.60–1.80 outbound. **Blended
+all-in ≈ 3.3–3.6 (launch) → 1.7–2.3 (phase 2)**.
+
+> ⚠ **The model legs above are §10.1's, not July's** — this paragraph is a summary and
+> **§10.1 is the rate card.** Two July readings that survived here after §10.1 corrected
+> them, both stale in the direction that understates what we have built: "the v2 ₹0.60
+> band is likely gone; their docs list only V3 — confirm pricing on account" (D-35 read
+> the card live on 11 Aug 2026: **v2 is live at half the v3 rate**, which is why
+> `billing/rates.py` bills a two-rung ladder and why `plans.overage_rate_value` exists at
+> all), and "LLM 0.04–0.10" (D-36: **Sarvam 105B is free per token**; ₹0.15–0.20 is the
+> Gemini Flash-Lite fallback, not the default). `scripts/check_docs_drift.py` §4b now
+> diffs §10.1's card against `TTS_INR_PER_10K_CHARS`, so the RATES cannot drift again
+> unwatched; the platform and telephony bands here remain UNVERIFIED estimates (pilot
+> gate 12) and no check can say otherwise.
+
+Actual per-call cost comes from Get Call's
 cost.breakdown (platform_fee/stt/tts/llm/telephony, INR) recorded into usage_events.
 Fixed monthly: DO stack ~$75–125 (web/api droplet, worker droplet, managed PG, Redis,
 storage) ≈ ₹7–10k; platform/model minimums + numbers ≈ ₹3k.

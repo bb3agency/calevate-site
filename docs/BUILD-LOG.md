@@ -3123,6 +3123,75 @@ is whether a thing is ours to do or waits on someone else — a credential, a re
 vendor reply. It does not license shortcuts; it forbids narrating a schedule instead of
 finishing a seam.
 
+## §66 — four slices in parallel, and the two findings that came from disbelieving the brief
+
+Four agents ran concurrently on disjoint modules. The two most valuable results are both
+cases where the work contradicted the instruction it was given.
+
+**The national-DND brief was wrong, and the research is what changed the design (D-107).**
+I specified a loader for a list of tens of millions of numbers. The NCPR **cannot be
+downloaded** — every access provider's DLT documentation carries the same sentence, that
+the preference database is not accessible to telemarketers — and the real mechanism is
+that a Registered Telemarketer SUBMITS a list and receives back a reference, a report of
+COUNTS rather than numbers, and a verdict valid until 23:59:59 that day. So the right
+primitive is a RUN with an expiry, not a list. Loading NCPR rows into `dnc_list` was
+rejected for a second reason that outranks the first: preference is category-scoped, so
+`check_dispatch` would read those rows as absolute and refuse **lawful transactional**
+traffic — wrong rather than conservative. The gate is therefore promotional-only, lives on
+the dispatch tick as well as launch (the window closes at midnight IST while a campaign
+keeps dialling), and is not a self-inflicted outage because performing a scrub needs the
+same RTM relationship that `tm_registration_missing` already demands.
+
+**The poller was not the guarantee of record (D-110).** D-31 says it is. Measured: when a
+delivery arrived and the post-call job was then lost, ten consecutive ticks reported
+`repaired=0` with artefacts still 0,0,0,0 — no lead, no transcript, no usage row, no bill,
+unrecoverable, because `_already_completed` asked only whether a completed call row
+existed and `ingest_engine_event` writes that row *before* enqueueing the pipeline. The
+fix needed no migration: the engine's own snapshot says whether the execution had a
+transcript and a cost, so an absence stops being ambiguous — strictly stronger than the
+`calls.pipeline_completed_at` marker first considered, since a stage marker claims "the
+pipeline ran" and a run that silently produced nothing satisfies it. The same slice found
+a genuinely concurrent post-call pair writing **10 usage rows for a 5-call** and counting
+1.5833 minutes as 3.1666 — permanent, because the ledger is append-only, and a spend cap
+armed at half the tenant's real allowance.
+
+**A security defect fell out of obeying the ratchet rather than out of review (D-111).**
+D-107 pushed `compliance-gate` from 9 uncovered units to 21, and D-29 says that number
+only shrinks. Covering `remove_global_entry`'s "RLS refused the delete" branch meant
+building a tenant session that could see a global row but not delete it — and the test
+would not go red, because the delete SUCCEEDED. `SET app.tenant_id = '…'; DELETE FROM
+dnc_list …` → **`DELETE 1`**: any client could lift a regulator instruction binding every
+other client. The cause is a Postgres semantic that is easy to read past — `USING` alone
+decides which rows a DELETE may remove, while `WITH CHECK` covers INSERT and an UPDATE's
+new row — so an asymmetric policy that deliberately opens `USING` to `tenant_id IS NULL`,
+which D-107 had to, opens DELETE with it. UPDATE was checked rather than assumed and is
+correctly refused. **The application guard was not the fix and could not have been**: the
+`rowcount != 1` refusal was written believing RLS refused the delete, and D-107's own
+sabotage reported it "redundant" on the strength of the SELECT's behaviour — right about
+the SELECT, wrong about the DELETE.
+
+**Money (D-108).** `_unit_price` — the write path for `usage_events.unit_cost_paid` —
+quantized on the mutable process-global `decimal` context, so a ₹0.0180 telephony leg over
+a 360-second call, exactly ₹0.00005/second, stored as `0.0000` and left the margin panel
+and the month's `spend_used` entirely. And `states_pricing` read a hand-written price list
+that `overage_rate_value` was never added to, so a plan quoting only the value rate — the
+row a founder writes the day that price is decided — rendered as "No price agreed … They
+are still invoiced nothing" over a plan billing ₹5.50/min.
+
+**The 100ms budget is measured (D-109)**, for the first time since `CLAUDE.md` asked. p95
+1.4ms at one call in flight with zero database round trips; but flat under concurrency, so
+the whole budget is spent at ~175 concurrent in-flight tool calls per process. It is a
+process-count question, not a handler question.
+
+**On method.** Sabotage found defects in the agents' OWN tests in three of the four slices:
+an `is` comparison on an interned `decimal` constant that could not fail; a concurrency
+test whose race was being run by a different lock four stages earlier; an `assert x == 0`
+against a counter nothing incremented; a fixture with equal counts on both sides. Every one
+of those tests looked correct and proved nothing. The protocol also caught a reversibility
+bug in D-107's migration — the downgrade dropped a trigger but not its function, so
+`downgrade`→`upgrade` failed `DuplicateFunction`, and a downgrade that cannot be followed
+by an upgrade is not reversible.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"

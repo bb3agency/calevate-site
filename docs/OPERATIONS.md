@@ -258,6 +258,24 @@ and a second delivery mechanism is a second thing to be broken on the night it i
   the window means "a human was told".
 - **What it does not touch**: no outbox, no Redis, no database. The alarms that matter
   most are the ones saying those are broken.
+- **Two alarms about the RELIABILITY path say different things and must not be confused.**
+  `outbox_dead_letter` means messages need an operator (`POST /v1/ops/outbox/replay`);
+  `outbox_queue_unreachable` means the dispatcher could not reach Redis at all and handed
+  the batch back with a backoff, so nothing is lost and there is nothing to replay —
+  fix Redis, the next tick drains it. Without the second code an outage was reported as N
+  dead letters, which is a page that asks for exactly the wrong action
+  (`runbooks/webhook-delivery-failures.md` §3).
+- **`reconciliation_repairs` carries a `kind`, and the two kinds are different
+  incidents.** `missing_call` is a webhook the vendor never delivered (D-31's at-most-once
+  delivery doing what it does — expected at a low rate, alarming as a trend);
+  `unfinished_pipeline` is a delivery we DID receive and then dropped on our own side, so
+  a call had a `completed` row with no transcript, extraction, lead or usage event until
+  the poller re-drove it. A non-zero rate of the second is OUR bug, and it is worth
+  reading against `postcall_pipeline_stalled`, which reports the same population from the
+  other end: the alarm names calls the pipeline still owes an extraction, the poller is
+  what repairs them, and both are keyed off the SAME ten-minute deadline
+  (`pipeline.PIPELINE_STALL_AFTER`, imported by `dispatcher.STALL_AFTER_MINUTES`) so a
+  call cannot be late for one and current for the other.
 - **What triggers one**: webhook failures > 3/5min; pipeline lag > 5 min; latency p95
   breach 15-min sustained; cap approaching (80%)/breached; complaint-spike on campaign;
   engine 5xx spike; nightly job failures; cert/domain expiry.

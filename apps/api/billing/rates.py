@@ -38,6 +38,14 @@ Money is NUMERIC INR (hard rule 7): no float ever appears here, and the one roun
 decision is ROUND_HALF_UP at NUMERIC(12,4), the storage precision of `unit_cost_paid`.
 Note this is NOT `billing.service.to_paise` — that quantizes a RUPEE amount for a human
 to read at 2dp; a unit price is stored at 4dp and must not be pre-rounded to paise.
+
+THIS MODULE IS THE HOME OF THE TWO ROUNDING FACTS, for every writer and every reader
+--------------------------------------------------------------------------------------
+`MONEY_Q` (the storage quantum) and `ROUNDING` (the mode) live here because this is the
+LOWEST money module in the import graph: `billing.service` imports this one, so the
+constants cannot live there without a cycle. `service.PAISE` is a different quantum for
+a different job (a rupee amount a human reads at 2dp) and stays where it is; `service
+.ROUNDING` is now this name, re-exported, so there is exactly one mode in the tree.
 """
 
 from __future__ import annotations
@@ -48,6 +56,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from apps.api.agents.voices import VoiceTier, get_voice
+from apps.api.billing.models import MONEY
 
 # Same two rungs as the voice catalog, by import rather than by restatement: a third
 # tier added to D-36's ladder must not be able to appear in one file and not the other.
@@ -66,6 +75,13 @@ ENGINE_REPORTS_TTS_MODEL = False
 
 # Sarvam's published rate card, read live on 11 Aug 2026 (D-35, TRD §10.1). Per 10,000
 # characters, INR. NUMERIC, never floats.
+#
+# THIS IS THE HOME OF THE RATE, and TRD §10.1 is the doc that states it.
+# `scripts/check_docs_drift.py` §4b diffs the two in both directions and also checks
+# §10.1's two spellings of each rate (₹/10,000 in the Sarvam card, ₹/1,000 in the
+# per-call-minute table) against each other. Before that check existed, a vendor price
+# move could land in the doc and not here — the shape D-102/D-103/D-105 each paid for,
+# on the axis where it moves money.
 TTS_INR_PER_10K_CHARS: Mapping[TtsTier, Decimal] = MappingProxyType(
     {
         "premium": Decimal("30.0000"),  # Bulbul v3 — D-36's default
@@ -73,16 +89,47 @@ TTS_INR_PER_10K_CHARS: Mapping[TtsTier, Decimal] = MappingProxyType(
     }
 )
 
+# THE OPEN VENDOR QUESTION ON THIS CARD, recorded here rather than left to be rediscovered
+# — **REPORTED, NOT READ** (`billing/payments.py`'s three-rung ladder; `sarvam.ai` and
+# `docs.sarvam.ai` are refused by this environment's egress proxy and no request has ever
+# been made to them from this repository).
+#
+# Aug 2026 search summaries report that Sarvam has shipped **Bulbul v4** and describe it
+# as the current TTS model, **at the same ₹30 / 10,000 chars**. So the MONEY above is
+# unaffected and nothing here is wrong today. What is exposed is the IDENTIFIER: D-36
+# names v3 as the premium rung and `apps/api/agents/voices.py` is the catalog that pins
+# which voice sits on it. D-105 is the precedent for why that matters more than it looks
+# — Sarvam retired an LLM identifier under us and requests naming it began to FAIL, with
+# the symptom appearing at post-call time as "extraction is empty".
+#
+# Closing it needs two things NEITHER of which is a code change from here: a first-party
+# read of the pricing and model pages (a vendor account, or an egress route to
+# `docs.sarvam.ai`), and D-36's own decision about whether the canonical stack moves to
+# v4. Until both exist this stays a marked assumption, not a silent premise.
+ENGINE_TTS_MODEL_GENERATION_VERIFIED = False
+
 # The rung an unproven call is billed on. Named rather than inlined because three
 # call sites depend on it being the CHEAP one and that is the whole pattern.
 UNPROVEN_TIER: TtsTier = "value"
 
 _CHARS_UNIT = Decimal("10000")
-# NUMERIC(12,4) is `unit_cost_paid`'s storage precision (billing/models.py MONEY), so a
-# cost is quantized there and nowhere finer. ROUND_HALF_UP for the same reason
-# `billing.service.ROUNDING` is: it is the convention an Indian invoice is checked
-# against, and it is passed explicitly so no library's global context can change it.
-MONEY_Q = Decimal("0.0001")
+
+# The storage quantum, DERIVED from the column rather than restated beside it. `MONEY` is
+# `Numeric(12, 4)` (billing/models.py), so this is `Decimal("0.0001")` — and it is spelled
+# as a derivation because the literal was already living in three places (here, the
+# metering writer, the fake adapter) and a scale change would have had to be found in all
+# of them. Reading the scale off the type means the quantum cannot be wrong about the
+# column it is quantizing FOR.
+MONEY_Q = Decimal(1).scaleb(-(MONEY.scale or 0))
+
+# THE rounding mode for every money quantization in this repository, passed EXPLICITLY at
+# every call site and never inherited. `Decimal.quantize()` with no mode uses the ambient
+# `decimal` context, whose default is ROUND_HALF_EVEN (banker's rounding) and which is
+# process-global and mutable by any library in the image — a rupee that changes because
+# somebody else changed a global is not an amount we can defend. ROUND_HALF_UP is the
+# convention an Indian tax invoice is checked against.
+#
+# `tests/money_rounding_mode_test.py` scans the tree for a `quantize` that omits it.
 ROUNDING = ROUND_HALF_UP
 
 
@@ -142,6 +189,7 @@ def tier_correction_inr(*, chars: int, billed_tier: TtsTier, actual_tier: TtsTie
 
 __all__ = [
     "ENGINE_REPORTS_TTS_MODEL",
+    "ENGINE_TTS_MODEL_GENERATION_VERIFIED",
     "MONEY_Q",
     "ROUNDING",
     "TTS_INR_PER_10K_CHARS",

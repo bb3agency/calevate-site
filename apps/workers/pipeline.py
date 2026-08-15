@@ -31,7 +31,7 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 from uuid import UUID
 
 from arq import Retry
@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
 from apps.api.billing.caps import CAPS_CTE, over_cap_sql
-from apps.api.billing.rates import billable_tier
+from apps.api.billing.rates import MONEY_Q, ROUNDING, billable_tier
 from apps.api.billing.service import charge_for_call, plan_tier_of
 from apps.api.compliance.optout import DETECTED_POST_CALL, detect_opt_out, record_call_optout
 from apps.api.core.alerting import (
@@ -455,14 +455,17 @@ async def _abandon_post_call(
     thing). Everything outside the recording copy raised plainly here, so `max_tries = 3`
     was decorative for this job: one database blip mid-pipeline dropped extraction, the
     lead upsert, metering and the hot-lead alert to manual replay, and the reconciliation
-    poller could not pick it up because the call row was already `completed` (see
-    `_already_completed`).
+    poller could not pick it up either, because its probe asked only whether the call row
+    was `completed`. `_pipeline_settled` now asks whether the ARTEFACTS are there, so a
+    call this ladder gives up on is one the poller re-drives — the ladder is the fast
+    recovery and the poller is the guarantee, rather than the ladder being the only one.
 
     The retry is safe to take because every stage is re-runnable and, specifically,
     because the two irreversible ones refuse a second write: `_meter` returns early when
-    `usage_events` already holds a row for the call, and `charge_for_call` dedupes on
-    `ref = call_id` under the per-tenant credit lock. `pipeline_audit_test` proves that
-    against a failure injected AFTER metering rather than asserting it.
+    `usage_events` already holds a row for the call — under `lock_call_writes`, so that
+    check is a claim rather than a hope — and `charge_for_call` dedupes on `ref = call_id`
+    under the per-tenant credit lock. `pipeline_audit_test` proves that against a failure
+    injected AFTER metering rather than asserting it.
 
     Terminal is LOUD. A permanent failure here is a call whose lead never arrives, and
     the 2-minute SLO means nobody is coming to look unless something says so.
@@ -612,6 +615,12 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
     from apps.workers.campaign_dispatch import resolve_campaign_contact
 
     async with tenant_session(tenant_id) as session:
+        # Step 8's `_already_enqueued` is a check-then-write and the delivery id it would
+        # duplicate is minted FRESH per fan-out — so two overlapping runs do not send the
+        # client a retry they can deduplicate, they send them the same lead twice under
+        # two different ids. Taken before the campaign resolution so the whole
+        # transaction is one serialized unit rather than two.
+        await lock_call_writes(session, call_id)
         await resolve_campaign_contact(
             session, tenant_id=tenant_id, call_id=call_id, call_status=snapshot.status
         )
@@ -669,6 +678,42 @@ def _json(value: Any) -> str:
     return json.dumps(value, default=str)
 
 
+async def lock_call_writes(session: AsyncSession, call_id: UUID) -> None:
+    """Serialize this CALL's non-idempotent post-call writes for the rest of the
+    transaction. Take it BEFORE the read that decides whether to write.
+
+    THE SHAPE IT GUARDS. Three places in this pipeline decide "have we already done this
+    for this call?" and then act on the answer — `_meter` (the append-only usage ledger),
+    `_maybe_notify_hot_lead` and step 8's CRM fan-out (both through `_already_enqueued`).
+    Every one of them is a read-then-write, which under two overlapping runs of the same
+    call means both read "not yet" and both write. The damage is not symmetric with the
+    idempotent stages around them: `usage_events` carries an append-only trigger, so a
+    double meter is a double charge that only a hand-written compensating entry can
+    answer, and a second outbox row is a second CRM delivery with a FRESH delivery id —
+    which is the one thing the client's own receiver cannot deduplicate.
+
+    Measured rather than assumed: two concurrent `_meter` calls for one call wrote ten
+    usage rows for a five-row call and counted its minutes into `spend_state` twice
+    (`tests/postcall_concurrency_test.py`, which removes this lock to show the test can
+    still see it).
+
+    ONE KEY FOR THE CALL, not one per stage. Two runs of one call must serialize as a
+    unit — separate keys would let run A finish metering and run B start notifying while
+    A is still deciding — and one key also means there is no ordering to get wrong
+    between them. `charge_for_call`'s `credit:{tenant_id}` is always taken AFTER this
+    one and by nothing that holds it first, so there is no cycle.
+
+    `pg_advisory_xact_lock` is the house primitive for a read-then-write
+    (`billing.lock_tenant_credits`, `compliance.audit`, `ops.secret_service`,
+    `ops.config_service`), released by COMMIT or ROLLBACK, with no lease to tune
+    (postgresql.org/docs/16/functions-admin.html#FUNCTIONS-ADVISORY-LOCKS).
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"call:{call_id}"},
+    )
+
+
 async def _already_enqueued(session: AsyncSession, *, job: str, matcher: dict[str, Any]) -> bool:
     """Has this exact side effect already been promised for this call?
 
@@ -677,8 +722,9 @@ async def _already_enqueued(session: AsyncSession, *, job: str, matcher: dict[st
     to ask "did a previous run of this pipeline already queue this?", which is what
     keeps a replay from telling a client twice.
 
-    Same doctrine as the metering pre-check: a concurrency window remains, and the ARQ
-    job id (keyed on the call) is what keeps two runs from overlapping in practice.
+    MUST be asked under `lock_call_writes` — see there. It is a check-then-write, and
+    the ARQ job id that used to be its only defence is a Redis convention with a finite
+    window rather than a database fact.
     """
     row = (
         await session.execute(
@@ -958,12 +1004,22 @@ def _unit_price(leg_inr: Decimal | None, qty: Decimal) -> Decimal | None:
     `qty == 0` (a completed call the engine reports as zero-length) would make the
     division undefined; the leg cost is kept whole in that case so the money never
     silently disappears from the ledger.
+
+    THE QUANTUM AND THE MODE ARE IMPORTED, not spelled here, and that is the fix rather
+    than the tidying it looks like. This line was `quantize(Decimal("0.0001"))` with no
+    mode, so it took the ambient `decimal` context — ROUND_HALF_EVEN by default, and
+    mutable process-wide by any library in the image. It is the WRITE path for
+    `unit_cost_paid`, so it was the one money rounding in the tree that did not follow the
+    doctrine `billing.service.to_paise` states in full ("passed EXPLICITLY, never
+    inherited"). Reachable, not theoretical: a ₹0.0180 telephony leg over a 360-second
+    call is exactly ₹0.00005/second, which half-even stored as ₹0.0000 — the whole leg
+    rounded out of the margin panel and out of a closed month's `spend_used`.
     """
     if leg_inr is None:
         return None
     if qty <= 0:
         return leg_inr
-    return (leg_inr / qty).quantize(Decimal("0.0001"))
+    return (leg_inr / qty).quantize(MONEY_Q, rounding=ROUNDING)
 
 
 def _ist_month(moment: datetime) -> str:
@@ -1047,11 +1103,33 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
     Returns how many `usage_events` rows it wrote — 0 on the re-run path. That number
     is the trace's evidence that a replay metered nothing, which is the property hard
     rule 4 exists to protect and the one a double-bill would violate silently.
+
+    **THE PRE-CHECK IS UNDER `lock_call_writes`, AND IT HAS TO BE.** A read-then-write
+    over money is the exact shape CLAUDE.md's concurrency rule names, and this one was
+    unguarded: two overlapping runs of the post-call pipeline for one call both read "not
+    metered yet" and both append. Measured, not argued — ten usage rows for a five-row
+    call, and its minutes counted into `spend_state` twice, so the client is billed twice
+    AND their spend cap is armed at half the real usage. `usage_events` carries an
+    append-only trigger, so neither is fixable by an UPDATE.
+
+    WHY IT WAS THOUGHT SAFE, and why that was not enough: the ARQ job id is keyed on the
+    call, so two post-call jobs collapse into one while arq holds the dedupe. That is a
+    real defence and it is the FIRST one, not the last — its window is `keep_result`
+    (3600s), a cancelled `job_timeout = 300` job can still have a transaction in flight
+    when its retry starts, and an operator replay or a lost Redis takes the dedupe away
+    entirely. A Redis convention must not be the only thing standing between an
+    append-only ledger and a double charge.
+
+    WHY NOT A UNIQUE INDEX on `(call_id, unit_type)`, which would be the stronger guard:
+    it is a migration, and it would also have to be proved against the rows every
+    environment already holds. The lock closes the same window today with no schema
+    change; the index remains the better end state and is named in the report.
     """
     cost = snapshot.cost
     if cost is None:
         return 0
     async with tenant_session(tenant_id) as session:
+        await lock_call_writes(session, call_id)
         tier = await plan_tier_of(session, tenant_id)
         voice_id = (
             await session.execute(
@@ -1190,6 +1268,10 @@ async def _maybe_notify_hot_lead(
     if not triggered:
         return "not_hot"
     async with tenant_session(tenant_id) as session:
+        # Before the `_already_enqueued` read below, not after it: two overlapping runs
+        # of one call would otherwise both see no promise and both queue the alert, and
+        # the owner is woken twice for one lead.
+        await lock_call_writes(session, call_id)
         await session.execute(
             text(
                 "UPDATE leads SET status = 'hot', updated_at = now() "
@@ -1219,9 +1301,96 @@ async def _maybe_notify_hot_lead(
 
 # --- job 3: reconciliation ----------------------------------------------------
 
+# How long after hangup the post-call pipeline is DEFINITELY late rather than merely
+# in flight. Two readers, one number, on purpose:
+#
+# - `_pipeline_settled` will not re-drive a call younger than this, so the poller never
+#   races a pipeline that is still working;
+# - `dispatcher.report_stalled_pipeline` alerts past it.
+#
+# So "the alarm says this call was dropped" and "the poller will try to repair it" are
+# the same instant by construction rather than two numbers that agree today. The value
+# has to clear the pipeline's whole retry ladder (`RETRY_BACKOFF_S` = 30s + 120s, plus
+# three job runs) with room to spare; ten minutes is roughly four times it, and is well
+# inside the poller's own 30-minute listing window so a stalled call still gets ticks.
+PIPELINE_STALL_AFTER = timedelta(minutes=10)
 
-async def _already_completed(engine_name: str, snapshot: ExecutionSnapshot) -> bool:
-    """Do we already hold a completed call row for this execution?
+
+# THE ONE RULE for "this call was owed an extraction", as SQL, because two readers need
+# it and neither can see the other's inputs.
+#
+# `_post_call_stages` decides in Python — `needs_extraction = bool(spec.fields or
+# transcript_text)` — and both of its inputs are durable afterwards: the turns are rows
+# and the schema is a row. So the same question is answerable from the database alone,
+# which is what `dispatcher.report_stalled_pipeline` (no snapshot, no engine) and
+# `_pipeline_settled` (a snapshot, but the schema is still only in the database) both
+# need. Written once here rather than twice in two SQL strings, in the same style as
+# `billing.caps.over_cap_sql`: the caller supplies the joins, this supplies the rule.
+#
+# CONTRACT: the caller must alias `calls` as `c` and LEFT JOIN `extraction_schemas` as
+# `es` through the agent. LEFT, not inner — a call whose agent row was since removed
+# still had a transcript and is still owed an extraction, and an inner join would drop
+# it silently.
+#
+# WHY IT MATTERS THAT IT IS THE SAME RULE: without it the stall alarm counted every
+# completed call with no `call_extractions` row, and a silent call on an agent with no
+# schema fields legitimately has none — `needs_extraction` is false for it and the
+# pipeline writes nothing. Those calls are permanently inside the 24-hour window, so the
+# alarm fired on healthy traffic twice an hour forever, which is how an alarm stops
+# being read before the first real stall arrives.
+EXTRACTION_OWED_SQL = (
+    "(EXISTS (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id) "
+    "OR COALESCE(jsonb_array_length(es.fields), 0) > 0)"
+)
+
+
+def _expected_artifacts(snapshot: ExecutionSnapshot, *, extraction_owed: bool) -> tuple[str, ...]:
+    """What a FINISHED pipeline must have left behind for THIS execution.
+
+    The whole trick of the probe below, and the reason it needs no schema column. Asked
+    without the snapshot, "is there a usage row" is unanswerable — a cost-less call, a
+    silent call and a call with no number to key a lead on are all legitimately bare, so
+    every absence reads as a stall and every healthy call is re-driven forever. Asked
+    WITH the snapshot in hand, the ambiguity is gone: the engine's own record says
+    whether this execution had a cost and whether it had a transcript, and an artefact
+    the engine's data implies is one the pipeline owed.
+
+    Three artefacts, each gated on the condition the pipeline itself gates on:
+
+    - `transcript_turns` — `_persist_transcript` upserts one row per turn and returns
+      early only on an empty transcript.
+    - `usage` — `_meter` writes rows for every call whose snapshot carries a cost, and
+      returns early only when rows already exist. Cost present with no usage row is a
+      pipeline that did not reach step 5.
+    - `extraction` — owed exactly when `needs_extraction` would be true, which the
+      caller resolves with `EXTRACTION_OWED_SQL` because half of it lives in the
+      database rather than in the snapshot.
+
+    NOT a lead: `_upsert_lead` returns None when the other party has no number, and that
+    is invisible from here without re-deriving the direction rule. Its absence is
+    covered transitively — a pipeline that reached metering reached the lead upsert.
+    """
+    expected: list[str] = []
+    if snapshot.transcript:
+        expected.append("transcript")
+    if snapshot.cost is not None:
+        expected.append("usage")
+    if extraction_owed:
+        expected.append("extraction")
+    return tuple(expected)
+
+
+#: What the poller decided about one execution. `settled` is the only answer that means
+#: "do nothing"; the other two are repair kinds, and they are separate because they are
+#: different incidents — `missing_call` is a webhook we never received (the engine's
+#: delivery is at most once, D-31) and `unfinished_pipeline` is a webhook we DID receive
+#: and then dropped on our own side. One counter for both would have made the second
+#: invisible for as long as the first kept happening.
+ReconcileVerdict = Literal["settled", "missing_call", "unfinished_pipeline"]
+
+
+async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> ReconcileVerdict:
+    """Is there nothing left for the post-call pipeline to do for this execution?
 
     THE QUESTION CAN ONLY BE ASKED INSIDE THE OWNING TENANT'S SESSION. `calls` is
     FORCE-RLS'd, so the untenanted probe this replaced returned zero rows for every
@@ -1235,49 +1404,91 @@ async def _already_completed(engine_name: str, snapshot: ExecutionSnapshot) -> b
     An execution we cannot map is handed to ingest anyway: it alerts on the unmapped
     agent, which is the outcome we want for a mis-provisioned agent.
 
-    **THIS ASKS "IS THE CALL ROW WRITTEN", NOT "DID THE PIPELINE FINISH", AND THAT IS
-    STILL A GAP — a deliberate one, recorded here rather than papered over.** Stage one
-    (`ingest_engine_event`) writes `status = 'completed'` and only then enqueues the
-    pipeline, so a pipeline that dies leaves a call this probe skips forever. The retry
-    ladder (`_abandon_post_call`) is what closes that for a blip, and a terminal alert is
-    what closes it for everything else; neither makes the poller able to re-drive a
-    half-finished call.
+    **IT USED TO ASK "IS THE CALL ROW WRITTEN", WHICH IS A DIFFERENT QUESTION, AND THE
+    DIFFERENCE WAS A CALL LOST FOREVER.** `ingest_engine_event` writes `status =
+    'completed'` and only THEN enqueues the pipeline, so a pipeline that never ran —
+    Redis refused the enqueue, the worker was killed mid-job, the retry ladder ran out —
+    left a completed call row with no transcript, no extraction, no lead and no usage
+    event, and the probe skipped it on every subsequent tick. D-31 calls the poller the
+    guarantee of record; for that shape it guaranteed only the status line. Measured
+    rather than argued: ten consecutive ticks repaired nothing and the artefacts stayed
+    at zero (`tests/poller_guarantee_test.py` is that experiment, kept).
 
-    Widening the probe was considered and rejected TWICE OVER:
+    Widening it was previously rejected on the grounds that there is no honest marker,
+    and that rejection was right about the marker and wrong about the question: see
+    `_expected_artifacts`, which reads the ambiguity out by asking what THIS snapshot
+    implies instead of what calls in general have. The alternative — a
+    `calls.pipeline_completed_at` column set in the last stage's transaction — would
+    answer "did the pipeline run", which is strictly weaker than "did the pipeline leave
+    what it owed": a run that completed while silently producing nothing is exactly the
+    shape a stage marker reports as healthy.
 
-    - There is no honest marker to widen it to. `usage_events`, a lead row, a transcript
-      and an extraction are each absent for calls that are perfectly finished — a
-      cost-less call, a call with no number to key a lead on, a silent call. Treating any
-      absence as "unfinished" re-drives healthy calls on every 10-minute tick and scores
-      each as a repair, which is the exact defect the paragraph above this one records
-      being fixed, and it puts a model round trip on the bill for each one.
-    - Re-driving is SAFE but not FREE. The stages are idempotent (proved in
-      `pipeline_audit_test`, not asserted), so nothing double-bills; the cost is
-      extraction and engine load, which is why "just always re-drive" is not the answer
-      either.
+    THE GRACE IS PART OF THE PROBE, not a caller's concern. Inside
+    `PIPELINE_STALL_AFTER` a bare completed call is overwhelmingly a pipeline that is
+    queued or walking its retry ladder, and re-driving it would put a second extraction
+    (a model round trip, billed) alongside one that is about to finish. Past it, the
+    pipeline is late by the SLO's own definition and the poller is what repairs it.
 
-    What it actually needs is a durable stage marker the pipeline writes when it finishes
-    — `calls.pipeline_completed_at`, set in the same transaction as the last stage — so
-    the question can be asked directly instead of inferred. That is a migration plus a
-    model change, and it is the right next slice; until it exists the terminal alert is
-    the operator's only signal, and it names the call id for the replay.
+    Costs one extra statement per completed execution and no extra round trip: both
+    EXISTS probes ride the same SELECT as the call row.
     """
     async with untenanted_session() as session:
         resolved = await _resolve_agent(session, engine_name, snapshot.engine_agent_ref)
     if resolved is None:
-        return False
+        return "missing_call"
     tenant_id, _agent_id = resolved
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
                 text(
-                    "SELECT 1 FROM calls WHERE engine_call_id = :ecid AND tenant_id = :tid "
-                    "AND status = 'completed' LIMIT 1"
+                    "SELECT c.ended_at, "
+                    "  EXISTS (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id) "
+                    "    AS has_transcript, "
+                    "  EXISTS (SELECT 1 FROM usage_events u WHERE u.call_id = c.id) AS has_usage, "
+                    "  EXISTS (SELECT 1 FROM call_extractions e WHERE e.call_id = c.id) "
+                    "    AS has_extraction, "
+                    f"  {EXTRACTION_OWED_SQL} AS extraction_owed "
+                    "FROM calls c "
+                    "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
+                    "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
+                    "WHERE c.engine_call_id = :ecid AND c.tenant_id = :tid "
+                    "AND c.status = 'completed' LIMIT 1"
                 ),
                 {"ecid": snapshot.engine_call_id, "tid": tenant_id},
             )
         ).first()
-    return row is not None
+    if row is None:
+        # No completed call row at all: the original question, and still the common case
+        # — a webhook that never arrived.
+        return "missing_call"
+    ended_at, has_transcript, has_usage, has_extraction, extraction_owed = row
+    present = {
+        "transcript": bool(has_transcript),
+        "usage": bool(has_usage),
+        "extraction": bool(has_extraction),
+    }
+    missing = [
+        name
+        for name in _expected_artifacts(snapshot, extraction_owed=bool(extraction_owed))
+        if not present[name]
+    ]
+    if not missing:
+        return "settled"
+    # `ended_at` is the engine's instant, not ours, and it can be absent on a call the
+    # engine completed without one. Fall back to the snapshot's own value and, failing
+    # that, treat the call as too young to judge: guessing "late" from a missing
+    # timestamp would re-drive on every tick, which is the loop this probe exists to
+    # avoid.
+    finished_at = ended_at or snapshot.ended_at
+    if finished_at is None or datetime.now(UTC) - finished_at < PIPELINE_STALL_AFTER:
+        return "settled"
+    log.warning(
+        # Ids and artefact NAMES only (hard rule 6) — `missing` is a fixed vocabulary
+        # from `_expected_artifacts`, never anything read out of a payload.
+        "reconciliation_pipeline_unfinished",
+        extra={"execution_id": snapshot.engine_call_id, "missing": ",".join(missing)},
+    )
+    return "unfinished_pipeline"
 
 
 async def reconcile_executions(ctx: dict[str, Any]) -> str:
@@ -1285,13 +1496,21 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
 
     Bolna delivers webhooks at most once with no retries, so an event lost to a deploy,
     a network blip or a 500 is lost forever at the webhook layer. This runs every 10
-    minutes, lists executions since the last window, and re-drives anything we have no
-    completed call row for. Every repair it makes is a webhook we never received —
-    which is why it emits a metric rather than passing quietly.
+    minutes, lists executions since the last window, and re-drives anything the post-call
+    pipeline has not actually finished (`_pipeline_settled`). Every repair it makes is a
+    call something dropped — which is why it emits a metric rather than passing quietly,
+    and why the metric names WHICH of the two drops it was.
 
     And it reports what it could NOT see. The listing is the only window onto lost calls,
     so an adapter that cannot vouch for having read all of it (`ExecutionListing.complete`)
     turns this tick into an incident: see the alert below.
+
+    ONE REPAIR ATTEMPT PER EXECUTION PER HOUR, and it is worth naming because it bounds
+    the guarantee: the ARQ job id below is fixed per execution and `WorkerSettings.
+    keep_result` is 3600s, so a re-drive that itself fails is not re-attempted until the
+    dedupe window closes — by which time the 30-minute listing window has moved past the
+    execution. A repair that fails is therefore the terminal alert's problem, not this
+    job's, and `_abandon_ingest`/`_abandon_post_call` are what make that alert exist.
     """
     engine = get_engine()
     since = datetime.now(UTC) - timedelta(minutes=30)
@@ -1329,7 +1548,8 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
     for snapshot in snapshots:
         if not snapshot.billable_ready:
             continue
-        if await _already_completed(engine.name, snapshot):
+        verdict = await _pipeline_settled(engine.name, snapshot)
+        if verdict == "settled":
             continue
         await enqueue(
             INGEST_JOB,
@@ -1342,7 +1562,7 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
             },
             job_id=job_id_for(INGEST_JOB, engine.name, snapshot.engine_call_id, "reconcile"),
         )
-        record_reconciliation_repair(kind="missing_call")
+        record_reconciliation_repair(kind=verdict)
         repaired += 1
 
     if repaired:
@@ -1356,8 +1576,11 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
 
 
 __all__ = [
+    "EXTRACTION_OWED_SQL",
     "INGEST_JOB",
+    "PIPELINE_STALL_AFTER",
     "POSTCALL_JOB",
+    "ReconcileVerdict",
     "ingest_engine_event",
     "reconcile_executions",
     "run_post_call_pipeline",

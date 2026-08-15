@@ -69,7 +69,9 @@ dispatch), `published` (handed to ARQ), `failed` (the outbox DLQ — publish fai
 `second={0, 10, 20, 30, 40, 50}`, `apps/workers/settings.py`).
 
 ```sql
-SELECT status, count(*), min(created_at) AS oldest
+SELECT status,
+       count(*) FILTER (WHERE locked_until > now()) AS waiting,
+       count(*), min(created_at) AS oldest
 FROM outbox_messages
 WHERE job = 'deliver_outbound_webhook'
 GROUP BY status;
@@ -77,6 +79,20 @@ GROUP BY status;
 
 - Growing `pending` backlog → the dispatcher or workers are down; check the
   `outbox_lag_seconds` metric (`apps/api/core/alerting.py`) and worker health first.
+- **`pending` WITH a future `locked_until` (the `waiting` column) is a THIRD state, and
+  it is the benign one.** It means the last tick could not reach Redis at all and handed
+  the batch back with a backoff instead of spending its attempt budget — alert
+  `OUTBOX_DISPATCH` / `outbox_queue_unreachable`, whose detail names how many messages
+  were deferred and says "deferred, not dead-lettered". Nothing is lost and there is
+  nothing to replay: **do not press the replay button for this**, it moves only `failed`
+  rows and would write an `ops.outbox_replay` audit entry for a redelivery that never
+  happened. Fix Redis; the next tick past the wait publishes the backlog. The wait grows
+  with the attempts a message has already spent
+  (`OUTBOX_SYSTEMIC_BACKOFF_S = 30` per attempt, capped at 300), which is what makes the
+  five-attempt budget cover minutes of downtime rather than the fifty seconds a
+  ten-second tick would otherwise spend it in. `last_error` on those rows names the Redis
+  error, and it is preserved rather than overwritten if they later dead-letter for a
+  different reason.
 - `failed` rows → each one fired alert `OUTBOX_DISPATCH` / `outbox_dead_letter` with
   the message id, and DLQ depth is the `outbox_dlq_depth` metric. Inspect
   `last_error` on the row. Replay is NOT a hand edit. **Console: Operations —

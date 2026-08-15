@@ -7,7 +7,7 @@ which is exactly why drift here is expensive: an agent or a new hire reads the d
 the command it names, and gets `No rule to make target`. The doc was believed — it was
 just wrong about a fact nobody re-checked.
 
-So this file does NOT judge prose. It answers five questions that have exactly one right
+So this file does NOT judge prose. It answers six questions that have exactly one right
 answer, each against a LIVE artefact rather than against a list of what we remember:
 
 1. **Commands resolve.** Every `make <target>`, `pnpm <script>` and `python -m <module>`
@@ -31,7 +31,16 @@ answer, each against a LIVE artefact rather than against a list of what we remem
    disagree about who owns the answer").
 4. **The rate-zone table mirrors the nginx template** — the moment that template exists.
    See DEFERRED_MIRRORS below: the config half of this claim has never been in the repo,
-   the deferral says so, and the deferral FAILS the day the file lands.
+   the deferral says so, and the deferral FAILS the day the file lands. Note what this
+   one is NOT about: `limit_req_zone` is REQUESTS per second, not rupees.
+4b. **The MONEY rate card mirrors what the biller bills.** TRD §10.1 prices the two TTS
+   rungs and `billing/rates.py::TTS_INR_PER_10K_CHARS` charges them, and until this
+   section existed a vendor price move could land in one and not the other with nothing
+   in the tree able to see it — the same class as 5 below, on the axis where it costs
+   money rather than credibility. §10.1 states each rate TWICE (per 10,000 chars in the
+   Sarvam card, per 1,000 in the per-minute table), so the doc is also checked against
+   itself: a document that disagrees with its own other table is the cheapest version of
+   this failure and the likeliest to survive review.
 5. **Prose that STATES a capability constant's value states the value the tree has.**
    This repo's defence against overclaiming is a greppable boolean beside the code —
    `PROVIDER_CREATES_ORDERS`, `LEAD_RETRIEVAL_IMPLEMENTED`, `PROVISIONING_IMPLEMENTED`,
@@ -143,6 +152,7 @@ import sys
 import tokenize
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from decimal import Decimal
 from functools import cache
 from pathlib import Path
 
@@ -881,6 +891,139 @@ def stale_deferrals(root: Path | None = None, deferrals: dict[str, str] | None =
     return failures
 
 
+# --- 4b. the TTS rate card mirrors the rate card the code bills on ---------------
+#
+# WHY THIS SECTION EXISTS. Section 4 above is about NGINX rate LIMIT zones — `limit_req_
+# zone`, requests per second. Nothing in this file, and nothing anywhere in the tree,
+# checked a MONEY rate against the doc that states it, which is where the drift class
+# D-102/D-103/D-105 found is most expensive: TRD §10.1 is the cost model the margin is
+# reasoned from, `billing/rates.py::TTS_INR_PER_10K_CHARS` is what a client is actually
+# billed against, and until now a vendor price move could land in one and not the other
+# with nothing able to notice. D-105 is the precedent that makes it concrete — a Sarvam
+# identifier moved under us and the cost model went on pricing the model we had stopped
+# calling.
+#
+# THE DOC STATES THE SAME RATE TWICE, and both spellings are checked. §10.1's Sarvam card
+# quotes the vendor's own unit ("₹30 / 10,000 chars"); the per-call-minute table below it
+# re-expresses the same rate per 1,000 ("₹3.00 / 1,000 chars"). A doc that disagrees with
+# ITSELF about a price is the cheapest possible version of this failure and the one most
+# likely to survive review, because each table reads fine alone.
+#
+# EVIDENCE LADDER (billing/payments.py's three rungs). The rates themselves are REPORTED,
+# NOT READ: `sarvam.ai` and `docs.sarvam.ai` are refused by this environment's egress
+# proxy, so the ₹30 / ₹15 figures are TRD §10.1's record of a live read on 11 Aug 2026
+# (D-35), corroborated Aug 2026 by two independent search summaries of the same pricing
+# page ("₹15-30 per 10,000 characters"; "₹30 per 10,000 characters"). What this check
+# proves is narrower and still worth having: that the doc and the code say ONE thing, so
+# the next correction has one place to land.
+
+#: Which doc carries the money rate card, and the heading its Sarvam table sits under.
+TRD = REPO_ROOT / "docs" / "TRD.md"
+TTS_RATE_HEADING = "### 10.1 Stack cost, computed from published rates"
+
+#: `| Text-to-Speech **Bulbul v3** | ₹30 / 10,000 chars |` — the vendor's own unit.
+_DOC_TTS_10K = re.compile(
+    r"\|[^|\n]*Bulbul\s*\*{0,2}(v[23])\*{0,2}[^|\n]*\|[^|\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*10,?000\s*chars",
+    re.IGNORECASE,
+)
+#: `| TTS — Bulbul **v3** | ₹3.00 / 1,000 chars | ... |` — the same rate, per 1,000.
+_DOC_TTS_1K = re.compile(
+    r"\|[^|\n]*Bulbul\s*\*{0,2}(v[23])\*{0,2}[^|\n]*\|[^|\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*1,?000\s*chars",
+    re.IGNORECASE,
+)
+
+#: Which code tier each doc row is a claim about. The doc names the VENDOR's product and
+#: the code names OUR rung (D-36: v3 is the default, v2 is the value tier), so the mapping
+#: is stated once here rather than assumed by either side.
+TTS_DOC_ROW_TO_TIER: dict[str, str] = {"v3": "premium", "v2": "value"}
+
+
+def _decimal(text: str) -> Decimal:
+    return Decimal(text.replace(",", ""))
+
+
+def doc_tts_rates(text: str | None = None) -> dict[str, Decimal]:
+    """TRD §10.1's TTS rate card as `{tier: INR per 10,000 chars}`.
+
+    Both doc spellings are read and reconciled: a per-1,000 figure is multiplied by ten,
+    and a row that appears in both tables at rates that do not reconcile yields the
+    per-10,000 figure PLUS a disagreement reported by `tts_rate_card_drift`. Returning
+    the union rather than one table means the check cannot be satisfied by deleting the
+    table it happens to read.
+    """
+    document = text if text is not None else TRD.read_text(encoding="utf-8")
+    body = _section(document, TTS_RATE_HEADING, "\n### ")
+    if body is None:
+        return {}
+    rates: dict[str, Decimal] = {}
+    for version, amount in _DOC_TTS_10K.findall(body):
+        rates[TTS_DOC_ROW_TO_TIER[version.lower()]] = _decimal(amount)
+    for version, amount in _DOC_TTS_1K.findall(body):
+        rates.setdefault(TTS_DOC_ROW_TO_TIER[version.lower()], _decimal(amount) * 10)
+    return rates
+
+
+def doc_tts_rate_disagreements(text: str | None = None) -> list[str]:
+    """Where §10.1's two tables price the same rung differently."""
+    document = text if text is not None else TRD.read_text(encoding="utf-8")
+    body = _section(document, TTS_RATE_HEADING, "\n### ")
+    if body is None:
+        return []
+    per_10k = {v.lower(): _decimal(a) for v, a in _DOC_TTS_10K.findall(body)}
+    per_1k = {v.lower(): _decimal(a) * 10 for v, a in _DOC_TTS_1K.findall(body)}
+    return [
+        f"{_rel(TRD)} §10.1 prices Bulbul {version} at ₹{per_10k[version]}/10,000 chars in "
+        f"the Sarvam card and ₹{per_1k[version] / 10}/1,000 chars (= ₹{per_1k[version]}"
+        "/10,000) in the per-call-minute table — the same rate, stated twice, disagreeing"
+        for version in sorted(set(per_10k) & set(per_1k))
+        if per_10k[version] != per_1k[version]
+    ]
+
+
+def code_tts_rates() -> dict[str, Decimal]:
+    """`billing/rates.py::TTS_INR_PER_10K_CHARS` — what a client is billed against.
+
+    Imported rather than parsed, for the reason `conf_rate_zones` parses the DIRECTIVE
+    rather than the comment beside it: the value the code holds at runtime is the thing a
+    tenant's bill is computed from, and a source scan could be satisfied by a literal the
+    module never uses.
+    """
+    from apps.api.billing.rates import TTS_INR_PER_10K_CHARS
+
+    return {str(tier): rate for tier, rate in TTS_INR_PER_10K_CHARS.items()}
+
+
+def tts_rate_card_drift(text: str | None = None) -> list[str]:
+    """TRD §10.1's rate card against the rate card the biller uses. Both directions.
+
+    A tier in one and not the other is drift, and so is a tier in both at different
+    rupees — the second is the one that reads as fine in review, because the rungs all
+    line up and only the number moved.
+    """
+    declared = doc_tts_rates(text)
+    billed = code_tts_rates()
+    failures = list(doc_tts_rate_disagreements(text))
+    failures += [
+        f"{_rel(TRD)} §10.1 prices the {tier} TTS rung at ₹{rate}/10,000 chars, and "
+        "`billing/rates.py::TTS_INR_PER_10K_CHARS` has no such rung"
+        for tier, rate in sorted(declared.items())
+        if tier not in billed
+    ]
+    failures += [
+        f"`billing/rates.py::TTS_INR_PER_10K_CHARS` bills the {tier} rung at ₹{rate}/10,000 "
+        f"chars, and {_rel(TRD)} §10.1's rate card does not state it"
+        for tier, rate in sorted(billed.items())
+        if tier not in declared
+    ]
+    failures += [
+        f"the {tier} TTS rung: {_rel(TRD)} §10.1 says ₹{declared[tier]}/10,000 chars, "
+        f"`billing/rates.py` bills ₹{billed[tier]}. A client is billed the code"
+        for tier in sorted(set(declared) & set(billed))
+        if declared[tier] != billed[tier]
+    ]
+    return failures
+
+
 # --- 5. prose that quotes a capability constant's value quotes the right one ----
 
 
@@ -1221,6 +1364,16 @@ def blind_spots() -> list[str]:
             f"{_rel(DEPLOYMENT)} §5.4's rate-zone table did not parse — section 4 would "
             "accept any template that ever lands"
         )
+    # The money rate card, blinded the same way. A heading rename or a table rewritten
+    # into prose leaves `doc_tts_rates()` empty, at which point section 4b would report
+    # OK on any price the biller carried — including one nobody agreed.
+    declared_tts = doc_tts_rates()
+    if set(declared_tts) != set(code_tts_rates()):
+        failures.append(
+            f"{_rel(TRD)} §10.1's TTS rate card parsed to {sorted(declared_tts)} against "
+            f"the {sorted(code_tts_rates())} rungs `billing/rates.py` bills — the table's "
+            "shape moved, so section 4b is comparing against a partial reading"
+        )
     constants = capability_constants()
     if len(constants) < 3:
         failures.append(
@@ -1251,6 +1404,7 @@ def main() -> int:
         ("the decision log numbers a decision twice", duplicate_decision_ids()),
         ("a compliance rule name the code no longer has", unknown_rule_names()),
         ("the rate-zone table and the nginx template disagree", rate_zone_drift()),
+        ("the cost model and the biller price a TTS rung differently", tts_rate_card_drift()),
         ("a deferral that no longer holds", stale_deferrals()),
         ("prose states a capability constant's value, and the tree disagrees", capability_drift()),
     )
@@ -1274,6 +1428,7 @@ def main() -> int:
         f"{len(decision_ids())} decisions with no dangling reference, "
         f"{len(compliance_section_tokens())} names in SEC-COMP §3 still in the code, "
         f"{len(doc_rate_zones())} rate zones declared, "
+        f"{len(doc_tts_rates())} TTS rungs priced identically by TRD §10.1 and the biller, "
         f"{len(value_claims())} sentences quote one of "
         f"{len(capability_constants())} capability constants correctly, "
         f"{len(DEFERRED_MIRRORS)} deferred mirror)"

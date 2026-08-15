@@ -38,6 +38,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
+from tests.national_dnd_test import record_test_scrub
 
 pytestmark = [pytest.mark.rls]
 
@@ -116,6 +117,10 @@ async def _campaign(
         campaign_id=campaign_id,
         contacts=[{"phone": "9876590001", "name": "Ravi"}],
     )
+    # The national DND scrub SEC-COMP §3 asks for (migration a1c8e40f27b9), supplied
+    # through the production writer so this module keeps measuring what it is about —
+    # a promotional campaign that is ready except for its consent provenance.
+    await record_test_scrub(session, campaign_id)
     return campaign_id
 
 
@@ -281,6 +286,8 @@ async def test_a_campaign_predating_the_columns_is_blocked_not_silently_consente
             campaign_id=legacy_id,
             contacts=[{"phone": "9876590009"}],
         )
+        # As in `_campaign`: everything §3 asks for except the provenance under test.
+        await record_test_scrub(session, legacy_id)
         source = (
             await session.execute(
                 text("SELECT consent_source FROM campaigns WHERE id = :c"), {"c": legacy_id}

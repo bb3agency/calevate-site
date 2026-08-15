@@ -41,7 +41,13 @@ applies to anything you copy out of a KB document into a ticket.
 | `kb_engine_out_of_sync` | "The voice platform holds knowledge we cannot account for" | The engine is serving this agent **at least one document no row of ours mentions** |
 
 `_require_addressable` runs first, deliberately: when both are true, the missing-handle
-diagnosis is the more specific one and is the one an operator should be handed.
+diagnosis is the more specific one and is the one an operator should be handed. That
+ordering is asserted — with a case where both conditions really do hold at once, and with
+the two remediations checked for not having converged — by
+`tests/kb_flow_promises_test.py::test_when_both_diagnoses_hold_the_operator_is_handed_the_specific_one`.
+If you are reading this because the code sent you the OTHER refusal, that test is where to
+look first: the swap is a one-line edit and it is exactly the failure this section warns
+about.
 
 Both are logged with ids only — `kb_engine_ref_unknown` at WARNING with `source_id`,
 `kb_engine_out_of_sync` at ERROR with `agent_id` and a COUNT of unaccounted handles

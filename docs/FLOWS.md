@@ -19,8 +19,10 @@ Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume
 4. **Agent draft**: system prompt generated from intake (template + LLM assist), reviewed/
    edited by admin; disclosure line auto-inserted (non-removable); extraction schema
    pre-filled from vertical template, edited per client; voice/language/model picks.
-5. **Knowledge**: upload PDFs/URLs/text → parse → chunk preview → admin approves →
-   embeddings job → attach to engine KB (adapter).
+5. **Knowledge**: paste text → chunk preview → admin approves → publish, which attaches
+   it to the engine KB (adapter) and recompiles T0. Same path and same limits as §7,
+   which is the one description of it — PDFs and URLs are refused by name until an
+   ingestion worker exists, and there is no embeddings job of ours (D-28/D-33).
 6. **Number & compliance** (see §10 for the full model): inbound DID provisioned via
    adapter API (no SIMs — numbers are virtual, ~₹/hundreds/month rental, one-per-client
    mandatory); existing client number handled by call-forwarding to the DID (porting only
@@ -209,12 +211,38 @@ finishes the job on the first attempt, so `max_tries` counts nothing for it.
 
 ## 7. Knowledge Update Flow (client-initiated)
 
-Client (owner) uploads doc / pastes text / submits URL → parse+chunk → side-by-side
-preview → client submits → admin approve (or auto-approve toggle per client later) →
-version bump → embeddings → T0 recompilation → engine KB sync → regression smoke
-(3 canned questions answered from new content) → live. Rollback = republish an earlier
-version (the archived row; eligibility is `approved_at IS NOT NULL`, never the current
-`status`, or the recovery path refuses the only rows it exists for).
+Client (owner) pastes text → chunk → side-by-side preview → client submits → admin
+approve (or auto-approve toggle per client later) → version bump → T0 recompilation →
+engine KB sync → live. Rollback = republish an earlier version (the archived row;
+eligibility is `approved_at IS NOT NULL`, never the current `status`, or the recovery
+path refuses the only rows it exists for).
+
+**Three steps this line used to name are not in it, and each is absent for a different
+reason.** They were removed rather than left as a flow nobody walks — a promised step
+that does not exist is read by the next reader as a step somebody forgot to call.
+
+- **"uploads doc / submits URL" and "parse".** Neither exists: `kb.service.submit_source`
+  chunks the pasted body and nothing else. A submission naming `kind="url"` or `"file"`
+  is now REFUSED by name (`kb_kind_unsupported`) instead of being accepted with its `uri`
+  written to a column nothing reads. What closes it is TRD §6's offline ingestion worker —
+  a URL fetcher with its own SSRF design, plus a document parser. **Externally blocked**:
+  LlamaParse is the named parser candidate and no vendor account has been opened.
+- **"embeddings".** D-28 moved retrieval to a managed API service and D-33 keeps v1's
+  in-call retrieval on the ENGINE's built-in knowledge base, so there is no embedding step
+  of ours to run — `attach_kb` hands the text over and the engine indexes it. Closes (as a
+  real step) only if the D-28 bake-off puts in-call retrieval on the managed provider.
+- **"regression smoke (3 canned questions answered from new content)".** This one cannot
+  be built on our side at all, and the reason is the same one that leaves
+  `kb_retrieval_logs` without a producer (`apps/api/kb/models.py`): **we have no way to
+  ask the engine's knowledge base a question.** Retrieval happens inside the engine's
+  pipeline (D-33); `VoiceEngine` exposes `attach_kb`/`detach_kb`/`list_kb` — ingestion and
+  bookkeeping — and neither `CallEvent` nor `ExecutionSnapshot` carries a retrieval query,
+  tier or score. The only instrument that would answer "is the new content retrievable"
+  is a live PSTN call, which is pilot gate 8's Telugu retrieval probe
+  (`scripts/pilot/knowledge.py::probe_telugu_retrieval`), not a per-publish step. What
+  publish DOES verify is the half it can see: the detach is confirmed before the attach
+  (below), and the T0 recompile mints a new prompt version carrying the newly live facts.
+  `tests/kb_flow_promises_test.py` fails the day this paragraph and the code disagree.
 
 **Engine KB sync is DETACH-then-attach, and a failed detach aborts the publish (D-41).**
 Archiving a row only changes our tables; what the caller hears is what the ENGINE holds,

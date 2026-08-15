@@ -75,6 +75,7 @@ from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.national_dnd_test import record_test_scrub
 
 # The organizations this test provisions so the two candidate shapes are distinguishable
 # on ANY database, including a freshly seeded one.
@@ -426,6 +427,11 @@ async def _running_campaign(
                 {"phone": f"98765{n:05d}", "name": f"Lead {n}"} for n in range(10, 10 + contacts)
             ],
         )
+        # The national DND scrub SEC-COMP §3 asks for (migration a1c8e40f27b9).
+        # A promotional campaign is launch-ready only once an access provider has
+        # preference-scrubbed its list, so this fixture supplies the fact through the
+        # production writer — `tests/national_dnd_test.py` proves the refusal is real.
+        await record_test_scrub(session, campaign_id)
         await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
     return campaign_id
 

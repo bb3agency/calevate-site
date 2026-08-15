@@ -584,6 +584,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a national DND (NCPR) scrub of this campaign's list (step-up, audited)
+         * @description The national half of SEC-COMP §3's DNC bullet. An access provider's DLT platform scrubs a submitted list against the customer preference register and returns a reference, a report and a verdict valid until 23:59:59 IST that day; this records the run and marks the numbers it blocked as `dnc_blocked` on the campaign. Until a current run exists, `launch_blockers` and `dispatch_blockers` refuse promotional campaigns with `national_dnd_scrub_missing` or `national_dnd_scrub_expired`.
+         */
+        post: operations["record_preference_scrub_v1_admin_tenants__tenant_id__campaigns__campaign_id__preference_scrub_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/commercial-terms": {
         parameters: {
             query?: never;
@@ -2798,6 +2818,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/dnc/global": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every platform-wide suppression, masked — what we refuse to dial for anyone */
+        get: operations["list_global_v1_ops_dnc_global_get"];
+        put?: never;
+        /**
+         * Suppress numbers for EVERY tenant (step-up confirmed, audited)
+         * @description Writes `dnc_list` rows with `scope='global'` — an absolute platform-wide refusal to dial, honoured by every tenant's compliance gate on the next dispatch decision and removable by no client. Use it for a regulator, TSP or registrar instruction naming a number, or for a number this platform must never call again. It is NOT the national customer preference register: that is a per-list scrub run on an access provider's DLT platform and recorded against the campaign it covers.
+         */
+        post: operations["suppress_globally_v1_ops_dnc_global_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/dnc/global/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Lift a platform-wide suppression (step-up confirmed, audited)
+         * @description 204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted
+         *     holds a phone number, and the response to "stop suppressing this" is not the place
+         *     to repeat it. The `source` this reads is for the audit row.
+         */
+        delete: operations["release_globally_v1_ops_dnc_global__entry_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/outbox/replay": {
         parameters: {
             query?: never;
@@ -4935,6 +4998,51 @@ export interface components {
              */
             source: "platform_default" | "tenant_override";
         };
+        /** GlobalEntryOut */
+        GlobalEntryOut: {
+            /**
+             * Added At
+             * Format: date-time
+             */
+            added_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Phone Masked */
+            phone_masked: string;
+            /** Removable */
+            removable: boolean;
+            /** Scope */
+            scope: string;
+            /** Source */
+            source: string | null;
+        };
+        /** GlobalSuppressIn */
+        GlobalSuppressIn: {
+            /** Numbers */
+            numbers: string[];
+            /** Reason */
+            reason: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "regulator" | "platform_block";
+        };
+        /**
+         * GlobalSuppressOut
+         * @description Counts, never numbers — `compliance/dnc.py`'s module docstring argues it.
+         */
+        GlobalSuppressOut: {
+            /** Added */
+            added: number;
+            /** Already Suppressed */
+            already_suppressed: number;
+            /** Malformed */
+            malformed: number;
+        };
         /**
          * HealthSignalOut
          * @description One thing wrong with one account, in machine names only.
@@ -6131,6 +6239,30 @@ export interface components {
             /** Label */
             label: string;
         };
+        /**
+         * NationalDndScrubOut
+         * @description The national preference scrub of this campaign's list, as evidence.
+         *
+         *     Counts and a provider reference; never a number (hard rule 6) — the provider's own
+         *     report returns counts too. `is_current` is computed by
+         *     `compliance.preference_scrub.ScrubState`, the same property the launch gate and the
+         *     dispatch tick read, so a screen can never say "scrubbed" about a run the gate is
+         *     refusing.
+         */
+        NationalDndScrubOut: {
+            /** Expires At */
+            expires_at: string | null;
+            /** Is Current */
+            is_current: boolean;
+            /** Provider */
+            provider: string | null;
+            /** Scrub Ref */
+            scrub_ref: string | null;
+            /** Scrubbed At */
+            scrubbed_at: string | null;
+            /** Suppressed Count */
+            suppressed_count: number | null;
+        };
         /** NumberCreatedOut */
         NumberCreatedOut: {
             /** Dlt Status */
@@ -6390,6 +6522,58 @@ export interface components {
             outbox_dead_letters: components["schemas"]["DeadLetterQueueOut"];
             tm_registration: components["schemas"]["TmRegistrationOut"];
         };
+        /**
+         * PreferenceScrubIn
+         * @description One scrub, as an access provider's DLT platform reported it.
+         *
+         *     `submitted_count` is deliberately NOT a field. The count that matters is how many
+         *     contacts were pending when the run was recorded, and that is something we can read
+         *     rather than something an operator can mistype — see `record_scrub_run`.
+         */
+        PreferenceScrubIn: {
+            /** Blocked Numbers */
+            blocked_numbers?: string[];
+            /** Provider */
+            provider: string;
+            /** Scrub Ref */
+            scrub_ref: string;
+            /**
+             * Scrubbed At
+             * Format: date-time
+             */
+            scrubbed_at: string;
+        };
+        /**
+         * PreferenceScrubOut
+         * @description What the recording did, and whether the gate is now satisfied.
+         *
+         *     `is_current` is returned rather than left to the caller to derive from `expires_at`,
+         *     because the answer an operator needs is "will this campaign launch now" and a run
+         *     recorded after its own day has ended is a legitimate historical record that does not
+         *     satisfy the gate. Counts only; no number comes back.
+         */
+        PreferenceScrubOut: {
+            /** Expires At */
+            expires_at: string | null;
+            /** Is Current */
+            is_current: boolean;
+            /** Malformed */
+            malformed: number;
+            /** Provider */
+            provider: string | null;
+            /** Recorded */
+            recorded: boolean;
+            /** Scrub Ref */
+            scrub_ref: string | null;
+            /** Scrubbed At */
+            scrubbed_at: string | null;
+            /** Submitted */
+            submitted: number;
+            /** Suppressed */
+            suppressed: number;
+            /** Unmatched */
+            unmatched: number;
+        };
         /** ProgressOut */
         ProgressOut: {
             /** Concurrency */
@@ -6398,8 +6582,11 @@ export interface components {
             contacts: {
                 [key: string]: number;
             };
+            /** Dnc Scrubbed At */
+            dnc_scrubbed_at?: string | null;
             /** Launched At */
             launched_at: string | null;
+            national_dnd_scrub?: components["schemas"]["NationalDndScrubOut"] | null;
             recurrence?: components["schemas"]["RecurrenceOut"] | null;
             /** Schedule Blocked Rules */
             schedule_blocked_rules?: string[];
@@ -9072,6 +9259,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UndoOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_preference_scrub_v1_admin_tenants__tenant_id__campaigns__campaign_id__preference_scrub_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferenceScrubIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceScrubOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -12827,6 +13052,103 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ConfigWriteOut"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_global_v1_ops_dnc_global_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlobalEntryOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    suppress_globally_v1_ops_dnc_global_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GlobalSuppressIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlobalSuppressOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    release_globally_v1_ops_dnc_global__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {

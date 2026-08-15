@@ -41,6 +41,7 @@ from apps.api.engine import reset_engine_cache
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.national_dnd_test import record_test_scrub
 
 
 def _app() -> FastAPI:
@@ -140,6 +141,11 @@ async def _launchable_campaign(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> uui
             campaign_id=campaign_id,
             contacts=[{"phone": "9876520001"}],
         )
+        # The national DND scrub SEC-COMP §3 asks for (migration a1c8e40f27b9).
+        # A promotional campaign is launch-ready only once an access provider has
+        # preference-scrubbed its list, so this fixture supplies the fact through the
+        # production writer — `tests/national_dnd_test.py` proves the refusal is real.
+        await record_test_scrub(session, campaign_id)
     return campaign_id
 
 

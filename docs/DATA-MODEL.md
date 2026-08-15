@@ -150,6 +150,13 @@ campaigns(id, tenant_id, agent_id, name, classification ENUM[promotional,transac
   -- together or not at all — a date with no source names nothing.
   -- launch is BLOCKED unless: entity DLT-registered, template approved, number series
   -- matches classification (140⇔promotional / 160|standard⇔service-transactional), DNC scrub done.
+  -- dnc_scrubbed_at (migration a1c8e40f27b9): WHEN the tenant-list scrub ran, stamped by
+  -- `launch_campaign` in the SAME statement as the transition to `running` — a second
+  -- UPDATE would survive a CAS that lost its race and claim a scrub for a launch that
+  -- never happened. It is the scrub timestamp SEC-COMP §3 promises for OUR half; the
+  -- NATIONAL half's timestamp is the provider's, in `preference_scrub_runs.scrubbed_at`,
+  -- because the two scrubs are run by different parties at different times. Nullable
+  -- with no backfill: a campaign launched before the column has no honest answer.
 campaign_contacts(id, tenant_id, campaign_id, phone_e164, name, custom JSONB,
   status ENUM[pending,dialing,connected,no_answer,failed,dnc_blocked,completed],
   attempts INT, last_attempt_at, next_attempt_at, last_call_id NULL → calls ON DELETE
@@ -159,11 +166,22 @@ campaign_contacts(id, tenant_id, campaign_id, phone_e164, name, custom JSONB,
   -- INDEX ix_campaign_contacts_due (campaign_id, status, next_attempt_at).
 dnc_list(id, tenant_id NULL, phone_e164, scope ENUM[global,tenant], source, added_at,
   CHECK ((scope='global' AND tenant_id IS NULL) OR (scope='tenant' AND tenant_id IS NOT NULL)),
-  UNIQUE(tenant_id, phone_e164))
+  UNIQUE(tenant_id, phone_e164),
+  UNIQUE INDEX uq_dnc_list_global_phone (phone_e164) WHERE tenant_id IS NULL)
   -- ASYMMETRIC RLS, the one deviation from the §1 pattern: the USING (read) clause also
   -- admits `tenant_id IS NULL` so a globally suppressed number is honoured for everyone,
-  -- while WITH CHECK (write) does not — a tenant must not be able to suppress a number
-  -- for every other client.
+  -- while WITH CHECK (write) admits a global row ONLY for a session carrying no
+  -- `app.tenant_id` (migration a1c8e40f27b9) — a tenant must not be able to suppress a
+  -- number for every other client, and that half is unchanged.
+  -- `scope='global'` is an ABSOLUTE platform-wide suppression (a regulator/TSP
+  -- instruction naming a number, or our own permanent refusal), written only by
+  -- `POST /v1/ops/dnc/global` — step-up confirmed and audited. It is NOT the national
+  -- customer preference register: NCPR preferences are category-scoped (a fully-blocked
+  -- subscriber still receives transactional calls) and expire daily, so loading them
+  -- here would refuse lawful traffic. That is `preference_scrub_runs` in §9.
+  -- The PARTIAL unique index is the one that constrains global rows: NULLs are distinct
+  -- in a unique index, so `UNIQUE(tenant_id, phone_e164)` never applied to them, and
+  -- nothing noticed because until a1c8e40f27b9 nothing could write one.
 inbound_webhooks(id, tenant_id, source ENUM[meta_lead_ads,website_form,zoho,sheets,custom],
   secret_ref TEXT, agent_id, mapping JSONB, active BOOL)   -- lead-in → instant call
 outbound_webhooks(id, tenant_id, kind ENUM[webhook,google_sheets], url TEXT,
@@ -335,6 +353,32 @@ invoices(id, tenant_id, period, lines JSONB, subtotal, gst, total,
 ## 9. Compliance & Audit
 
 ```
+preference_scrub_runs(id, tenant_id → organizations ON DELETE RESTRICT,
+  campaign_id → campaigns ON DELETE SET NULL, provider TEXT, scrub_ref TEXT,
+  scrubbed_at, expires_at, submitted_count INT, suppressed_count INT,
+  recorded_by_admin_id → admin_users NULL, recorded_at,
+  UNIQUE(campaign_id, provider, scrub_ref),
+  CHECK (length(btrim(provider)) >= 2), CHECK (length(btrim(scrub_ref)) >= 3),
+  CHECK (submitted_count >= 0),
+  CHECK (suppressed_count >= 0 AND suppressed_count <= submitted_count),
+  CHECK (expires_at > scrubbed_at))
+  -- The NATIONAL half of SEC-COMP §3's DNC bullet (migration a1c8e40f27b9). The
+  -- customer preference register is not obtainable — it lives on the access providers'
+  -- DLT platform, which scrubs a SUBMITTED list and returns a reference, a count and a
+  -- verdict valid to 23:59:59 that day — so the durable fact is a RUN, not a row per
+  -- number. Read by `compliance.preference_scrub.national_dnd_blocker` as
+  -- `national_dnd_scrub_missing` / `_expired` / `_incomplete`, asked by BOTH
+  -- `launch_blockers` and `dispatch_blockers` because the window closes at midnight IST
+  -- while a campaign keeps dialling. Promotional campaigns only: under full DND every
+  -- category is blocked except service-implicit and transactional traffic is delivered
+  -- regardless, so gating those would suppress calls the subscriber is entitled to.
+  -- COUNTS ONLY — no phone number is stored (hard rule 6); the numbers the register
+  -- blocked become `campaign_contacts.status='dnc_blocked'`, never `dnc_list` rows,
+  -- because a preference blocks a CLASS of traffic today and does not suppress the
+  -- person forever. INSERT-only (`APPEND_ONLY_TABLES`) with ONE bounded exception the
+  -- trigger names: `ON DELETE SET NULL` on `campaign_id` is executed by Postgres as an
+  -- UPDATE, and a blanket trigger would make a scrubbed campaign undeletable forever.
+  -- Standard §1 RLS created with the table.
 dlt_registrations(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT, pe_id TEXT,
   entity_name TEXT, status ENUM[not_started,submitted,active,suspended,rejected]
   NOT NULL DEFAULT 'not_started',

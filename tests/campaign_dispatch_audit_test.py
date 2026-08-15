@@ -68,6 +68,7 @@ from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import ACTIVE_STATUSES, dispatch_campaign_tick
 from calevate_shared.engine import CallContext
 from sqlalchemy import text
+from tests.national_dnd_test import record_test_scrub
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -223,6 +224,11 @@ async def _launched(
             campaign_id=campaign_id,
             contacts=[{"phone": p, "name": f"Lead {p[-4:]}"} for p in phones],
         )
+        # The national DND scrub SEC-COMP §3 asks for (migration a1c8e40f27b9).
+        # A promotional campaign is launch-ready only once an access provider has
+        # preference-scrubbed its list, so this fixture supplies the fact through the
+        # production writer — `tests/national_dnd_test.py` proves the refusal is real.
+        await record_test_scrub(session, campaign_id)
         # The real gate, unmodified: if any fixture above were missing this raises.
         await campaigns.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
     return tenant_id, agent_id, campaign_id, number_id, template_id

@@ -14,6 +14,16 @@ But a number can join the list BETWEEN launch and dial (an opt-out from another 
 hard rule 5's propagation requirement), so the dispatcher runs the full compliance
 gate again per contact at dial time. The scrub is UX; the per-dial check is the law.
 
+**That scrub is the TENANT list, and §3 certifies two.** The national customer
+preference register is not ours to read — an access provider's DLT platform scrubs a
+list we submit and returns a reference, a count and a verdict valid to the end of the
+day (`apps/api/compliance/preference_scrub.py` carries the sources). So the national
+half is a recorded RUN rather than a query, `national_dnd_scrub_missing` /
+`national_dnd_scrub_expired` refuse a promotional campaign without a current one, and
+`dnc_scrubbed_at` finally records when our own scrub happened. Before this
+pair, "scrubbed against both lists" and "scrubbed against one" were indistinguishable
+from every screen.
+
 **And the paperwork is re-read every tick, not only at launch.** `launch_blockers` is a
 photograph of §3 taken when the button was clicked; a campaign then runs for days, over
 which a registrar can reject the voice template, a TSP can pull the number's header, a
@@ -44,6 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.campaigns.models import CONSENT_SOURCES, REFUSED_CONSENT_SOURCES
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
+from apps.api.compliance.preference_scrub import national_dnd_blocker, read_current_scrub
 from apps.api.compliance.registration import pe_registration_blocker
 from apps.api.compliance.service import (
     DEFAULT_WINDOW,
@@ -288,10 +299,18 @@ async def dispatch_blockers(
     # carry it: that gate is also the single-lead paths, which are not campaigns
     # (`compliance/first_campaign.py` states the residual that leaves).
     held = await first_campaign_hold_blocker(session, tenant_id=tenant_id)
+    # The national DND scrub is the one rule here with a deadline we can predict to the
+    # second: a provider's scrub is valid only to 23:59:59 IST of the day it was run, so
+    # a campaign that launched on a valid scrub is dialling an unscrubbed list by
+    # morning. Asking it once at launch would make the expiry decorative.
+    unscrubbed = await national_dnd_blocker(
+        session, campaign_id=campaign_id, classification=facts.classification
+    )
     return [
         *([LaunchBlocker(*held)] if held is not None else []),
         *(await _entity_blockers(session, tenant_id=tenant_id, facts=facts)),
         *_channel_blockers(facts),
+        *([LaunchBlocker(*unscrubbed)] if unscrubbed is not None else []),
     ]
 
 
@@ -738,6 +757,22 @@ async def launch_blockers(
     # WHAT it may say and from WHERE (SEC-COMP §3, bullet two).
     blockers.extend(_channel_blockers(facts))
 
+    # SEC-COMP §3, third bullet, NATIONAL half. Refused rather than warned about,
+    # because the bullet is a legal claim: a promotional campaign dialled without a
+    # preference scrub is exactly the traffic that produces the
+    # 5-complaints-in-10-days TSP enforcement §1 records, and hard rule 5 forbids
+    # softening a gate condition. It cannot be a self-inflicted outage — the DLT scrub
+    # facility comes with the same Registered Telemarketer relationship that produces
+    # `platform_state.tm_id`, and `tm_registration_missing` above already refuses every
+    # campaign until that exists. `transactional` and `service` campaigns are outside
+    # it, because a preference does not suppress transactional or service-implicit
+    # traffic (`compliance/preference_scrub.py` carries the sources).
+    unscrubbed = await national_dnd_blocker(
+        session, campaign_id=campaign_id, classification=facts.classification
+    )
+    if unscrubbed is not None:
+        blockers.append(LaunchBlocker(*unscrubbed))
+
     # Pending AND dialable are different numbers, and the difference is the whole point
     # of this blocker: the scrub launch is about to run marks every DNC-listed contact
     # terminally. Counting raw `pending` rows told the client "you have contacts" and
@@ -837,9 +872,17 @@ async def launch_campaign(
         {"cid": campaign_id, "tid": tenant_id},
     )
 
+    # `dnc_scrubbed_at` is stamped in the SAME statement as the transition, not beside
+    # it: SEC-COMP §3 promises a scrub timestamp, and a timestamp written by a second
+    # UPDATE would survive a CAS that lost its race and claim a scrub for a launch that
+    # never happened. It is the moment the scrub above committed, and it records the
+    # TENANT-list half only — the national half's timestamp is the provider's, in
+    # `preference_scrub_runs.scrubbed_at`, because the two scrubs are run by different
+    # parties at different times and one column could only ever be honest about one.
     result = await session.execute(
         text(
-            "UPDATE campaigns SET status = 'running', launched_at = now(), updated_at = now() "
+            "UPDATE campaigns SET status = 'running', launched_at = now(), "
+            "dnc_scrubbed_at = now(), updated_at = now() "
             "WHERE id = :cid AND status IN ('draft', 'scheduled')"
         ),
         {"cid": campaign_id},
@@ -1053,7 +1096,7 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
                 # start time that has already been honoured.
                 "  CASE WHEN status = 'scheduled' THEN schedule->>'start_at' END, "
                 "  CASE WHEN status = 'scheduled' THEN schedule->'last_blocked'->'rules' END, "
-                "  schedule "
+                "  schedule, dnc_scrubbed_at "
                 "FROM campaigns WHERE id = :cid"
             ),
             {"cid": campaign_id},
@@ -1062,6 +1105,12 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
     if campaign is None:
         raise ProblemError.not_found("Campaign")
     blocked_rules = campaign[4]
+    # BOTH scrubs, side by side, and that pairing is the point. SEC-COMP §3 certifies a
+    # list as scrubbed against the national DND AND the tenant list; until this pair
+    # existed, "scrubbed against both" and "scrubbed against one" rendered identically
+    # on every screen an operator or a client could reach. `national_dnd` is None when
+    # no run has ever been recorded, which is the honest reading of an absent artefact.
+    scrub = await read_current_scrub(session, campaign_id=campaign_id)
     return {
         "status": campaign[0],
         "launched_at": campaign[1],
@@ -1071,6 +1120,19 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
         "scheduled_start_at": campaign[3],
         "schedule_blocked_rules": [str(rule) for rule in blocked_rules] if blocked_rules else [],
         "recurrence": describe_recurrence(campaign[5]),
+        "dnc_scrubbed_at": campaign[6],
+        "national_dnd_scrub": (
+            {
+                "provider": scrub.provider,
+                "scrub_ref": scrub.scrub_ref,
+                "scrubbed_at": scrub.scrubbed_at,
+                "expires_at": scrub.expires_at,
+                "suppressed_count": scrub.suppressed_count,
+                "is_current": scrub.is_current,
+            }
+            if scrub.recorded
+            else None
+        ),
     }
 
 
