@@ -153,6 +153,20 @@ async def test_the_billing_month_is_ist_not_utc() -> None:
     wrong makes an invoice disagree with the client's own diary."""
     tenant_id, call_id = await _tenant_with_usage(minutes=10)
     async with tenant_session(tenant_id) as session:
+        # A SECOND call, not a second metering row on the first. `_tenant_with_usage`
+        # already metered `call_id`, and since D-112 a call carries at most one
+        # `telephony_s` row — which is what `pipeline._meter` has always written. The
+        # boundary this test is about is the OCCURRED_AT, so the call it hangs on is
+        # incidental; reusing the metered one made the fixture depict a double-metering.
+        boundary_call = uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                "to_e164, status, created_at, updated_at) SELECT :i, tenant_id, agent_id, "
+                ":e, direction, to_e164, status, now(), now() FROM calls WHERE id = :src"
+            ),
+            {"i": boundary_call, "e": f"exec_{uuid.uuid4().hex[:12]}", "src": call_id},
+        )
         # 2026-07-31 19:00 UTC == 2026-08-01 00:30 IST → August.
         await session.execute(
             text(
@@ -160,7 +174,7 @@ async def test_the_billing_month_is_ist_not_utc() -> None:
                 "unit_cost_paid, occurred_at, created_at) VALUES (:i, :t, :c, 'telephony_s', "
                 "600, 0.5, TIMESTAMPTZ '2026-07-31 19:00:00+00', now())"
             ),
-            {"i": uuid7(), "t": tenant_id, "c": call_id},
+            {"i": uuid7(), "t": tenant_id, "c": boundary_call},
         )
         july = await billing.usage_summary(session, tenant_id=tenant_id, month="2026-07")
         august = await billing.usage_summary(session, tenant_id=tenant_id, month="2026-08")

@@ -67,6 +67,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+from apps.api.billing.rates import ROUNDING
 from calevate_shared.engine import ExecutionSnapshot
 from pydantic import BaseModel, Field, ValidationError
 
@@ -568,10 +569,22 @@ def _currency_check(
 
     mismatched: list[tuple[str, Decimal]] = []
     for observation, claim in comparable:
-        ours = (observation.source_amount or Decimal(0)).quantize(MONEY_QUANTUM)
-        theirs = claim.total.quantize(MONEY_QUANTUM)
+        # `rounding=ROUNDING` on all three, and on this gate it is not tidying: the two
+        # amounts are rounded BEFORE being compared, so the mode decides the verdict.
+        # Under the ambient context (half-even by default, and mutable by any library in
+        # the image) a pair straddling a half at the fifth decimal can round APART and
+        # report a unit error that does not exist, or round TOGETHER and hide one. A
+        # vendor-verification gate whose answer depends on a process-global is not
+        # evidence. Half-up because that is the repo's one money mode (`billing.rates`).
+        ours = (observation.source_amount or Decimal(0)).quantize(MONEY_QUANTUM, rounding=ROUNDING)
+        theirs = claim.total.quantize(MONEY_QUANTUM, rounding=ROUNDING)
         if ours != theirs:
-            ratio = (theirs / ours).quantize(MONEY_QUANTUM) if ours else Decimal(0)
+            # The ratio is a DIAGNOSTIC, not money — it is read to spot an exact 100x —
+            # but it states its mode for the same reason: the number a human reads off a
+            # gate report must not depend on what else is loaded in the process.
+            ratio = (
+                (theirs / ours).quantize(MONEY_QUANTUM, rounding=ROUNDING) if ours else Decimal(0)
+            )
             mismatched.append((observation.call_ref, ratio))
 
     if not mismatched:

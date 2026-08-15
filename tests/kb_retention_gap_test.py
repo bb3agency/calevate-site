@@ -289,6 +289,9 @@ async def test_a_superseded_knowledge_version_survives_every_sweep_at_any_age() 
         # knowledge-base row among them", so a new arm has to be named rather than
         # tolerated.
         "delivery_bodies",
+        # Recording objects destroyed for an erasure that had to defer them past the
+        # retention floor (migration 9c1d3e7a05f4). Also not a knowledge-base row.
+        "recording_holds",
         "deferred",
     }, counts
 

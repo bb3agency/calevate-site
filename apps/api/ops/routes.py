@@ -161,6 +161,12 @@ class DeadLetterQueueOut(BaseModel):
     about to do: 142 dead letters is a different act depending on whether it is 142 CRM
     webhooks or 142 hot-lead emails, and a different act again depending on whether the
     head of the queue is ten minutes or nine days old.
+
+    **AND `deferred`, WHICH IS NOT A DEAD LETTER.** It rides this model rather than
+    getting a field of its own on `PlatformStateOut` because it is only meaningful beside
+    `depth`: the two are the outbox's two unhealthy states and an operator reads them as a
+    pair. See `reliability.service.DeadLetterQueue.deferred` for what it counts and why
+    the console was blind to it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -172,6 +178,12 @@ class DeadLetterQueueOut(BaseModel):
     # Sums to `depth` BY CONSTRUCTION: both come from one grouped aggregate at one
     # instant, so a dispatcher tick cannot land between a total and its parts.
     by_job: list[DeadLetterJobOut]
+    # Messages waiting on a backoff — pending, with a lease into the future. NOT counted
+    # in `depth` and NOT replayed by `POST /outbox/replay`, which acts on `failed` rows
+    # only: these need nothing from an operator except that they be able to see them.
+    # Zero on a healthy idle system; growing during a queue outage, which is the whole
+    # window in which the console used to report "no dead letters" and mean it.
+    deferred: int
 
 
 class PlatformStateOut(BaseModel):
@@ -447,6 +459,7 @@ async def _platform_out(session: AsyncSession, *, load_shed_mode: str) -> Platfo
                 )
                 for entry in dlq.by_job
             ],
+            deferred=dlq.deferred,
         ),
     )
 

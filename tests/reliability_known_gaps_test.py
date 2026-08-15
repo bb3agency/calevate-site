@@ -29,50 +29,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: Gap key → why it is open, and WHAT CLOSES IT. Delete an entry the moment its probe
 #: below stops finding the defect; the equality assertion makes that mandatory.
-KNOWN_OPEN_RELIABILITY_GAPS: dict[str, str] = {
-    "usage_events_has_no_natural_key_index": (
-        "`usage_events` carries only its primary key, so nothing in the DATABASE stops a "
-        "call being metered twice — `pipeline.lock_call_writes` closes the window inside "
-        "one Postgres, and an advisory lock is a convention every writer must remember "
-        "rather than a constraint. Its two sibling ledgers already have the stronger "
-        "guard (`ux_credit_ledger_tenant_reason_ref`, `ux_one_time_charges_tenant_kind_"
-        "ref`). CLOSED BY: a unique index on (tenant_id, call_id, unit_type), which is a "
-        "migration — and this slice was told to avoid one because `check_wiring` asserts "
-        "a single head and three agents are live on it. It also needs the existing rows "
-        "proved unique first, which is a one-query check plus a compensating-entry plan "
-        "for any duplicates the unguarded window already wrote."
-    ),
-    "outbox_per_message_retry_has_no_backoff": (
-        "`mark_outbox_failed` clears `locked_until` on the RETRY branch, so a message "
-        "whose own publish failed is re-attempted on the next 10-second tick and spends "
-        "its five-attempt budget in fifty seconds. The SYSTEMIC case is fixed "
-        "(`defer_outbox_claim`); this is the per-message one, and the same 'a receiver "
-        "that is restarting wants half a minute' argument applies to it. CLOSED BY: "
-        "passing the backoff through `mark_outbox_failed`'s retry branch — which "
-        "requires editing `tests/reliability_audit_test.py::"
-        "test_a_permanently_failing_message_reaches_the_dlq`, whose loop claims the same "
-        "row five times in a row and would break under any wait. That file is outside "
-        "this slice's writable set."
-    ),
-    "ops_console_cannot_see_deferred_outbox_messages": (
-        "During a queue outage messages sit `pending` with a future `locked_until`, and "
-        "`GET /v1/ops/platform` publishes only the DLQ depth — so the console truthfully "
-        "shows zero dead letters while the backlog grows, and only the "
-        "`outbox_queue_unreachable` alert and `runbooks/webhook-delivery-failures.md` §3 "
-        "name the third state. CLOSED BY: a `deferred` count on `DeadLetterQueueOut` "
-        "from the same aggregate, which regenerates the shared "
-        "`apps/web/src/lib/api/openapi.json` and `schema.d.ts` — a 1MB file three "
-        "concurrent agents are also writing to. Ours, not blocked on anyone outside."
-    ),
-    "existing_tests_name_a_probe_that_no_longer_exists": (
-        "`tests/reconciliation_listing_test.py` and `tests/pipeline_audit_test.py` both "
-        "explain themselves in terms of `_already_completed` — the poller's old probe, "
-        "which asked only whether a completed call row existed. It is `_pipeline_settled` "
-        "now and answers a wider question, so those comments point at a symbol the tree "
-        "does not define and describe a behaviour it no longer has. CLOSED BY: a sentence "
-        "in each file, both outside this slice's writable set (new test files only)."
-    ),
-}
+#: **EMPTY, and every probe below outlives it.** All four gaps this file shipped with are
+#: closed: the natural-key index is migration `b8d3f47c2a19`, the per-message retry
+#: backoff and the `deferred` count are in `reliability/service.py`, and the two stale
+#: docstrings name `_pipeline_settled`. The dict stays because the equality is what makes
+#: the next recording honest — an entry added here without a fix is a claim somebody
+#: looked, and one left after a fix fails just as loudly.
+KNOWN_OPEN_RELIABILITY_GAPS: dict[str, str] = {}
 
 
 async def _usage_events_lacks_a_natural_key_index() -> bool:
@@ -150,6 +113,16 @@ async def _tests_still_name_the_old_probe() -> bool:
 
 #: key → the probe that answers "is this gap still real?". Every probe is async so the
 #: assertion below reads as one loop rather than as two kinds of entry.
+#:
+#: **THE PROBES OUTLIVE THEIR ENTRIES, DELIBERATELY, and the assertion below is shaped
+#: for it.** This dict shipped required to EQUAL `KNOWN_OPEN_RELIABILITY_GAPS`, which
+#: meant closing a gap deleted its probe along with its entry — and the predicate that
+#: had just been proved able to detect the defect was thrown away at the exact moment it
+#: became a regression test. It is a superset now: an entry must have a probe (a
+#: recording with nothing to check it is a TODO), and a probe with no entry is a CLOSED
+#: gap whose predicate must keep answering False. If it ever answers True again it shows
+#: up as "open but not recorded" and fails on the same line, with the same message, as
+#: the day it was found.
 PROBES: dict[str, Callable[[], Awaitable[bool]]] = {
     "usage_events_has_no_natural_key_index": _usage_events_lacks_a_natural_key_index,
     "outbox_per_message_retry_has_no_backoff": _outbox_retry_is_immediate,
@@ -160,11 +133,14 @@ PROBES: dict[str, Callable[[], Awaitable[bool]]] = {
 
 async def test_every_recorded_gap_is_still_open_and_no_other_is() -> None:
     """The equality. Fixing a gap fails here until its entry is deleted; recording a gap
-    that is not real fails here immediately."""
+    that is not real fails here immediately; and a gap that is fixed, unrecorded and then
+    BROKEN AGAIN fails here too, because its probe was kept."""
     still_open = {key for key, probe in PROBES.items() if await probe()}
 
-    assert set(PROBES) == set(KNOWN_OPEN_RELIABILITY_GAPS), (
-        "every recorded gap needs a probe, or the equality below cannot close it"
+    unprobed = set(KNOWN_OPEN_RELIABILITY_GAPS) - set(PROBES)
+    assert unprobed == set(), (
+        f"these recorded gaps have no probe, so the equality below cannot close them: "
+        f"{sorted(unprobed)}"
     )
     assert still_open == set(KNOWN_OPEN_RELIABILITY_GAPS), (
         "the recorded reliability gaps and the real ones disagree.\n"

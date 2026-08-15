@@ -162,7 +162,8 @@ async def test_the_csv_export_refuses_rather_than_materializing_every_lead() -> 
 
     async with tenant_session(tenant_id) as session:
         ok = await crm.export_leads_csv(session)
-        assert len(ok.strip().splitlines()) == 4, "header + three leads"
+        assert len(ok.csv.strip().splitlines()) == 4, "header + three leads"
+        assert ok.row_count == 3, "the count the audit row records is the count of LEADS"
 
     original = crm.MAX_EXPORT_ROWS
     try:

@@ -25,6 +25,7 @@ import {
 import {
   useApplyChanges,
   useConcludeExperiment,
+  usePublishAgent,
   usePublishingRefresh,
   useSetCallCap,
   useStartExperiment,
@@ -110,6 +111,17 @@ export default function AgentPromptPage({
       </div>
 
       {tenant.error && <ProblemNotice error={tenant.error} onRetry={() => tenant.refetch()} />}
+
+      <GoLivePanel
+        tenantId={tenantId}
+        agentId={agentId}
+        slug={slug}
+        write={write}
+        pending={pending.data}
+        hasAScript={history.data === undefined ? undefined : history.data.length > 0}
+        isLoading={tenant.isLoading || pending.isLoading || history.isLoading}
+        readFailed={pending.error != null || history.error != null}
+      />
 
       <PublishingPanel
         tenantId={tenantId}
@@ -315,6 +327,130 @@ function VersionBadges({
         </span>
       )}
     </>
+  );
+}
+
+/**
+ * The FIRST publish — FLOWS §1 step 7, and the seam that had no control anywhere.
+ *
+ * Every other publish in this product is a RE-publish, guarded on the agent already
+ * being live: Apply pushes only `if row.is_live`, the call cap and the T0 recompile only
+ * when `status == 'live' AND engine_agent_ref`. An agent minted by the wizard is
+ * `draft`/`NULL`, so none of them fired and no screen offered the one endpoint that
+ * would — `POST …/agents/{id}/publish` was mounted, tested, and called by nobody. A
+ * founder could finish the wizard, invite the owner and hand over an account whose agent
+ * had never reached the voice platform.
+ *
+ * ## What this panel refuses to guess
+ *
+ * `published` is the SERVER's answer (`engine_agent_ref IS NOT NULL`), never inferred
+ * from `status`, and while the read has not landed the panel is a skeleton — not a
+ * button that might be about to publish an agent that is already live, and not an
+ * "unpublished" state built from an absent read (§52).
+ *
+ * The script precondition is stated rather than discovered: `publish_agent` refuses an
+ * agent with no prompt version by name (`agent_has_no_script`) instead of shipping a
+ * hardcoded English placeholder, so the button is disabled with that sentence when the
+ * history is empty. It is a HINT, not the enforcement — the server refuses either way,
+ * and if the two ever disagree the refusal is what the operator sees, through
+ * `ProblemNotice`, in the server's own words.
+ *
+ * ## What it does NOT claim
+ *
+ * Publishing is not sign-off. FLOWS §1 step 7 puts a test call and a regression
+ * mini-suite in front of it, both pilot-gated and neither of them ours to run yet, so
+ * this panel says so instead of implying that pressing the button completed a gate.
+ */
+function GoLivePanel({
+  tenantId,
+  agentId,
+  slug,
+  pending,
+  hasAScript,
+  isLoading,
+  readFailed,
+  write,
+}: {
+  tenantId: string;
+  agentId: string;
+  slug: string;
+  pending: PendingState | undefined;
+  /** `undefined` while the version history has not answered — never assumed false. */
+  hasAScript: boolean | undefined;
+  isLoading: boolean;
+  /**
+   * Whether either read this panel depends on came back refused.
+   *
+   * A BOOLEAN, not the error: both of them are already rendered as refusals with their
+   * own retry — the pending read by `PublishingPanel` directly below, the history read
+   * beside the version list — and a second `ProblemNotice` quoting the same sentence
+   * makes the page look like two things failed. What this panel needs from a failure is
+   * only that it must claim NOTHING, which is what the flag buys.
+   */
+  readFailed: boolean;
+  write: ReturnType<typeof useAdminAccess>;
+}) {
+  const publish = usePublishAgent({ tenantId, agentId, slug });
+
+  return (
+    <Card title="Voice platform">
+      <div className="mt-1 space-y-3">
+        <RestrictionNote reason={write.reason} />
+        {publish.error && <ProblemNotice error={publish.error} />}
+
+        {isLoading && !pending ? (
+          <Skeleton rows={2} />
+        ) : !pending ? (
+          !readFailed && (
+            <p className="text-xs text-ink-muted">
+              We could not read whether this agent is on the voice platform, so there is
+              nothing to act on here yet.
+            </p>
+          )
+        ) : pending.published ? (
+          <p className="text-sm text-ink-muted">
+            This agent is on the voice platform. Script changes reach it through Apply
+            above; the voice and the call cap have their own panels below.
+          </p>
+        ) : (
+          <>
+            <NoticeBox
+              tone="warn"
+              icon={<AlertTriangle className="h-5 w-5" />}
+              title="This agent has never reached the voice platform"
+            >
+              <p className="mt-0.5 text-xs">
+                Nothing dials it and nothing answers on it. Publishing creates the agent
+                on the platform and records the routing that lets an inbound call find
+                this client.
+              </p>
+            </NoticeBox>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={publish.isPending || !write.allowed || hasAScript === false}
+                onClick={() => publish.mutate()}
+                className={PRIMARY_BUTTON_SM}
+              >
+                {publish.isPending ? "Publishing…" : "Publish to the voice platform"}
+              </button>
+              <span className="text-xs text-ink-muted">
+                {hasAScript === false
+                  ? "This agent has no script yet — complete the client's intake, or save a version below, first."
+                  : "FLOWS §1 step 7 asks for a test call and a regression run before this. Both are pilot-gated and neither is automated here, so this button publishes — it does not sign anything off."}
+              </span>
+            </div>
+          </>
+        )}
+
+        {publish.data && (
+          <p className="text-xs text-ink-muted">
+            Published — the platform holds this agent as{" "}
+            <span className="font-mono">{publish.data.engine_agent_ref}</span>.
+          </p>
+        )}
+      </div>
+    </Card>
   );
 }
 

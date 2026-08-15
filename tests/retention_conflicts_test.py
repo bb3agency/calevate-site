@@ -54,6 +54,7 @@ from apps.workers.retention import (
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec, validate_extraction
 from scripts.seed import DEFAULT_RETENTION_POLICIES
 from sqlalchemy import event, text
+from tests.conftest import FakeS3
 
 DOC = Path(__file__).resolve().parents[1] / "docs" / "SECURITY-COMPLIANCE.md"
 
@@ -323,7 +324,7 @@ async def test_erasure_clears_the_pointer_inside_the_floor_and_counts_the_collis
 
 
 async def test_an_erasure_outside_the_floor_reports_no_collision(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, s3: FakeS3
 ) -> None:
     """The count is a statement about THIS request, not boilerplate. A recording old
     enough that retention would have expired it anyway raises no conflict, and a signal
@@ -383,7 +384,9 @@ async def test_the_outcome_does_not_depend_on_which_worker_ran_last() -> None:
         assert len(proof["scope"]["calls"]) == 1 and proof["scope"]["transcript_turns_erased"] == 1
 
 
-async def test_the_retention_sweep_never_re_dates_a_call_to_dodge_the_floor() -> None:
+async def test_the_retention_sweep_never_re_dates_a_call_to_dodge_the_floor(
+    s3: FakeS3,
+) -> None:
     """The tempting shortcut, closed. `updated_at` moves when the sweep touches a row,
     so a clock keyed on it would let one sweep push the next one out. Both the floor and
     the TTLs are measured from when the CALL happened, and a swept row stays expired."""
@@ -495,7 +498,7 @@ def test_the_derived_copy_map_still_names_a_category_the_schema_allows() -> None
 # ======================================= 4. THE CALL THE ENGINE NEVER DATED (defect)
 
 
-async def test_a_call_with_no_ended_at_still_ages_out() -> None:
+async def test_a_call_with_no_ended_at_still_ages_out(s3: FakeS3) -> None:
     """The defect this investigation found.
 
     `calls.ended_at` is nullable and comes from the vendor: the Bolna adapter takes it
@@ -519,7 +522,9 @@ async def test_a_call_with_no_ended_at_still_ages_out() -> None:
     assert counts["recordings"] == 1 and counts["summaries"] == 1 and counts["transcripts"] == 1
 
 
-async def test_the_fallback_clock_cannot_expire_a_recording_before_the_trai_floor() -> None:
+async def test_the_fallback_clock_cannot_expire_a_recording_before_the_trai_floor(
+    s3: FakeS3,
+) -> None:
     """The direction of the guess matters. With no `ended_at` the clock falls back to our
     own `created_at` PLUS the metered duration — the latest moment the call plausibly
     ended — so an undated recording is retained a little too long rather than deleted a
@@ -668,7 +673,7 @@ async def test_the_certificate_hash_is_the_one_an_access_request_would_produce()
 
 
 async def test_no_phone_transcript_or_extraction_payload_reaches_the_logs(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, s3: FakeS3
 ) -> None:
     """Hard rule 6, over both jobs at once and over the whole log record — the message,
     every `extra` field, and anything a formatter would render. A retention sweep and an

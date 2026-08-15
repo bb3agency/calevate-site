@@ -125,6 +125,42 @@ async def _load_agent(session: AsyncSession, tenant_id: UUID, agent_id: UUID) ->
     }
 
 
+def _assert_has_a_script(agent: dict[str, object]) -> str:
+    """The agent's applied script, or a refusal — never a stand-in.
+
+    `_to_config` used to read `str(agent["prompt"] or "You are a helpful receptionist.")`,
+    and that default is reachable in the ONE state the wizard leaves an agent in before
+    step 3: `admin/service.create_organization` mints the receptionist row with no
+    `prompt_versions` row at all. Pressing Publish there answered 200 `status: live`,
+    wrote the routing row, and put a hardcoded ENGLISH sentence on a Telugu clinic's
+    phone line — with no hours, no prices, no staff names and nothing to tell a caller
+    which business they had reached. Every screen downstream then read `live`.
+
+    A missing script is not a value to substitute. It is FLOWS §1's step-3-before-step-7
+    ordering being skipped, and the honest answer is a refusal naming the step. The
+    disclosure line gets this treatment already (non-null by schema, hard rule 5); the
+    script had no equivalent guard because the default hid the case.
+
+    NOT a check for a *good* script — that is step 7's test call, which is pilot-gated
+    and outside this function. This is the floor: there is one, and it is the client's.
+    """
+    prompt = agent.get("prompt")
+    if isinstance(prompt, str) and prompt.strip():
+        return prompt
+    raise ProblemError(
+        kind="business_rule",
+        code="agent_has_no_script",
+        title="This agent has no script yet",
+        detail=(
+            "The agent has no prompt version, so there is nothing to publish. Publishing "
+            "it would put a generic placeholder on the client's phone line."
+        ),
+        remediation=(
+            "Complete the intake step for this client, or write a prompt version, then publish."
+        ),
+    )
+
+
 def _to_config(tenant_id: UUID, agent: dict[str, object]) -> AgentConfig:
     settings = get_settings()
     return AgentConfig(
@@ -133,7 +169,7 @@ def _to_config(tenant_id: UUID, agent: dict[str, object]) -> AgentConfig:
         name=str(agent["name"]),
         direction=str(agent["direction"]),
         language_primary=str(agent["language_primary"]),
-        system_prompt=str(agent["prompt"] or "You are a helpful receptionist."),
+        system_prompt=_assert_has_a_script(agent),
         # Never defaulted, never blank — the schema enforces it and so does the gate.
         disclosure_line=str(agent["disclosure_line"]),
         models=ModelConfig(

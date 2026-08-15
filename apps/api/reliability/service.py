@@ -415,11 +415,49 @@ async def mark_outbox_published(session: AsyncSession, *, message_id: UUID, job_
     )
 
 
+# How long a message waits before its next attempt, per attempt already spent. The shape
+# is the same real backoff `pipeline.RETRY_BACKOFF_S` and `outbound_webhooks.
+# RETRY_BACKOFF_S` use, and the numbers are sized against THIS loop's tick rather than
+# against a worker's.
+#
+# The dispatcher runs every 10 seconds, so an unheld budget of five attempts is spent in
+# 50 seconds — less than a Redis restart. Linear on the attempt count and capped, the
+# budget covers 30+60+90+120 = five minutes of a receiver being away before the message is
+# dead-lettered, which is the difference between "a blip" and "an operator has to replay
+# the outbox by hand".
+#
+# **ONE BACKOFF, BOTH FAILURE KINDS, and the name says so.** These shipped as
+# `OUTBOX_SYSTEMIC_BACKOFF_*` because `defer_outbox_claim` was the only caller: a queue
+# outage got a wait and a message whose own publish failed got none, so it burned five
+# attempts in fifty seconds against a receiver that was merely restarting. The two cases
+# still differ in the way that matters — a systemic failure does not COUNT against the
+# poison budget and a per-message one does — but "how long to wait before trying again"
+# is one question and had no business having two answers, one of them zero.
+OUTBOX_RETRY_BACKOFF_S = 30
+OUTBOX_RETRY_BACKOFF_CAP_S = 300
+
+# The wait, as SQL, spelled once. Both writers below interpolate this rather than
+# repeating `make_interval`, so the two branches cannot drift into different curves —
+# which is exactly how the per-message branch came to have no curve at all.
+#
+# `GREATEST(attempt_count, 1)` because `claim_outbox_batch` has already bumped the
+# counter by the time either caller runs, so the first failure is attempt 1 and waits one
+# base interval rather than none.
+_BACKOFF_INTERVAL_SQL = (
+    "make_interval(secs => LEAST(:backoff_base * GREATEST(attempt_count, 1), :backoff_cap))"
+)
+
+_BACKOFF_PARAMS = {
+    "backoff_base": OUTBOX_RETRY_BACKOFF_S,
+    "backoff_cap": OUTBOX_RETRY_BACKOFF_CAP_S,
+}
+
+
 async def mark_outbox_failed(
     session: AsyncSession, *, message_id: UUID, error: str, attempt_count: int
 ) -> None:
-    """< OUTBOX_MAX_ATTEMPTS stays pending (retried next tick); at the ceiling it goes
-    to `failed` — the outbox DLQ — and alerts. Ops replays a DLQ row by flipping it
+    """< OUTBOX_MAX_ATTEMPTS stays pending (retried after a backoff); at the ceiling it
+    goes to `failed` — the outbox DLQ — and alerts. Ops replays a DLQ row by flipping it
     back to pending with an audit note.
 
     `AND status = 'pending'` is the CAS guard (§5), and it is load-bearing rather than
@@ -429,18 +467,45 @@ async def mark_outbox_failed(
     The alert fires only when the row actually moved, so a lost race cannot page ops
     about a dead letter that does not exist.
 
-    `locked_until = NULL` either way, and it is load-bearing on the retry branch: a
-    message returned to `pending` while still holding its lease would sit out the whole
-    lease before anyone could try it again, turning every transient failure into a
-    two-minute stall. Releasing the claim is part of reporting the outcome.
+    **THE RETRY BRANCH HOLDS THE MESSAGE, and this is the half that was missing.** It
+    used to write `locked_until = NULL` on both branches, on the argument that a message
+    returned to `pending` while still holding its two-minute claim lease would stall for
+    the whole lease. That argument was right about the LEASE and wrong about the
+    conclusion: releasing the claim and scheduling the next attempt are different acts,
+    and doing the first alone made the next attempt immediate. A message whose receiver
+    is restarting was then re-tried on the very next 10-second tick and spent its whole
+    five-attempt budget in fifty seconds — the identical failure `defer_outbox_claim`
+    exists to prevent, one message at a time instead of a batch at a time.
+
+    So the lease is REPLACED rather than cleared: `locked_until` moves to the backoff,
+    which is shorter than the claim lease at the first attempt and longer later, and
+    `claim_outbox_batch` already skips rows whose `locked_until` is in the future. The
+    two uses of one visibility timestamp are the established shape here and in every
+    Postgres-backed queue (`defer_outbox_claim` cites them).
+
+    The TERMINAL branch still clears it, and must: `locked_until = NULL` on every
+    terminal transition is what lets a non-null lease mean "claimed right now, or
+    abandoned" and never "resolved a while ago" — and a dead letter holding a lease would
+    be invisible to `replay_dead_letters`' successor if that ever grew a liveness check.
     """
     terminal = attempt_count >= OUTBOX_MAX_ATTEMPTS
     result = await session.execute(
         text(
             "UPDATE outbox_messages SET status = :status, last_error = :error, "
-            "locked_until = NULL, updated_at = now() WHERE id = :id AND status = 'pending'"
+            # NULL when terminal, the backoff when there is budget left. Written as one
+            # CASE rather than two statements so the status and the wait can never
+            # disagree about which branch this is.
+            "locked_until = CASE WHEN :terminal THEN NULL "
+            f"ELSE now() + {_BACKOFF_INTERVAL_SQL} END, "
+            "updated_at = now() WHERE id = :id AND status = 'pending'"
         ),
-        {"id": message_id, "status": "failed" if terminal else "pending", "error": error[:500]},
+        {
+            "id": message_id,
+            "status": "failed" if terminal else "pending",
+            "terminal": terminal,
+            "error": error[:500],
+            **_BACKOFF_PARAMS,
+        },
     )
     if terminal and rowcount_of(result):
         alert(
@@ -449,20 +514,6 @@ async def mark_outbox_failed(
             detail=error[:200],
             message_id=str(message_id),
         )
-
-
-# How long a claimed message waits after a SYSTEMIC publish failure, per attempt already
-# spent. `defer_outbox_claim` below argues why this exists at all; the shape is the same
-# real backoff `pipeline.RETRY_BACKOFF_S` and `outbound_webhooks.RETRY_BACKOFF_S` use,
-# and the numbers are sized against THIS loop's tick rather than against a worker's.
-#
-# The dispatcher runs every 10 seconds, so an undeferred budget of five attempts is spent
-# in 50 seconds — less than a Redis restart. Linear on the attempt count and capped, the
-# budget covers 30+60+90+120 = five minutes of a queue being unreachable before the first
-# message is dead-lettered, which is the difference between "a blip" and "an operator has
-# to replay the entire outbox by hand".
-OUTBOX_SYSTEMIC_BACKOFF_S = 30
-OUTBOX_SYSTEMIC_BACKOFF_CAP_S = 300
 
 
 async def defer_outbox_claim(session: AsyncSession, *, message_ids: list[UUID], error: str) -> int:
@@ -495,17 +546,11 @@ async def defer_outbox_claim(session: AsyncSession, *, message_ids: list[UUID], 
     result = await session.execute(
         text(
             "UPDATE outbox_messages SET "
-            "locked_until = now() + make_interval("
-            "  secs => LEAST(:base * GREATEST(attempt_count, 1), :cap)), "
+            f"locked_until = now() + {_BACKOFF_INTERVAL_SQL}, "
             "last_error = :error, updated_at = now() "
             "WHERE id = ANY(:ids) AND status = 'pending'"
         ),
-        {
-            "ids": message_ids,
-            "base": OUTBOX_SYSTEMIC_BACKOFF_S,
-            "cap": OUTBOX_SYSTEMIC_BACKOFF_CAP_S,
-            "error": error[:500],
-        },
+        {"ids": message_ids, "error": error[:500], **_BACKOFF_PARAMS},
     )
     return int(rowcount_of(result) or 0)
 
@@ -524,7 +569,8 @@ class DeadLetterJobDepth:
 
 @dataclass(frozen=True, slots=True)
 class DeadLetterQueue:
-    """How deep the outbox DLQ is, what is in it, and how old the head of it is.
+    """How deep the outbox DLQ is, what is in it, how old the head of it is — and how
+    many messages are neither published nor dead but WAITING.
 
     COUNTS AND JOB NAMES ONLY, and that is a hard-rule-6 boundary rather than an
     omission: `outbox_messages.payload` is JSONB carrying lead fields, phone numbers and
@@ -538,6 +584,21 @@ class DeadLetterQueue:
     # to know which one a magic value means.
     oldest_created_at: datetime | None
     by_job: tuple[DeadLetterJobDepth, ...]
+    # THE OUTBOX'S THIRD STATE, and the one an operator used to be unable to see.
+    #
+    # `defer_outbox_claim` hands a batch back with `locked_until` in the future when the
+    # QUEUE failed rather than the message — so during a Redis outage the backlog grows
+    # as `pending`-with-a-future-lease and `depth` stays honestly at zero. The console
+    # published only `depth`, which meant it truthfully reported "no dead letters" for
+    # the whole five minutes of tolerated downtime that `OUTBOX_RETRY_BACKOFF_S`
+    # buys — and an operator looking at it mid-incident read "nothing is wrong". The
+    # backoff made the outage survivable and simultaneously made it invisible.
+    #
+    # Counted rather than broken down by job on purpose: a systemic deferral hits every
+    # job in the batch identically, so a per-job split of it would be a breakdown of
+    # which jobs happened to be in the outbox, not of what is wrong. `by_job` stays what
+    # it has always been — the DLQ's composition, which is what sizes a replay.
+    deferred: int
 
 
 async def read_dead_letter_queue(session: AsyncSession) -> DeadLetterQueue:
@@ -556,31 +617,63 @@ async def read_dead_letter_queue(session: AsyncSession) -> DeadLetterQueue:
     same one-instant argument `read_halt_state` makes for the halt and its reason, applied
     inside one payload rather than across two rows.
 
-    The scan is over `status = 'failed'` only, which `ix_outbox_pending (status,
-    created_at)` serves, and grouping adds a sort over rows the DLQ-depth alert exists to
-    keep few. It is not free on the dispatcher's 10-second tick, and it is still the right
-    trade: a marginally cheaper metric query that can drift from the operator's readout is
-    the more expensive of the two.
+    The scan covers `failed` plus the DEFERRED slice of `pending`, both of which
+    `ix_outbox_pending (status, created_at)` serves, and grouping adds a sort over rows
+    the DLQ-depth alert exists to keep few. It is not free on the dispatcher's 10-second
+    tick, and it is still the right trade: a marginally cheaper metric query that can
+    drift from the operator's readout is the more expensive of the two.
+
+    **THE DEFERRED COUNT RIDES THE SAME AGGREGATE, and that is the whole reason it is
+    here rather than in a second function.** A `deferred` measured by its own statement
+    could be read a tick later than `depth`, and the two numbers exist precisely to be
+    read against each other: "0 dead, 214 deferred" is a queue outage in progress and
+    "214 dead, 0 deferred" is one that already burned through the budget. Two instants
+    can spell the first as the second. `now()` is a single value for the whole statement
+    (it is the transaction timestamp), so "in the future" means the same instant for
+    every row it classifies.
     """
     rows = (
         await session.execute(
             text(
-                "SELECT job, count(*) AS depth, min(created_at) AS oldest "
-                "FROM outbox_messages WHERE status = 'failed' "
+                "SELECT job, "
+                "count(*) FILTER (WHERE status = 'failed') AS depth, "
+                "min(created_at) FILTER (WHERE status = 'failed') AS oldest, "
+                "count(*) FILTER (WHERE status = 'pending') AS deferred "
+                "FROM outbox_messages "
+                # A deferred message is a PENDING one holding a lease into the future.
+                # That is also what a claimed, in-flight message looks like for the
+                # milliseconds a dispatcher holds it, and the overlap is accepted rather
+                # than papered over: there is no column that tells a two-minute
+                # `OUTBOX_CLAIM_LEASE` apart from a 30-second backoff, both being one
+                # `locked_until` by deliberate design (`defer_outbox_claim` argues why).
+                # An idle system therefore reads 0 and a system in trouble reads the
+                # backlog; a healthy busy one can read a handful. Adding a column to
+                # disambiguate would buy precision on a number nobody alerts on, at the
+                # cost of a migration on the hot dispatch path.
+                "WHERE status = 'failed' "
+                "OR (status = 'pending' AND locked_until IS NOT NULL AND locked_until > now()) "
                 # Biggest first — an operator sizing a replay reads the largest share
                 # first — then by name so equal shares render in a stable order rather
-                # than shuffling between polls.
-                "GROUP BY job ORDER BY count(*) DESC, job"
+                # than shuffling between polls. Ordered on the DLQ share specifically:
+                # this ordering exists to rank `by_job`, which is dead letters only.
+                "GROUP BY job ORDER BY count(*) FILTER (WHERE status = 'failed') DESC, job"
             )
         )
     ).all()
     by_job = tuple(
-        DeadLetterJobDepth(job=row[0], depth=int(row[1]), oldest_created_at=row[2]) for row in rows
+        DeadLetterJobDepth(job=row[0], depth=int(row[1]), oldest_created_at=row[2])
+        for row in rows
+        # A job with ONLY deferred messages has no share of the DLQ, and listing it at
+        # depth 0 with a null `oldest_at` would put a job on the replay breakdown that a
+        # replay would not touch. `DeadLetterJobDepth.oldest_created_at` is non-optional
+        # for the same reason: there is no such thing as the oldest of nothing.
+        if int(row[1]) > 0
     )
     return DeadLetterQueue(
         depth=sum(entry.depth for entry in by_job),
         oldest_created_at=min((entry.oldest_created_at for entry in by_job), default=None),
         by_job=by_job,
+        deferred=sum(int(row[3]) for row in rows),
     )
 
 
@@ -795,8 +888,8 @@ __all__ = [
     "IDEMPOTENCY_TTL",
     "OUTBOX_CLAIM_LEASE",
     "OUTBOX_MAX_ATTEMPTS",
-    "OUTBOX_SYSTEMIC_BACKOFF_CAP_S",
-    "OUTBOX_SYSTEMIC_BACKOFF_S",
+    "OUTBOX_RETRY_BACKOFF_CAP_S",
+    "OUTBOX_RETRY_BACKOFF_S",
     "DeadLetterJobDepth",
     "DeadLetterQueue",
     "IdempotencyClaim",

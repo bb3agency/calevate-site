@@ -71,27 +71,14 @@ SCANNED_TREES: tuple[str, ...] = ("apps", "packages/shared/src", "scripts")
 #:
 #: This is an EQUALITY assertion, not an exemption list: adding a site fails, and FIXING
 #: one of these fails too, so an entry cannot outlive the defect it describes.
-KNOWN_AMBIENT_ROUNDING: dict[str, set[str]] = {
-    # Hard rule 2 puts these behind `apps/api/engine/`, which the money sweep may not
-    # touch. The fake adapter mints the `CostBreakdown` every pipeline and conformance
-    # test meters, so its rounding decides fixture money rather than client money — a
-    # real instance of the class, in the least expensive place for it to be.
-    "apps/api/engine/fake.py": {
-        "(v * minutes).quantize(Decimal('0.0001'))",
-        "total.quantize(Decimal('0.0001'))",
-    },
-    # `scripts/pilot/**` is the pilot harness and is owned by the pilot slice. The first
-    # two round a vendor-reported amount and OUR derived amount before comparing them —
-    # money, and the comparison is the whole gate. The third rounds a RATIO at the money
-    # quantum, which is the weakest instance here: a diagnostic figure, where the mode
-    # changes a number nobody bills on. Recorded anyway, because the reason the mode must
-    # be explicit is the global context, and that applies to all three equally.
-    "scripts/pilot/fidelity.py": {
-        "(observation.source_amount or Decimal(0)).quantize(MONEY_QUANTUM)",
-        "claim.total.quantize(MONEY_QUANTUM)",
-        "(theirs / ours).quantize(MONEY_QUANTUM)",
-    },
-}
+#:
+#: **EMPTY, and that is the assertion.** The five sites this dict shipped with are gone:
+#: the two in `apps/api/engine/fake.py` and the three in `scripts/pilot/fidelity.py` all
+#: pass `rounding=ROUNDING` now. An empty mapping is a stronger statement than a missing
+#: one — `_ambient_quantize_sites()` returns `{}` only when EVERY quantize in the three
+#: scanned trees states its mode — so the dict stays, and the next omission fails here
+#: with nowhere to be recorded except deliberately.
+KNOWN_AMBIENT_ROUNDING: dict[str, set[str]] = {}
 
 
 def _shipped_python() -> list[Path]:

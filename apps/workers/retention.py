@@ -17,14 +17,21 @@ its `usage_events` with it (FK RESTRICT) and silently rewrite a billing period. 
 default action neutralizes the personal data and keeps the countable shell — the
 minutes still happened.
 
-DELIVERED WEBHOOK BODIES (D-23) are the first personal data this module expires OUTSIDE
-Postgres. `webhook_deliveries.payload_ref` names an object holding the CRM payload we
-POSTed to a client's endpoint, so both jobs gained an arm: the sweep expires them on the
-tenant's own `lead` policy (see `DERIVED_COPIES`), and the erasure deletes them by
-SUBJECT, enumerating the object store rather than trusting the reference column
-(`_erase_delivery_bodies` says why). Unlike recordings, these do not wait on a bucket
-lifecycle rule — nothing about them is under a statutory retention floor, so the tenant's
-own policy is the whole answer and this module executes it.
+DELIVERED WEBHOOK BODIES (D-23) and RECORDINGS are the personal data this module expires
+OUTSIDE Postgres, and both go through `_sweep_objects_in_batches`: select the keys, delete
+the objects, and only then clear the references, so a crash leaves a reference to a
+deleted object (harmless) rather than an object nothing can name (unreachable forever).
+
+THE RECORDING BYTES USED TO SURVIVE EVERYTHING. This module cleared `calls.recording_url`
+and said in a comment that the object-store lifecycle rule removed the audio. It does not
+— SEC-COMP §4 records what `infra/object-lifecycle/` actually is, a bucket-wide 2555-day
+growth CEILING that "CANNOT follow the retention policy" — so a tenant's 90-day recording
+policy expired the POINTER and left the audio for seven years, and an erasure request made
+it worse: clearing the pointer destroyed the only handle anything had on the key, so the
+sweep (`WHERE recording_url IS NOT NULL`) could never reach it again. Filing a DPDP
+erasure made the recording permanently undeletable. Both halves are closed: the sweep
+destroys the bytes at `max(ttl, floor)`, and the erasure destroys the ones past the floor
+and SCHEDULES the rest in `recording_erasure_holds` (`_erase_recordings`).
 
 Engine-side copies are the open edge, honestly marked: Bolna's deletion API is
 undocumented (pilot gate), so `engine_deletion` is recorded as `unconfirmed` in the
@@ -41,12 +48,19 @@ and `calls.ended_at` is a nullable VENDOR-supplied field. A call the engine neve
 used to match no predicate at all and kept its recording pointer, transcript and summary
 forever. The clock now falls back to our own `created_at` plus the metered duration.
 
-THE ONE THING THIS MODULE REFUSES TO DECIDE: an erasure request for a recording younger
-than the TRAI 90-day floor. SEC-COMP §4 says erasure covers recordings, SEC-COMP §1 says
-90 days is a minimum, and the doc reserves the choice for the founder. The behaviour is
-therefore unchanged — the pointer is cleared at any age — but the collision is COUNTED
-and reported (`_FLOOR_COLLISION_LOG`, `floor_recordings=` on the job result, and
-`scope.recordings_within_trai_floor` in the proof) instead of passing unremarked.
+THE ONE THING THIS MODULE REFUSES TO DECIDE: whether to destroy a recording younger than
+the retention floor EARLY, on request. SEC-COMP §4 says erasure covers recordings, §1 says
+the floor is a minimum, and the doc reserves the choice for the founder while forbidding
+anyone to "make the pointer-clear conditional on age". Both constraints are honoured: the
+pointer is cleared at every age, and no under-floor recording is ever destroyed early.
+
+What the deferral is NOT is a refusal. DPDP §12(3) obliges erasure "unless retention of
+the same is necessary … for compliance with any law", and DPDP §8(7) makes keeping the
+data past the end of that necessity a breach in itself — so a retention obligation moves
+an erasure's date, it does not cancel it. `recording_erasure_holds` is that date made
+durable, and the collision keeps its rate in the log stream (`_FLOOR_COLLISION_LOG`) and
+its numbers in the proof (`recordings_within_trai_floor`, `recordings_destroyed`,
+`recording_hold_until`).
 """
 
 from __future__ import annotations
@@ -63,6 +77,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import storage
@@ -111,6 +126,16 @@ _FLOOR_COLLISION_LOG = "erasure_within_recording_floor"
 # its session dependencies — in order to name a JSON key. `tests/erasure_floor_count_test`
 # pins the two spellings together so they cannot drift.
 FLOOR_COUNT_KEY = "recordings_within_trai_floor"
+
+# The other two facts the proof now records about the audio, spelled the same in both
+# packages for the same reason (`tests/recording_erasure_test` pins them together).
+#
+# `recordings_destroyed` is the count this erasure actually put beyond recovery, and
+# `recording_hold_until` is the ISO instant the last DEFERRED one is destroyed on. Both
+# are absent from every proof written before the bytes were reachable at all, and absent
+# still means "not recorded" rather than zero — the certificate says so in words.
+DESTROYED_COUNT_KEY = "recordings_destroyed"
+HOLD_UNTIL_KEY = "recording_hold_until"
 
 # Rows touched by ONE statement. Small enough that the sweep never holds a lock long
 # enough to matter to a live call writing to the same tables.
@@ -202,6 +227,11 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     "extractions": 0,
     # Delivered webhook bodies (D-23): one object deleted and its `payload_ref` cleared.
     "delivery_bodies": 0,
+    # Recording objects destroyed for an erasure that could not lawfully destroy them
+    # when it ran (migration 9c1d3e7a05f4). Counted apart from `recordings` on purpose:
+    # one is a retention period ending, the other is a DPDP obligation finally being
+    # discharged, and a single number would hide whether erasures are actually completing.
+    "recording_holds": 0,
     "deferred": 0,
 }
 
@@ -363,6 +393,12 @@ async def sweep_tenant(tenant_id: UUID) -> dict[str, int]:
     """
     totals = dict(_EMPTY_TOTALS)
     async with tenant_session(tenant_id) as session:
+        # FIRST, and outside the policy loop. A scheduled erasure is an obligation this
+        # tenant already incurred; it must not be skipped because their `recording` policy
+        # row was deleted, nor deferred behind a large expiry batch on a busy tenant.
+        totals["recording_holds"], hold_deferred = await _sweep_recording_holds(session)
+        totals["deferred"] += int(hold_deferred)
+
         policies = (
             await session.execute(
                 text(_PROBE_SQL),
@@ -406,10 +442,56 @@ async def _sweep_in_batches(
     return done, True
 
 
-_RECORDING_SQL = f"""
-UPDATE calls SET recording_url = NULL, updated_at = now() WHERE id IN (
-  SELECT c.id FROM calls c WHERE c.recording_url IS NOT NULL AND {_CLOCK} < :cutoff
-  ORDER BY {_CLOCK} LIMIT :batch)
+# RECORDINGS — the one sweep arm whose data is BYTES IN A BUCKET, and therefore the one
+# that cannot be a single UPDATE either.
+#
+# WHAT WAS WRONG WITH THE SINGLE UPDATE. This arm used to be `UPDATE calls SET
+# recording_url = NULL`, with a comment saying the object-store lifecycle rule removed
+# the bytes. It does not, and SEC-COMP §4 says so in terms: `infra/object-lifecycle/` is
+# a bucket-wide, prefix-scoped growth CEILING (`recordings/` at 2555 days), static while
+# `retention_policies` is per tenant and editable, so it "CANNOT follow the retention
+# policy". The consequence was that a tenant's 90-day recording policy expired the
+# POINTER at 90 days and left the audio in the bucket for seven years — and once the
+# pointer was gone nothing could name the key to delete it sooner. "Recordings are kept
+# for 90 days" was true of a column and false of a person.
+#
+# So the same three-statement shape as the delivery bodies, in the same order and for the
+# same reason: SELECT the keys, DELETE the objects, and only then clear the references.
+# Clearing first would be one crash away from an object nothing can ever name again.
+#
+# NO FLOOR CHECK HERE, because the caller already applied one: `_apply_one` computes the
+# cutoff from `max(ttl_days, RECORDING_FLOOR_DAYS)`, so every row this selects is past
+# the floor by construction. Destroying the bytes at that moment is not the open decision
+# SEC-COMP §4 reserves — that one is about audio YOUNGER than the floor, which this
+# statement cannot select.
+_RECORDING_SELECT_SQL = f"""
+SELECT c.id, c.recording_url FROM calls c
+WHERE c.recording_url IS NOT NULL AND {_CLOCK} < :cutoff
+ORDER BY {_CLOCK} LIMIT :batch
+"""
+
+_RECORDING_CLEAR_SQL = """
+UPDATE calls SET recording_url = NULL, updated_at = now() WHERE id = ANY(:ids)
+"""
+
+# SCHEDULED DESTRUCTIONS — the erasures that were owed and could not yet be performed.
+#
+# `execute_deletion_request` clears the pointer at any age, so for a recording inside the
+# floor it writes a `recording_erasure_holds` row carrying the key and the earliest
+# lawful instant instead of losing the handle. This is where that promise is kept.
+#
+# Swept OUTSIDE the policy loop and unconditionally, not as a fourth arm of the
+# `recording` category: a DPDP obligation must not become conditional on the tenant still
+# having a retention policy row of the right category. One indexed read per tenant per
+# tick, against the partial index the migration created.
+_HOLD_SELECT_SQL = """
+SELECT id, object_key FROM recording_erasure_holds
+WHERE erased_at IS NULL AND erase_after <= now()
+ORDER BY erase_after LIMIT :batch
+"""
+
+_HOLD_MARK_SQL = """
+UPDATE recording_erasure_holds SET erased_at = now() WHERE id = ANY(:ids)
 """
 
 _TRANSCRIPT_DELETE_SQL = f"""
@@ -488,35 +570,66 @@ WHERE id = ANY(:ids) AND endpoint_id IN (SELECT id FROM outbound_webhooks)
 """
 
 
-async def _sweep_delivery_bodies(session: AsyncSession, *, cutoff: datetime) -> tuple[int, bool]:
-    """Expire the retained delivery bodies past `cutoff`. Returns (rows, deferred).
+async def _sweep_objects_in_batches(
+    session: AsyncSession,
+    *,
+    select_sql: str,
+    finish_sql: str,
+    params: dict[str, Any],
+    deferred_event: str,
+) -> tuple[int, bool]:
+    """`_sweep_in_batches` for the arms whose data is BYTES: select, delete, then finish.
+
+    ONE implementation for the three of them — delivered CRM bodies, expiring recordings,
+    and the scheduled destructions an erasure deferred. They were not going to be three
+    hand-written loops: each one has the same two ways to be wrong (clear the reference
+    before the object and you orphan the bytes; treat an outage as "nothing there" and you
+    lose them silently), and the second and third copies are where the drift starts.
+
+    `select_sql` returns `(id, object_key)` oldest-first under `:batch`. `finish_sql`
+    takes `:ids` and must leave those rows no longer matching `select_sql`, so the loop
+    terminates. Returns (rows, deferred).
 
     A store that will not answer STOPS this arm rather than failing the tick: every other
     category still expires, the references stay pointing at objects that still exist, and
-    the next tick starts from the same oldest rows. Reported as a warning with counts —
+    the next tick starts from the same oldest rows. Reported as a warning with a reason —
     an alert per tick during an object-store outage would be an alarm nobody reads, and
-    the objects are not yet overdue by any amount that matters within one night.
+    nothing here is overdue by an amount that matters within one night. Keys are never
+    logged: a delivery-body key contains the subject's row id (hard rule 6).
     """
     done = 0
     while done < TENANT_ROW_BUDGET:
         batch = min(SWEEP_BATCH_ROWS, TENANT_ROW_BUDGET - done)
-        rows = (
-            await session.execute(
-                text(_DELIVERY_BODY_SELECT_SQL), {"cutoff": cutoff, "batch": batch}
-            )
-        ).all()
+        rows = (await session.execute(text(select_sql), {**params, "batch": batch})).all()
         if not rows:
             return done, False
         try:
             storage.delete_objects([str(row[1]) for row in rows])
         except storage.StorageUnavailableError as exc:
-            log.warning("delivery_body_expiry_deferred", extra={"reason": str(exc)})
+            log.warning(deferred_event, extra={"reason": str(exc), "pending": len(rows)})
             return done, True
-        await session.execute(text(_DELIVERY_BODY_CLEAR_SQL), {"ids": [row[0] for row in rows]})
+        await session.execute(text(finish_sql), {"ids": [row[0] for row in rows]})
         done += len(rows)
         if len(rows) < batch:
             return done, False
     return done, True
+
+
+async def _sweep_recording_holds(session: AsyncSession) -> tuple[int, bool]:
+    """Destroy the audio of every erasure whose lawful moment has arrived.
+
+    The other half of `execute_deletion_request`'s deferral. Nothing here consults a
+    retention policy: `erase_after` was fixed when the hold was written, against the
+    call's own clock, and re-deriving it now against a policy the tenant may since have
+    lengthened would let a client postpone somebody's erasure by editing a setting.
+    """
+    return await _sweep_objects_in_batches(
+        session,
+        select_sql=_HOLD_SELECT_SQL,
+        finish_sql=_HOLD_MARK_SQL,
+        params={},
+        deferred_event="recording_hold_erasure_deferred",
+    )
 
 
 async def _apply_one(
@@ -531,10 +644,15 @@ async def _apply_one(
     if category == "recording":
         effective = max(ttl_days, RECORDING_FLOOR_DAYS)
         cutoff = datetime.now(UTC) - timedelta(days=effective)
-        # Clearing the pointer is the local half; the object-store lifecycle rule
-        # removes the bytes. Keeping the call row keeps its metering intact.
-        counts["recordings"], deferred = await _sweep_in_batches(
-            session, _RECORDING_SQL, {"cutoff": cutoff}
+        # The AUDIO goes, then the pointer. Keeping the call row keeps its metering
+        # intact; keeping the bytes would make "recordings are kept for N days" a
+        # statement about a column (see `_RECORDING_SELECT_SQL`).
+        counts["recordings"], deferred = await _sweep_objects_in_batches(
+            session,
+            select_sql=_RECORDING_SELECT_SQL,
+            finish_sql=_RECORDING_CLEAR_SQL,
+            params={"cutoff": cutoff},
+            deferred_event="recording_expiry_deferred",
         )
         counts["deferred"] += int(deferred)
         return counts
@@ -566,7 +684,13 @@ async def _apply_one(
             session, _EXTRACTION_SQL, {"cutoff": cutoff}
         )
         counts["deferred"] += int(deferred)
-        counts["delivery_bodies"], deferred = await _sweep_delivery_bodies(session, cutoff=cutoff)
+        counts["delivery_bodies"], deferred = await _sweep_objects_in_batches(
+            session,
+            select_sql=_DELIVERY_BODY_SELECT_SQL,
+            finish_sql=_DELIVERY_BODY_CLEAR_SQL,
+            params={"cutoff": cutoff},
+            deferred_event="delivery_body_expiry_deferred",
+        )
         counts["deferred"] += int(deferred)
         return counts
 
@@ -630,6 +754,100 @@ async def _erase_delivery_bodies(
         {"keys": keys},
     )
     return len(keys)
+
+
+# The recordings this erasure reached, split by whether destroying them is lawful TODAY.
+# Read BEFORE the pointer clear — afterwards the question is unanswerable, which is how
+# the whole collision stayed invisible.
+_ERASURE_RECORDINGS_SQL = f"""
+SELECT c.id, c.recording_url,
+       {_CLOCK} + make_interval(days => :floor) AS lawful_at
+FROM calls c
+WHERE c.id = ANY(:ids) AND c.recording_url IS NOT NULL
+"""
+
+# `ON CONFLICT DO NOTHING` on the (tenant_id, object_key) unique: a retried erasure — the
+# storage outage below rolls the whole transaction back and arq runs it again — must
+# re-record the same hold without failing on its own previous attempt. Nothing about a
+# hold changes between attempts, so DO NOTHING is the correct resolution rather than an
+# upsert that would move `erase_after` on every retry.
+_HOLD_INSERT_SQL = """
+INSERT INTO recording_erasure_holds
+  (id, tenant_id, call_id, request_id, object_key, erase_after, created_at)
+VALUES (:id, :tid, :cid, :rid, :key, :erase_after, now())
+ON CONFLICT (tenant_id, object_key) DO NOTHING
+"""
+
+
+async def _erase_recordings(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    request_id: UUID,
+    call_ids: list[UUID],
+) -> tuple[int, int, datetime | None]:
+    """Destroy the audio this erasure may destroy; SCHEDULE the audio it may not yet.
+
+    Returns `(within_floor, destroyed, latest_scheduled_destruction)`.
+
+    THE TENSION, AND WHAT THIS FUNCTION DOES AND DOES NOT DECIDE. SEC-COMP §4 records an
+    open decision: for a recording younger than the retention floor, §4's erasure duty and
+    §1's floor point opposite ways, and the founder reserves the choice. This function
+    does not take it. It never destroys a recording inside the floor, and it does not make
+    the POINTER clear conditional on age — the caller still nulls `recording_url` for
+    every matched call, exactly as before, which is what §4 forbids changing without the
+    decision.
+
+    What it settles is the part that was never a question: a recording PAST the floor.
+    There is no rule requiring its retention, DPDP §12(3) obliges erasure "unless
+    retention of the same is necessary for the specified purpose or for compliance with
+    any law for the time being in force", and no such law reaches it — so the bytes go
+    now. And for a recording inside the floor, the lawful basis for keeping it is
+    TIME-LIMITED; DPDP §8(7)'s storage limitation makes holding it past that point a
+    breach on its own. A deferral is therefore a SCHEDULE, and the hold row is the handle
+    the sweep needs to keep it. Before this function existed the pointer clear destroyed
+    that handle, so an erasure request made the audio permanently undeletable — which is
+    not either side of the open decision, it is the failure to have one.
+
+    Storage refusing to answer RAISES (`StorageUnavailableError` is an `arq.Retry`), which
+    rolls the transaction back and leaves `completed_at` NULL for the retry. Same contract
+    as `_erase_delivery_bodies` and for the same reason: a certificate claiming a
+    destruction we did not perform is worse than one not yet issued.
+    """
+    rows = (
+        await session.execute(
+            text(_ERASURE_RECORDINGS_SQL),
+            {"ids": call_ids, "floor": RECORDING_FLOOR_DAYS},
+        )
+    ).all()
+    if not rows:
+        return 0, 0, None
+
+    now = datetime.now(UTC)
+    destroy_now: list[str] = []
+    defer: list[tuple[UUID, str, datetime]] = []
+    for call_id, key, lawful_at in rows:
+        if lawful_at <= now:
+            destroy_now.append(str(key))
+        else:
+            defer.append((UUID(str(call_id)), str(key), lawful_at))
+
+    if destroy_now:
+        storage.delete_objects(destroy_now)
+    for call_id, key, lawful_at in defer:
+        await session.execute(
+            text(_HOLD_INSERT_SQL),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "cid": call_id,
+                "rid": request_id,
+                "key": key,
+                "erase_after": lawful_at,
+            },
+        )
+    latest = max((lawful_at for _, _, lawful_at in defer), default=None)
+    return len(defer), len(destroy_now), latest
 
 
 async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -712,21 +930,11 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         turns_erased = 0
         extractions_erased = 0
         recordings_in_floor = 0
+        recordings_destroyed = 0
+        held_until: datetime | None = None
         if calls:
-            # Counted BEFORE the pointer is cleared — afterwards the question is
-            # unanswerable, which is how this collision stayed invisible.
-            recordings_in_floor = int(
-                (
-                    await session.execute(
-                        text(
-                            "SELECT count(*) FROM calls c WHERE c.id = ANY(:ids) "
-                            "AND c.recording_url IS NOT NULL AND "
-                            f"{_CLOCK} > now() - make_interval(days => :floor)"
-                        ),
-                        {"ids": list(calls), "floor": RECORDING_FLOOR_DAYS},
-                    )
-                ).scalar()
-                or 0
+            recordings_in_floor, recordings_destroyed, held_until = await _erase_recordings(
+                session, tenant_id=tenant_id, request_id=request_id, call_ids=list(calls)
             )
             result = await session.execute(
                 text(
@@ -779,9 +987,24 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 # this field "absent" means "an older worker did not record it" and
                 # only a recorded 0 supports the certificate saying "none".
                 FLOOR_COUNT_KEY: recordings_in_floor,
+                # How many audio files this request actually DESTROYED — the ones past
+                # the floor, where nothing required their retention. Nullable in the
+                # certificate model for the same reason as the field above: a proof
+                # written before this arm existed recorded no such number, and hard rule
+                # 4 forbids back-filling one.
+                DESTROYED_COUNT_KEY: recordings_destroyed,
+                # When the LAST of the deferred ones is destroyed, so the certificate can
+                # give the data principal a date instead of "treat the audio as still
+                # existing indefinitely". Null when nothing was deferred.
+                HOLD_UNTIL_KEY: held_until.isoformat() if held_until is not None else None,
             },
             "actions": {
                 "calls": "phone numbers, recording pointer and summary cleared",
+                "recordings": (
+                    f"{recordings_destroyed} audio file(s) destroyed in object storage; "
+                    f"{recordings_in_floor} scheduled for destruction on expiry of the "
+                    f"{RECORDING_FLOOR_DAYS}-day retention floor"
+                ),
                 "transcript_turns": "text and text_redacted replaced",
                 "call_extractions": "extracted field payload cleared",
                 "leads": "phone anonymized, name and extracted fields cleared",
@@ -831,14 +1054,17 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
     )
     return (
         f"erased calls={len(calls)} leads={len(leads)} turns={turns_erased} "
-        f"bodies={bodies_erased} floor_recordings={recordings_in_floor}"
+        f"bodies={bodies_erased} recordings={recordings_destroyed} "
+        f"floor_recordings={recordings_in_floor}"
     )
 
 
 __all__ = [
     "ANONYMIZED_PHONE",
     "DERIVED_COPIES",
+    "DESTROYED_COUNT_KEY",
     "FLOOR_COUNT_KEY",
+    "HOLD_UNTIL_KEY",
     "RECORDING_FLOOR_DAYS",
     "REDACTED_MARK",
     "SWEEP_BATCH_ROWS",

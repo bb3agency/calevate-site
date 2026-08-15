@@ -6,7 +6,9 @@ alert an operator receives, a metric an SLO rule can watch, and a job result tha
 not read as "all quiet".
 
 Deliberately DB-free: the listings here carry no snapshots, so the job never reaches
-`_already_completed`. What is under test is the branch between "the engine answered" and
+`_pipeline_settled` — the poller's per-execution probe, which asks whether the artefacts
+the pipeline owed this call are actually there, not merely whether a completed call row
+exists. What is under test is the branch between "the engine answered" and
 "we repaired something", and it must hold even when there is nothing to repair — a
 truncated listing with zero repairs is the most dangerous shape there is, because every
 other number on the tick says everything is fine.

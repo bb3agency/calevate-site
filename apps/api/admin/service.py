@@ -334,10 +334,71 @@ def _json(value: Any) -> str:
 
 async def create_invitation(
     session: AsyncSession, *, tenant_id: UUID, email: str, role: str, created_by: UUID | None
-) -> str:
-    """Single-use, 72h, HASHED at rest (FLOWS §2). Returns the RAW token exactly once —
-    it is never stored and never logged, so a leaked database does not hand out
-    account access."""
+) -> tuple[UUID, str]:
+    """Single-use, 72h, HASHED at rest (FLOWS §2). Returns `(id, RAW token)`; the token
+    is returned exactly once — it is never stored and never logged, so a leaked database
+    does not hand out account access.
+
+    THE TWO REFUSALS LIVE HERE, not in one caller. This is the only statement in the
+    system that mints an invitation row, and it had two callers enforcing two different
+    rulebooks: `tenancy/members.py` refused an address already on the team and refused a
+    second live token for one address, while the wizard's `POST
+    /v1/admin/tenants/{id}/invitations` refused neither. So the console's own "Create
+    invite" button, pressed twice — which is exactly what an operator does when the
+    first token scrolls out of view — put TWO live owner credentials for one client
+    account into somebody's inbox, and revoking the one you can see leaves the other
+    working. The rule was never realm-specific; it was only ever written down in the
+    realm that happened to be built second.
+
+    Both reads run under the caller's tenant session, so they can only answer about THIS
+    account: "is this address already here" must not become a way to probe whether an
+    address exists on the platform.
+
+    What stays with the CALLER is the authorization question, because it differs
+    legitimately: `members.create_team_invitation` checks that an owner may grant the
+    role it is handing out, and an admin-realm operator has no membership role to check
+    against — they hold `admin:tenants` instead, which the route asserts.
+
+    Returning the id rather than making the caller re-find the row by token hash: the
+    hash is the only exact key an outside lookup has, and re-deriving it means hashing
+    the secret a second time in a second place.
+    """
+    already = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM memberships m JOIN users u ON u.id = m.user_id "
+                "WHERE lower(u.email) = lower(:e)"
+            ),
+            {"e": email},
+        )
+    ).first()
+    if already is not None:
+        raise ProblemError.business_rule(
+            "member_already_on_team",
+            "That person is already on this account.",
+            remediation="Change their role from the team list instead of inviting them again.",
+        )
+
+    pending = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM invitations WHERE lower(email) = lower(:e) "
+                "AND used_at IS NULL AND expires_at > now()"
+            ),
+            {"e": email},
+        )
+    ).first()
+    if pending is not None:
+        # Refused rather than silently replaced: issuing a second live token for one
+        # address doubles the number of keys to that account in somebody's inbox, and
+        # quietly revoking the first would break a link that may already be in transit.
+        raise ProblemError.conflict(
+            "invitation_already_pending",
+            "There is already an unused invitation for that address.",
+            remediation="Revoke the pending invitation first if you want to send a new link.",
+        )
+
+    invitation_id = uuid7()
     raw = secrets.token_urlsafe(32)
     await session.execute(
         text(
@@ -346,7 +407,7 @@ async def create_invitation(
             ":expires, :by, now(), now())"
         ),
         {
-            "id": uuid7(),
+            "id": invitation_id,
             "tid": tenant_id,
             "email": email,
             "role": role,
@@ -355,7 +416,7 @@ async def create_invitation(
             "by": created_by,
         },
     )
-    return raw
+    return invitation_id, raw
 
 
 async def accept_invitation(session: AsyncSession, *, raw_token: str, user_id: UUID) -> UUID:

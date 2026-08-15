@@ -109,6 +109,18 @@ class ErasureScopeOut(Strict):
     # (`deletion_proof._floor_sentence`). Hard rule 4 is why the older rows stay `None`:
     # they are not back-filled.
     recordings_within_trai_floor: int | None
+    # How many audio files this request actually DESTROYED — the ones past the floor,
+    # where no law required their retention (DPDP §12(3)). Nullable on the same
+    # reasoning as the field above.
+    recordings_destroyed: int | None
+    # The instant the LAST deferred recording is destroyed on, as the worker recorded it.
+    # A string rather than a datetime: it is passed through from a durable JSON document
+    # this API does not own, and re-parsing it here would turn a proof written by an
+    # older worker into a 500 on the one endpoint whose subject is a person who asked to
+    # be erased. Null when nothing was deferred, and also null on every proof written
+    # before a deferral had a date at all — the certificate distinguishes the two in
+    # words (`deletion_proof._floor_sentence`).
+    recording_hold_until: str | None
 
 
 class ErasureLimitationOut(Strict):

@@ -183,12 +183,34 @@ async def enqueue_event(
     event: str,
     data: dict[str, Any],
 ) -> int:
-    """Fan the event out to every active endpoint subscribed to it — one outbox row per
-    endpoint, in the caller's transaction.
+    """One object's event, fanned out. The single-row case of `enqueue_events`.
+
+    Kept as the name every producer already calls, and implemented in terms of the
+    plural rather than beside it: two fan-outs would be two answers to "which endpoints
+    is this event for" and the second one is where `include_raw_phone` gets forgotten.
+    """
+    return await enqueue_events(session, tenant_id=tenant_id, event=event, rows=(data,))
+
+
+async def enqueue_events(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    event: str,
+    rows: Sequence[dict[str, Any]],
+) -> int:
+    """Fan ONE event type over n objects out to every active endpoint subscribed to it —
+    one outbox row per (object, endpoint), in the caller's transaction.
 
     One row per endpoint rather than one per event: endpoints fail independently, and a
     shared row would make a dead endpoint retry deliveries that already succeeded
     elsewhere.
+
+    **Plural because a bulk edit is one transaction and n events.** `crm.service`'s bulk
+    action moves up to `MAX_BULK_LEADS` leads in a single request, and calling the
+    singular form per lead would re-run the endpoint SELECT once per lead — 500 identical
+    queries inside one transaction for a set of endpoints that cannot change while it is
+    open. The endpoints are read ONCE here and the loop is pure INSERTs.
 
     **Redaction happens HERE, per endpoint, because the fan-out is the last point that
     still knows which endpoint a payload is for.** The raw phone is a per-endpoint
@@ -197,9 +219,17 @@ async def enqueue_event(
     the same body, so the opt-in was documented and unreachable. Masking on this side
     of the fan-out also means a caller that simply passes the domain row cannot leak:
     an endpoint that did not ask never gets a raw number in its outbox row.
+
+    Returns the number of OUTBOX ROWS written, which for a single object is the number of
+    endpoints — the meaning `enqueue_event`'s callers already assert on.
     """
     if event not in EVENT_TYPES:
         raise ValueError(f"unknown outbound event: {event}")
+    if not rows:
+        # No objects changed, so no endpoint is told anything. Returning before the
+        # SELECT keeps a bulk action that moved nothing free of a query as well as of
+        # deliveries.
+        return 0
 
     # Every kind we can actually deliver, not just `webhook`: a client who picked
     # Google Sheets subscribed to the same events and gets the same fan-out. The kind
@@ -215,25 +245,28 @@ async def enqueue_event(
         )
     ).all()
 
+    written = 0
     for endpoint_id, mapping in endpoints:
         opted_in = bool((mapping or {}).get("include_raw_phone"))
-        await enqueue_outbox(
-            session,
-            queue="default",
-            job="deliver_outbound_webhook",
-            payload={
-                "tenant_id": str(tenant_id),
-                "endpoint_id": str(endpoint_id),
-                "event": event,
-                "data": lead_payload(data, include_raw_phone=opted_in),
-                # Minted HERE, not in the worker: ARQ replays the same payload on
-                # retry, so a worker-side id would mint a new one per attempt and the
-                # "one forensic row per delivery" claim would be false — and a receiver
-                # deduplicating on it would treat every retry as a new event.
-                "delivery_id": str(uuid7()),
-            },
-        )
-    return len(endpoints)
+        for data in rows:
+            await enqueue_outbox(
+                session,
+                queue="default",
+                job="deliver_outbound_webhook",
+                payload={
+                    "tenant_id": str(tenant_id),
+                    "endpoint_id": str(endpoint_id),
+                    "event": event,
+                    "data": lead_payload(data, include_raw_phone=opted_in),
+                    # Minted HERE, not in the worker: ARQ replays the same payload on
+                    # retry, so a worker-side id would mint a new one per attempt and the
+                    # "one forensic row per delivery" claim would be false — and a
+                    # receiver deduplicating on it would treat every retry as a new event.
+                    "delivery_id": str(uuid7()),
+                },
+            )
+            written += 1
+    return written
 
 
 async def load_endpoint(session: AsyncSession, endpoint_id: UUID) -> dict[str, Any] | None:
@@ -636,10 +669,28 @@ def sheet_header(columns: Sequence[str], mapping: dict[str, Any]) -> list[str]:
 
     Order comes from `columns` (a list); `headers` only renames, so a jsonb object is
     the right shape for it and its key order is irrelevant.
+
+    DISARMED, like every other cell. Both halves of a heading are free strings off the
+    endpoint's `mapping` JSONB — `headers` renames, and `columns` supplies the name when
+    it does not (`sheet_columns` filters for "a non-empty string", not for a field we
+    recognise). Those are operator-configured today rather than client-typed (WEBHOOKS
+    §1.2: "ask us to set this up"), which is a smaller blast radius than the data rows
+    and not a zero one, and a JSONB column reached by a human editor is precisely the
+    one that becomes a self-serve form without anyone re-reading this function.
+    `valueInputOption=RAW` on the header write
+    (`workers/google_sheets._ensure_header`) already stops Sheets PARSING it, exactly as
+    it does for the data rows; `_disarm` is the same belt-and-braces those rows get, and
+    it is what survives the client exporting their sheet to CSV and double-clicking it.
+    The CSV export states this rule as shared doctrine — "EVERY CELL GOES THROUGH THE
+    GUARD, HEADER INCLUDED — the Sheets writer's rule" — and cited this function for it
+    while this function was the one exception to it.
     """
     raw = mapping.get("headers")
     headers = raw if isinstance(raw, dict) else {}
-    return [str(headers.get(name, name)) for name in columns] + [SHEET_DELIVERY_HEADER]
+    # `SHEET_DELIVERY_HEADER` is ours and cannot lead a formula, but it goes through the
+    # same call rather than being appended raw: a renderer applied to "the interesting
+    # cells" is how `crm.service.export_leads_csv` left `name` unguarded for a release.
+    return [_cell(headers.get(name, name)) for name in columns] + [_cell(SHEET_DELIVERY_HEADER)]
 
 
 def sheet_row(data: dict[str, Any], columns: Sequence[str], delivery_id: UUID | str) -> list[str]:
@@ -700,6 +751,7 @@ __all__ = [
     "delivery_body_ref",
     "delivery_status",
     "enqueue_event",
+    "enqueue_events",
     "lead_payload",
     "load_endpoint",
     "parse_spreadsheet_ref",

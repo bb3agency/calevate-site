@@ -27,6 +27,7 @@ import uuid
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.agents import prompts
 from apps.api.core.auth import tenant_of
 from apps.api.core.rbac import (
     MUTATING_PERMISSIONS,
@@ -215,6 +216,19 @@ async def test_an_admin_publishes_an_agent_on_the_tenant_path() -> None:
     token = await _make_admin()
     org = await _make_org()
     tenant_id, agent_id = org["id"], org["agent_id"]
+    # The wizard mints this agent before step 3, so it has no prompt version and
+    # publishing it is now refused by name (`agent_has_no_script`) rather than shipping a
+    # hardcoded English placeholder. This test is about the ROUTE being reachable with a
+    # plain admin token, so give it the one precondition the route legitimately has.
+    async with tenant_session(uuid.UUID(str(tenant_id))) as scoped:
+        await prompts.write_prompt_version(
+            scoped,
+            tenant_id=uuid.UUID(str(tenant_id)),
+            agent_id=uuid.UUID(str(agent_id)),
+            body="[IDENTITY]\nYou are the receptionist for Route Shape Clinic.\n",
+            notes=None,
+            created_by=None,
+        )
 
     async with _client() as http:
         response = await http.post(

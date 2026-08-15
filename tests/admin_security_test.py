@@ -152,7 +152,7 @@ async def test_an_invitation_can_only_be_burned_once() -> None:
             {"i": user_id, "c": f"u_{user_id.hex[:10]}", "e": "invitee@example.com"},
         )
     async with tenant_session(tenant_id) as session:
-        token = await service.create_invitation(
+        _invitation_id, token = await service.create_invitation(
             session, tenant_id=tenant_id, email="invitee@example.com", role="owner", created_by=None
         )
         stored = (await session.execute(text("SELECT token_hash FROM invitations"))).scalar()
@@ -215,7 +215,7 @@ async def test_an_invitee_can_accept_before_they_have_any_membership() -> None:
             {"i": user_id, "c": clerk_id, "e": f"{clerk_id}@example.com"},
         )
     async with tenant_session(tenant_id) as session:
-        token = await service.create_invitation(
+        _invitation_id, token = await service.create_invitation(
             session,
             tenant_id=tenant_id,
             email=f"{clerk_id}@example.com",
@@ -272,7 +272,7 @@ async def test_the_invite_guc_grants_no_writes_and_no_other_rows() -> None:
         created_by=None,
     )
     async with tenant_session(created["id"]) as session:
-        token = await service.create_invitation(
+        _invitation_id, token = await service.create_invitation(
             session, tenant_id=created["id"], email="a@b.test", role="owner", created_by=None
         )
     import hashlib

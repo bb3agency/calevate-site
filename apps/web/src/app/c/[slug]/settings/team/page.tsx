@@ -21,6 +21,7 @@ import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { lookup } from "@/lib/lookup";
 import {
   ROLE_COPY,
+  inviteLink,
   useInviteMember,
   useMembers,
   usePendingInvitations,
@@ -317,10 +318,12 @@ export default function TeamPage() {
  */
 function IssuedLink({ invitation }: { invitation: CreatedInvitation }) {
   const [copied, setCopied] = useState(false);
-  const link =
-    typeof window === "undefined"
-      ? `/invite?token=${invitation.token}`
-      : `${window.location.origin}/invite?token=${invitation.token}`;
+  // Built from `inviteLink`, not spelled out here: this screen and `/invite` disagreeing
+  // about the path is exactly the defect that made every link it printed a 404.
+  const link = inviteLink(
+    invitation.token,
+    typeof window === "undefined" ? undefined : window.location.origin,
+  );
 
   return (
     <div className="mt-4">

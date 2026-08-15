@@ -425,25 +425,116 @@ async def test_an_unverified_gstin_is_not_printed(gst_registered: Any) -> None:
 
 
 async def test_the_invoice_serial_is_not_yet_rule_46b_compliant() -> None:
-    """An OPEN FINDING, pinned so it cannot rot into a comment nobody reads.
+    """An OPEN FINDING, pinned so it cannot rot into a comment nobody reads — and pinned
+    on BOTH halves, which is the change this test needed.
 
-    Rule 46(b) caps a tax-invoice serial at sixteen characters and requires it to be
-    consecutive within a financial year. Ours is nineteen and is deterministic rather
-    than consecutive — a deliberate D-46 property (recompute, never store), and the two
-    requirements genuinely conflict. When the numbering scheme changes, this test fails
-    and forces the next reader to confront 46(b) rather than rediscover it.
+    Rule 46(b) wants a serial that is (i) at most sixteen characters and (ii) CONSECUTIVE
+    within the financial year. Ours fails both: nineteen characters, and a deterministic
+    per-tenant-month hash rather than a series. `billing/invoice.py` carries the verified
+    text of the clause, why the fix is blocked on the GST registration rather than on
+    engineering, and the design that lands the day the registry decision is taken.
+
+    **THE LENGTH ALONE USED TO BE THE ASSERTION, AND THAT WAS THE HOLE.** A change that
+    shortened the serial to sixteen characters while leaving it a hash would have turned
+    this red and been read as "the finding is closed" — and a change that made it
+    consecutive while leaving it nineteen characters would have left it GREEN, recording
+    a defect that no longer existed in the form described. Both halves are asserted
+    separately now, each with the remedy for its own half, so whichever one moves the
+    failure names it.
+
+    Closing this means deleting the test — after both assertions have something to say
+    about the new scheme, not after one of them has been made to pass.
     """
     org = await _tenant_with_usage()
     tenant_id = uuid.UUID(str(org["id"]))
     async with tenant_session(tenant_id) as session:
         invoice = await build_invoice(session, tenant_id=tenant_id)
+    serial = str(invoice["invoice_number"])
 
-    assert len(invoice["invoice_number"]) > RULE_46B_MAX_SERIAL_CHARS, (
-        "The invoice serial now fits Rule 46(b)'s sixteen characters. If that was "
-        "deliberate, check the OTHER half of 46(b) too — the series must be consecutive "
-        "and unique for the financial year, which needs an issued-invoice registry and "
-        "therefore a decision against D-46 — then delete this test."
+    assert len(serial) > RULE_46B_MAX_SERIAL_CHARS, (
+        f"the invoice serial {serial!r} now fits Rule 46(b)'s sixteen characters. If that "
+        "was deliberate, the OTHER assertion in this test is the one that matters: a "
+        "sixteen-character hash is no more consecutive than a nineteen-character one, and "
+        "shortening it alone would have removed the only executable record of the gap."
     )
+
+    # THE CONSECUTIVE HALF, probed the only way it can be without an issued-invoice
+    # registry to read: two tenants billed in the SAME month get numbers with no ordering
+    # relationship, because there is no series for them to be positions in. A real 46(b)
+    # series would hand these two consecutive integers.
+    other = await _tenant_with_usage(minutes=0)
+    other_id = uuid.UUID(str(other["id"]))
+    async with tenant_session(other_id) as session:
+        other_invoice = await build_invoice(session, tenant_id=other_id)
+    other_serial = str(other_invoice["invoice_number"])
+
+    # The month segment is shared and the tail is the tenant. Nothing about the pair says
+    # which came first, which is exactly what "consecutive" would mean.
+    head, tail = serial.rsplit("-", 1), other_serial.rsplit("-", 1)
+    assert head[0] == tail[0], "the two documents are not even from the same month series"
+    assert (
+        not tail[1].isdigit() or not head[1].isdigit() or abs(int(head[1]) - int(tail[1])) != 1
+    ), (
+        f"the serials {serial!r} and {other_serial!r} now differ by one, so the scheme may "
+        "have become a consecutive series. If it has: check the LENGTH assertion above, "
+        "confirm the counter is allocated under a lock with a unique index behind it and "
+        "resets by financial year rather than by cron (billing/invoice.py has the design), "
+        "and then delete this test."
+    )
+
+
+async def test_two_tenants_billed_in_one_month_get_different_invoice_numbers() -> None:
+    """THE COLLISION THE 46(b) FINDING WAS HIDING, and it is not a compliance nicety.
+
+    The serial was `CAL-{month}-{tenant_id.hex[:8]}`. Tenant ids are uuid7, whose first
+    48 bits are the Unix millisecond timestamp, so `hex[:8]` is `ms >> 16` — a value that
+    advances once every 65.5 seconds. **Two organizations created in the same minute
+    therefore carried the SAME invoice number, in every month, permanently.** Onboarding
+    two clients in one sitting is the ordinary case, and the two tenants this very test
+    file creates back to back reproduced it on the first run.
+
+    It survived because the finding above only ever asserted the serial's LENGTH: nothing
+    in the suite had two tenants compare numbers, so a "unique for a financial year" claim
+    that was simply false sat in a comment as `ok`.
+
+    The two tenants here are created microseconds apart deliberately — that is the
+    worst case, and it is also the realistic one.
+    """
+    first = await _tenant_with_usage(minutes=0)
+    second = await _tenant_with_usage(minutes=0)
+    assert str(first["id"])[:8] == str(second["id"])[:8], (
+        "these two tenants no longer share a uuid7 timestamp prefix, so this test is not "
+        "exercising the collision it was written for — uuid7 or the fixture changed"
+    )
+
+    numbers = []
+    for org in (first, second):
+        tenant_id = uuid.UUID(str(org["id"]))
+        async with tenant_session(tenant_id) as session:
+            numbers.append((await build_invoice(session, tenant_id=tenant_id))["invoice_number"])
+
+    assert numbers[0] != numbers[1], (
+        f"two tenants created in the same minute share the invoice number {numbers[0]!r}. "
+        "The suffix must derive from the WHOLE tenant id, not from a prefix of a "
+        "time-ordered uuid (billing/invoice.py::_tenant_serial_suffix)."
+    )
+
+
+async def test_the_invoice_number_is_stable_across_regenerations() -> None:
+    """D-46's own property, and the one the collision fix must not cost.
+
+    The statement is recomputed from the ledgers and never stored, so "one number per
+    tenant-month" holds only if the number is a pure function of the tenant and the
+    month. A suffix that drew on anything else — a rotating secret, a random salt, the
+    clock — would hand the accountant two numbers for one month.
+    """
+    org = await _tenant_with_usage()
+    tenant_id = uuid.UUID(str(org["id"]))
+    async with tenant_session(tenant_id) as session:
+        once = await build_invoice(session, tenant_id=tenant_id)
+        twice = await build_invoice(session, tenant_id=tenant_id)
+    assert once["invoice_number"] == twice["invoice_number"]
+    assert once["invoice_number"].startswith(f"CAL-{str(once['month']).replace('-', '')}-")
 
 
 # --------------------------------------------- the split: which head the tax lands under

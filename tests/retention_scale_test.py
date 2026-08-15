@@ -40,6 +40,7 @@ from apps.api.db.session import get_engine, tenant_session, untenanted_session
 from apps.workers import retention
 from apps.workers.retention import REDACTED_MARK, sweep_tenant, sweep_tenants
 from sqlalchemy import event, text
+from tests.conftest import FakeS3
 
 SUMMARY = "Caller asked to reschedule Tuesday's appointment"
 EXTRACTED: str = '{"name": "Ravi", "callback": "+919876500099", "intent": "book"}'
@@ -369,7 +370,9 @@ async def test_crm_fields_outlive_the_transcript_and_expire_on_the_lead_clock() 
     assert counts["extractions"] == 1
 
 
-async def test_the_derived_copies_follow_the_policy_row_not_a_hardcoded_rule() -> None:
+async def test_the_derived_copies_follow_the_policy_row_not_a_hardcoded_rule(
+    s3: FakeS3,
+) -> None:
     """`data_category` is the vocabulary. A tenant whose transcript policy is absent (a
     BFSI overlay, a bespoke DPA) keeps its summaries — the sweep has no opinion of its
     own about what to erase."""

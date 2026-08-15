@@ -12,6 +12,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, get_args
@@ -884,6 +885,97 @@ async def set_lead_assignee(
     return True
 
 
+async def set_lead_name(session: AsyncSession, lead_id: UUID, *, name: str) -> bool:
+    """Rename one lead. True when THIS call changed it, False when it already read so.
+
+    CAS on the value (`IS DISTINCT FROM`), like `set_lead_assignee` beside it, rather
+    than a blanket `SET name = :name`. `_LEAD_VISIBLE`'s own comment condemns the
+    blanket form for status — "a no-op edit re-ordered the client's screen", because
+    `updated_at` is the Leads table's sort key — and the rename was the last field still
+    doing it. It also has to be able to say "already so" now that a real change is what
+    decides whether a `lead.updated` webhook fires: re-saving an unedited row must not
+    post to a client's CRM.
+
+    Zero rows is then two facts, so it is disambiguated the same way `set_lead_assignee`
+    does it: the write ran first and unconditionally, and the SELECT that follows writes
+    nothing and cannot reintroduce a race.
+    """
+    changed = rowcount_of(
+        await session.execute(
+            text(
+                "UPDATE leads SET name = :name, updated_at = now() "
+                f"WHERE id = :lid AND {_LEAD_VISIBLE} AND name IS DISTINCT FROM :name"
+            ),
+            {"lid": lead_id, "name": name},
+        )
+    )
+    if changed:
+        return True
+    exists = (
+        await session.execute(
+            text(f"SELECT 1 FROM leads WHERE id = :lid AND {_LEAD_VISIBLE}"), {"lid": lead_id}
+        )
+    ).first()
+    if exists is None:
+        raise ProblemError.not_found("Lead")
+    return False
+
+
+# The `data` keys a `lead.*` outbound event carries (docs/WEBHOOKS.md §1.2), and the
+# order `integrations.service.DEFAULT_SHEET_COLUMNS` writes them into a spreadsheet.
+# Selected explicitly rather than reusing `_LEAD_COLUMNS`: this projection leaves our
+# boundary for a third party, so it is a list somebody has to EDIT to widen — the
+# extraction payload, the owner's name and the call counts are ours and the client's,
+# not their CRM vendor's.
+_LEAD_EVENT_SQL = "SELECT id, phone_e164, name, source, status FROM leads WHERE id = ANY(:ids)"
+
+
+async def emit_lead_updated(session: AsyncSession, lead_ids: Sequence[UUID]) -> int:
+    """Tell every subscribed endpoint that these leads changed (D-23, `lead.updated`).
+
+    **This event was subscribable and nothing produced it.** `lead.updated` has been in
+    `EVENT_TYPES`, in the endpoint form's checkbox list ("A lead's details change") and
+    in `DEFAULT_SHEET_COLUMNS` since D-23, and no line of code has ever enqueued one — so
+    a client could tick the box, see the endpoint saved, and wait forever. A half-wired
+    integration is worse than an absent one: the absent one does not get relied on.
+
+    Emitted from the EDIT primitives' callers rather than from `set_lead_status` /
+    `set_lead_assignee` themselves, because a bulk action moves up to `MAX_BULK_LEADS`
+    rows in one transaction and one event per lead per FIELD would tell a client's CRM
+    twice about a single edit that moved both. One event per lead per request.
+
+    **The phone is not masked here and that is correct** — `integrations.enqueue_events`
+    masks at the fan-out, which is the only point that knows whether THIS endpoint holds
+    the `include_raw_phone` opt-in. Masking here would apply one answer to every
+    subscriber and would silently break the opt-in (that module's own docstring).
+
+    Local import: `crm` is imported by `integrations`' neighbours and a module-scope
+    import here is a cycle waiting for the first shared type.
+    """
+    if not lead_ids:
+        return 0
+    from apps.api.integrations import service as integrations
+
+    rows = (await session.execute(text(_LEAD_EVENT_SQL), {"ids": list(lead_ids)})).all()
+    if not rows:
+        return 0
+    return await integrations.enqueue_events(
+        session,
+        tenant_id=await session_tenant(session),
+        event="lead.updated",
+        rows=[
+            {
+                "lead_id": str(r[0]),
+                "phone": r[1],
+                "name": r[2],
+                "source": r[3],
+                "status": r[4],
+            }
+            for r in rows
+        ],
+    )
+
+
 async def update_lead(
     session: AsyncSession,
     lead_id: UUID,
@@ -899,26 +991,25 @@ async def update_lead(
     able to report "already so". A single `SET status = …, assigned_to = …` can only say
     how many ROWS it touched, never which of the two values actually moved — so the
     events it wrote were guesses.
+
+    ONE `lead.updated` for the request, and only when something actually moved: a PATCH
+    that re-sends the values already on the row is not news for a client's CRM, and a
+    PATCH that moves two fields is one edit rather than two.
     """
     if assignee is not None and assignee.user_id is not None:
         # Validated BEFORE any write, so a refused assignment leaves no partial edit —
         # a body carrying both a status and a bad assignee must move neither.
         await _assert_assignable(session, assignee.user_id)
 
+    moved = False
     if status is not None:
-        await set_lead_status(session, lead_id, status=status, actor=actor)
+        moved |= await set_lead_status(session, lead_id, status=status, actor=actor)
     if name is not None:
-        renamed = await session.execute(
-            text(
-                "UPDATE leads SET name = :name, updated_at = now() "
-                f"WHERE id = :lid AND {_LEAD_VISIBLE}"
-            ),
-            {"lid": lead_id, "name": name},
-        )
-        if rowcount_of(renamed) == 0:
-            raise ProblemError.not_found("Lead")
+        moved |= await set_lead_name(session, lead_id, name=name)
     if assignee is not None:
-        await set_lead_assignee(session, lead_id, assignee=assignee, actor=actor)
+        moved |= await set_lead_assignee(session, lead_id, assignee=assignee, actor=actor)
+    if moved:
+        await emit_lead_updated(session, [lead_id])
     # No field asked for: `get_lead` is still the 404, so a PATCH with an empty body
     # against a lead that is not there does not answer 200 with somebody else's silence.
     return await get_lead(session, lead_id)
@@ -1147,6 +1238,11 @@ async def apply_bulk_leads(
         await _assert_assignable(session, assignee.user_id)
 
     changed = unchanged = 0
+    # The leads a `lead.updated` is owed, collected rather than emitted per lead: one
+    # fan-out for the batch reads the endpoint list once (`integrations.enqueue_events`)
+    # instead of once per lead, and a lead that both moved stage and changed owner in one
+    # batch is still one event.
+    moved_ids: list[UUID] = []
     failures = [
         BulkFailure(
             lead_id=lead_id,
@@ -1172,14 +1268,33 @@ async def apply_bulk_leads(
             continue
         if moved:
             changed += 1
+            moved_ids.append(lead_id)
         else:
             unchanged += 1
+    # After the loop and inside the same transaction: the outbox row and the row it
+    # describes commit together or not at all (BACKEND-PATTERNS §4), so a batch that
+    # 500s cannot leave a client's CRM told about an edit that rolled back.
+    await emit_lead_updated(session, moved_ids)
     return BulkOutcome(
         requested=len(targets.ids) + len(targets.missing),
         changed=changed,
         unchanged=unchanged,
         failures=failures,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class LeadExport:
+    """The file, and how many LEADS are in it.
+
+    Two values rather than one string because the caller has to audit the second, and
+    counting lines in the first is not the same question: a cell may legitimately hold a
+    newline (`csv.QUOTE_ALL` keeps it inside the quoted field), so the file has more
+    lines than it has leads exactly when somebody's name or note contains a line break.
+    """
+
+    csv: str
+    row_count: int
 
 
 async def export_leads_csv(
@@ -1191,7 +1306,7 @@ async def export_leads_csv(
     assigned_to: UUID | None = None,
     field_filters: FieldFilters | None = None,
     columns: list[str] | None = None,
-) -> str:
+) -> LeadExport:
     """CSV export with schema-driven columns (TRD §7 (e)).
 
     **The header IS the column chooser.** `columns` goes through
@@ -1317,7 +1432,13 @@ async def export_leads_csv(
                 for c in chosen
             ]
         )
-    return buffer.getvalue()
+    # The ROW COUNT is reported alongside the bytes rather than recovered from them.
+    # `crm.routes.export_leads` recorded `csv_body.count("\n") - 1` in the audit row,
+    # and QUOTE_ALL preserves a newline INSIDE a cell — a lead named over two lines, or
+    # a transcribed note with a line break — so "how many contacts left the building"
+    # was over-counted by exactly the rows a person is most likely to have pasted into.
+    # An audit trail is only worth the accuracy of its numbers.
+    return LeadExport(csv=buffer.getvalue(), row_count=len(rows))
 
 
 def _json_cell(data: object, key: str) -> Any:
@@ -1999,8 +2120,10 @@ __all__ = [
     "FacetSet",
     "FacetValue",
     "FieldFilters",
+    "LeadExport",
     "LeadPage",
     "dashboard",
+    "emit_lead_updated",
     "export_leads_csv",
     "get_call",
     "get_lead",
@@ -2016,5 +2139,6 @@ __all__ = [
     "plan_callback",
     "recording_key_for",
     "redacted_summary",
+    "set_lead_name",
     "update_lead",
 ]

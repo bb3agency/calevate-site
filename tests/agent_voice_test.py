@@ -33,9 +33,10 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from uuid import UUID
 
 from apps.api.admin import service as admin_service
-from apps.api.agents import publishing
+from apps.api.agents import prompts, publishing
 from apps.api.agents.publishing_routes import router as publishing_router
 from apps.api.agents.routes import router as agents_router
 from apps.api.agents.service import publish_agent
@@ -116,6 +117,19 @@ async def _tenant(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, str, str]:
                 "VALUES (:id, :tid, :uid, :role, now(), now())"
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "role": role},
+        )
+        # A SCRIPT, because publishing without one is now refused by name
+        # (`agent_has_no_script`): the wizard mints the receptionist row before step 3,
+        # and `publish_agent` no longer substitutes a hardcoded English placeholder for
+        # the client's own prompt. This suite is about voices, so it needs the agent to
+        # be publishable at all rather than to be about scripts.
+        await prompts.write_prompt_version(
+            session,
+            tenant_id=tenant_id,
+            agent_id=UUID(str(agent_id)),
+            body="[IDENTITY]\nYou are the receptionist for Voice Clinic.\n",
+            notes=None,
+            created_by=None,
         )
     return tenant_id, agent_id, str(slug), f"dev:client:{clerk_id}"
 

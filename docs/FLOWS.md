@@ -34,8 +34,32 @@ Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume
 7. **Test-call sign-off [GATE]**: "Call me" button dials admin's phone with the draft
    agent; regression mini-suite (happy path + interruption + tool call + disclosure check)
    must pass; latency numbers recorded. Only then: Publish (staging → live promote).
+   - **The GATE is not built and the PUBLISH is.** `POST /v1/admin/tenants/{id}/agents/
+     {id}/publish` had been mounted and reachable for weeks with no caller in either
+     realm — every other publish path is a RE-publish guarded on the agent already being
+     live, so an agent minted by step 1 could not be put on the engine from any screen.
+     The console's "Voice platform" panel (`/admin/tenants/…/agents/…/prompt`) is that
+     caller. It says in as many words that it publishes and signs nothing off: the test
+     call and the regression suite are pilot gate work and **externally blocked** on the
+     engine and DID vendor accounts, not on code here.
+   - **An agent with no script is refused, never placeholdered.** `publish_agent` used to
+     substitute `"You are a helpful receptionist."` for a missing prompt — an English
+     sentence with no hours, prices or business name, on a Telugu clinic's line, behind a
+     200 that read `live` on every screen after it. It now answers `agent_has_no_script`
+     and writes nothing (no engine ref, no routing row). Step 3 is what clears it.
 8. **Invite client**: creates invitations row → email with single-use 72h link →
    client sets password → membership(owner) created → lands on dashboard tour.
+   - **One live token per address, in BOTH realms.** The two refusals — the address is
+     already on the team, and an unused invitation for it already exists — belong to
+     `admin.service.create_invitation`, the one statement that mints the row, rather than
+     to the client-realm caller that used to hold them. The wizard's Create-invite button
+     pressed twice was putting two live owner credentials for one account into one inbox.
+   - Because the refusal is real, the console has the exit: `GET`/`DELETE
+     /v1/admin/tenants/{id}/invitations[/{id}]` list and cancel the unredeemed links
+     (addresses masked). It cannot be done by impersonation — D-22 makes that read-only —
+     and the client-realm revoke has nobody to press it, since the owner invite is issued
+     before anyone can sign in. A cancel that races an acceptance is refused (404): the
+     person is a member now, and removing them is a different act.
 
 Failure handling: every step idempotent; engine failures surface with retry; nothing
 client-visible until step 8.

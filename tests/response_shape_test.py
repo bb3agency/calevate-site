@@ -751,7 +751,13 @@ async def test_the_invoice_answers_a_declared_model_with_an_overage_line() -> No
     assert set(body) == set(InvoiceOut.model_fields)
     invoice = InvoiceOut.model_validate(body)
 
-    assert invoice.invoice_number == f"CAL-{invoice.month.replace('-', '')}-{tenant_id.hex[:8]}"
+    # Suffix read from the shipped function, not re-derived: it was `tenant_id.hex[:8]`
+    # until D-114 found that layout collides for any two tenants onboarded within 65
+    # seconds of each other.
+    from apps.api.billing.invoice import _tenant_serial_suffix
+
+    expected_suffix = _tenant_serial_suffix(tenant_id)
+    assert invoice.invoice_number == f"CAL-{invoice.month.replace('-', '')}-{expected_suffix}"
     assert invoice.organization.id == str(tenant_id)
     assert invoice.organization.billing_email is None, "nullable, and genuinely null here"
 

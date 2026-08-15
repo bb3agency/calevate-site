@@ -128,6 +128,14 @@ async def test_usage_within_the_included_minutes_produces_no_zero_overage_line()
     assert invoice["subtotal_inr"] == Decimal("9999.00")
 
 
+def build_expected_number(tenant_id: Any, month_part: str) -> str:
+    """Composed from the SHIPPED suffix function, never from a second copy of its layout.
+    A test that re-derives the algorithm agrees with itself and proves nothing."""
+    from apps.api.billing.invoice import _tenant_serial_suffix
+
+    return f"CAL-{month_part}-{_tenant_serial_suffix(tenant_id)}"
+
+
 async def test_the_invoice_number_is_deterministic_per_tenant_month() -> None:
     """Rebuilding the same month yields the SAME number — a regenerated invoice can
     never silently duplicate. A different month yields a different number."""
@@ -140,7 +148,33 @@ async def test_the_invoice_number_is_deterministic_per_tenant_month() -> None:
     assert first["invoice_number"] == second["invoice_number"]
     assert first["invoice_number"] != other_month["invoice_number"]
     month_part = first["month"].replace("-", "")
-    assert first["invoice_number"] == f"CAL-{month_part}-{tenant_id.hex[:8]}"
+    # The SHAPE, not the algorithm. This asserted `tenant_id.hex[:8]` until D-114, which
+    # was not merely coupling the test to an implementation — it was asserting the defect:
+    # tenant ids are uuid7, so the first eight hex characters are a millisecond timestamp
+    # shifted right by 16, advancing once every 65.5 seconds. Any two clients onboarded in
+    # the same minute shared this number, and the test could not see it because it only
+    # ever compared against the same expression the code used.
+    assert first["invoice_number"].startswith(f"CAL-{month_part}-")
+    assert first["invoice_number"] == build_expected_number(tenant_id, month_part)
+
+
+async def test_two_tenants_created_in_the_same_minute_get_different_invoice_numbers() -> None:
+    """The collision D-114 closed, pinned where it can be seen.
+
+    Created back to back on purpose: that is precisely the case the old suffix could not
+    distinguish, and it is not a rare one — it is what onboarding two clients in one
+    sitting looks like.
+    """
+    first_tenant, _ = await _tenant_with_usage(minutes=1)
+    second_tenant, _ = await _tenant_with_usage(minutes=1)
+    async with tenant_session(first_tenant) as session:
+        one = await build_invoice(session, tenant_id=first_tenant)
+    async with tenant_session(second_tenant) as session:
+        two = await build_invoice(session, tenant_id=second_tenant)
+    assert one["invoice_number"] != two["invoice_number"], (
+        "two clients share an invoice number — the tenant suffix is derived from a "
+        "coarse slice of a time-ordered id again"
+    )
 
 
 async def test_every_money_field_is_a_paise_quantized_decimal() -> None:

@@ -58,6 +58,7 @@ from apps.api.compliance.first_campaign import (
     read_first_campaign_review,
 )
 from apps.api.compliance.kyc import KYC_MISSING_REASON, kyc_not_verified_reason, read_kyc
+from apps.api.compliance.models import CONSENT_STATUSES
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
@@ -74,6 +75,12 @@ DEFAULT_WINDOW = (time(9, 0), time(21, 0))
 # launch gate so the same condition never gets explained two different ways.
 SPEND_CAP_REASON = "This account has reached its spending cap for the month."
 NO_CREDITS_REASON = "This account has no calling credit left."
+
+#: The `consent_ledger` statuses that stop a dial (D-117). Derived from the ledger's own
+#: vocabulary rather than spelled here — `granted` is the only member that is not a
+#: refusal, so a status added to `CONSENT_STATUSES` tomorrow blocks by default and has to
+#: be argued INTO the allowed set, which is the safe direction on a compliance gate.
+DIAL_REFUSING_CONSENT_STATUSES: frozenset[str] = frozenset(CONSENT_STATUSES) - {"granted"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,6 +375,42 @@ async def check_dispatch(
             allowed=False,
             rule="dnc",
             reason="This number is on the do-not-call list.",
+        )
+
+    # Beside the DNC list because it is the same KIND of fact — this person, not this
+    # account — and different in what it records: DNC is "stop calling me", this is
+    # "never agreed to be called at all" (D-117).
+    #
+    # ABSENCE IS NOT A REFUSAL, and that asymmetry is the whole design. Most dialable
+    # leads have no `consent_ledger` row: a number typed in by staff, a CSV import, a
+    # caller who rang US. Treating silence as `declined` would refuse every one of them
+    # and be met as an outage rather than a rule. So only an explicit latest `declined`
+    # or `withdrawn` blocks, which is also the ledger's own doctrine — the current state
+    # of a `(tenant, phone, purpose)` is the LATEST row for it, and a withdrawal is a new
+    # row rather than an edit of the grant.
+    #
+    # `callback` rather than `marketing`: this gate governs whether we may TELEPHONE this
+    # person, which is what a lead-ad opt-in question does or does not grant. The
+    # `messaging` purpose has its own gate on the WhatsApp path and must not be conflated
+    # — a person may accept a call and refuse a message, and both answers are theirs.
+    consent = (
+        await session.execute(
+            text(
+                "SELECT status FROM consent_ledger "
+                "WHERE tenant_id = :tid AND phone_e164 = :phone AND purpose = 'callback' "
+                "ORDER BY captured_at DESC, id DESC LIMIT 1"
+            ),
+            {"phone": phone_e164, "tid": tenant_id},
+        )
+    ).first()
+    if consent is not None and str(consent[0]) in DIAL_REFUSING_CONSENT_STATUSES:
+        return DispatchDecision(
+            allowed=False,
+            rule="no_consent",
+            reason=(
+                "This person has not agreed to be called. The lead was captured without "
+                "an opt-in, or the permission was withdrawn."
+            ),
         )
 
     return DispatchDecision(allowed=True)

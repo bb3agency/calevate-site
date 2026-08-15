@@ -21,6 +21,7 @@ Two arithmetic promises the client can check by hand:
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -63,26 +64,132 @@ from .service import to_paise, usage_summary
 GST_RATE_PCT = Decimal("18")
 
 # THE INVOICE NUMBER IS NOT YET RULE 46(b) COMPLIANT, and this note is the honest half of
-# a slice that fixed the rest. 46(b) requires "a consecutive serial number, not exceeding
-# sixteen characters ... unique for a financial year". `CAL-202608-0192f0aa` is NINETEEN
-# characters and is not consecutive — it is deterministic per tenant-month, which is a
-# different and deliberately chosen property (D-46: the statement is recomputed from the
-# ledgers, never stored, so regeneration cannot duplicate).
+# a slice that fixed the rest.
 #
-# The two requirements genuinely conflict: a CONSECUTIVE series needs a counter, which
-# needs a stored issued-invoice row, which is exactly what D-46 rejected. Truncating the
-# tenant suffix to fit sixteen characters is not a fix either — five hex characters
-# collide across a few hundred tenants often enough to put two clients on one invoice
-# number, which breaks 46(b)'s uniqueness instead of its length.
+# **THE RULE, RE-VERIFIED Aug 2026 — REPORTED, NOT READ** (`billing/payments.py`'s three-
+# rung evidence ladder). taxinformation.cbic.gov.in is not reachable from this network, so
+# this is not a first-party read; five independent secondaries quote clause (b) of Rule 46
+# of the CGST Rules 2017 identically, and in these words:
 #
-# So the numbering scheme is left ALONE rather than half-changed: it needs the same
-# decision the identity fields need (the entity, its financial-year series, and whether
-# an issued-invoice registry is acceptable under D-46), and until that decision exists
-# the document does not claim to be a tax invoice anyway. Reported, not invented.
+#     "a consecutive serial number, not exceeding sixteen characters, in one or multiple
+#      series, containing alphabets or numerals or special characters - hyphen or dash and
+#      slash symbolised as '-' and '/' respectively, and any combination thereof, unique
+#      for a financial year"
 #
-# `tests/invoice_gst_test.py` pins the gap so it stays visible: the finding is executable
-# rather than a comment that rots.
+# Measured against `CAL-202608-0192f0aa`:
+#
+#   length        over the sixteen-character ceiling                              FAILS
+#   consecutive   a per-tenant-month digest; no series, no successor               FAILS
+#   unique per FY holds NOW — see `_tenant_serial_suffix`, which is where it       ok
+#                 did not, until this reading actually tested it
+#   charset       alphanumerics and a hyphen, both permitted                       ok
+#
+# **WHAT THE VERIFICATION CHANGED: "in one or multiple series" is in the rule itself.** A
+# registered person may run several series (per unit, division or billing type) as long as
+# each is consecutive and the whole set is unique for the financial year, and mid-year
+# introduction of a new distinct series is permitted. That is the clause the earlier
+# reading of this comment did not have, and it is what makes a compliant scheme designable
+# rather than merely desirable. It does NOT make a per-RECIPIENT series obviously lawful —
+# the permitted axis is the supplier's own units and billing types, not their customers —
+# so the design below uses ONE series and does not lean on the concession.
+#
+# --------------------------------------------------------------------------------
+# WHY IT IS STILL NOT FIXED HERE, and what would fix it
+# --------------------------------------------------------------------------------
+#
+# **The blocking half is external and is not ours to code around.** Rule 46 binds a
+# REGISTERED PERSON issuing a tax invoice. There is no legal entity and no GST registration
+# (ROADMAP M0), `supplier.is_registered` is false in every deployment, and this document
+# therefore says `proforma` — which 46(b) does not govern. Nothing is out of compliance
+# today; what exists is a scheme that WOULD be, the moment the four `GST_SUPPLIER_*` values
+# are set. The named external blocker is the GST registration itself.
+#
+# **The engineering half is designed, not written, because writing it decides something
+# only the founder can decide: it contradicts D-46.** A consecutive series is a STATEFUL
+# fact — "the 123rd invoice of this financial year" cannot be recomputed from the ledgers,
+# only remembered — so the number has to be MINTED and STORED at an issuance event, and
+# `build_invoice` cannot be that event. It is a pure read behind a GET and must stay one
+# (D-64: rendering an invoice used to write, and `tests/invoice_gst_test.py::
+# test_the_client_read_writes_nothing` pins that it no longer does). So the shape is a
+# separate `issue_invoice` act, with `build_invoice` becoming the PREVIEW of an unissued
+# month and the reader of a serial once one exists.
+#
+# The rest is settled engineering, recorded here so the decision arrives with its design:
+#
+# - **The format: `CAL/26-27/000123` — exactly sixteen characters.** Three for the series
+#   prefix, the financial year in the conventional `26-27` notation, and a six-digit
+#   counter (999,999 documents per year). Slash and hyphen are both permitted characters.
+#
+# - **NOT a Postgres sequence, and this is the one place the obvious tool is wrong.**
+#   `nextval` is deliberately non-transactional: a rolled-back issuance consumes a number
+#   permanently, so the series grows GAPS. A gap in a tax-invoice series is a question the
+#   department asks and somebody has to answer, and it is not one an unused number
+#   answers well. A sequence also has no financial-year story — resetting it means an
+#   `ALTER SEQUENCE ... RESTART` at midnight on 1 April, a scheduled DDL whose failure is
+#   silent and whose double-run is worse.
+#
+# - **An `issued_invoices` table with the counter IN the key, allocated under the house
+#   advisory-lock idiom.** `UNIQUE (financial_year, serial_no)` is the constraint;
+#   `pg_advisory_xact_lock` on the financial year is the serialization, exactly as
+#   `lock_tenant_credits` and `lock_call_writes` do it, with the unique index as the
+#   backstop the way `ux_usage_events_tenant_call_unit` is for metering. Allocation is
+#   `COALESCE(MAX(serial_no), 0) + 1` inside the lock, in the SAME transaction as the
+#   issuance — which is what makes it gapless where a sequence cannot be: a rollback
+#   un-allocates the number.
+#
+# - **The financial-year boundary needs no cron and no reset.** The year is part of the
+#   key, so `MAX(serial_no)` over a year with no rows is `0` and the first document of
+#   1 April is `000001` by construction. The year must be derived on the IST calendar
+#   (the Indian FY runs 1 April to 31 March, and the repo already computes an IST month in
+#   `billing.service._IST_MONTH`): a UTC boundary would file every document issued between
+#   00:00 and 05:30 IST on 1 April into the year that closed.
+#
+# WHAT THE FOUNDER MUST DECIDE, precisely: whether an `issued_invoices` registry — a stored
+# invoice serial, minted once, never recomputed — is accepted against D-46's
+# "recompute, never store". Everything above follows from a yes; nothing above is safe to
+# build on a no.
+#
+# `tests/invoice_gst_test.py` pins BOTH failing halves so neither can be half-fixed: a
+# sixteen-character serial that is still a hash fails there, and so does a consecutive
+# series that is still nineteen characters.
 RULE_46B_MAX_SERIAL_CHARS = 16
+
+
+#: Hex characters of digest in the invoice serial's tenant suffix. 48 bits: at ten
+#: thousand tenants the birthday probability of any collision is about 2e-7, against
+#: 1-in-77 for the 32 bits this replaced. Not a uniqueness GUARANTEE — only the
+#: issued-invoice registry above is that — but a bound worth stating rather than a
+#: property that happened to hold in the fixture that was tried.
+_TENANT_SUFFIX_HEX = 12
+
+
+def _tenant_serial_suffix(tenant_id: UUID) -> str:
+    """The tenant's stable, collision-resistant slice of the invoice number.
+
+    **THIS WAS `tenant_id.hex[:8]`, AND THAT WAS NOT UNIQUE — it was not even close.**
+    Tenant ids are uuid7 (`db/base.uuid7`), whose FIRST 48 bits are the Unix timestamp in
+    milliseconds. `hex[:8]` is the top 32 of those 48, i.e. `ms >> 16`, which advances
+    once every 65.5 seconds. So **any two organizations created in the same ~65-second
+    window carried the same invoice number, forever, in every month.** Not a
+    birthday-bound risk: a deterministic collision, and onboarding two clients in one
+    sitting is the ordinary case rather than the unlucky one. It reproduced on the first
+    two tenants a test created back to back.
+    (`tests/invoice_gst_test.py::test_two_tenants_billed_in_one_month_get_different_
+    invoice_numbers` is that reproduction, kept.)
+
+    A DIGEST OF THE WHOLE ID, not a different slice of it. `hex[-12:]` would work today —
+    the tail of a uuid7 is random — but it is a claim about the id's internal layout, and
+    the layout is exactly what the last version got wrong. blake2s over all sixteen bytes
+    depends on no such claim: change the id scheme and the suffix stays uniformly
+    distributed.
+
+    Keyed by nothing, and that is deliberate: this value must be STABLE for the life of
+    the tenant (D-46 — regenerating a month must yield the same number, and a number that
+    moved because a secret rotated would put two serials on one month). It carries no
+    confidentiality requirement either; it appears on the client's own document, and the
+    tenant id it derives from is already in that document's `organization.id`.
+    """
+    return hashlib.blake2s(tenant_id.bytes, digest_size=_TENANT_SUFFIX_HEX // 2).hexdigest()
 
 
 def _reconcile_overage(rungs: list[dict[str, Any]], overage_cost: Decimal) -> None:
@@ -111,10 +218,12 @@ async def build_invoice(
     """Build one tenant's invoice statement for an IST billing month.
 
     The invoice number is **deterministic on purpose**:
-    ``CAL-{month-without-dash}-{first 8 hex of tenant_id}``. Rebuilding the same month
-    for the same tenant yields the same number, so a regenerated invoice can never
+    ``CAL-{month-without-dash}-{_tenant_serial_suffix(tenant_id)}``. Rebuilding the same
+    month for the same tenant yields the same number, so a regenerated invoice can never
     silently duplicate — the accountant sees ONE number per tenant-month, however many
-    times the JSON was produced.
+    times the JSON was produced. It is NOT Rule 46(b) compliant and does not claim to be;
+    see the block above `RULE_46B_MAX_SERIAL_CHARS` for what compliance would take, and
+    `_tenant_serial_suffix` for why the suffix is a digest rather than a slice of the id.
 
     Line items: the plan fee whenever the tenant has a plan (with a fee), the tenant's
     one-time charges for this month (the onboarding setup fee — `billing/charges.py`),
@@ -250,7 +359,7 @@ async def build_invoice(
     components = split_tax(subtotal_inr=subtotal, rate_pct=GST_RATE_PCT, place=place)
 
     return {
-        "invoice_number": f"CAL-{period.replace('-', '')}-{tenant_id.hex[:8]}",
+        "invoice_number": f"CAL-{period.replace('-', '')}-{_tenant_serial_suffix(tenant_id)}",
         "month": period,
         "generated_at": datetime.now(UTC).isoformat(),
         # WHAT THIS DOCUMENT IS. `tax_invoice` only when every Rule 46 identity

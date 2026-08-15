@@ -24,6 +24,7 @@ from typing import Annotated
 import jwt
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.agents import prompts
 from apps.api.core import auth as auth_module
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal, principal_var
@@ -626,6 +627,19 @@ async def test_an_admin_can_publish_an_agent() -> None:
     token = await _make_admin()
     org = await _make_org()
     path = f"/v1/admin/tenants/{org['id']}/agents/{org['agent_id']}/publish"
+    # The wizard mints this agent at step 1 with no prompt version, and publishing one
+    # is refused by name (`agent_has_no_script`) rather than shipping a hardcoded English
+    # placeholder. This case is about WHO may call the route, so the agent gets the one
+    # precondition the route legitimately has.
+    async with tenant_session(uuid.UUID(str(org["id"]))) as scoped:
+        await prompts.write_prompt_version(
+            scoped,
+            tenant_id=uuid.UUID(str(org["id"])),
+            agent_id=uuid.UUID(str(org["agent_id"])),
+            body="[IDENTITY]\nYou are the receptionist for Authz Audit Clinic.\n",
+            notes=None,
+            created_by=None,
+        )
 
     async with _client() as http:
         plain = await http.post(path, headers={"Authorization": f"Bearer {token}"})

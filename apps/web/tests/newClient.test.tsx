@@ -213,3 +213,160 @@ describe("the owner invite", () => {
     expect(calls.some((c) => c.path === INVITATIONS)).toBe(false);
   });
 });
+
+/**
+ * The way out of the refusal the server now gives (`invitation_already_pending`).
+ *
+ * One live token per address is the right rule — two keys to a client's account in one
+ * inbox, only one of them revocable — but on its own it strands the operator: the revoke
+ * that already existed is client-realm, and this invite is minted before anybody can sign
+ * in, so nobody could press it. `DELETE /v1/admin/tenants/{id}/invitations/{id}` is the
+ * console's control, and the panel only offers it for the invitation THIS wizard issued.
+ */
+describe("cancelling an invite the wizard already issued", () => {
+  const MINTED = {
+    id: "0192f0aa-7777-7000-8000-0000000000e1",
+    token: "inv_live_3f9a2c",
+    expires_in_hours: 72,
+  };
+  const REVOKE = `${INVITATIONS}/${MINTED.id}`;
+
+  async function reachTheInvite(routes: Record<string, unknown>) {
+    const render = renderAdminPage(<NewClientPage />, {
+      [TENANTS]: CREATED,
+      [ADMIN_ME]: OPERATOR,
+      [INTAKE]: NO_INTAKE,
+      [UNFINISHED]: [],
+      ...routes,
+    });
+    fillName();
+    fireEvent.click(screen.getByRole("button", { name: "Create client" }));
+    await screen.findByText("Account created");
+    fireEvent.click(await screen.findByRole("button", { name: /Continue to the owner invite/ }));
+    return render;
+  }
+
+  it("offers no cancel until an invite has actually been minted", async () => {
+    await reachTheInvite({ [INVITATIONS]: MINTED });
+
+    expect(screen.queryByRole("button", { name: /Cancel the unused invite/ })).toBeNull();
+  });
+
+  it("offers the cancel only when the server refused a duplicate, and deletes the row it holds", async () => {
+    await reachTheInvite({ [INVITATIONS]: MINTED, [`DELETE ${REVOKE}`]: null });
+
+    const emailBox = screen.getByPlaceholderText("owner@business.com");
+    fireEvent.change(emailBox, { target: { value: "owner@sunrise.example" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
+    await screen.findByText(MINTED.token);
+    // No cancel yet: a successful mint is not a reason to offer to undo it.
+    expect(screen.queryByRole("button", { name: /Cancel the unused invite/ })).toBeNull();
+
+    // Re-stubbing replaces the network AND the call log, so the new log is the one that
+    // can see the DELETE.
+    const calls = stubApi({
+      [INVITATIONS]: problem(409, {
+        // The `type` URL's last segment IS the machine code the screen keys on.
+        type: "https://calevate.tech/problems/invitation_already_pending",
+        title: "Invitation already pending",
+        detail: "There is already an unused invitation for that address.",
+      }),
+      [`DELETE ${REVOKE}`]: null,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
+    await screen.findByText("There is already an unused invitation for that address.");
+
+    fireEvent.click(await screen.findByRole("button", { name: /Cancel the unused invite/ }));
+
+    await waitFor(() => {
+      const deleted = calls.find((c) => c.method === "DELETE");
+      expect(deleted?.path).toBe(REVOKE);
+    });
+  });
+
+  it("shows the server's refusal when the cancel itself is refused, and claims nothing", async () => {
+    await reachTheInvite({ [INVITATIONS]: MINTED });
+
+    fireEvent.change(screen.getByPlaceholderText("owner@business.com"), {
+      target: { value: "owner@sunrise.example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
+    await screen.findByText(MINTED.token);
+
+    stubApi({
+      [INVITATIONS]: problem(409, {
+        type: "https://calevate.tech/problems/invitation_already_pending",
+        title: "Already pending",
+        detail: "Already pending.",
+      }),
+      [`DELETE ${REVOKE}`]: problem(404, {
+        title: "Invitation not found",
+        detail: "That invitation has already been used.",
+      }),
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
+    await screen.findByText("Already pending.");
+    fireEvent.click(await screen.findByRole("button", { name: /Cancel the unused invite/ }));
+
+    // The server's sentence, not a reassuring one of ours — and the duplicate refusal
+    // stays on screen, because nothing about it stopped being true.
+    await screen.findByText("That invitation has already been used.");
+    expect(screen.getByText("Already pending.")).toBeTruthy();
+  });
+
+  it("lists the pending invites this session did not issue, so the refusal is actionable", async () => {
+    // No prior success in this tab: the first link was issued by a colleague, so the
+    // component has no id of its own and must ask.
+    await reachTheInvite({
+      [`POST ${INVITATIONS}`]: problem(409, {
+        type: "https://calevate.tech/problems/invitation_already_pending",
+        title: "Invitation already pending",
+        detail: "There is already an unused invitation for that address.",
+      }),
+      [`GET ${INVITATIONS}`]: [
+        {
+          id: MINTED.id,
+          email_masked: "o\u2022\u2022\u2022\u2022@sunrise.example",
+          role: "owner",
+          invited_at: "2026-08-14T09:00:00Z",
+          expires_at: "2026-08-17T09:00:00Z",
+        },
+      ],
+      [`DELETE ${REVOKE}`]: null,
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("owner@business.com"), {
+      target: { value: "owner@sunrise.example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
+
+    await screen.findByText("There is already an unused invitation for that address.");
+    // The masked address is what an operator recognises; the raw one is never printed.
+    await screen.findByText("o\u2022\u2022\u2022\u2022@sunrise.example");
+    expect(screen.getByRole("button", { name: "Cancel this invite" })).toBeTruthy();
+  });
+
+  it("refuses rather than reporting an empty list when the pending read fails", async () => {
+    await reachTheInvite({
+      [`POST ${INVITATIONS}`]: problem(409, {
+        type: "https://calevate.tech/problems/invitation_already_pending",
+        title: "Invitation already pending",
+        detail: "There is already an unused invitation for that address.",
+      }),
+      [`GET ${INVITATIONS}`]: problem(503, {
+        title: "Unavailable",
+        detail: "We could not read the invitations for this account.",
+      }),
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("owner@business.com"), {
+      target: { value: "owner@sunrise.example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
+
+    await screen.findByText("We could not read the invitations for this account.");
+    // Never a cancel control built from an absent list, and never silence: the operator
+    // is stuck either way, and only one of those two says so.
+    expect(screen.queryByRole("button", { name: "Cancel this invite" })).toBeNull();
+  });
+});

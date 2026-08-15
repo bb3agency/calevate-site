@@ -286,6 +286,22 @@ Admin realm (`/admin/…`)
 - **Prompt history + rollback** per agent (`/admin/tenants/{id}/agents/{agentId}/prompt`;
   `GET|POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt`, `…/prompt/rollback`).
   Rollback is copy-forward, never pointer-rewind (FLOWS §7).
+- **First publish** ("Voice platform"), on that same page: puts an agent that has never
+  reached the engine onto it (`POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/
+  publish`). It is a separate control from Apply because Apply is a RE-publish — it pushes
+  only when the agent is already live — so before this panel existed there was no screen
+  anywhere that could make a wizard-created agent dialable. `published` is the server's
+  answer (`engine_agent_ref IS NOT NULL`) and never inferred from `status`; the button is
+  disabled with the server's own precondition when the agent has no prompt version, since
+  publishing one is refused (`agent_has_no_script`) rather than filled in with a
+  placeholder. The panel states that it publishes and signs nothing off: FLOWS §1 step 7's
+  test call and regression run are pilot-gated.
+- **Pending invitations for a client** (on the wizard's invite step;
+  `GET`/`DELETE /v1/admin/tenants/{tenant_id}/invitations[/{invitation_id}]`) — the live
+  keys to a client's account, addresses masked, with a cancel. It exists because minting a
+  second live token for one address is refused: without a way to see and cancel the first,
+  an operator whose token was lost was stuck for 72 hours, and the client-realm revoke
+  cannot help an account whose owner has not signed in yet.
 - **Two-speed publishing controls**, on that same page: **Apply to live calls** /
   **Undo** (`POST …/apply` with the staged version as the CAS token, `POST …/undo`) and
   the **per-agent call cap** (`PATCH …/call-cap`, applies immediately — a live agent is
@@ -515,6 +531,27 @@ that alert unreachable is FIXED — `deliver_outbound_webhook` raises `arq.Retry
 so the ladder walks and the exhaustion branch is live), delivery log (webhook_deliveries direction=out, one
 row per delivery with `endpoint_id`), and a per-endpoint disable switch on repeated
 failure. The client-facing form of these rules is WEBHOOKS §1.5.
+
+**Which events actually fire.** `lead.created` (ingest), `lead.updated` (any edit that
+MOVES a lead — the single-lead PATCH and the bulk action, one event per lead per request)
+and `call.completed` (post-call pipeline) are produced. `campaign.completed` is
+subscribable and has no producer: the endpoint form offers it, nothing enqueues it, and
+`tests/crm_egress_known_gaps_test.py` records that as an open gap with the act that
+closes it rather than leaving a client to discover it by waiting. A Sheets endpoint
+subscribed to it is refused with `no_column_order` on every delivery, which is the honest
+half of the same hole.
+
+**What is IN the payload, on both kinds.** The phone is the masked string by default and
+raw only on the endpoint's own recorded opt-in (`mapping.include_raw_phone`), applied at
+the fan-out because that is the last point that knows which endpoint a body is for. The
+`call.completed` summary is redacted BY THE PRODUCER (`workers/pipeline`) before it ever
+reaches an outbox row — the column it comes from is stored raw — and the transcript never
+leaves at all. `tests/crm_egress_redaction_test.py` asserts all of this on the BYTES
+handed to the socket and to the Sheets transport, not on a field of an object.
+
+Every cell of a Sheets row goes through the formula guard, and so does every cell of the
+HEADER — `columns` and `headers` are free strings on the endpoint's mapping, a heading is
+a cell, and the CSV export's own comment already cited this writer as the rule it copied.
 
 The delivery log answers "did it arrive?"; the retained BODY (`payload_ref`) answers "and
 what was in it?" — the question that actually ends a dispute. It is unredacted customer

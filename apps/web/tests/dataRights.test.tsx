@@ -80,6 +80,11 @@ function completedRequest(): DeletionRequest {
         transcript_turns_erased: 34,
         call_extractions_erased: 2,
         recordings_within_trai_floor: 1,
+        // Required on the wire since the recording-hold fields landed on the proof;
+        // added by the slice that regenerated the client, so the fixture is a shape the
+        // server can actually send.
+        recordings_destroyed: 0,
+        recording_hold_until: "2026-11-12T06:04:00Z",
       },
       actions: { calls: "personal fields cleared" },
       engine_deletion: "unconfirmed_pending_vendor_api",
@@ -112,6 +117,9 @@ const STATUS_PATH = `/v1/compliance/deletion-requests/${REQUEST_ID}`;
 const EXPORT_DOCUMENT = {
   phone_e164: PHONE,
   generated_at: "2026-08-14T06:00:00+00:00",
+  // `null` = nobody has asked for this number to be erased, which is the ordinary case
+  // and a different answer from an erasure with nothing outstanding.
+  erasure: null,
   lead: null,
   calls: [],
   transcripts: [],

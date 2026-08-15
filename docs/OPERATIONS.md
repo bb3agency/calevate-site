@@ -265,6 +265,25 @@ and a second delivery mechanism is a second thing to be broken on the night it i
   fix Redis, the next tick drains it. Without the second code an outage was reported as N
   dead letters, which is a page that asks for exactly the wrong action
   (`runbooks/webhook-delivery-failures.md` §3).
+- **The ops console publishes the DEFERRED count beside the DLQ depth, and the pair is
+  the diagnosis.** `GET /v1/ops/platform` returns `outbox_dead_letters.deferred` from the
+  same aggregate as `depth`, so they are one instant by construction. `depth: 0,
+  deferred: high` is an outage in progress; `depth: high, deferred: 0` is one that already
+  spent the retry budget and now needs a replay. Until this field existed the console
+  showed only `depth` — so for the whole five minutes of downtime the backoff buys, an
+  operator opening the ops screen mid-incident read a green "Nothing is dead-lettered",
+  which was TRUE and which is the worst kind of wrong number. A small non-zero `deferred`
+  on a busy platform is not an incident: a claimed in-flight message is `pending` with a
+  future `locked_until` too, and telling the two apart would cost a column on the hot
+  dispatch path to sharpen a figure nobody alerts on.
+- **A per-message publish failure now waits as well.** `mark_outbox_failed`'s retry branch
+  writes the same backoff `defer_outbox_claim` does (`OUTBOX_RETRY_BACKOFF_S`, 30s per
+  attempt spent, capped at 300), so a receiver that is merely restarting no longer costs a
+  message its whole five-attempt budget in fifty seconds. Poison still reaches the DLQ —
+  it takes about five minutes rather than one, which is the right trade because nothing is
+  waiting on a poison message. The difference from the systemic case is unchanged and is
+  what `last_error` records: a systemic deferral does not count against the poison budget,
+  a per-message one does.
 - **`reconciliation_repairs` carries a `kind`, and the two kinds are different
   incidents.** `missing_call` is a webhook the vendor never delivered (D-31's at-most-once
   delivery doing what it does — expected at a low rate, alarming as a trend);

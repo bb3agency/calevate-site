@@ -522,11 +522,59 @@ async def test_a_failed_event_is_reclaimable_but_only_by_one_retry() -> None:
 # ============================================================================ OUTBOX
 
 
+async def _step_over_the_backoff(message_id: uuid.UUID) -> float | None:
+    """Read the wait `mark_outbox_failed` gave this message, then skip it.
+
+    Returns the wait in seconds, or `None` when the row holds no lease (the terminal
+    branch clears it).
+
+    WHY THE WAIT IS MEASURED AND THEN DISCARDED rather than slept through or mocked
+    away. Slept through, the loop below takes 30+60+90+120 = five real minutes. Mocked —
+    patching `now()`, or a fake clock — and the assertion stops being about the interval
+    the production statement actually wrote, which is the only thing worth asserting
+    here. So the row is read for the wait it was given, that number is returned to the
+    caller to assert on, and only THEN is `locked_until` pushed into the past so the next
+    claim can proceed. The fast-forward is the test's, the interval is the code's.
+
+    `locked_until` is written with the OWNER role because `outbox_messages` is not
+    tenant-scoped; `untenanted_session` is what every other helper in this file uses.
+    """
+    async with untenanted_session() as session:
+        remaining = (
+            await session.execute(
+                text(
+                    "SELECT EXTRACT(EPOCH FROM (locked_until - now())) "
+                    "FROM outbox_messages WHERE id = :id AND locked_until IS NOT NULL"
+                ),
+                {"id": message_id},
+            )
+        ).scalar()
+        if remaining is None:
+            return None
+        await session.execute(
+            text(
+                "UPDATE outbox_messages SET locked_until = now() - interval '1 second' "
+                "WHERE id = :id"
+            ),
+            {"id": message_id},
+        )
+    return float(remaining)
+
+
 async def test_a_permanently_failing_message_reaches_the_dlq() -> None:
     """Spinning forever is the failure mode: the retry budget has to actually end.
 
     Driven through the real claim so the attempt counter that ends the loop is the one
     the dispatcher actually writes, not one this test invents.
+
+    **AND THE BUDGET IS SPENT OVER TIME, NOT INSTANTLY.** This loop used to claim the
+    same row five times in a row with no wait between them, because `mark_outbox_failed`
+    cleared `locked_until` on the retry branch — five attempts in as many statements,
+    which in production was five attempts in fifty seconds against a receiver that might
+    only be restarting. The retry branch holds the message now, so the loop has to step
+    over each wait explicitly, and the wait it steps over is asserted rather than
+    ignored: a backoff nobody checks is a backoff that can regress to zero and leave
+    every test in this file still green.
     """
     marker = key("dlq")
     (message_id,) = await _seed_outbox(marker)
@@ -540,11 +588,29 @@ async def test_a_permanently_failing_message_reaches_the_dlq() -> None:
             if not mine:
                 break
             ticks += 1
+            attempt = mine[0].attempt_count
             await rel.mark_outbox_failed(
                 session,
                 message_id=message_id,
                 error="the receiver is gone",
-                attempt_count=mine[0].attempt_count,
+                attempt_count=attempt,
+            )
+        waited = await _step_over_the_backoff(message_id)
+        if attempt >= rel.OUTBOX_MAX_ATTEMPTS:
+            # The terminal branch. A dead letter must hold NO lease, or `locked_until IS
+            # NOT NULL` stops meaning "claimed right now, or abandoned".
+            assert waited is None, f"a dead letter is holding a {waited}s lease"
+        else:
+            # The curve, against the attempt count the CLAIM returned — not against a
+            # counter this test kept, so a concurrent dispatcher tick that bumped the row
+            # cannot make this assert the wrong rung.
+            expected = min(rel.OUTBOX_RETRY_BACKOFF_S * attempt, rel.OUTBOX_RETRY_BACKOFF_CAP_S)
+            assert waited is not None, (
+                f"attempt {attempt} of {rel.OUTBOX_MAX_ATTEMPTS} left the message "
+                "immediately re-claimable — the whole budget burns in one dispatcher minute"
+            )
+            assert waited == pytest.approx(expected, abs=3), (
+                f"attempt {attempt} waited {waited}s, not the ~{expected}s the backoff owes it"
             )
 
     status, attempts, _ = await _outbox_row(message_id)
@@ -555,6 +621,9 @@ async def test_a_permanently_failing_message_reaches_the_dlq() -> None:
     # `>=` rather than `==`: a concurrent suite's dispatcher tick may also have claimed
     # this row and bumped the counter. What must hold is that the budget is finite.
     assert attempts >= rel.OUTBOX_MAX_ATTEMPTS
+    # The loop must have actually run — an empty loop would satisfy every assertion above
+    # it by never executing one, which is how a rewritten harness asserts nothing.
+    assert ticks >= 2, f"only {ticks} tick(s) ran, so the backoff assertions never fired"
     await _retire(message_id)
 
 
@@ -577,6 +646,13 @@ async def test_the_dlq_boundary_is_exactly_the_documented_budget() -> None:
 
     assert (await _outbox_row(below))[0] == "pending", "one try short of the ceiling still retries"
     assert (await _outbox_row(at))[0] == "failed", "at the ceiling it is a dead letter"
+    # The two branches differ in the LEASE as well as in the status, and the pair is
+    # asserted together because that is the invariant: below the ceiling the message is
+    # held for its backoff, at the ceiling a dead letter holds nothing.
+    assert await _step_over_the_backoff(below) is not None, (
+        "a retryable failure left the message immediately re-claimable"
+    )
+    assert await _step_over_the_backoff(at) is None, "a dead letter is holding a lease"
     await _retire(below, at)
 
 

@@ -844,11 +844,35 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Invitations to this account that can still be redeemed
+         * @description The keys to this client's account that exist in somebody's inbox right now. Addresses are masked. This is what makes the duplicate refusal actionable: minting a second live token for one address is refused, and an operator who did not issue the first one needs to be able to see and cancel it.
+         */
+        get: operations["list_tenant_invitations_v1_admin_tenants__tenant_id__invitations_get"];
         put?: never;
         /** Wizard step 8 — single-use 72h invite (token hashed at rest) */
         post: operations["invite_member_v1_admin_tenants__tenant_id__invitations_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/invitations/{invitation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an unused invitation from the console (the wizard's way out)
+         * @description Deletes an invitation that has not been redeemed, so a fresh one can be issued for the same address. An invitation accepted between the click and the request is NOT deleted — the CAS on `used_at IS NULL` answers 404, because the person is now a member and removing them is a different act on a different surface.
+         */
+        delete: operations["revoke_tenant_invitation_v1_admin_tenants__tenant_id__invitations__invitation_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4343,10 +4367,18 @@ export interface components {
          *     about to do: 142 dead letters is a different act depending on whether it is 142 CRM
          *     webhooks or 142 hot-lead emails, and a different act again depending on whether the
          *     head of the queue is ten minutes or nine days old.
+         *
+         *     **AND `deferred`, WHICH IS NOT A DEAD LETTER.** It rides this model rather than
+         *     getting a field of its own on `PlatformStateOut` because it is only meaningful beside
+         *     `depth`: the two are the outbox's two unhealthy states and an operator reads them as a
+         *     pair. See `reliability.service.DeadLetterQueue.deferred` for what it counts and why
+         *     the console was blind to it.
          */
         DeadLetterQueueOut: {
             /** By Job */
             by_job: components["schemas"]["DeadLetterJobOut"][];
+            /** Deferred */
+            deferred: number;
             /** Depth */
             depth: number;
             /** Oldest At */
@@ -4705,6 +4737,10 @@ export interface components {
             calls: string[];
             /** Leads */
             leads: string[];
+            /** Recording Hold Until */
+            recording_hold_until: string | null;
+            /** Recordings Destroyed */
+            recordings_destroyed: number | null;
             /** Recordings Within Trai Floor */
             recordings_within_trai_floor: number | null;
             /** Transcript Turns Erased */
@@ -5233,6 +5269,8 @@ export interface components {
             prompt_version: number | null;
             /** Regenerated */
             regenerated: boolean;
+            /** Staged Behind Script */
+            staged_behind_script: boolean;
         };
         /**
          * IntakeProse
@@ -5386,6 +5424,11 @@ export interface components {
         InviteOut: {
             /** Expires In Hours */
             expires_in_hours: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /** Token */
             token: string;
         };
@@ -6399,6 +6442,37 @@ export interface components {
             staged_version: number;
             /** Why */
             why: string;
+        };
+        /**
+         * PendingInviteOut
+         * @description One live key to a client's account, as the console may see it.
+         *
+         *     MASKED, like the client realm's own list: `email` is in
+         *     `scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, and an operator deciding
+         *     which pending invite to cancel needs to RECOGNISE it, not to read it. Same mask, same
+         *     function (`members.mask_email`), so the two realms cannot show a client's staff two
+         *     different renderings of one row.
+         */
+        PendingInviteOut: {
+            /** Email Masked */
+            email_masked: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Invited At
+             * Format: date-time
+             */
+            invited_at: string;
+            /** Role */
+            role: string;
         };
         /** PendingOut */
         PendingOut: {
@@ -7609,6 +7683,28 @@ export interface components {
             transcript_turns: number;
         };
         /**
+         * SubjectExportErasureOut
+         * @description A completed erasure for this subject, and the audio it is still lawfully holding.
+         *
+         *     Present because everything else in this document is keyed on the phone number and an
+         *     erasure destroys every column that carries it — so once one has run, the rest of the
+         *     disclosure is empty and says, in effect, "we hold nothing about you". That is untrue
+         *     while an under-floor recording is sitting on a scheduled destruction, and a §11 answer
+         *     that under-reports is the same defect as one that over-reports.
+         *
+         *     `null` on the parent field means no erasure has been completed for this number. It is
+         *     NOT the same as this object with `recordings_pending_destruction = 0`, which means one
+         *     ran and is finished down to the bytes.
+         */
+        SubjectExportErasureOut: {
+            /** Completed At */
+            completed_at: string | null;
+            /** Recordings Destroyed By */
+            recordings_destroyed_by: string | null;
+            /** Recordings Pending Destruction */
+            recordings_pending_destruction: number;
+        };
+        /**
          * SubjectExportIn
          * @description `extra="forbid"` so a caller cannot smuggle a second selector (a lead id, a
          *     tenant slug) into a request whose whole security argument is "one phone number".
@@ -7664,6 +7760,7 @@ export interface components {
             /** Consent */
             consent: components["schemas"]["SubjectExportConsentOut"][];
             counts: components["schemas"]["SubjectExportCountsOut"];
+            erasure: components["schemas"]["SubjectExportErasureOut"] | null;
             /** Generated At */
             generated_at: string;
             lead: components["schemas"]["SubjectExportLeadOut"] | null;
@@ -9732,6 +9829,37 @@ export interface operations {
             };
         };
     };
+    list_tenant_invitations_v1_admin_tenants__tenant_id__invitations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingInviteOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     invite_member_v1_admin_tenants__tenant_id__invitations_post: {
         parameters: {
             query?: never;
@@ -9755,6 +9883,36 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["InviteOut"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    revoke_tenant_invitation_v1_admin_tenants__tenant_id__invitations__invitation_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                invitation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
