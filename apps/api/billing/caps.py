@@ -78,8 +78,9 @@ two are in this module and both go through `recompute_capped` below: the client'
 flag, neither writes it for any month but the current one, and neither touches a
 counter. The three cannot disagree about what "over cap" means because they share one
 expression — `over_cap_sql` below — rather than each carrying a copy. `spend_state` is
-a counter table, not a ledger: hard rule 4 governs `usage_events`, `consent_ledger`,
-`credit_ledger` and `audit_log`, and none of them is written here.
+a counter table, not a ledger: the append-only set is `db.registry.APPEND_ONLY_TABLES`
+(named, not re-listed here — this comment used to enumerate four of it and the set has
+grown twice since), `spend_state` is not in it, and nothing in it is written here.
 
 THE OPS WRITER EXISTS BECAUSE THE OTHER TWO CANNOT REACH THE CASE
 ------------------------------------------------------------------

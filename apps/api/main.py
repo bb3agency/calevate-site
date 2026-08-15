@@ -71,6 +71,12 @@ def _mount_routers(application: FastAPI) -> None:
     )
     from apps.api.compliance.first_campaign_routes import router as first_campaign_router
     from apps.api.compliance.kyc_routes import router as kyc_router
+    from apps.api.compliance.national_dnd_routes import (
+        campaign_router as preference_scrub_router,
+    )
+    from apps.api.compliance.national_dnd_routes import (
+        global_router as global_dnc_router,
+    )
     from apps.api.compliance.registration_routes import router as dlt_registration_router
     from apps.api.compliance.whatsapp_optin_routes import (
         admin_router as whatsapp_optin_admin_router,
@@ -125,6 +131,14 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(lead_sources_router)
     application.include_router(integrations_router)
     application.include_router(dnc_router)
+    # The writer `dnc_list.scope='global'` never had (migration a1c8e40f27b9), and the
+    # national preference-scrub record beside it. Both live in the compliance package
+    # because that package owns the tables; both carry their own realm prefix —
+    # `/v1/ops/dnc/global` for the platform-wide list, and the usual
+    # `/v1/admin/tenants/{tenant_id}/...` for the per-tenant scrub — the same split the
+    # first-campaign pair below uses.
+    application.include_router(global_dnc_router)
+    application.include_router(preference_scrub_router)
     application.include_router(subject_export_router)
     # All four `/v1/compliance/...` routers carry literal second segments and none has a
     # `{param}` at that position, so declaration order is not load-bearing between them

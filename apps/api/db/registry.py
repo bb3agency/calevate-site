@@ -79,8 +79,16 @@ TENANT_TABLES = [
     "whatsapp_alert_optin_ledger",
     # dnc_list is listed but its policy is HAND-WRITTEN (asymmetric read/write): the
     # standard tenant_id = GUC form would hide global entries from every tenant, and a
-    # nationally suppressed number would keep getting dialled.
+    # nationally suppressed number would keep getting dialled. Migration a1c8e40f27b9
+    # widened WITH CHECK by one branch so an UNTENANTED (ops) session can write a
+    # `scope='global'` row; a tenant session still cannot, which is the property the
+    # asymmetry exists for.
     "dnc_list",
+    # One national-DND scrub of one campaign's list (SEC-COMP §3, migration
+    # a1c8e40f27b9). Tenant data in the sense that matters: it is evidence about one
+    # client's contact list, read by that client's launch gate and by every dispatch
+    # tick. Carries counts and a provider reference and no phone number at all.
+    "preference_scrub_runs",
     # The client's DLT Principal Entity registration + its Calevate TM link. Tenant
     # data (their registrar ids), read by the campaign launch gate (SEC-COMP §3).
     "dlt_registrations",
@@ -182,6 +190,11 @@ APPEND_ONLY_TABLES = [
     # supersedes: DPDP §6(6) requires withdrawal to be as easy as consent, not that it
     # erase the evidence of the consent that was live when we sent last month's alerts.
     "whatsapp_alert_optin_ledger",
+    # A national-DND scrub is evidence that a list was clean at an instant. An UPDATE
+    # that moved `scrubbed_at` forward would launder a stale scrub into a fresh one and
+    # a DELETE would erase the basis for calls already placed; a correction is a new run
+    # under the provider's new reference.
+    "preference_scrub_runs",
     # Vendor credentials, versioned (PLATFORM-CONFIG §5). A new value is a new VERSION so
     # that "which key was live when this call was billed?" stays answerable a year later.
     # Its trigger is NOT the blanket `calevate_forbid_mutation` the others carry: a KEK

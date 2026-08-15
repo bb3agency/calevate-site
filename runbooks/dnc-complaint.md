@@ -30,8 +30,14 @@ FROM dnc_list
 WHERE phone_e164 = :phone;
 ```
 
-- **A row with `scope = 'global'`** (`tenant_id IS NULL`) — nationally suppressed. Every
-  tenant is blocked; no tenant can remove it.
+- **A row with `scope = 'global'`** (`tenant_id IS NULL`) — suppressed PLATFORM-WIDE.
+  Every tenant is blocked; no tenant can add or remove one. It is written only by
+  operations, through `POST /v1/ops/dnc/global` (§6 below), and it means "Calevate does
+  not dial this number for anybody" — a regulator/TSP instruction naming the number, or
+  our own permanent refusal. It is **not** the national customer preference register:
+  that is a per-campaign scrub run on an access provider's DLT platform, recorded in
+  `preference_scrub_runs` (SEC-COMP §3), and a number it blocked shows up as a
+  `dnc_blocked` campaign contact, not as a row here.
 - **A row with `scope = 'tenant'`** — that tenant only. `source` is the answer to "who
   put it there": `call_optout` (the caller asked during a call), `customer_request`
   (they told the client, who added it), `manual` (someone typed it in), `regulator`.
@@ -168,7 +174,38 @@ calls exist before it, and that no call exists after it. If a call DOES exist af
 say so — the audit chain makes the truth discoverable anyway, and a wrong answer given
 early is the thing that turns a complaint into a penalty.
 
-## 6. If the suppression was recorded and we dialled anyway
+## 6. Suppressing a number for EVERY client
+
+Use this when the instruction is not one client's — a regulator, a TSP or the DLT
+registrar names a number, or we decide this platform will never call it again. It is an
+ops action: no client can create or remove a global entry, and a client who tries is
+refused by name (`dnc_global_entry`).
+
+```
+POST /v1/ops/dnc/global
+X-Confirm-Action: suppress_number_platform_wide
+{"numbers": ["<the number>"], "source": "regulator",
+ "reason": "TRAI escalation <ticket>"}
+```
+
+`source` is `regulator` (an instruction from outside) or `platform_block` (our own
+decision). The `reason` is not a column — it travels into the audit log stream, and it
+is what answers "on whose instruction" a year later, so write the ticket reference.
+The response is counts only.
+
+Lifting one is the mirror, and it needs its own confirmation so a header captured for a
+suppression cannot release one:
+
+```
+DELETE /v1/ops/dnc/global/{entry_id}
+X-Confirm-Action: release_number_platform_wide
+```
+
+`GET /v1/ops/dnc/global` lists them, masked. Both writes land an `audit_log` entry
+(`ops.dnc_global_added` / `ops.dnc_global_removed`) naming the operator, never the
+number.
+
+## 7. If the suppression was recorded and we dialled anyway
 
 Treat as an incident.
 

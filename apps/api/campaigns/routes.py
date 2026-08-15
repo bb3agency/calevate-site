@@ -227,12 +227,38 @@ class RecurrenceSetOut(RecurrenceOut):
     first_dial_not_before: datetime
 
 
+class NationalDndScrubOut(Strict):
+    """The national preference scrub of this campaign's list, as evidence.
+
+    Counts and a provider reference; never a number (hard rule 6) — the provider's own
+    report returns counts too. `is_current` is computed by
+    `compliance.preference_scrub.ScrubState`, the same property the launch gate and the
+    dispatch tick read, so a screen can never say "scrubbed" about a run the gate is
+    refusing.
+    """
+
+    provider: str | None
+    scrub_ref: str | None
+    scrubbed_at: datetime | None
+    expires_at: datetime | None
+    suppressed_count: int | None
+    is_current: bool
+
+
 class ProgressOut(Strict):
     status: str
     launched_at: datetime | None
     concurrency: int
     contacts: dict[str, int]
     total: int
+    # BOTH halves of SEC-COMP §3's DNC bullet, side by side. `dnc_scrubbed_at` is when
+    # OUR tenant-list scrub ran (stamped by `launch_campaign`); `national_dnd_scrub` is
+    # what an access provider's DLT platform did and when. Two fields rather than one
+    # "scrubbed" flag because the two are run by different parties at different times,
+    # and a client reading a single green tick could not tell which one it stood for.
+    # Both None on a campaign that has never launched and never been scrubbed.
+    dnc_scrubbed_at: datetime | None = None
+    national_dnd_scrub: NationalDndScrubOut | None = None
     # The pending start, echoed from `campaigns.schedule`, so a `scheduled` campaign can
     # say WHEN rather than just that it is waiting. None for every other status.
     scheduled_start_at: datetime | None = None

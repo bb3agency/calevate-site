@@ -4526,6 +4526,114 @@
         "title": "FlagStateOut",
         "type": "object"
       },
+      "GlobalEntryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "added_at": {
+            "format": "date-time",
+            "title": "Added At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "phone_masked": {
+            "title": "Phone Masked",
+            "type": "string"
+          },
+          "removable": {
+            "title": "Removable",
+            "type": "boolean"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "id",
+          "phone_masked",
+          "scope",
+          "source",
+          "added_at",
+          "removable"
+        ],
+        "title": "GlobalEntryOut",
+        "type": "object"
+      },
+      "GlobalSuppressIn": {
+        "additionalProperties": false,
+        "properties": {
+          "numbers": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 2000,
+            "minItems": 1,
+            "title": "Numbers",
+            "type": "array"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "regulator",
+              "platform_block"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "numbers",
+          "source",
+          "reason"
+        ],
+        "title": "GlobalSuppressIn",
+        "type": "object"
+      },
+      "GlobalSuppressOut": {
+        "additionalProperties": false,
+        "description": "Counts, never numbers \u2014 `compliance/dnc.py`'s module docstring argues it.",
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "already_suppressed": {
+            "title": "Already Suppressed",
+            "type": "integer"
+          },
+          "malformed": {
+            "title": "Malformed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "added",
+          "already_suppressed",
+          "malformed"
+        ],
+        "title": "GlobalSuppressOut",
+        "type": "object"
+      },
       "HealthSignalOut": {
         "additionalProperties": false,
         "description": "One thing wrong with one account, in machine names only.",
@@ -7209,6 +7317,83 @@
         "title": "MetricOut",
         "type": "object"
       },
+      "NationalDndScrubOut": {
+        "additionalProperties": false,
+        "description": "The national preference scrub of this campaign's list, as evidence.\n\nCounts and a provider reference; never a number (hard rule 6) \u2014 the provider's own\nreport returns counts too. `is_current` is computed by\n`compliance.preference_scrub.ScrubState`, the same property the launch gate and the\ndispatch tick read, so a screen can never say \"scrubbed\" about a run the gate is\nrefusing.",
+        "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "is_current": {
+            "title": "Is Current",
+            "type": "boolean"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "scrub_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scrub Ref"
+          },
+          "scrubbed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scrubbed At"
+          },
+          "suppressed_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suppressed Count"
+          }
+        },
+        "required": [
+          "provider",
+          "scrub_ref",
+          "scrubbed_at",
+          "expires_at",
+          "suppressed_count",
+          "is_current"
+        ],
+        "title": "NationalDndScrubOut",
+        "type": "object"
+      },
       "NumberCreatedOut": {
         "additionalProperties": false,
         "properties": {
@@ -7939,6 +8124,134 @@
         "title": "PlatformStateOut",
         "type": "object"
       },
+      "PreferenceScrubIn": {
+        "additionalProperties": false,
+        "description": "One scrub, as an access provider's DLT platform reported it.\n\n`submitted_count` is deliberately NOT a field. The count that matters is how many\ncontacts were pending when the run was recorded, and that is something we can read\nrather than something an operator can mistype \u2014 see `record_scrub_run`.",
+        "properties": {
+          "blocked_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5000,
+            "title": "Blocked Numbers",
+            "type": "array"
+          },
+          "provider": {
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Provider",
+            "type": "string"
+          },
+          "scrub_ref": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Scrub Ref",
+            "type": "string"
+          },
+          "scrubbed_at": {
+            "format": "date-time",
+            "title": "Scrubbed At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "scrub_ref",
+          "scrubbed_at"
+        ],
+        "title": "PreferenceScrubIn",
+        "type": "object"
+      },
+      "PreferenceScrubOut": {
+        "additionalProperties": false,
+        "description": "What the recording did, and whether the gate is now satisfied.\n\n`is_current` is returned rather than left to the caller to derive from `expires_at`,\nbecause the answer an operator needs is \"will this campaign launch now\" and a run\nrecorded after its own day has ended is a legitimate historical record that does not\nsatisfy the gate. Counts only; no number comes back.",
+        "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "is_current": {
+            "title": "Is Current",
+            "type": "boolean"
+          },
+          "malformed": {
+            "title": "Malformed",
+            "type": "integer"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "scrub_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scrub Ref"
+          },
+          "scrubbed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scrubbed At"
+          },
+          "submitted": {
+            "title": "Submitted",
+            "type": "integer"
+          },
+          "suppressed": {
+            "title": "Suppressed",
+            "type": "integer"
+          },
+          "unmatched": {
+            "title": "Unmatched",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "recorded",
+          "submitted",
+          "suppressed",
+          "unmatched",
+          "malformed",
+          "provider",
+          "scrub_ref",
+          "scrubbed_at",
+          "expires_at",
+          "is_current"
+        ],
+        "title": "PreferenceScrubOut",
+        "type": "object"
+      },
       "ProgressOut": {
         "additionalProperties": false,
         "properties": {
@@ -7953,6 +8266,18 @@
             "title": "Contacts",
             "type": "object"
           },
+          "dnc_scrubbed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dnc Scrubbed At"
+          },
           "launched_at": {
             "anyOf": [
               {
@@ -7964,6 +8289,16 @@
               }
             ],
             "title": "Launched At"
+          },
+          "national_dnd_scrub": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NationalDndScrubOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "recurrence": {
             "anyOf": [
@@ -13474,6 +13809,83 @@
         "x-calevate-permission": "agents:write"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
+      "post": {
+        "description": "The national half of SEC-COMP \u00a73's DNC bullet. An access provider's DLT platform scrubs a submitted list against the customer preference register and returns a reference, a report and a verdict valid until 23:59:59 IST that day; this records the run and marks the numbers it blocked as `dnc_blocked` on the campaign. Until a current run exists, `launch_blockers` and `dispatch_blockers` refuse promotional campaigns with `national_dnd_scrub_missing` or `national_dnd_scrub_expired`.",
+        "operationId": "record_preference_scrub_v1_admin_tenants__tenant_id__campaigns__campaign_id__preference_scrub_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferenceScrubIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferenceScrubOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record a national DND (NCPR) scrub of this campaign's list (step-up, audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/commercial-terms": {
       "get": {
         "description": "The `plans` rows for one client, newest agreement first by valid time, with the one in effect now resolved by the same expression the invoice uses. `state` names what an operator is looking at: `none` (no terms have ever been set \u2014 the state every new tenant is in), `unpriced` (a row is in effect but states no price), `lapsed` (rows exist and none is in effect, which is a misconfiguration), or `set`.",
@@ -18795,6 +19207,157 @@
           "ops"
         ],
         "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/dnc/global": {
+      "get": {
+        "operationId": "list_global_v1_ops_dnc_global_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GlobalEntryOut"
+                  },
+                  "title": "Response List Global V1 Ops Dnc Global Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every platform-wide suppression, masked \u2014 what we refuse to dial for anyone",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      },
+      "post": {
+        "description": "Writes `dnc_list` rows with `scope='global'` \u2014 an absolute platform-wide refusal to dial, honoured by every tenant's compliance gate on the next dispatch decision and removable by no client. Use it for a regulator, TSP or registrar instruction naming a number, or for a number this platform must never call again. It is NOT the national customer preference register: that is a per-list scrub run on an access provider's DLT platform and recorded against the campaign it covers.",
+        "operationId": "suppress_globally_v1_ops_dnc_global_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GlobalSuppressIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalSuppressOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Suppress numbers for EVERY tenant (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/dnc/global/{entry_id}": {
+      "delete": {
+        "description": "204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted\nholds a phone number, and the response to \"stop suppressing this\" is not the place\nto repeat it. The `source` this reads is for the audit row.",
+        "operationId": "release_globally_v1_ops_dnc_global__entry_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Entry Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Lift a platform-wide suppression (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
       }
     },
     "/v1/ops/outbox/replay": {

@@ -330,8 +330,23 @@ export default function TenantDetailPage({
           work that silently stops halfway.
           The whole panel used to vanish on a failed read of the approved list, which is
           the same silence as an empty one: a source stuck at "Approved, not live yet"
-          on the client's screen and nothing here to explain why. */}
-      {publishQueue.error ? (
+          on the client's screen and nothing here to explain why.
+          §52's OTHER clause was still open here, and it is the same sentence drawn a
+          third way: while the approved list is IN FLIGHT, `awaitingPublish` is `[]` — the
+          `?? []` above cannot tell "not answered yet" from "the server says none" — so
+          the panel rendered `null` and an operator's first paint of this screen said
+          "nothing is waiting to be published" about a request that had not come back.
+          The §52 guard (apps/web/tests/surfaceStatesGuard.test.ts) deliberately does not
+          scan a `?? []` outside a JSX child, because whether it reaches a pixel is a
+          question about branch dominance; this was the branch that let it through.
+          Loading is a skeleton. An empty list, once the server has said so, is still
+          nothing — the approval card above already carries the sentence that explains
+          what publishing is for. */}
+      {publishQueue.isLoading ? (
+        <Card title="Approved, awaiting publish">
+          <Skeleton rows={2} />
+        </Card>
+      ) : publishQueue.error ? (
         <Card title="Approved, awaiting publish">
           <ProblemNotice error={publishQueue.error} onRetry={() => publishQueue.refetch()} />
         </Card>

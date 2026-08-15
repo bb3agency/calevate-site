@@ -55,6 +55,7 @@ from apps.api.engine import reset_engine_cache
 from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import ACTIVE_STATUSES, dispatch_campaign_tick
 from sqlalchemy import text
+from tests.national_dnd_test import record_test_scrub
 
 # 11:00 IST on 2026-08-11 — inside the platform window, so a refusal is never the clock.
 NOON_IST = datetime(2026, 8, 11, 5, 30, tzinfo=UTC)
@@ -192,6 +193,11 @@ async def _ready_campaign(
             campaign_id=campaign_id,
             contacts=[{"phone": p, "name": f"Lead {p[-4:]}"} for p in phones],
         )
+        # The national DND scrub SEC-COMP §3 asks for (migration a1c8e40f27b9).
+        # A promotional campaign is launch-ready only once an access provider has
+        # preference-scrubbed its list, so this fixture supplies the fact through the
+        # production writer — `tests/national_dnd_test.py` proves the refusal is real.
+        await record_test_scrub(session, campaign_id)
     return tenant_id, campaign_id
 
 

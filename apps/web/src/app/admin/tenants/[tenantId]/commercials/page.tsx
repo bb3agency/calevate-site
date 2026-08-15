@@ -508,7 +508,17 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
               <th className="py-1 pr-3 font-medium">Until</th>
               <th className="py-1 pr-3 font-medium">Retainer</th>
               <th className="py-1 pr-3 font-medium">Included</th>
-              <th className="py-1 pr-3 font-medium">Rate / min</th>
+              {/*
+                BOTH RUNGS, because a plan can quote either one alone. The single
+                "Rate / min" column this replaces read `overage_rate_inr` only, so an
+                agreement that priced the VALUE rung and nothing else showed "—" under a
+                heading a reader takes for the whole price — the same lie the server told
+                until `billing/terms.py::PRICING_COLUMNS` was made the one list
+                (`states_pricing` was blind to the same column). Fixing one side and not
+                the other would have left the console contradicting the API it renders.
+              */}
+              <th className="py-1 pr-3 font-medium">Premium / min</th>
+              <th className="py-1 pr-3 font-medium">Value / min</th>
               <th className="py-1 pr-3 font-medium">Recorded</th>
             </tr>
           </thead>
@@ -531,6 +541,7 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
                   {row.included_minutes === null ? "—" : row.included_minutes}
                 </td>
                 <td className="py-1.5 pr-3">{rate(row.overage_rate_inr) ?? "—"}</td>
+                <td className="py-1.5 pr-3">{rate(row.overage_rate_value_inr) ?? "—"}</td>
                 <td className="py-1.5 pr-3">{formatIST(row.created_at)}</td>
               </tr>
             ))}

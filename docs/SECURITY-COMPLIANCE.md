@@ -64,8 +64,45 @@ cite the same string:
   header registered (`number_not_registered`); voice `dlt_templates.status='approved'` and
   linked, for this classification (`dlt_template_missing`, `dlt_template_not_approved`,
   `dlt_template_mismatch`). Three registrations, and none implies another.
-- Contact list DNC-scrubbed (national DND + tenant dnc_list) with scrub timestamp; a list
-  with nothing left after the scrub is `all_contacts_dnc`, an empty one `no_contacts`.
+- Contact list DNC-scrubbed (national DND + tenant `dnc_list`) with scrub timestamp; a
+  list with nothing left after the scrub is `all_contacts_dnc`, an empty one
+  `no_contacts`. **The two scrubs are separate facts and this bullet used to claim a
+  national one the system could not perform** (migration a1c8e40f27b9):
+  - **Tenant list** — `launch_campaign` marks every contact on this tenant's `dnc_list`
+    (and every `scope='global'` row) `dnc_blocked` before the CAS to `running`, and now
+    stamps `campaigns.dnc_scrubbed_at` in the same statement. That is the scrub
+    timestamp this bullet promises for our half, and nothing recorded it before.
+  - **National DND** — the customer preference register (NCPR) is **not obtainable**:
+    it lives on the access providers' DLT platform, which scrubs a list you submit and
+    returns a reference, a count and a verdict valid to 23:59:59 that day, and every
+    operator's DLT documentation states that the preference database itself "will not be
+    accessible to telemarketers". So the artefact is a RUN, not a loaded list:
+    `preference_scrub_runs` (DATA-MODEL §9), recorded through
+    `POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub`
+    (step-up confirmed, audited, counts only — no number is stored). Until a current run
+    exists, a **promotional** campaign is refused by `national_dnd_scrub_missing`,
+    `national_dnd_scrub_expired` (the run aged past its IST day) or
+    `national_dnd_scrub_incomplete` (contacts were added after it ran) — at launch AND
+    on every dispatch tick, because the validity window ends at midnight while a
+    campaign keeps dialling. `transactional` and `service` campaigns are outside the
+    rule: under full DND every category is blocked except service-implicit, and
+    transactional traffic is delivered whatever the preference, so scrubbing them would
+    suppress calls a preference-registered subscriber is entitled to receive.
+  - **WHAT IS EXTERNAL**: performing a scrub needs a Registered Telemarketer
+    relationship with an access provider and a login to that provider's DLT platform —
+    the same relationship that produces `platform_state.tm_id`, so this gate blocks
+    nothing that `tm_registration_missing` was not already blocking. **What is still
+    unverified**: the recorded reference is taken from an operator and never queried
+    back, so the gate proves an accountable assertion rather than a performed scrub
+    (`tests/national_dnd_test.py::UNVERIFIED_SCRUB_EVIDENCE`).
+  - **`dnc_list.scope='global'` is NOT the national register** and never was: it is an
+    absolute platform-wide suppression (a regulator/TSP instruction naming a number, or
+    our own permanent refusal), and it had **no writer anywhere** until
+    `POST /v1/ops/dnc/global` (step-up confirmed, audited, `GLOBAL_SOURCES` =
+    `regulator` / `platform_block`). NCPR preferences are category-scoped and expire
+    daily, so loading them here would refuse lawful transactional traffic. A tenant
+    session still cannot create a global row — the RLS `WITH CHECK` admits the new
+    branch only for a session carrying no `app.tenant_id`.
 - Consent provenance recorded for the list (source + date) — a purchased list with no
   consent artefacts is refused, in writing, as policy. **`consent_provenance_missing`**
   when nobody has said (`campaigns.consent_source IS NULL`, which is what every campaign

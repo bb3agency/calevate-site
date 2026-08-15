@@ -25,6 +25,31 @@ Four deliberate choices, each of which a reviewer should be able to check:
 Normalization is `ingest.normalize_phone` — the same function the lead path uses, so a
 number suppressed from a web form and the same number suppressed by hand produce the
 same E.164 string, and the gate's equality check actually matches.
+
+THE GLOBAL SCOPE, AND WHAT IT IS NOT
+------------------------------------
+`scope='global'` shipped fully built on the READ side — the gate ranks it above a tenant
+entry, `is_removable` refuses it, `remove_entry` has a named refusal for it, the launch
+scrub includes it — and had **no writer anywhere**, in `apps/`, `scripts/`, `alembic/`
+or the seed. Both INSERT sites hardcoded `'tenant'`. So `remove_entry`'s "global
+suppressions are removed by operations, not from here" named a desk that did not exist,
+and `runbooks/dnc-complaint.md` §1 described a row nothing could produce.
+
+`add_global_numbers` is that desk. What it writes is a **platform-wide ABSOLUTE
+suppression**: a number Calevate will not dial for any tenant, on any classification,
+ever — a regulator or TSP instruction naming a number, or our own permanent refusal
+after a complaint. It is deliberately NOT the national DND register: NCPR preferences
+are category-scoped and expire daily, and loading them here would refuse lawful
+transactional traffic. That half of SEC-COMP §3 is `compliance/preference_scrub.py`,
+whose docstring carries the regulatory sources.
+
+The RLS asymmetry is unchanged where it matters. Migration `a1c8e40f27b9` widens WITH
+CHECK by exactly one branch — a session with NO `app.tenant_id` may write a
+`scope='global'` row — so a TENANT session still cannot suppress a number for every
+other client, which is the escalation the original policy was written to prevent. The
+ops surface reaches it through `global_db`, never through the owner DB role (hard rule
+1). A widened branch that fired on the wrong session over-blocks dialling and can never
+under-block it, so the direction of any mistake here is safe.
 """
 
 from __future__ import annotations
@@ -48,6 +73,16 @@ log = get_logger(__name__)
 # Where a suppression came from. Free text in the column (no CHECK constraint), pinned
 # here so the list stays answerable when someone asks "why is this number blocked".
 SOURCES = ("customer_request", "call_optout", "manual", "regulator")
+
+# The reasons a PLATFORM-WIDE suppression can exist. A deliberately shorter list than
+# `SOURCES` and deliberately disjoint from the two consumer ones: nobody asks a client's
+# receptionist to suppress a number for every business on the platform, so
+# `customer_request` and `call_optout` are not answers to this question and their
+# presence would invite an operator to widen a single tenant's opt-out to everyone.
+# `regulator` = an instruction from TRAI, a TSP or the DLT registrar naming this number.
+# `platform_block` = our own permanent refusal to dial it (a complaint we settled, a
+# number that must never be called from this platform again).
+GLOBAL_SOURCES = ("regulator", "platform_block")
 
 MAX_NUMBERS_PER_ADD = 2000
 MAX_LIST = 500
@@ -264,7 +299,144 @@ async def remove_entry(session: AsyncSession, *, entry_id: UUID) -> str:
     return str(source)
 
 
+async def add_global_numbers(
+    session: AsyncSession, *, raw_numbers: list[str], source: str
+) -> AddResult:
+    """Suppress numbers for EVERY tenant. Ops only; the session must carry no tenant GUC.
+
+    Mirrors `add_numbers` deliberately — same counts, same normalization, same
+    read-then-insert — because the two are one operation at two scopes and a second
+    shape would be a second set of edge cases to get right. Three things differ:
+
+    - the source vocabulary is `GLOBAL_SOURCES`, not `SOURCES`;
+    - the dedupe read looks at `tenant_id IS NULL` only. A number a tenant already
+      suppressed for itself is NOT already globally suppressed, and reporting it as
+      such would silently decline to write the stronger row;
+    - the conflict target is the PARTIAL unique index on `(phone_e164) WHERE tenant_id
+      IS NULL`, added by migration `a1c8e40f27b9`. It has to be: the table's
+      `UNIQUE (tenant_id, phone_e164)` never constrained global rows at all, because
+      Postgres treats NULLs as distinct in a unique index, so `ON CONFLICT (tenant_id,
+      phone_e164)` on a global insert matches nothing and every retry would have added
+      another identical row.
+    """
+    if source not in GLOBAL_SOURCES:
+        raise ProblemError.business_rule(
+            "dnc_unknown_global_source",
+            "That is not a recognised reason for suppressing a number platform-wide.",
+            remediation=f"Use one of: {', '.join(GLOBAL_SOURCES)}.",
+        )
+
+    normalized: list[str] = []
+    malformed = 0
+    for raw in raw_numbers:
+        e164 = normalize_phone(raw)
+        if e164 is None:
+            malformed += 1
+            continue
+        normalized.append(e164)
+    unique = list(dict.fromkeys(normalized))
+    if not unique:
+        return AddResult(added=0, already_suppressed=0, malformed=malformed)
+
+    existing = {
+        row[0]
+        for row in (
+            await session.execute(
+                text(
+                    "SELECT phone_e164 FROM dnc_list "
+                    "WHERE phone_e164 = ANY(:phones) AND tenant_id IS NULL"
+                ),
+                {"phones": unique},
+            )
+        ).all()
+    }
+    fresh = [phone for phone in unique if phone not in existing]
+
+    if fresh:
+        await session.execute(
+            text(
+                "INSERT INTO dnc_list (id, tenant_id, phone_e164, scope, source, added_at, "
+                "created_at) VALUES (:id, NULL, :phone, 'global', :source, now(), now()) "
+                "ON CONFLICT (phone_e164) WHERE tenant_id IS NULL DO NOTHING"
+            ),
+            [{"id": uuid7(), "phone": phone, "source": source} for phone in fresh],
+        )
+
+    # Counts only (hard rule 6), and no tenant id — there isn't one.
+    log.info("dnc_global_added", extra={"added": len(fresh), "source": source})
+    return AddResult(
+        added=len(fresh),
+        already_suppressed=len(unique) - len(fresh),
+        malformed=malformed,
+    )
+
+
+async def list_global_entries(session: AsyncSession, *, limit: int = 100) -> list[DncEntryView]:
+    """The platform-wide list, masked, newest first.
+
+    A separate query from `list_entries` rather than a flag on it: that one runs on a
+    tenant session and returns "this tenant's rows plus the global ones", which is the
+    right answer for a client and the wrong one for an operator auditing what we block
+    for everybody.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, phone_e164, scope, source, added_at FROM dnc_list "
+                "WHERE tenant_id IS NULL ORDER BY added_at DESC, id DESC LIMIT :n"
+            ),
+            {"n": min(limit, MAX_LIST)},
+        )
+    ).all()
+    return [
+        DncEntryView(
+            id=row[0],
+            phone_masked=mask_phone(row[1]) or "",
+            scope=row[2],
+            source=row[3],
+            added_at=row[4],
+            # False for every row here, by `is_removable`'s definition. Rendered anyway
+            # rather than hardcoded, so the ops list and the client list answer the
+            # question with the same function.
+            removable=is_removable(scope=row[2], source=row[3]),
+        )
+        for row in rows
+    ]
+
+
+async def remove_global_entry(session: AsyncSession, *, entry_id: UUID) -> str:
+    """Lift one platform-wide suppression. Ops only. Returns its source, for the audit row.
+
+    A separate function from `remove_entry` and NOT a relaxation of it: that one refuses
+    global rows by name (`dnc_global_entry`) and must keep doing so, because the account
+    a number was suppressed against is exactly the account that must not be able to lift
+    it. This one only ever touches `tenant_id IS NULL`, so an operator cannot reach a
+    tenant's own entry through it either — the mistake in both directions is unreachable
+    rather than merely discouraged.
+
+    A regulator instruction genuinely gets withdrawn and a number blocked by mistake has
+    to be recoverable, so the row is deletable; `audit_log` is where the history of both
+    lives (this table is not append-only, and `remove_entry` already deletes).
+    """
+    row = (
+        await session.execute(
+            text("SELECT source FROM dnc_list WHERE id = :id AND tenant_id IS NULL"),
+            {"id": entry_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Global DNC entry")
+    result = await session.execute(
+        text("DELETE FROM dnc_list WHERE id = :id AND tenant_id IS NULL"), {"id": entry_id}
+    )
+    if rowcount_of(result) != 1:
+        # RLS refusing the write looks exactly like this. Do not report success.
+        raise ProblemError.not_found("Global DNC entry")
+    return str(row[0])
+
+
 __all__ = [
+    "GLOBAL_SOURCES",
     "MAX_LIST",
     "MAX_NUMBERS_PER_ADD",
     "REMOVABLE_SOURCES",
@@ -272,9 +444,12 @@ __all__ = [
     "AddResult",
     "CheckResult",
     "DncEntryView",
+    "add_global_numbers",
     "add_numbers",
     "check_number",
     "is_removable",
     "list_entries",
+    "list_global_entries",
     "remove_entry",
+    "remove_global_entry",
 ]

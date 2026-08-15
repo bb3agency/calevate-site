@@ -23,6 +23,7 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import service as agents_service
 from apps.api.campaigns import service
+from apps.api.compliance.preference_scrub import PREFERENCE_SCRUBBED_CLASSIFICATIONS
 from apps.api.compliance.service import add_to_dnc
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.loadshed import set_platform_status
@@ -36,6 +37,7 @@ from apps.workers.campaign_dispatch import (
     resolve_campaign_contact,
 )
 from sqlalchemy import text
+from tests.national_dnd_test import record_test_scrub
 
 
 @pytest.fixture(autouse=True)
@@ -213,6 +215,14 @@ async def _ready_campaign(
                 campaign_id=campaign_id,
                 contacts=[{"phone": p, "name": f"Lead {p[-4:]}"} for p in phones],
             )
+        # The national DND scrub (SEC-COMP §3, migration a1c8e40f27b9). A promotional
+        # campaign is launch-ready only once an access provider's DLT platform has
+        # scrubbed its list, so a fixture that claims to build one has to say so —
+        # recorded AFTER the contacts, because the run covers the list that existed when
+        # it ran. Supplied through the production writer and softening nothing:
+        # `tests/national_dnd_test.py` proves the refusal by leaving it out.
+        if classification in PREFERENCE_SCRUBBED_CLASSIFICATIONS:
+            await record_test_scrub(session, campaign_id)
     return tenant_id, agent_id, campaign_id
 
 
@@ -368,7 +378,16 @@ async def test_the_launch_gate_names_every_blocker_at_once() -> None:
         )
         rules = {b.rule for b in blockers}
 
-    assert rules == {"agent_not_live", "dlt_template_missing", "number_missing", "no_contacts"}
+    assert rules == {
+        "agent_not_live",
+        "dlt_template_missing",
+        "number_missing",
+        "no_contacts",
+        # SEC-COMP §3's DNC bullet, national half (migration a1c8e40f27b9): a promotional
+        # campaign whose list no access provider has preference-scrubbed is refused by
+        # name, alongside everything else that is not ready.
+        "national_dnd_scrub_missing",
+    }
     assert all(b.reason.strip() for b in blockers), "every blocker tells the client what to do"
 
 
@@ -940,6 +959,9 @@ async def test_a_registered_template_starts_submitted_and_only_admin_approval_mo
             campaign_id=campaign_id,
             contacts=[{"phone": "9876500001"}],
         )
+        # Everything §3 asks for EXCEPT the approval under test, so `before` isolates it
+        # and `after == []` still means "the registrar's word was the last thing owed".
+        await record_test_scrub(session, campaign_id)
         before = await service.launch_blockers(
             session, tenant_id=tenant_id, campaign_id=campaign_id
         )
@@ -1073,6 +1095,9 @@ async def _windowed_campaign(
             campaign_id=campaign_id,
             contacts=[{"phone": p, "name": f"Lead {p[-4:]}"} for p in phones],
         )
+        # Promotional, so the national DND scrub applies here exactly as it does in
+        # `_ready_campaign` — see the note there.
+        await record_test_scrub(session, campaign_id)
     return tenant_id, agent_id, campaign_id
 
 

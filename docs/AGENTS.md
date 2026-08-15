@@ -54,8 +54,9 @@ make web-check                # frontend: typecheck + lint + vitest (D-53)
    cross-tenant zero-rows test. Never bypass RLS; never use the admin role in app paths.
 2. Vendor SDKs/payloads only inside `engine/` adapters. All other code uses normalized
    models. Both adapters must pass `engine_conformance` tests.
-3. `usage_events`, `consent_ledger`, `audit_log`: INSERT-only. Corrections are
-   compensating entries.
+3. Every table in `apps/api/db/registry.APPEND_ONLY_TABLES`: INSERT-only. Corrections are
+   compensating entries. Named, not copied — this rule shipped listing three and the set
+   has more than doubled; `check_ledger_immutability` reads the constant.
 4. Compliance: agent disclosure line non-null; campaign launch always goes through the
    compliance gate — no test bypasses; transcripts serialize as redacted by default; raw
    text requires role check + audit_log write.

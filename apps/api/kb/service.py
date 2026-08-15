@@ -1,7 +1,13 @@
 """KB ingestion, approval and publish (FLOWS §7).
 
-    client submits text/url → chunk → PREVIEW → admin approves → version bump →
+    client submits TEXT → chunk → PREVIEW → admin approves → version bump →
     engine KB sync → T0 recompilation → live.   Rollback = reactivate the prior version.
+
+"TEXT", and only text: `SUPPORTED_SUBMISSION_KINDS` below refuses a document or a URL by
+name rather than accepting one and quietly chunking whatever was pasted beside it. There
+is no verification step after `live` either, and FLOWS §7 now says why — we cannot ask the
+engine's knowledge base a question, so "3 canned questions answered from new content" is a
+live PSTN call (pilot gate 8), never a step this function could run.
 
 The approval gate is the point. A client editing what their agent says is a client
 editing a legal instrument — the agent speaks on their behalf under their PE
@@ -35,6 +41,27 @@ log = get_logger(__name__)
 # question, short enough that retrieval returns one idea rather than a page.
 MAX_CHUNK_CHARS = 700
 MIN_CHUNK_CHARS = 80
+
+#: The submission kinds this module can actually turn into chunks.
+#:
+#: `kb_sources.kind` allows four (`models.KB_KINDS`) and the API advertised three, but
+#: `submit_source` has only ever chunked `body`. A submission naming `kind="url"` with a
+#: `uri` was accepted, stored, chunked from whatever text the caller ALSO pasted, and the
+#: uri was written to a column nothing reads — so the caller got a 201 for a fetch that
+#: never happened. TRD §6 puts parsing in an offline worker ("parse (LlamaParse for messy
+#: PDFs) → chunk preview"), and neither half of that exists: no fetcher, no parser.
+#:
+#: Refusing by name is the honest half and it is one line. The rejected alternative was
+#: narrowing `SubmitIn.kind` to `Literal["text"]`, which is stricter — the generated TS
+#: client could not even spell the request — but it changes the OpenAPI schema, and a
+#: schema regeneration mid-wave sweeps up every other slice's in-flight route changes.
+#: A named 422 with a remediation closes the LIE, which is the part that hurts a caller;
+#: the narrowing is what the parser slice does when it deletes this set.
+#:
+#: What closes it: a URL fetcher (its own SSRF design — an unauthenticated-by-proxy GET
+#: from our network to a caller-chosen host) and a document parser. LlamaParse is the
+#: named candidate and is an EXTERNAL blocker: a vendor account nobody has opened.
+SUPPORTED_SUBMISSION_KINDS: frozenset[str] = frozenset({"text"})
 
 
 def chunk_text(body: str) -> list[str]:
@@ -126,7 +153,27 @@ async def submit_source(
 
     Nothing here touches the engine. A submission is a proposal; only `publish_source`
     changes what the agent knows.
+
+    A kind we cannot ingest is refused BEFORE anything is written — see
+    `SUPPORTED_SUBMISSION_KINDS` for why the alternative (accept it, chunk the pasted
+    body, drop the uri on the floor) is worse than a refusal.
     """
+    if kind not in SUPPORTED_SUBMISSION_KINDS:
+        raise ProblemError(
+            kind="validation",
+            code="kb_kind_unsupported",
+            title="We cannot read that yet",
+            detail=(
+                "Knowledge can only be submitted as text at the moment; documents and "
+                "web pages are not read for you."
+            ),
+            remediation=(
+                "Paste the wording you want the agent to use into the text box. Write it "
+                "the way you would tell a new receptionist."
+            ),
+            status=422,
+        )
+
     chunks = chunk_text(body)
     if not chunks:
         raise ProblemError(
@@ -599,11 +646,13 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     Approval is a fact about a version that a later publish cannot erase; rejection
     never sets `approved_at`, so a rejected source still cannot reach an agent.
 
-    3. T0 is RECOMPILED at the end, once the activation flip has decided what is live
-       (FLOWS §7: "version bump → embeddings → T0 recompilation → engine KB sync"; the
-       engine sync moved ahead of it when D-41 made the withdrawal a precondition, so
-       the two steps are ordered by what each one reads rather than by the doc's line
-       order). Without this the whole publish changed only what the agent could
+    3. T0 is RECOMPILED at the end, once the activation flip has decided what is live.
+       FLOWS §7 used to list "T0 recompilation → engine KB sync" in that order and this
+       function runs them the other way round: D-41 made the withdrawal a precondition of
+       publishing at all, so the two steps are ordered by what each one READS — the
+       recompile reads the activation flip, and the flip must not happen until the engine
+       has accepted the new copy. The doc now lists them in this order. Without this step
+       the whole publish changed only what the agent could
        RETRIEVE: `agents/t0.py` compiles the newly approved facts into the prompt's
        [T0 FACTS] block as a NEW prompt version, which is the tier TRD §6 says answers
        ~80% of questions at zero latency. It re-publishes the agent only if the agent
@@ -779,6 +828,7 @@ async def list_sources(session: AsyncSession, *, status: str | None = None) -> l
 
 __all__ = [
     "MAX_CHUNK_CHARS",
+    "SUPPORTED_SUBMISSION_KINDS",
     "active_knowledge",
     "approve_source",
     "chunk_text",

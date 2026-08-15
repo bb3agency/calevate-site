@@ -33,7 +33,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import Any, Final, Literal, NamedTuple
 from uuid import UUID
 
@@ -52,7 +52,7 @@ from apps.api.billing.plans import (
     plan_in_effect_sql,
     warn_no_plan_in_effect,
 )
-from apps.api.billing.rates import TtsTier, tier_correction_inr
+from apps.api.billing.rates import ROUNDING, TtsTier, tier_correction_inr
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -78,8 +78,12 @@ LOW_BALANCE_INR = Decimal("200.00")
 # - passed EXPLICITLY, never inherited. `decimal.getcontext()` is process-global and
 #   mutable by any library in the image; a rupee that changes because someone else
 #   changed a global is not an amount we can defend.
+#
+# The MODE is `billing.rates.ROUNDING`, imported rather than restated: this module used
+# to define its own `ROUND_HALF_UP` beside `rates`' identical one, which is two homes for
+# one decision and the place drift starts. `PAISE` stays here because it is a different
+# fact — the DISPLAY quantum, two decimals, not the four `MONEY_Q` stores at.
 PAISE = Decimal("0.01")
-ROUNDING = ROUND_HALF_UP
 
 
 def to_paise(value: Decimal) -> Decimal:
@@ -1157,18 +1161,17 @@ async def margin_for_tenant(
     time with the fx rate it used, so a later rate move cannot rewrite history.
     """
     usage = await usage_summary(session, tenant_id=tenant_id, month=month)
-    cost = (
-        await session.execute(
-            # NUMERIC * NUMERIC summed as NUMERIC — no float anywhere on the path from
-            # `unit_cost_paid` to the rupee figure an operator reads (hard rule 7).
-            text(
-                "SELECT COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)), 0) "
-                f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH} = :month"
-            ),
-            {"tid": tenant_id, "month": usage["month"]},
-        )
-    ).scalar()
-    cost_inr = to_paise(Decimal(str(cost or 0)))
+    # OUR COST HAS ONE DEFINITION AND THIS IS IT. This function used to carry its own
+    # `SUM(qty * COALESCE(unit_cost_paid, 0))` — the same expression `_tier_totals`
+    # already spells, in a second SQL string with a second predicate, for a number that
+    # must agree with `_spend_used`'s closed-month figure to a paisa or the margin panel
+    # and the usage panel contradict each other about one month. Summing the rungs is
+    # exactly the ungrouped total (a GROUP BY partitions the rows), so this is the same
+    # arithmetic with one fewer place for a filter to be added to only one of them.
+    # NUMERIC throughout — no float anywhere on the path from `unit_cost_paid` to the
+    # rupee an operator reads (hard rule 7).
+    _, tier_cost = await _tier_totals(session, tenant_id=tenant_id, month=str(usage["month"]))
+    cost_inr = to_paise(sum(tier_cost.values(), Decimal("0")))
     # Revenue is `usage_summary`'s numbers, not a second derivation: the invoice's
     # subtotal is those same two fields added, so margin and the invoice cannot drift.
     revenue = (usage["monthly_fee_inr"] or Decimal("0")) + usage["overage_cost_inr"]

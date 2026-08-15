@@ -269,7 +269,16 @@ class DncEntry(PKMixin, Base):
     Two scopes in one table, as documented, with a deliberately asymmetric RLS policy
     (see the migration): a tenant can READ global entries — it must, or a nationally
     suppressed number would still be dialled — but can only WRITE its own. Creating a
-    global entry is not a tenant-reachable operation at all.
+    global entry is not a TENANT-reachable operation at all; migration `a1c8e40f27b9`
+    makes it an OPS-reachable one, by widening WITH CHECK for sessions that carry no
+    `app.tenant_id` and for nothing else.
+
+    **A global entry is an ABSOLUTE platform-wide suppression** — a regulator or TSP
+    instruction naming a number, or our own permanent refusal to dial it — and it is
+    NOT the national customer preference register. NCPR preferences are category-scoped
+    (a fully-blocked subscriber still receives transactional communication) and expire
+    daily, so they cannot be represented by a row the gate reads as "never, for anyone".
+    That half of SEC-COMP §3 is `PreferenceScrubRun` below.
 
     Additions must propagate BEFORE the next dispatch tick (hard rule 5), which is why
     the check reads this table live on every dispatch path rather than caching it.
@@ -283,7 +292,17 @@ class DncEntry(PKMixin, Base):
             "OR (scope = 'tenant' AND tenant_id IS NOT NULL)",
             name="scope_matches_tenant",
         ),
+        # Constrains TENANT rows only, and always did: Postgres treats NULLs as distinct
+        # in a unique index, so this never once applied to a global row. The partial
+        # index that does is declared with a predicate and therefore lives in migration
+        # `a1c8e40f27b9`, which autogenerate cannot faithfully diff.
         UniqueConstraint("tenant_id", "phone_e164"),
+        Index(
+            "uq_dnc_list_global_phone",
+            "phone_e164",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL"),
+        ),
     )
 
     tenant_id: Mapped[UUID | None] = mapped_column(
@@ -293,6 +312,94 @@ class DncEntry(PKMixin, Base):
     scope: Mapped[str] = mapped_column(String, nullable=False, server_default="tenant")
     source: Mapped[str | None] = mapped_column(Text)
     added_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class PreferenceScrubRun(PKMixin, Base):
+    """One national-DND scrub of one campaign's contact list (SEC-COMP §3, DATA-MODEL §9).
+
+    The NATIONAL half of §3's "DNC-scrubbed (national DND + tenant dnc_list) with scrub
+    timestamp", and the row that makes the second half of that phrase exist at all.
+    `apps/api/compliance/preference_scrub.py` carries the regulatory sources and the
+    argument for the shape; the short version is that the customer preference register
+    is not obtainable — an access provider's DLT platform scrubs a list you submit and
+    returns a reference, a count and a file valid to the end of the day — so the durable
+    fact is a RUN, not a row per number.
+
+    **Counts only. No phone number is ever stored here** (hard rule 6), which is not a
+    redaction but the shape of the artefact: the provider's own report returns counts
+    rather than numbers, and the numbers it did suppress are applied to
+    `campaign_contacts.status = 'dnc_blocked'` where the campaign already holds them.
+    That also means no retention policy has to reach this table.
+
+    INSERT-only (hard rule 4, `APPEND_ONLY_TABLES`): a scrub is evidence that a list was
+    clean at an instant. An UPDATE that moved `scrubbed_at` forward would launder a
+    stale scrub into a fresh one — the one statement this row must be unable to make —
+    and a DELETE would erase the evidence for calls already placed on it. A correction
+    is a new run with the provider's new reference.
+
+    The CHECK constraints mirror migration `a1c8e40f27b9` and the migration is the
+    source of truth (DATA-MODEL §10).
+    """
+
+    __tablename__ = "preference_scrub_runs"
+    __table_args__ = (
+        # Idempotency, as a constraint rather than a convention: one provider reference
+        # is one scrub, so a retry whose response was lost records nothing new.
+        UniqueConstraint("campaign_id", "provider", "scrub_ref", name="one_run_per_reference"),
+        # A run that cannot name the platform that produced it, or the reference that
+        # platform issued, is not evidence — it is a claim, and the reference is what an
+        # operator re-checks on the portal.
+        CheckConstraint("length(btrim(provider)) >= 2", name="run_names_its_provider"),
+        CheckConstraint("length(btrim(scrub_ref)) >= 3", name="run_names_its_reference"),
+        # Counts are counts, and a scrub cannot suppress more numbers than the list held.
+        CheckConstraint("submitted_count >= 0", name="submitted_count_is_a_count"),
+        CheckConstraint(
+            "suppressed_count >= 0 AND suppressed_count <= submitted_count",
+            name="suppressed_within_submitted",
+        ),
+        # The validity window is a fact about the run, stored so a provider's rule
+        # change cannot retroactively extend a scrub somebody already dialled on.
+        CheckConstraint("expires_at > scrubbed_at", name="run_expires_after_it_ran"),
+        # The gate's read: the newest run for one campaign. `scrubbed_at` is the
+        # provider's clock, which is the one the window belongs to.
+        Index("ix_preference_scrub_runs_campaign", "campaign_id", text("scrubbed_at DESC")),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    # SET NULL, the answer `first_campaign_reviews.reviewed_campaign_id` already gives
+    # for an evidence pointer, and for the same two reasons. CASCADE would let a DELETE
+    # destroy the record of a scrub calls were placed on (and is what
+    # `check_ledger_immutability` refuses on an append-only table); RESTRICT would make
+    # a scrubbed campaign undeletable forever, i.e. it would decide a product question
+    # as a side effect of storing evidence. The pointer is evidence; losing it leaves
+    # the run still naming its tenant, provider, reference, counts and instants.
+    campaign_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("campaigns.id", ondelete="SET NULL")
+    )
+    # WHICH access provider's DLT platform ran it. Free text rather than an enum: the
+    # set is "whoever we hold an RTM relationship with", which is a commercial fact that
+    # changes without a migration, and a CHECK we had to guess at would refuse the first
+    # real answer.
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    # The reference number the platform issued for the run — the handle that makes this
+    # row checkable against something outside our database.
+    scrub_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    # When the PROVIDER ran it, not when we typed it in. `recorded_at` is the second
+    # fact, and they differ by however long an operator took.
+    scrubbed_at: Mapped[datetime] = mapped_column(nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    submitted_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    suppressed_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    # An `admin_users.id`, not a typed name: an auditor asks who, and a string nobody
+    # can resolve to a person is not an answer. Nullable so a future worker that calls a
+    # provider API can record a run no human performed.
+    recorded_by_admin_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="RESTRICT")
+    )
+    recorded_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 

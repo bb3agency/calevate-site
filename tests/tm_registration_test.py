@@ -54,6 +54,7 @@ from apps.api.ops.service import read_tm_registration, set_tm_registration
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.impersonation_grant_test import view_as_headers
+from tests.national_dnd_test import record_test_scrub
 
 pytestmark = [pytest.mark.rls]
 
@@ -167,6 +168,11 @@ async def _perfect_campaign(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> uuid.U
             campaign_id=campaign_id,
             contacts=[{"phone": "9876590001", "name": "Ravi"}],
         )
+        # The national DND scrub SEC-COMP §3 asks for (migration a1c8e40f27b9).
+        # A promotional campaign is launch-ready only once an access provider has
+        # preference-scrubbed its list, so this fixture supplies the fact through the
+        # production writer — `tests/national_dnd_test.py` proves the refusal is real.
+        await record_test_scrub(session, campaign_id)
         await service.record_dlt_registration(
             session,
             tenant_id=tenant_id,

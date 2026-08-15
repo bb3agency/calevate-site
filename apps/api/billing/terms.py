@@ -63,19 +63,37 @@ from apps.api.db.base import uuid7
 
 log = get_logger(__name__)
 
-# The columns an operator agrees, in one place, so the SELECT, the INSERT and the
-# equality test below cannot list different ones. `client_cap_*` is deliberately absent:
+# WHAT AN OPERATOR AGREES, split into the two kinds it has always been two kinds of.
+#
+# `PRICING_COLUMNS` state what the client PAYS; `CEILING_COLUMNS` state what we refuse to
+# exceed. `TERM_COLUMNS` is their concatenation and is what the SELECT, the INSERT and
+# the equality test read, so those three cannot list different ones.
+#
+# THE SPLIT IS NAMED RATHER THAN RETYPED, and that is a fix. `PlanRecord.states_pricing`
+# used to carry its own hand-written list of the price columns; `overage_rate_value` was
+# added to `TERM_COLUMNS` when D-36's second rung landed and never to that list, so a
+# plan quoting ONLY the value-tier rate — the exact row a founder writes the day that
+# price is decided — billed the client and reported to the operator as "No price agreed
+# … they are still invoiced nothing". One list, one classification, and
+# `tests/plan_term_columns_test.py` fails if a column ever belongs to neither.
+#
+# `client_cap_*` is in neither and is deliberately absent from `TERM_COLUMNS` entirely:
 # see the module docstring.
-TERM_COLUMNS: tuple[str, ...] = (
+PRICING_COLUMNS: tuple[str, ...] = (
     "setup_fee",
     "monthly_fee",
     "included_min",
     "overage_rate",
     "overage_rate_value",
+)
+
+CEILING_COLUMNS: tuple[str, ...] = (
     "hard_cap_min",
     "hard_cap_spend",
     "concurrency_ceiling",
 )
+
+TERM_COLUMNS: tuple[str, ...] = PRICING_COLUMNS + CEILING_COLUMNS
 
 _ROW_COLUMNS = (
     "id, "
@@ -156,17 +174,15 @@ class PlanRecord:
         such a row is "in effect" for every reader while agreeing no price at all. An
         operator screen that counted it as commercial terms would report a tenant as
         priced when nobody had priced them.
+
+        DERIVED FROM `PRICING_COLUMNS`, never from a list retyped here. The retyped list
+        is what made this property lie: it predated `overage_rate_value`, so a plan
+        quoting only the value-tier rate answered False while `usage_summary` charged the
+        client at it, and the console said "No price agreed … they are still invoiced
+        nothing" over a real bill. A ceiling is deliberately still not a price — a plan
+        that caps spend and quotes nothing agrees no terms.
         """
-        terms = self.terms
-        return any(
-            value is not None
-            for value in (
-                terms.setup_fee,
-                terms.monthly_fee,
-                terms.included_min,
-                terms.overage_rate,
-            )
-        )
+        return any(getattr(self.terms, column) is not None for column in PRICING_COLUMNS)
 
 
 # What an operator has to resolve, named rather than left to be inferred from a null.
@@ -194,23 +210,33 @@ class TermsView:
 
 
 def _record(values: Row[Any]) -> PlanRecord:
+    """One `plans` row, read BY NAME rather than by position.
+
+    Positional reads (`values[5]`) were the previous shape and they are a trap next to a
+    list that is meant to grow: `_ROW_COLUMNS` interpolates `TERM_COLUMNS`, so inserting
+    a ninth agreed column shifts `client_cap_min` down one and this function silently
+    reads a rupee ceiling into a minute count — no error, no test, a wrong number on a
+    commercials screen. `_mapping` is keyed by the SELECT's own column names, which are
+    exactly the names `_ROW_COLUMNS` was built from, so the two cannot drift apart.
+    """
+    row = values._mapping
     return PlanRecord(
-        id=values[0],
+        id=row["id"],
         terms=CommercialTerms(
-            setup_fee=_money(values[1]),
-            monthly_fee=_money(values[2]),
-            included_min=_count(values[3]),
-            overage_rate=_money(values[4]),
-            overage_rate_value=_money(values[5]),
-            hard_cap_min=_count(values[6]),
-            hard_cap_spend=_money(values[7]),
-            concurrency_ceiling=int(values[8]),
-            effective_from=values[11],
-            effective_to=values[12],
+            setup_fee=_money(row["setup_fee"]),
+            monthly_fee=_money(row["monthly_fee"]),
+            included_min=_count(row["included_min"]),
+            overage_rate=_money(row["overage_rate"]),
+            overage_rate_value=_money(row["overage_rate_value"]),
+            hard_cap_min=_count(row["hard_cap_min"]),
+            hard_cap_spend=_money(row["hard_cap_spend"]),
+            concurrency_ceiling=int(row["concurrency_ceiling"]),
+            effective_from=row["effective_from"],
+            effective_to=row["effective_to"],
         ),
-        client_cap_min=_count(values[9]),
-        client_cap_spend=_money(values[10]),
-        created_at=values[13],
+        client_cap_min=_count(row["client_cap_min"]),
+        client_cap_spend=_money(row["client_cap_spend"]),
+        created_at=row["created_at"],
     )
 
 
@@ -373,6 +399,8 @@ async def record_terms(
 
 
 __all__ = [
+    "CEILING_COLUMNS",
+    "PRICING_COLUMNS",
     "TERM_COLUMNS",
     "CommercialTerms",
     "PlanRecord",
