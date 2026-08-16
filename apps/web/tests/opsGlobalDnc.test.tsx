@@ -7,6 +7,7 @@ import {
   OPS_DNC_GLOBAL_PATH,
   RELEASE_GLOBALLY_CONFIRMATION,
   SUPPRESS_GLOBALLY_CONFIRMATION,
+  releaseGloballyConfirmation,
   type GlobalDncEntry,
 } from "@/lib/api/opsDnc";
 
@@ -24,11 +25,12 @@ import { problem, renderAdminPage, stillLoading, type Routes } from "./harness";
  *    sentence is a compliance claim about every tenant at once, and an operator answering
  *    a regulator is exactly who would act on it. §52's rule, on the payload where being
  *    wrong is a TRAI complaint rather than a wrong number on a dashboard.
- * 2. **Releasing is not one click.** The typed word is collected per ROW and names the
- *    masked number, so a confirmation typed for one suppression cannot lift the one below
- *    it — and the header the API binds to the direction (`release_number_platform_wide`)
- *    is genuinely sent, because a console that collected a word and sent no header would
- *    be theatre.
+ * 2. **Releasing is not one click, and the per-row discipline reaches the wire.** The
+ *    typed word is collected per ROW and names the masked number, so a confirmation typed
+ *    for one suppression cannot lift the one below it — and the header carries that row's
+ *    id (`release_number_platform_wide:<entryId>`), so the API enforces the same binding
+ *    the screen collects. A console that collected a word and sent no header, or sent a
+ *    header that would have released any row, would be theatre.
  * 3. **`removable: false` must not disable the ops control.** It is the CLIENT surface's
  *    verdict (`is_removable()`), false on every row this endpoint returns; reading it as
  *    "nobody may" would leave this screen unable to do the one thing it exists for.
@@ -220,10 +222,13 @@ describe("the platform-wide do-not-call list", () => {
     });
     const sent = calls.find((c) => c.method === "DELETE");
     expect(sent?.path).toBe(`${OPS_DNC_GLOBAL_PATH}/${entry().id}`);
-    // The API binds the two directions to DIFFERENT strings so a header captured for a
-    // suppression cannot release one. A console that sent the wrong one would be refused,
-    // and a console that sent none would make the step-up decorative.
-    expect(sent?.headers["X-Confirm-Action"]).toBe(RELEASE_GLOBALLY_CONFIRMATION);
+    // The API binds the two directions to DIFFERENT strings, and binds the release to the
+    // ROW: a header captured for a suppression cannot release one, and a header captured
+    // for one entry cannot release another. A console that sent the bare stem would be
+    // refused, and one that sent none would make the step-up decorative.
+    expect(sent?.headers["X-Confirm-Action"]).toBe(releaseGloballyConfirmation(entry().id));
+    expect(sent?.headers["X-Confirm-Action"]).not.toBe(RELEASE_GLOBALLY_CONFIRMATION);
+    expect(sent?.headers["X-Confirm-Action"]).toContain(entry().id);
     expect(RELEASE_GLOBALLY_CONFIRMATION).not.toBe(SUPPRESS_GLOBALLY_CONFIRMATION);
   });
 

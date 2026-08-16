@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import UUID
 
 import apps.workers.qa_sampling as qa_worker
 import pytest
@@ -44,8 +46,10 @@ from apps.api.core.rbac import MUTATING_PERMISSIONS, iter_api_routes, route_enfo
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
+from apps.api.quality import sampling
 from apps.api.quality.models import QA_SAMPLE_RATE
 from apps.api.quality.sampling import (
+    QA_VERDICTS,
     draw_week_sample,
     ist_week_start,
     list_samples,
@@ -368,6 +372,50 @@ async def test_an_unknown_verdict_is_refused() -> None:
             await record_review(
                 session, sample_id=sample.id, verdict="looks_fine", admin_id=uuid.uuid4()
             )
+
+
+async def test_a_verdict_survives_the_row_vanishing_under_the_re_read() -> None:
+    """The re-read after a successful CAS answers 404 rather than returning nothing.
+
+    Not reachable through `record_review` itself — the UPDATE matched the row inside this
+    transaction, so the re-read sees it — which is exactly why the branch used to carry a
+    coverage exclusion. An excluded branch is one nobody will ever watch fail, and this
+    one decides whether an admin who just recorded a verdict gets a 404 they can act on or
+    a `None` that becomes a 500 two frames up. So the re-read is driven directly, with
+    `find_sample` made to answer the way only a torn transaction could.
+    """
+    tenant_id = await _tenant()
+    await _drawn(tenant_id, count=20)
+    async with tenant_session(tenant_id) as session:
+        sample = (await list_samples(session))[0]
+    # A REAL reviewer: `reviewed_by_admin_id` is a foreign key, so a random uuid makes the
+    # CAS raise IntegrityError and the test would never reach the branch it is named for.
+    admin_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
+                "VALUES (:id, :cid, 'Ops', 'operator', now(), now())"
+            ),
+            {"id": admin_id, "cid": f"admin_{uuid.uuid4().hex[:12]}"},
+        )
+
+    calls: list[UUID] = []
+
+    async def _vanishes(_session: Any, sample_id: UUID) -> None:
+        # First call is the post-CAS re-read; there is no earlier one on the success path.
+        calls.append(sample_id)
+        return None
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sampling, "find_sample", _vanishes)
+        async with tenant_session(tenant_id) as session:
+            with pytest.raises(ProblemError) as raised:
+                await record_review(
+                    session, sample_id=sample.id, verdict=QA_VERDICTS[0], admin_id=admin_id
+                )
+    assert calls == [sample.id], "the branch under test is the re-read, not the CAS miss"
+    assert raised.value.status == 404
 
 
 async def test_the_queue_row_carries_no_phone_number_or_transcript() -> None:

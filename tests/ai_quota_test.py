@@ -51,6 +51,7 @@ from apps.api.billing.ai_quota import (
     AI_QUOTA_INR,
     PLATFORM_AI_BRAKE_INR,
     AiQuota,
+    new_assist_ref,
     overage_ref,
     purchase_ai_overage,
     read_ai_quota,
@@ -59,7 +60,13 @@ from apps.api.billing.ai_quota import (
     require_ai_assist,
 )
 from apps.api.billing.ai_quota_routes import AiExtraIn, AiQuotaOut, buy_ai_extra, get_ai_quota
-from apps.api.billing.models import AI_ASSIST_UNIT_TYPES, UNIT_TYPES
+from apps.api.billing.models import (
+    AI_ASSIST_UNIT_TYPES,
+    CLIENT_BILLED_UNIT_TYPES,
+    PLATFORM_ABSORBED_UNIT_TYPES,
+    UNIT_TYPES,
+    assert_units_are_disjoint,
+)
 from apps.api.billing.service import current_billing_month, get_balance, record_entry, tier_usage
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
@@ -151,7 +158,7 @@ def _principal(tenant_id: UUID) -> Principal:
 
 async def _assist(
     tenant_id: UUID,
-    ref: str,
+    ref: str | None = None,
     *,
     tokens_in: int = 1000,
     tokens_out: int = 0,
@@ -161,7 +168,7 @@ async def _assist(
         return await record_ai_assist_usage(
             session,
             tenant_id=tenant_id,
-            ref=ref,
+            ref=ref or new_assist_ref(),
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             price_in_inr_per_ktok=price_in,
@@ -338,7 +345,7 @@ async def test_two_tenants_may_hold_the_same_ref_without_colliding() -> None:
     used as an oracle for a row RLS hides.
     """
     first, second = await _tenant(), await _tenant()
-    shared_ref = f"assist-{uuid.uuid4().hex[:10]}"
+    shared_ref = new_assist_ref()
 
     assert (await _assist(first, shared_ref)).recorded is True
     assert (await _assist(second, shared_ref)).recorded is True, (
@@ -372,7 +379,7 @@ async def test_a_second_click_meters_once_and_moves_no_counter() -> None:
     the unique index rather than a reader's `if`. The replay is a no-op, not an error:
     `recorded=False` and zero rupees added on the second call."""
     tenant_id = await _tenant()
-    ref = f"assist-{uuid.uuid4().hex[:10]}"
+    ref = new_assist_ref()
 
     first = await _assist(tenant_id, ref)
     second = await _assist(tenant_id, ref)
@@ -397,7 +404,7 @@ async def test_two_interleaved_clicks_meter_once_and_the_second_really_blocked()
     `gather()` with no yield inside the window proves neither.
     """
     tenant_id = await _tenant()
-    ref = f"assist-{uuid.uuid4().hex[:10]}"
+    ref = new_assist_ref()
     a_inserted = asyncio.Event()
     b_in_transaction = asyncio.Event()
     seen: dict[str, Any] = {}
@@ -462,7 +469,7 @@ async def test_the_platform_counter_moves_once_per_assist_and_never_on_a_replay(
     """The brake counts what was actually written. A replay that bumped it would let a
     double-click spend the platform's headroom twice over."""
     tenant_id = await _tenant()
-    ref = f"assist-{uuid.uuid4().hex[:10]}"
+    ref = new_assist_ref()
     async with untenanted_session() as session:
         before = await read_platform_ai_spend(session)
 
@@ -480,7 +487,7 @@ async def test_the_platform_total_is_readable_without_a_tenant_context() -> None
     `usage_events` is unanswerable under FORCEd RLS, and the answer must not depend on
     which tenant happens to be asking."""
     tenant_id = await _tenant()
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")
+    await _assist(tenant_id)
     async with untenanted_session() as session:
         untenanted = await read_platform_ai_spend(session)
         blind = (await session.execute(text("SELECT count(*) FROM usage_events"))).scalar_one()
@@ -507,7 +514,7 @@ async def test_the_ceiling_is_the_tiers_and_the_counts_are_labelled_estimates() 
 async def test_at_the_ceiling_the_feature_blocks_with_the_code_the_modal_opens_on() -> None:
     """G-5's first half: the feature BLOCKS. It does not degrade and it does not bill."""
     tenant_id = await _tenant("self_serve")
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")  # ₹100 = the whole tier
+    await _assist(tenant_id)  # ₹100 = the whole tier
 
     with pytest.raises(ProblemError) as raised:
         async with tenant_session(tenant_id) as session:
@@ -523,8 +530,8 @@ async def test_a_managed_account_is_refused_rather_than_offered_a_wallet_it_does
     that pays for anything. The refusal names the account manager instead of offering a
     debit that would mean nothing."""
     tenant_id = await _tenant("managed")
-    for index in range(3):  # managed's ceiling is ₹250, so three ₹100 assists clear it
-        await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:8]}-{index}")
+    for _ in range(3):  # managed's ceiling is ₹250, so three ₹100 assists clear it
+        await _assist(tenant_id)
 
     quota = await _quota(tenant_id)
     assert quota.extra_unavailable == "not_prepaid"
@@ -543,7 +550,7 @@ async def test_our_absorbed_ai_cost_never_lands_in_a_clients_spend_or_margin() -
     async with tenant_session(tenant_id) as session:
         before = await tier_usage(session, tenant_id=tenant_id, month=month)
 
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")
+    await _assist(tenant_id)
 
     async with tenant_session(tenant_id) as session:
         after = await tier_usage(session, tenant_id=tenant_id, month=month)
@@ -563,7 +570,7 @@ async def test_the_acceptance_is_the_only_thing_that_debits_and_it_writes_one_ro
     acceptance of the same month cannot mint a second."""
     tenant_id = await _tenant()
     await _topup(tenant_id, "2000.00")
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")
+    await _assist(tenant_id)
 
     before = await get_balance_for(tenant_id)
     result = await _buy(tenant_id)
@@ -583,7 +590,7 @@ async def test_a_second_acceptance_of_the_same_month_charges_nothing() -> None:
     `ux_credit_ledger_tenant_reason_ref` through the shared `find_entry_by_ref`."""
     tenant_id = await _tenant()
     await _topup(tenant_id, "2000.00")
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")
+    await _assist(tenant_id)
 
     first = await _buy(tenant_id)
     second = await _buy(tenant_id)
@@ -605,7 +612,7 @@ async def test_two_interleaved_acceptances_debit_once_and_the_second_really_wait
     """
     tenant_id = await _tenant()
     await _topup(tenant_id, "2000.00")
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")
+    await _assist(tenant_id)
 
     a_locked = asyncio.Event()
     b_past_lock = asyncio.Event()
@@ -668,7 +675,7 @@ async def test_an_amount_the_person_was_not_shown_is_refused_not_clamped() -> No
     open across a price change must not debit a number nobody saw."""
     tenant_id = await _tenant()
     await _topup(tenant_id, "2000.00")
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")
+    await _assist(tenant_id)
     before = await get_balance_for(tenant_id)
 
     with pytest.raises(ProblemError) as raised:
@@ -686,7 +693,7 @@ async def test_an_empty_wallet_refuses_the_purchase_rather_than_overdrawing() ->
     it so, and the message is the shared `insufficient_credits`."""
     tenant_id = await _tenant()
     await _topup(tenant_id, "10.00")
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")
+    await _assist(tenant_id)
 
     with pytest.raises(ProblemError) as raised:
         await _buy(tenant_id)
@@ -699,7 +706,7 @@ async def test_the_bought_block_raises_the_allowance_and_then_the_month_is_finis
     told the month is over rather than asked again."""
     tenant_id = await _tenant()
     await _topup(tenant_id, "2000.00")
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")
+    await _assist(tenant_id)
     await _buy(tenant_id)
 
     quota = await _quota(tenant_id)
@@ -707,8 +714,8 @@ async def test_the_bought_block_raises_the_allowance_and_then_the_month_is_finis
     assert quota.state == "within", "the block did not raise the allowance"
 
     # Spend the block too: six more ₹100 assists take used past ₹600.
-    for index in range(6):
-        await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:8]}-{index}")
+    for _ in range(6):
+        await _assist(tenant_id)
 
     quota = await _quota(tenant_id)
     assert quota.state == "exhausted"
@@ -724,7 +731,7 @@ async def test_the_acceptance_lands_an_audit_row_in_the_same_transaction() -> No
     and it commits with the debit, so a debit with no acceptance record is unreachable."""
     tenant_id = await _tenant()
     await _topup(tenant_id, "2000.00")
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")
+    await _assist(tenant_id)
 
     async with tenant_session(tenant_id) as session:
         await buy_ai_extra(
@@ -758,7 +765,7 @@ async def test_a_replayed_acceptance_writes_no_second_audit_row() -> None:
     `billing/terms.py` and `kb.approve_source` established."""
     tenant_id = await _tenant()
     await _topup(tenant_id, "2000.00")
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")
+    await _assist(tenant_id)
 
     for _ in range(2):
         async with tenant_session(tenant_id) as session:
@@ -848,7 +855,7 @@ async def test_no_money_field_crosses_the_wire_as_a_json_number() -> None:
     """A JSON number with a decimal point parses back as a binary float. Every rupee
     field on this response is an exact digit string, scanned rather than eyeballed."""
     tenant_id = await _tenant()
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")
+    await _assist(tenant_id)
     async with tenant_session(tenant_id) as session:
         response = await get_ai_quota(session, _principal(tenant_id))
 
@@ -874,7 +881,7 @@ async def test_every_rupee_in_the_quota_is_a_decimal() -> None:
     """No float is constructed anywhere on this path — asserted on the TYPE, because a
     float that happens to be exact today is a rounding error tomorrow."""
     tenant_id = await _tenant()
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}", tokens_in=1234)
+    await _assist(tenant_id, tokens_in=1234)
     quota = await _quota(tenant_id)
     for name in ("included_inr", "used_inr", "allowance_inr", "remaining_inr"):
         value = getattr(quota, name)
@@ -932,13 +939,13 @@ async def test_a_month_whose_extra_block_is_already_spent_is_finished_not_re_off
     """
     tenant_id = await _tenant("self_serve")
     await _topup(tenant_id, "5000.00")
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")  # ₹100 = the whole tier
+    await _assist(tenant_id)  # ₹100 = the whole tier
     bought = await _buy(tenant_id)
     assert bought.charged is True
 
     # Spend the bought block too.
     while not (await _quota(tenant_id)).at_ceiling:
-        await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")
+        await _assist(tenant_id)
 
     with pytest.raises(ProblemError) as raised:
         async with tenant_session(tenant_id) as session:
@@ -954,7 +961,7 @@ async def test_buying_a_block_while_the_platform_is_paused_charges_nothing() -> 
     """
     tenant_id = await _tenant("self_serve")
     await _topup(tenant_id, "5000.00")
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}")
+    await _assist(tenant_id)
     before = await get_balance_for(tenant_id)
 
     async def tripped(*args: Any, **kwargs: Any) -> bool:
@@ -979,8 +986,8 @@ async def test_a_managed_account_cannot_buy_a_block_and_its_wallet_is_untouched(
     """
     tenant_id = await _tenant("managed")
     await _topup(tenant_id, "5000.00")
-    for index in range(3):  # managed's ceiling is ₹250
-        await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:8]}-{index}")
+    for _ in range(3):  # managed's ceiling is ₹250
+        await _assist(tenant_id)
     before = await get_balance_for(tenant_id)
 
     with pytest.raises(ProblemError) as raised:
@@ -1011,7 +1018,601 @@ async def test_a_tenant_under_its_ceiling_is_let_through_with_its_quota() -> Non
     assert await _ledger(tenant_id) == [], "being allowed through is not a chargeable event"
 
     # And still allowed with the month part-spent — the boundary is the ceiling, not zero.
-    await _assist(tenant_id, f"assist-{uuid.uuid4().hex[:10]}", tokens_in=100)
+    await _assist(tenant_id, tokens_in=100)
     async with tenant_session(tenant_id) as session:
         still = await require_ai_assist(session, tenant_id=tenant_id)
     assert still.used_inr > Decimal("0") and still.at_ceiling is False
+
+
+# ============================================================================
+# 9. The product terms are ARITHMETIC, not opinions (D-140)
+# ============================================================================
+#
+# `AI_QUOTA_INR`, `AI_ASSIST_NOMINAL_INR`, `AI_OVERAGE_BLOCK_INR` and
+# `PLATFORM_AI_BRAKE_INR` shipped as four typed rupee figures whose only justification
+# was a sentence beside each. A sentence cannot be wrong by 100x and a number can, and a
+# ceiling wrong by 100x is a product defect that reads exactly like a correct one — it
+# is either a feature nobody can use or a blank cheque. These tests are the band each
+# number has to stay inside of, derived from the PUBLISHED price rather than restated,
+# so a bad edit is a red build and a price change is a visible, deliberate one.
+
+
+def test_the_reference_assist_costs_what_the_published_price_says_it_does() -> None:
+    """The arithmetic under `AI_ASSIST_NOMINAL_INR`, spelled out once.
+
+    `gemini-2.5-flash` at $0.30/$2.50 per 1M tokens and ₹95.66/USD is ₹0.0287 and ₹0.2392
+    per 1,000 tokens; 5,000 in and 1,500 out is ₹0.50230. If the price table moves and
+    this does not, one of the two is a typo.
+
+    It has moved once: ₹0.33475 on `gemini-3.1-flash-lite`, which no source places in
+    `asia-south1`. The 50% jump is why this assertion is an EQUALITY on the exact paise
+    rather than a band — a band wide enough to have absorbed that change silently would
+    have carried the stale `AI_ASSIST_NOMINAL_INR` and every screen figure with it.
+    """
+    assert ai_quota.reference_assist_cost_inr() == Decimal("0.50230")
+    # Derived, never typed: the constant IS the arithmetic, so a price change carries the
+    # published "about N assists" with it instead of leaving it a month behind.
+    assert (ai_quota.reference_assist_cost_inr() * ai_quota.NOMINAL_ASSIST_MARGIN).quantize(
+        Decimal("0.01")
+    ) == AI_ASSIST_NOMINAL_INR
+    assert isinstance(AI_ASSIST_NOMINAL_INR, Decimal), "a reference price that is a float"
+
+
+def test_every_price_in_the_table_is_expressible_in_the_column_that_stores_it() -> None:
+    """`unit_cost_paid` is NUMERIC(12,4). A price with a fifth decimal place is a price
+    this ledger silently rounds, which is the exact failure per-KTOK metering exists to
+    avoid — a per-TOKEN price would store as 0.0000 and meter every assist as free."""
+    for leg, price in ai_quota.ASSIST_LIST_PRICE_INR_PER_KTOK.items():
+        assert price == price.quantize(Decimal("0.0001")), f"{leg} price loses digits at 4dp"
+        assert price > 0, leg
+        # And the per-TOKEN price genuinely does NOT survive, which is the claim
+        # `billing/models.py` makes to justify counting in thousands. At `gemini-2.5-flash`
+        # prices the input leg rounds to 0.0000 outright (100% lost) and the output leg
+        # rounds from ₹0.0002392 to ₹0.0002 (16.4% lost) — not zero, and still a sixth of
+        # the price thrown away. Asserted as relative error rather than as "== 0" because
+        # the output case is the one a reader would assume was fine.
+        #
+        # THE THRESHOLD MOVED FROM 0.25 TO 0.15 AND THAT IS A REAL WEAKENING, recorded
+        # rather than smoothed over: 3.1 Flash-Lite's output leg lost 30%, 2.5 Flash's
+        # loses 16.4%, and the loss shrinks as the output price rises. The claim survives
+        # — the INPUT leg still loses everything, which alone makes per-token metering
+        # meter half of every assist at zero — but the output half of the argument is
+        # getting thinner with each price rise, and the day it drops under this floor the
+        # right move is to re-argue `billing/models.py`'s paragraph, not to lower the
+        # number again.
+        per_token = price / Decimal("1000")
+        lost = (per_token - per_token.quantize(Decimal("0.0001"))).copy_abs() / per_token
+        assert lost >= Decimal("0.15"), (
+            f"{leg} survives per-token storage with only {lost:.1%} lost — the reason "
+            "this ledger counts in thousands has changed"
+        )
+    # The input leg is the load-bearing half of that claim, so it is pinned separately:
+    # a threshold satisfied only by the output leg would let the input price rise into
+    # survivability with this test still green.
+    input_per_token = ai_quota.ASSIST_LIST_PRICE_INR_PER_KTOK["in"] / Decimal("1000")
+    assert input_per_token.quantize(Decimal("0.0001")) == Decimal("0.0000"), (
+        "the input leg now survives per-token storage — `billing/models.py`'s ktok "
+        "argument rests on it storing as exactly zero"
+    )
+
+
+def test_no_product_constant_is_out_by_an_order_of_magnitude() -> None:
+    """Each of the four numbers, against what an assist actually costs.
+
+    The bands are wide on purpose — these are commercial terms and the founder may move
+    them — but they are bands: every one of them fails on a misplaced decimal point,
+    which is the error class that has no other detector.
+    """
+    one_assist = ai_quota.reference_assist_cost_inr()
+
+    # The reference PRICE must be in the same world as the reference COST. Below 1x it
+    # over-promises the assist count on a screen; above 4x it makes the feature look
+    # meaner than it is.
+    ratio = AI_ASSIST_NOMINAL_INR / one_assist
+    assert Decimal("1") <= ratio <= Decimal("4"), f"the nominal is {ratio}x a real assist"
+
+    # A tier's included allowance has to buy enough assists to form an opinion of the
+    # feature (>= 50) and not so many that "absorbed" stops meaning anything (<= 20,000).
+    for tier, allowance in AI_QUOTA_INR.items():
+        assists = allowance / one_assist
+        assert Decimal("50") <= assists <= Decimal("20000"), f"{tier} buys {assists} assists"
+    # And the tiers are ordered the way the plan prices are: paying more never buys less.
+    assert AI_QUOTA_INR["managed"] > AI_QUOTA_INR["self_serve"] > AI_QUOTA_INR["trial"]
+
+    # The block has to be worth buying (at least a self_serve month over again) and must
+    # not exceed one month's brake — a single tenant able to buy past the platform's own
+    # ceiling would make the brake unreachable by purchase.
+    assert AI_QUOTA_INR["self_serve"] <= AI_OVERAGE_BLOCK_INR
+    assert AI_OVERAGE_BLOCK_INR < PLATFORM_AI_BRAKE_INR
+
+    # The brake must clear the largest single tenant's worst case (their whole allowance
+    # plus a block) several times over, or one client trips it alone and the per-tenant
+    # ceiling is doing no work.
+    worst_tenant = AI_QUOTA_INR["managed"] + AI_OVERAGE_BLOCK_INR
+    assert worst_tenant * 10 <= PLATFORM_AI_BRAKE_INR, "one tenant can trip the platform brake"
+
+
+# ============================================================================
+# 10. The metering key is the SERVER's (D-140)
+# ============================================================================
+
+
+def test_a_metering_key_the_server_did_not_mint_is_refused() -> None:
+    """The ref decides whether an assist is metered AT ALL, so it cannot be a value a
+    request carried in.
+
+    `ON CONFLICT ... DO NOTHING` means a ref seen before meters nothing, moves no quota
+    and moves no platform counter. A browser allowed to choose it sends the same string
+    forever and every assist after the first runs on Calevate's credential, past a
+    ceiling that can no longer move, invisible to the brake.
+    """
+    minted = new_assist_ref()
+    assert ai_quota._ASSIST_REF_RE.match(minted), minted
+    assert minted.startswith(f"{ai_quota.ASSIST_REF_PREFIX}:")
+
+    for forged in ("1", "", "assist:", "assist:not-a-uuid", str(uuid.uuid4()), "ai_assist:2026-08"):
+        with pytest.raises(ValueError, match="new_assist_ref"):
+            asyncio.get_event_loop()  # no I/O below; the guard runs before any statement
+            _reject(forged)
+
+
+def _reject(ref: str) -> None:
+    """Drive the writer's guard with no session at all — it must refuse BEFORE it would
+    have touched the database, which is the property that makes it a guard and not a
+    constraint violation dressed up as one."""
+    coro = record_ai_assist_usage(
+        None,  # type: ignore[arg-type]
+        tenant_id=uuid.uuid4(),
+        ref=ref,
+        tokens_in=1,
+        tokens_out=1,
+        price_in_inr_per_ktok=PRICE_IN,
+        price_out_inr_per_ktok=PRICE_OUT,
+        model="m",
+        feature="f",
+    )
+    try:
+        coro.send(None)
+    except StopIteration:  # pragma: no cover - the guard always raises first
+        raise AssertionError(f"{ref!r} was accepted as a metering key") from None
+    finally:
+        coro.close()
+
+
+async def test_a_replayed_key_is_logged_rather_than_swallowed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A replay writes nothing, and that is right — but it is also indistinguishable,
+    from inside this function, from having paid a provider and recorded nothing. It says
+    so in the log instead of returning quietly."""
+    tenant_id = await _tenant()
+    ref = new_assist_ref()
+    await _assist(tenant_id, ref)
+
+    with caplog.at_level("WARNING"):
+        again = await _assist(tenant_id, ref)
+
+    assert again.recorded is False and again.cost_inr == Decimal("0")
+    assert any(record.message == "ai_assist_replayed" for record in caplog.records), (
+        "a replay was silent — an operator cannot tell it from a paid-for-nothing assist"
+    )
+
+
+async def test_the_platform_counter_follows_the_row_and_not_the_api_processs_clock() -> None:
+    """ONE clock. `usage_events.occurred_at` is the DATABASE's `now()`; the counter used
+    to be keyed by the API process's own `datetime.now(UTC)`.
+
+    Those are two clocks and near an IST month boundary they disagree by whatever skew
+    exists between an app container and its database. The brake would then guard a month
+    that had spent nothing while the month that spent it went unguarded, and the two
+    would never reconcile. Driven here by making the process clock WRONG — which must
+    change nothing at all.
+    """
+    tenant_id = await _tenant()
+    real_month = current_billing_month()
+    wrong_month = "2099-01"
+
+    async with untenanted_session() as session:
+        before = await read_platform_ai_spend(session, month=real_month)
+        stray_before = await read_platform_ai_spend(session, month=wrong_month)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(ai_quota, "current_billing_month", lambda: wrong_month)
+        await _assist(tenant_id)
+
+    async with untenanted_session() as session:
+        after = await read_platform_ai_spend(session, month=real_month)
+        stray_after = await read_platform_ai_spend(session, month=wrong_month)
+
+    assert after.spend_inr - before.spend_inr == Decimal("100.0000"), (
+        "the platform counter followed the API process's clock, not the row's month"
+    )
+    assert stray_after.spend_inr == stray_before.spend_inr, "a row was counted into 2099-01"
+
+
+# ============================================================================
+# 11. The month boundary (D-140)
+# ============================================================================
+
+
+def test_the_last_hour_of_a_month_is_not_saleable_and_the_hour_before_it_is() -> None:
+    """`LAST_SALEABLE_MINUTES` in IST, at the instants either side of it.
+
+    Both halves matter: refusing too early would withdraw a real purchase from a client
+    who has most of a day left, and refusing too late is the ₹500-for-ten-seconds sale
+    the constant exists to prevent.
+    """
+    from datetime import datetime as dt
+
+    from apps.api.billing.plans import IST
+
+    last_day = dt(2026, 8, 31, tzinfo=IST)
+    assert ai_quota.month_is_ending("2026-08", now=last_day.replace(hour=22, minute=59)) is False
+    assert ai_quota.month_is_ending("2026-08", now=last_day.replace(hour=23, minute=1)) is True
+    assert ai_quota.month_is_ending("2026-08", now=last_day.replace(hour=23, minute=59, second=59))
+    # December, because "add one month" is where a hand-rolled month-end becomes month 13.
+    december = dt(2026, 12, 31, 23, 30, tzinfo=IST)
+    assert ai_quota.month_is_ending("2026-12", now=december) is True
+    assert ai_quota.month_is_ending("2026-12", now=december.replace(hour=12)) is False
+    # A month already over can never be sold an allowance.
+    assert ai_quota.month_is_ending("2026-01", now=last_day) is True
+
+
+async def test_a_block_is_not_sold_in_the_last_hour_of_the_month() -> None:
+    """The block expires WITH the month, so within the last hour there is nothing left to
+    sell — and the same guard closes a race that is a correctness bug rather than a
+    product one: `read_ai_quota` resolves the month and `record_entry` writes
+    `ai_assist:<that month>` milliseconds later, so a roll in between debits ₹500 under a
+    key next month's read does not look for. The client is down ₹500, holds no allowance,
+    and is immediately offered the block again.
+    """
+    tenant_id = await _tenant("self_serve")
+    await _topup(tenant_id, "5000.00")
+    await _assist(tenant_id)  # ₹100 = the whole tier
+    before = await get_balance_for(tenant_id)
+    assert (await _quota(tenant_id)).at_ceiling, "the fixture must be AT the ceiling"
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(ai_quota, "month_is_ending", lambda month, **kw: True)
+        quota = await _quota(tenant_id)
+        assert quota.extra_available is False if hasattr(quota, "extra_available") else True
+        assert quota.extra_unavailable == "month_ending"
+        with pytest.raises(ProblemError) as raised:
+            await _buy(tenant_id)
+
+    assert raised.value.code == "ai_extra_month_ending"
+    assert "Nothing has been charged" in (raised.value.detail or "")
+    assert await get_balance_for(tenant_id) == before, "the last hour of a month took ₹500"
+    assert [row for row in await _ledger(tenant_id) if row[0] == "usage"] == []
+
+
+async def test_the_gate_stops_promising_a_modal_the_purchase_route_would_refuse() -> None:
+    """At the ceiling in the last hour, `require_ai_assist` must not say "you can add more
+    from the AI assistance screen" — the screen would open a dialog the POST refuses."""
+    tenant_id = await _tenant("self_serve")
+    await _assist(tenant_id)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(ai_quota, "month_is_ending", lambda month, **kw: True)
+        with pytest.raises(ProblemError) as raised:
+            async with tenant_session(tenant_id) as session:
+                await require_ai_assist(session, tenant_id=tenant_id)
+
+    assert raised.value.code == "ai_extra_month_ending"
+    assert "AI assistance screen" not in (raised.value.detail or "")
+
+
+# ============================================================================
+# 12. The screen is never offered a purchase the route refuses (D-140)
+# ============================================================================
+
+
+def _quota_object(**overrides: Any) -> AiQuota:
+    """A quota at its ceiling, prepaid, nothing bought, platform running — the state in
+    which the block IS on offer. Each test below moves exactly one fact."""
+    fields: dict[str, Any] = {
+        "month": "2026-08",
+        "plan_tier": "self_serve",
+        "included_inr": Decimal("100.00"),
+        "used_inr": Decimal("100.00"),
+        "requests_used": 200,
+        "extra_purchased_inr": Decimal("0"),
+        "platform_paused": False,
+        "month_ending": False,
+    }
+    fields.update(overrides)
+    return AiQuota(**fields)
+
+
+def test_every_reason_the_block_is_withheld_has_a_refusal_behind_it() -> None:
+    """`extra_unavailable` is what the SCREEN reads and `EXTRA_REFUSAL` is what the ROUTE
+    raises. The docstring used to claim they were checked "in the order the SERVER
+    refuses in" while ordering `not_prepaid` ahead of `already_purchased` and
+    `purchase_ai_overage` doing the opposite — a claim, not a guarantee.
+
+    Every member of the published enum is covered here, so a new reason cannot be added
+    to the screen's vocabulary without a refusal to go with it.
+    """
+    from typing import get_args
+
+    reasons = set(get_args(ai_quota.ExtraUnavailable))
+    assert reasons == set(ai_quota.EXTRA_REFUSAL) | {"already_purchased"}, (
+        "a reason the screen can render has no refusal behind it, or vice versa"
+    )
+    # `already_purchased` is the deliberate exception: it is a REPLAY, returned rather
+    # than raised, so that a retry of a request that succeeded answers the same way twice.
+    assert "already_purchased" not in ai_quota.EXTRA_REFUSAL
+
+    assert _quota_object().extra_unavailable is None, "the on-offer state must be reachable"
+    for reason, expected in (
+        ("platform_paused", {"platform_paused": True}),
+        ("month_ending", {"month_ending": True}),
+        ("already_purchased", {"extra_purchased_inr": Decimal("500.00")}),
+        ("not_prepaid", {"plan_tier": "managed"}),
+        ("not_at_ceiling", {"used_inr": Decimal("1.00")}),
+    ):
+        assert _quota_object(**expected).extra_unavailable == reason, reason
+
+    # THE ORDER, on the one state where two reasons are true at once: a tenant who bought
+    # a block on `self_serve` and was moved to `managed` afterwards. `purchase_ai_overage`
+    # returns their existing block (a replay, charged=False) — so the screen must say
+    # "you already added extra this month", not "your plan cannot buy this", which is a
+    # refusal of something that already happened. The shipped order said `not_prepaid`.
+    both = _quota_object(plan_tier="managed", extra_purchased_inr=Decimal("500.00"))
+    assert both.extra_unavailable == "already_purchased", (
+        "a tenant who already bought is told their plan cannot buy — the screen and the "
+        "route disagree about an event that has already occurred"
+    )
+
+
+async def test_the_route_refuses_with_the_code_the_screen_named() -> None:
+    """The mapping, driven through the real purchase path rather than asserted on a
+    table. A screen that names one reason while the POST answers with another is how a
+    client is told "you already bought this" and charged again."""
+    for reason, code in ai_quota.EXTRA_REFUSAL.items():
+        tenant_id = await _tenant("managed" if reason == "not_prepaid" else "self_serve")
+        await _topup(tenant_id, "5000.00")
+        if reason != "not_at_ceiling":
+            for _ in range(3):  # past every tier's ceiling
+                await _assist(tenant_id)
+
+        with pytest.MonkeyPatch.context() as patch:
+            if reason == "platform_paused":
+
+                async def tripped(*args: Any, **kwargs: Any) -> bool:
+                    return True
+
+                patch.setattr(ai_quota, "platform_brake_tripped", tripped)
+            if reason == "month_ending":
+                patch.setattr(ai_quota, "month_is_ending", lambda month, **kw: True)
+
+            named = (await _quota(tenant_id)).extra_unavailable
+            with pytest.raises(ProblemError) as raised:
+                await _buy(tenant_id)
+
+        assert named == reason, f"the screen would have said {named}, not {reason}"
+        assert raised.value.code == code[0], f"{reason} refused as {raised.value.code}"
+        assert [row for row in await _ledger(tenant_id) if row[0] == "usage"] == [], reason
+
+
+async def test_a_managed_account_is_not_promised_a_purchase_nobody_can_make() -> None:
+    """The invoiced refusal names the WAIT and a conversation, never an add-on.
+
+    It used to say "talk to your account manager to add more AI help to this month's
+    plan" — an action nobody at Calevate can perform, because there is no priced AI
+    overage line on a derived invoice to add. A remediation that names an impossible act
+    is worse than one that names the reset, because the client spends a phone call
+    finding out.
+    """
+    tenant_id = await _tenant("managed")
+    for _ in range(3):
+        await _assist(tenant_id)
+
+    with pytest.raises(ProblemError) as raised:
+        async with tenant_session(tenant_id) as session:
+            await require_ai_assist(session, tenant_id=tenant_id)
+
+    assert raised.value.code == "ai_quota_exceeded_invoiced"
+    remediation = raised.value.remediation or ""
+    assert "account manager" in remediation, "the one contact this console names"
+    assert "add more AI help to this month's plan" not in remediation, (
+        "the remediation promises an invoice line that does not exist"
+    )
+    assert "not something we can add to an invoiced plan" in remediation, (
+        "the refusal no longer says WHY the conversation is not a purchase"
+    )
+
+
+# ============================================================================
+# 13. A new unit type cannot arrive unclassified (D-140)
+# ============================================================================
+
+
+def test_the_enum_is_derived_from_the_classification_and_not_the_other_way_round() -> None:
+    """`_NOT_AI_UNITS` is a NEGATIVE predicate, which is the safe direction — a unit
+    added tomorrow lands in the client's own cost rather than vanishing out of it — and
+    also a silent one: the author of the eleventh unit type never has to decide.
+
+    So `UNIT_TYPES` is now the concatenation of the two classifications rather than a
+    list beside them. There is nowhere left to add a unit type without saying who pays
+    for it, and this test is what fails if someone puts the flat list back.
+    """
+    from apps.api.billing.models import CLIENT_BILLED_UNIT_TYPES, PLATFORM_ABSORBED_UNIT_TYPES
+
+    assert (*CLIENT_BILLED_UNIT_TYPES, *PLATFORM_ABSORBED_UNIT_TYPES) == UNIT_TYPES
+    assert not set(CLIENT_BILLED_UNIT_TYPES) & set(PLATFORM_ABSORBED_UNIT_TYPES)
+    assert set(PLATFORM_ABSORBED_UNIT_TYPES) == set(AI_ASSIST_UNIT_TYPES)
+    assert len(set(UNIT_TYPES)) == len(UNIT_TYPES), "a unit type is listed twice"
+
+
+async def test_the_database_enum_holds_exactly_the_classified_units() -> None:
+    """And the classification is checked against what the DATABASE will actually accept.
+
+    A unit type added to the CHECK constraint by a migration and to neither list would be
+    insertable and unclassified — billed to a client or absorbed by us depending on which
+    predicate happened to catch it, which is precisely the accident the negative list
+    makes silent.
+    """
+    async with untenanted_session() as session:
+        body = (
+            await session.execute(
+                text(
+                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                    "WHERE conname = 'ck_usage_events_unit_type_enum'"
+                )
+            )
+        ).scalar_one()
+
+    in_database = set(re.findall(r"'([a-z_]+)'::", str(body))) or set(
+        re.findall(r"'([a-z_]+)'", str(body))
+    )
+    assert in_database == set(UNIT_TYPES), (
+        f"the database accepts {sorted(in_database ^ set(UNIT_TYPES))} that nobody classified"
+    )
+
+
+# ============================================================================
+# 14. The brake tells an operator BEFORE it bites (D-140)
+# ============================================================================
+#
+# GLOBAL STATE IS SEVERED HERE THE SAME WAY THE AUTOUSE FIXTURE SEVERS IT: every test
+# below writes its own far-future month, so the counter it asserts about has no history
+# and no concurrent suite can push it over a line. A test whose result depends on how
+# many times the file has been run measures nothing — this file learned that once
+# already and it is not going to learn it twice.
+
+
+def _alerts(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The alert path writes ONE `log.error("alert", ...)` per firing with the code in
+    `extra`. Read the codes rather than the messages: the message is prose an operator
+    edits and the code is the contract."""
+    return [
+        str(record.__dict__.get("code"))
+        for record in caplog.records
+        if record.message == "alert" and record.__dict__.get("failure_stage") == "CORE_LOGIC"
+    ]
+
+
+async def _seed_month(month: str, spend: Decimal) -> None:
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO platform_ai_spend (month, spend_inr, requests, updated_at) "
+                "VALUES (:m, :s, 1, now()) ON CONFLICT (month) DO UPDATE "
+                "SET spend_inr = EXCLUDED.spend_inr"
+            ),
+            {"m": month, "s": spend},
+        )
+
+
+async def test_the_operator_is_told_at_80_percent_while_there_is_still_headroom(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The signal that did not exist: the brake used to announce itself only by refusing
+    a client, so the first an operator knew was a 503 someone else had already met.
+
+    Driven at the crossing itself. The month is a far-future one of this test's own so
+    that no concurrent suite's spend can move the line under it.
+    """
+    month = "2098-03"
+    warn_at = PLATFORM_AI_BRAKE_INR * ai_quota.PLATFORM_BRAKE_WARN_AT
+
+    # Under the line: nothing said.
+    with caplog.at_level("ERROR"):
+        ai_quota._announce_platform_headroom(
+            month=month, spend_after=warn_at - Decimal("1"), added=Decimal("100")
+        )
+    assert _alerts(caplog) == [], "an alert fired with headroom to spare"
+
+    # Crossing it: said once.
+    caplog.clear()
+    with caplog.at_level("ERROR"):
+        ai_quota._announce_platform_headroom(
+            month=month, spend_after=warn_at + Decimal("1"), added=Decimal("100")
+        )
+    assert _alerts(caplog) == ["ai_platform_brake_near"]
+
+    # Already past it: NOT said again. Every subsequent assist in the month would
+    # otherwise re-fire, which is how an alert channel gets muted by the people it is for.
+    caplog.clear()
+    with caplog.at_level("ERROR"):
+        ai_quota._announce_platform_headroom(
+            month=month, spend_after=warn_at + Decimal("500"), added=Decimal("100")
+        )
+    assert _alerts(caplog) == [], "the warning repeated on every assist past the line"
+
+
+def test_crossing_the_brake_itself_says_so_and_says_it_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """And a single assist large enough to cross BOTH lines says the severe thing only.
+
+    Two alerts about one event is noise at the moment it most needs to be legible, and
+    the 80% warning is strictly less useful than "AI help has stopped for everyone".
+    """
+    with caplog.at_level("ERROR"):
+        ai_quota._announce_platform_headroom(
+            month="2098-04",
+            spend_after=PLATFORM_AI_BRAKE_INR + Decimal("1"),
+            added=PLATFORM_AI_BRAKE_INR,  # from zero, straight through both lines
+        )
+    assert _alerts(caplog) == ["ai_platform_brake_tripped"]
+
+    caplog.clear()
+    with caplog.at_level("ERROR"):
+        ai_quota._announce_platform_headroom(
+            month="2098-04",
+            spend_after=PLATFORM_AI_BRAKE_INR + Decimal("2"),
+            added=Decimal("1"),
+        )
+    assert _alerts(caplog) == [], "the trip alert repeated after the brake was already on"
+
+
+async def test_a_metered_assist_drives_the_announcement_from_the_counters_own_total(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The wiring, not the arithmetic: the writer must feed the UPDATE's RETURNING value
+    in, or the crossing test is computed from a number nobody incremented.
+
+    Seeded one rupee under the warning line in the REAL current month, so the very next
+    ₹100 assist crosses it. The seed is absolute (`SET spend_inr = EXCLUDED`), which is
+    what severs this from whatever the rest of the suite has already spent.
+    """
+    monkeypatch.setattr(ai_quota, "platform_brake_tripped", REAL_BRAKE)
+    tenant_id = await _tenant()
+    month = current_billing_month()
+    warn_at = PLATFORM_AI_BRAKE_INR * ai_quota.PLATFORM_BRAKE_WARN_AT
+    await _seed_month(month, warn_at - Decimal("1"))
+    try:
+        with caplog.at_level("ERROR"):
+            await _assist(tenant_id)  # ₹100
+        assert _alerts(caplog) == ["ai_platform_brake_near"], (
+            "the writer did not announce off the counter's own returned total"
+        )
+    finally:
+        # Put the month back to zero: this is the ONE row in this file that is shared
+        # with every other test on this database, and leaving it near the brake would
+        # pause dashboard AI for every suite that runs after this one.
+        await _seed_month(month, Decimal("0"))
+
+
+async def test_a_unit_type_cannot_be_both_client_billed_and_platform_absorbed() -> None:
+    """The money boundary the two lists draw, proved rather than asserted.
+
+    `UNIT_TYPES` is derived from the two halves so there is nowhere to add a unit without
+    classifying it — but "classified twice" is the failure that derivation does NOT
+    prevent, and it is the expensive one: the CHECK constraint would carry the name twice,
+    and `_tier_totals`' split would count the same rupees on both sides of the margin, so
+    a client would be billed for what Calevate absorbs.
+
+    Driven with a colliding pair rather than by reading the real tuples, because the real
+    ones are disjoint and a test that only asserts THAT is a test of today's data, not of
+    the guard.
+    """
+    with pytest.raises(RuntimeError) as raised:
+        assert_units_are_disjoint(("telephony_s", "ai_assist_ktok_in"), ("ai_assist_ktok_in",))
+    assert "ai_assist_ktok_in" in str(raised.value)
+    assert "both client-billed and platform-absorbed" in str(raised.value)
+
+    # And the real pair is clean — the invariant that runs at import.
+    assert_units_are_disjoint(CLIENT_BILLED_UNIT_TYPES, PLATFORM_ABSORBED_UNIT_TYPES)

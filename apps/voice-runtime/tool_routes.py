@@ -11,7 +11,11 @@ body-bounding, source-verifying implementation in the same tiny service is the "
 of doing one thing" CLAUDE.md calls a defect even when both work:
 
 1. verify the source before reading a byte of body;
-2. ack under 500ms, measured and reported on every path including the refusals;
+2. ack under 500ms, measured and reported on every path including the refusals — into
+   `tool_ack_ms`, this endpoint's OWN series, because the budget that actually governs it
+   is TRD §6.2's 100ms and a percentile pooled with the post-call receiver's could never
+   show it (D-109 measured the server half at p95 1.4ms single-flight and ~143ms at 250
+   concurrent, so the number this series carries is one somebody has to be able to read);
 3. defer the real work to ARQ — the tenant, the number and the call are resolved in
    `apps/workers/optout.py` from an authenticated Get Execution (D-31: the payload is a
    hint, the fetch is the truth);
@@ -61,9 +65,13 @@ from calevate_shared.client_address import client_ip
 from engine_intake import execution_key, verify_source
 from fastapi import APIRouter, Request, Response
 
-# The ack accounting, the bounded read and the deadline, from the receiver that already
-# owns them. Private by convention, not by intent — see the module docstring.
-from webhook_routes import _DURABLE_DEADLINE_S, _ack, _read_bounded, _refuse
+# The ack accounting, the bounded read and the deadlines, from the receiver that already
+# owns them. Private by convention, not by intent — see the module docstring. `TOOL_ACK`
+# is what tells the two endpoints apart inside those shared helpers: this one's acks land
+# in `tool_ack_ms` and its breaches are named `tool_*`, so the in-call budget (TRD §6.2,
+# 100ms) can be read off a series of its own instead of being averaged into the post-call
+# receiver's `webhook_ack_ms`.
+from webhook_routes import _DURABLE_DEADLINE_S, TOOL_ACK, _ack, _read_bounded, measured
 
 log = get_logger(__name__)
 
@@ -89,7 +97,15 @@ _MAX_TOOL_BODY = 4096
 )
 async def in_call_opt_out(engine: str, request: Request, response: Response) -> dict[str, str]:
     started = time.perf_counter()
+    return await measured(
+        started, engine, _opt_out(engine, request, response, started), meter=TOOL_ACK
+    )
 
+
+async def _opt_out(
+    engine: str, request: Request, response: Response, started: float
+) -> dict[str, str]:
+    """The tool call proper. Split from the route only so `measured` can wrap every exit."""
     source_ip = client_ip(
         request.client.host if request.client else None,
         request.headers,
@@ -104,11 +120,9 @@ async def in_call_opt_out(engine: str, request: Request, response: Response) -> 
             engine=engine,
             source_ip=source_ip or "unknown",
         )
-        refused = ProblemError.unauthorized("This caller is not permitted to call this tool.")
-        refused.headers["X-Ack-Ms"] = _refuse(started, engine)
-        raise refused
+        raise ProblemError.unauthorized("This caller is not permitted to call this tool.")
 
-    raw = await _read_bounded(request, limit=_MAX_TOOL_BODY)
+    raw = await _read_bounded(request, engine=engine, limit=_MAX_TOOL_BODY, meter=TOOL_ACK)
     if raw is None:
         alert("ROUTE_HANDLER", "tool_payload_too_large", engine=engine)
         raise ProblemError(
@@ -117,7 +131,6 @@ async def in_call_opt_out(engine: str, request: Request, response: Response) -> 
             title="Payload too large",
             detail="The tool call body exceeds the accepted size.",
             status=413,
-            headers={"X-Ack-Ms": _refuse(started, engine)},
         )
 
     payload: dict[str, Any] = {}
@@ -144,7 +157,6 @@ async def in_call_opt_out(engine: str, request: Request, response: Response) -> 
             title="Missing execution id",
             detail="The tool call did not name the execution it belongs to.",
             status=422,
-            headers={"X-Ack-Ms": _refuse(started, engine)},
         )
 
     try:
@@ -174,7 +186,6 @@ async def in_call_opt_out(engine: str, request: Request, response: Response) -> 
             code="tool_queue_unavailable",
             title="Opt-out could not be queued",
             detail="The request was not registered; please tell the caller it will be handled.",
-            headers={"X-Ack-Ms": f"{elapsed:.1f}"},
         ) from None
 
     # Ids only (hard rule 6): no number is in this payload and none is in this line.
@@ -184,6 +195,7 @@ async def in_call_opt_out(engine: str, request: Request, response: Response) -> 
         started,
         engine,
         {"status": "accepted", "execution_id": execution_id, "job_id": job_id or "deduped"},
+        meter=TOOL_ACK,
     )
 
 

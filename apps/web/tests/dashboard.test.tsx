@@ -36,8 +36,8 @@ const ME: Me = {
   role: "owner",
   permissions: ["calls:read", "leads:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
-} as unknown as Me;
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+};
 
 /** A dashboard where nothing has happened yet — the state most likely to be faked. */
 const EMPTY_DASHBOARD: Dashboard = {
@@ -50,9 +50,11 @@ const EMPTY_DASHBOARD: Dashboard = {
   outcome_split: {},
   after_hours_captured_7d: 0,
   after_hours_basis: "default_window",
-  minutes_used_month: null,
+  // A decimal AS A STRING (hard rule 7) and required — never null. This fixture said
+  // `null`, so the "minutes used" tile was only ever rendered in its absent state.
+  minutes_used_month: "0",
   daily_7d: [],
-} as unknown as Dashboard;
+};
 
 /** Seven IST days, oldest first, as the API zero-fills them. */
 const WEEK: Dashboard["daily_7d"] = [
@@ -83,7 +85,7 @@ const USAGE: UsagePanel = {
   spend_used_inr: "10159.00",
   plan_tier: "managed",
   credit_balance_inr: null,
-} as unknown as UsagePanel;
+};
 
 const page = <DashboardPage params={Promise.resolve({ slug: "acme" })} />;
 
@@ -130,7 +132,7 @@ describe("the dashboard renders what the server said, or says it could not", () 
 
   it("never puts a caller's number on screen unmasked (hard rule 6)", async () => {
     const RAW = "+919876543210";
-    const call = {
+    const call: CallSummary = {
       id: "c1",
       agent_id: "a1",
       agent_name: "Reception",
@@ -143,7 +145,7 @@ describe("the dashboard renders what the server said, or says it could not", () 
       sentiment: "positive",
       summary: null,
       lead_id: null,
-    } as unknown as CallSummary;
+    };
 
     const { container } = await renderClientPage(
       page,

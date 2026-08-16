@@ -25,7 +25,8 @@ import uuid
 
 import pytest
 from apps.api.core.errors import ProblemError
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.engine import get_engine
 from apps.api.kb import service
 from sqlalchemy import text
 from tests.kb_workflow_test import _tenant_with_published_agent
@@ -119,7 +120,14 @@ async def test_tenant_b_reads_none_of_tenant_as_knowledge() -> None:
     source_id = uuid.UUID(str(submitted["id"]))
 
     async with tenant_session(tenant_b) as session:
-        assert await service.preview(session, source_id) == []
+        # `preview` refuses rather than returning `[]` — the same 404-not-409 doctrine
+        # the sibling test below states for approve/publish. An empty preview was
+        # isolation-safe (RLS hid the chunks either way) and was indistinguishable from
+        # a real source of your own with nothing in it, which is what
+        # `tests/kb_review_routes_test.py::test_a_neighbours_source_is_not_found_rather_
+        # than_empty` drives through the route.
+        with pytest.raises(ProblemError):
+            await service.preview(session, source_id)
         assert await service.list_sources(session) == []
 
     async with tenant_session(tenant_a) as session:
@@ -193,3 +201,128 @@ async def test_the_vendor_handle_is_not_a_capability_another_tenant_can_use() ->
         assert await service._engine_kb_ref(session, source_id) is None, (
             "another tenant can read the vendor handle that deletes this client's knowledge"
         )
+
+
+# --------------------------------------------------------------------------------
+# The layer RLS does not reach at all: the store the agent actually retrieves from
+# --------------------------------------------------------------------------------
+
+
+async def _publish(tenant_id: uuid.UUID, agent_id: uuid.UUID, name: str, body: str) -> uuid.UUID:
+    submitted = await _submit(tenant_id, agent_id, name, body)
+    source_id = uuid.UUID(str(submitted["id"]))
+    async with tenant_session(tenant_id) as session:
+        await service.approve_source(session, source_id=source_id, approved_by=None)
+        await service.publish_source(session, tenant_id=tenant_id, source_id=source_id)
+    return source_id
+
+
+async def _agent_ref(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
+    async with tenant_session(tenant_id) as session:
+        return str(
+            (
+                await session.execute(
+                    text("SELECT engine_agent_ref FROM agents WHERE id = :a"), {"a": agent_id}
+                )
+            ).scalar()
+        )
+
+
+async def test_the_store_the_agent_retrieves_from_holds_no_other_tenants_knowledge() -> None:
+    """Isolation asked of the RETRIEVAL store, not of Postgres.
+
+    Every other test in this file proves a row-visibility property, and row visibility
+    is not where in-call retrieval happens. D-33 keeps T3 cold lookup inside the
+    engine's own knowledge base, which is a store OUTSIDE our database with no row
+    security, no tenant column and — on Bolna — one account holding every tenant's
+    agents. So "tenant B cannot SELECT tenant A's chunk" says nothing about whether B's
+    caller can be READ A's chunk down the phone, and that is the question a client asks.
+
+    The isolation there rests on exactly one thing: the namespace key. A source is
+    attached to an `engine_agent_ref`, retrieval is scoped to the agent the call is
+    running on, and the two tenants' agents must therefore never share a ref. Asserted
+    through the Protocol rather than by reading the fake's store, because the question
+    is "what does the engine say this agent references" — `AgentSnapshot.references_kb`
+    is the engine's own answer and the one D-41 already trusts.
+
+    Note what this can and cannot settle. It settles OUR side — the ref we attach to and
+    the handles we record. It cannot settle the vendor's: whether Bolna's retrieval is
+    genuinely partitioned by `agent_id`, or whether a `rag_id` from another agent in the
+    same account is reachable, is pilot gate 8 and is not a claim this repository can
+    make. Every vendor host is egress-blocked from this environment.
+    """
+    tenant_a, agent_a = await _tenant_with_published_agent()
+    tenant_b, agent_b = await _tenant_with_published_agent()
+    await _publish(tenant_a, agent_a, "Fees", "Tenant A charges 500 rupees for a consultation.")
+    await _publish(tenant_b, agent_b, "Fees", "Tenant B charges 900 rupees for a consultation.")
+
+    ref_a, ref_b = await _agent_ref(tenant_a, agent_a), await _agent_ref(tenant_b, agent_b)
+    assert ref_a != ref_b, "two tenants share one retrieval namespace"
+
+    engine = get_engine()
+    handles_a, handles_b = await engine.list_kb(ref_a), await engine.list_kb(ref_b)
+    assert handles_a and handles_b, "premise: both tenants published something"
+    assert not set(handles_a) & set(handles_b), (
+        f"one knowledge document is attached to both tenants' agents: "
+        f"{sorted(set(handles_a) & set(handles_b))}"
+    )
+
+    # The engine's own answer, per agent: A's agent references none of B's documents.
+    snapshot_a = await engine.get_agent(ref_a)
+    for handle in handles_b:
+        assert snapshot_a.references_kb(handle) is False, (
+            "tenant A's agent references a knowledge document of tenant B's — a caller "
+            "on A's line can be read B's text, and no row-level policy can see it"
+        )
+
+    # And every handle A's agent holds is one A's OWN rows account for. This is the join
+    # between the two layers: `_reconcile_engine_state` refuses to publish onto an agent
+    # holding a copy our rows cannot name, and that refusal is only isolation if the
+    # rows it consults are the caller's own.
+    async with tenant_session(tenant_a) as session:
+        recorded_a = await service.recorded_handles_of_agent(session, agent_a)
+    assert set(handles_a) == recorded_a
+    assert not recorded_a & set(handles_b)
+
+
+async def test_a_tenant_cannot_point_its_agent_at_another_tenants_retrieval_namespace() -> None:
+    """The one write that would defeat the test above, driven rather than assumed.
+
+    Namespace isolation is only as good as the binding between `engine_agent_ref` and a
+    tenant, and that binding lives in `engine_agent_routes` — the table the inbound
+    webhook resolves a call's tenant from. If tenant B could claim tenant A's ref, B's
+    calls would route into A's agent and retrieve from A's knowledge, with every
+    `kb_sources` policy still perfectly enforced.
+
+    `engine_agent_routes` is RLS-exempt for READS (the receiver has no tenant yet when
+    it resolves one) and RLS'd for WRITES, so the claim is refused rather than silently
+    re-tenanting the row — the behaviour migration `c4b70e928a1f` installed. Pinned from
+    the KB side because this is the table the KB's isolation actually rests on, and
+    nothing here would notice if the policy were dropped.
+    """
+    tenant_a, agent_a = await _tenant_with_published_agent()
+    tenant_b, agent_b = await _tenant_with_published_agent()
+    ref_a = await _agent_ref(tenant_a, agent_a)
+
+    with pytest.raises(Exception) as claimed:
+        async with tenant_session(tenant_b) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
+                    "agent_id, active, created_at, updated_at) VALUES ('fake', :r, :t, :a, "
+                    "true, now(), now()) ON CONFLICT (engine, engine_agent_ref) DO UPDATE SET "
+                    "tenant_id = EXCLUDED.tenant_id, agent_id = EXCLUDED.agent_id"
+                ),
+                {"r": ref_a, "t": tenant_b, "a": agent_b},
+            )
+    assert "row-level security" in str(claimed.value), claimed.value
+
+    # A's route is untouched: the ref still resolves to A.
+    async with untenanted_session() as session:
+        owner = (
+            await session.execute(
+                text("SELECT tenant_id FROM engine_agent_routes WHERE engine_agent_ref = :r"),
+                {"r": ref_a},
+            )
+        ).scalar()
+    assert uuid.UUID(str(owner)) == tenant_a

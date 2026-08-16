@@ -73,7 +73,7 @@ function me(permissions: string[]): AdminMe {
     user_id: "0192f0aa-7777-7000-8000-0000000000c1",
     role: permissions.includes("ops:manage") ? "superadmin" : "operator",
     permissions,
-  } as AdminMe;
+  };
 }
 
 const SUPERADMIN = me([

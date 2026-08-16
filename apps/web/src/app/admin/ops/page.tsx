@@ -44,6 +44,7 @@ import {
   useVerifyAuditChain,
   type DeadLetterQueue,
   type EngineDrift,
+  type KbDrift,
   type LoadShedMode,
   type PlatformState,
   type TmRegistration,
@@ -346,6 +347,13 @@ export default function OpsPage() {
           per-agent sentence lives. Not gated on `access` for the reason the two panels
           above are not: it reads no platform-row state. */}
       <EngineDriftPanel drift={engineDriftState(state)} />
+      {/* The same read, on the other object. `EngineDriftPanel` above answers "is the
+          agent CONFIGURED as we published"; this answers "is it ANSWERING from text a
+          human approved" — an agent can be perfectly in sync on the first and be reading
+          out a knowledge base somebody pasted into the vendor's console. Also read-only,
+          and here the absence of a lever is stronger: the repair a KB drift invites is a
+          DELETE at the vendor of a document our tables cannot describe. */}
+      <KnowledgeDriftPanel drift={kbDriftState(state)} />
       <AuditChainPanel access={mayRecover} />
 
       {/* Gated on `platform:config`, NOT on `ops:manage`, and that is the point of the
@@ -1189,6 +1197,193 @@ function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
               </tr>
               <tr>
                 <td className="py-0.5 text-ink-muted">Could not be read back</td>
+                <td className="py-0.5 text-right tabular-nums">
+                  {formatCount(read.undetermined)}
+                </td>
+              </tr>
+              <tr>
+                <td className="py-0.5 text-ink-muted">Not yet checked</td>
+                <td className="py-0.5 text-right tabular-nums">
+                  {formatCount(read.never_checked)}
+                </td>
+              </tr>
+              <tr>
+                <td className="py-0.5 text-ink-muted">Oldest check</td>
+                <td className="py-0.5 text-right">
+                  {swept ? formatIST(read.oldest_checked_at) : "never"}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * The knowledge-drift summary as this screen may know it. Three states and never a fourth,
+ * `EngineDriftState`'s reason: "no agent's knowledge has drifted" and "we could not find
+ * out whether any has" are OPPOSITE facts, and a `KbDrift | undefined` collapses them at
+ * the first `??`.
+ */
+type KbDriftState =
+  | { status: "loading" }
+  | { status: "unreadable" }
+  | { status: "read"; drift: KbDrift };
+
+function kbDriftState(query: {
+  data: PlatformState | undefined;
+  error: unknown;
+  isLoading: boolean;
+}): KbDriftState {
+  if (query.error) return { status: "unreadable" };
+  if (query.isLoading || !query.data) return { status: "loading" };
+  // Defended at runtime for `engineDriftState`'s reason: the field is required on the
+  // wire, so this cannot happen against a current server — it happens against an OLDER
+  // one, and mid-deploy is exactly when someone is on this screen. `read !== null` is TRUE
+  // for `undefined`, which is not a type error and is a blank panel.
+  const drift: KbDrift | undefined = query.data.kb_drift;
+  if (!drift) return { status: "unreadable" };
+  return { status: "read", drift };
+}
+
+/**
+ * What the voice platform is ANSWERING FROM, versus what a human approved (D-158).
+ *
+ * ## Why this is a second panel and not two more rows on the first
+ *
+ * `EngineDriftPanel` above answers "is the agent configured as we published" — prompt,
+ * greeting, voice. This answers a different question about a different object at the
+ * vendor: which knowledge bases the agent can retrieve from. An agent can be perfectly in
+ * sync on the first and be reading out a price list somebody pasted into Bolna's console,
+ * and the two are measured by two sweeps on two schedules. Each therefore carries its OWN
+ * `oldest_checked_at`: folding them would let a healthy agent sweep's timestamp vouch for
+ * a knowledge sweep that had died, which is the exact lying-by-omission the pulse exists
+ * to prevent.
+ *
+ * ## Why the approval gate makes this the more serious of the two
+ *
+ * FLOWS §7 puts a human in front of every word a knowledge base contains, because a client
+ * editing what their agent says is a client editing a legal instrument — the agent speaks
+ * on their behalf under their PE registration. Text added at the vendor has been through
+ * no gate at all, and the agent will read it to callers.
+ *
+ * ## `undetermined` carries more weight here than on the agent panel
+ *
+ * An EMPTY knowledge listing is ambiguous between "the documents are gone" and "the
+ * vendor's listing does not attribute rows to agents at all" (pilot gate 8, still open),
+ * and the sweep refuses to guess. So a large `undetermined` here is a real, actionable
+ * signal about the VENDOR — go and settle gate 8 — rather than a count of drifted clients.
+ *
+ * ## No lever, and the reason is stronger than on the panel above
+ *
+ * There is deliberately no "fix it" button. The repair a knowledge drift superficially
+ * invites is a detach — an irreversible DELETE at the vendor of a document our tables, by
+ * hypothesis, cannot describe. One click from a platform-wide summary would destroy the
+ * only copy of text somebody added by hand, plausibly during an incident.
+ */
+function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
+  const read = drift.status === "read" ? drift.drift : null;
+  // A platform whose sweep has never run is NOT the same as one whose sweep is healthy and
+  // found nothing, and the difference is `oldest_checked_at`. True even when `live_agents`
+  // is 0: an empty platform has nothing to sweep, and saying "no knowledge has drifted"
+  // there is accurate and says nothing about whether the job is alive.
+  const swept = read !== null && read.oldest_checked_at !== null;
+
+  return (
+    <Card title="What the voice platform is answering from">
+      <div className="space-y-4">
+        <p className="text-sm text-ink-muted">
+          Every hour a sweep reads live agents&apos; knowledge bases back off the voice
+          platform and compares them with what was approved and published. It only ever
+          reads — knowledge added on the vendor&apos;s own console stays exactly where it is.
+        </p>
+
+        {drift.status === "loading" && <Skeleton rows={2} />}
+
+        {/* The refusal. NOT "0 drifted": an operator who cannot see this number is the one
+            who most needs telling that nobody has checked. */}
+        {drift.status === "unreadable" && (
+          <NoticeBox
+            tone="warn"
+            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
+            title="We do not know what knowledge the voice platform is holding"
+          >
+            <p className="mt-1">
+              This is read with the platform state, and that read failed — so this screen
+              will not tell you every agent&apos;s knowledge is in sync. The error above
+              says what stopped it.
+            </p>
+          </NoticeBox>
+        )}
+
+        {read !== null && !swept && (
+          <NoticeBox
+            tone="warn"
+            icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
+            title="No agent's knowledge has been checked yet"
+          >
+            <p className="mt-1">
+              Nothing below is evidence: the counts are what the sweep last recorded, and it
+              has not recorded anything. If this persists past an hour the knowledge
+              reconciliation job is not running, and nobody is watching what the agents are
+              answering from.
+            </p>
+          </NoticeBox>
+        )}
+
+        {read !== null && read.out_of_sync > 0 && (
+          <NoticeBox
+            tone="warn"
+            icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
+            title={`${formatCount(read.out_of_sync)} of ${formatCount(read.live_agents)} live agents hold knowledge we did not publish`}
+          >
+            <p className="mt-1">
+              Oldest divergence: <span className="font-semibold">{formatIST(read.oldest_drift_at)}</span>.
+              Either the platform is serving text that never went through approval, or a
+              version we approved is no longer there. Open each agent&apos;s knowledge tab —
+              removing a document from here would delete it at the vendor, and if it was
+              added on their console this is the only copy.
+            </p>
+          </NoticeBox>
+        )}
+
+        {read !== null && swept && read.out_of_sync === 0 && (
+          <NoticeBox
+            tone="ok"
+            icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
+            title="Every checked agent is answering from what we published"
+          >
+            <p className="mt-1">
+              {read.undetermined > 0
+                ? `${formatCount(read.undetermined)} could not be decided — either the voice platform did not answer, or it reported no knowledge for an agent that should have some and nothing proved its listing is per-agent. That is a question about the vendor, not a drifted client.`
+                : "No divergence found."}
+            </p>
+          </NoticeBox>
+        )}
+
+        {read !== null && (
+          <table className="w-full text-left text-xs">
+            <tbody>
+              <tr>
+                <td className="py-0.5 text-ink-muted">Live agents</td>
+                <td className="py-0.5 text-right tabular-nums">
+                  {formatCount(read.live_agents)}
+                </td>
+              </tr>
+              <tr>
+                <td className="py-0.5 text-ink-muted">Holding what we published</td>
+                <td className="py-0.5 text-right tabular-nums">{formatCount(read.in_sync)}</td>
+              </tr>
+              <tr>
+                <td className="py-0.5 text-ink-muted">Holding something else</td>
+                <td className="py-0.5 text-right tabular-nums">
+                  {formatCount(read.out_of_sync)}
+                </td>
+              </tr>
+              <tr>
+                <td className="py-0.5 text-ink-muted">Could not be decided</td>
                 <td className="py-0.5 text-right tabular-nums">
                   {formatCount(read.undetermined)}
                 </td>

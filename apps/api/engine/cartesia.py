@@ -95,6 +95,7 @@ from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.engine.capabilities import require_capability, require_speech_leg
+from apps.api.engine.document import engine_document
 
 log = get_logger(__name__)
 
@@ -734,8 +735,18 @@ class CartesiaEngine:
         )
 
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:
-        """`GET /agents/calls/{id}`. INFERRED sibling of `/agents/calls`."""
-        return self._snapshot(await self._request("GET", f"/agents/calls/{call_id}"))
+        """`GET /agents/calls/{id}`. INFERRED sibling of `/agents/calls`.
+
+        Carries the vendor's own document out as bytes for D-126's archive, on this path
+        only — `list_executions` builds no document per row, for `BolnaEngine`'s reason.
+        The archive matters MORE for this adapter than for the sourced one: almost every
+        field name below is inferred, so the vendor's own answer is the only evidence that
+        will settle a mapping we got wrong.
+        """
+        payload = await self._request("GET", f"/agents/calls/{call_id}")
+        return self._snapshot(payload).model_copy(
+            update={"raw_document": engine_document(payload, engine=self.name)}
+        )
 
     async def list_executions(self, *, since: datetime) -> ExecutionListing:
         """`GET /agents/calls`. INFERRED, and the completeness verdict is the point.

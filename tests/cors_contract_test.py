@@ -166,6 +166,31 @@ async def test_the_preflight_the_browser_actually_sends_succeeds(
     assert set(headers.split(",")) <= allowed_headers
 
 
+def test_a_wildcard_origin_cannot_be_installed_alongside_credentials() -> None:
+    """WHAT THE THREE ASSERTIONS ABOVE CANNOT SEE. Every one of them checks that the
+    methods, headers and routes we serve are ALLOWED — and `allow_origins=["*"]` allows
+    everything, so a wildcard passes this whole file while turning the API into one any
+    website can read on a signed-in operator's behalf.
+
+    Starlette does not stop it. With `allow_credentials=True` it takes the explicit-origin
+    path and echoes the request's own `Origin` back with
+    `Access-Control-Allow-Credentials: true`, which is the browser-visible shape of "any
+    site may read this". `core/bootstrap.py` states "a wildcard is never acceptable here"
+    beside `DEFAULT_CORS_ORIGINS`, and until now nothing made that true: `cors_origins` is
+    a `create_app` parameter, so the invariant was one caller away from being a comment.
+
+    Refused at BOOT rather than reviewed, because the failure it prevents is silent.
+    """
+    with pytest.raises(ValueError, match="wildcard origin"):
+        install_middleware(FastAPI(), cors_origins=["*"])
+
+
+def test_the_real_origin_list_still_installs() -> None:
+    """The control on the refusal above: it must reject `*` and nothing else. A guard that
+    also rejected the origins we actually serve would be found at the next deploy."""
+    install_middleware(FastAPI(), cors_origins=list(DEFAULT_CORS_ORIGINS))
+
+
 async def test_a_method_outside_the_allow_list_is_still_refused() -> None:
     """The negative control for the two assertions above: this suite can tell the
     difference between "allowed" and "the middleware waves everything through".

@@ -53,6 +53,7 @@ import {
   useTenantNumbers,
   useTenantTemplates,
   viewAsSession,
+  type Margin,
   type PeStatus,
   type TmLinkStatus,
 } from "@/lib/api/admin";
@@ -637,7 +638,51 @@ function MarginPanel({ tenantId }: { tenantId: string }) {
         {data.minutes_used} minutes across {formatCount(data.calls)} calls. Cost is what we
         actually paid, stamped per usage row at capture time with the fx rate used.
       </p>
+      <TierSplit tiers={data.tiers} />
     </Card>
+  );
+}
+
+/**
+ * What the margin's cost side is MADE of, by TTS rung (D-36).
+ *
+ * A thin margin is not actionable on its own — the operator's next move differs
+ * completely depending on whether the cost is premium voice (move the client to the
+ * value rung, or reprice) or the value rung already (the plan is underpriced). The
+ * server nests these under `tiers` on the same read, so this costs no round trip.
+ *
+ * The three costs are a PARTITION of `cost_inr` above and add up to it exactly — both
+ * come from `_tier_totals`. Nothing is recomputed here: adding the strings client-side
+ * would be float arithmetic on money (hard rule 7), and the total is already on the card.
+ *
+ * `unattributed` is shown even at zero. It is the count of minutes we could not prove a
+ * rung for, and hiding it when empty would make its later appearance look like a new
+ * feature rather than a metering gap — an operator who has never seen the row will not
+ * know to ask what it means.
+ */
+function TierSplit({ tiers }: { tiers: Margin["tiers"] }) {
+  const rungs = [
+    { label: "Premium (v3)", minutes: tiers.minutes_premium, cost: tiers.cost_premium_inr },
+    { label: "Value (v2)", minutes: tiers.minutes_value, cost: tiers.cost_value_inr },
+    {
+      label: "Unattributed",
+      minutes: tiers.minutes_unattributed,
+      cost: tiers.cost_unattributed_inr,
+    },
+  ];
+  return (
+    <div className="mt-4 border-t border-line pt-3">
+      <h4 className="text-[13px] font-medium text-ink-muted">Cost by TTS rung</h4>
+      <dl className="mt-2 grid gap-3 sm:grid-cols-3">
+        {rungs.map((rung) => (
+          <div key={rung.label} className="rounded-card border border-line bg-surface px-4 py-3">
+            <dt className="text-xs text-ink-muted">{rung.label}</dt>
+            <dd className="mt-0.5 text-sm font-semibold tabular-nums">{formatINR(rung.cost)}</dd>
+            <dd className="text-xs tabular-nums text-ink-muted">{rung.minutes} min</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 

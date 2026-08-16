@@ -59,7 +59,7 @@ function entry(over: Partial<DncEntry> = {}): DncEntry {
     scope: "tenant",
     source: "manual",
     ...over,
-  } as DncEntry;
+  };
 }
 
 /**

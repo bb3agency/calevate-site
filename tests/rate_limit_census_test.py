@@ -18,11 +18,13 @@ no two rules may tie at the top for the same route.
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from typing import Any
 
 import pytest
 from apps.api.core.middleware import RateLimitMiddleware
-from apps.api.core.ratelimit import PROFILES, RULES, profile_for, resolve_rule
+from apps.api.core.ratelimit import PROFILES, RULES, Rule, profile_for, resolve_rule
 from apps.api.core.rbac import iter_api_routes
 from apps.api.main import app
 
@@ -171,6 +173,125 @@ def test_every_non_exempt_profile_actually_limits_something() -> None:
             continue
         assert profile.per_client > 0, f"{name} limits nothing"
         assert profile.window_s > 0
+
+
+#: Every cost-weighted rule declares the methods it applies to; no family rule does. That
+#: is the only structural difference between "this family of paths" and "this route costs
+#: more than its family", and it is what lets the assertion below tell them apart without
+#: a second list somebody has to keep in step.
+def _cost_rules() -> list[Rule]:
+    return [rule for rule in RULES if rule.methods]
+
+
+def test_a_cost_weight_is_tighter_than_the_family_it_overrides() -> None:
+    """THE PROPERTY A CENSUS CANNOT SEE. Its three assertions are about PRESENCE: every
+    route resolves a rule, every rule reaches a route, no two rules tie. All three pass
+    for `Rule("/v1/leads/export.csv", "admin_api")` — a real rule, matching a real route,
+    winning cleanly — which would put the 20,000-row export on 300/min instead of 6 and
+    read, in the table, exactly like protection.
+
+    So: a rule that exists to make a route MORE expensive than its family must actually be
+    tighter than what that route would resolve to without it, on both dimensions it
+    declares. Computed by removing the rule and re-resolving, so it is the real resolution
+    order under test and not a restatement of the table.
+
+    Deliberately NOT applied to family rules: `admin_api` (300) is looser than `client_api`
+    (240) on purpose — the operator console fans out harder and there are few operators —
+    and a blanket "more specific means tighter" would forbid that. The distinction is
+    argued in `core/ratelimit.RULES`; here it is `Rule.methods`.
+    """
+    slack: list[str] = []
+    for rule in _cost_rules():
+        weighted = PROFILES[rule.profile]
+        others = tuple(other for other in RULES if other is not rule)
+        method = next(iter(rule.methods or ()))
+        # The concrete-ish path this pattern stands for, so the fallback resolves the way
+        # a live request would: `*` is any segment, `**` is any tail.
+        path = "/" + "/".join(
+            "x" if segment in ("*", "**") else segment
+            for segment in rule.pattern.split("/")
+            if segment
+        )
+        candidates = [other for other in others if other.matches(path, method)]
+        if not candidates:
+            slack.append(f"{rule.pattern}: no family rule underneath it")
+            continue
+        family = PROFILES[max(candidates, key=lambda r: r.specificity).profile]
+        if weighted.per_client >= family.per_client:
+            slack.append(
+                f"{method} {rule.pattern} → {weighted.name} ({weighted.per_client}/min) is "
+                f"not tighter than {family.name} ({family.per_client}/min)"
+            )
+        if (
+            family.per_tenant is not None
+            and weighted.per_tenant is not None
+            and weighted.per_tenant >= family.per_tenant
+        ):
+            slack.append(
+                f"{method} {rule.pattern} → {weighted.name} tenant ceiling "
+                f"({weighted.per_tenant}) is not tighter than {family.name} "
+                f"({family.per_tenant})"
+            )
+    assert not slack, "cost weights that cost nothing: " + "; ".join(slack)
+
+
+#: The largest ceilings this platform declares, and which profile establishes each.
+#: `per_client` — `webhook_ingest`, sized for Meta delivering every tenant's leads from
+#: Facebook's own addresses. `per_tenant` — `client_api`, ~50 concurrent users of one SMB.
+MAX_PER_CLIENT = 600
+MAX_PER_TENANT = 900
+
+
+def test_no_profile_is_so_loose_that_it_is_a_limit_in_name_only() -> None:
+    """The other way a census stays green while the limits stop meaning anything: raise
+    the number. The cheapest way to make a 429 go away is to edit one integer, and every
+    other assertion in this file survives that edit — coverage of a table says nothing
+    about the values in it.
+
+    A RATCHET, in the manner of `scripts/check_coverage_ratchet`, not a claim that these
+    two numbers are correct: they are today's maxima, so exceeding one means editing this
+    file, which is a deliberate act with a diff and a reviewer rather than a number
+    quietly growing until the profile stops bounding anything.
+    """
+    loose = {
+        name: (profile.per_client, profile.per_tenant)
+        for name, profile in PROFILES.items()
+        if profile.per_client > MAX_PER_CLIENT or (profile.per_tenant or 0) > MAX_PER_TENANT
+    }
+    assert not loose, (
+        f"profiles above the platform's declared ceilings "
+        f"({MAX_PER_CLIENT}/caller, {MAX_PER_TENANT}/tenant): {loose} — raising one is a "
+        "decision-log entry, not a test edit"
+    )
+
+
+def test_the_credential_fingerprint_has_exactly_one_caller() -> None:
+    """`ratelimit.fingerprint` is for the ONE bucket subject that is a live credential.
+
+    The signup quota used to hash both of its subjects with it on a privacy argument that
+    does not hold: an unkeyed digest of an IPv4 address is an encoding of a 32-bit space,
+    the same address is written in the clear by this module's own caller dimension, and
+    SEC-COMP §5 requires it kept permanently in `audit_log.ip`. The hash was buying
+    nothing and the comment above it claimed otherwise, which is the more expensive half.
+
+    So the rule is "hash credentials, not identifiers", and this is what keeps it one
+    rule. A bare `fingerprint(...)` call anywhere but the token path is the next author
+    reaching for it because the name sounds like privacy.
+    """
+    root = Path(__file__).resolve().parents[1] / "apps"
+    callers = {
+        path.relative_to(root.parent).as_posix()
+        for path in root.rglob("*.py")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "fingerprint"
+    }
+    assert callers == {"apps/api/core/middleware.py"}, (
+        f"`ratelimit.fingerprint` is called from {sorted(callers)}. It pseudonymises a "
+        "live credential; every other bucket subject goes through `bucket_subject`. See "
+        "its docstring and `tenancy/signup.py::_consume`."
+    )
 
 
 def test_the_middleware_still_has_no_second_profile_table() -> None:

@@ -32,7 +32,7 @@ const ME = {
   role: "owner",
   permissions: ["agents:read", "calls:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
 };
 
 function report(over: Partial<QaReport> = {}): QaReport {

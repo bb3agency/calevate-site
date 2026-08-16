@@ -11,9 +11,15 @@ mirrors this manual for other coding agents.
 Clients get AI phone agents (inbound receptionist + outbound campaigns) built on a rented
 voice engine (Bolna primary per D-31) with BYOK models — **canonical stack per D-36**:
 Sarvam Saaras STT · **Sarvam 105B LLM (free per token, all-India residency)** · Sarvam
-Bulbul v3 TTS (v2 = value tier). Gemini 3.x Flash-Lite runs the USER-TRIGGERED dashboard
+Bulbul v3 TTS (v2 = value tier). **Gemini 2.5 Flash** runs the USER-TRIGGERED dashboard
 AI through Vertex AI `asia-south1` (D-127 supersedes D-36's LLM leg for that surface
-only); the first post-call extraction stays on Sarvam permanently because it reads the raw
+only) — 2.5 rather than 3.x because Mumbai is the only region D-127 permits and no 3.x
+model is reported there, which is a founder's decision that buys a **live 16 Oct 2026
+retirement** (BRD R-04, `GEMINI_DEFAULT_LLM_RETIRES`, OPERATIONS §2 gate 14). And
+**`GEMINI_MODEL_CONFIRMED_IN_REGION is False`, so that sentence is still a decision and
+not yet an observation**: search now points the right way, but nobody has made the one
+call that settles it (OPERATIONS §2 gate 14). The first post-call
+extraction stays on Sarvam permanently because it reads the raw
 transcript — `GEMINI_EXTRACTION_DEFAULT is False` in `apps/workers/extraction.py`. Our
 code = admin console, client dashboards,
 schema-driven lead extraction/CRM, RAG knowledge bases, metering/billing, compliance

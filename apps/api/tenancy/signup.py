@@ -67,7 +67,7 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
-from apps.api.core.ratelimit import LimitProfile, consume, fingerprint
+from apps.api.core.ratelimit import LimitProfile, bucket_subject, consume
 from apps.api.core.settings import get_settings
 
 log = get_logger(__name__)
@@ -107,10 +107,23 @@ async def assert_signup_open() -> None:
     environment change, not a deploy. Default is OFF — a surface that lets the public
     create tenants should be something someone switched on.
 
-    The platform mode is the second: `/v1/auth` is in `ALWAYS_ALLOWED_PREFIXES`
-    (loadshed.py), which is right for signing IN and wrong for signing UP — creating a
-    tenant is exactly the expensive write `reduced` mode exists to stop. The middleware
-    cannot make that distinction by prefix, so the route makes it here.
+    The platform mode is the second, and the reason recorded here was true when it was
+    written and is not now. It said `/v1/auth` was in `ALWAYS_ALLOWED_PREFIXES`
+    (loadshed.py) so the middleware could not shed signup and the route had to do it
+    itself. That exemption is GONE: nothing under `/v1/auth` mints a session, so it named
+    a surface that does not exist and its only effect was to keep this endpoint
+    manufacturing tenants during an incident. `LoadShedMiddleware` now refuses
+    `POST /v1/auth/signup` in every non-normal mode — the same condition as the branch
+    below — and `tests/loadshed_exemption_test.py::test_signup_is_shed_like_any_other_
+    expensive_write` is what keeps that true.
+
+    The branch below therefore stays for two reasons, neither of which is the old one:
+    the refusal NAMES signup (`signup_load_shed`, with a signup-length `Retry-After`),
+    which is the code `apps/web/src/lib/api/signup.ts` keys its "come back later" state
+    on rather than the generic `service_load_shed`; and this function is also reached
+    in-process, where no middleware runs. It is a second refusal of the same condition,
+    not a second definition of it — the condition itself is read from
+    `get_platform_status`, the one source both layers share.
     """
     if not get_settings().self_serve_signup_enabled:
         raise ProblemError(
@@ -136,7 +149,8 @@ async def assert_signup_open() -> None:
 #: same INCR/EXPIRE pair every other limit in the platform uses, with `fail_open=False`
 #: as the one difference (see the module docstring). It used to be a second copy of that
 #: pair in this file, which is how two limiters end up behaving differently under load.
-#: The key shape is unchanged: `calevate:rl:signup:{scope}:{fingerprint}:{bucket}`.
+#: The key is `calevate:rl:signup:{scope}:{subject}:{bucket}` — see `_consume` for why
+#: the subject is the identity itself rather than a hash of it.
 #:
 #: THE EFFECTIVE LIMITS ARE THE TWO CONSTANTS ABOVE, PASSED PER DIMENSION, not this
 #: profile's `per_client` — this surface has two different ceilings on one window, and a
@@ -151,9 +165,24 @@ SIGNUP_QUOTA: Final = LimitProfile(
 
 
 async def _consume(scope: str, subject: str, limit: int) -> None:
-    # Identities are hashed before they reach Redis — the limiter needs a stable key,
-    # not a directory of who signed up from where.
-    decision = await consume(SIGNUP_QUOTA, scope, fingerprint(subject), limit, fail_open=False)
+    # BOTH SUBJECTS GO IN AS THEMSELVES. The comment that used to sit here — "identities
+    # are hashed before they reach Redis, the limiter needs a stable key, not a directory
+    # of who signed up from where" — was a promise the hash could not keep, in two
+    # directions. `ratelimit.fingerprint` is an UNKEYED blake2s justified on the grounds
+    # that its input is a high-entropy credential; an IPv4 address is a 32-bit space, so
+    # hashing one is an encoding of it, not a pseudonym (BACKEND-PATTERNS §4 keys the
+    # idempotency fingerprint with an HMAC for exactly this reason, and that argument was
+    # not carried across to this caller). And the property it claimed is contradicted one
+    # module over: `RateLimitMiddleware` writes `calevate:rl:<profile>:client:ip:<the
+    # address itself>` for every request that address makes, while SEC-COMP §5 REQUIRES
+    # the same address kept durably in `audit_log.ip`. An hour-long Redis key cannot be
+    # the privacy boundary for a value the platform is obliged to retain permanently.
+    #
+    # One rule replaces the claim: `fingerprint` is for the single input that is a live
+    # CREDENTIAL — the bearer token in `RateLimitMiddleware._subjects` — and every other
+    # bucket subject goes through `bucket_subject`, which bounds the key space by length
+    # and charset (hex output bounded it implicitly, which is the only thing lost here).
+    decision = await consume(SIGNUP_QUOTA, scope, bucket_subject(subject), limit, fail_open=False)
     if decision.allowed:
         return
     if decision.reason == "unavailable":

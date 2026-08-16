@@ -35,17 +35,20 @@ imported the entire monolith, every adapter and half of PyPI.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
+import webhook_routes
+from apps.api.core.errors import ProblemError
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app
 
@@ -54,6 +57,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ENGINE_EGRESS_IP = "198.51.100.7"
 EDGE_PROXY_IP = "127.0.0.1"
 HOOK = "/hooks/v1/engine/bolna"
+TOOL = "/tools/v1/bolna/opt-out"
 
 # --- the boot graph ----------------------------------------------------------
 
@@ -344,16 +348,93 @@ def _client(peer_ip: str) -> AsyncClient:
 
 
 async def _drive(http: AsyncClient, tag: str) -> None:
-    """One pass over every branch the handler has: refused, oversized, unreadable,
-    unkeyable, accepted, duplicate."""
+    """One pass over EVERY branch either handler has, the error ones included.
+
+    It used to be the receiver's six happy-ish branches — refused, oversized, unreadable,
+    unkeyable, accepted, duplicate. That left the whole in-call tool endpoint out of the
+    measurement, and every branch reached only by a failure: a hang-up mid-body, a body
+    that never finishes, a 409 out of the inbox, an unhandled driver error. Those are
+    precisely where a lazy import hides — an error path is where somebody reaches for a
+    formatter, a traceback helper or a client "just to report it" — and none of them was
+    being watched.
+    """
     headers = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
     body = {"execution_id": f"exec_{tag}", "status": f"completed-{tag}"}
+    tool = {"execution_id": f"exec_{tag}", "reason": "remove me", "language": "te"}
+
     await http.post(HOOK, json=body)  # 401: not allowlisted
     await http.post(HOOK, content=b"x" * 2_000_000, headers=headers)  # 413
     await http.post(HOOK, content=b"{not json", headers=headers)  # unreadable
     await http.post(HOOK, json={"status": "completed"}, headers=headers)  # unkeyable
     await http.post(HOOK, json=body, headers=headers)  # accepted
     await http.post(HOOK, json=body, headers=headers)  # duplicate
+
+    await http.post(TOOL, json=tool)  # 401
+    await http.post(TOOL, content=b"y" * 8_192, headers=headers)  # 413 at the tool's cap
+    await http.post(TOOL, json={"reason": "no id"}, headers=headers)  # 422
+    await http.post(TOOL, json=tool, headers=headers)  # 202
+
+    await _hang_up_mid_body(HOOK)  # 400: ClientDisconnect out of the stream
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(webhook_routes, "_BODY_DEADLINE_S", 0.05)
+        await http.post(HOOK, content=_trickle(), headers=headers)  # 408
+        patch.setattr(webhook_routes, "claim_inbox_event", _conflict)
+        await http.post(HOOK, json=body, headers=headers)  # 409 from the inbox
+        patch.setattr(webhook_routes, "claim_inbox_event", _explode)
+        await http.post(HOOK, json=body, headers=headers)  # 500, the catch-all
+
+
+async def _trickle() -> AsyncIterator[bytes]:
+    """A body slow enough to outlast any deadline this test sets."""
+    yield b'{"execution_id":"exec_slow"'
+    for _ in range(5):
+        await asyncio.sleep(0.05)
+        yield b" "
+    yield b"}"
+
+
+async def _conflict(*_args: Any, **_kwargs: Any) -> Any:
+    raise ProblemError.conflict("webhook_payload_mismatch", "different content")
+
+
+async def _explode(*_args: Any, **_kwargs: Any) -> Any:
+    raise RuntimeError("the driver fell over")
+
+
+async def _hang_up_mid_body(path: str) -> None:
+    """Drive the app directly: `httpx` always finishes a body, a disconnecting client
+    does not."""
+    scope: dict[str, Any] = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"host", b"runtime"),
+            (b"content-type", b"application/json"),
+            (b"cf-connecting-ip", ENGINE_EGRESS_IP.encode()),
+            (b"content-length", b"400"),
+        ],
+        "client": (EDGE_PROXY_IP, 44444),
+        "server": ("runtime", 80),
+    }
+    inbox: list[dict[str, Any]] = [
+        {"type": "http.request", "body": b'{"execution_id":"exec_cut"', "more_body": True},
+        {"type": "http.disconnect"},
+    ]
+
+    async def receive() -> dict[str, Any]:
+        return inbox.pop(0) if inbox else {"type": "http.disconnect"}
+
+    async def send(_message: dict[str, Any]) -> None:
+        return None
+
+    await voice_app(scope, receive, send)
 
 
 async def test_no_module_is_imported_while_serving_a_request(
@@ -371,9 +452,20 @@ async def test_no_module_is_imported_while_serving_a_request(
     reached only when a collector is configured and is documented and measured where it
     lives. This test runs with tracing off, i.e. the deployment shape it is asserting
     about — so if that import ever escapes its `tracing_enabled()` guard, this fails.
+
+    **TWO WINDOWS, BECAUSE THE WARM-UP HIDES THE FIRST TIME.** The strict "nothing at all"
+    assertion can only see the SECOND pass — whatever the first request faults in is by
+    construction already there. That leaves a ONE-TIME lazy import on a rarely-taken branch
+    invisible to every guard in this file: the boot graph never sees it (it is inside a
+    function) and the warm-up swallows it (it happens once). Found by sabotage, not by
+    reading: an `import apps.api.compliance.service` planted on the `ClientDisconnect`
+    branch passed this test green. So the cold window is measured too, against `FORBIDDEN`
+    rather than against everything — the first request legitimately faults in framework
+    internals, and a banned module is never legitimate at any point in the process's life.
     """
     source_ip_allowlist(ENGINE_EGRESS_IP)
 
+    cold = set(sys.modules)
     async with _client(EDGE_PROXY_IP) as http:
         await _drive(http, uuid.uuid4().hex[:12])  # warm-up
         before = set(sys.modules)
@@ -386,6 +478,150 @@ async def test_no_module_is_imported_while_serving_a_request(
         f"{newly_imported}\nHard rule 3 budgets 500ms for the whole ack; an import is "
         "tens to hundreds of milliseconds of it, paid on a live call."
     )
+
+    banned = sorted(
+        f"{module} ({reason})"
+        for module in after - cold
+        for prefix, reason in FORBIDDEN.items()
+        if module == prefix or module.startswith(f"{prefix}.")
+    )
+    assert not banned, (
+        "serving a webhook pulled in a FORBIDDEN module on some branch:\n"
+        + "\n".join(f"  - {entry}" for entry in banned)
+        + "\nOnce is enough: the branch that does it is an error path, so the import is "
+        "paid by whichever live call happens to hit it first."
+    )
+
+
+# --- 4. what the process acquires AFTER boot, on the alert thread ------------
+#
+# The two sections above measure the boot graph and the request path. Between them they
+# miss one door, and it is open in production and shut in every test: `alert()` queues a
+# notice, a daemon thread drains it, and `alerting._deliver` does
+# `from apps.workers.transport import get_transport` — an import of a package this file's
+# FORBIDDEN list names, into this process, at runtime. It never fires here because
+# `ALERTS_EMAIL` is unset in the test environment, so `_recipient()` returns None and
+# nothing is queued at all.
+#
+# D-49 recorded the opposite as a property: "the import happens inside the delivery thread
+# so voice-runtime's forbidden `apps.workers` import surface stays clean". Deferring the
+# import moved it out of the BOOT graph, which is the only thing anything was checking; it
+# did not keep it out of the process. Measured below rather than argued.
+
+#: What a voice-runtime process acquires the first time an alert is DELIVERED.
+#:
+#: An equality-pinned exception, in the shape this repo already uses for a recorded gap
+#: (`check_redaction_exposure.KNOWN_SAFE_FIELDS`): the day it is closed this test goes red
+#: and the entry is deleted with it.
+#:
+#: WHY IT IS RECORDED RATHER THAN CLOSED HERE. The module is not worker code in any real
+#: sense — it is an SMTP client, stdlib-only, shared by `workers/notifications.py` and by
+#: `core/alerting.py` — and the fix is to move it to `apps/api/core/transport.py`, which is
+#: the tree voice-runtime already borrows as a library. That is a rename across two
+#: importers, a colocated unit test and three suites, i.e. a change whose whole cost is in
+#: files this slice does not own. What is NOT deferred is the visibility: the hole is now
+#: measured, named, and fails loudly the moment it grows.
+#:
+#: The harm today is bounded and stated: the import is stdlib-light (`smtplib`, `email`,
+#: `ssl`) and lands on a daemon thread, so it costs the ack path GIL contention for the
+#: duration of one import rather than a stall. The harm the FORBIDDEN list is really
+#: guarding against is the next reader concluding that `apps.workers` is reachable from
+#: here and reaching for something else in it.
+RUNTIME_IMPORTS_ON_THE_ALERT_THREAD: dict[str, str] = {
+    "apps.workers": (
+        "namespace package of `apps.workers.transport`, imported by "
+        "`alerting._deliver`. Closes when the SMTP transport moves under "
+        "`apps/api/core/`, which is the tree this service already borrows."
+    ),
+    "apps.workers.transport": (
+        "the SMTP/console/null transport `alerting._deliver` sends through. "
+        "Closes with the move above."
+    ),
+}
+
+_ALERT_PROBE = """
+import json, sys
+sys.path.insert(0, "apps/voice-runtime")
+sys.path.insert(1, ".")
+import main  # noqa: F401  — boot exactly as the ASGI server does
+from apps.api.core.alerting import alert, flush_alerts
+
+before = sorted(sys.modules)
+alert("ROUTE_HANDLER", "import_surface_probe", engine="bolna")
+delivered = flush_alerts(timeout=20.0)
+after = sorted(sys.modules)
+with open(sys.argv[1], "w") as handle:
+    json.dump({"before": before, "after": after, "delivered": delivered}, handle)
+"""
+
+
+def test_the_alert_delivery_thread_acquires_only_the_recorded_exception() -> None:
+    """Fire one alert in a freshly booted voice-runtime and diff `sys.modules`.
+
+    A subprocess for the same reason `_boot_modules` uses one: this pytest process has
+    already imported the entire monolith, so a delta measured inside it would be empty and
+    would prove nothing. `ALERTS_EMAIL` is set because that is the production shape —
+    OPERATIONS §8 makes "alerts firing to Sri's phone" a pre-launch gate, so a deployment
+    where this path never runs is a deployment that has failed its own gate.
+
+    `SMTP_HOST` is deliberately left unset: `get_transport()` then hands back the console
+    transport, so the probe exercises the IMPORT — which is the subject — without opening a
+    socket.
+    """
+    out = Path(tempfile.gettempdir()) / f"calevate-alert-surface-{uuid.uuid4().hex}.json"
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _ALERT_PROBE, str(out)],
+            cwd=REPO_ROOT,
+            env={
+                **os.environ,
+                "PYTHONPATH": "",
+                "ALERTS_EMAIL": "ops@example.test",
+                "SMTP_HOST": "",
+                "APP_ENV": "local",
+            },
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+        assert proc.returncode == 0, f"the alert probe failed:\n{proc.stderr[-3000:]}"
+        measured = json.loads(out.read_text())
+    finally:
+        out.unlink(missing_ok=True)
+
+    assert measured["delivered"], (
+        "the alert was never delivered, so this measured nothing — check that "
+        "ALERTS_EMAIL still selects a recipient and the console transport still reports "
+        "success"
+    )
+    acquired = {
+        module
+        for module in set(measured["after"]) - set(measured["before"])
+        if module.split(".")[0] not in sys.stdlib_module_names and not module.startswith("_")
+    }
+    assert acquired == set(RUNTIME_IMPORTS_ON_THE_ALERT_THREAD), (
+        "delivering one alert changed what this latency-critical process holds:\n"
+        + "\n".join(f"  - {module}" for module in sorted(acquired))
+        + "\n\nIf the transport has moved out of `apps.workers`, delete the matching "
+        "RUNTIME_IMPORTS_ON_THE_ALERT_THREAD entries — a recorded gap that outlives the "
+        "gap is a hole with a comment on it. If something NEW appeared, it is on the "
+        "shared-process side of hard rule 3 and needs the same argument as any boot import."
+    )
+
+
+def test_the_recorded_runtime_exception_is_forbidden_at_boot() -> None:
+    """The two lists must not drift into contradicting each other.
+
+    Everything in `RUNTIME_IMPORTS_ON_THE_ALERT_THREAD` is a module FORBIDDEN above. That
+    is what makes it an exception rather than a second opinion: if somebody legitimises
+    `apps.workers` in `FORBIDDEN`, this fails and the runtime record has to be revisited
+    in the same change rather than quietly becoming redundant.
+    """
+    for module in RUNTIME_IMPORTS_ON_THE_ALERT_THREAD:
+        assert any(module == prefix or module.startswith(f"{prefix}.") for prefix in FORBIDDEN), (
+            f"{module} is recorded as a runtime exception to a rule that no longer bans it"
+        )
 
 
 def test_the_docstring_that_promises_this_file_names_this_file() -> None:

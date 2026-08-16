@@ -74,7 +74,12 @@ from functools import lru_cache
 from typing import Any, Final, Protocol
 
 import httpx
-from calevate_shared.engine import GEMINI_DEFAULT_LLM, SARVAM_DEFAULT_LLM, VERTEX_LOCATION
+from calevate_shared.engine import (
+    GEMINI_DEFAULT_LLM,
+    GEMINI_MODEL_CONFIRMED_IN_REGION,
+    SARVAM_DEFAULT_LLM,
+    VERTEX_LOCATION,
+)
 from calevate_shared.extraction import (
     ExtractionField,
     ExtractionOutput,
@@ -273,10 +278,23 @@ def build_vertex_response_schema(spec: ExtractionSchemaSpec) -> dict[str, Any]:
     model reads the transcript for facts before it writes the summary that would
     otherwise anchor them.
 
+    A SCHEMA FIELD MAY COLLIDE WITH A FIXED ONE, and `ExtractionField.key`'s pattern
+    (`^[a-z][a-z0-9_]{0,39}$`) permits every one of the five — "Summary of complaint" is
+    an ordinary column for a client to author, and `summary` is the obvious key for it.
+    `properties` already resolved that the right way, because `.update()` lets the fixed
+    definition win and the five fixed keys are what `ExtractionOutput` promises. What it
+    did NOT resolve was the ORDER list, which listed the colliding key twice — a
+    `propertyOrdering` naming one property two times is a malformed OpenAPI object, so
+    one client's field name turned every assist for that tenant into a 400 the error
+    ladder could only report as `HTTPStatusError`. The fixed keys stay last: they are the
+    summary-and-judgement half, and reading the transcript for facts first is the whole
+    reason this list exists.
+
     ⚠ THE SCHEMA IS INPUT. It is serialised into the request and counted against the
-    input token budget — a 30-field schema with descriptions is not free, and it is the
-    reason PLAN Part 14 meters `llm_tok_in`-shaped usage on this path rather than
-    assuming the prompt is the whole cost.
+    input token budget — a 30-field schema with descriptions is not free, which is why
+    `VertexGeminiExtractor` reads Vertex's own `usageMetadata` back rather than counting
+    the prompt: `ai_assist_ktok_in` (D-137) has to be what the vendor charged for, and
+    the schema is the part of that number nobody would have thought to add up.
     """
     properties: dict[str, Any] = {field.key: _vertex_property(field) for field in spec.fields}
     properties.update(_VERTEX_FIXED_PROPERTIES)
@@ -284,8 +302,54 @@ def build_vertex_response_schema(spec: ExtractionSchemaSpec) -> dict[str, Any]:
         "type": "OBJECT",
         "properties": properties,
         "required": list(_VERTEX_FIXED_PROPERTIES),
-        "propertyOrdering": [*(field.key for field in spec.fields), *_VERTEX_FIXED_PROPERTIES],
+        "propertyOrdering": [
+            *(field.key for field in spec.fields if field.key not in _VERTEX_FIXED_PROPERTIES),
+            *_VERTEX_FIXED_PROPERTIES,
+        ],
     }
+
+
+@dataclass(frozen=True, slots=True)
+class TokenUsage:
+    """What one model call cost, in the vendor's own count.
+
+    Tokens, not thousands: `billing/ai_quota.ktok()` converts, once, where the money is,
+    because `qty` is `NUMERIC` and a division done here would arrive as a float.
+    """
+
+    prompt_tokens: int
+    output_tokens: int
+
+
+def _vertex_usage(body: dict[str, Any]) -> TokenUsage | None:
+    """Vertex's `usageMetadata` as our own record, or None if it did not send one.
+
+    NONE IS NOT ZERO and the difference is a billing one: a missing block means we do not
+    know what this call cost, and metering it as zero would quietly give one tenant a
+    free assist and move the platform brake by nothing. `record_ai_assist_usage` is
+    therefore never called on a None, and that is the caller's rule to keep.
+
+    `thoughtsTokenCount` is folded into OUTPUT. Every Gemini generation this repo has
+    shipped bills thinking tokens at the output rate — 2.5 Flash (`GEMINI_DEFAULT_LLM`
+    since the founder's `asia-south1` decision) as much as the 3.x tier it replaced — and
+    a reasoning model asked for structured JSON spends most of its budget there, so
+    counting only `candidatesTokenCount` would under-meter the very calls that cost the
+    most. It is added rather than replaced because Google reports the two separately and
+    `candidatesTokenCount` does not include it.
+    """
+    raw = body.get("usageMetadata")
+    if not isinstance(raw, dict):
+        return None
+
+    def _count(key: str) -> int:
+        value = raw.get(key)
+        return value if isinstance(value, int) and value >= 0 else 0
+
+    total_in = _count("promptTokenCount")
+    total_out = _count("candidatesTokenCount") + _count("thoughtsTokenCount")
+    if total_in == 0 and total_out == 0:
+        return None
+    return TokenUsage(prompt_tokens=total_in, output_tokens=total_out)
 
 
 class VertexGeminiExtractor:
@@ -329,6 +393,61 @@ class VertexGeminiExtractor:
         # adapter through httpx's real request plumbing (`httpx.MockTransport`) rather
         # than a hand-written stand-in that cannot get a URL wrong.
         self._client = client
+        #: What the LAST `run()` cost, as Vertex counted it — never as we counted it.
+        #:
+        #: MUTABLE STATE ON AN ADAPTER, deliberately, and the bound is what makes it
+        #: safe: `run_assist()` constructs one of these per assist and reads this
+        #: attribute in the next statement, so there is never a second `run()` to race
+        #: with. The rejected alternative was widening the `Extractor` Protocol to return
+        #: usage — which would make `OfflineExtractor` and `SarvamExtractor` answer a
+        #: question one of them cannot (no network) and the other need not (D-36 prices
+        #: the Sarvam leg at zero), i.e. two implementations forced to state a number
+        #: nobody meters. `record_ai_assist_usage` (D-137) meters GEMINI, because Gemini
+        #: is the leg that costs Calevate rupees.
+        self.last_usage: TokenUsage | None = None
+
+    def _log_refusal(self, status: int) -> None:
+        """The one place a Vertex non-2xx becomes something an operator can act on.
+
+        WHY THIS EXISTS AT ALL. `extract_call`'s ladder records `type(exc).__name__`, so
+        every failure on this path reached the log as the single word `HTTPStatusError` —
+        401 (the key), 403 (the IAM grant), 404 (the region does not serve this model),
+        429 (quota) and 503 (Google) all indistinguishable, on a path where the ONE
+        vendor fact D-127 could not verify from this repository is exactly the one a 404
+        answers. The status is the whole diagnosis and it was being thrown away.
+
+        THE BODY IS NEVER LOGGED (hard rule 6). Google's error bodies quote the request,
+        and the request on this path is a call transcript — redacted, but redacted text
+        is still transcript-derived and does not belong in a log line.
+        """
+        if status == 404:
+            # THE GATE, at the only moment anyone is looking. `check_model_residency`
+            # can prove the URL is regional; nothing in this repository can prove the
+            # region serves the model, and a 404 from a host that unambiguously belongs
+            # to our project is that proof arriving. Named so an operator greps it, and
+            # spelling the alternative out because the wrong fix is the tempting one.
+            log.error(
+                "vertex_model_not_served_in_region",
+                extra={
+                    "region": VERTEX_LOCATION,
+                    "model": self.model_name,
+                    "project": self._project,
+                    # READ, not quoted. The flag and the 404 that settles it belong in
+                    # one line, and a string naming the constant would drift off it.
+                    "confirmed_in_region": GEMINI_MODEL_CONFIRMED_IN_REGION,
+                    "remedy": (
+                        "Change GEMINI_DEFAULT_LLM to a model this region serves, then "
+                        "set GEMINI_MODEL_CONFIRMED_IN_REGION. Do NOT widen the region "
+                        "and do NOT use locations/global — D-127 disqualifies both, and "
+                        "check_model_residency will refuse the commit."
+                    ),
+                },
+            )
+            return
+        log.warning(
+            "vertex_request_refused",
+            extra={"status": status, "model": self.model_name, "project": self._project},
+        )
 
     async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:
         owns_client = self._client is None
@@ -364,8 +483,11 @@ class VertexGeminiExtractor:
         finally:
             if owns_client:
                 await client.aclose()
+        if response.is_error:
+            self._log_refusal(response.status_code)
         response.raise_for_status()
         body = response.json()
+        self.last_usage = _vertex_usage(body)
         # Gemini returns `candidates: []` on a safety block — a documented, ordinary
         # response, not an exception. Same reasoning as the Sarvam path above.
         candidates = body.get("candidates") or []
@@ -841,13 +963,27 @@ AI_STUDIO_KEY_REASON: Final = "ai_studio_key_disqualified"
 GEMINI_PROVIDER: Final = "gemini"
 SARVAM_PROVIDER: Final = "sarvam"
 
-#: Is a per-tenant assist quota enforced anywhere yet? No — PLAN Part 14 builds the
-#: metering, the ceiling and the wallet modal, and owns `usage_events`. This constant is
-#: the honest form of that gap: `assist_capability()` takes `quota_exhausted` as an
-#: argument and will answer correctly the moment something can compute it, and until then
-#: nothing computes it. A greppable boolean rather than a silence, so a document claiming
-#: quota enforcement exists fails `check_docs_drift` §5 rather than being believed.
-ASSIST_QUOTA_ENFORCED: Final = False
+#: Is a per-tenant assist quota enforced on a path a client can reach? YES, since D-146.
+#:
+#: This constant spent its whole life False and the paragraph under it moved twice, which
+#: is the argument for having minted it. D-137 built the ceiling (`require_ai_assist`),
+#: the idempotent writer (`record_ai_assist_usage`), the brake on our own key
+#: (`platform_ai_spend`) and the audited acceptance (`POST /v1/billing/ai-quota/extra`);
+#: D-142 added this module's two ends of the wire, `run_assist(quota_exhausted=…)` and
+#: `AssistResult.usage`. Every piece worked and nothing was enforced, because no route
+#: joined them — the state a greppable boolean exists to stop a document describing as
+#: "quota enforcement".
+#:
+#: `POST /v1/calls/{call_id}/assist` (`apps/api/crm/routes.py::assist_call`) is the middle.
+#: It calls `require_ai_assist` BEFORE the provider is paid, hands the verdict to
+#: `run_assist`, and meters `AssistResult.usage` back through `crm/assist.py::meter_assist`
+#: — the three lines this comment named as its own closing condition, in that order.
+#:
+#: What True does NOT claim, because the next reader will ask: an assist whose token count
+#: Vertex did not return is money spent that no ceiling can see. It is refused a ledger row
+#: rather than given a fabricated one, and it fires `ai_assist_unmeterable` so an operator
+#: learns the meter stopped. Enforcement is real; it is not omniscient.
+ASSIST_QUOTA_ENFORCED: Final = True
 
 #: What each fallback reason means, in the words the client reads. One sentence per code,
 #: written once: a disclosure composed at each surface is a disclosure that eventually
@@ -962,7 +1098,7 @@ def assist_capability(
 
     `quota_exhausted` and `provider_unavailable` are ARGUMENTS rather than reads. Neither
     is knowable from configuration: the first is a per-tenant month-to-date sum that
-    `usage_events` owns (PLAN Part 14 — `ASSIST_QUOTA_ENFORCED is False` until it lands),
+    `usage_events` owns (`require_ai_assist`, reached through `crm/routes.py::assist_call`),
     and the second is only knowable by having just tried. Passing them in keeps this
     function a pure function of its inputs, which is what lets one test drive all six
     states without a database.
@@ -1028,13 +1164,23 @@ def assist_unavailable(capability: AssistCapability) -> ProblemError:
 
 @dataclass(frozen=True, slots=True)
 class AssistResult:
-    """One user-triggered assist: what came back, and who wrote it."""
+    """One user-triggered assist: what came back, who wrote it, and what it cost.
+
+    `usage` is non-None only for a GEMINI answer that Vertex counted — the leg that
+    spends Calevate's rupees and the only one `record_ai_assist_usage` (D-137) has units
+    for. A Sarvam fallback leaves it None because D-36 prices that leg at zero, and a
+    Gemini answer whose `usageMetadata` did not arrive leaves it None because "we do not
+    know" and "it was free" must not meter the same.
+    """
 
     output: ExtractionOutput
     capability: AssistCapability
+    usage: TokenUsage | None = None
 
 
-async def run_assist(spec: ExtractionSchemaSpec, redacted_transcript: str) -> AssistResult:
+async def run_assist(
+    spec: ExtractionSchemaSpec, redacted_transcript: str, *, quota_exhausted: bool = False
+) -> AssistResult:
     """Run ONE user-triggered assist over REDACTED call text (D-127 G-2, G-6, G-7).
 
     THE INPUT GUARD IS THE POINT, and it is structural rather than documentary. G-2 says
@@ -1045,15 +1191,32 @@ async def run_assist(spec: ExtractionSchemaSpec, redacted_transcript: str) -> As
     `transcript_turns.text_redacted`, not `text`. This costs one regex sweep per assist
     and removes the whole class.
 
+    THE REFUSAL WAS UNREACHABLE UNTIL D-146, and the paragraph that said so is worth
+    keeping in its corrected form rather than deleting. This guard was written BEFORE any
+    caller existed, for `check_model_residency`'s reason — the mistake it catches is one
+    line of a route handler that nobody would re-read, and the moment to make it
+    impossible is before the handler exists rather than after it ships.
+
+    That bet paid immediately. `crm/routes.py::assist_call` is now the caller, and the
+    sabotage that swaps `text_redacted` for `text` in `crm/assist.py`'s one SQL string
+    does not first fail an assertion about bytes — it fails HERE, with
+    `assist_input_not_redacted`, from inside the function the route calls. The guard
+    catches the exact mistake its author predicted, in the exact place predicted.
+
     THE FALLBACK IS DISCLOSED, NEVER SILENT. Gemini failing mid-flight re-asks the ONE
     selector with `provider_unavailable=True` rather than deciding locally, so a surface
     can never grow its own idea of what a failure means; the answer that comes back
     carries `capability.disclosure`, which the response and the screen must show.
 
-    It deliberately does NOT meter, charge, or check a quota: `usage_events` and the
-    wallet modal are PLAN Part 14's, and a caller that owns the meter passes its verdict
-    in through `assist_capability`. Splitting it the other way would put money inside a
-    model adapter.
+    IT STILL DOES NOT METER OR CHARGE — `billing/ai_quota.py` owns both (D-137) — but it
+    is now WIRED to the half that decides. `quota_exhausted` is the verdict of
+    `require_ai_assist`, passed IN rather than read here, because the answer needs a
+    session and a tenant and this module has neither; without the parameter the ceiling
+    D-137 built could not reach the one function that runs an assist, which is a gate
+    with no door. What it returns is the other half: `AssistResult.usage` is what
+    `record_ai_assist_usage` needs for `tokens_in`/`tokens_out`, in Vertex's own count.
+    Money stays outside a model adapter; the numbers money is computed from come from it,
+    because nowhere else can see them.
     """
     if redact(redacted_transcript).changed:
         # An authored refusal, not an assertion: this is reachable by a caller mistake and
@@ -1069,7 +1232,7 @@ async def run_assist(spec: ExtractionSchemaSpec, redacted_transcript: str) -> As
             ),
         )
 
-    capability = assist_capability()
+    capability = assist_capability(quota_exhausted=quota_exhausted)
     if not capability.available:
         raise assist_unavailable(capability)
 
@@ -1077,15 +1240,16 @@ async def run_assist(spec: ExtractionSchemaSpec, redacted_transcript: str) -> As
         credentials = vertex_credentials()
         if credentials is not None:
             account, project = credentials
-            output = await extract_call(
-                spec, redacted_transcript, extractor=VertexGeminiExtractor(account, project)
-            )
+            extractor = VertexGeminiExtractor(account, project)
+            output = await extract_call(spec, redacted_transcript, extractor=extractor)
             failure = output.errors.get("_model")
             if failure is None:
                 # A schema-invalid FIELD is still an answer (`valid=False`, per-field
                 # errors) and belongs to the client to see. Only `_model` — the ladder's
                 # code for "the provider did not give us anything" — is a provider event.
-                return AssistResult(output=output, capability=capability)
+                return AssistResult(
+                    output=output, capability=capability, usage=extractor.last_usage
+                )
             # `extract_call` swallows a provider failure into `errors["_model"]` so a
             # post-call pipeline never loses a call over one. Here the user is waiting
             # and the answer is empty, so the same event means something different: ask
@@ -1093,9 +1257,13 @@ async def run_assist(spec: ExtractionSchemaSpec, redacted_transcript: str) -> As
             # locally what a Gemini outage means.
             log.warning(
                 "assist_provider_failed",
-                extra={"model": GEMINI_DEFAULT_LLM, "error": failure},
+                extra={"model": extractor.model_name, "error": failure},
             )
-        capability = assist_capability(provider_unavailable=True)
+        # `quota_exhausted` is re-stated rather than dropped: it cannot be True here
+        # today (the ladder blocks on it first, so this branch is unreachable with it
+        # set), and a re-ask that silently forgot an input would become wrong the moment
+        # somebody reorders those rungs.
+        capability = assist_capability(quota_exhausted=quota_exhausted, provider_unavailable=True)
         if not capability.available:
             raise assist_unavailable(capability)
 
@@ -1169,6 +1337,7 @@ __all__ = [
     "Extractor",
     "OfflineExtractor",
     "SarvamExtractor",
+    "TokenUsage",
     "VertexGeminiExtractor",
     "assist_capability",
     "assist_unavailable",

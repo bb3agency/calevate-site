@@ -28,6 +28,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -213,14 +214,16 @@ def test_a_refused_cartesia_delivery_is_labelled_cartesia_and_not_unknown() -> N
     collapsed to `unknown`.
     """
     labels: list[str] = []
-    with pytest.MonkeyPatch.context() as patched:
-        patched.setattr(
-            webhook_routes,
-            "record_webhook_ack_ms",
-            lambda elapsed, provider: labels.append(provider),
-        )
-        for engine in ("cartesia", "bolna", "twilio"):
-            webhook_routes._refuse(time.perf_counter(), engine)
+    # Driven through a spy METER, not by patching the module's recorder: which SERIES an
+    # ack lands in became a property of the `AckMeter` an endpoint carries when the in-call
+    # tool endpoint stopped sharing the receiver's `webhook_ack_ms` (D-147), so the meter is
+    # the seam that decides the label and therefore the one a test has to drive.
+    spy = replace(
+        webhook_routes.WEBHOOK_ACK,
+        record=lambda elapsed, *, provider: labels.append(provider),
+    )
+    for engine in ("cartesia", "bolna", "twilio"):
+        webhook_routes._refuse(time.perf_counter(), engine, meter=spy)
 
     assert labels == ["cartesia", "bolna", "unknown"]
 

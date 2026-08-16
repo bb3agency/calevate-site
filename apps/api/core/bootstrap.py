@@ -20,7 +20,7 @@ import signal
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 from types import FrameType
-from typing import Any
+from typing import Any, Final
 
 from fastapi import FastAPI, Request
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -111,6 +111,14 @@ def _install_signal_handlers() -> None:
             signal.signal(sig, _chain(previous))
 
 
+#: How many health-detail authorisations may run at once before the rest are denied the
+#: detail. Two, because the number only has to cover the humans who ask during one
+#: incident — a third simultaneous operator retries and gets it — while being small
+#: enough that this route cannot spend the shared thread pool `auth._signing_key_for`
+#: runs on. See `_ops_detail_gate` for why an unmetered route needs a number here at all.
+_DETAIL_GATE_CONCURRENCY: Final = 2
+
+
 def _ops_detail_gate() -> HealthDetailGate:
     """Answers "may this caller be told why we are unhealthy?" via the ONE ladder.
 
@@ -134,12 +142,59 @@ def _ops_detail_gate() -> HealthDetailGate:
     rather than swallowed together — "you did not present an `ops:manage` credential"
     is the ordinary case and is silent, "the check itself could not run" is not
     ordinary and gets a line an operator can act on.
+
+    ═══ AND IT IS BOUNDED, BECAUSE OF WHERE IT IS MOUNTED ═══
+
+    This gate put an AUTHENTICATION ATTEMPT on `/healthz` and `/healthz/ready`, which are
+    the two routes in the process with `ratelimit.PROFILES["exempt"]` — no per-client
+    limit at all, deliberately, because a probe must answer during an incident. What sits
+    behind an authentication attempt is `auth._signing_key_for`, whose own docstring says
+    it plainly: `PyJWKClient.get_signing_key` refetches the whole key set whenever the
+    `kid` is unknown and never memoises the failure, so ANY caller can force one fetch per
+    request by varying one field of an unsigned JWT, "and on `/healthz*` there is not even
+    a rate-limit profile in front of it". That fix moved the fetch off the event loop and
+    on to `asyncio.to_thread`; the thread pool it moved onto is `min(32, cpu+4)` threads
+    wide and is shared with every other blocking call in the process, so an unmetered
+    route feeding it is still an amplifier — a smaller one, aimed at a scarcer resource.
+    The half that was left open is the mounting, and that is this function's, not
+    `core.auth`'s.
+
+    Two bounds, in the order that makes the common case free:
+
+    1. **No credential, no check.** An uptime monitor and a load balancer send no
+       `Authorization` header, so the overwhelming majority of traffic here costs a header
+       read. This is not the security control — `requires` would refuse them anyway — it
+       is what keeps the control below from ever being reached by honest traffic.
+    2. **At most `_DETAIL_GATE_CONCURRENCY` authorisations in flight.** Past that the
+       detail is DENIED rather than queued, which is the right failure for this surface
+       and costs nothing an operator needs: everything withheld from the wire is written
+       to `health_not_ready` regardless (`core.health`), so the log line is intact, and a
+       single human with `curl` is never the request that loses the race.
+
+    A plain integer rather than an `asyncio.Semaphore`: the app is built once at import
+    and the test suite runs it under many event loops, and a semaphore binds itself to the
+    first loop that touches it (`asyncio.mixins._LoopBoundMixin`). Counting is correct
+    without one — an event loop is single-threaded, and the only `await` between the read
+    and the increment is none.
     """
     from apps.api.core.auth import requires
+    from apps.api.core.context import bearer_token
 
     guard = requires("ops:manage", realm="admin")
+    in_flight = 0
 
     async def _gate(request: Request) -> bool:
+        nonlocal in_flight
+        # The same reading `core.auth` and the limiter both use — D-135 made it one
+        # function so three layers cannot disagree about what a credential is.
+        if bearer_token(request.headers.get("authorization")) is None:
+            return False
+        if in_flight >= _DETAIL_GATE_CONCURRENCY:
+            # Not an error and not silent: it is the shape of an attempt to use this
+            # route as an amplifier, and it is the only place that shape is visible.
+            log.warning("health_detail_gate_saturated", extra={"in_flight": in_flight})
+            return False
+        in_flight += 1
         try:
             await guard(request)
         except ProblemError:
@@ -147,6 +202,8 @@ def _ops_detail_gate() -> HealthDetailGate:
         except Exception:
             log.warning("health_detail_gate_unavailable", exc_info=True)
             return False
+        finally:
+            in_flight -= 1
         return True
 
     return _gate

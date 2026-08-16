@@ -302,8 +302,20 @@ def assert_policy_registry_complete(app: FastAPI) -> None:
         enforced, identified = route_enforcement(route)
         if not identified:
             offenders.append(f"{name} declares {declared} but authenticates nobody")
-        elif enforced and declared not in enforced:
-            offenders.append(f"{name} declares {declared} but enforces {sorted(enforced)}")
+        elif declared not in enforced:
+            # NOT `elif enforced and declared not in enforced`. That spelling exempted an
+            # EMPTY enforcement set from the comparison, which is the WORST case rather
+            # than a case with nothing to compare: a route carrying
+            # `Depends(current_any)` (an identity, no permission) beside
+            # `permission_meta("ops:manage")` satisfied every clause here and was open to
+            # every signed-in caller of that realm. That is not hypothetical — `GET
+            # /v1/me` shipped in exactly that shape, and `tests/authz_audit_test.py`
+            # drove a `staff` member of one tenant into an `ops:manage` route and an
+            # `operator` into a `platform:secrets` one while this assertion stayed green.
+            offenders.append(
+                f"{name} declares {declared} but enforces "
+                f"{sorted(enforced) if enforced else 'nothing — it only resolves an identity'}"
+            )
     if checked == 0:
         # A registry that checks nothing is worse than no registry: it reads as a
         # passing guardrail. If route discovery ever breaks again, fail loudly.

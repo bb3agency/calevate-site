@@ -40,6 +40,7 @@ invisible while it happens.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterator
@@ -721,3 +722,252 @@ async def test_the_deadline_does_not_swallow_a_handled_refusal(
 
     assert response.status_code == 409, response.text
     assert response.json()["type"].endswith("/webhook_payload_mismatch")
+
+
+# --- 3. the OTHER unbounded wait: the body itself -----------------------------
+#
+# §2's header says "nothing measures its way out of a hung socket" and then bounds the one
+# socket it found. There were two. `_read_bounded` iterates `request.stream()` bounded in
+# BYTES and not in TIME, so a caller that dribbles held this handler for as long as it
+# cared to. Measured before the bound existed, through the real app: a body delivered in
+# seven chunks 250ms apart came back **202 with `X-Ack-Ms: 1506.1`** — hard rule 3's budget
+# breached threefold, measured correctly, alerted correctly, and bounded by nothing.
+#
+# THE EDGE IS NOT A BOUND HERE, which is what makes it this file's problem. `hooks.` is the
+# one vhost that sets `proxy_request_buffering off` (infra/nginx/calevate.conf.template) so
+# that the ack clock starts at the first byte the app sees — the app is therefore exposed
+# to the client's own pacing, and nginx's `client_body_timeout` bounds the gap between
+# reads (60s by default), never the total. One byte a minute is inside every timeout in the
+# chain.
+
+
+async def test_a_dribbled_body_is_abandoned_at_the_read_deadline_not_waited_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A body that arrives slowly must stop being our problem at the deadline.
+
+    THE DEADLINE IS PATCHED, NOT THE CLOCK, for the reason the budget-alert test above
+    gives: the real timing path runs, the real elapsed value goes through the real
+    comparison, and only the threshold moves. The trickle below outlasts any plausible
+    setting, so this asserts an abandon rather than a race with the runner.
+
+    The answer must be an ERROR and not a 202, by the same argument as the claim deadline:
+    the vendor does not retry either way, so the only question is whether WE know. A 408
+    alerts and hands the execution to the 10-minute poller (D-31); a 202 over a body we
+    never read is a call that quietly vanishes.
+    """
+    raised: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        webhook_routes, "alert", lambda kind, reason, **fields: raised.append((kind, reason))
+    )
+    monkeypatch.setattr(webhook_routes, "_BODY_DEADLINE_S", 0.25)
+
+    execution_id, status, _ = _event()
+
+    async def _trickle() -> AsyncIterator[bytes]:
+        yield b'{"execution_id":"' + execution_id.encode() + b'","status":"'
+        for _ in range(20):
+            await asyncio.sleep(0.1)
+            yield b"a"
+        yield b'"}'
+
+    started = time.perf_counter()
+    async with _client(tolerate_crash=True) as http:
+        response = await http.post(
+            HOOK, content=_trickle(), headers={**HEADERS, "content-type": "application/json"}
+        )
+    elapsed = time.perf_counter() - started
+
+    assert response.status_code == 408, response.text
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["type"].endswith("/body_read_timeout")
+    assert elapsed < 1.5, f"the handler held the request for {elapsed:.1f}s past its deadline"
+    assert ("ROUTE_HANDLER", "webhook_body_timeout") in raised, raised
+    assert "X-Ack-Ms" in response.headers, "an abandoned read is the response most worth timing"
+
+    # Nothing claimed, nothing queued: the execution is still the poller's to recover.
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text("SELECT count(*) FROM webhook_inbox_events WHERE event_key = :k"),
+                {"k": f"{execution_id}:{status}"},
+            )
+        ).scalar()
+    assert rows == 0
+
+
+def test_the_body_deadline_is_bounded_and_sits_above_the_alert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The two numbers do different jobs, and the gap between them is the design.
+
+    500ms is the ALERT — something is wrong, look at it. The deadline is the ABANDON —
+    nothing is coming, stop holding the request. A read deadline AT the ack budget would
+    drop a delivery from a merely slow sender and hand it to the 10-minute poller, turning
+    a latency blip into a pipeline outage; an unbounded one is what shipped. Both ends are
+    pinned so neither can be closed by accident.
+    """
+    assert webhook_routes._BODY_DEADLINE_S >= 2 * (webhook_routes._ACK_BUDGET_MS / 1000)
+    assert webhook_routes._BODY_DEADLINE_S <= 5.0, (
+        "a body that has not arrived in five seconds is not arriving; holding the request "
+        "past that is the failure mode this bound exists to remove"
+    )
+
+
+async def _post_with_disconnect(path: str, sent: bytes) -> tuple[int, dict[str, str]]:
+    """POST `sent` as a partial body, declare more, then hang up. Raw ASGI.
+
+    `httpx.ASGITransport` cannot express a half-open request — it always finishes the body
+    — so this drives the app object directly. The scope is exactly what uvicorn builds for
+    a request through nginx: a trusted peer, the edge header, a `content-length` the client
+    never satisfies.
+    """
+    scope: dict[str, Any] = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"host", b"runtime"),
+            (b"content-type", b"application/json"),
+            (b"cf-connecting-ip", ENGINE_EGRESS_IP.encode()),
+            (b"content-length", str(len(sent) + 200).encode()),
+        ],
+        "client": (EDGE_PROXY_IP, 44444),
+        "server": ("runtime", 80),
+    }
+    inbox: list[dict[str, Any]] = [
+        {"type": "http.request", "body": sent, "more_body": True},
+        {"type": "http.disconnect"},
+    ]
+
+    async def receive() -> dict[str, Any]:
+        return inbox.pop(0) if inbox else {"type": "http.disconnect"}
+
+    seen: dict[str, Any] = {"status": 0, "headers": {}}
+
+    async def send(message: dict[str, Any]) -> None:
+        if message["type"] == "http.response.start":
+            seen["status"] = message["status"]
+            seen["headers"] = {k.decode().lower(): v.decode() for k, v in message["headers"]}
+
+    await voice_app(scope, receive, send)
+    return int(seen["status"]), dict(seen["headers"])
+
+
+@pytest.mark.parametrize(
+    ("label", "path", "sent", "series"),
+    [
+        ("receiver", HOOK, b'{"execution_id":"exec_cut","status":"comp', "webhook_ack_ms"),
+        ("in-call tool", "/tools/v1/bolna/opt-out", b'{"execution_id":"exec_cut"', "tool_ack_ms"),
+    ],
+)
+async def test_a_caller_that_hangs_up_mid_body_is_answered_not_crashed(
+    label: str,
+    path: str,
+    sent: bytes,
+    series: str,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A truncated POST used to be an `unhandled_exception`, and the alarm was the damage.
+
+    Starlette raises `ClientDisconnect` out of `request.stream()` and nothing caught it, so
+    a client hanging up half way through a body produced an ERROR traceback, a 500, and an
+    `alert()` under the `ROUTE_HANDLER:unhandled_exception` fingerprint. That last one is
+    the part that matters: `alerting._admit` suppresses repeats of a fingerprint for 15
+    minutes, so one half-open POST every quarter of an hour — free from anywhere the source
+    check lets through, and indistinguishable from a flaky mobile network — kept the
+    receiver's REAL crash alarm permanently silent. An availability control that a stranger
+    can switch off is not a control.
+
+    Both handlers in this service read their body through the same helper, so both are
+    asserted: a fix that covered only the receiver would leave the in-call endpoint, which
+    is the one with a caller on the line, raising 500s at a disconnecting engine.
+    """
+    raised: list[str] = []
+    monkeypatch.setattr(
+        webhook_routes, "alert", lambda kind, reason, **fields: raised.append(reason)
+    )
+
+    with caplog.at_level(logging.INFO, logger="calevate.metric"):
+        status, headers = await _post_with_disconnect(path, sent)
+
+    assert status == 400, f"{label}: a hang-up must be a chosen answer, not a crash"
+    # Raw ASGI, so the header names arrive as they go on the wire: lower-cased.
+    assert "x-ack-ms" in headers, f"{label}: the response is still measured"
+    assert raised == [], f"{label}: a hang-up must not burn an alert fingerprint: {raised}"
+    assert [
+        getattr(record, "metric", None)
+        for record in caplog.records
+        if record.name == "calevate.metric"
+    ] == [series], f"{label}: the abandoned read must land in its own endpoint's series"
+
+
+# --- 4. every exit is measured, not just the ones the handler raises by hand ---
+
+
+async def test_every_non_ack_exit_reports_and_records_its_ack(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The module docstring claims the budget is "measured AND reported on every response
+    path". It was true of the acks and of the refusals raised in the handler's own frame,
+    and false of the two raised elsewhere: the inbox's 409 (`webhook_payload_mismatch`,
+    three frames down) and any unhandled exception. Both shipped with NO `X-Ack-Ms` and no
+    `webhook_ack_ms` sample — driven and confirmed before the fix.
+
+    That is the hole `_refuse` was written to close one layer up, in the same shape: under
+    a doctored-replay run or a sick driver the series goes SILENT rather than spiking, and
+    on a graph silence is indistinguishable from a quiet night.
+
+    A 500 gets no header — its problem+json is assembled by `install_error_handlers`,
+    outside the handler's frame — so the METRIC is what is asserted there. Everything a
+    caller can hold in its hand gets both.
+    """
+    execution_id, status, _ = _event()
+
+    async def _mismatch(*_args: Any, **_kwargs: Any) -> Any:
+        raise webhook_routes.ProblemError.conflict("webhook_payload_mismatch", "different content")
+
+    async def _boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("the driver fell over")
+
+    with caplog.at_level(logging.INFO, logger="calevate.metric"):
+        # 401 — off the allowlist; already measured, asserted here so the set is complete.
+        async with _client(ATTACKER_IP) as stranger:
+            refused = await stranger.post(HOOK, json=_body(execution_id, status))
+        async with _client(tolerate_crash=True) as http:
+            # 413 — over the cap.
+            oversized = await http.post(HOOK, content=b"x" * 2_000_000, headers=HEADERS)
+            # 409 — the inbox refuses a key it holds with different content.
+            monkeypatch.setattr(webhook_routes, "claim_inbox_event", _mismatch)
+            conflicted = await http.post(HOOK, json=_body(execution_id, status), headers=HEADERS)
+            # 500 — anything else.
+            monkeypatch.setattr(webhook_routes, "claim_inbox_event", _boom)
+            crashed = await http.post(HOOK, json=_body(execution_id, status), headers=HEADERS)
+
+    for label, response in (
+        ("401", refused),
+        ("413", oversized),
+        ("409", conflicted),
+    ):
+        assert "X-Ack-Ms" in response.headers, f"{label} carried no X-Ack-Ms"
+        assert float(response.headers["X-Ack-Ms"]) >= 0, label
+    assert (refused.status_code, oversized.status_code) == (401, 413)
+    assert (conflicted.status_code, crashed.status_code) == (409, 500)
+
+    samples = [
+        record
+        for record in caplog.records
+        if record.name == "calevate.metric" and getattr(record, "metric", None) == "webhook_ack_ms"
+    ]
+    assert len(samples) == 4, (
+        "every response is one sample in the ack series, refusals and crashes included; "
+        f"saw {len(samples)}"
+    )
+    assert {str(record.provider) for record in samples} == {"bolna"}

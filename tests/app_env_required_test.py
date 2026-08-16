@@ -111,6 +111,40 @@ def test_a_typo_is_not_a_statement() -> None:
         validate_bootstrap_env({**FORGETFUL_PROD_ENV, "APP_ENV": "prd"})
 
 
+#: Values that are a legal environment with something invisible attached. A trailing
+#: newline is the realistic one: `echo APP_ENV=prod >> .env`, a heredoc, a CI secret
+#: pasted with a line break.
+PADDED_ENVIRONMENTS = ("local ", " prod", "prod\n", "\tstaging")
+
+
+@pytest.mark.parametrize("value", PADDED_ENVIRONMENTS)
+def test_the_gate_refuses_what_pydantic_will_refuse(value: str) -> None:
+    """The gate's answer must be the same answer the type gives, or the gate is theatre.
+
+    MEASURED BEFORE THE FIX: `APP_ENV='local '` PASSED `validate_bootstrap_env` — it
+    compared `env.get("APP_ENV", "").strip()` — and then `Settings()` raised
+    `ValidationError`, because pydantic does not strip. So the one gate whose entire job
+    is converting that ValidationError into a sentence waved the value through and let
+    the process die in the traceback it exists to prevent, one invisible character in.
+
+    It fails CLOSED either way, which is why this is a legibility defect rather than a
+    security one — but the legibility IS the feature (BACKEND-PATTERNS §2 step 1), and
+    the operator meeting it has just rolled out.
+
+    Both halves are asserted together on purpose: a gate that refuses a value the type
+    would ACCEPT would be the opposite failure and is just as much a defect.
+    """
+    with pytest.raises(BootstrapError) as raised:
+        validate_bootstrap_env({**FORGETFUL_PROD_ENV, "APP_ENV": value})
+    assert "whitespace" in str(raised.value), (
+        "the message must name what is actually wrong — 'prod\\n' is not a typo, and "
+        "telling the operator it is not a known environment sends them to re-read a "
+        "word they spelled correctly"
+    )
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, app_env=value, **_settings_kwargs())  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize("environment", ENVIRONMENTS)
 def test_every_environment_the_type_allows_passes_the_gate(environment: str) -> None:
     """The gate reads its allowed set off the `Environment` Literal, so widening the

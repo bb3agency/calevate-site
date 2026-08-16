@@ -126,6 +126,9 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
     what their `rag_id`-addressed CRUD API (TRD §5) does.
     """
     knowledge_bases: dict[str, dict[str, Any]] = {}
+    #: The numbers this stub has been asked to dial, so each dial gets its own execution
+    #: id. See the `POST /call` branch.
+    placed: list[str] = []
     # The AGENT store, and it is stateful for the same reason the KB routes are: a stub
     # that answered every `GET /v2/agent/{id}` with the body of the last write would let
     # an adapter that echoes what it was handed pass the read-back clause, which is the
@@ -177,7 +180,13 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
         if path == "/call" and request.method == "POST":
             body = json.loads(request.content or b"{}")
             assert body["recipient_phone_number"].startswith("+"), "E.164 only"
-            return httpx.Response(200, json={"execution_id": "exec_abc123"})
+            # A DISTINCT id per dial, derived from the number dialled. A stub that answered
+            # every `POST /call` with one execution id made two calls indistinguishable, so
+            # any clause about telling two executions apart — the archived document is the
+            # first — could only ever be failed by the stub. Vendors mint one id per call;
+            # a stub that does not is a stub that hides that class of defect.
+            placed.append(body["recipient_phone_number"])
+            return httpx.Response(200, json={"execution_id": f"exec_abc{len(placed):03d}"})
         if path == "/knowledgebase" and request.method == "POST":
             body = json.loads(request.content or b"{}")
             rag_id = f"kb_{len(knowledge_bases) + 1}"
@@ -202,7 +211,11 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
             rows = [{**BOLNA_COMPLETED, "id": f"exec_list_{i}"} for i in range(listing_rows)]
             return httpx.Response(200, json={"data": rows})
         if path.startswith("/executions/"):
-            return httpx.Response(200, json=BOLNA_COMPLETED)
+            # The id is ECHOED from the path. Answering with the fixture's own id for any
+            # id asked about is the `get_agent` echo defect wearing a different route: it
+            # makes one execution's document indistinguishable from another's, which the
+            # archive clause exists to refuse.
+            return httpx.Response(200, json={**BOLNA_COMPLETED, "id": path.rsplit("/", 1)[-1]})
         return httpx.Response(404, json={"error": "not found"})
 
     return handler
@@ -234,6 +247,7 @@ def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
     """
     agents: dict[str, dict[str, Any]] = {}
     documents: dict[str, dict[str, dict[str, Any]]] = {}
+    placed: list[str] = []
 
     def agent_id_for(body: dict[str, Any]) -> str:
         # Derived from the NAME: stable across a re-create (the ref-stability clause needs
@@ -257,14 +271,22 @@ def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
         if path == "/agents/calls" and method == "POST":
             assert body["outbound_calls"][0]["to_number"].startswith("+"), "E.164 only"
             assert body.get("from_number_id"), "a caller id must be named"
-            return httpx.Response(200, json={"outbound_calls": [{"agent_call_id": "cart_call_1"}]})
+            # One id per dial, for the reason the Bolna stub mints one: a stub that cannot
+            # tell two calls apart makes every clause about two calls unfailable.
+            placed.append(body["outbound_calls"][0]["to_number"])
+            return httpx.Response(
+                200, json={"outbound_calls": [{"agent_call_id": f"cart_call_{len(placed)}"}]}
+            )
         if path == "/agents/calls" and method == "GET":
             rows = [{**CARTESIA_COMPLETED, "agent_call_id": f"c_{i}"} for i in range(listing_rows)]
             return httpx.Response(200, json={"calls": rows})
         if path.startswith("/agents/calls/") and path.endswith("/end"):
             return httpx.Response(200, json={"status": "ended"})
         if path.startswith("/agents/calls/") and method == "GET":
-            return httpx.Response(200, json=CARTESIA_COMPLETED)
+            # Echo the id asked about — see the Bolna stub's `/executions/` branch.
+            return httpx.Response(
+                200, json={**CARTESIA_COMPLETED, "agent_call_id": path.rsplit("/", 1)[-1]}
+            )
         if path == "/agents" and method == "POST":
             agent_id = agent_id_for(body)
             agents[agent_id] = body

@@ -46,8 +46,8 @@ const ME: Me = {
   // permission the CSV export route requires (core/rbac.py).
   permissions: ["leads:read", "leads:write", "leads:dispatch", "calls:read_raw"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
-} as unknown as Me;
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+};
 
 /** Published, live and able to dial out — the three things `canDial` asks for. */
 const DIALER: Agent = {
@@ -56,7 +56,13 @@ const DIALER: Agent = {
   published: true,
   status: "live",
   direction: "outbound",
-} as unknown as Agent;
+  // Hard rule 5: an agent ALWAYS carries a non-null disclosure line. These fixtures had
+  // none — `as unknown as Agent` is why nobody noticed.
+  language_primary: "te-IN",
+  disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  engine: "bolna",
+  extraction_fields: [],
+};
 
 /**
  * The account's team, as `/v1/members` sends it: ids and display names, NO email
@@ -72,12 +78,12 @@ const MEMBERS: Member[] = [PRIYA, KIRAN];
  * the status select and the owner picker. `crm.columns` is the server's registry; these
  * are its keys and labels.
  */
-const DEFAULT_COLUMNS = [
+const DEFAULT_COLUMNS: LeadList["columns"] = [
   { key: "name", label: "Name", kind: "fixed", type: "text" },
   { key: "phone", label: "Phone", kind: "fixed", type: "text" },
   { key: "status", label: "Status", kind: "fixed", type: "enum" },
   { key: "owner", label: "Owner", kind: "fixed", type: "text" },
-] as const;
+];
 
 function lead(over: Partial<Lead> = {}): Lead {
   return {
@@ -96,7 +102,7 @@ function lead(over: Partial<Lead> = {}): Lead {
     assigned_to: null,
     assigned_to_name: null,
     ...over,
-  } as Lead;
+  };
 }
 
 /**
@@ -121,7 +127,7 @@ function leadList(items: Lead[], over: Partial<LeadList> = {}): LeadList {
     offset: 0,
     status_counts_matching_search: { new: 0, contacted: 0, interested: 0, hot: 0, won: 0, lost: 0 },
     ...over,
-  } as LeadList;
+  };
 }
 
 function routes(over: Record<string, unknown> = {}) {

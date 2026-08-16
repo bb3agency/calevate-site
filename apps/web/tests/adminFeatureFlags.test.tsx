@@ -53,7 +53,7 @@ function tenant(): TenantSummary {
     last_call_at: null,
     holds: [],
     capped: false,
-  } as TenantSummary;
+  };
 }
 
 function me(permissions: string[]): AdminMe {
@@ -62,7 +62,7 @@ function me(permissions: string[]): AdminMe {
     user_id: "0192f0aa-8888-7000-8000-0000000000a2",
     role: "operator",
     permissions,
-  } as AdminMe;
+  };
 }
 
 const OPERATOR = me(["org:read", "admin:tenants"]);

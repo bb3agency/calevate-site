@@ -211,7 +211,16 @@ async def write_prompt_version(
 
 async def list_prompt_versions(session: AsyncSession, agent_id: UUID) -> list[dict[str, Any]]:
     """History, newest first. `active` = the version `agents.system_prompt_id` names —
-    derived from the pointer rather than stored, so it cannot drift."""
+    derived from the pointer rather than stored, so it cannot drift.
+
+    404s an agent that is not there, through `_agent_state` — the same predicate the two
+    WRITES in this module already go through, so all three answer one id the same way.
+    Without it the empty list was ambiguous in the one direction that matters: "no script
+    has been written yet" is a REAL state of a real agent (it is what `publish` refuses
+    as `agent_has_no_script`), so a mistyped agent id, a neighbour's agent under RLS and
+    a soft-deleted one all rendered as a live agent awaiting its first prompt.
+    """
+    await _agent_state(session, agent_id)
     rows = (
         await session.execute(
             text(

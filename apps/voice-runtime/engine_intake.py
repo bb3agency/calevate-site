@@ -200,11 +200,29 @@ _MAX_KEY_FIELD = 128
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 
 
+#: The three spellings a payload may name its execution by, in the order we trust them.
+#: The tool payload's shape is an ASSUMPTION about the engine's custom-function mechanism
+#: (OPERATIONS §2 gate 8), not a verified contract, so betting on one spelling would be a
+#: guess with no fallback; the webhook path has always accepted the first two.
+_EXECUTION_ID_FIELDS = ("execution_id", "id", "call_id")
+
+
 def _keyable(value: str) -> str | None:
-    """`value` if it can safely become part of a durable key, else None."""
-    if not value or len(value) > _MAX_KEY_FIELD or _CONTROL_CHARS.search(value):
+    """The part of `value` that can safely become a durable key, or None if none of it can.
+
+    SURROUNDING WHITESPACE IS STRIPPED, NOT REJECTED, and that is the point rather than a
+    tidiness: this value is concatenated into `webhook_inbox_events.event_key` and into the
+    ARQ job id, so `"exec_1 "` and `"exec_1"` were TWO units of work for one transition —
+    two inbox rows, two jobs, and a post-call pipeline that runs twice on a call whose
+    `usage_events` are append-only (hard rule 4, where a double charge is uncorrectable by
+    construction). `raw_status` was already half-normalised (`.lower()` in `extract`) and
+    that is exactly the shape of bug a half-normalisation leaves behind. Padding is free to
+    produce at an unsigned endpoint, so this is a control and not a courtesy.
+    """
+    trimmed = value.strip()
+    if not trimmed or len(trimmed) > _MAX_KEY_FIELD or _CONTROL_CHARS.search(trimmed):
         return None
-    return value
+    return trimmed
 
 
 def execution_key(payload: dict[str, Any]) -> str | None:
@@ -212,15 +230,21 @@ def execution_key(payload: dict[str, Any]) -> str | None:
 
     Split out of `extract` so the in-call tool route (`tool_routes.py`) can ask the same
     question without the status half — a tool call carries no lifecycle status, and
-    inventing one for it would put a fictional transition into a dedupe key. Three
-    spellings are accepted because the tool payload's shape is an ASSUMPTION about the
-    engine's custom-function mechanism (OPERATIONS §2 gate 8), not a verified contract;
-    the webhook path has always accepted the first two.
+    inventing one for it would put a fictional transition into a dedupe key.
+
+    EACH SPELLING IS TRIED, rather than `a or b or c` then one type check. That chain read
+    the first field that was merely TRUTHY and then discarded the payload if it was not a
+    string, so `{"execution_id": 12345, "call_id": "exec_abc"}` — a vendor sending a
+    numeric id in one field and a usable one in another — was answered `unkeyable` with a
+    perfectly good key sitting one field to the right. The fallback existed precisely for
+    a payload shape we have not verified; a fallback that only survives a FALSY first
+    field is not one.
     """
-    value = payload.get("execution_id") or payload.get("id") or payload.get("call_id")
-    if not isinstance(value, str):
-        return None
-    return _keyable(value)
+    for field in _EXECUTION_ID_FIELDS:
+        value = payload.get(field)
+        if isinstance(value, str) and (keyed := _keyable(value)) is not None:
+            return keyed
+    return None
 
 
 def extract(payload: dict[str, Any]) -> IntakeEvent | None:

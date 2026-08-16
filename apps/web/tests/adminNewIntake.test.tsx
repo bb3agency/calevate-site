@@ -62,7 +62,7 @@ function me(permissions: string[]): AdminMe {
     user_id: "0192f0aa-7777-7000-8000-0000000000f2",
     role: "operator",
     permissions,
-  } as AdminMe;
+  };
 }
 
 /** What `core/rbac.py` gives an `operator` — `agents:write` among them. */

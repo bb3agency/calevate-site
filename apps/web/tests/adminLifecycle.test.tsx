@@ -47,7 +47,7 @@ function tenant(status = "active"): TenantSummary {
     last_call_at: null,
     holds: [],
     capped: false,
-  } as TenantSummary;
+  };
 }
 
 const ME: AdminMe = {
@@ -55,7 +55,7 @@ const ME: AdminMe = {
   user_id: "0192f0aa-7777-7000-8000-0000000000d2",
   role: "operator",
   permissions: ["org:read", "admin:tenants"],
-} as AdminMe;
+};
 
 function render(routes: Partial<Routes> = {}) {
   return renderAdminRoute(<LifecyclePage params={routeParams({ tenantId: TENANT })} />, {
@@ -71,7 +71,7 @@ const SUPERADMIN: AdminMe = {
   ...ME,
   role: "superadmin",
   permissions: ["org:read", "admin:tenants", "ops:manage"],
-} as AdminMe;
+};
 
 /** The erasure panel only ever renders for a CLOSED account — the API 409s any other. */
 function renderClosed(routes: Partial<Routes> = {}) {

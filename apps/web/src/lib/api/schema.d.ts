@@ -1550,6 +1550,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls/{call_id}/assist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-summarise this call with the assistant model — metered, quota-gated (D-127)
+         * @description Runs the dashboard assistant over this call's REDACTED transcript and returns a fresh summary. Nothing is stored: the call's own summary and captured fields are the first pass over the raw transcript and are left alone. Refused before any model is called when the account is past its included AI allowance — the screen opens the wallet dialog on `ai_quota_exceeded`. A `Idempotency-Key` header is REQUIRED so a double-click is paid for once. Requires `org:manage`.
+         */
+        post: operations["assist_call_v1_calls__call_id__assist_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls/{call_id}/callback": {
         parameters: {
             query?: never;
@@ -3082,6 +3102,8 @@ export interface paths {
          * @description 204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted
          *     holds a phone number, and the response to "stop suppressing this" is not the place
          *     to repeat it. The `source` this reads is for the audit row.
+         *
+         *     The confirmation names THIS row — see `release_globally_confirmation`.
          */
         delete: operations["release_globally_v1_ops_dnc_global__entry_id__delete"];
         options?: never;
@@ -3719,6 +3741,30 @@ export interface components {
             /** Label */
             label: string;
         };
+        /**
+         * CallAssistOut
+         * @description One user-triggered re-summarise of a call (D-127 G-2/G-5/G-6).
+         *
+         *     **EVERY FIELD IS REQUIRED — none carries a Pydantic default.** A default here
+         *     generates an OPTIONAL property in the client this repo generates from OpenAPI, and
+         *     all three of these are facts the screen has to state rather than shapes it may skip:
+         *     an absent `disclosure` would render a Sarvam answer as the assistant's own (the one
+         *     outcome G-6 rules out), and an absent `metered` would render "this cost you nothing"
+         *     as the default for an assist that cost the allowance.
+         *
+         *     Nothing here is persisted. The stored `calls.summary` is the FIRST pass, over the raw
+         *     transcript; this is a second reading over the redacted copy, held for as long as the
+         *     person is looking at it (`crm/assist.py` argues why overwriting one with the other
+         *     would degrade the lead and rewrite history).
+         */
+        CallAssistOut: {
+            /** Disclosure */
+            disclosure: string | null;
+            /** Metered */
+            metered: boolean;
+            /** Summary */
+            summary: string;
+        };
         /** CallCapOut */
         CallCapOut: {
             /**
@@ -3778,6 +3824,8 @@ export interface components {
             id: string;
             /** Lead Id */
             lead_id?: string | null;
+            /** Moments */
+            moments: components["schemas"]["CallMomentOut"][];
             /** Outcome Tag */
             outcome_tag?: string | null;
             /** Sentiment */
@@ -3818,6 +3866,37 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "blocked";
+        };
+        /**
+         * CallMomentOut
+         * @description One jump-to point in a call's recording.
+         *
+         *     `label` follows the SAME redaction switch as the transcript on the model it hangs
+         *     off: `get_call(raw=False)` fills it from the redacted text and `raw=True` from the
+         *     raw, so a marker can never be the one field on this screen that leaks (hard rule 5).
+         *     There is no second `label_raw` on the wire — one field whose contents depend on the
+         *     endpoint you called is the shape the transcript already established, and a second
+         *     field would be a second thing to forget to gate.
+         *
+         *     `source` is what a reader needs to know how much to trust `at_ms`. A `derived` marker
+         *     was computed from the transcript's own turn offsets and cannot be at the wrong second;
+         *     a `model` one is a suggestion from an unmeasured model (D-36) and the screen says so.
+         */
+        CallMomentOut: {
+            /** At Ms */
+            at_ms: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "field_captured" | "opt_out" | "highlight";
+            /** Label */
+            label: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "derived" | "model";
         };
         /** CallSummaryOut */
         CallSummaryOut: {
@@ -5911,6 +5990,46 @@ export interface components {
             minutes_used: string;
         };
         /**
+         * KbDriftOut
+         * @description How far the KNOWLEDGE on the voice platform has drifted from what we approved
+         *     (D-158) — the same measurement as `EngineDriftOut`, on the other object.
+         *
+         *     WHY A SECOND FIELD AND NOT A SECOND ENDPOINT: `EngineDriftOut`'s argument exactly —
+         *     one read, one permission, and no new entry in `ADMIN_CONSOLE_GETS` (a GET declaring
+         *     `ops:manage` has to be allowlisted, and `tests/impersonation_reads_test.py` warns that
+         *     entries are how that list "quietly becomes a hole").
+         *
+         *     WHY A SECOND FIELD AND NOT MORE COLUMNS ON `EngineDriftOut`: the two sweeps run on
+         *     different schedules over different objects and each `oldest_checked_at` is its OWN
+         *     sweep's pulse. Folding them into one panel would let a healthy agent sweep's timestamp
+         *     vouch for a KB sweep that had died — which is precisely the "lying by omission" the
+         *     pulse field exists to prevent.
+         *
+         *     THE ALARM IS `out_of_sync`, and `undetermined` is deliberately NOT folded into it. It
+         *     carries more weight here than on the agent panel: an empty knowledge listing is
+         *     ambiguous between "the documents are gone" and "the vendor's listing does not attribute
+         *     rows to agents" (pilot gate 8, open), so a large `undetermined` is a real and
+         *     actionable signal about the VENDOR rather than a count of drifted clients.
+         *
+         *     COUNTS AND TIMESTAMPS ONLY (hard rule 6). No source name, no chunk, no engine handle.
+         */
+        KbDriftOut: {
+            /** In Sync */
+            in_sync: number;
+            /** Live Agents */
+            live_agents: number;
+            /** Never Checked */
+            never_checked: number;
+            /** Oldest Checked At */
+            oldest_checked_at: string | null;
+            /** Oldest Drift At */
+            oldest_drift_at: string | null;
+            /** Out Of Sync */
+            out_of_sync: number;
+            /** Undetermined */
+            undetermined: number;
+        };
+        /**
          * KekOut
          * @description The key-management panel's read (§8 panel 4): which KEK is live, and what is
          *     still wrapped under something else.
@@ -6481,6 +6600,7 @@ export interface components {
             month: string;
             /** Revenue Inr */
             revenue_inr: string;
+            tiers: components["schemas"]["TierSplitOut"];
         };
         /** MeOut */
         MeOut: {
@@ -6965,6 +7085,7 @@ export interface components {
             engine_drift: components["schemas"]["EngineDriftOut"];
             /** Halt Reason */
             halt_reason: string | null;
+            kb_drift: components["schemas"]["KbDriftOut"];
             /** Load Shed Mode */
             load_shed_mode: string;
             /** Outbound Halted */
@@ -7289,8 +7410,24 @@ export interface components {
             /** Superseded Plan Id */
             superseded_plan_id: string | null;
         };
-        /** RecordingLinkOut */
+        /**
+         * RecordingLinkOut
+         * @description A short-lived link to OUR copy of a call's audio, and what the player needs to
+         *     render before a single byte of it has arrived.
+         *
+         *     `duration_s` is the CALL's metered length, which is what the seek bar is drawn from
+         *     on first paint — `<audio>` reports `duration` as `NaN` until enough of the file has
+         *     been fetched to know, and a scrubber that appears a second after the play button is
+         *     a scrubber people click through. It is nullable because a call the poller never
+         *     resolved has no metered length, and inventing one would put a wrong end on the bar.
+         *
+         *     `expires_in_s` is DERIVED from that duration (`recording_link_ttl_s`), not a
+         *     constant: a link shorter than its own audio expires mid-playback and the browser
+         *     reports it as an unexplained network error.
+         */
         RecordingLinkOut: {
+            /** Duration S */
+            duration_s: number | null;
             /** Expires In S */
             expires_in_s: number;
             /** Url */
@@ -8399,6 +8536,40 @@ export interface components {
             payload: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * TierSplitOut
+         * @description The margin's cost side, split by the TTS rung each minute was metered on (D-36).
+         *
+         *     Nested inside the margin card rather than mounted as its own route because it answers
+         *     a question about THAT card's `cost_inr`: an operator seeing a thin margin needs to
+         *     know whether the cost is premium voice or the value rung before they can act on it,
+         *     and a second endpoint means a second round trip to learn one number's composition.
+         *     `billing.tier_usage` sums to the same `_tier_totals` the margin does, so the rungs
+         *     add up to `cost_inr` exactly — they are a partition of it, not a parallel estimate.
+         *
+         *     `unattributed` is the honest third bucket: rows a path could not attribute a rung to.
+         *     It is reported separately because "we know this ran on the value rung" and "we never
+         *     knew" are different facts, and a bill resolves that ambiguity in the CLIENT's favour
+         *     (`minutes_billable_value` folds it in) while this report must not.
+         *
+         *     Every field is required on the wire. A Pydantic default here would generate an
+         *     OPTIONAL TypeScript property and the screen would have to branch on a case the
+         *     server never emits — a trap this repo has now been bitten by four times.
+         */
+        TierSplitOut: {
+            /** Cost Premium Inr */
+            cost_premium_inr: string;
+            /** Cost Unattributed Inr */
+            cost_unattributed_inr: string;
+            /** Cost Value Inr */
+            cost_value_inr: string;
+            /** Minutes Premium */
+            minutes_premium: string;
+            /** Minutes Unattributed */
+            minutes_unattributed: string;
+            /** Minutes Value */
+            minutes_value: string;
         };
         /** TmRegistrationIn */
         TmRegistrationIn: {
@@ -11534,6 +11705,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallDetailOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    assist_call_v1_calls__call_id__assist_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallAssistOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

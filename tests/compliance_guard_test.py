@@ -104,6 +104,19 @@ class TestWiring:
         scanned = set(guard._python_files(guard.SCAN_ROOTS))
         assert any("voice-runtime" in str(path) for path in scanned)
 
+    def test_it_sees_the_scripts_tree(self) -> None:
+        """`scripts/` holds the ONE program in this repo that dials a telephone on
+        purpose (`scripts/pilot/`), and both censuses of "everything that can ring a
+        phone" walked `apps/` only — so the harness's two live engine reaches were
+        outside every check that claims to enumerate them. They are legitimate and now
+        they are WRITTEN DOWN; what this pins is that the next operational script cannot
+        be neither."""
+        scanned = set(guard._python_files(guard.SCAN_ROOTS))
+        assert any(path.parts[-3:-1] == ("scripts", "pilot") for path in scanned)
+        assert {
+            site.qualname for site in guard._engine_sites() if site.path.startswith("scripts/")
+        } == {"scripts/pilot/gates_api.py::run_gate_2", "scripts/pilot/concurrency.py::dial"}
+
     def test_the_real_tree_is_clean(self) -> None:
         assert guard.engine_reach() == []
         assert guard.ungated_dials() == []
@@ -235,15 +248,25 @@ class TestEngineReach:
         offenders = guard.engine_reach(roots=(root,), exemptions={})
         assert any("direct.py::ring" in o for o in offenders), offenders
 
-    def test_the_chokepoint_exemption_is_what_keeps_the_real_tree_green(self) -> None:
-        """The exemption is load-bearing or it is decoration. Take it away and the one
-        legitimate engine reach must come back into view — otherwise the check is not
-        actually looking at `dispatch_call` and would not see a second one either."""
+    def test_every_exemption_is_what_keeps_the_real_tree_green(self) -> None:
+        """The exemptions are load-bearing or they are decoration. Take them all away
+        and every reach they cover must come back into view — otherwise the check is not
+        actually looking at the code it exempts and would not see a new reach either.
+
+        Asserted as a SET EQUALITY in both directions, which is the property the list
+        exists for: `stale_exemptions` already refuses an entry that names no live reach,
+        and this refuses a live reach that names no entry. A hardcoded one-line expected
+        value could only ever pin the first half, and it stopped being true the moment
+        `scripts/` joined the scan roots and the pilot harness's two dial sites became
+        visible — which is exactly the census this file is here to keep honest.
+        """
         offenders = guard.engine_reach(exemptions={})
-        assert offenders == [
-            "apps/api/agents/service.py::dispatch_call reaches the engine's "
-            "outbound start directly (no exemption recorded)"
-        ], offenders
+        named = {offender.split(" reaches", 1)[0] for offender in offenders}
+        assert named == set(guard.ENGINE_REACH_EXEMPTIONS), named
+        assert "apps/api/agents/service.py::dispatch_call" in named, (
+            "the chokepoint itself dropped out of the walk — every other section of the "
+            "guard would still report OK"
+        )
 
     def test_catches_an_exemption_that_no_longer_names_a_live_dial(self) -> None:
         """Every exemption names a reason AND is verified live. One that stops matching

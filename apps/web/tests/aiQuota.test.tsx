@@ -40,11 +40,11 @@ const ME: Me = {
   role: "owner",
   permissions: ["billing:read", "org:manage"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "self_serve" },
-} as unknown as Me;
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+};
 
-const STAFF: Me = { ...ME, permissions: ["calls:read"] } as unknown as Me;
-const OWNER_NO_MANAGE: Me = { ...ME, permissions: ["billing:read"] } as unknown as Me;
+const STAFF: Me = { ...ME, permissions: ["calls:read"] };
+const OWNER_NO_MANAGE: Me = { ...ME, permissions: ["billing:read"] };
 
 function quota(over: Partial<AiQuota> = {}): AiQuota {
   return {
@@ -56,11 +56,15 @@ function quota(over: Partial<AiQuota> = {}): AiQuota {
     allowance_inr: "100.00",
     remaining_inr: "58.30",
     requests_used: 82,
-    requests_included: 200,
-    requests_remaining: 116,
+    // Producible by the SERVER at today's price: ₹100 included ÷ the ₹0.75 nominal
+    // is 133, and ₹58.30 remaining is 77. These were 200/116 while the nominal was
+    // ₹0.50, and a fixture no server can answer with is a wrong number with a
+    // fixture's authority.
+    requests_included: 133,
+    requests_remaining: 77,
     extra_purchased_inr: null,
     extra_block_inr: "500.00",
-    extra_block_requests: 1000,
+    extra_block_requests: 666,
     extra_available: false,
     extra_unavailable_reason: "not_at_ceiling",
     ...over,
@@ -89,7 +93,7 @@ describe("the allowance panel", () => {
     await screen.findByText("How AI help is billed");
     // The count an owner plans around, and the word that keeps it honest.
     expect(screen.getByText("82")).toBeTruthy();
-    expect(screen.getByText(/of about 200 this month/)).toBeTruthy();
+    expect(screen.getByText(/of about 133 this month/)).toBeTruthy();
     // The rupee figures as the SERVER's digits, grouped and never parsed — read off the
     // whole screen because the allowance legitimately appears twice (the tile and the
     // table), and `getByText` would fail on the duplication rather than on the digits.
@@ -171,6 +175,26 @@ describe("at the ceiling", () => {
     expect(screen.queryByRole("button", { name: /what more AI help costs/i })).toBeNull();
   });
 
+  it("says the month is nearly over rather than offering a block that expires with it", async () => {
+    // `month_ending` is the server refusing to sell the last hour of an IST month: the
+    // block does not carry over, so ₹500 for ten minutes is arithmetically the same
+    // bargain the screen describes and not the same bargain at all. The refusal exists
+    // on the POST (`ai_extra_month_ending`); this is it said BEFORE the click, which is
+    // the whole reason `extra_unavailable_reason` is published at all.
+    await renderClientPage(<AiAssistPage />, {
+      "/v1/me": ME,
+      "/v1/billing/ai-quota": quota({
+        state: "ceiling_reached",
+        extra_available: false,
+        extra_unavailable_reason: "month_ending",
+      }),
+    });
+
+    await screen.findByText(/This month is nearly over/);
+    expect(screen.getByText(/comes back within the hour/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /what more AI help costs/i })).toBeNull();
+  });
+
   it("disables the offer for a person who cannot spend, with the reason beside it", async () => {
     await renderClientPage(<AiAssistPage />, {
       "/v1/me": OWNER_NO_MANAGE,
@@ -247,7 +271,7 @@ describe("the money dialog (G-5)", () => {
 
     const dialog = screen.getByRole("dialog");
     expect(dialog.textContent).toContain("₹500.00");
-    expect(dialog.textContent).toContain("about 1,000 more uses");
+    expect(dialog.textContent).toContain("about 666 more uses");
     expect(dialog.textContent).toContain("not refunded and does not carry into next month");
     expect(dialog.textContent).toContain("Nothing has been charged yet.");
     // The accept button quotes the amount too, so the last thing a person reads before

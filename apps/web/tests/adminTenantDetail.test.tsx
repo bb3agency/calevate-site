@@ -60,7 +60,7 @@ function tenant(over: Partial<TenantSummary> = {}): TenantSummary {
     holds: [],
     capped: false,
     ...over,
-  } as TenantSummary;
+  };
 }
 
 /**
@@ -79,7 +79,7 @@ function me(permissions: string[]): AdminMe {
     user_id: "0192f0aa-7777-7000-8000-0000000000cc",
     role: "operator",
     permissions,
-  } as AdminMe;
+  };
 }
 
 const OPERATOR = me(["org:read", "billing:read", "agents:read", "kb:write", "admin:tenants"]);
@@ -93,8 +93,16 @@ function margin(over: Partial<Margin> = {}): Margin {
     cost_inr: "402350.50",
     margin_inr: "613549.50",
     margin_pct: "60.39",
+    tiers: {
+      minutes_premium: "900.00",
+      minutes_value: "280.00",
+      minutes_unattributed: "24.50",
+      cost_premium_inr: "300000.00",
+      cost_value_inr: "90000.00",
+      cost_unattributed_inr: "12350.50",
+    },
     ...over,
-  } as Margin;
+  };
 }
 
 function source(over: Partial<KbSource> = {}): KbSource {
@@ -109,7 +117,7 @@ function source(over: Partial<KbSource> = {}): KbSource {
     is_active: false,
     published_at: null,
     ...over,
-  } as KbSource;
+  };
 }
 
 /** Everything green, so each test can break exactly one thing. */

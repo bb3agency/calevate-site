@@ -635,6 +635,19 @@ export type DeadLetterQueue = Schemas["DeadLetterQueueOut"];
 export type EngineDrift = Schemas["EngineDriftOut"];
 
 /**
+ * How far the KNOWLEDGE on the voice platform has drifted from what we approved (D-158).
+ *
+ * The same measurement as `EngineDrift`, on a different object: that one answers "is the
+ * agent CONFIGURED as we published", this one answers "is it answering from the text a
+ * human approved". They come from two sweeps on two schedules, and each carries its own
+ * `oldest_checked_at` — a healthy agent sweep must not be able to vouch for a KB sweep
+ * that has died, which is why these are two types and not more columns on one.
+ *
+ * EVERY FIELD IS REQUIRED ON THE WIRE, for `EngineDrift`'s reason.
+ */
+export type KbDrift = Schemas["KbDriftOut"];
+
+/**
  * The step-up string for an UNSCOPED dead-letter replay — every job, every tenant.
  *
  * `ops/routes.py`'s `OUTBOX_REPLAY_CONFIRMATION`, mirrored, and it stays this exact

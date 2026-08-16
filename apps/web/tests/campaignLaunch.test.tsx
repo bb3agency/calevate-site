@@ -62,13 +62,20 @@ const ME: Me = {
   organization: null,
 };
 
-const AGENT = {
+const AGENT: Agent = {
   id: AGENT_ID,
   name: "Outbound follow-up",
   direction: "outbound",
   status: "live",
   language_primary: "te",
-} as unknown as Agent;
+  // Hard rule 5: an agent ALWAYS carries a non-null disclosure line, and an outbound
+  // campaign agent is the case the rule exists for. This fixture omitted it entirely —
+  // `as unknown as Agent` is why nobody noticed.
+  disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  engine: "bolna",
+  published: true,
+  extraction_fields: [],
+};
 
 const CAMPAIGN: CampaignSummary = {
   id: CAMPAIGN_ID,
@@ -78,18 +85,21 @@ const CAMPAIGN: CampaignSummary = {
   contacts: 120,
   connected: 0,
   launched_at: null,
+  created_at: "2026-08-10T06:00:00Z",
   consent_provenance_blocker: null,
-} as unknown as CampaignSummary;
+};
 
 /** Draft, because the "Before you launch" card only exists for a draft. */
-const PROGRESS = {
+const PROGRESS: CampaignProgress = {
   status: "draft",
   contacts: {},
   total: 0,
-} as unknown as CampaignProgress;
+  concurrency: 3,
+  launched_at: null,
+};
 
 function check(...blockers: { rule: string; reason: string }[]): LaunchCheck {
-  return { ready: blockers.length === 0, blockers } as unknown as LaunchCheck;
+  return { ready: blockers.length === 0, blockers };
 }
 
 /**
@@ -275,7 +285,7 @@ describe("the launch panel with nothing outstanding", () => {
     const { container } = await openLaunchPanel({
       ready: false,
       blockers: [],
-    } as unknown as LaunchCheck);
+    });
 
     expect(container.textContent).not.toContain("Everything checks out.");
     expect(launchButtonDisabled()).toBe(true);

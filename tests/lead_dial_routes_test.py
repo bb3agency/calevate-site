@@ -31,7 +31,9 @@ from unittest import mock
 import httpx
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.compliance.service import add_to_dnc
+from apps.api.crm import routes
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
@@ -533,6 +535,112 @@ async def test_a_recording_link_is_presigned_and_the_read_is_audited() -> None:
             )
         ).scalar()
     assert int(audited or 0) == 1, "an unaudited listen is a rule-5 violation"
+
+
+@pytest.mark.parametrize(
+    ("duration_s", "expected"),
+    [
+        # A call the poller never resolved: no metered length, so the floor. Guessing
+        # long on audio of unknown size is the wrong direction to be generous in.
+        (None, routes.RECORDING_LINK_FLOOR_S),
+        (0, routes.RECORDING_LINK_FLOOR_S),
+        # Shorter than the floor: the floor still wins, because a 12-second recording
+        # still has to survive a slow first byte.
+        (12, routes.RECORDING_LINK_FLOOR_S),
+        # THE CASE THAT WAS BROKEN. 20 minutes of audio behind a 5-minute signature: the
+        # link died at 300s and the browser reported it as a bare media error, so the
+        # owner's reasonable conclusion was that we recorded only the first five minutes.
+        (1200, 2400),
+        # A maximal call (`CALL_CAP_MAX_S`), which is what the ceiling is sized for.
+        (3600, 7200),
+    ],
+)
+def test_a_recording_link_outlives_the_audio_it_points_at(
+    duration_s: int | None, expected: int
+) -> None:
+    """The link's life is DERIVED from the call's length, and the derivation is the fix.
+
+    Asserted as a pure function rather than through the route because the property is
+    arithmetic — the route test below proves the number actually reaches the wire and
+    the signature. Both halves are needed: a correct function nobody calls, and a route
+    that calls a wrong one, fail in ways the other test cannot see.
+    """
+    assert routes.recording_link_ttl_s(duration_s) == expected
+
+
+def test_no_recording_link_can_be_minted_for_longer_than_the_stated_ceiling() -> None:
+    """The widest credential window this route can ever open, pinned.
+
+    The signature IS the credential, so "how long can a leaked link stay useful?" must
+    have an answer a reviewer can read off a constant rather than derive. A duration
+    beyond any call this platform will run — a corrupt row, a future cap raise made
+    without revisiting this file — must still be bounded.
+    """
+    absurd = routes.recording_link_ttl_s(10**9)
+    assert absurd == routes.RECORDING_LINK_CEILING_S
+    assert absurd <= 2 * CALL_CAP_MAX_S + routes.RECORDING_LINK_FLOOR_S
+
+
+async def test_the_link_the_wire_carries_expires_with_the_call_not_with_a_constant() -> None:
+    """The route hands down the DERIVED lifetime, and S3 signs for that same number.
+
+    Two separate assertions on purpose. `expires_in_s` is what the screen reads; the
+    `X-Amz-Expires` parameter is what S3 enforces. A route that reported one and signed
+    the other would show a player promising thirty minutes and cut out after five —
+    which is the defect in a new costume rather than the defect fixed.
+    """
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    call_id = await _finished_call(tenant_id, agent_id, lead_id, phone)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET recording_url = :k, duration_s = 1200 WHERE id = :i"),
+            {"k": f"recordings/{tenant_id}/{call_id}.mp3", "i": call_id},
+        )
+
+    with mock.patch.dict(
+        os.environ,
+        {"AWS_ACCESS_KEY_ID": "test-access-key", "AWS_SECRET_ACCESS_KEY": "test-secret-key"},
+    ):
+        async with _client() as http:
+            response = await http.get(f"/v1/calls/{call_id}/recording", headers=headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["expires_in_s"] == 2400, "the reported life is not the derived one"
+    assert body["duration_s"] == 1200, "the player draws its seek bar from this"
+    assert "X-Amz-Expires=2400" in body["url"], (
+        "S3 signed for a different window than the response advertises — the player "
+        f"would stop early and say nothing. url={body['url']}"
+    )
+
+
+async def test_a_call_that_was_never_recorded_says_so_rather_than_naming_the_call() -> None:
+    """Two 404s, and which one you get is the whole point (the D-65 discriminator on a
+    read): a mistyped call id is "Call", and a real call with no audio — never recorded,
+    or destroyed by a retention sweep once its 90 days elapsed — is "Recording".
+
+    An owner who mistyped a URL goes back to the list. An owner whose retention window
+    closed needs to know the audio is gone and not coming back. One message cannot send
+    both of them to the right place.
+    """
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    call_id = await _finished_call(tenant_id, agent_id, lead_id, phone)
+    # `_finished_call` leaves `recording_url` NULL, which IS the "never recorded" state.
+
+    async with _client() as http:
+        missing_audio = await http.get(f"/v1/calls/{call_id}/recording", headers=headers)
+        missing_call = await http.get(f"/v1/calls/{uuid.uuid4()}/recording", headers=headers)
+
+    assert missing_audio.status_code == 404, missing_audio.text
+    assert missing_call.status_code == 404, missing_call.text
+    assert "Recording" in missing_audio.json()["title"], missing_audio.json()
+    assert "Call" in missing_call.json()["title"], missing_call.json()
+    assert missing_audio.json()["title"] != missing_call.json()["title"], (
+        "both 404s read identically, so the screen cannot tell an owner whether to go "
+        "back to the list or stop looking"
+    )
 
 
 async def test_an_unpresignable_recording_is_a_named_dependency_failure(

@@ -40,9 +40,9 @@ from apps.api.billing.credit_routes import (
     topup_restatement_confirmation,
 )
 from apps.api.compliance.national_dnd_routes import (
-    RELEASE_GLOBALLY_CONFIRMATION,
     SUPPRESS_GLOBALLY_CONFIRMATION,
     preference_scrub_confirmation,
+    release_globally_confirmation,
 )
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
@@ -339,7 +339,7 @@ def _confirmation_vocabulary() -> dict[str, str]:
         "replay_all_jobs": OUTBOX_REPLAY_CONFIRMATION,
         "rewrap_keks": REWRAP_CONFIRMATION,
         "suppress_number": SUPPRESS_GLOBALLY_CONFIRMATION,
-        "release_number": RELEASE_GLOBALLY_CONFIRMATION,
+        "release_number": release_globally_confirmation(subject),
         # Not a builder — the route computes it inline from the requested direction
         # (`ops/routes.py::set_tm_registration_route`), which is why it is written out.
         "record_tm_registration": "record_tm_registration",
@@ -357,13 +357,15 @@ def test_no_two_step_up_actions_spell_themselves_the_same_way() -> None:
     whoever wrote the route, and two of them are one synonym apart
     (`release_outbound` / `release_number_platform_wide`).
 
-    THE TWO UNPARAMETRISED DNC STRINGS ARE NOT AN OVERSIGHT. `suppress_number_
-    platform_wide` and `release_number_platform_wide` name the act and not the number,
-    while every other subject-bearing confirmation carries its subject. Binding them
-    would mean putting a phone number in a request header, which hard rule 6 forbids and
-    which access logs, referrers and browser history would then carry — so the subject
-    stays in the body, and what the header buys on those two routes is "this screen
-    meant to send this KIND of request" rather than "…this exact number".
+    THE ONE UNPARAMETRISED DNC STRING IS NOT AN OVERSIGHT, and its sibling stopped
+    being one. `suppress_number_platform_wide` names the act and not the number because
+    its subject is a LIST of numbers in the body: binding it would put phone numbers in a
+    request header, which hard rule 6 forbids and which access logs, referrers and
+    browser history would then carry. `release_number_platform_wide` used to be bare for
+    the same stated reason, and that reason did not apply to it — its subject is an
+    `entry_id` that is already the last path segment — so it now carries that id like
+    every other subject-bearing confirmation, and a header typed for one suppression can
+    no longer lift a different one (D-141).
     """
     vocabulary = _confirmation_vocabulary()
     by_string: dict[str, list[str]] = {}

@@ -397,14 +397,20 @@ async def list_tenant_invitations(
     The addresses are masked, which is what makes the read safe to widen: an operator
     recognises a row, they do not read it.
 
-    Runs in the tenant's own RLS scope, so a tenant id that names nothing answers with an
-    empty list rather than another account's invitations.
+    Runs in the tenant's own RLS scope, so a tenant id that names nothing can never see
+    another account's invitations — but an empty list is NOT the right answer to one
+    either, and it used to be. "No key to this account is outstanding" is the exact claim
+    this endpoint exists to make actionable, and on a mistyped id it was made about
+    nobody, next to a mint control that answers 404 for the same id
+    (`assert_account_open`). One screen, two verdicts on whether the client exists.
     """
     del principal
     from apps.api.db.session import tenant_session
     from apps.api.tenancy import members as members_service
 
     async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         rows = await members_service.list_pending_invitations(scoped)
     return [
         PendingInviteOut(
@@ -1005,6 +1011,36 @@ async def publish_kb(
     return PublishOut(source_id=source_id, version=version, status="live")
 
 
+class TierSplitOut(BaseModel):
+    """The margin's cost side, split by the TTS rung each minute was metered on (D-36).
+
+    Nested inside the margin card rather than mounted as its own route because it answers
+    a question about THAT card's `cost_inr`: an operator seeing a thin margin needs to
+    know whether the cost is premium voice or the value rung before they can act on it,
+    and a second endpoint means a second round trip to learn one number's composition.
+    `billing.tier_usage` sums to the same `_tier_totals` the margin does, so the rungs
+    add up to `cost_inr` exactly — they are a partition of it, not a parallel estimate.
+
+    `unattributed` is the honest third bucket: rows a path could not attribute a rung to.
+    It is reported separately because "we know this ran on the value rung" and "we never
+    knew" are different facts, and a bill resolves that ambiguity in the CLIENT's favour
+    (`minutes_billable_value` folds it in) while this report must not.
+
+    Every field is required on the wire. A Pydantic default here would generate an
+    OPTIONAL TypeScript property and the screen would have to branch on a case the
+    server never emits — a trap this repo has now been bitten by four times.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    minutes_premium: str
+    minutes_value: str
+    minutes_unattributed: str
+    cost_premium_inr: str
+    cost_value_inr: str
+    cost_unattributed_inr: str
+
+
 class MarginOut(BaseModel):
     """Per-client margin (D-12).
 
@@ -1024,6 +1060,7 @@ class MarginOut(BaseModel):
     # None rather than "0.0" when nothing has been billed: "0% margin" and "nothing
     # billed yet" are different facts, and an operator acts differently on each.
     margin_pct: str | None
+    tiers: TierSplitOut
 
 
 @router.get(
@@ -1047,11 +1084,29 @@ async def tenant_margin(
     scope deliberately, exactly like impersonation does for pages.
     """
     async with tenant_session(tenant_id) as scoped:
+        # A tenant with no usage and a tenant that does not exist both aggregate to
+        # zero, so without this the mistyped id came back as a clean ₹0 margin card —
+        # a number about a client, computed from nothing, on the read D-12 says G2
+        # gates on. `read_credits` and `tenant_invoice`, the other two money reads on
+        # this screen, already answer 404 here.
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         margin = await billing.margin_for_tenant(scoped, tenant_id=tenant_id, month=month)
+        # Asked for the month the MARGIN resolved, never the request's `month` — that
+        # argument is None on the common call and the two reads would then be free to
+        # land either side of a month boundary, publishing a cost total and a rung split
+        # for different months on one card.
+        tiers = await billing.tier_usage(scoped, tenant_id=tenant_id, month=str(margin["month"]))
     del session
-    return MarginOut.model_validate(
-        {k: (str(v) if isinstance(v, Decimal) else v) for k, v in margin.items()}
-    )
+    flat = {k: (str(v) if isinstance(v, Decimal) else v) for k, v in margin.items()}
+    # Projected through the response model's OWN field list rather than a prefix filter:
+    # `tier_usage` also returns `month` (already on the card) and the two
+    # `minutes_billable_*` figures, which are a PRICING rule and not a partition of
+    # `cost_inr` — publishing them beside it would invite a reader to reconcile two
+    # things that are not meant to add up. Naming the fields once means a field added to
+    # either side is a KeyError here, not a silently missing tile.
+    flat["tiers"] = {name: str(tiers[name]) for name in TierSplitOut.model_fields}
+    return MarginOut.model_validate(flat)
 
 
 # --------------------------------------------------------- campaign prerequisites
@@ -1423,6 +1478,16 @@ async def record_dlt_registration(
             remediation="Send pe_id with the registration number the registrar issued.",
         )
     async with tenant_session(tenant_id) as scoped:
+        # A mistyped tenant uuid is a 404, not a 500 — the third member of the family
+        # `register_template` and `record_kyc_verification` were fixed in (D-133), and
+        # the one that was missed because it is an UPSERT rather than an INSERT and so
+        # reads like a write that cannot fail. `dlt_registrations.tenant_id` carries
+        # `fk_dlt_registrations_tenant_id_organizations`, and `ON CONFLICT` does not
+        # excuse a foreign key: an id no organization holds reached the statement and
+        # came back as `internal_error` with an operator alert attached, for a typo the
+        # operator could have fixed themselves.
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         await campaigns_service.record_dlt_registration(
             scoped,
             tenant_id=tenant_id,
@@ -1831,6 +1896,14 @@ async def read_commercial_terms(
     from a ₹0.00 invoice at the end of the month.
     """
     async with tenant_session(tenant_id) as scoped:
+        # 404 BEFORE `state` is computed, because `none` is a claim about a client. An
+        # absent tenant has no plan rows either, so this read answered 200 `state: none`
+        # — "no terms have ever been set" — for an id that names nobody, and the console
+        # offered the form to price them. Its own POST (and `read_credits`,
+        # `tenant_invoice`, `read_feature_flags`, `get_tenant`) already answer 404 here,
+        # so the two halves of one screen disagreed about whether the client exists.
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         view = await billing_terms.read_terms(scoped, tenant_id=tenant_id)
     return CommercialTermsOut(
         tenant_id=tenant_id,

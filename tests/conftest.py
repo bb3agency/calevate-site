@@ -11,6 +11,7 @@ import os
 import shutil
 import sys
 import tempfile
+import uuid
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -29,6 +30,51 @@ def event_loop_policy() -> asyncio.AbstractEventLoopPolicy:
     if sys.platform == "win32":
         policy = asyncio.WindowsSelectorEventLoopPolicy()
     return policy
+
+
+@pytest.fixture(autouse=True)
+def _own_rate_limit_buckets(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Every test counts into ITS OWN limiter key space.
+
+    THE DEFECT THIS CLOSES. `ASGITransport` gives a request the peer `127.0.0.1` unless a
+    test names one, and `client_ip` in `local` reports that peer as the caller — so every
+    unauthenticated request in this repo, from every test, in every concurrent run,
+    counted into the ONE bucket `calevate:rl:<profile>:client:ip:127.0.0.1`. `bulk_read`
+    allows six a minute. A suite of ~4,000 tests sharing one Redis with a second suite on
+    the same box therefore fails wherever it happens to land, with a 429 that is
+    indistinguishable from the refusal a limiter test is asserting — and every one of
+    those tests passes standalone, which is the signature of a suite measuring its
+    neighbours instead of its subject. It reproduces in CI under any parallelism:
+    pytest-xdist, two jobs sharing one Redis service, or a re-run overlapping its
+    predecessor.
+
+    WHAT IS ISOLATED, AND WHAT IS DELIBERATELY NOT. Only the KEY PREFIX moves. The
+    profiles, the ceilings, the dimensions, the window arithmetic and the fixed-window
+    counter are untouched, so inside one test the limiter behaves exactly as it does in
+    production: `tests/rate_limit_behaviour_test.py` still floods a bucket and still gets
+    a real 429, and `tenancy/signup.py`'s hourly quota — which shares `consume` — is still
+    spent and still fails closed. Giving the suite a bigger allowance was the alternative
+    and it is the one thing not on the table: weakening a limit to make tests pass would
+    delete the subject (CLAUDE.md hard rules).
+
+    PER TEST, NOT PER SESSION. A session-wide prefix isolates two RUNS from each other and
+    leaves ~4,000 tests inside one run still sharing `127.0.0.1` — the larger half of the
+    problem. Per test is the granularity at which "what else ran" stops being an input.
+
+    WHY HERE AND NOT IN THE PRODUCTION KEY. A namespace parameter on `KEY_PREFIX` would be
+    a production knob that exists for the test suite, and the thing that actually needs
+    isolating is a test artefact: real callers do not all arrive from one loopback address.
+    `monkeypatch` on the module attribute is read by `consume` at call time, so this is the
+    same code path with a different first path segment.
+
+    Keys expire with their window (`_TTL_SLACK_S` past it), so the prefixes do not
+    accumulate: the longest-lived are the deliberately hour-long windows a few limiter
+    tests set, at a few hundred bytes each.
+    """
+    from apps.api.core import ratelimit
+
+    monkeypatch.setattr(ratelimit, "KEY_PREFIX", f"{ratelimit.KEY_PREFIX}:t{uuid.uuid4().hex}")
+    yield
 
 
 #: Credentials a library will silently find on the machine — botocore searches the

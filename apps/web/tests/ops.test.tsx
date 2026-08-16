@@ -9,6 +9,7 @@ import {
   type AuditChainVerdict,
   type ChainBreak,
   type EngineDrift,
+  type KbDrift,
   type OutboxReplayResult,
   type PlatformState,
 } from "@/lib/api/admin";
@@ -86,7 +87,7 @@ function me(permissions: string[]): AdminMe {
     user_id: "0192f0aa-7777-7000-8000-0000000000c1",
     role: permissions.includes("ops:manage") ? "superadmin" : "operator",
     permissions,
-  } as AdminMe;
+  };
 }
 
 const SUPERADMIN = me([
@@ -277,6 +278,25 @@ function engineDrift(over: Partial<EngineDrift> = {}): EngineDrift {
   };
 }
 
+/**
+ * The knowledge sweep's summary, clean by default for `engineDrift`'s reason: an
+ * all-zeroes default with a null `oldest_checked_at` is the "nothing has been checked yet"
+ * state, and every unrelated ops test would then render a warning banner it was not
+ * written to expect.
+ */
+function kbDrift(over: Partial<KbDrift> = {}): KbDrift {
+  return {
+    live_agents: 4,
+    never_checked: 0,
+    out_of_sync: 0,
+    in_sync: 4,
+    undetermined: 0,
+    oldest_drift_at: null,
+    oldest_checked_at: "2026-08-15T00:23:00Z",
+    ...over,
+  };
+}
+
 /** What the server answers a replay with: the count it moved, and the scope it used. */
 function replayed(count: number, job: string | null = null): OutboxReplayResult {
   return { replayed: count, job };
@@ -289,6 +309,7 @@ function platform(over: Partial<PlatformState> = {}): PlatformState {
     halt_reason: null,
     outbox_dead_letters: deadLetters(),
     engine_drift: engineDrift(),
+    kb_drift: kbDrift(),
     tm_registration: {
       status: "active",
       tm_id: "TM-110022",
@@ -1164,7 +1185,7 @@ describe("what the voice platform is running", () => {
     delete withoutDrift.engine_drift;
     const { container } = renderAdminPage(
       <OpsPage />,
-      routes(withoutDrift as unknown as PlatformState, SUPERADMIN),
+      routes(withoutDrift, SUPERADMIN),
     );
 
     await screen.findByText("We do not know what the voice platform is running");
@@ -1179,6 +1200,90 @@ describe("what the voice platform is running", () => {
     await screen.findByText("Every checked agent is running what we published");
     expect(container.textContent).toContain("What the voice platform is running");
     expect(container.textContent).not.toContain("No agent has been checked yet");
+  });
+});
+
+describe("what the voice platform is answering from", () => {
+  it("names knowledge we did not publish as an alarm, and undecided reads as NOT one", async () => {
+    // Same split as the agent panel and it matters more here: an empty knowledge listing
+    // is ambiguous between "the documents are gone" and "the vendor does not attribute its
+    // listing by agent" (pilot gate 8, open), so folding `undetermined` into the alarm
+    // would report an unanswered vendor question as a fleet of clients whose knowledge
+    // vanished.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        platform({
+          kb_drift: kbDrift({
+            live_agents: 10,
+            in_sync: 6,
+            out_of_sync: 2,
+            undetermined: 2,
+            oldest_drift_at: "2026-08-01T00:23:00Z",
+          }),
+        }),
+        SUPERADMIN,
+      ),
+    );
+
+    await screen.findByText("2 of 10 live agents hold knowledge we did not publish");
+    expect(container.textContent).toContain("Oldest divergence");
+    // NO LEVER, and here the reason is stronger than on the panel above: the repair a
+    // knowledge drift invites is an irreversible DELETE at the vendor of a document our
+    // tables cannot describe.
+    expect(screen.queryByRole("button", { name: /remove|detach|delete/i })).toBeNull();
+  });
+
+  it("says nobody is watching when the knowledge sweep has never run", async () => {
+    // The two sweeps have two pulses on purpose: a healthy agent sweep must not be able to
+    // vouch for a knowledge sweep that died, so this panel reads its OWN timestamp. The
+    // fixture leaves `engine_drift` healthy, which is exactly the state that would hide
+    // this if the two shared a field.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        platform({
+          kb_drift: kbDrift({
+            live_agents: 3,
+            in_sync: 0,
+            never_checked: 3,
+            oldest_checked_at: null,
+          }),
+        }),
+        SUPERADMIN,
+      ),
+    );
+
+    await screen.findByText("No agent's knowledge has been checked yet");
+    expect(container.textContent).toContain("Every checked agent is running what we published");
+  });
+
+  it("REFUSES to state a knowledge count it could not read, rather than showing zero", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(problem(503, { title: "Service unavailable" }), SUPERADMIN),
+    );
+
+    await screen.findByText("We do not know what knowledge the voice platform is holding");
+    expect(container.textContent).not.toContain(
+      "Every checked agent is answering from what we published",
+    );
+  });
+
+  it("treats a payload with no kb_drift field as unreadable, not as an all-clear", async () => {
+    // Against a CURRENT server this cannot happen — `kb_drift` is required on the wire.
+    // Against an older one it can, and mid-deploy is exactly when someone is on this
+    // screen; `read !== null` is true for `undefined`, which is not a type error and is a
+    // blank ops console.
+    const withoutKbDrift: Record<string, unknown> = { ...platform() };
+    delete withoutKbDrift.kb_drift;
+    const { container } = renderAdminPage(<OpsPage />, routes(withoutKbDrift, SUPERADMIN));
+
+    await screen.findByText("We do not know what knowledge the voice platform is holding");
+    // The rest of the screen survived, including the OTHER drift panel — one missing
+    // field must not take the incident levers down with it.
+    expect(container.textContent).toContain("Load-shed mode");
+    expect(container.textContent).toContain("Every checked agent is running what we published");
   });
 });
 

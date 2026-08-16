@@ -30,7 +30,32 @@ verification and virtual-host routing see for every legitimate client endpoint, 
 a window measured in microseconds against an attacker who must already win a race
 against their own TTL. If a rebinding attempt is ever OBSERVED — the `egress_refused`
 log line below is what would show it — that is the trigger to take it, and it is a
-transport change, not a rewrite of this file.
+transport change, not a rewrite of this file. The residual is asserted rather than only
+described: `egress_guard_test.py` pins that a caller connects BY NAME and never by
+`VettedDestination.addresses`, so the day pinning is implemented that test is what says
+this paragraph is out of date.
+
+**THE PARSER, WHICH IS NOT THE SAME PROBLEM AS THE RACE.** Re-judging the pinning trade
+turned up a hole underneath it that needs no race at all: this module used to decide the
+destination with `urllib.parse.urlsplit` while the request was made by httpx, and the two
+do not agree about what a hostname is. `socket.getaddrinfo` encodes a `str` host with the
+STDLIB `idna` codec — `Modules/socketmodule.c::idna_converter` calls
+`PyUnicode_AsEncodedString(obj, "idna", NULL)`, read at CPython 3.12 — which implements
+IDNA **2003**. httpx encodes with the `idna` package, which implements IDNA **2008 /
+UTS-46**. They differ on the characters IDNA 2008 deliberately stopped folding, and
+`ß` is the textbook one: measured on this interpreter, `faß.example.com` is
+`fass.example.com` to our lookup and `xn--fa-hia.example.com` to httpx's connection. Two
+names, two owners' choice of A record, one of them never vetted — an SSRF that is
+deterministic rather than a race, and strictly worse than the window pinning was weighed
+against. So the last thing checked before a destination is accepted is that the
+TRANSPORT'S OWN parse of the same string names the same host and port. A URL httpx will
+not parse at all (`0177.0.0.1`, an embedded tab) is refused for the same reason, which
+also stops `httpx.InvalidURL` — NOT an `httpx.HTTPError`, so no caller catches it —
+escaping a delivery worker as an unhandled exception.
+
+Refusing on disagreement rather than adopting httpx's answer is the deliberate half: it
+means we only ever send to a destination both readings agree on, so no future reader has
+to work out which parser was right.
 
 **The bypass classes this rejects, and the evidence for each.** A blocklist of textual
 patterns is the wrong shape, because the attacker chooses the spelling and the resolver
@@ -78,6 +103,8 @@ import socket
 from dataclasses import dataclass
 from typing import Final
 from urllib.parse import urlsplit
+
+import httpx
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -171,7 +198,17 @@ class VettedDestination:
     #: Every address the name resolved to, as strings. All of them were vetted — a
     #: round-robin record set that answers with one public and one private address is a
     #: rebinding attack that needs no second lookup.
+    #:
+    #: NOT what a caller connects to, and that is the residual this module accepts rather
+    #: than an oversight: see PINNING above. `egress_guard_test` asserts a caller uses
+    #: `url` and never these.
     addresses: tuple[str, ...]
+    #: THE EXACT STRING THE CALLER MUST REQUEST. Whitespace-trimmed, and nothing else —
+    #: it is the byte sequence this function parsed, so "what was vetted" and "what was
+    #: sent" cannot drift apart by a caller passing the untrimmed original. Handing back
+    #: an httpx-NORMALISED url instead was rejected: a client's webhook path and query
+    #: are theirs, and re-spelling them is not this module's business.
+    url: str
 
 
 async def resolve_addresses(host: str, port: int) -> tuple[str, ...]:
@@ -268,6 +305,48 @@ def _category_of(address: str) -> str | None:
         return "not_globally_routable"
 
 
+def _wire_host(host: str) -> bytes | None:
+    """The bytes `getaddrinfo` looks this host up as, or None when it cannot encode it.
+
+    Not cosmetic: `socket.getaddrinfo` runs every `str` host through the STDLIB `idna`
+    codec (IDNA 2003) before it asks a nameserver anything, so THIS is the name we vetted
+    — `faß.example.com` is `fass.example.com` to the resolver, whatever the URL said. An
+    ASCII label passes through untouched (`encodings.idna.ToASCII` returns it as-is once
+    it encodes clean and fits in 63 bytes), so IP literals and ordinary hostnames are
+    unaffected and the comparison below stays exact for them.
+    """
+    try:
+        return host.encode("idna")
+    except UnicodeError:
+        return None
+
+
+def _transport_target(raw_url: str) -> tuple[bytes, int] | None:
+    """(host, port) the HTTP client will really connect to, or None when it will not
+    connect at all because it cannot parse this URL.
+
+    `httpx.URL` is not a second opinion — it is the component that decides the
+    destination for every outbound call in this repo, so reading it here is reading the
+    answer rather than predicting it. `raw_host` is already IDNA-encoded by the `idna`
+    package (IDNA 2008 / UTS-46), which is the whole point of comparing bytes to bytes.
+    """
+    try:
+        url = httpx.URL(raw_url)
+    except httpx.InvalidURL:
+        # httpx refuses `http://0177.0.0.1/` and any URL carrying a control character.
+        # A destination the transport will not speak to is one we cannot vet, and saying
+        # so here is what stops `httpx.InvalidURL` — which is NOT an `httpx.HTTPError`,
+        # so neither `deliver` nor `copy_recording` catches it — surfacing later as an
+        # unhandled exception on tenant- or vendor-supplied input.
+        return None
+    if not url.raw_host:
+        return None
+    port = url.port if url.port is not None else _DEFAULT_PORT.get(url.scheme.lower())
+    if port is None:
+        return None
+    return url.raw_host, port
+
+
 def _worst(categories: list[str]) -> str:
     """One category to report when a name resolved to several bad addresses. Ordered so
     the message is deterministic — a refusal whose wording depends on DNS record order
@@ -306,7 +385,8 @@ async def assert_public_http_url(raw_url: str, *, field: str = "url") -> VettedD
     Raises `EgressRefusedError` (a `ProblemError`) naming the field, so a route can let it
     propagate and a worker can record `.code` as the delivery's reason.
     """
-    parts = urlsplit(raw_url.strip())
+    vetted_url = raw_url.strip()
+    parts = urlsplit(vetted_url)
     scheme = parts.scheme.lower()
     if scheme not in ALLOWED_SCHEMES:
         raise EgressRefusedError(
@@ -349,7 +429,13 @@ async def assert_public_http_url(raw_url: str, *, field: str = "url") -> VettedD
 
     try:
         addresses = await resolve_addresses(host, port)
-    except (TimeoutError, OSError) as exc:
+    except (TimeoutError, OSError, UnicodeError) as exc:
+        # `UnicodeError` because `socket.getaddrinfo` IDNA-encodes the host before it
+        # looks anything up, and that encoder raises — not `OSError` — on a label over 63
+        # bytes or an empty one. It is a `ValueError`, so it used to sail past this clause
+        # and out of the route as a 500: an unhandled exception on tenant-controlled
+        # input, which is the exact defect class `_category_of` already guards against one
+        # step further down. A name we cannot encode is a name we cannot look up.
         # FAILS CLOSED, and that is the whole point of doing it here. A name we cannot
         # resolve is a name we cannot vet, and letting it through "because the request
         # would fail anyway" hands an attacker the one thing they need: control of
@@ -382,8 +468,12 @@ async def assert_public_http_url(raw_url: str, *, field: str = "url") -> VettedD
     if refused:
         category = _worst(refused)
         if category == "loopback" and len(refused) == len(addresses) and loopback_is_allowed():
-            # Local development only, loopback only, and the port rule goes with it.
-            return VettedDestination(scheme=scheme, host=host, port=port, addresses=addresses)
+            # Local development only, loopback only, and the port rule goes with it. The
+            # parser check below is skipped with them: a laptop's `localhost` is ASCII and
+            # the exemption exists so the local loop stays workable.
+            return VettedDestination(
+                scheme=scheme, host=host, port=port, addresses=addresses, url=vetted_url
+            )
         log.warning("egress_refused", extra={"host": host, "port": port, "reason": category})
         raise EgressRefusedError(
             code="webhook_url_not_public",
@@ -393,6 +483,27 @@ async def assert_public_http_url(raw_url: str, *, field: str = "url") -> VettedD
                 "your own network cannot receive our deliveries."
             ),
             rule=category,
+            field=field,
+        )
+
+    # AFTER the address judgement, for the reason the port check below is: a name that
+    # resolves inside our network must be reported as internal, because that is the fact
+    # the client has to act on, and a URL two parsers read differently is only interesting
+    # once the one we could read is otherwise acceptable. Skipping it for a refused
+    # address costs nothing — the destination is refused either way.
+    if _transport_target(vetted_url) != (_wire_host(host), port):
+        log.warning("egress_refused", extra={"host": host, "port": port, "reason": "ambiguous"})
+        raise EgressRefusedError(
+            code="webhook_url_ambiguous",
+            detail=(
+                f"'{host}' is not the destination that URL would actually be sent to — "
+                "two standards-compliant readings of it name two different addresses."
+            ),
+            remediation=(
+                "Send the plain ASCII form of your endpoint's address. If the domain has "
+                "non-ASCII characters in it, use its punycode (xn--…) spelling."
+            ),
+            rule="ambiguous",
             field=field,
         )
 
@@ -411,7 +522,9 @@ async def assert_public_http_url(raw_url: str, *, field: str = "url") -> VettedD
             field=field,
         )
 
-    return VettedDestination(scheme=scheme, host=host, port=port, addresses=addresses)
+    return VettedDestination(
+        scheme=scheme, host=host, port=port, addresses=addresses, url=vetted_url
+    )
 
 
 __all__ = [

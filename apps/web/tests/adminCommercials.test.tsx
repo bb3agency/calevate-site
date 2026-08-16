@@ -54,7 +54,7 @@ function tenant(): TenantSummary {
     last_call_at: null,
     holds: [],
     capped: false,
-  } as TenantSummary;
+  };
 }
 
 const ME: AdminMe = {
@@ -62,7 +62,7 @@ const ME: AdminMe = {
   user_id: "0192f0aa-7777-7000-8000-0000000000c2",
   role: "operator",
   permissions: ["org:read", "billing:read", "admin:tenants"],
-} as AdminMe;
+};
 
 function plan(over: Partial<PlanRow> = {}): PlanRow {
   return {

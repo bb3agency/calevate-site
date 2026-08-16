@@ -40,6 +40,12 @@ That allowlist guards what OUR call sites set. It does not guard what the SDK wr
 by itself — the exception message, the exception stacktrace and the span status
 description — which is where a transcript actually reached the exporter. The export
 filter below closes that, for every span, including ones this module did not create.
+
+THE SAME RULE APPLIES TO THE ERROR TRACKER, and for a while it did not. `scrub_event`
+walked the request, the frame locals and `extra`, and walked straight past the exception
+MESSAGE (`exception.values[].value`) and the logging integration's `logentry` — the two
+fields Sentry actually displays. A span dropped `exception.message` while the event
+beside it shipped the same string. One rule, both exporters.
 """
 
 from __future__ import annotations
@@ -53,7 +59,13 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from apps.api.core.alerting import configure_alerts
-from apps.api.core.logging import REDACT_KEYS, get_logger, redact_mapping, redact_text
+from apps.api.core.logging import (
+    MESSAGE_WITHHELD,
+    REDACT_KEYS,
+    get_logger,
+    redact_mapping,
+    redact_text,
+)
 from apps.api.core.settings import get_settings
 
 log = get_logger(__name__)
@@ -83,6 +95,25 @@ def scrub_event(
     Deliberately aggressive: a dropped detail costs a debugging round trip, a leaked
     transcript is a DPDP incident. Returning None would drop the event entirely — we
     do not, because knowing an error happened is itself the point.
+
+    THE THREE FIELDS THIS USED TO WALK PAST, all of them read at source in the SDK
+    rather than guessed at:
+
+    * `exception.values[].value` — the exception MESSAGE, which is `str(exc)` plus any
+      `__notes__` (`sentry_sdk.utils.single_exception_from_error_tuple` →
+      `get_error_message`). It is the string Sentry shows as the title of the issue,
+      and it was leaving unscrubbed while the OTel exporter below was dropping the
+      identical field off every span. `hide_parameters=True` covers the driver-error
+      spelling of the leak; it covers nothing about `ValueError(transcript)`.
+    * `logentry` — `{"message", "formatted", "params"}`, written by the SDK's logging
+      integration for EVERY `log.error`/`log.exception` in this repo
+      (`sentry_sdk/integrations/logging.py::_emit`). `event["message"]` — the only
+      spelling this function knew — is the LEGACY field; `params` is `record.args`,
+      i.e. the exact values a `%`-style log call interpolated.
+    * `breadcrumbs.values[]` — normally already clean, because `before_breadcrumb`
+      runs at capture. Re-scrubbed here anyway: `scrub_breadcrumb` is a hook that can
+      be unset by a future `sentry_sdk.init` edit, and this is the seam where the
+      breadcrumbs actually leave the process.
     """
     request = event.get("request")
     if isinstance(request, dict):
@@ -93,6 +124,10 @@ def scrub_event(
             }
         # The body can be a lead payload or a webhook full of transcript text.
         request.pop("data", None)
+        # A sibling of `headers`, not a member of it, so `DROP_HEADERS` never sees it.
+        # Only populated under `send_default_pii=True` — which is off, and which is a
+        # one-word edit away from being on.
+        request.pop("cookies", None)
         # Query strings carry lead search filters, which can be a phone suffix.
         if isinstance(request.get("query_string"), str):
             request["query_string"] = redact_text(request["query_string"])
@@ -102,9 +137,32 @@ def scrub_event(
         if isinstance(variables, dict):
             frame_holder["vars"] = redact_mapping(variables)
 
+    for entry in _iter_exception_values(event):
+        if entry.get("value"):
+            # WITHHELD, not `redact_text`-ed, and the same marker the log traceback uses
+            # (`logging.redact_exception`). Two answers for one string in one module
+            # would be the drift this repo's "one way per problem" rule exists to stop —
+            # and the strict answer is the correct one for the same reason there: masking
+            # phone-shaped runs and capping length cannot recognise a caller's NAME or a
+            # Telugu sentence, and `pydantic.ValidationError` renders `input_value=…`
+            # into its own message by design. The TYPE is kept beside it in
+            # `values[].type`, which is what Sentry groups on and titles the issue with.
+            entry["value"] = MESSAGE_WITHHELD
+
     extra = event.get("extra")
     if isinstance(extra, dict):
         event["extra"] = redact_mapping(extra)
+
+    logentry = event.get("logentry")
+    if isinstance(logentry, dict):
+        event["logentry"] = redact_mapping(logentry)
+
+    breadcrumbs = event.get("breadcrumbs")
+    crumbs = breadcrumbs.get("values") if isinstance(breadcrumbs, dict) else breadcrumbs
+    if isinstance(crumbs, list):
+        for crumb in crumbs:
+            if isinstance(crumb, dict):
+                scrub_breadcrumb(crumb)
 
     if isinstance(event.get("message"), str):
         event["message"] = redact_text(event["message"])
@@ -158,6 +216,14 @@ def scrub_breadcrumb(
             clean["url"] = urlunsplit((split.scheme, split.netloc, split.path, "", ""))
         crumb["data"] = clean
     return crumb
+
+
+def _iter_exception_values(event: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every entry of the Exception interface — one per link of a chained exception."""
+    container = event.get("exception")
+    if not isinstance(container, dict):
+        return []
+    return [entry for entry in container.get("values", []) or [] if isinstance(entry, dict)]
 
 
 def _iter_stacktraces(event: dict[str, Any]) -> list[dict[str, Any]]:
@@ -382,6 +448,33 @@ def _redacted_events(events: Any) -> tuple[list[Any], str | None]:
     return clean, exception_type
 
 
+def _redacted_links(links: Any) -> tuple[list[Any], bool]:
+    """Span links carry their own attribute bag, and it ships with the span.
+
+    THE LAST UNFILTERED SURFACE ON A ReadableSpan. Attributes, events and the status
+    were all scrubbed above and `links` was copied straight through, which made the
+    class docstring's claim — "no span reaches a vendor unscrubbed" — false for any
+    instrumentation that uses them. Nothing in this repo sets a link today; messaging
+    instrumentation (a batch consumer linking each message's producer span) is the
+    ordinary reason one appears, and `_instrument_arq` is exactly the kind of hand-rolled
+    piece that gets replaced by an upstream library. Closing it now costs a list
+    comprehension on the export thread; closing it after that swap costs an incident.
+
+    Returns the scrubbed links and whether anything changed, so the no-op fast path in
+    `_redact_span` stays a no-op.
+    """
+    from opentelemetry.trace import Link
+
+    clean: list[Any] = []
+    changed = False
+    for link in links or ():
+        original = dict(link.attributes or {})
+        safe = sanitize_attributes(original)
+        changed = changed or safe != original
+        clean.append(Link(link.context, safe))
+    return clean, changed
+
+
 def _redacted_status(status: Any, exception_type: str | None) -> Any:
     """Keep the status CODE, replace its description with the exception type.
 
@@ -405,6 +498,7 @@ def _redact_span(readable: Any) -> Any:
     attributes = sanitize_attributes(original)
     events, exception_type = _redacted_events(readable.events)
     status = _redacted_status(readable.status, exception_type)
+    links, links_changed = _redacted_links(readable.links)
     # `redact_text` on the NAME because a span name is a format string somebody may one
     # day interpolate an id — or worse — into. Names are code-authored and low
     # cardinality by design, so this is a backstop, not the guard.
@@ -413,6 +507,7 @@ def _redact_span(readable: Any) -> Any:
         name == readable.name
         and attributes == original
         and not events
+        and not links_changed
         and status is readable.status
     ):
         return readable  # the common case: nothing to change, nothing to allocate
@@ -423,7 +518,7 @@ def _redact_span(readable: Any) -> Any:
         resource=readable.resource,
         attributes=attributes,
         events=events,
-        links=readable.links,
+        links=links,
         kind=readable.kind,
         instrumentation_scope=readable.instrumentation_scope,
         status=status,

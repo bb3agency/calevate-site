@@ -41,7 +41,7 @@ const ME: AdminMe = {
   user_id: "0192f0aa-7777-7000-8000-0000000000d2",
   role: "operator",
   permissions: ["org:read", "billing:read", "admin:tenants"],
-} as AdminMe;
+};
 
 function tenant(): TenantSummary {
   return {
@@ -56,7 +56,7 @@ function tenant(): TenantSummary {
     last_call_at: null,
     holds: [],
     capped: false,
-  } as TenantSummary;
+  };
 }
 
 /** A plan priced on BOTH rungs — the shape the two-column table exists for. */

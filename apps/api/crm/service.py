@@ -15,10 +15,11 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, get_args
+from typing import Any, Literal, NamedTuple, get_args
 from uuid import UUID
 
 from calevate_shared.extraction import ExtractionField
+from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +32,7 @@ from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
     MAX_BULK_LEADS,
     CallDetailOut,
+    CallMomentOut,
     CallSummaryOut,
     DashboardDayOut,
     DashboardOut,
@@ -237,7 +239,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
     extraction = (
         await session.execute(
             text(
-                "SELECT data, valid FROM call_extractions WHERE call_id = :cid "
+                "SELECT data, valid, moments FROM call_extractions WHERE call_id = :cid "
                 "ORDER BY created_at DESC LIMIT 1"
             ),
             {"cid": call_id},
@@ -267,20 +269,108 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         ],
         extraction=(extraction[0] or {}) if extraction else {},
         extraction_valid=bool(extraction[1]) if extraction else True,
+        moments=_moments_out(extraction[2] if extraction else None, raw=raw),
     )
 
 
-async def recording_key_for(session: AsyncSession, call_id: UUID) -> str:
+def _moments_out(stored: Any, *, raw: bool) -> list[CallMomentOut]:
+    """The stored markers, on the SAME redaction switch as the transcript above.
+
+    `raw=False` takes `label_redacted`, `raw=True` takes `label`. A marker's label can
+    quote the caller — a model-authored one always does — so it has to move with the rest
+    of the screen's text or it becomes the one field that leaks (hard rule 5). The
+    endpoint that returns raw already writes an `audit_log` row for the whole read, which
+    is what makes one switch sufficient rather than needing a second gate here.
+
+    Unknown or malformed elements are DROPPED rather than raised on. This column is
+    written by a worker and read by a request; a marker whose `kind` a later release
+    retired must not turn a client's call detail into a 500 on the deploy that removes it.
+    Dropping loses one row of a navigation aid, and the transcript beneath is untouched.
+    """
+    if not isinstance(stored, list):
+        return []
+    out: list[CallMomentOut] = []
+    for item in stored:
+        if not isinstance(item, dict):
+            continue
+        label = _label_for(item, raw=raw)
+        if label is None:
+            continue
+        try:
+            out.append(
+                CallMomentOut(
+                    at_ms=int(item["at_ms"]),
+                    kind=item["kind"],
+                    label=label,
+                    source=item["source"],
+                )
+            )
+        except (KeyError, TypeError, ValueError, ValidationError):
+            continue
+    return sorted(out, key=lambda m: m.at_ms)
+
+
+def _label_for(item: dict[str, Any], *, raw: bool) -> str | None:
+    """Which of a stored marker's two labels this view may show, or None to drop it.
+
+    The raw view takes `label`. The redacted view takes `label_redacted` — and when that
+    key is ABSENT the answer depends on who wrote the marker, which is the only place in
+    this file where `source` changes behaviour rather than presentation:
+
+    * a `derived` label is generated from the field's own name and provably carries no
+      caller data (`workers/moments._moment` sets both keys to one string), so falling
+      back to `label` shows the right text and keeps the marker;
+    * a `model` label quotes the caller. Falling back there would print raw text in the
+      view whose entire promise is that it does not (hard rule 5), so the marker is
+      dropped instead.
+
+    The alternative — trusting that the writer always sets both — is the assumption every
+    redaction defect in this repo has been made of. A row can also arrive from a restore,
+    a hand-fix, or a release that changed the shape.
+    """
+    if raw:
+        value = item.get("label")
+        return str(value) if value is not None else None
+    redacted = item.get("label_redacted")
+    if redacted is not None:
+        return str(redacted)
+    if item.get("source") == "derived":
+        fallback = item.get("label")
+        return str(fallback) if fallback is not None else None
+    return None
+
+
+class RecordingRef(NamedTuple):
+    """Where OUR copy of a call's audio is, and how long it plays for.
+
+    The duration travels WITH the key because the caller needs both to mint a link that
+    outlives the audio, and reading them in two queries would let a retention sweep
+    delete the row between them — answering with a key whose duration is a guess.
+    """
+
+    key: str
+    duration_s: int | None
+
+
+async def recording_ref_for(session: AsyncSession, call_id: UUID) -> RecordingRef:
+    """The object key for this call's recording, or a 404 that says WHICH thing is absent.
+
+    Two different 404s on purpose (the D-65 discriminator applied to a read): a call id
+    that names nothing is "Call", and a real call that was never recorded — or whose
+    audio a retention sweep has already destroyed — is "Recording". An owner who mistyped
+    a URL and an owner whose 90 days elapsed need different next actions.
+    """
     row = (
         await session.execute(
-            text("SELECT recording_url FROM calls WHERE id = :cid"), {"cid": call_id}
+            text("SELECT recording_url, duration_s FROM calls WHERE id = :cid"),
+            {"cid": call_id},
         )
     ).first()
     if row is None:
         raise ProblemError.not_found("Call")
     if not row[0]:
         raise ProblemError.not_found("Recording")
-    return str(row[0])
+    return RecordingRef(key=str(row[0]), duration_s=int(row[1]) if row[1] is not None else None)
 
 
 # --- leads --------------------------------------------------------------------
@@ -2122,6 +2212,7 @@ __all__ = [
     "FieldFilters",
     "LeadExport",
     "LeadPage",
+    "RecordingRef",
     "dashboard",
     "emit_lead_updated",
     "export_leads_csv",
@@ -2137,7 +2228,7 @@ __all__ = [
     "list_leads_page",
     "mask_phone",
     "plan_callback",
-    "recording_key_for",
+    "recording_ref_for",
     "redacted_summary",
     "set_lead_name",
     "update_lead",

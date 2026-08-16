@@ -18,7 +18,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.billing import service as billing
+from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.auth import client_request_ip, requires
@@ -26,12 +28,13 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.crm import assist, saved_views, service
 from apps.api.crm import columns as lead_column_registry
-from apps.api.crm import saved_views, service
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.performance import performance
 from apps.api.crm.schemas import (
     AttentionOut,
+    CallAssistOut,
     CallbackEligibilityOut,
     CallbackOut,
     CallDetailOut,
@@ -64,6 +67,7 @@ from apps.api.reliability.service import (
     complete_idempotency,
     scope_key,
 )
+from apps.workers.extraction import run_assist
 
 router = APIRouter(prefix="/v1", tags=["crm"])
 
@@ -98,6 +102,46 @@ async def get_calls(
     return await service.list_calls(
         session, limit=limit, offset=offset, status=status, agent_id=agent_id
     )
+
+
+#: The floor on a recording link's life, and the value every link used to get.
+#: Enough to start playing a short call on a slow connection.
+RECORDING_LINK_FLOOR_S = 300
+#: The ceiling. `CALL_CAP_MAX_S` is one hour, so twice a maximal call plus the floor is
+#: the longest link this can ever mint — stated as its own constant so the widest
+#: credential window this route can open is a number a reviewer can read, not one they
+#: have to derive from an arithmetic expression.
+RECORDING_LINK_CEILING_S = 2 * CALL_CAP_MAX_S + RECORDING_LINK_FLOOR_S
+
+
+def recording_link_ttl_s(duration_s: int | None) -> int:
+    """How long this call's presigned link must live: derived from the audio, not guessed.
+
+    **THE DEFECT THIS CLOSES.** Every link was minted for a flat 300 seconds while
+    `CALL_CAP_MAX_S` lets a call run for 3600. S3 rejects the request the moment the
+    signature expires, and a browser mid-playback reports that as a bare `MEDIA_ERR_
+    NETWORK` on the `<audio>` element — so a twenty-minute call played for five minutes
+    and then stopped, with no message, and the owner's reasonable conclusion was that we
+    had only recorded the first five minutes. The link has to outlive the thing it points
+    at or it is not a link to that thing.
+
+    **Twice the duration, not once.** A listener pauses, rewinds, re-reads a turn and
+    scrubs back; a link sized to exactly one pass expires on anyone who does more than
+    press play and wait. Doubling is the cheapest allowance that covers ordinary review
+    behaviour, and it is bounded above by a constant either way.
+
+    **Why not simply raise `PRESIGN_TTL_S`?** Because that constant is shared with every
+    other presigned artefact, and the signature IS the credential — widening it globally
+    would hand a longer window to objects that need seconds. Deriving it per call keeps
+    the window proportional to the only thing that justifies it.
+
+    An unknown duration (a call the poller never resolved) gets the floor rather than the
+    ceiling: guessing long on a recording whose length we do not know is the wrong
+    direction to be generous in, and the screen re-mints when a link expires.
+    """
+    if duration_s is None or duration_s <= 0:
+        return RECORDING_LINK_FLOOR_S
+    return min(max(RECORDING_LINK_FLOOR_S, duration_s * 2), RECORDING_LINK_CEILING_S)
 
 
 @router.get(
@@ -150,7 +194,7 @@ async def get_recording(
     request: Request,
     principal: Principal = Depends(requires("calls:read")),
 ) -> RecordingLinkOut:
-    key = await service.recording_key_for(session, call_id)
+    ref = await service.recording_ref_for(session, call_id)
     await write_audit(
         session,
         action="recording.read",
@@ -162,9 +206,10 @@ async def get_recording(
     )
     # Imported here, not at module scope: the presigner lives in the workers package
     # and pulling boto3 into every API import would slow cold starts for one route.
-    from apps.workers.storage import PRESIGN_TTL_S, presigned_url
+    from apps.workers.storage import presigned_url
 
-    url = presigned_url(key)
+    ttl_s = recording_link_ttl_s(ref.duration_s)
+    url = presigned_url(ref.key, ttl_s=ttl_s)
     if url is None:
         raise ProblemError(
             kind="dependency",
@@ -172,7 +217,158 @@ async def get_recording(
             title="Recording unavailable",
             detail="The recording could not be retrieved right now.",
         )
-    return RecordingLinkOut(url=url, expires_in_s=PRESIGN_TTL_S)
+    return RecordingLinkOut(url=url, expires_in_s=ttl_s, duration_s=ref.duration_s)
+
+
+@router.post(
+    "/calls/{call_id}/assist",
+    response_model=CallAssistOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Re-summarise this call with the assistant model — metered, quota-gated (D-127)",
+    description=(
+        "Runs the dashboard assistant over this call's REDACTED transcript and returns a "
+        "fresh summary. Nothing is stored: the call's own summary and captured fields are "
+        "the first pass over the raw transcript and are left alone. Refused before any "
+        "model is called when the account is past its included AI allowance — the screen "
+        "opens the wallet dialog on `ai_quota_exceeded`. A `Idempotency-Key` header is "
+        "REQUIRED so a double-click is paid for once. Requires `org:manage`."
+    ),
+)
+async def assist_call(
+    call_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> CallAssistOut:
+    """SUBJECT → GATE → RUN → METER. `crm/assist.py`'s docstring argues each arrow.
+
+    **`org:manage`, and it is the whole population question.** This is a POST that spends
+    money, so `test_every_mutating_route_is_gated_by_a_mutating_permission` requires a
+    permission in `MUTATING_PERMISSIONS` — which also means an operator inside a D-22
+    read-only "view as client" session cannot spend a client's allowance from a client
+    screen. Of the mutating permissions a client role holds, `org:manage` is the one this
+    console already uses for the whole AI surface: `GET /v1/billing/ai-quota` is
+    `billing:read` and `POST /v1/billing/ai-quota/extra` is `org:manage`, both owner-only,
+    on SEC-COMP §5's ground that spend is an owner's business. Gating the thing that
+    SPENDS the allowance more loosely than the panel that displays it would be this
+    product disagreeing with itself. `leads:write` was the alternative — staff hold it, so
+    it would let staff re-summarise — and was rejected because it names the wrong object
+    on a call route and would put "leads:write" in the audit row for an act on a call. A
+    new `calls:assist` was rejected on `bulk_leads`'s ground: its holder set would be
+    exactly `leads:write`'s, and a permission every role holds precisely when it holds
+    another is a fourth registry entry that buys nothing.
+
+    **The `Idempotency-Key` is REQUIRED**, which `POST /v1/leads/{lead_id}/call` does not
+    do, and the difference is what a repeat costs. A repeated dial re-runs the compliance
+    gate and is bounded by the follow-up ladder; a repeated assist is a second, silent
+    payment to Google with nothing else in front of it — D-140 removed the client-suppliable
+    metering `ref` precisely so that dedupe could not happen after the provider was paid,
+    and moved double-click protection here. An OPTIONAL key would protect only the callers
+    that remember to send one, i.e. this console on the day it was written, which is the
+    argument `ops/config_routes.require_if_match` already makes for `If-Match`. 400 with a
+    problem body is what draft-ietf-httpapi-idempotency-key-header-07 §2.4 asks for when
+    the header is missing on an operation that documents it (RFC 9457 supersedes the
+    draft's RFC 7807 reference; the shape is the same).
+    """
+    assert principal.tenant_id is not None  # guaranteed by the tenant-scoped session
+    tenant_id = principal.tenant_id
+
+    idem_key = request.headers.get("Idempotency-Key")
+    if not idem_key:
+        raise ProblemError(
+            kind="validation",
+            status=400,
+            code="idempotency_key_required",
+            title="This request has to carry an Idempotency-Key",
+            detail=(
+                "Running the assistant costs money, so every attempt names itself and a "
+                "repeat of the same attempt is answered rather than re-run."
+            ),
+            remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
+        )
+    claim = await claim_idempotency(
+        session,
+        scope=scope_key(tenant_id=tenant_id, user_id=principal.user_id),
+        route="/v1/calls/{call_id}/assist",
+        method="POST",
+        key=idem_key,
+        request_hash=body_hash({"call_id": str(call_id)}),
+    )
+    if claim.state == "replay" and claim.response_payload:
+        # The stored answer, not a second run. This is the double-click, and it is
+        # answered BEFORE the model is called, which is the only place answering it saves
+        # anything (`billing/ai_quota.ASSIST_REF_PREFIX`).
+        return CallAssistOut.model_validate(claim.response_payload)
+
+    # 1. THE SUBJECT, before the money. A call with no readable redacted transcript
+    #    cannot be summarised at any price, and finding that out after the ceiling check
+    #    would answer a client at their limit with "add ₹500" for a call the money would
+    #    not have helped with.
+    source = await assist.load_assist_source(session, call_id)
+
+    # 2. THE GATE. It RAISES — `ai_quota_exceeded` is what opens the wallet dialog (G-5),
+    #    `ai_paused_platform_wide` is the brake — so a refusal reaches the client without
+    #    a token having been spent. Everything below this line costs money.
+    quota = await require_ai_assist(session, tenant_id=tenant_id)
+
+    # 3. THE RUN. The key is minted HERE, by the server, per attempt: `record_ai_assist_usage`
+    #    accepts nothing else, because its idempotency is a switch that turns metering off
+    #    (D-140).
+    ref = new_assist_ref()
+    result = await run_assist(
+        source.spec,
+        # `text_redacted`, assembled by `crm/assist.py`, which never names the raw column.
+        # `run_assist` re-runs `redact()` over this and REFUSES text that still matches —
+        # that guard had no caller until this line, and this line must not defeat it.
+        source.transcript,
+        # The gate's verdict, passed IN rather than re-read. It is False on every path
+        # that reaches here — `require_ai_assist` RAISES at the ceiling rather than
+        # returning "no", which is G-5's block — and it is written as the READ rather
+        # than as a literal `False` so that this caller stays correct if the gate ever
+        # learns to answer instead of raise. A literal would be a promise about another
+        # module's control flow, made in this one.
+        quota_exhausted=quota.at_ceiling,
+    )
+
+    # 4. THE METER, unconditional on a run that returned: the provider has been paid
+    #    whether or not the answer was any good. `meter_assist` never raises, and it is
+    #    where `usage is None` is decided (a free Sarvam leg, or an unmeterable Gemini one).
+    metered = await assist.meter_assist(session, tenant_id=tenant_id, ref=ref, result=result)
+
+    await write_audit(
+        session,
+        action="call.ai_assist",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="call",
+        object_id=str(call_id),
+        ip=client_request_ip(request),
+        # `usage_events` records the tenant, the cost and the key; it does not record WHO
+        # asked or WHICH call was read (`call_id IS NULL` is in the index predicate). A
+        # transcript being handed to a sub-processor is a processing act under DPDP and
+        # the actor and the subject are exactly what a grievance asks for, so they are
+        # recorded here. Ids, a provider name and a boolean — no prose, no output.
+        summary={
+            "provider": result.capability.provider,
+            "fallback_reason": result.capability.fallback_reason,
+            "metered": metered.metered,
+            "ref": ref,
+        },
+    )
+
+    out = CallAssistOut(
+        # The same `redact()` pass `calls.summary` goes out through. The model was given
+        # redacted text and so cannot have copied a digit it never saw; this is the belt
+        # to that braces, and it is what lets the redaction guardrail's entry for this
+        # field say what `CallDetailOut.summary`'s says.
+        summary=service.redacted_summary(result.output.summary) or "",
+        disclosure=result.capability.disclosure,
+        metered=metered.metered,
+    )
+    await complete_idempotency(
+        session, record_id=claim.record_id, response_status=200, response_payload=out.model_dump()
+    )
+    return out
 
 
 # --- the Leads table's lens: which rows, and which columns --------------------

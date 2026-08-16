@@ -381,20 +381,14 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # per assist and `VertexGeminiExtractor` is constructed per assist, so a new key
     # reaches the next request.
     #
-    # ROTATING WITHIN ONE ACCOUNT IS THE EXCEPTION, and it is stated because it is the
-    # case an operator meets at 3am. The BEARER is cached in `google_oauth` on
-    # `(client_email, scope)`, so replacing a key that keeps the same service-account
-    # address keeps sending the old token for up to an hour. That is deliberate — the
-    # cache is what stops one RS256 signature per assist — and the verb for it is
-    # `google_sheets.reset_caches()`, or a restart. Same behaviour, same caveat, as the
-    # Sheets key below, because it is now literally the same cache.
-    "gcp_service_account_json": AppliesRule(
-        LIVE,
-        "the KEY is read per assist, but a bearer minted from it is cached for up to an "
-        "hour on the service account's address — so rotating to a NEW key for the SAME "
-        "service-account address keeps the old token in flight until it expires. A "
-        "different service account takes effect immediately.",
-    ),
+    # ROTATING WITHIN ONE ACCOUNT USED TO BE THE EXCEPTION and no longer is. The bearer
+    # is cached in `google_oauth` on `(client_email, private_key_id, scope)`; when that
+    # tuple was `(client_email, scope)` a new key on the SAME service-account address —
+    # which is what Google's own console mints — kept the retired key's token in flight
+    # for up to an hour, and this row said so instead of fixing it. `live` now means
+    # live: the next assist misses the cache and signs with the new key. The one residue
+    # is a key file with no `private_key_id`, which Google does not produce.
+    "gcp_service_account_json": AppliesRule(LIVE),
     "cohere_api_key": AppliesRule(LIVE),
     "clerk_webhook_secret": AppliesRule(LIVE),
     "audit_chain_secret": AppliesRule(LIVE),  # compliance/audit._active_key(), per write

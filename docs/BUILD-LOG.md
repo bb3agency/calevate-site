@@ -125,7 +125,13 @@ three fields needed to dedupe). `webhook_routes.py` verifies → dedupes (Redis 
 - `extraction.py` — Sarvam (D-36; and per D-127 G-7 the permanent runner of the first
   post-call extraction, because that pass reads the raw transcript) / Offline
   deterministic / `VertexGeminiExtractor` on Vertex AI `asia-south1` for the
-  user-triggered assist over the REDACTED copy. `GEMINI_EXTRACTION_DEFAULT is False`.
+  user-triggered assist over the REDACTED copy, on `gemini-2.5-flash` — 2.5 because
+  `asia-south1` is the only region D-127 permits and no 3.x model is reported there, which
+  makes BRD R-04's 16 Oct 2026 retirement live for this leg (`GEMINI_DEFAULT_LLM_RETIRES`,
+  OPERATIONS §2 gate 14b). `GEMINI_EXTRACTION_DEFAULT is False`, and
+  `GEMINI_MODEL_CONFIRMED_IN_REGION is False` — a 404 on the first real call is the answer
+  to the one vendor fact nobody here could read, and the client logs it as
+  `vertex_model_not_served_in_region` rather than as `HTTPStatusError` (D-142).
   No silent failover between providers — and `assist_capability()` is the one place that
   decides between a DISCLOSED Sarvam fallback and a refusal with a remediation (G-6).
 - `pipeline.py` — `ingest_engine_event` (re-fetches the truth, resolves tenant, upserts
@@ -3357,6 +3363,184 @@ argued rather than sneaked (a `pragma: no cover` on a genuinely unreachable bran
 with `.one()`, which deletes the branch instead of hiding it), and then it found that the AI
 quota gate's **success path was untested**: every refusal was proved and the branch that says
 "yes" was not, in a file whose natural bias is ceilings.
+
+## §69 — five batches re-attack the subsystems the last two waves never reached
+
+§67 hardened one path end to end and §68 hardened eighteen parts of the plan. Neither
+went near the post-call pipeline, the campaign dispatcher, the voice-runtime receiver,
+the migration chain or the rupee path as *subsystems* — they were touched only where the
+slice under attack crossed them. Five batches took one each, with instructions to attack
+the guarantee rather than the code, and every one of them found something.
+
+**The five findings that would have cost real money or real law.**
+
+- **`TRUNCATE` emptied every append-only ledger and no guard noticed** (hard rule 4). A
+  `FOR EACH ROW` trigger has no rows to fire per on TRUNCATE, and
+  `check_ledger_immutability` only ever asked about UPDATE and DELETE. `TRUNCATE calls
+  CASCADE` reached `usage_events` and `consent_ledger` sideways. Worse and quieter:
+  every trigger was `ENABLE ORIGIN`, so `SET session_replication_role = replica`
+  switched all eight off — and that is exactly what `pg_restore --disable-triggers`
+  emits. Both closed by `a2e9f31c605d` (statement-level `BEFORE TRUNCATE` triggers,
+  `ENABLE ALWAYS` on all of them) and the guard now requires both properties.
+- **A tenant could rewrite another tenant's inbound route** (hard rule 1).
+  `engine_agent_routes` is RLS-exempt for a reason recorded entirely in terms of
+  READING — a webhook arrives with only the vendor agent id — and the table had no RLS
+  at all, so a session scoped to tenant A could `UPDATE ... SET tenant_id = A WHERE
+  tenant_id = B` and re-point another client's inbound calls at its own agent. This is
+  the same shape `e4f2a86b13d7` already fixed once on `dnc_list`; the second table with
+  it never got the same treatment. `c4b70e928a1f` splits the read from the writes.
+- **Double quantization put a wrong number on an invoice.** A line read `5.00 min at
+  ₹3.75/min — ₹18.69`, because every surface in `billing/service.py` published a
+  breakdown and a total that were rounded independently. Fixed with largest-remainder
+  apportionment (`allocate_paise`), which is what invoicing systems that must split a
+  total across lines converge on. The rejected alternative is in its docstring: deriving
+  the last part by subtraction is correct for two parts and returns **-0.01** for three.
+- **A `no_consent` dial was not in the dispatcher's terminal set**, so it re-claimed and
+  refunded every 30 minutes forever and the campaign never completed. Alongside it: a
+  pause mid-batch did not stop dials #2 and #3, and a campaign narrowed to 09:00–12:00
+  dialled at 12:05.
+- **The webhook receiver's body read had no time bound.** `_read_bounded` bounded bytes;
+  nginx's `client_body_timeout` bounds the gap between reads, not the total. A 7-chunk
+  trickle was measured returning **202 with `X-Ack-Ms: 1506`** — hard rule 3's budget
+  blown by a client controlling its own upload speed. And an uncaught `ClientDisconnect`
+  raised `unhandled_exception`, which `_admit` then suppresses for 15 minutes: one
+  half-open POST per quarter hour silenced the receiver's real crash alarm.
+
+**Two batches did the third thing rather than the thing they were asked to do, and both
+were right to.** The voice-runtime batch was challenged for changing the Redis dedupe key
+from `{engine}:{execution}:{body-hash}` to `{engine}:{execution}:{status}` — on an
+unsigned engine the body hash is part of the only authenticity control we have. Its answer
+was to measure rather than argue: against a pristine `git show HEAD:` copy of the service,
+a doctored re-delivery produced **zero alerts and an unchanged `payload_hash`** under both
+keys, because the hash the receiver hands the inbox is a pure function of the key. The
+"doctored replay ⇒ 409" branch was a tautology that could never fire. So the key is the
+transition and its *value* is the body digest: a hit whose bytes differ now increments a
+counter, Postgres is still untouched, and the assertion is stronger than the one it
+replaced. The money batch was told to make the parts add up and instead asked what
+"adding up" means when one surface prices at supplier cost and another at the runway rate
+— which is how the two commercial questions below got asked at all.
+
+**Three of this session's defects were the SAME defect: prose that trips its own guard.**
+`check_model_residency`, `check_audit_ip` and `check_docs_drift` each grew a docstring
+containing the exact token the checker bans, and a fourth instance put a literal
+`# pragma: no cover` inside a comment explaining why not to use one — `coverage`'s
+`exclude_lines` is a regex over source lines, so it excluded the very function the comment
+justified. The `check_docs_drift` case is the sharpest: a `_highest()` helper defaulted to
+a zeroth-decision sentinel, the file is itself scanned for citations, and the checker
+reported **itself**. The fix is the one that generalises — return `None` and let the
+message degrade to prose — because splicing the string so the pattern misses it hides the
+literal from the guard instead of removing it, which is the move the whole file exists to
+catch. `tests/docs_drift_guard_test.py` now pins both halves and writes neither number out.
+
+**The ratchet stopped charging for something nobody chose, and started being obeyed** (D-152). It
+refused this wave over four "uncovered units" in `apps/voice-runtime/webhook_routes.py`
+that turned out to be a four-line `Protocol` declaration: coverage 7 excludes `...`-bodied
+stubs and `if TYPE_CHECKING:` blocks BY DEFAULT and sweeps the blank lines around each
+excluded clause in with them, and the ratchet counted the lot as author suppression under
+a message naming a pragma the file did not contain. Three of the four were whitespace. A
+guard that charges for the repo's own typing idiom — the shape `VoiceEngine` itself is
+written in — teaches authors to reach for untyped callables, which is the opposite of what
+it is for. It now counts only lines that carry the comment, read from the source; the
+doctrine ("a suppression is not an escape") is unchanged and the new tests measure
+coverage's actual defaults from a real run rather than trusting a changelog.
+
+Sharpening it dropped two areas below their floors, and the four remaining suppressions in
+guarded surfaces were then **removed rather than accepted**: two were `.first()` followed by
+an unreachable `row is None` and became `.one()`, which deletes the branch instead of hiding
+it; one was an opt-out validation labelled "programmer error" — a description of who causes
+it, not of whether it can be driven, and it took one call; one was a post-CAS re-read that is
+now driven directly. **Seven no-cover comments remain outside the guarded areas** (in
+`admin/routes.py`, `ops/config_service.py`, `agents/verification.py`, `campaigns/service.py`,
+`campaigns/scheduling.py` and two in `reliability/service.py`). They are not charged by any
+area today and they were not swept: the two in `reliability/service.py` guard real TTL races
+rather than impossibilities, and a sweep that treated them like the mechanical four would be
+the "argued rather than sneaked" suppression in reverse.
+
+**Two things were fixed that were reported rather than fixed by the batch that found them.**
+`tier_usage` — the three-rung TTS cost split D-36 asks for — had no caller outside the test
+suite for two waves. It is now nested under `tiers` on `GET /v1/admin/tenants/{id}/margin`,
+where it partitions the `cost_inr` on the same card and needs no second round trip, and the
+admin panel renders it. That surfaced a second defect on the way: five web fixtures carried
+`as Margin`, so `pnpm -C apps/web typecheck` stayed green while every one was missing a required
+field and the panel threw at runtime in 25 tests. The casts are gone; the compiler is the
+thing that notices the next added field.
+
+**A `git checkout` on one file cost 262 lines of another batch's uncommitted work**, and
+the only reason nothing was lost is that a `cp` taken two commands earlier for the sabotage
+protocol happened to hold the full state. This is the rule already given to every subagent
+— never `git stash`, `git checkout --`, or `reset --hard` — and it applies to the
+coordinator identically. The sabotage protocol's restore step is `cp` from the backup, not
+a git operation, precisely because git restores from HEAD and knows nothing about what else
+is in the working tree.
+
+## §70 — recordings, key moments, KB drift, and the twenty failures that were not failures
+
+Three feature slices and one investigation. The investigation is first because it changes
+how much the other three are worth believing.
+
+**"20 pre-existing failures" was a description, not a diagnosis.** A hardening agent's
+final run reported `4328 passed / 20 pre-existing failures` and moved on. Nobody had ever
+named them. They were three clusters — 15 in `platform_secrets_test`, 3 in
+`rls_sweep_test`, 2 in `dnc_test` — and **all 20 pass on a quiet box**: a single
+uncontended run scored 4511 passed, 0 failed. Every one of the three files is a
+whole-table sweep over shared un-tenanted state (`rls_sweep_test` enumerates EVERY tenant
+table; `dnc_list` and `platform_secrets` are global), `pytest-xdist` is not installed so
+the suite is serial and the interference cannot be intra-run, and `platform_secrets_test`
+says in its own docstring that its table is shared. Five concurrent agents were pointed at
+one database. This matters beyond the bookkeeping because three of the twenty are hard
+rule 1 in executable form, and a standing count of unexplained red is how a real tenancy
+break would have been waved through as "one of the usual twenty".
+
+**Running the suite SCOPED is how a guard goes unseen.** The KB drift agent ran 282 tests
+across 16 KB-related suites, reported green, and the coordinator pushed on that. The first
+whole-suite run afterwards found two failures, both belonging to that commit:
+
+- `kb_boundaries_test` scans every file under `apps/api/kb/` AS TEXT for vendor vocabulary
+  (hard rule 2). The new `kb/reconciliation.py` named the vendor four times and its
+  account-listing endpoint once — all in prose. This is the "prose defeats its own guard"
+  class for the sixth time this session, but here **the guard was right and the prose was
+  wrong twice**: the module is engine-agnostic (it drives off
+  `capabilities.has("knowledge_base")`), so a vendor name in it was inaccurate as well as
+  a rule-2 leak, and `kb/service.py` had been describing the same mechanics without naming
+  anyone. Reworded. Making the scan comment-aware was the easy fix and is forbidden —
+  weakening a guard to pass a test — and the rewrite reads better regardless.
+- `tm_registration_test`'s EXACT-SET assertion on `GET /v1/ops/platform` caught `kb_drift`
+  arriving. Third time that assertion has earned itself; its own comment already records
+  `outbox_dead_letters` and `engine_drift` landing the same way.
+
+**Call recordings became listenable, and the link stopped expiring mid-audio** (D-153).
+Every presigned link was signed for 300s against a `CALL_CAP_MAX_S` of 3600, so a
+twenty-minute call played for five minutes and stopped — and S3 answers an expired
+signature with XML that a browser surfaces as a bare `MEDIA_ERR_NETWORK`, so the owner's
+reasonable conclusion was that we had only recorded the first five minutes. TTL is now
+derived per call from the metered duration. `start_ms` had been on every transcript turn
+since the pipeline was written and NOTHING read it; turns are now seek targets.
+
+**Key moments are computed once at storage, never per listen** (D-156). Research settled
+the tempting version: ID3v2 `CHAP`/`CTOC` and WebVTT chapter tracks are both real
+standards that browsers ignore on `<audio>`, so embedding buys nothing and costs a
+container rewrite plus chapter titles quoting the caller inside an object that can only be
+deleted, never redacted. Markers live beside the player instead. The derived half exists
+because it CANNOT be wrong — `anchor_of` returns a turn's own offset or None, never an
+approximation — and there is exactly one model kind rather than a taxonomy, because D-36
+records Telugu extraction quality as UNMEASURED and rendering an unscored classification
+as fact is a claim we cannot support until task #87 runs.
+
+**Our knowledge and the vendor's copy only ever agreed at publish time** (D-158). A KB is
+the object here with the longest gap between writes, so a console edit or a publish that
+committed at the vendor and rolled back here stayed invisible for months. The sweep reads
+both directions and REPORTS ONLY: the repair a KB drift invites is `detach_kb`, an
+irreversible delete at the vendor of a document our tables by hypothesis cannot describe.
+Its honest limit is recorded rather than papered over — an empty listing is `unreadable`,
+not `missing`, unless another agent in the same tick proves the vendor attributes its
+listing by agent (pilot gate 8, still open on an external blocker).
+
+**The coverage ratchet was finally scored**, owed since `189c268`. Two earlier attempts
+stalled under five-agent contention and were killed rather than report a number the
+ratchet itself refuses to vouch for. On a fresh database with Redis flushed:
+`COVERAGE RATCHET: OK (7 guarded surfaces, all at their floor)` — compliance-gate,
+voice-runtime-ack and platform-credentials at 100%, redaction the weakest at 97.9%.
+
 
 ## State of the system — what a future session inherits
 

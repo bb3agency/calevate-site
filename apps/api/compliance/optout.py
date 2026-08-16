@@ -377,7 +377,12 @@ async def record_call_optout(
     call) is what keeps two runs from overlapping in practice. The same doctrine, and
     the same residual, as `pipeline._meter`.
     """
-    if detected_by not in DETECTION_SOURCES:  # pragma: no cover — programmer error
+    # A programmer error, and still worth raising: `detected_by` is written verbatim into
+    # `consent_ledger`, which is append-only (hard rule 4), so a typo'd source is a
+    # permanent row that no DPDP audit can attribute to a detector. It is also trivially
+    # reachable from a test, which is why the coverage exclusion this line used to carry
+    # was wrong — "programmer error" describes who causes it, not whether it can be driven.
+    if detected_by not in DETECTION_SOURCES:
         raise ValueError(f"unknown opt-out detection source: {detected_by}")
     phone_e164 = normalize_phone(raw_phone)
     if phone_e164 is None:

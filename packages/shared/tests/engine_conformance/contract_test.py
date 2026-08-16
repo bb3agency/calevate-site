@@ -10,6 +10,7 @@ Run: `make conformance` (or `uv run pytest -m conformance`).
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -400,6 +401,73 @@ async def test_execution_snapshot_is_fully_normalized(engine: VoiceEngine) -> No
         assert isinstance(snapshot.cost.total_inr, Decimal), "money is NUMERIC, never float"
         assert snapshot.cost.total_inr >= 0
         _assert_cost_is_re_derivable(snapshot.cost)
+
+
+async def test_get_execution_carries_the_vendors_own_document_for_the_archive(
+    engine: VoiceEngine,
+) -> None:
+    """THE CLAUSE THAT KEEPS D-126's ERASURE ARM POINTED AT SOMETHING.
+
+    `storage.archive_payload` keeps the engine's own document for a call,
+    `calls.engine_payload_ref` names it and `retention._erase_engine_payloads` destroys it
+    on both erasure paths — and for as long as no adapter carried a document, all three
+    guarded a store that could not exist. The archive is TRD §5's deliberate escape valve
+    for hard rule 2 (raw vendor payloads live in object storage precisely so they never
+    land in typed columns), so an adapter that supplies nothing is not merely unhelpful:
+    it removes the only record of what the vendor actually said, on a platform whose
+    webhooks are unsigned and at-most-once (D-31).
+
+    THREE PROPERTIES, and each is a way an adapter can be wrong.
+
+    1. **It is there, and it is bytes.** `ExecutionSnapshot.raw_document` is `bytes` on
+       purpose — a `dict` would carry the vendor's field names to every caller, which is
+       the leak an import contract cannot see. An adapter returning `None` here is what
+       this clause primarily refuses.
+    2. **It is the VENDOR'S document, not a re-render of the snapshot.** An adapter that
+       dumped its own `ExecutionSnapshot` would archive OUR normalization, so the day a
+       mapping turns out wrong the only record of what the vendor said is a copy of what
+       we thought it said — and every other property here would still hold, which is how
+       a deliberate sabotage of the Cartesia adapter walked through the first version of
+       this clause. The check has to be structural, because the suite may not name a
+       vendor field either: a document whose every top-level key is a field of
+       `ExecutionSnapshot` is our own shape wearing the archive's name.
+    3. **It describes THIS execution.** Two different calls must not yield one document.
+       An adapter answering with a constant writes the same bytes under every call's
+       erasure prefix, so the archive describes no call at all — the same defect
+       `test_agent_read_back_reports_the_agent_it_was_asked_about` refuses for prompts,
+       and a stub that echoes a fixture regardless of the id would hide it.
+
+    Note what is NOT asserted: any field name, anywhere. The suite reads the document's
+    length and its parseability and nothing else — it may not look inside either.
+    """
+    ref = await engine.create_agent(_agent_config(engine))
+    first = await engine.start_outbound_call(ref, "+919876543210", CallContext(lead_id="lead-1"))
+    second = await engine.start_outbound_call(ref, "+919876543211", CallContext(lead_id="lead-2"))
+    assert first != second, "this engine minted one handle for two calls"
+
+    one = (await engine.get_execution(first)).raw_document
+    two = (await engine.get_execution(second)).raw_document
+
+    assert one is not None, (
+        "this adapter carries no raw document out of `get_execution`, so nothing can "
+        "archive what the vendor said — `calls.engine_payload_ref` is a column with no "
+        "writer and D-126's erasure arm guards an object that is never created"
+    )
+    assert isinstance(one, bytes) and one, "the document must be non-empty bytes"
+    parsed = json.loads(one.decode())
+    assert isinstance(parsed, dict) and parsed, (
+        "the archived document must be the vendor's own object; anything else cannot be "
+        "re-read when our mapping turns out to be wrong"
+    )
+    assert not set(parsed) <= set(ExecutionSnapshot.model_fields), (
+        "every key in this document is a field of OUR `ExecutionSnapshot`, so this "
+        "adapter is archiving its own normalization — the archive exists precisely to "
+        "survive our normalization being wrong"
+    )
+    assert two is not None and two != one, (
+        "two different executions produced the SAME document — the archive under each "
+        "call's erasure prefix would describe neither call"
+    )
 
 
 async def test_billable_ready_implies_terminal(engine: VoiceEngine) -> None:

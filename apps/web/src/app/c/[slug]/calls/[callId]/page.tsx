@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { use, useState } from "react";
+import { use, useCallback, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -25,6 +25,12 @@ import {
   formatDuration,
   formatIST,
 } from "@/components/ui";
+import { AssistCard } from "./AssistCard";
+import {
+  CallAudioPlayer,
+  formatClock,
+  type CallAudioPlayerHandle,
+} from "@/components/callAudioPlayer";
 import { useClientRealm } from "@/lib/api/session";
 import { apiRequest, type CallDetail, type Session } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
@@ -97,6 +103,12 @@ export default function CallDetailPage({
   const [showRaw, setShowRaw] = useState(false);
   const raw = useRawTranscript(session, callId, showRaw && rawAccess.allowed);
   const recording = useRecordingLink(session, callId);
+  // Shared between the two panels: the player publishes where it is, the transcript
+  // reads it to highlight the turn being spoken and writes back when a turn is clicked.
+  const playerRef = useRef<CallAudioPlayerHandle>(null);
+  const [playhead, setPlayhead] = useState<number | null>(null);
+  const seekToMs = useCallback((ms: number) => playerRef.current?.seekTo(ms / 1000), []);
+  const audioLoaded = recording.data != null;
 
   if (call.isLoading) return <Skeleton rows={8} />;
   if (call.error) return <ProblemNotice error={call.error} onRetry={() => void call.refetch()} />;
@@ -258,6 +270,14 @@ export default function CallDetailPage({
         </Card>
       )}
 
+      {/* D-127. Rendered UNCONDITIONALLY, above the transcript and below the summary it
+          offers a second reading of — not hidden behind "the extraction failed", because
+          the reasons a person wants another reading are not knowable from this row: a
+          summary that is thin, a call they are about to ring back, a lead they are
+          writing up. The card carries its own refusals; nothing about it depends on a
+          read this page has not made. */}
+      <AssistCard session={session} callId={callId} />
+
       {Object.keys(detail.extraction ?? {}).length > 0 && (
         <Card title="Captured details">
           {/* These keys are the agent's extraction schema (TRD §7) — the same
@@ -278,7 +298,23 @@ export default function CallDetailPage({
         </Card>
       )}
 
-      {detail.has_recording && <RecordingCard recording={recording} />}
+      {detail.has_recording && (
+        <RecordingCard
+          recording={recording}
+          playerRef={playerRef}
+          onTimeUpdate={setPlayhead}
+          durationS={detail.duration_s ?? null}
+        />
+      )}
+
+      {detail.moments.length > 0 && (
+        <KeyMomentsCard
+          moments={detail.moments}
+          audioLoaded={audioLoaded}
+          playhead={playhead}
+          onSeek={seekToMs}
+        />
+      )}
 
       <Card
         title="Transcript"
@@ -315,11 +351,30 @@ export default function CallDetailPage({
 
           {turns.length ? (
             <ol className="space-y-3">
-              {turns.map((turn) => {
+              {turns.map((turn, i) => {
                 const speaker = lookup(SPEAKERS, turn.speaker);
                 const Icon = speaker?.icon ?? User;
-                return (
-                  <li key={turn.idx} className="flex gap-3">
+                // A turn is seekable only once the audio is actually loaded AND this
+                // turn carries a timestamp. Both halves matter: `start_ms` is nullable
+                // (an engine that gives us no per-turn offsets is a supported engine),
+                // and offering to seek audio that is not playing yet is a control that
+                // does nothing. Where either is missing the turn renders as plain text
+                // rather than as a dead button.
+                const at = turn.start_ms;
+                const seekable = audioLoaded && at !== null && at !== undefined;
+                // "Being spoken now" = this turn has started and the next has not. The
+                // NEXT turn's start is the right boundary rather than this turn's
+                // `end_ms`, which is nullable independently and would leave gaps
+                // un-highlighted between two turns that are actually adjacent.
+                const nextAt = turns[i + 1]?.start_ms;
+                const active =
+                  playhead !== null &&
+                  at !== null &&
+                  at !== undefined &&
+                  playhead * 1000 >= at &&
+                  (nextAt === null || nextAt === undefined || playhead * 1000 < nextAt);
+                const body = (
+                  <>
                     <span
                       className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
                         speaker?.medallion ?? "bg-black/5 text-ink-muted dark:bg-white/10"
@@ -327,12 +382,37 @@ export default function CallDetailPage({
                     >
                       <Icon className="h-3.5 w-3.5" />
                     </span>
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+                    <div className="min-w-0 flex-1">
+                      <p className="flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
                         {speaker?.label ?? turn.speaker}
+                        {at !== null && at !== undefined && (
+                          <span className="font-normal normal-case tabular-nums">
+                            {formatClock(at / 1000)}
+                          </span>
+                        )}
                       </p>
                       <p className="text-sm text-ink">{turn.text}</p>
                     </div>
+                  </>
+                );
+                const highlight = active
+                  ? "bg-brand-strong/10 dark:bg-brand-bright/10"
+                  : "bg-transparent";
+                return (
+                  <li key={turn.idx}>
+                    {seekable ? (
+                      <button
+                        type="button"
+                        onClick={() => seekToMs(at)}
+                        aria-label={`Play from ${formatClock(at / 1000)}, ${speaker?.label ?? turn.speaker}`}
+                        aria-current={active ? "true" : undefined}
+                        className={`flex w-full gap-3 rounded-md p-1.5 text-left transition hover:bg-black/5 dark:hover:bg-white/5 ${highlight}`}
+                      >
+                        {body}
+                      </button>
+                    ) : (
+                      <div className={`flex gap-3 rounded-md p-1.5 ${highlight}`}>{body}</div>
+                    )}
                   </li>
                 );
               })}
@@ -346,6 +426,97 @@ export default function CallDetailPage({
         </div>
       </Card>
     </div>
+  );
+}
+
+/**
+ * "Key points in this call" — the reason somebody does not have to play it again.
+ *
+ * The panel is HIDDEN when there is nothing in it. An always-present "Key points"
+ * heading over an empty box on every forty-second appointment booking is a heading
+ * people learn to skip, and then miss on the call that has six.
+ *
+ * ## Two provenances, shown differently, because they deserve different trust
+ *
+ * A `derived` marker is arithmetic: the server found the extracted value inside a turn
+ * and took that turn's own `start_ms`. It cannot be at the wrong second. A `model` one
+ * is a sentence an unmeasured model wrote about the call (D-36 records that Sarvam's
+ * Telugu extraction quality has never been scored), and it is labelled as a suggestion.
+ * Presenting them identically would force a reader to distrust both — the cheapest way
+ * to waste the half that is exact.
+ *
+ * ## Clicking seeks, and only when seeking is possible
+ *
+ * The rows are buttons only once the audio is loaded, for the same reason a transcript
+ * turn is: a control that silently does nothing is worse than no control. Before that
+ * they are a readable list of what happened and when, which is worth something on its
+ * own — an owner scanning for "did they ask about price" does not always want to listen.
+ */
+function KeyMomentsCard({
+  moments,
+  audioLoaded,
+  playhead,
+  onSeek,
+}: {
+  moments: CallDetail["moments"];
+  audioLoaded: boolean;
+  playhead: number | null;
+  onSeek: (ms: number) => void;
+}) {
+  return (
+    <Card title="Key points in this call">
+      <ol className="space-y-1">
+        {moments.map((moment, i) => {
+          const next = moments[i + 1]?.at_ms;
+          const active =
+            playhead !== null &&
+            playhead * 1000 >= moment.at_ms &&
+            (next === undefined || playhead * 1000 < next);
+          const suggested = moment.source === "model";
+          const body = (
+            <>
+              <span className="w-12 shrink-0 text-xs font-medium tabular-nums text-ink-muted">
+                {formatClock(moment.at_ms / 1000)}
+              </span>
+              <span className="min-w-0 flex-1 text-sm text-ink">{moment.label}</span>
+              {suggested && (
+                <span
+                  className="shrink-0 rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-faint dark:bg-white/10"
+                  title="Suggested by the assistant from the transcript — the time may be approximate."
+                >
+                  AI
+                </span>
+              )}
+            </>
+          );
+          const tone = active ? "bg-brand-strong/10 dark:bg-brand-bright/10" : "";
+          return (
+            <li key={`${moment.at_ms}-${moment.kind}-${i}`}>
+              {audioLoaded ? (
+                <button
+                  type="button"
+                  onClick={() => onSeek(moment.at_ms)}
+                  aria-label={`Play from ${formatClock(moment.at_ms / 1000)} — ${moment.label}`}
+                  aria-current={active ? "true" : undefined}
+                  className={`flex w-full items-baseline gap-3 rounded-md px-2 py-1.5 text-left transition hover:bg-black/5 dark:hover:bg-white/5 ${tone}`}
+                >
+                  {body}
+                </button>
+              ) : (
+                <div className={`flex items-baseline gap-3 rounded-md px-2 py-1.5 ${tone}`}>
+                  {body}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      {!audioLoaded && (
+        <p className="mt-2 text-xs text-ink-faint">
+          Open the recording above to jump to any of these.
+        </p>
+      )}
+    </Card>
   );
 }
 
@@ -389,26 +560,41 @@ function DisclosureNotice({ played }: { played: boolean | null | undefined }) {
  */
 function RecordingCard({
   recording,
+  playerRef,
+  onTimeUpdate,
+  durationS,
 }: {
   recording: ReturnType<typeof useRecordingLink>;
+  playerRef: React.Ref<CallAudioPlayerHandle>;
+  onTimeUpdate: (seconds: number) => void;
+  durationS: number | null;
 }) {
   return (
     <Card title="Recording">
       {recording.error && <ProblemNotice error={recording.error} />}
       {recording.data ? (
         <div className="space-y-2">
-          {/* No <track>: the transcript above IS this recording's caption track, in the
-              same view, and a second copy behind a control nobody opens is a copy that
-              drifts. Disabled at the SITE rather than in eslint.config.mjs, so the next
-              <audio>/<video> added anywhere still has to answer the rule — the reason
-              here ("the captions are already on screen, as text") is specific to this
-              panel and does not generalise.
-              WCAG 1.2.2 is met by the transcript, not by the absence of a track. */}
-          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <audio controls src={recording.data.url} className="w-full" />
+          <CallAudioPlayer
+            ref={playerRef}
+            src={recording.data.url}
+            fallbackDurationS={recording.data.duration_s ?? durationS}
+            onTimeUpdate={onTimeUpdate}
+            onExpired={async () => {
+              // Mint a replacement rather than surfacing the browser's bare media error.
+              // `mutateAsync` REJECTS on failure, so the catch is what turns "we could
+              // not get you a new link" into the player's own refusal instead of an
+              // unhandled rejection in the console.
+              try {
+                const fresh = await recording.mutateAsync();
+                return fresh.url;
+              } catch {
+                return null;
+              }
+            }}
+          />
           <p className="text-xs text-ink-faint">
-            This link stops working in about {Math.max(1, Math.round(recording.data.expires_in_s / 60))}{" "}
-            minutes. Ask again to get a fresh one.
+            Opening this recording was recorded in your audit log. The link is private to this
+            page and is refreshed automatically while you listen.
           </p>
         </div>
       ) : (

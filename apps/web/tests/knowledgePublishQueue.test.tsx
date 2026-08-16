@@ -63,7 +63,7 @@ const OPERATOR: AdminMe = {
   user_id: "0192f0aa-7777-7000-8000-0000000000cc",
   role: "operator",
   permissions: ["org:read", "billing:read", "agents:read", "kb:write", "admin:tenants"],
-} as AdminMe;
+};
 
 function source(over: Partial<KbSource> = {}): KbSource {
   return {
@@ -77,7 +77,7 @@ function source(over: Partial<KbSource> = {}): KbSource {
     is_active: false,
     published_at: null,
     ...over,
-  } as KbSource;
+  };
 }
 
 /** Everything green, so each test can break exactly one thing. */
@@ -95,7 +95,14 @@ function healthy(): Routes {
       last_call_at: "2026-08-12T09:15:00Z",
       holds: [],
       capped: false,
-    } as TenantSummary,
+      // `satisfies`, not `as`, and not an annotation: this literal is a VALUE inside a
+      // `Routes` map (`Record<string, unknown>`), so there is no declaration to annotate
+      // and the contextual type checks nothing. `as TenantSummary` used to sit here and
+      // was worse than nothing — it silenced the compiler on a fixture that has to mirror
+      // the wire exactly, which is how five margin fixtures shipped missing a required
+      // field. `satisfies` demands every required field and rejects fields the server
+      // cannot send, while leaving the value's own type alone.
+    } satisfies TenantSummary,
     [ADMIN_ME_PATH]: OPERATOR,
     [QUEUE_PATH]: [],
     [APPROVED_PATH]: [],
@@ -110,7 +117,15 @@ function healthy(): Routes {
       cost_inr: "402350.50",
       margin_inr: "613549.50",
       margin_pct: "60.39",
-    } as Margin,
+      tiers: {
+        minutes_premium: "900.00",
+        minutes_value: "280.00",
+        minutes_unattributed: "24.50",
+        cost_premium_inr: "300000.00",
+        cost_value_inr: "90000.00",
+        cost_unattributed_inr: "12350.50",
+      },
+    } satisfies Margin,
     [CAPS_PATH]: {
       month: "2026-08",
       plan_cap_minutes: 5000,

@@ -108,7 +108,7 @@ async def _delivery_with_body(
         tenant_id=tenant_id, subject_type="lead", subject_id=str(lead_id), delivery_id=delivery_id
     )
     if write_object:
-        storage.store_delivery_body(
+        await storage.store_delivery_body(
             key=key,
             delivery_id=delivery_id,
             endpoint_id=endpoint_id,

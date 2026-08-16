@@ -47,6 +47,7 @@ from apps.api.compliance.national_dnd_routes import (
     RELEASE_GLOBALLY_CONFIRMATION,
     SUPPRESS_GLOBALLY_CONFIRMATION,
     preference_scrub_confirmation,
+    release_globally_confirmation,
 )
 from apps.api.compliance.service import IST, check_dispatch
 from apps.api.core.errors import ProblemError
@@ -406,16 +407,38 @@ async def test_a_global_entry_is_lifted_by_ops_and_by_nobody_else() -> None:
         unconfirmed = await http.delete(
             f"/v1/ops/dnc/global/{entry_id}", headers={"Authorization": f"Bearer {ops_token}"}
         )
-        by_ops = await http.delete(
+        # The confirmation from a DIFFERENT row, which is the realistic replay: an
+        # operator with a curl in their shell history changes the id and re-runs it.
+        # Before the string carried its subject this deleted the entry.
+        wrong_row = await http.delete(
+            f"/v1/ops/dnc/global/{entry_id}",
+            headers={
+                "Authorization": f"Bearer {ops_token}",
+                "X-Confirm-Action": release_globally_confirmation(uuid.uuid4()),
+            },
+        )
+        # And the bare stem, which is what the route accepted before D-141.
+        bare_stem = await http.delete(
             f"/v1/ops/dnc/global/{entry_id}",
             headers={
                 "Authorization": f"Bearer {ops_token}",
                 "X-Confirm-Action": RELEASE_GLOBALLY_CONFIRMATION,
             },
         )
+        by_ops = await http.delete(
+            f"/v1/ops/dnc/global/{entry_id}",
+            headers={
+                "Authorization": f"Bearer {ops_token}",
+                "X-Confirm-Action": release_globally_confirmation(entry_id),
+            },
+        )
 
     assert by_client.status_code == 422 and _code(by_client) == "dnc_global_entry"
     assert unconfirmed.status_code == 403 and _code(unconfirmed) == "step_up_required"
+    assert wrong_row.status_code == 403 and _code(wrong_row) == "step_up_required", wrong_row.text
+    assert bare_stem.status_code == 403 and _code(bare_stem) == "step_up_required", bare_stem.text
+    # The refusals ran BEFORE the delete — `require_step_up` is the first statement in
+    # the handler, and an entry that survived two refused requests is what proves it.
     assert by_ops.status_code == 204 and by_ops.content == b""
 
     async with untenanted_session() as ops:
@@ -456,10 +479,12 @@ async def test_ops_cannot_reach_a_tenants_own_suppression_through_the_global_rou
             f"/v1/ops/dnc/global/{entry_id}",
             headers={
                 "Authorization": f"Bearer {ops_token}",
-                "X-Confirm-Action": RELEASE_GLOBALLY_CONFIRMATION,
+                "X-Confirm-Action": release_globally_confirmation(entry_id),
             },
         )
 
+    # 404 and not 403: the confirmation is correct for this id, so the refusal being
+    # asserted is the scope filter and not the step-up standing in front of it.
     assert refused.status_code == 404, refused.text
     async with tenant_session(tenant_id) as session:
         survives = (
@@ -934,7 +959,14 @@ def test_the_runbook_prints_the_headers_the_api_actually_accepts() -> None:
     send a header the API refuses."""
     runbook = Path("runbooks/dnc-complaint.md").read_text(encoding="utf-8")
     assert f"X-Confirm-Action: {SUPPRESS_GLOBALLY_CONFIRMATION}" in runbook
-    assert f"X-Confirm-Action: {RELEASE_GLOBALLY_CONFIRMATION}" in runbook
+    # The release header is PARAMETRISED, so the runbook has to print the `{entry_id}`
+    # placeholder too. Asserting only the stem would keep passing against the pre-D-141
+    # curl, which the API now refuses — the exact failure this test exists to prevent.
+    # The join is read off the builder rather than respelled here, so a change to it
+    # fails this assertion instead of being mirrored into it.
+    sample = uuid.UUID("00000000-0000-7000-8000-0000000000ff")
+    parametrised = release_globally_confirmation(sample).replace(str(sample), "{entry_id}")
+    assert f"X-Confirm-Action: {parametrised}" in runbook
     assert "POST /v1/ops/dnc/global" in runbook
 
 

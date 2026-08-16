@@ -161,6 +161,12 @@ class CallExtraction(PKMixin, TimestampMixin, Base):
     prompt_version: Mapped[int | None] = mapped_column(Integer)
     valid: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     errors: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: Key moments — `[{at_ms, kind, label, label_redacted, source}]` (f8c1d47a90e3).
+    #: NULL and `[]` differ and both are real: NULL is "nobody has looked at this call",
+    #: `[]` is "we looked and it had none". Erased with `data` by all three sweeps in
+    #: `workers/retention.py` — a marker outliving the extraction it indexes would be a
+    #: second copy of erased data under a column nobody thought of.
+    moments: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB)
 
 
 class Lead(PKMixin, TimestampMixin, Base):

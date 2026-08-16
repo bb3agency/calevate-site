@@ -38,7 +38,7 @@ dialling exactly as before.
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -259,6 +259,109 @@ async def test_a_later_grant_supersedes_an_earlier_decline() -> None:
         "a person who later gave permission is still refused — the gate reads the "
         "earliest row instead of the latest, and an append-only ledger has no way back"
     )
+
+
+async def test_every_consent_status_that_is_not_a_grant_refuses_the_dial() -> None:
+    """D-117's asymmetry, asked of the WHOLE vocabulary rather than of two examples.
+
+    The rule is "absence is not a refusal, but every non-`granted` statement is", and
+    the gate encodes it by SUBTRACTION — `frozenset(CONSENT_STATUSES) - {"granted"}` —
+    so a status added to the ledger's vocabulary tomorrow blocks by default and has to
+    be argued INTO the allowed set. That is the safe direction on a compliance gate and
+    it is the whole reason the constant is derived instead of listed.
+
+    Two halves, because neither alone is the property:
+
+    * the STRUCTURE, read off the gate module's own source. A status added tomorrow can
+      only refuse by default if the set is still derived from `CONSENT_STATUSES`;
+      `frozenset({"declined", "withdrawn"})` behaves identically today and silently
+      admits the next member. Nothing behavioural can see that difference, because the
+      next member does not exist yet — and it cannot be conjured, since the ledger's own
+      CHECK constraint admits exactly today's three.
+    * the BEHAVIOUR, over every status the vocabulary currently has, end to end through
+      `check_dispatch` against a real ledger row. `granted` must DIAL — the positive case
+      that stops the other assertions passing on a fixture that could never dial anyone.
+    """
+    import ast
+    import inspect
+
+    from apps.api.compliance import service as gate
+    from apps.api.compliance.models import CONSENT_STATUSES
+
+    # --- the structure -------------------------------------------------------
+    tree = ast.parse(inspect.getsource(gate))
+    derivation = next(
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AnnAssign | ast.Assign)
+        and "DIAL_REFUSING_CONSENT_STATUSES"
+        in {target.id for target in ast.walk(node) if isinstance(target, ast.Name)}
+        and node.value is not None
+    )
+    names = {node.id for node in ast.walk(derivation) if isinstance(node, ast.Name)}
+    literals = {
+        node.value
+        for node in ast.walk(derivation)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    assert "CONSENT_STATUSES" in names, (
+        "DIAL_REFUSING_CONSENT_STATUSES no longer derives from the ledger's own "
+        "vocabulary, so a status added to CONSENT_STATUSES tomorrow would be ALLOWED to "
+        "dial until somebody noticed. The whole point of the subtraction is that the "
+        "default is refusal (D-117)"
+    )
+    assert literals == {"granted"}, (
+        f"the derivation names {sorted(literals)} — `granted` is the only member that is "
+        "not a refusal, and every other literal here is a second place the vocabulary "
+        f"can drift from `CONSENT_STATUSES` ({sorted(CONSENT_STATUSES)})"
+    )
+
+    # --- the behaviour -------------------------------------------------------
+    tenant_id, agent_id, _webhook_id = await _tenant_with_meta_source()
+    monkey = pytest.MonkeyPatch()
+    # 11:00 IST: the calling-hours rule is not what this test is measuring.
+    monkey.setattr(
+        "apps.api.compliance.service.ist_now",
+        lambda: datetime(2026, 8, 11, 11, 0, tzinfo=UTC),
+    )
+    try:
+        for index, status in enumerate(CONSENT_STATUSES):
+            phone = f"+91987650{8000 + index:04d}"
+            async with tenant_session(tenant_id) as session:
+                await session.execute(
+                    text(
+                        "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, "
+                        "status, consent_source, evidence, captured_at, created_at) VALUES "
+                        "(:id, :tid, :p, 'callback', :st, 'web_form_optin', "
+                        "CAST(:ev AS jsonb), now(), now())"
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "tid": tenant_id,
+                        "p": phone,
+                        "st": status,
+                        # `ck_consent_ledger_granted_consent_carries_evidence`.
+                        "ev": '{"form": "vocabulary", "answer": "yes"}'
+                        if status == "granted"
+                        else None,
+                    },
+                )
+                decision = await check_dispatch(
+                    session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
+                )
+            if status == "granted":
+                assert decision.allowed, (
+                    f"a person who agreed cannot be called ({decision.rule}) — with the "
+                    "positive case broken, every refusal below proves nothing"
+                )
+            else:
+                assert decision.rule == "no_consent", (
+                    f"consent_ledger status {status!r} did not refuse the dial "
+                    f"(rule={decision.rule!r}). Every statement that is not a grant is a "
+                    "refusal — that is what makes the derived set safe"
+                )
+    finally:
+        monkey.undo()
 
 
 async def _owner_session(tenant_id: uuid.UUID) -> tuple[str, str]:

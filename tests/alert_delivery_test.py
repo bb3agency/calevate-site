@@ -209,6 +209,93 @@ def test_a_storm_of_distinct_codes_is_capped_by_the_rate_limit(
     assert str(500 - alerting.ALERT_BURST) in transport.sent[-1]["body"]
 
 
+def test_the_bucket_names_the_alarms_it_ate(
+    transport: RecordingTransport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A count is not an alert. "12 other alerts were dropped" tells an operator that
+    something was silenced and gives them no way to find out what.
+
+    That matters because the bucket is ONE shared resource and the codes drawing on it
+    are not equally important. `webhook_source_rejected` and
+    `clerk_webhook_bad_signature` fire from anywhere on the internet with no credential;
+    `postcall_pipeline_stalled` is the alarm the product exists to raise. Dedupe means a
+    stranger's repeats are free, so they cannot hold a fingerprint down — but they CAN
+    empty the burst, and the refill is one token every three minutes. The codes have to
+    ride along.
+    """
+    clock = {"t": 1_000.0}
+    monkeypatch.setattr(alerting, "_now", lambda: clock["t"])
+
+    for index in range(alerting.ALERT_BURST):
+        _fire(code=f"attacker_probe_{index}")  # drains the bucket
+    alerting.alert("WORKER_STALL", "postcall_pipeline_stalled", detail="no jobs in 10m")
+    alerting.alert("WORKER_STALL", "postcall_pipeline_stalled", detail="no jobs in 11m")
+    alerting.alert("OUTBOX_DISPATCH", "outbox_dead_letter", detail="3 rows")
+
+    assert alerting.flush_alerts(timeout=5.0)
+    assert len(transport.sent) == alerting.ALERT_BURST, "the real alarms were dropped"
+
+    clock["t"] += 3600.0 / alerting.ALERT_BUDGET_PER_HOUR + 1
+    _fire(code="the_next_thing_that_broke")
+    assert alerting.flush_alerts(timeout=5.0)
+
+    body = transport.sent[-1]["body"]
+    assert "postcall_pipeline_stalled x2" in body, "the operator must learn WHICH alarm was eaten"
+    assert "outbox_dead_letter x1" in body
+    # Most frequent first: the phone shows the top of the list.
+    assert body.index("postcall_pipeline_stalled") < body.index("outbox_dead_letter")
+
+
+def test_the_named_dropped_codes_are_bounded(
+    transport: RecordingTransport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The dict that holds them is a module global and the thing that fills it is a
+    storm — unbounded here would be the memory leak the queue cap already refuses. The
+    TOTAL is still reported for everything the list could not name."""
+    clock = {"t": 1_000.0}
+    monkeypatch.setattr(alerting, "_now", lambda: clock["t"])
+
+    for index in range(200):
+        _fire(code=f"code_{index}")
+
+    clock["t"] += 3600.0 / alerting.ALERT_BUDGET_PER_HOUR + 1
+    _fire(code="after")
+    assert alerting.flush_alerts(timeout=5.0)
+
+    body = transport.sent[-1]["body"]
+    named = [line for line in body.splitlines() if line.startswith("dropped:")]
+    assert len(named) == 1
+    assert named[0].count(" x") == alerting.ALERT_DROPPED_CODES_MAX
+    assert str(200 - alerting.ALERT_BURST) in body, "the total covers what the list could not"
+
+
+def test_two_crash_classes_do_not_share_one_suppression_slot(
+    transport: RecordingTransport,
+) -> None:
+    """The class of defect D-147 found ONE instance of.
+
+    `_admit` fingerprints on `stage:code` and holds a fingerprint for fifteen minutes, so
+    a single `unhandled_exception` code shared by every crash in the service means the
+    first crash class to fire silences every other one for a quarter of an hour. An
+    uncaught `ClientDisconnect` — free, from anywhere, indistinguishable from a flaky
+    mobile network — did exactly that to the voice-runtime receiver. Catching it fixed
+    one instance; putting the exception TYPE in the code fixes the class.
+
+    Asserted through `alert()` with the codes `install_error_handlers` now builds, rather
+    than by driving two crashes, because the property under test is the FINGERPRINT and
+    a second app-level crash would only re-prove that a 500 alerts.
+    """
+    alerting.alert("ROUTE_HANDLER", "unhandled_exception:ClientDisconnect", detail="…")
+    alerting.alert("ROUTE_HANDLER", "unhandled_exception:ClientDisconnect", detail="…")
+    alerting.alert("ROUTE_HANDLER", "unhandled_exception:IntegrityError", detail="…")
+
+    first, second = _delivered(transport, expected=2)
+    assert "ClientDisconnect" in first["subject"], "the class is on the lock screen"
+    assert "IntegrityError" in second["subject"]
+    # The searchable token is unchanged, so a log search for the old code still works.
+    assert "unhandled_exception" in first["subject"]
+
+
 # --- 4. the alarm is not lost, and does not recurse ---------------------------
 
 

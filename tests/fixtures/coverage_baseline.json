@@ -1,10 +1,10 @@
 {
   "_doc": "Uncovered units (statements never executed + branches taken in only one direction + lines excluded by a `# pragma: no cover`) per hard-rule surface, as measured by the FULL suite under `coverage run`. The gate is an EQUALITY: more is a regression, less is an improvement that must be locked in here. Written only by `make coverage-ratchet-accept`, which refuses to grow a number without a RAISED_BUDGETS waiver in scripts/check_coverage_ratchet.py. See that file's docstring for why this is a count per area and not a repo-wide percentage.",
   "areas": {
-    "compliance-gate": 9,
+    "compliance-gate": 0,
     "dial-path": 1,
     "ledgers-and-money": 1,
-    "platform-credentials": 4,
+    "platform-credentials": 0,
     "redaction": 7,
     "tenancy-session": 3,
     "voice-runtime-ack": 0

@@ -36,7 +36,7 @@ const ME = {
   role: "owner",
   permissions: ["billing:read", "org:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Traders", slug: "acme", plan_tier: "managed" },
+  organization: { id: "o1", name: "Sri Traders", slug: "acme", status: "active" },
 };
 
 /**
@@ -96,7 +96,7 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
     total_inr: "11971.17",
     usage: { minutes_used: "220.5", calls: 118, included_minutes: 200 },
     ...over,
-  } as Invoice;
+  };
 }
 
 async function render(answer: unknown, me: unknown = ME) {

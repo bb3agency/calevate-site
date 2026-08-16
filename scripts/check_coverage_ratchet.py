@@ -158,9 +158,11 @@ WHAT IT CANNOT SEE, SAID PLAINLY:
   process, look exactly like a real change. The counts and the commonest reasons are
   recorded in the manifest and printed with every verdict so the divergence is at least
   VISIBLE; they are not gated on, because skip counts legitimately differ between a laptop
-  and CI (this repo's own `test_reads_the_real_coverage_data` skips only where no previous
-  run left a `.coverage`), and a rule that fires on that would cry wolf on every push —
-  which is how a guardrail gets ignored.
+  and CI (a `@pytest.mark.skipif` on a service, a fixture that gave up), and a rule that
+  fires on that would cry wolf on every push — which is how a guardrail gets ignored.
+  (The example that used to stand here was this gate's OWN parser test skipping when no
+  previous run had left a `.coverage`. It does not skip any more: it builds its own
+  measurement, for the reason `DATA_FILE`'s comment gives.)
 * a store that is empty but differs in some other way — a different migration head, a
   hand-edited global row. `alembic upgrade head` owns migration state and CI runs it
   immediately before the suite.
@@ -271,6 +273,7 @@ import importlib
 import inspect
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -281,6 +284,26 @@ from typing import Any, cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE = REPO_ROOT / "tests" / "fixtures" / "coverage_baseline.json"
+
+#: Where `coverage run` writes by default, and therefore what this gate scores when the
+#: CLI is given no `--data-file`. IT IS A DEFAULT, NOT A DESTINATION, and the difference
+#: is enforced below: every READER in this module (`load_report`, `manifest_path`,
+#: `unvouched_run`, `blind_spots`) takes the path as a REQUIRED argument, so this name is
+#: reachable from exactly two places — `main()`'s argparse default, which is the one
+#: decision about which run is being scored, and the plugin's fallback when coverage was
+#: not tracing at all (`pytest_sessionfinish`, which must invalidate a stale file rather
+#: than let it inherit credibility).
+#:
+#: WHY IT IS NOT A DEFAULT ARGUMENT ANY MORE. `.coverage` is a mutable file at a
+#: well-known path that nothing here owns: any partial `coverage run` — an agent
+#: measuring its own module, a developer measuring one file — overwrites it, and a
+#: partial one has no `apps/voice-runtime/*.py` in it at all (coverage's source walk
+#: skips directories with no `__init__.py`, and D-18 makes that directory hyphenated).
+#: A helper that quietly read this path turned any such leftover into a failure of
+#: whatever test called it, twice in one session, each time costing a full gate cycle and
+#: reading exactly like a real regression. A caller that wants THIS file now has to say
+#: so, which is the whole fix: the coupling is visible in the call rather than in a
+#: default nobody sees.
 DATA_FILE = REPO_ROOT / ".coverage"
 
 #: 1 = the ratchet reached a verdict and the verdict is bad. 2 = it declined to reach one.
@@ -438,7 +461,7 @@ class Measurement:
     missing_lines: int
     partial_branches: int
     branches: int
-    excluded: int
+    suppressed: int
 
     @property
     def uncovered(self) -> int:
@@ -449,14 +472,23 @@ class Measurement:
         shape. `num_partial_branches` is exactly the increment branch coverage adds over
         line coverage, and it is the column coverage.py itself prints as "BrPart".
 
-        EXCLUDED lines are counted as uncovered, which is not what coverage.py does and
-        is the point: `# pragma: no cover` deletes a line from both the numerator and the
+        SUPPRESSED lines are counted as uncovered, which is not what coverage.py does and
+        is the point: a no-cover comment deletes a line from both the numerator and the
         denominator, so inside a guarded surface it is the quietest possible way to lower
         this number — one comment, no baseline diff, no reviewer prompt. Counting it
         keeps the only route downward the one this file is built around: cover the
         branch, or argue the raise in `RAISED_BUDGETS`.
+
+        `suppressed` is NOT coverage.py's `excluded_lines`, and the difference is the
+        whole of `_suppressed_lines`. coverage 7 excludes `...`-bodied stubs and
+        `if TYPE_CHECKING:` blocks BY DEFAULT — nothing an author of the guarded file
+        decided — and it sweeps the blank lines around an excluded clause into the same
+        set. Counting those made a four-line `Protocol` declaration cost four units in a
+        hard-rule surface, three of them whitespace, under a message naming a pragma that
+        was not in the file. A guard that charges for the repo's own typing idiom pushes
+        authors toward untyped callables, which is the opposite of its purpose.
         """
-        return self.missing_lines + self.partial_branches + self.excluded
+        return self.missing_lines + self.partial_branches + self.suppressed
 
     @property
     def percent(self) -> float:
@@ -466,16 +498,19 @@ class Measurement:
         return 100.0 * covered / total if total else 100.0
 
 
-def load_report(data_file: Path | None = None) -> dict[str, Any]:
-    """The coverage JSON report for the run recorded in `.coverage`.
+def load_report(data_file: Path) -> dict[str, Any]:
+    """The coverage JSON report for the run recorded in `data_file`.
 
     Generated here rather than shelled out to `coverage json` so the check reads the same
     data file the suite wrote, with this repo's `[tool.coverage.*]` config applied, and so
     a missing measurement is one clear error instead of a subprocess exit code.
+
+    The path is REQUIRED — see `DATA_FILE`. Which run is being scored is a decision, and
+    it is made once, in `main()`.
     """
     import coverage
 
-    path = DATA_FILE if data_file is None else data_file
+    path = data_file
     if not path.exists():
         raise FileNotFoundError(path)
 
@@ -495,19 +530,53 @@ def _matches(area: Area, path: str) -> bool:
     return any(PurePosixPath(path).match(pattern) for pattern in area.patterns)
 
 
+#: A no-cover comment, by SHAPE. Deliberately not `coverage`'s own `exclude_list[0]`
+#: imported from the config: that list also holds the two structural defaults this
+#: function exists to stop charging for, and reading it would re-introduce them the next
+#: time coverage adds a third. Spelled so this line is not itself a match — a checker
+#: whose own source trips it is a defect this repo has now shipped four times.
+_NO_COVER = re.compile(r"#\s*pragma[:\s]\s*no\s*cover", re.IGNORECASE)
+
+
+def _suppressed_lines(name: str, entry: Mapping[str, Any]) -> int:
+    """How many of this file's excluded lines an AUTHOR asked to be excluded.
+
+    coverage reports one `excluded_lines` set with two very different things in it:
+    lines the author suppressed with a comment, and lines coverage's own defaults remove
+    (`...` stubs, `if TYPE_CHECKING:`) along with the blank lines swept up around each
+    excluded clause. Only the first is a decision anyone made about THIS repo's coverage,
+    and only the first is what the ratchet's doctrine is aimed at.
+
+    Reads the source. An unreadable file counts as zero rather than raising: a coverage
+    report can outlive a deleted file, and a missing source is not a suppression — the
+    file's other numbers are already gone from the report with it.
+    """
+    excluded = entry.get("excluded_lines") or []
+    if not excluded:
+        return 0
+    try:
+        lines = (REPO_ROOT / name).read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return 0
+    return sum(
+        1 for number in excluded if 0 < number <= len(lines) and _NO_COVER.search(lines[number - 1])
+    )
+
+
 def measure(report: Mapping[str, Any], areas: Iterable[Area] | None = None) -> list[Measurement]:
     """Fold the per-file report into one row per area."""
     files: Mapping[str, Any] = report.get("files", {})
     rows: list[Measurement] = []
     for area in AREAS if areas is None else areas:
         matched = [
-            entry["summary"]
+            (name, entry)
             for name, entry in files.items()
             if _matches(area, name.replace("\\", "/"))
         ]
+        summaries = [entry["summary"] for _, entry in matched]
 
-        def total(key: str, summaries: list[Any] = matched) -> int:
-            return sum(int(summary.get(key, 0)) for summary in summaries)
+        def total(key: str, rows: list[Any] = summaries) -> int:
+            return sum(int(summary.get(key, 0)) for summary in rows)
 
         rows.append(
             Measurement(
@@ -518,7 +587,7 @@ def measure(report: Mapping[str, Any], areas: Iterable[Area] | None = None) -> l
                 missing_lines=total("missing_lines"),
                 partial_branches=total("num_partial_branches"),
                 branches=total("num_branches"),
-                excluded=total("excluded_lines"),
+                suppressed=sum(_suppressed_lines(name, entry) for name, entry in matched),
             )
         )
     return rows
@@ -550,15 +619,14 @@ PAIRING_OLDER_SECONDS = 5.0
 TOP_SKIP_REASONS = 5
 
 
-def manifest_path(data_file: Path | None = None) -> Path:
+def manifest_path(data_file: Path) -> Path:
     """Where the run that produced `data_file` recorded what it did.
 
     Derived from the data file rather than fixed at the repo root, so `--data-file`
     points the trust check at the same run it points the measurement at — including in
     the negative controls, which build both in a scratch directory.
     """
-    path = DATA_FILE if data_file is None else data_file
-    return path.with_name(path.name + "-run.json")
+    return data_file.with_name(data_file.name + "-run.json")
 
 
 @dataclass(frozen=True, slots=True)
@@ -741,9 +809,9 @@ def _stale_state(name: str, state: Mapping[str, Any]) -> list[str]:
     ]
 
 
-def unvouched_run(data_file: Path | None = None) -> list[str]:
+def unvouched_run(data_file: Path) -> list[str]:
     """`vouch()` against the manifest on disk, plus the two ways it can be missing."""
-    path = DATA_FILE if data_file is None else data_file
+    path = data_file
     where = manifest_path(path)
     if not where.exists():
         return [
@@ -771,7 +839,7 @@ def unvouched_run(data_file: Path | None = None) -> list[str]:
 def blind_spots(
     report: Mapping[str, Any],
     measurements: Iterable[Measurement],
-    data_file: Path | None = None,
+    data_file: Path,
 ) -> list[str]:
     """Reasons to refuse to score, loudly, instead of reporting a number.
 
@@ -784,7 +852,7 @@ def blind_spots(
     re-baseline past — so it says which of the four it is and scores nothing.
     """
     failures: list[str] = []
-    path = DATA_FILE if data_file is None else data_file
+    path = data_file
 
     if not report.get("meta", {}).get("branch_coverage"):
         failures.append(
@@ -1158,9 +1226,12 @@ def uncovered_detail(report: Mapping[str, Any], area: Area) -> list[str]:
             continue
         marks = [str(line) for line in entry.get("missing_lines", [])]
         marks += [f"{start}->{end}" for start, end in entry.get("missing_branches", [])]
-        excluded = int(entry["summary"].get("excluded_lines", 0))
-        if excluded:
-            marks.append(f"{excluded} excluded by pragma")
+        # The COUNTED figure, not coverage's `excluded_lines` — see `_suppressed_lines`.
+        # This line used to print the latter and say "excluded by pragma", which sent a
+        # reader to look through a file for a comment that was not in it.
+        suppressed = _suppressed_lines(name, entry)
+        if suppressed:
+            marks.append(f"{suppressed} suppressed by a no-cover comment")
         if marks:
             shown = ", ".join(marks[:DETAIL_MARKS])
             more = f" …+{len(marks) - DETAIL_MARKS}" if len(marks) > DETAIL_MARKS else ""

@@ -109,17 +109,39 @@ async def _purge(*keys: str) -> None:
     ground-truth counts — and disabling the trigger for the length of one statement is
     the honest way to clean up a table that is append-only ON PURPOSE. Nothing in
     `apps/` can do this; if it could, the ledger would not be one.
+
+    `ENABLE TRIGGER` IS NOT THE INVERSE OF `DISABLE TRIGGER`, and this function used to
+    assume it was. Plain `ENABLE` sets `tgenabled = 'O'` (ORIGIN) whatever the trigger
+    was before, so re-arming an `ENABLE ALWAYS` trigger DEMOTES it — silently, with no
+    error and no schema diff, to the exact state migration a2e9f31c605d exists to
+    prevent. This suite left `platform_secrets`' two triggers in ORIGIN mode for the rest
+    of the session, and `tests/ledger_truncate_immutability_test.py` is what noticed.
+    So the prior mode of each trigger is READ FIRST and restored verbatim; nothing here
+    decides what the right mode is, which keeps the answer in the migration where it
+    belongs.
     """
     owner_url = Settings().alembic_database_url
     assert owner_url, "ALEMBIC_DATABASE_URL required: platform_secrets is append-only"
     engine = create_async_engine(owner_url)
     try:
         async with engine.begin() as conn:
+            modes = (
+                await conn.execute(
+                    text(
+                        "SELECT t.tgname, t.tgenabled FROM pg_trigger t "
+                        "WHERE t.tgrelid = 'platform_secrets'::regclass AND NOT t.tgisinternal"
+                    )
+                )
+            ).all()
             await conn.execute(text("ALTER TABLE platform_secrets DISABLE TRIGGER USER"))
             await conn.execute(
                 text("DELETE FROM platform_secrets WHERE key = ANY(:keys)"), {"keys": list(keys)}
             )
-            await conn.execute(text("ALTER TABLE platform_secrets ENABLE TRIGGER USER"))
+            for name, mode in modes:
+                verb = {"A": "ENABLE ALWAYS", "R": "ENABLE REPLICA", "D": "DISABLE"}.get(
+                    str(mode), "ENABLE"
+                )
+                await conn.execute(text(f'ALTER TABLE platform_secrets {verb} TRIGGER "{name}"'))
     finally:
         await engine.dispose()
 

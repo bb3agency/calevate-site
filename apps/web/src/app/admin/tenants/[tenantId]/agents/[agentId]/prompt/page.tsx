@@ -842,9 +842,19 @@ function CallCapPanel({
             {parsed === null
               ? "Empty — restores the platform default."
               : `${minutesReading(parsed)} per call.`}
-            {lanes.data
-              ? ` Allowed ${lanes.data.call_cap_min_s}–${lanes.data.call_cap_max_s}s; default ${lanes.data.call_cap_default_s}s.`
-              : ""}
+            {/* Three states, not two. `lanes` supplies this input's `min`/`max`, so a
+                FAILED read silently removes the bounds from a control that is still
+                pressable — the operator types a value, the server refuses it, and nothing
+                on the screen ever said the range was unknown. §52: failure is a refusal,
+                and the refusal here is a sentence rather than a withdrawn control,
+                because the server is the enforcement and blocking the field would stop
+                work the operator can still legitimately do. */}
+            {lanes.isError
+              ? " The allowed range could not be read, so this box is unbounded here; the" +
+                " server still enforces it."
+              : lanes.data
+                ? ` Allowed ${lanes.data.call_cap_min_s}–${lanes.data.call_cap_max_s}s; default ${lanes.data.call_cap_default_s}s.`
+                : ""}
           </span>
         </form>
 

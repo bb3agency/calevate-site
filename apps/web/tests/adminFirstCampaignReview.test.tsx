@@ -56,7 +56,7 @@ function tenant(): TenantSummary {
     last_call_at: null,
     holds: ["first_campaign_review_pending"],
     capped: false,
-  } as TenantSummary;
+  };
 }
 
 /** The admin realm's own identity document (`GET /v1/admin/me`) — no tenant in it. */
@@ -66,7 +66,7 @@ function me(permissions: string[]): AdminMe {
     user_id: "0192f0aa-7777-7000-8000-0000000000f2",
     role: "operator",
     permissions,
-  } as AdminMe;
+  };
 }
 
 const REVIEWER = me(["org:read", "leads:read", "admin:tenants"]);
@@ -81,7 +81,7 @@ function hold(over: Partial<FirstCampaignHold> = {}): FirstCampaignHold {
     decided_at: null,
     reviewed_campaign_id: null,
     ...over,
-  } as FirstCampaignHold;
+  };
 }
 
 function render(routes: Partial<Routes> = {}) {

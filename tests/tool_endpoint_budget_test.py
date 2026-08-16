@@ -380,45 +380,37 @@ async def test_the_measurement_runs_and_reports_a_distribution(
         print(f"  concurrent width=8, server : {concurrent}")
 
 
-# --- 3. what this slice could not fix -----------------------------------------
+# --- 3. the budget has a series of its own ------------------------------------
 
-#: Metric names the in-call tool endpoint's ack path records TODAY.
+#: The series this endpoint's acks land in. ONE name, and it is not the receiver's.
 #:
-#: This is the defect, not the design. `tool_routes` leaves through `webhook_routes._ack`,
-#: which calls `record_webhook_ack_ms(elapsed, provider=engine)` — so an in-call tool call
-#: and a post-call webhook delivery land in ONE series, `webhook_ack_ms{provider="bolna"}`,
-#: distinguishable by nothing. They are different endpoints with different budgets and
-#: wildly different costs (0 database statements against 3), so the pooled p95 is a
-#: blend of two populations: a burst of cheap tool calls DILUTES the receiver's p95 and
-#: can hide a regression in it, and the tool endpoint's own budget can never be read off
-#: the series at all.
+#: This was a recorded defect and it is now closed (D-147). `tool_routes` leaves through
+#: `webhook_routes._ack`, which recorded `webhook_ack_ms(provider=engine)` — so an in-call
+#: tool call and a post-call webhook delivery landed in ONE series, distinguishable by
+#: nothing. They are different endpoints with different budgets (100ms against hard rule
+#: 3's 500ms) and an order-of-magnitude different cost (0 database statements against 3),
+#: so the pooled p95 was a blend of two populations: a burst of cheap tool calls DILUTED
+#: the receiver's p95 and could hide a regression in it, and the tool endpoint's own
+#: budget could not be read off the series at all. A `surface=` label on the one series
+#: would not have helped — a percentile is computed over the series, not over the label.
 #:
-#: NOT FIXED HERE, and the reason is ownership rather than difficulty. The fix is a second
-#: recorder in `apps/api/core/alerting.py` ("adding a recorder is how a new SLO gets a
-#: vocabulary; ad-hoc counters are not accepted") plus a parameter on
-#: `webhook_routes._ack` — and `apps/voice-runtime/webhook_routes.py` belongs to another
-#: slice this wave. Re-implementing the ack accounting inside `tool_routes` instead is the
-#: "two ways of doing one thing" its own module docstring already rejects.
-#:
-#: An equality assertion, not an exemption: the day the tool endpoint records its own
-#: metric this test goes red and the entry must be deleted with the defect.
-KNOWN_OPEN_ACK_METRICS: dict[str, str] = {
-    "webhook_ack_ms": (
-        "the in-call tool endpoint's ack is pooled into the WEBHOOK receiver's series "
-        "because it leaves through `webhook_routes._ack`. Closes when the tool path gets "
-        "its own recorder in `apps/api/core/alerting.py` and `_ack` is told which to use."
-    ),
-}
+#: `_ack` and `_refuse` now take an `AckMeter`, which carries the recorder AND the breach
+#: alert code so the two cannot drift apart, and `tool_routes` passes `TOOL_ACK`.
+EXPECTED_ACK_METRICS: frozenset[str] = frozenset({"tool_ack_ms"})
 
 
-async def test_the_tool_endpoints_ack_lands_in_the_receivers_metric_and_still_should_not(
+async def test_the_tool_endpoints_ack_lands_in_its_own_series_not_the_receivers(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The recorded gap, asserted behaviourally rather than by reading the source.
+    """Asserted behaviourally rather than by reading the source.
 
     A text scan of `tool_routes.py` would pass the day somebody moved the call one level
     down; what matters is which SERIES the number actually lands in, so the metric log is
     the instrument. `calevate.metric` is where every `_record` goes.
+
+    An EQUALITY, so it fails in both directions: adding `webhook_ack_ms` back alongside
+    (double-counting the same ack into two series, which reads as twice the traffic) fails
+    exactly as dropping the tool series does.
     """
     with caplog.at_level(logging.INFO, logger="calevate.metric"):
         async with _client() as http:
@@ -430,8 +422,32 @@ async def test_the_tool_endpoints_ack_lands_in_the_receivers_metric_and_still_sh
         for record in caplog.records
         if record.name == "calevate.metric" and hasattr(record, "metric")
     }
-    assert recorded == set(KNOWN_OPEN_ACK_METRICS), (
-        f"the in-call tool endpoint now records {sorted(recorded)}. If it has its own "
-        "series at last, delete the matching KNOWN_OPEN_ACK_METRICS entry — a recorded "
-        "defect that outlives the defect is a hole with a comment on it."
+    assert recorded == EXPECTED_ACK_METRICS, (
+        f"the in-call tool endpoint records {sorted(recorded)}; the 100ms budget this file "
+        "measures can only be read off a series that carries tool calls and nothing else."
     )
+
+
+async def test_a_refused_tool_call_is_measured_into_the_tool_series_too(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The refusals are the shape a flood takes, and they must not leak into the
+    receiver's series either.
+
+    `_refuse` is a separate call site from `_ack` — it was the one that had to be told
+    about the meter separately — so a fix applied to the happy path only would leave every
+    401 and 422 from a mis-configured custom function landing in `webhook_ack_ms`, which is
+    precisely the pollution this split exists to remove.
+    """
+    with caplog.at_level(logging.INFO, logger="calevate.metric"):
+        async with _client(ATTACKER_IP) as stranger:
+            assert (await stranger.post(TOOL, json=_body())).status_code == 401
+        async with _client() as http:
+            assert (await http.post(TOOL, json={}, headers=HEADERS)).status_code == 422
+
+    recorded = [
+        str(record.metric)
+        for record in caplog.records
+        if record.name == "calevate.metric" and hasattr(record, "metric")
+    ]
+    assert recorded == ["tool_ack_ms", "tool_ack_ms"], recorded

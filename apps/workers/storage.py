@@ -22,6 +22,7 @@ Presigned URLs only, 5-minute TTL, never public (TRD §2).
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
@@ -34,6 +35,7 @@ from arq import Retry
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
+from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.integrations.egress_guard import EgressRefusedError, assert_public_http_url
@@ -46,6 +48,29 @@ DOWNLOAD_TIMEOUT_S = 60.0
 #: presigned URL redirecting once to a CDN is ordinary; a chain is not, and an
 #: unbounded one is a redirect loop a worker would sit in until its timeout.
 RECORDING_REDIRECT_LIMIT = 3
+#: The largest recording we will pull off a vendor's link. DERIVED, not picked: the
+#: platform refuses to run a call longer than `CALL_CAP_MAX_S` (one hour), and 32 kB/s is
+#: 16 kHz 16-bit mono PCM — twice the 8 kHz telephony rate every recording we have seen
+#: is encoded at, so the headroom is for a format we have not met rather than for a
+#: length that cannot happen. Above it the fetch is abandoned.
+#:
+#: WHY THIS EXISTS AT ALL: `response.content` read whatever was sent, and the address the
+#: bytes come from is a THIRD PARTY'S (see below). "A job slot held hostage by a third
+#: party" is the sentence that justifies `RECORDING_REDIRECT_LIMIT`, and it describes an
+#: unbounded body at least as well as it describes an unbounded redirect chain — a
+#: worker's memory is the shared resource in one case and its slot in the other.
+MAX_RECORDING_BYTES = CALL_CAP_MAX_S * 32_000
+#: Every hop, every lookup and every byte of one recording copy, inside ONE deadline.
+#:
+#: `DOWNLOAD_TIMEOUT_S` is not this and cannot be: httpx applies it PER OPERATION, so a
+#: sender dripping one byte every 59 seconds never trips it, and with up to
+#: `RECORDING_REDIRECT_LIMIT + 1` hops in front of it there was no total bound on this
+#: function at all. The number has to be read against `WorkerSettings.job_timeout` (300s),
+#: which is the whole post-call pipeline's budget and not just this stage's — the
+#: recording copy runs FIRST and everything after it (extraction, the lead upsert,
+#: metering, the alert) has to fit in what is left. `recording_source_egress_test` asserts
+#: the relationship rather than trusting this comment.
+RECORDING_FETCH_DEADLINE_S = 120.0
 # A recording copy is worth waiting for: the vendor's S3 link has no documented expiry
 # but no promise either, so a retry should be soon enough to beat a link going away and
 # far enough out to let a storage blip finish.
@@ -93,9 +118,28 @@ def _client() -> Any:
 
 def recording_key(tenant_id: UUID, call_id: UUID) -> str:
     """Tenant-prefixed so a bucket policy or a lifecycle rule can be scoped per tenant,
-    and so an accidental cross-tenant read is visible in the key itself."""
-    stamp = datetime.now(UTC).strftime("%Y/%m")
-    return f"recordings/{tenant_id}/{stamp}/{call_id}.wav"
+    and so an accidental cross-tenant read is visible in the key itself.
+
+    **A PURE FUNCTION OF (tenant, call), and the wall clock is deliberately not an input
+    any more (D-148).** This used to interpolate `datetime.now(UTC).strftime("%Y/%m")`, which made
+    the key for one call depend on WHEN the copy ran. Two copies of one call therefore
+    landed under two keys whenever they straddled a month boundary — and they can: the
+    pipeline crashes between the PUT and the `calls.recording_url` commit, or an operator
+    replays a call that ended at 23:58 on the 31st. The database holds ONE key, so the
+    other object is unreachable by every mechanism that works from it: the retention
+    sweep (`WHERE recording_url IS NOT NULL`) and, worse, the DPDP erasure — which would
+    destroy one copy of the caller's voice and issue a certificate saying the recording
+    was destroyed while the other copy sat in the bucket. Only the bucket's own lifecycle
+    rule would ever reach it, on a clock nobody asked about.
+
+    The date segment bought nothing, and `payload_key` already removed its own for the
+    same reason, stated there: the lifecycle rule expires on object AGE, not on a key, and
+    `LastModified` answers "when was this written" more honestly than a path an uploader
+    chose. The `recordings/` prefix every lifecycle rule is scoped to is unchanged
+    (`object_lifecycle_test` pins that), and the key still names the tenant and the call,
+    which is what an erasure enumerates by.
+    """
+    return f"recordings/{tenant_id}/{call_id}.wav"
 
 
 ENGINE_PAYLOAD_PREFIX = "engine-payloads"
@@ -138,6 +182,52 @@ def payload_call_prefix(*, tenant_id: UUID, call_id: UUID) -> str:
     return f"{ENGINE_PAYLOAD_PREFIX}/{tenant_id}/{call_id}/"
 
 
+async def _fetch_recording(source_url: str) -> bytes:
+    """The audio at `source_url`, vetting every hop and refusing an oversized body.
+
+    Split out of `copy_recording` so the deadline can wrap the WHOLE fetch — hops
+    included — rather than each hop separately, which is a bound a redirect chain walks
+    straight past.
+
+    STREAMED RATHER THAN `.content`, and the cap is checked as the bytes arrive. Reading
+    the whole body and measuring it afterwards is not a limit: the memory is already spent
+    by the time the number is known, and the sender chooses the number. `Content-Length`
+    is consulted first when it is present, so an honest oversized body costs one request
+    and no bytes, but it is a HINT — a chunked response declares none and a hostile one
+    can lie — so the running total is what actually enforces the cap.
+    """
+    async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT_S, follow_redirects=False) as client:
+        url = source_url
+        for _hop in range(RECORDING_REDIRECT_LIMIT + 1):
+            vetted = await assert_public_http_url(url, field="recording_url")
+            # `vetted.url`, not `url`: what was judged is what is requested.
+            async with client.stream("GET", vetted.url) as response:
+                if response.is_redirect and response.has_redirect_location:
+                    url = str(response.next_request.url) if response.next_request else ""
+                    continue
+                response.raise_for_status()
+                declared = response.headers.get("content-length")
+                if (
+                    declared is not None
+                    and declared.isdigit()
+                    and int(declared) > MAX_RECORDING_BYTES
+                ):
+                    raise StorageUnavailableError(
+                        f"recording declares {declared} bytes, over the {MAX_RECORDING_BYTES} cap"
+                    )
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in response.aiter_bytes():
+                    total += len(chunk)
+                    if total > MAX_RECORDING_BYTES:
+                        raise StorageUnavailableError(
+                            f"recording exceeded the {MAX_RECORDING_BYTES} byte cap"
+                        )
+                    chunks.append(chunk)
+                return b"".join(chunks)
+    raise StorageUnavailableError(f"recording fetch exceeded {RECORDING_REDIRECT_LIMIT} redirects")
+
+
 async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> str:
     """Stream the engine's recording into our bucket. Returns the object key.
 
@@ -156,6 +246,15 @@ async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> 
     hand, bounded, with `assert_public_http_url` re-run on each hop. A presigned URL that
     redirects to a CDN still works; one that redirects inward does not.
 
+    AND THE OTHER TWO THINGS A THIRD PARTY WAS CHOOSING FOR US: how many bytes we read and
+    how long we read for. The hop bound exists because "an unbounded chain is a worker
+    sitting in a redirect loop until its 60s timeout — a job slot held hostage by a third
+    party", and that sentence was true of the body too: `.content` read whatever was sent
+    into a worker's memory, and httpx's timeout is PER OPERATION, so a slow drip trips
+    nothing. `MAX_RECORDING_BYTES` and `RECORDING_FETCH_DEADLINE_S` close both, and the
+    deadline is the one that makes this stage's cost a number the pipeline's 300s
+    `job_timeout` can be checked against.
+
     `EgressRefusedError` is a `ProblemError`, and this is a worker, so it is converted to
     `StorageUnavailableError` — the failure the pipeline already knows how to record
     against the call rather than a 422 nobody is listening for.
@@ -163,21 +262,16 @@ async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> 
     settings = get_settings()
     key = recording_key(tenant_id, call_id)
     try:
-        async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT_S, follow_redirects=False) as client:
-            url = source_url
-            for _hop in range(RECORDING_REDIRECT_LIMIT + 1):
-                await assert_public_http_url(url, field="recording_url")
-                response = await client.get(url)
-                if response.is_redirect and response.has_redirect_location:
-                    url = str(response.next_request.url) if response.next_request else ""
-                    continue
-                response.raise_for_status()
-                audio = response.content
-                break
-            else:
-                raise StorageUnavailableError(
-                    f"recording fetch exceeded {RECORDING_REDIRECT_LIMIT} redirects"
-                )
+        # ONE deadline over the whole thing — hops, lookups and bytes. See
+        # `RECORDING_FETCH_DEADLINE_S`: httpx's timeout is per operation, so without this
+        # a sender that never stops sending, and never pauses long enough to trip a read
+        # timeout, holds the job until arq cancels the entire pipeline.
+        async with asyncio.timeout(RECORDING_FETCH_DEADLINE_S):
+            audio = await _fetch_recording(source_url)
+    except TimeoutError as exc:
+        raise StorageUnavailableError(
+            f"recording fetch exceeded {RECORDING_FETCH_DEADLINE_S:.0f}s"
+        ) from exc
     except EgressRefusedError as exc:
         # The vendor named somewhere we will not go. Not transient, and worth the id in
         # the log rather than the address (hard rule 6 permits neither a phone nor a
@@ -187,7 +281,7 @@ async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> 
     except httpx.HTTPError as exc:
         raise StorageUnavailableError(f"recording fetch failed: {type(exc).__name__}") from exc
 
-    try:
+    def _put() -> None:
         _client().put_object(
             Bucket=settings.object_store_bucket,
             Key=key,
@@ -196,6 +290,12 @@ async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> 
             # SSE at rest (TRD §2). The bucket also enforces it; belt and braces.
             ServerSideEncryption="AES256",
         )
+
+    try:
+        # OFF THE EVENT LOOP. The fetch above is async and the upload was not, so the
+        # cheap half of this function yielded and the expensive half — a whole recording,
+        # over the network — stalled every other job in the worker for its duration.
+        await asyncio.to_thread(_put)
     except (BotoCoreError, ClientError) as exc:
         raise StorageUnavailableError(f"recording upload failed: {type(exc).__name__}") from exc
     # Key only — never the URL, and never the phone number in the log line.
@@ -203,13 +303,29 @@ async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> 
     return key
 
 
-def archive_payload(
-    *, tenant_id: UUID, call_id: UUID, engine: str, execution_id: str, payload: dict[str, Any]
+async def archive_payload(
+    *, tenant_id: UUID, call_id: UUID, engine: str, execution_id: str, document: bytes
 ) -> str | None:
     """Best-effort archive of the raw vendor payload. Returns the key, or None.
 
     Best-effort on purpose: this is a debugging aid. Failing a call's pipeline because
     a debug artifact could not be written would be the tail wagging the dog.
+
+    **`document` IS BYTES, NOT A DICT, AND THAT IS HARD RULE 2 RATHER THAN A CONVENIENCE.**
+    The only caller is `apps/workers/pipeline`, which may not see a vendor field name; a
+    `dict[str, Any]` parameter would put the vendor's keys in a worker's hands and
+    `payload["telephony_data"]` needs no import for anyone to write. The adapter seals the
+    document (`apps.api.engine.document.engine_document`, which also bounds its size) and
+    what crosses is bytes this function does nothing to but store. That also removes the
+    serializer from here, where it had no business deciding what a vendor payload is.
+
+    **AWAITED, because boto3 blocks and this runs in an async worker.** The ARQ worker is
+    one event loop running many jobs; a synchronous `put_object` stalls every other job for
+    the round trip. `asyncio.to_thread` covers the client construction too — `_client()`
+    builds a botocore session, which reads config files. (The rest of this module is still
+    called synchronously from async code, which is the same defect at older call sites; it
+    is not fixed here because moving them is a change to `retention`, `outbound_webhooks`
+    and two route modules at once. What is not shipped here is a NEW instance of it.)
 
     THE TENANT AND CALL ARE REQUIRED ARGUMENTS, and that is a deliberate constraint on
     whoever wires the first caller. The payload is personal data (D-126); an archive
@@ -237,21 +353,24 @@ def archive_payload(
     erasure reaches calls, not archives — so here the reference is the index and it is
     written first.
     """
-    settings = get_settings()
     key = payload_key(
         tenant_id=tenant_id, call_id=call_id, engine=engine, execution_id=execution_id
     )
-    try:
+
+    def _put() -> None:
         _client().put_object(
-            Bucket=settings.object_store_bucket,
+            Bucket=get_settings().object_store_bucket,
             Key=key,
-            Body=json.dumps(payload, default=str).encode(),
+            Body=document,
             ContentType="application/json",
             ServerSideEncryption="AES256",
         )
+
+    try:
+        await asyncio.to_thread(_put)
     except (BotoCoreError, ClientError):
-        # Ids and an engine name. Never one byte of the payload — the thing that could
-        # not be written is a phone number and a transcript (hard rule 6).
+        # Ids, an engine name and nothing else. Never one byte of the document — the thing
+        # that could not be written is a phone number and a transcript (hard rule 6).
         log.warning("payload_archive_failed", extra={"engine": engine, "call_id": str(call_id)})
         return None
     return key
@@ -358,7 +477,7 @@ def build_delivery_body_document(
     return json.dumps(document, separators=(",", ":")).encode(), original_bytes, truncated
 
 
-def store_delivery_body(
+async def store_delivery_body(
     *,
     key: str,
     delivery_id: UUID,
@@ -374,6 +493,11 @@ def store_delivery_body(
     lead must reach their CRM whether or not we managed to keep a copy of it. So this
     never raises and never retries — the caller records the delivery either way, and the
     missing reference is made visible by the caller's alert rather than by a failed job.
+
+    AWAITED for `archive_payload`'s reason, which was always true here too: boto3 blocks,
+    the only caller is an arq job, and one event loop runs every job in the worker. The
+    document-building above stays on the loop because it is pure CPU on bytes we already
+    hold; only the round trip moves.
     """
     document, original_bytes, truncated = build_delivery_body_document(
         delivery_id=delivery_id,
@@ -383,7 +507,8 @@ def store_delivery_body(
         subject_id=subject_id,
         body=body,
     )
-    try:
+
+    def _put() -> None:
         _client().put_object(
             Bucket=get_settings().object_store_bucket,
             Key=key,
@@ -391,6 +516,9 @@ def store_delivery_body(
             ContentType="application/json",
             ServerSideEncryption="AES256",
         )
+
+    try:
+        await asyncio.to_thread(_put)
     except (BotoCoreError, ClientError) as exc:
         # Ids, byte counts and an exception TYPE. Never the key's subject segment as a
         # separate field and never one byte of the body (hard rule 6).
@@ -410,17 +538,29 @@ def store_delivery_body(
     return key
 
 
-def read_delivery_body(key: str) -> dict[str, Any] | None:
+async def read_delivery_body(key: str) -> dict[str, Any] | None:
     """The stored document, or None when the object is GONE.
 
     Gone and unreachable are DIFFERENT answers to "what did we send?" and this function
     refuses to merge them: an erased or expired body is a fact about our retention, a
     storage outage is a fact about today. `None` is the first; `StorageUnavailableError`
     is the second, and every caller has to say which it is telling the reader.
+
+    **THIS ONE IS AN API REQUEST HANDLER, WHICH MAKES IT THE WORST OF THE SET.** The other
+    blocking callers were arq jobs stalling their sibling jobs; this is read by
+    `integrations/routes.py`, so a synchronous `get_object` froze the entire API event
+    loop — every tenant's request, not just this one — for the length of one object-store
+    round trip. The read of `response["Body"]` moves into the thread with it: that is a
+    streaming handle, so calling `.read()` back on the loop would have moved the socket
+    traffic and left only the request behind.
     """
-    try:
+
+    def _get() -> bytes:
         response = _client().get_object(Bucket=get_settings().object_store_bucket, Key=key)
-        raw = response["Body"].read()
+        return bytes(response["Body"].read())
+
+    try:
+        raw = await asyncio.to_thread(_get)
     except ClientError as exc:
         code = str(exc.response.get("Error", {}).get("Code", ""))
         # `NoSuchKey` is S3's; MinIO answers the same, and a 404 status covers a store
@@ -442,7 +582,7 @@ def read_delivery_body(key: str) -> dict[str, Any] | None:
     return document if isinstance(document, dict) else None
 
 
-def keys_under(prefix: str) -> list[str]:
+async def keys_under(prefix: str) -> list[str]:
     """Every object under one prefix. RAISES on failure, deliberately.
 
     The DPDP erasure calls this, and an erasure that treats "the store did not answer"
@@ -454,18 +594,28 @@ def keys_under(prefix: str) -> list[str]:
     same function, exactly as `delete_objects` is already shared by every store in this
     module. Two listings for one question is how the second one grows a different
     failure contract.
+
+    THE WHOLE PAGINATION RUNS IN ONE THREAD HOP, not one hop per page. `paginate` returns
+    a lazy iterator that issues a request per `next()`, so awaiting page by page would put
+    a thread handoff behind every step of the loop and multiply them by the page count for
+    no benefit — an erasure listing a tenant's prefix wants one answer, not a hundred
+    yields.
     """
-    keys: list[str] = []
-    try:
+
+    def _list() -> list[str]:
+        keys: list[str] = []
         paginator = _client().get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=get_settings().object_store_bucket, Prefix=prefix):
             keys += [str(item["Key"]) for item in page.get("Contents", [])]
+        return keys
+
+    try:
+        return await asyncio.to_thread(_list)
     except (BotoCoreError, ClientError) as exc:
         raise StorageUnavailableError(f"object list failed: {type(exc).__name__}") from exc
-    return keys
 
 
-def delete_objects(keys: Sequence[str]) -> int:
+async def delete_objects(keys: Sequence[str]) -> int:
     """Delete objects by key; returns how many were asked for. RAISES on failure.
 
     Raising rather than reporting a partial success is what lets every caller be correct
@@ -476,12 +626,19 @@ def delete_objects(keys: Sequence[str]) -> int:
 
     Not delivery-body-specific and its messages no longer say so: recordings and the
     scheduled destructions of `recording_erasure_holds` come through here too.
+
+    ALL CHUNKS IN ONE THREAD HOP, and the partial-failure contract is why that is safe to
+    do rather than merely cheaper. `StorageUnavailableError` mid-way already means "some
+    of these may be gone and some may not, retry the whole list" — every caller is written
+    to re-drive rather than reconcile — so a batch that raises on chunk three behaves
+    identically whether the earlier chunks ran on this thread or that one.
     """
     if not keys:
         return 0
     bucket = get_settings().object_store_bucket
-    client = _client()
-    try:
+
+    def _delete() -> None:
+        client = _client()
         for chunk in _chunks(keys, _DELETE_BATCH):
             response = client.delete_objects(
                 Bucket=bucket, Delete={"Objects": [{"Key": key} for key in chunk], "Quiet": True}
@@ -491,6 +648,9 @@ def delete_objects(keys: Sequence[str]) -> int:
                 # Keys are not logged: a delivery-body key contains the subject's row id,
                 # and a recording key names one of the client's calls (hard rule 6).
                 raise StorageUnavailableError(f"object delete refused {len(errors)} key(s)")
+
+    try:
+        await asyncio.to_thread(_delete)
     except (BotoCoreError, ClientError) as exc:
         raise StorageUnavailableError(f"object delete failed: {type(exc).__name__}") from exc
     return len(keys)
@@ -518,8 +678,11 @@ def presigned_url(key: str, *, ttl_s: int = PRESIGN_TTL_S) -> str | None:
 __all__ = [
     "DELIVERY_BODY_PREFIX",
     "ENGINE_PAYLOAD_PREFIX",
+    "MAX_RECORDING_BYTES",
     "MAX_RETAINED_BODY_BYTES",
     "PRESIGN_TTL_S",
+    "RECORDING_FETCH_DEADLINE_S",
+    "RECORDING_REDIRECT_LIMIT",
     "RECORDING_RETRY_DEFER_S",
     "StorageUnavailableError",
     "archive_payload",

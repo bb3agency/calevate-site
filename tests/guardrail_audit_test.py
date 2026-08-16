@@ -323,6 +323,30 @@ class TestLedgerImmutability:
         failures = check_ledger_immutability.evaluate_triggers(triggers)
         assert any("credit_ledger" in f and "DELETE" in f for f in failures)
 
+    def test_catches_a_ledger_with_no_truncate_cover(self, engine: Engine) -> None:
+        """UPDATE+DELETE cover is not immutability: a FOR EACH ROW trigger has no rows
+        to fire per on TRUNCATE, so the verb that empties the table fastest walks past
+        it. Migration a2e9f31c605d added the statement-level trigger; this is the
+        evaluator's half of noticing it went away."""
+        triggers = [
+            t
+            for t in check_ledger_immutability.fetch_triggers(engine)
+            if not (t.table == "usage_events" and t.on_truncate)
+        ]
+        failures = check_ledger_immutability.evaluate_triggers(triggers)
+        assert any("usage_events" in f and "TRUNCATE" in f for f in failures)
+
+    def test_catches_a_trigger_left_in_origin_mode(self, engine: Engine) -> None:
+        """`ENABLE ORIGIN` (the default) stops firing under
+        `SET session_replication_role = replica` — a plain SET, no DDL, no schema diff.
+        A trigger a session variable can switch off is not an immutability guarantee."""
+        triggers = [
+            replace(t, always=False) if t.table == "audit_log" else t
+            for t in check_ledger_immutability.fetch_triggers(engine)
+        ]
+        failures = check_ledger_immutability.evaluate_triggers(triggers)
+        assert any("audit_log" in f and "ENABLE ORIGIN" in f for f in failures)
+
     def test_the_database_function_actually_refuses(self, engine: Engine) -> None:
         """End-to-end proof that the catalog facts mean what they say: attach the REAL
         `calevate_forbid_mutation` to a temp table and watch it refuse. Everything runs
@@ -571,6 +595,16 @@ class TestRedactionExposure:
             "TranscriptTurnOut.text",
             "CallSummaryOut.summary",
             "CallDetailOut.summary",
+            # The assistant's re-summarise (D-127). It is the ONE entry in this registry
+            # whose value cannot contain unredacted transcript text by CONSTRUCTION
+            # rather than by a pass applied on the way out: the model is handed
+            # `transcript_turns.text_redacted` and `run_assist` refuses input that
+            # `redact()` still changes, so there is no unredacted digit in scope for it
+            # to copy. The output goes through `crm.service.redacted_summary` anyway,
+            # which is what makes its entry say the same sentence as `CallDetailOut`'s —
+            # and `tests/call_assist_test.py` drives BOTH halves (the bytes sent to
+            # Vertex, and a model that invents a phone-shaped run in its answer).
+            "CallAssistOut.summary",
             "SubjectExportTurnOut.text",
             "SubjectExportCallOut.summary",
         }

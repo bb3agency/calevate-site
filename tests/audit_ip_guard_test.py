@@ -42,12 +42,22 @@ from fastapi import Request
 
 
 def client_request_ip(request: Request) -> str | None:
-    """The ONE permitted read: the peer is an ARGUMENT to the trusted-proxy predicate."""
+    """A permitted read: the peer is an ARGUMENT to the trusted-proxy predicate."""
     return client_ip(
         request.client.host if request.client else None,
         request.headers,
         app_env="prod",
     )
+'''
+
+#: The SECOND allowance, in the ASGI spelling. It exists because the middleware runs
+#: before a `Request` does, and it is the spelling the guard could not see when it shipped.
+PERMITTED_MIDDLEWARE = '''
+class RateLimitMiddleware:
+    def _address_subject(self, scope, headers) -> str:
+        """The same argument-not-answer read, one layer down the stack."""
+        peer = (scope.get("client") or ("", 0))[0]
+        return client_ip(peer, headers, app_env="prod") or peer
 '''
 
 CLEAN_HANDLER = """
@@ -74,10 +84,22 @@ def _run(root: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _tree(root: Path, *, resolver: str, extra: dict[str, str] | None = None) -> None:
+def _tree(
+    root: Path,
+    *,
+    resolver: str,
+    middleware: str = PERMITTED_MIDDLEWARE,
+    extra: dict[str, str] | None = None,
+) -> None:
+    """A minimal `apps/api` holding BOTH allowances, plus whatever the test is about.
+
+    Both, because the checker's second half fails when a named allowance stops reading
+    the peer — so a tree that omits one is a tree that fails for a reason no test means.
+    """
     core = root / "apps" / "api" / "core"
     core.mkdir(parents=True, exist_ok=True)
     (core / "auth.py").write_text(resolver)
+    (core / "middleware.py").write_text(middleware)
     for relative, body in (extra or {}).items():
         path = root / "apps" / "api" / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,6 +167,78 @@ async def some_other_handler(request):
     result = _run(tmp_path)
     assert result.returncode == 1, result.stdout
     assert "some_other_handler" in result.stdout
+
+
+#: The spellings the guard did not know when it shipped. Each is the SAME act — consulting
+#: the socket peer instead of the trusted-proxy predicate — written the way an author who
+#: has a `scope` in hand, or who has read `core/middleware.py`, would naturally write it.
+#: The guard's own rationale is "the next author will spell it differently"; these are the
+#: differences that already existed in the tree the day it landed.
+ASGI_SPELLINGS = {
+    "scope_subscript": 'async def record(scope):\n    await write_audit(ip=scope["client"][0])\n',
+    "scope_get": (
+        "async def record(scope):\n    await write_audit(ip=(scope.get('client') or ('',))[0])\n"
+    ),
+    "request_scope_subscript": (
+        'async def record(request):\n    await write_audit(ip=request.scope["client"][0])\n'
+    ),
+    "request_scope_get": (
+        "async def record(request):\n"
+        "    await write_audit(ip=(request.scope.get('client') or ('',))[0])\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("spelling", sorted(ASGI_SPELLINGS))
+def test_the_asgi_spelling_of_the_peer_read_is_refused_too(tmp_path: Path, spelling: str) -> None:
+    """`request.client` is one way to reach the peer and the guard only knew that one.
+
+    A middleware — or any handler willing to touch `request.scope` — reaches the identical
+    value through the ASGI mapping, and stamping THAT into an audit row is the same
+    defective column with none of the words the guard was watching for.
+    """
+    _tree(
+        tmp_path, resolver=PERMITTED_RESOLVER, extra={"admin/routes.py": ASGI_SPELLINGS[spelling]}
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 1, result.stdout
+    assert "apps/api/admin/routes.py" in result.stdout
+    assert "record" in result.stdout, "the message must name the function"
+
+
+def test_the_second_allowance_also_dies_with_its_function(tmp_path: Path) -> None:
+    """The middleware allowance is bound to `_address_subject`, not to `middleware.py`.
+
+    Same property as `client_request_ip`'s, asserted separately because a list of
+    allowances is exactly where "we check the first one" hides.
+    """
+    _tree(
+        tmp_path,
+        resolver=PERMITTED_RESOLVER,
+        middleware=(
+            "class RateLimitMiddleware:\n"
+            "    def _address_subject(self, scope, headers):\n"
+            "        return 'x'\n"
+        ),
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 1, result.stdout
+    assert "_address_subject" in result.stdout
+    assert "outlives its reason" in result.stdout
+
+
+def test_a_dict_that_merely_has_a_client_key_is_not_a_finding(tmp_path: Path) -> None:
+    """The precision control on widening the match. `payload["client"]` is not the socket
+    peer, and a guard that cannot tell the difference is one somebody switches off."""
+    innocent = (
+        "async def record(payload):\n"
+        '    name = payload["client"]\n'
+        '    other = payload.get("client")\n'
+        "    return name, other\n"
+    )
+    _tree(tmp_path, resolver=PERMITTED_RESOLVER, extra={"crm/service.py": innocent})
+    result = _run(tmp_path)
+    assert result.returncode == 0, result.stdout
 
 
 @pytest.mark.parametrize("mention", ["docstring", "comment"])

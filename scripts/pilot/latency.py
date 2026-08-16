@@ -1026,16 +1026,22 @@ OBSERVATIONS_ENV = "CALEVATE_PILOT_GATE4_OBSERVATIONS"
 DEFAULT_OBSERVATIONS_PATH = "docs/evidence/gate4-observations.json"
 
 #: FINDING, reported on every run of this gate: gate 4 asks for `latency_data` from Get
-#: Execution, and our adapter contract cannot carry it. `ExecutionSnapshot` has no
-#: `latency_data` field and no raw-payload ref, so the payload cannot reach this harness
-#: through `VoiceEngine` at all. Executing this half of the gate therefore requires
-#: either an adapter change (out of this slice's scope, and premature before the shape is
-#: verified) or the operator pasting the raw Get Execution `latency_data` into the
-#: observations file. The second is what this module does, deliberately.
+#: Execution, and our adapter contract still cannot deliver it HERE. `ExecutionSnapshot`
+#: has no `latency_data` field, and the vendor's own document now reaches a worker only as
+#: `raw_document` — opaque bytes for D-126's archive, whose whole design is that nothing
+#: above the adapter reads a field out of it. Parsing one open in this harness to fish out
+#: `latency_data` would be precisely the hard-rule-2 leak the bytes exist to prevent, and
+#: `tests/engine_audit_test.py` fails the tree for it. So executing this half of the gate
+#: still requires either an adapter change (a mapped field, after the shape is verified —
+#: which is what the archive makes cheap: the document is now KEPT, so a real payload can
+#: be read off a live call instead of guessed) or the operator pasting the raw Get
+#: Execution `latency_data` into the observations file. The second is what this module
+#: does, deliberately.
 ADAPTER_FINDING = (
     "gate 4's latency_data capture cannot run through the VoiceEngine contract: "
-    "ExecutionSnapshot carries no latency_data and no raw-payload ref, so the payload is "
-    "pasted into the observations file by the operator. Adding it to the adapter is a "
+    "ExecutionSnapshot carries no latency_data, and the raw document it now carries is "
+    "opaque bytes for the archive that no caller above the adapter may parse — so the "
+    "payload is pasted into the observations file by the operator. Mapping the field is a "
     "decision for after the shape is verified — see STORAGE_SHAPE_FINDING."
 )
 

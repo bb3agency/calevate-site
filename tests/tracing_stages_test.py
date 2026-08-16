@@ -61,6 +61,10 @@ TRANSCRIPT = "caller: naa number 9876543210, naa peru Ravi"
 # The stage spans this file is about. Names, not a count: a renamed span is a dashboard
 # and an alert that quietly stop matching, which is worth failing a test over.
 PIPELINE_STAGES = (
+    # The only stage that waits on a THIRD PARTY's network, so it owns the missing
+    # minutes more often than anything below it — and its `outcome` attribute is how an
+    # operator tells "fetched the audio" from "we already had it" on a re-drive.
+    "pipeline.recording_copy",
     "pipeline.transcript_persist",
     "pipeline.extract",
     "pipeline.extraction_persist",
@@ -620,6 +624,36 @@ def test_a_span_the_filter_cannot_scrub_is_dropped_not_exported(spans: Any) -> N
 
     assert not by_name(spans, "pipeline.extract"), "an unscrubbable span was exported"
     assert "span.redaction_failed" in dropped_attribute_keys()
+
+
+def test_a_span_link_carries_no_more_than_a_span_attribute(spans: Any) -> None:
+    """A LINK has its own attribute bag, and it ships with the span.
+
+    `_redact_span` scrubbed attributes, events and the status and copied `links` through
+    untouched, which made the exporter's own claim — "no span reaches a vendor
+    unscrubbed" — false for anything that sets one. Nothing in this repo does today;
+    linking a batch consumer's span to each producer's is the ordinary reason one
+    appears, and `_instrument_arq` is exactly the hand-rolled piece an upstream
+    instrumentation package would replace. The allowlist that governs a span attribute
+    governs a link's too, so `call_id` survives and a transcript does not.
+    """
+    from opentelemetry.trace import Link, SpanContext, TraceFlags
+
+    linked = SpanContext(trace_id=0x1234, span_id=0x5678, is_remote=True, trace_flags=TraceFlags(1))
+    tracer = observability._tracer
+    with tracer.start_as_current_span(
+        "pipeline.extract",
+        links=[
+            Link(linked, {"call_id": "019f0000-0000-7000-8000-00000000000b", "note": TRANSCRIPT})
+        ],
+    ):
+        pass
+
+    exported = dump(spans)
+    assert PHONE not in exported, "a link attribute carried a transcript out"
+    assert "Ravi" not in exported
+    assert "019f0000-0000-7000-8000-00000000000b" in exported, "an id-shaped link attribute stays"
+    assert "note" in dropped_attribute_keys()
 
 
 def test_a_sentry_event_carries_the_otel_trace_id(spans: Any) -> None:

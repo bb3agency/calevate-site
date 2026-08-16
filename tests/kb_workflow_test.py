@@ -67,6 +67,110 @@ def test_empty_content_produces_no_chunks() -> None:
     assert service.chunk_text("   \n\n  ") == []
 
 
+def _dense(value: str) -> str:
+    """Everything the client typed that is not whitespace, in order.
+
+    The comparison unit for the losslessness property below. Whitespace cannot be
+    compared directly and should not be: the chunker deliberately normalises it —
+    paragraphs are stripped, sentence separators collapse to one space, a wrap point
+    eats the space it cut on. None of that is content. A dropped WORD is.
+    """
+    return "".join(value.split())
+
+
+#: Submissions whose shape used to lose text, plus the ordinary ones as controls.
+#: Each is a body a client could paste into the one box the product offers them.
+LOSSLESS_CASES: dict[str, str] = {
+    # THE DEFECT. One paragraph, past the cap, with nothing the sentence splitter can
+    # cut on — a pasted policy with no full stops, which is how people type. This
+    # returned its first 700 characters and silently discarded the other 1,300.
+    "run_on_with_no_sentence_end": "x" * 2000,
+    # The same shape with real words, so the wrap has boundaries to respect.
+    "run_on_of_words": " ".join(["telugu"] * 500),
+    # A sentence past the cap FOLLOWED by a short one: the long sentence's tail used to
+    # be truncated and the short sentence became the only complete chunk.
+    "long_sentence_then_short": ("a" * 1500) + ". Fees are 500 rupees.",
+    # Telugu's danda is a sentence end the splitter knows, so this one should split
+    # cleanly — it is here to prove the fix did not change the path that already worked.
+    "telugu_danda": "ఫీజు ఐదు వందల రూపాయలు। " * 60,
+    # Ordinary prose, several paragraphs.
+    "paragraphs": "\n\n".join(["Clinic hours are 9am to 8pm, Monday to Saturday."] * 30),
+    # The boundary that produced an EMPTY chunk: a paragraph landing exactly on the cap
+    # (and one under it) while the buffer is empty.
+    "paragraph_at_the_cap": "y" * service.MAX_CHUNK_CHARS,
+    "paragraph_one_under_the_cap": "y" * (service.MAX_CHUNK_CHARS - 1),
+    # The empty chunk in the MIDDLE: an over-cap paragraph empties the buffer, then a
+    # cap-sized paragraph arrives on it.
+    "over_cap_then_at_cap": ("z" * 1000) + "\n\n" + ("w" * (service.MAX_CHUNK_CHARS - 1)),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(LOSSLESS_CASES))
+def test_chunking_never_drops_a_character_of_the_submission(shape: str) -> None:
+    """Every non-whitespace character a client submitted reaches a chunk, in order.
+
+    The approval gate is the product's central promise — a human reads the text before
+    an agent says it — and it is a promise about the text the CLIENT wrote. Chunking
+    that quietly drops the tail of a long sentence breaks it from the other side: the
+    reviewer approves a faithful-looking preview of two thirds of a policy, the agent
+    answers confidently from what survived, and nothing in the 201 (`chunks: 1`), the
+    preview, or the audit log says a word was lost.
+
+    Asserted as an EQUALITY on the dense text rather than as "roughly all of it": a
+    tolerance is how a truncation of one sentence in fifty stays green forever.
+    """
+    body = LOSSLESS_CASES[shape]
+    chunks = service.chunk_text(body)
+    assert chunks, "a non-empty submission produced no chunks at all"
+    assert _dense("".join(chunks)) == _dense(body), (
+        f"{shape}: chunking lost "
+        f"{len(_dense(body)) - len(_dense(''.join(chunks)))} characters of the submission"
+    )
+
+
+@pytest.mark.parametrize("shape", sorted(LOSSLESS_CASES))
+def test_no_chunk_is_empty_and_none_runs_far_past_the_cap(shape: str) -> None:
+    """Two shapes of nonsense a `kb_documents` row must never hold.
+
+    An EMPTY chunk was reachable from a paragraph of exactly `MAX_CHUNK_CHARS` (or one
+    below it) arriving while the buffer was empty: the packing test charged for a `\\n\\n`
+    joiner that was not going to be written, took the else branch and appended the empty
+    buffer. What that produced was a zero-length row in `kb_documents`, an empty box in
+    the reviewer's preview, and a blank document inside the text pushed to the engine.
+
+    The upper bound is `MAX + MIN + 2`, not `MAX`, and the slack is one named, deliberate
+    thing: `chunk_text` folds a stub tail into its predecessor rather than leaving a
+    two-word chunk to retrieve noisily. Asserting `<= MAX` would forbid the fold; leaving
+    it unasserted would let a future wrap bug produce one chunk of the whole submission.
+    """
+    ceiling = service.MAX_CHUNK_CHARS + service.MIN_CHUNK_CHARS + 2
+    for idx, chunk in enumerate(service.chunk_text(LOSSLESS_CASES[shape])):
+        assert chunk.strip(), f"{shape}: chunk {idx} is empty"
+        assert len(chunk) <= ceiling, f"{shape}: chunk {idx} is {len(chunk)} chars"
+
+
+async def test_the_preview_a_reviewer_approves_is_the_whole_submission() -> None:
+    """The losslessness property at the seam the gate actually runs on.
+
+    `chunk_text` is a pure function and the tests above pin it as one. This is the same
+    claim end to end — through `submit_source`, the `kb_documents` rows it writes, and
+    the `preview` a reviewer reads — because the promise the client is given is about
+    the workflow, not about a function they cannot see.
+    """
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    body = "Our refund policy " + ("is explained to every caller in full " * 60)
+
+    async with tenant_session(tenant_id) as session:
+        submitted = await service.submit_source(
+            session, tenant_id=tenant_id, agent_id=agent_id, name="Refunds", body=body
+        )
+        chunks = await service.preview(session, uuid.UUID(str(submitted["id"])))
+
+    assert len(chunks) == submitted["chunks"]
+    assert _dense("".join(str(c["content"]) for c in chunks)) == _dense(body)
+    assert all(c["chars"] > 0 for c in chunks), "the reviewer was shown an empty chunk"
+
+
 async def test_submitted_knowledge_is_not_live_until_approved_and_published() -> None:
     tenant_id, agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
@@ -377,3 +481,46 @@ async def _make_admin_token() -> str:
             {"id": uuid.uuid4(), "cid": clerk_id},
         )
     return f"dev:admin:{clerk_id}"
+
+
+async def test_two_people_submitting_one_source_name_at_once_get_two_versions() -> None:
+    """A client's owner and manager both pasting an updated price list.
+
+    `submit_source` numbers versions `MAX(version) + 1`, and that read-then-write let
+    both callers compute the same number. The second INSERT then died on
+    `uq_kb_sources_agent_id_name_version` — a raw `IntegrityError`, which reaches the
+    generic handler as a 500 plus a crash alert, for two clients doing something
+    ordinary and permitted. Nothing was corrupted; a submission was simply lost with an
+    internal error where the honest answer is "you were second".
+
+    Both submissions must survive, as consecutive versions, both queued for review: the
+    approval gate is the place a human decides which wording wins, and dropping one of
+    them before a reviewer ever sees it moves that decision into a race.
+    """
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    both_ready = asyncio.Barrier(2)
+
+    async def submit(body: str) -> dict[str, object]:
+        async with tenant_session(tenant_id) as session:
+            await both_ready.wait()
+            return await service.submit_source(
+                session, tenant_id=tenant_id, agent_id=agent_id, name="Fees", body=body
+            )
+
+    results = await asyncio.gather(
+        submit("A consultation costs 500 rupees, payable at reception."),
+        submit("A consultation costs 900 rupees, payable at reception."),
+    )
+
+    assert sorted(int(str(r["version"])) for r in results) == [1, 2], results
+    assert all(r["status"] == "pending_approval" for r in results)
+    assert len({r["id"] for r in results}) == 2
+
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text("SELECT count(*) FROM kb_sources WHERE agent_id = :a AND name = 'Fees'"),
+                {"a": agent_id},
+            )
+        ).scalar()
+    assert stored == 2, "a submission was lost"

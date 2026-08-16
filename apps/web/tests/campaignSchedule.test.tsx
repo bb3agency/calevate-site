@@ -41,13 +41,20 @@ const ME: Me = {
   organization: null,
 };
 
-const AGENT = {
+const AGENT: Agent = {
   id: AGENT_ID,
   name: "Outbound follow-up",
   direction: "outbound",
   status: "live",
   language_primary: "te",
-} as unknown as Agent;
+  // Hard rule 5: an agent ALWAYS carries a non-null disclosure line, and an outbound
+  // campaign agent is the case the rule exists for. This fixture omitted it entirely —
+  // `as unknown as Agent` is why nobody noticed.
+  disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  engine: "bolna",
+  published: true,
+  extraction_fields: [],
+};
 
 const CAMPAIGN: CampaignSummary = {
   id: CAMPAIGN_ID,
@@ -57,10 +64,11 @@ const CAMPAIGN: CampaignSummary = {
   contacts: 120,
   connected: 0,
   launched_at: null,
+  created_at: "2026-08-10T06:00:00Z",
   consent_provenance_blocker: null,
-} as unknown as CampaignSummary;
+};
 
-const READY: LaunchCheck = { ready: true, blockers: [] } as unknown as LaunchCheck;
+const READY: LaunchCheck = { ready: true, blockers: [] };
 
 /**
  * Two blockers a client would plausibly be sitting on while picking next Tuesday: one
@@ -74,10 +82,17 @@ const BLOCKED: LaunchCheck = {
     { rule: "no_contacts", reason: "The campaign has no contacts." },
     { rule: "pe_registration_not_active", reason: "PE registration is not active." },
   ],
-} as unknown as LaunchCheck;
+};
 
+/**
+  * `extra` is deliberately `Record<string, unknown>` — the callers override arbitrary
+  * corners of the payload — so the spread erases nothing and adds nothing the checker can
+  * see. That means every REQUIRED field has to be present in the base literal, which is
+  * what `as unknown as CampaignProgress` used to hide: `status` and `launched_at` were
+  * supplied by no caller and demanded by nobody.
+  */
 function progress(extra: Record<string, unknown>): CampaignProgress {
-  return { contacts: {}, total: 0, concurrency: 3, ...extra } as unknown as CampaignProgress;
+  return { status: "draft", contacts: {}, total: 0, concurrency: 3, launched_at: null, ...extra };
 }
 
 async function openCampaign(
@@ -575,7 +590,7 @@ describe("an armed schedule the gate would refuse today", () => {
         [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: {
           ready: false,
           blockers: [{ rule: "status", reason: "This campaign has already been launched." }],
-        } as unknown as LaunchCheck,
+        } satisfies LaunchCheck,
       },
       "Repeats",
     );

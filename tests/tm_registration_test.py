@@ -415,6 +415,13 @@ async def test_ops_can_read_and_record_the_platform_tm_registration() -> None:
         # here costs no new entry in `ADMIN_CONSOLE_GETS` while a second GET would. This
         # guard caught it too, which is the point of an exact set.
         "engine_drift",
+        # D-158. The THIRD measurement, and this guard caught it as well — arriving from
+        # the KB drift slice in the same wave, exactly as `outbox_dead_letters` and
+        # `engine_drift` did before it. Kept a separate field rather than folded into
+        # `engine_drift` because each carries its OWN sweep's `oldest_checked_at`: one
+        # panel would let a healthy agent sweep's pulse vouch for a KB sweep that had
+        # died, which is the lie the pulse field exists to prevent.
+        "kb_drift",
     }
 
     assert recorded.status_code == 200, recorded.text

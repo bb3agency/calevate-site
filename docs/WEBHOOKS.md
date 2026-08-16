@@ -152,7 +152,11 @@ internet and listen on port **80 or 443**. We resolve the hostname and refuse an
 that answers with a loopback, link-local, private (RFC 1918 / RFC 4193), multicast,
 reserved or otherwise non-routable address, with `422 webhook_url_not_public` naming
 which it was; a port other than 80 or 443 is `422 webhook_url_port_not_allowed`, and a
-hostname we cannot resolve is `422 webhook_url_unresolvable`. If your receiver runs
+hostname we cannot resolve is `422 webhook_url_unresolvable`. A URL whose destination is
+not the same under two standards-compliant readings of it — in practice a non-ASCII
+domain name, where IDNA 2003 and IDNA 2008 disagree about what it spells — is
+`422 webhook_url_ambiguous`; send the punycode (`xn--…`) form of the host instead, which
+is unambiguous. If your receiver runs
 inside your own network, publish it through the reverse proxy or load balancer you
 already use — we cannot deliver to an address only you can reach, and a delivery
 attempted into a private range is an attack against our infrastructure whoever asked

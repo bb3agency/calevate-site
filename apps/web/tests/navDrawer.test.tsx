@@ -87,7 +87,7 @@ const ADMIN_ME: AdminMe = {
   user_id: "0192f0aa-7777-7000-8000-0000000000a1",
   role: "superadmin",
   permissions: ["admin:tenants", "org:read", "ops:manage"],
-} as AdminMe;
+};
 
 const ADMIN_ROUTES: Routes = {
   [ADMIN_ME_PATH]: ADMIN_ME,

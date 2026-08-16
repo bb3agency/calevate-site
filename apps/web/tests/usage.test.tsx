@@ -34,8 +34,8 @@ const ME: Me = {
   role: "owner",
   permissions: ["billing:read", "org:manage"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
-} as unknown as Me;
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+};
 
 const STAFF: Me = { ...ME, role: "staff", permissions: ["calls:read", "leads:read"] };
 
@@ -72,7 +72,7 @@ function usage(over: Partial<UsagePanel> = {}): UsagePanel {
     plan_tier: "managed",
     spend_used_inr: "15158.00",
     ...over,
-  } as unknown as UsagePanel;
+  };
 }
 
 function routes(over: Record<string, unknown> = {}) {

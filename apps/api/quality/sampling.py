@@ -318,7 +318,13 @@ async def record_review(
             remediation="Reload the queue — someone else reviewed it first.",
         )
     reviewed = await find_sample(session, sample_id)
-    if reviewed is None:  # pragma: no cover — the UPDATE just matched this row
+    if reviewed is None:
+        # Not reachable through this function — the UPDATE above matched this row in this
+        # same transaction, so the re-read sees it. Kept as a REFUSAL rather than a
+        # coverage exclusion because the two differ in what they leave behind: an
+        # exclusion is a branch nobody can see fail, while this one is driven by
+        # `test_a_verdict_survives_the_row_vanishing_under_the_re_read` and answers the
+        # same 404 the caller above it does.
         raise ProblemError.not_found("QA sample")
     return reviewed
 

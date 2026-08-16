@@ -260,28 +260,50 @@ Interpretation:
 
 ## 8. Per-dial compliance gate
 
-Every claimed contact passes `check_dispatch` (`apps/api/compliance/service.py`) at dial
-time — the launch scrub was UX, this is the law (hard rule 5). A blocked dial increments
-the tick's `blocked=` count and the `compliance_blocks` metric (labelled by rule). The
-real rule names:
+Every claimed contact passes TWO checks at dial time, in this order — the launch scrub
+was UX, these are the law (hard rule 5). A blocked dial increments the tick's `blocked=`
+count and the `compliance_blocks` metric, labelled by rule (`_refuse_contact` is the one
+writer of both halves; until it existed the metric fired only for the once-per-campaign
+refusal in step 6, so this sentence described the per-dial path and was not true of it).
+
+**First, the CAMPAIGN's own two live facts** (`campaigns.service.campaign_dialable_now`),
+re-read per contact because the claim has already committed and `_run_tick` chose this
+campaign before any tenant dialled:
+
+| rule | Effect on the contact |
+|---|---|
+| `campaign_not_running` | someone paused/cancelled it, or a safety auto-paused it, while the batch was in flight — non-terminal |
+| `campaign_window_closed` | the campaign's OWN narrowed `calling_hours` closed since the tick chose it — non-terminal |
+
+**Then the per-number gate**, `check_dispatch` (`apps/api/compliance/service.py`):
 
 | rule | Effect on the contact |
 |---|---|
 | `big_red_switch` | back to step 1 |
+| `account_suspended` / `account_closed` | non-terminal — the ACCOUNT is stopped; `calls-stopped.md` |
 | `agent_missing` | non-terminal: `pending`, `next_attempt_at` +30 min, attempt refunded |
 | `disclosure_missing` | non-terminal (but fix is on the agent — it may not dial at all) |
 | `agent_not_live` | non-terminal — agent must be published |
 | `agent_inbound_only` | non-terminal — wrong agent wired to the campaign |
+| `kyc_missing` / `kyc_not_verified` | non-terminal — self_serve/trial identity not cleared (D-47) |
 | `spend_cap` | non-terminal — tenant hit their monthly cap (`spend_state.capped`) |
 | `no_credits` | non-terminal — self_serve/trial wallet empty (D-34) |
 | `calling_hours` | non-terminal — outside 09:00–21:00 IST (`DEFAULT_WINDOW`) |
 | `dnc` | TERMINAL: contact set to `dnc_blocked` |
+| `no_consent` | TERMINAL: contact set to `dnc_blocked` — they withdrew or never gave permission (D-117) |
 
-Only `dnc` is terminal in the dispatcher; every other block returns the contact to
-`pending` with `next_attempt_at = now() + 30 minutes` and the attempt decremented
-(`apps/workers/campaign_dispatch.py`). So "campaign blocked on spend cap" looks like
-step 7's all-waiting-on-backoff picture, repeating every 30 minutes — check
+**Terminal is exactly `compliance.service.PERSON_LEVEL_REFUSALS`** — the refusals that
+are facts about the PERSON and will not become false by waiting. Everything else returns
+the contact to `pending` with `next_attempt_at = now() + 30 minutes` and the attempt
+decremented (`apps/workers/campaign_dispatch.py`). So "campaign blocked on spend cap"
+looks like step 7's all-waiting-on-backoff picture, repeating every 30 minutes — check
 `spend_state`, credits, and the clock before suspecting the dispatcher.
+
+A campaign stuck `running` with one or two contacts cycling every 30 minutes and never
+completing used to be `no_consent`: it was not in the terminal set, so the contact was
+re-claimed and refused forever and the `pending` row kept `complete_or_rearm` from ever
+firing. If you see that shape now, it is a rule that genuinely has not cleared — read the
+`compliance_blocks` label rather than guessing.
 
 DNC membership check (existence only — do not select the number):
 

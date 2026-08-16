@@ -28,6 +28,7 @@ through `list_kb` — both adapter-independent, both exactly what the vendor see
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -321,3 +322,155 @@ async def test_no_publish_log_line_carries_knowledge_text(
         assert "9876543210" not in rendered, f"a phone number reached {record.message!r}"
         assert "Dr Rao" not in rendered, f"a staff name reached {record.message!r}"
         assert "emergency line" not in rendered, f"KB content reached {record.message!r}"
+
+
+# --------------------------------------------------------------------------------
+# 4. Two publishers, one named source: exactly one version ends live
+# --------------------------------------------------------------------------------
+
+
+async def _live_versions(tenant_id: uuid.UUID, agent_id: uuid.UUID, name: str) -> list[int]:
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT version FROM kb_sources WHERE agent_id = :a AND name = :n "
+                    "AND is_active = true ORDER BY version"
+                ),
+                {"a": agent_id, "n": name},
+            )
+        ).scalars()
+        return [int(v) for v in rows]
+
+
+async def test_two_publishers_of_one_named_source_leave_exactly_one_version_live() -> None:
+    """The race `publish_source` could not detect, driven on two connections.
+
+    The window needs no vendor weirdness and no failure. Two approved versions of ONE
+    name with nothing live yet — an admin working an approval queue, two admins, a
+    double-click on two rows — and both publishers read `is_active` before either
+    COMMITs. Each sees no predecessor, so each withdraws nothing, attaches its own copy,
+    and writes `is_active = true` on a row the other's `WHERE ... AND id <> :sid` never
+    names. Under READ COMMITTED there is no conflict for Postgres to raise.
+
+    What that leaves is precisely the divergence D-41's detach-then-attach ordering was
+    built to prevent, arrived at from the other side: TWO live versions of one source,
+    both attached to the engine, the agent free to answer from either, and both rows
+    reported live on the client's screen. A client approved v2; the agent quoting v1's
+    prices is the whole reason the approval gate exists.
+
+    It only ever bit the FIRST publish of a name — with a live predecessor the second
+    detach 404'd and `kb_detach_failed` refused the publish — which is the case a client
+    hits exactly once per source and an operator hits on every onboarding.
+
+    Both publishes SUCCEED here, and that is the correct outcome rather than a weaker
+    one: publishing is not a compare-and-swap on "nothing is live", it is "make this the
+    live one". Serialized, the second publisher sees the first's version as live,
+    withdraws it and supersedes it. What must be true either way is the invariant
+    `_superseded_versions` says it enforces — one live version, one engine copy.
+
+    MEASURED WITH THE LOCK REMOVED, so the failure is recorded rather than predicted:
+    the second publisher raised `kb_engine_out_of_sync`. Its `_reconcile_engine_state`
+    saw the first publisher's copy already attached (the engine calls are outside the
+    transaction) while the row recording that handle was still uncommitted, so the copy
+    was unaccountable and the publish refused — a state whose remediation is "ask
+    support to reconcile this agent". Two live versions is the same window read the
+    other way, reached when the reconciliation runs before the other attach. Both are
+    this assertion; neither is acceptable from two clicks on one queue.
+    """
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    first = await _submit_and_approve(tenant_id, agent_id, "Fees", "A consultation costs 500.")
+    second = await _submit_and_approve(tenant_id, agent_id, "Fees", "A consultation costs 900.")
+
+    # Both callers inside `publish_source` before either reaches its first statement —
+    # the same instrument, for the same reason, as the concurrent-approval twin.
+    both_ready = asyncio.Barrier(2)
+
+    async def publish(source_id: uuid.UUID) -> None:
+        async with tenant_session(tenant_id) as session:
+            await both_ready.wait()
+            await kb_service.publish_source(session, tenant_id=tenant_id, source_id=source_id)
+
+    await asyncio.gather(publish(first), publish(second))
+
+    # ONE live version — not a particular one. The lock serializes; it does not order,
+    # and it must not pretend to: two requests arriving together are decided by which
+    # acquires second, exactly as any last-write-wins mutation is. Asserting `[2]` would
+    # be asserting the scheduler. What a client is owed is that their agent answers from
+    # one approved version, and that our tables and the engine name the same one.
+    live = await _live_versions(tenant_id, agent_id, "Fees")
+    assert len(live) == 1, f"{len(live)} versions of one source are live at once: {live}"
+
+    attached = await get_engine().list_kb(await _engine_ref(tenant_id, agent_id))
+    assert len(attached) == 1, (
+        f"the engine holds {len(attached)} copies of one named source; the agent can "
+        "answer from a version nobody published last"
+    )
+    async with tenant_session(tenant_id) as session:
+        winner = (
+            await session.execute(
+                text(
+                    "SELECT id FROM kb_sources WHERE agent_id = :a AND name = 'Fees' "
+                    "AND is_active = true"
+                ),
+                {"a": agent_id},
+            )
+        ).scalar()
+        recorded = await kb_service._engine_kb_ref(session, uuid.UUID(str(winner)))
+    assert recorded == attached[0], (
+        "the live version's recorded handle is not the copy the engine is holding"
+    )
+
+
+async def test_two_publishers_of_different_sources_on_one_agent_both_succeed() -> None:
+    """The race the name-scoped lock did not cover, and why the lock is agent-wide.
+
+    Different named sources supersede independently, so locking per `(agent, name)` is
+    the tighter-looking choice. It leaves this window open: every publish ends in
+    `recompile_t0`, and `prompt_versions` is numbered per AGENT under
+    `UNIQUE (agent_id, version)`. Two publishes of different names both read
+    `max(version)`, both insert `max + 1`, and the loser takes
+    `prompt_version_conflict`.
+
+    A 409 would be a defensible answer if it left the world unchanged. It does not: the
+    rollback discards our `kb_documents` rows for a copy the engine has ALREADY been
+    handed (`attach_kb` is not in the transaction), so the next publish for that agent
+    finds a document it cannot account for and refuses with `kb_engine_out_of_sync`,
+    whose remediation is "ask support". One operator publishing two FAQs at once must
+    not need support afterwards.
+
+    Both publishes complete, both sources end live, and the agent's prompt carries both
+    sets of facts — which is also the assertion that the second recompile read the FIRST
+    one's committed state rather than clobbering it.
+    """
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    fees = await _submit_and_approve(tenant_id, agent_id, "Fees", "A consultation costs 500.")
+    parking = await _submit_and_approve(tenant_id, agent_id, "Parking", "Parking is free.")
+
+    both_ready = asyncio.Barrier(2)
+
+    async def publish(source_id: uuid.UUID) -> None:
+        async with tenant_session(tenant_id) as session:
+            await both_ready.wait()
+            await kb_service.publish_source(session, tenant_id=tenant_id, source_id=source_id)
+
+    await asyncio.gather(publish(fees), publish(parking))
+
+    assert await _live_versions(tenant_id, agent_id, "Fees") == [1]
+    assert await _live_versions(tenant_id, agent_id, "Parking") == [1]
+    assert len(await get_engine().list_kb(await _engine_ref(tenant_id, agent_id))) == 2
+
+    async with tenant_session(tenant_id) as session:
+        body = (
+            await session.execute(
+                text(
+                    "SELECT pv.body FROM agents a JOIN prompt_versions pv "
+                    "ON pv.id = a.system_prompt_id WHERE a.id = :a"
+                ),
+                {"a": agent_id},
+            )
+        ).scalar()
+    assert body is not None
+    assert "costs 500" in body and "Parking is free" in body, (
+        "the second recompile did not see the first publish's facts"
+    )

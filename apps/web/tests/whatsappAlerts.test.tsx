@@ -40,7 +40,7 @@ const ME = {
   role: "owner",
   permissions: ["org:read", "org:manage"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
 };
 
 /** A member who may read the account's settings and not change them. */

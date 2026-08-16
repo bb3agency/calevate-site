@@ -43,7 +43,7 @@ function me(over: Partial<AdminMe> = {}): AdminMe {
     role: "operator",
     permissions: ["admin:tenants", "agents:read", "billing:read", "org:read"],
     ...over,
-  } as AdminMe;
+  };
 }
 
 const OPERATOR = me();
@@ -71,7 +71,7 @@ function tenant(over: Partial<TenantSummary> = {}): TenantSummary {
     holds: [],
     capped: false,
     ...over,
-  } as TenantSummary;
+  };
 }
 
 /** The Operations entry as the sidebar renders it — a link, or a dead label. */

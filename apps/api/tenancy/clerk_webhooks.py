@@ -70,7 +70,15 @@ def verify_svix(*, secret: str, headers: dict[str, str], body: bytes) -> bool:
         sent_at = int(svix_timestamp)
     except ValueError:
         return False
-    if abs(time.time() - sent_at) > MAX_SKEW_S:
+    # INTEGER arithmetic, and the whole comparison stays in integers. `abs(time.time() -
+    # sent_at)` coerces `sent_at` to a float, and a header carrying a 400-digit number
+    # cannot be one: it raises `OverflowError`, which is a sibling of `ValueError` rather
+    # than a subclass, so the guard above never saw it and it escaped this function as an
+    # unhandled exception — a 500 and an `internal_error` alert on an UNAUTHENTICATED
+    # route, from one header value any stranger controls. Python's ints do not overflow,
+    # so this comparison is total over everything `int()` accepts; a length cap on the
+    # header would be a second rule to keep in step for no extra safety.
+    if abs(int(time.time()) - sent_at) > MAX_SKEW_S:
         return False
 
     key = base64.b64decode(secret.removeprefix("whsec_"))

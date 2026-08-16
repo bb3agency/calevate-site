@@ -244,14 +244,14 @@ async def set_secret(
                 "by": actor_id,
             },
         )
-    ).first()
-    if row is None:  # pragma: no cover - the SELECT always yields one row
-        raise ProblemError(
-            kind="internal",
-            code="secret_not_stored",
-            title="The credential was not stored",
-            detail="The insert produced no row.",
-        )
+    ).one()
+    # `.one()`, not `.first()` plus a `row is None` guard. `INSERT ... SELECT` over an
+    # aggregate always yields exactly one row, so that guard was unreachable and had to be
+    # excluded from coverage to keep the ratchet honest — and an excluded branch is a
+    # branch nobody will ever see fail. `.one()` deletes the branch instead of hiding it:
+    # if the impossible ever happens, SQLAlchemy raises `NoResultFound` here, which the
+    # error ladder turns into the same 500 the hand-written `ProblemError` produced, with
+    # a traceback that points at this line rather than at a message we invented.
     version = int(row[0])
     # Every PREVIOUS version of this key is retired in the same transaction. Retirement
     # is a fact about which version is live, and leaving it to a later job would mean a

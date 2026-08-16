@@ -117,13 +117,74 @@ async def test_publishing_knowledge_recompiles_the_t0_block() -> None:
 # --- T3: delegated to the engine, and must stay that way by decision ------------------
 
 
+#: Every request path `apps/voice-runtime` mounts, as (METHOD, path).
+#:
+#: THIS IS THE GUARD, and the token scan below is only its cheap second net. The event
+#: that reverses D-33 is "an endpoint appeared on the caller's audio path", and an
+#: endpoint is not a spelling — a retrieval tool called `POST /tools/v1/{engine}/lookup`
+#: that posts a question to a managed vector API names none of `kb_sources`,
+#: `kb_documents`, `knowledgebase` or `retrieve_kb`, and the blocklist that preceded this
+#: set would have waved it through. (It could not even see `knowledge_base`, spelled with
+#: the underscore this repo uses everywhere else.)
+#:
+#: The route inventory cannot be spelled around. It is also the pin that makes the
+#: OTHER guards apply: `tests/voice_runtime_import_surface_test.py` bans `httpx`,
+#: `apps.api.kb` and every model SDK both at boot AND across a request — but its request
+#: pass drives a hand-maintained list of endpoints (`_drive`), so a lazy
+#: `import httpx` inside a route nobody added to that list is invisible to it. A new row
+#: here is the moment somebody has to add the route there too.
+#:
+#: Adding a row is allowed. It costs the measurement TRD §6.2 gates it on
+#: (`tests/tool_endpoint_budget_test.py` is the harness) and a decision-log entry, which
+#: is the whole point: this decision must be taken, not drifted into.
+VOICE_RUNTIME_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        # BACKEND-PATTERNS §6's three, on every service.
+        ("GET", "/healthz"),
+        ("GET", "/healthz/live"),
+        ("GET", "/healthz/ready"),
+        # The post-call engine webhook receiver (hard rule 3's 500ms).
+        ("POST", "/hooks/v1/engine/{engine}"),
+        # The ONE in-call tool endpoint (SEC-COMP §2.3's opt-out, D-56). It is the only
+        # thing on the audio path today and it retrieves nothing.
+        ("POST", "/tools/v1/{engine}/opt-out"),
+    }
+)
+
+
 def test_in_call_retrieval_is_not_reimplemented_on_our_side() -> None:
     """D-33/TRD §6: v1 keeps T3 inside the engine's built-in KB precisely because the
     external route costs two extra hops (+150-400ms) against a 100ms budget. Our whole
     in-call KB surface is therefore the INGESTION side. A retrieval endpoint appearing in
     `apps/voice-runtime` is not a feature, it is that decision being reversed by
     accident, and it needs the measurement TRD §6 demands first.
+
+    Asserted as the mounted ROUTE INVENTORY (see `VOICE_RUNTIME_ROUTES`) rather than as
+    a token scan of the sources, which is what this was and which any plausible
+    retrieval endpoint would have walked straight past. An EQUALITY, so it also fails if
+    a route DISAPPEARS: the opt-out tool going missing is the compliance hole SEC-COMP
+    §2.3 opened this endpoint to close, and it should not vanish quietly either.
     """
+    import main as voice_runtime_app
+
+    mounted = {
+        (method.upper(), path)
+        for path, operations in voice_runtime_app.app.openapi()["paths"].items()
+        for method in operations
+    }
+    assert mounted == VOICE_RUNTIME_ROUTES, (
+        "voice-runtime's mounted routes changed.\n"
+        f"  added:   {sorted(mounted - VOICE_RUNTIME_ROUTES)}\n"
+        f"  removed: {sorted(VOICE_RUNTIME_ROUTES - mounted)}\n"
+        "Every path here runs while a caller is on the line. A retrieval endpoint is "
+        "D-33 reversed and needs TRD §6.2's measurement first; anything else needs an "
+        "entry in this set and a driven branch in "
+        "`voice_runtime_import_surface_test._drive`."
+    )
+
+    # The cheap second net: the ingestion tables, by name, in a service that must never
+    # read them. Kept because it catches a retrieval helper added to an EXISTING handler,
+    # which changes no route.
     runtime = REPO_ROOT / "apps" / "voice-runtime"
     sources = [
         path.read_text().lower()
@@ -132,7 +193,7 @@ def test_in_call_retrieval_is_not_reimplemented_on_our_side() -> None:
     ]
     assert sources, "premise: voice-runtime has python sources"
     for text_body in sources:
-        for token in ("kb_documents", "kb_sources", "knowledgebase", "retrieve_kb"):
+        for token in ("kb_documents", "kb_sources", "knowledge_base", "knowledgebase"):
             assert token not in text_body, (
                 f"voice-runtime names {token!r}: in-call retrieval moved to our side "
                 "without the p95 measurement TRD §6 gates it on"

@@ -791,6 +791,38 @@
         "title": "Branch",
         "type": "object"
       },
+      "CallAssistOut": {
+        "additionalProperties": false,
+        "description": "One user-triggered re-summarise of a call (D-127 G-2/G-5/G-6).\n\n**EVERY FIELD IS REQUIRED \u2014 none carries a Pydantic default.** A default here\ngenerates an OPTIONAL property in the client this repo generates from OpenAPI, and\nall three of these are facts the screen has to state rather than shapes it may skip:\nan absent `disclosure` would render a Sarvam answer as the assistant's own (the one\noutcome G-6 rules out), and an absent `metered` would render \"this cost you nothing\"\nas the default for an assist that cost the allowance.\n\nNothing here is persisted. The stored `calls.summary` is the FIRST pass, over the raw\ntranscript; this is a second reading over the redacted copy, held for as long as the\nperson is looking at it (`crm/assist.py` argues why overwriting one with the other\nwould degrade the lead and rewrite history).",
+        "properties": {
+          "disclosure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclosure"
+          },
+          "metered": {
+            "title": "Metered",
+            "type": "boolean"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "disclosure",
+          "metered"
+        ],
+        "title": "CallAssistOut",
+        "type": "object"
+      },
       "CallCapOut": {
         "additionalProperties": false,
         "properties": {
@@ -938,6 +970,13 @@
             ],
             "title": "Lead Id"
           },
+          "moments": {
+            "items": {
+              "$ref": "#/components/schemas/CallMomentOut"
+            },
+            "title": "Moments",
+            "type": "array"
+          },
           "outcome_tag": {
             "anyOf": [
               {
@@ -999,7 +1038,8 @@
           "id",
           "agent_id",
           "direction",
-          "status"
+          "status",
+          "moments"
         ],
         "title": "CallDetailOut",
         "type": "object"
@@ -1081,6 +1121,45 @@
           "status"
         ],
         "title": "CallLeadOut",
+        "type": "object"
+      },
+      "CallMomentOut": {
+        "additionalProperties": false,
+        "description": "One jump-to point in a call's recording.\n\n`label` follows the SAME redaction switch as the transcript on the model it hangs\noff: `get_call(raw=False)` fills it from the redacted text and `raw=True` from the\nraw, so a marker can never be the one field on this screen that leaks (hard rule 5).\nThere is no second `label_raw` on the wire \u2014 one field whose contents depend on the\nendpoint you called is the shape the transcript already established, and a second\nfield would be a second thing to forget to gate.\n\n`source` is what a reader needs to know how much to trust `at_ms`. A `derived` marker\nwas computed from the transcript's own turn offsets and cannot be at the wrong second;\na `model` one is a suggestion from an unmeasured model (D-36) and the screen says so.",
+        "properties": {
+          "at_ms": {
+            "title": "At Ms",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "field_captured",
+              "opt_out",
+              "highlight"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "derived",
+              "model"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at_ms",
+          "kind",
+          "label",
+          "source"
+        ],
+        "title": "CallMomentOut",
         "type": "object"
       },
       "CallSummaryOut": {
@@ -6038,6 +6117,67 @@
         "title": "InvoiceUsageOut",
         "type": "object"
       },
+      "KbDriftOut": {
+        "additionalProperties": false,
+        "description": "How far the KNOWLEDGE on the voice platform has drifted from what we approved\n(D-158) \u2014 the same measurement as `EngineDriftOut`, on the other object.\n\nWHY A SECOND FIELD AND NOT A SECOND ENDPOINT: `EngineDriftOut`'s argument exactly \u2014\none read, one permission, and no new entry in `ADMIN_CONSOLE_GETS` (a GET declaring\n`ops:manage` has to be allowlisted, and `tests/impersonation_reads_test.py` warns that\nentries are how that list \"quietly becomes a hole\").\n\nWHY A SECOND FIELD AND NOT MORE COLUMNS ON `EngineDriftOut`: the two sweeps run on\ndifferent schedules over different objects and each `oldest_checked_at` is its OWN\nsweep's pulse. Folding them into one panel would let a healthy agent sweep's timestamp\nvouch for a KB sweep that had died \u2014 which is precisely the \"lying by omission\" the\npulse field exists to prevent.\n\nTHE ALARM IS `out_of_sync`, and `undetermined` is deliberately NOT folded into it. It\ncarries more weight here than on the agent panel: an empty knowledge listing is\nambiguous between \"the documents are gone\" and \"the vendor's listing does not attribute\nrows to agents\" (pilot gate 8, open), so a large `undetermined` is a real and\nactionable signal about the VENDOR rather than a count of drifted clients.\n\nCOUNTS AND TIMESTAMPS ONLY (hard rule 6). No source name, no chunk, no engine handle.",
+        "properties": {
+          "in_sync": {
+            "title": "In Sync",
+            "type": "integer"
+          },
+          "live_agents": {
+            "title": "Live Agents",
+            "type": "integer"
+          },
+          "never_checked": {
+            "title": "Never Checked",
+            "type": "integer"
+          },
+          "oldest_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Checked At"
+          },
+          "oldest_drift_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Drift At"
+          },
+          "out_of_sync": {
+            "title": "Out Of Sync",
+            "type": "integer"
+          },
+          "undetermined": {
+            "title": "Undetermined",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "live_agents",
+          "never_checked",
+          "out_of_sync",
+          "in_sync",
+          "undetermined",
+          "oldest_drift_at",
+          "oldest_checked_at"
+        ],
+        "title": "KbDriftOut",
+        "type": "object"
+      },
       "KekOut": {
         "additionalProperties": false,
         "description": "The key-management panel's read (\u00a78 panel 4): which KEK is live, and what is\nstill wrapped under something else.\n\n`pending` is the number that decides whether a rotation is FINISHED. While it is\nabove zero the retired KEK must stay in the environment, because removing it would\nmake those rows permanently unreadable \u2014 and that is a decision an operator makes\nfrom this number, so it is published rather than implied.",
@@ -7301,6 +7441,9 @@
           "revenue_inr": {
             "title": "Revenue Inr",
             "type": "string"
+          },
+          "tiers": {
+            "$ref": "#/components/schemas/TierSplitOut"
           }
         },
         "required": [
@@ -7310,7 +7453,8 @@
           "revenue_inr",
           "cost_inr",
           "margin_inr",
-          "margin_pct"
+          "margin_pct",
+          "tiers"
         ],
         "title": "MarginOut",
         "type": "object"
@@ -8507,6 +8651,9 @@
             ],
             "title": "Halt Reason"
           },
+          "kb_drift": {
+            "$ref": "#/components/schemas/KbDriftOut"
+          },
           "load_shed_mode": {
             "title": "Load Shed Mode",
             "type": "string"
@@ -8528,7 +8675,8 @@
           "halt_reason",
           "tm_registration",
           "outbox_dead_letters",
-          "engine_drift"
+          "engine_drift",
+          "kb_drift"
         ],
         "title": "PlatformStateOut",
         "type": "object"
@@ -9335,7 +9483,19 @@
       },
       "RecordingLinkOut": {
         "additionalProperties": false,
+        "description": "A short-lived link to OUR copy of a call's audio, and what the player needs to\nrender before a single byte of it has arrived.\n\n`duration_s` is the CALL's metered length, which is what the seek bar is drawn from\non first paint \u2014 `<audio>` reports `duration` as `NaN` until enough of the file has\nbeen fetched to know, and a scrubber that appears a second after the play button is\na scrubber people click through. It is nullable because a call the poller never\nresolved has no metered length, and inventing one would put a wrong end on the bar.\n\n`expires_in_s` is DERIVED from that duration (`recording_link_ttl_s`), not a\nconstant: a link shorter than its own audio expires mid-playback and the browser\nreports it as an unexplained network error.",
         "properties": {
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration S"
+          },
           "expires_in_s": {
             "title": "Expires In S",
             "type": "integer"
@@ -9347,7 +9507,8 @@
         },
         "required": [
           "url",
-          "expires_in_s"
+          "expires_in_s",
+          "duration_s"
         ],
         "title": "RecordingLinkOut",
         "type": "object"
@@ -12001,6 +12162,46 @@
           "payload"
         ],
         "title": "TestWebhookIn",
+        "type": "object"
+      },
+      "TierSplitOut": {
+        "additionalProperties": false,
+        "description": "The margin's cost side, split by the TTS rung each minute was metered on (D-36).\n\nNested inside the margin card rather than mounted as its own route because it answers\na question about THAT card's `cost_inr`: an operator seeing a thin margin needs to\nknow whether the cost is premium voice or the value rung before they can act on it,\nand a second endpoint means a second round trip to learn one number's composition.\n`billing.tier_usage` sums to the same `_tier_totals` the margin does, so the rungs\nadd up to `cost_inr` exactly \u2014 they are a partition of it, not a parallel estimate.\n\n`unattributed` is the honest third bucket: rows a path could not attribute a rung to.\nIt is reported separately because \"we know this ran on the value rung\" and \"we never\nknew\" are different facts, and a bill resolves that ambiguity in the CLIENT's favour\n(`minutes_billable_value` folds it in) while this report must not.\n\nEvery field is required on the wire. A Pydantic default here would generate an\nOPTIONAL TypeScript property and the screen would have to branch on a case the\nserver never emits \u2014 a trap this repo has now been bitten by four times.",
+        "properties": {
+          "cost_premium_inr": {
+            "title": "Cost Premium Inr",
+            "type": "string"
+          },
+          "cost_unattributed_inr": {
+            "title": "Cost Unattributed Inr",
+            "type": "string"
+          },
+          "cost_value_inr": {
+            "title": "Cost Value Inr",
+            "type": "string"
+          },
+          "minutes_premium": {
+            "title": "Minutes Premium",
+            "type": "string"
+          },
+          "minutes_unattributed": {
+            "title": "Minutes Unattributed",
+            "type": "string"
+          },
+          "minutes_value": {
+            "title": "Minutes Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "minutes_premium",
+          "minutes_value",
+          "minutes_unattributed",
+          "cost_premium_inr",
+          "cost_value_inr",
+          "cost_unattributed_inr"
+        ],
+        "title": "TierSplitOut",
         "type": "object"
       },
       "TmRegistrationIn": {
@@ -17104,6 +17305,47 @@
         "x-calevate-permission": "calls:read"
       }
     },
+    "/v1/calls/{call_id}/assist": {
+      "post": {
+        "description": "Runs the dashboard assistant over this call's REDACTED transcript and returns a fresh summary. Nothing is stored: the call's own summary and captured fields are the first pass over the raw transcript and are left alone. Refused before any model is called when the account is past its included AI allowance \u2014 the screen opens the wallet dialog on `ai_quota_exceeded`. A `Idempotency-Key` header is REQUIRED so a double-click is paid for once. Requires `org:manage`.",
+        "operationId": "assist_call_v1_calls__call_id__assist_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallAssistOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Re-summarise this call with the assistant model \u2014 metered, quota-gated (D-127)",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/calls/{call_id}/callback": {
       "get": {
         "description": "A GET so the button renders disabled-with-a-reason on page load.\n\nBoth the eligibility rules AND the compliance gate are evaluated, because a call\nthat is eligible on our rules can still be un-dialable right now (outside calling\nhours, DNC, spend cap) \u2014 and \"the button is greyed out and I do not know why\" is\nthe exact failure SURFACES \u00a72b exists to prevent.",
@@ -20650,7 +20892,7 @@
     },
     "/v1/ops/dnc/global/{entry_id}": {
       "delete": {
-        "description": "204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted\nholds a phone number, and the response to \"stop suppressing this\" is not the place\nto repeat it. The `source` this reads is for the audit row.",
+        "description": "204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted\nholds a phone number, and the response to \"stop suppressing this\" is not the place\nto repeat it. The `source` this reads is for the audit row.\n\nThe confirmation names THIS row \u2014 see `release_globally_confirmation`.",
         "operationId": "release_globally_v1_ops_dnc_global__entry_id__delete",
         "parameters": [
           {

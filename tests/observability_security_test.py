@@ -125,3 +125,86 @@ def test_an_event_is_never_dropped_entirely() -> None:
     """Knowing an error happened is itself the point — scrubbing must degrade the
     detail, not the signal."""
     assert scrub_event({"message": f"failed for +91{PHONE}"}) is not None
+
+
+# --- the three fields `before_send` used to walk straight past --------------------
+
+
+def test_the_exception_message_is_scrubbed() -> None:
+    """`exception.values[].value` is `str(exc)` plus `__notes__`
+    (`sentry_sdk.utils.single_exception_from_error_tuple` → `get_error_message`), and it
+    is the string Sentry shows as the TITLE of the issue.
+
+    It shipped raw while the OTel exporter in the same module was dropping the identical
+    field off every span. `hide_parameters=True` covers the driver-error spelling; it
+    covers nothing about a `ValueError` raised inside the pipeline with the turn it was
+    mid-way through processing.
+
+    One entry per link of a chained exception, because `raise … from …` is how the
+    pipeline's error ladder reports and the cause is where the original message lives.
+    """
+    event = {
+        "exception": {
+            "values": [
+                {"type": "KeyError", "value": TRANSCRIPT},
+                {"type": "ValueError", "value": f"extraction failed at +91{PHONE}"},
+            ]
+        }
+    }
+    scrubbed = scrub_event(event)
+    assert scrubbed is not None
+    serialized = json.dumps(scrubbed["exception"])
+    assert PHONE not in serialized
+    assert "naa number" not in serialized, "the cause's message is scrubbed too"
+    # The TYPE survives: it is a class name from our own import graph, it is what Sentry
+    # groups on, and it is what the alert path now fingerprints on.
+    assert scrubbed["exception"]["values"][0]["type"] == "KeyError"
+
+
+def test_the_logging_integrations_logentry_is_scrubbed() -> None:
+    """`logentry`, not `message`, is what the SDK writes for every `log.error` in this
+    repo (`sentry_sdk/integrations/logging.py::_emit` sets
+    `{"message", "formatted", "params"}`). `event["message"]` — the only spelling this
+    hook knew — is the legacy field, and `params` is `record.args`: the exact values a
+    `%`-style call interpolated.
+    """
+    event = {
+        "logentry": {
+            "message": "delivering to %s",
+            "formatted": f"delivering to +91{PHONE}",
+            "params": [f"+91{PHONE}", TRANSCRIPT],
+        }
+    }
+    scrubbed = scrub_event(event)
+    assert scrubbed is not None
+    serialized = json.dumps(scrubbed["logentry"])
+    assert PHONE not in serialized
+    assert "Ravi" not in serialized
+    assert scrubbed["logentry"]["message"] == "delivering to %s", "the event name survives"
+
+
+def test_breadcrumbs_attached_to_an_event_are_scrubbed_again() -> None:
+    """`before_breadcrumb` normally cleans these at capture. It is also one `init` edit
+    away from not being installed, and this hook is the seam where the crumbs actually
+    leave the process — so they are re-scrubbed where the event is."""
+    event = {
+        "breadcrumbs": {
+            "values": [
+                {"type": "log", "message": f"lead +91{PHONE}", "data": {"transcript": TRANSCRIPT}}
+            ]
+        }
+    }
+    scrubbed = scrub_event(event)
+    assert scrubbed is not None
+    assert PHONE not in json.dumps(scrubbed["breadcrumbs"])
+
+
+def test_request_cookies_are_dropped_not_merely_header_scrubbed() -> None:
+    """`cookies` is a SIBLING of `headers` in Sentry's request interface, so
+    `DROP_HEADERS` never sees it. Only populated under `send_default_pii=True` — which
+    is off, and which is a one-word edit away from being on."""
+    event = {"request": {"headers": {"Host": "app.calevate.tech"}, "cookies": {"__session": "x"}}}
+    scrubbed = scrub_event(event)
+    assert scrubbed is not None
+    assert "cookies" not in scrubbed["request"]
+    assert scrubbed["request"]["headers"]["Host"] == "app.calevate.tech"

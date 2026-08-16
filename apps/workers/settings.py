@@ -34,6 +34,7 @@ from apps.workers.billing import issue_one_time_charges
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.dispatcher import dispatch_outbox, report_stalled_pipeline, sweep_expired
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
+from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.optout import record_in_call_optout
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
@@ -161,6 +162,28 @@ CRON_JOBS = [
     cron(
         traced_job(sweep_engine_drift),
         minute=set(SWEEP_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE KNOWLEDGE DRIFT SWEEP (D-158). The same gap on the other object: our only read of
+    # what the engine is HOLDING (`kb/service._reconcile_engine_state`) runs at publish
+    # time, and a knowledge base is the thing in this system with the longest gap between
+    # publishes — so a source edited in the vendor's dashboard, or a publish that committed
+    # there and rolled back here, stayed invisible for months rather than minutes.
+    #
+    # HOURLY rather than the agent sweep's half-hourly, and 15 agents rather than 25: the
+    # round trip is dearer, because `bolna.list_kb` pulls the WHOLE account's knowledge
+    # list and filters it to one agent on our side. `apps/workers/kb_reconciliation.py`
+    # carries the arithmetic and asserts at import that a tick's worst case fits inside the
+    # interval, which is what lets it skip the Redis lease the campaign tick needs —
+    # `minute` therefore comes FROM the module, because two places writing "hourly" is how
+    # that assertion stops being true.
+    #
+    # `max_tries` EXPLICIT, the reason `issue_one_time_charges` states below: `cron()`
+    # defaults it to 1, so a sweep that gave up on its first failure would leave every
+    # client's published knowledge unwatched with the console still green.
+    cron(
+        traced_job(sweep_kb_drift),
+        minute=set(KB_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE SETUP FEE STOPS WAITING FOR A HUMAN. Before this cron the onboarding charge

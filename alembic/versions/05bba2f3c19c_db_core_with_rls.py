@@ -674,15 +674,54 @@ def downgrade() -> None:
     # Policies and triggers were dropped with their tables; the functions remain.
     op.execute("DROP FUNCTION IF EXISTS calevate_forbid_mutation()")
     op.execute("DROP FUNCTION IF EXISTS calevate_forbid_slug_change()")
+    # A ROLE IS CLUSTER-WIDE; THIS MIGRATION IS NOT. `DROP OWNED BY` is scoped to the
+    # current database and is always correct here. `DROP ROLE` is not: the role is shared
+    # by every database in the cluster, and both outcomes of dropping it from one
+    # database's downgrade are wrong.
+    #
+    #   * If the role is still used elsewhere, `DROP ROLE` raises
+    #     ("role calevate_app cannot be dropped because some objects depend on it:
+    #     62 objects in database <other>"), the whole downgrade transaction rolls back,
+    #     and `alembic downgrade base` fails on the last step having done nothing. That
+    #     is what a `pg_shdepend` scan found on a cluster hosting a second database.
+    #   * If it is NOT still used elsewhere at the instant this runs, the drop succeeds
+    #     and takes the app role out from under the sibling database that is about to
+    #     need it.
+    #
+    # So the drop is conditional on this database being the last one that depends on the
+    # role. `pg_shdepend` is the catalog that knows: it is shared, and a row with
+    # `dbid = 0` marks a cluster-level dependency (a database-level GRANT), which also
+    # counts as "somebody else still needs this". Rejected alternative: move the role
+    # out of migrations entirely into `scripts/dev_bootstrap.sh`, which already creates
+    # it. That is the cleaner ownership split, but it would mean a fresh `alembic upgrade
+    # head` no longer produces a working app role, and every deploy path and CI job would
+    # have to grow a provisioning step before it could run migrations — a real change to
+    # the contract, argued for in a decision-log entry rather than smuggled into a
+    # downgrade fix.
     op.execute(
         """
         DO $$
+        DECLARE
+            elsewhere int;
         BEGIN
             IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'calevate_app') THEN
-                -- DROP OWNED revokes every privilege granted TO the role
-                -- (including on alembic_version), which plain REVOKEs miss.
+                -- DROP OWNED revokes every privilege granted TO the role in THIS
+                -- database (including on alembic_version), which plain REVOKEs miss.
                 DROP OWNED BY calevate_app;
-                DROP ROLE calevate_app;
+
+                SELECT count(*) INTO elsewhere
+                FROM pg_shdepend s
+                WHERE s.refobjid = (SELECT oid FROM pg_roles WHERE rolname = 'calevate_app')
+                  AND s.dbid <> (SELECT oid FROM pg_database WHERE datname = current_database());
+
+                IF elsewhere = 0 THEN
+                    DROP ROLE calevate_app;
+                ELSE
+                    RAISE NOTICE
+                        'calevate_app kept: % dependency row(s) in other databases of '
+                        'this cluster. A role is cluster-wide and this downgrade is not.',
+                        elsewhere;
+                END IF;
             END IF;
         END
         $$

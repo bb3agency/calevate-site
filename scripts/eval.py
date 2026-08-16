@@ -754,6 +754,16 @@ class FieldScore:
         return self.restrained + self.invented
 
     def record(self, verdict: str) -> None:
+        """Count one verdict. RAISES on a name this class does not hold, and the plain
+        `getattr` is what does it — never `getattr(self, verdict, 0)`.
+
+        The five verdict CONSTANTS above are bound to these five field names by string
+        identity and nothing else. A default would make a renamed constant count into an
+        attribute no reader looks at: `asked` and `withheld` would not see it and `cell()`
+        would print `_not measured_` for a field that WAS measured — evidence quietly
+        missing from the artefact that feeds a residency decision. An AttributeError on
+        the first case is the loud version of the same event.
+        """
         setattr(self, verdict, getattr(self, verdict) + 1)
 
     def cell(self) -> str:

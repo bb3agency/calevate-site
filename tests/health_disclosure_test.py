@@ -34,6 +34,7 @@ control is a comment.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -45,6 +46,7 @@ import pytest
 from apps.api.core import bootstrap as bootstrap_module
 from apps.api.core import health as health_module
 from apps.api.core.bootstrap import create_app
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import JsonFormatter
 from apps.api.core.rbac import PUBLIC_PREFIXES
 from apps.api.db.session import untenanted_session
@@ -278,6 +280,128 @@ async def test_a_credential_that_is_not_an_admin_session_learns_nothing(
     response = await _get("/healthz/ready", token=token)
     assert response.status_code == 503, response.text
     assert response.json() == {"status": "not_ready", "service": "api"}
+
+
+# ------------------------------------- what gating a probe cost, and what bounds it now
+#
+# The gate put an AUTHENTICATION ATTEMPT on the two routes carrying
+# `ratelimit.PROFILES["exempt"]` — no per-client limit at all, because a probe must answer
+# during an incident. Behind an authentication attempt is `auth._signing_key_for`, whose
+# own docstring says `PyJWKClient` refetches the whole key set for an unknown `kid` and
+# never memoises the failure, so any caller can force one fetch per request by varying one
+# field of an unsigned JWT — "and on `/healthz*` there is not even a rate-limit profile in
+# front of it". D-135 moved that fetch off the event loop onto `asyncio.to_thread`; the
+# pool it moved onto is `min(32, cpu+4)` threads and shared with everything else blocking
+# in the process. Moving a hazard to a scarcer resource is not the same as bounding it,
+# and the mounting is what was left open.
+
+
+async def test_an_anonymous_probe_never_reaches_the_token_verifier(
+    missing_a_credential: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An uptime monitor and a load balancer send no `Authorization` header, and the
+    overwhelming majority of traffic on these routes is one of those two.
+
+    `current_admin` is where the JWKS machinery lives behind `requires`. Asserted on what
+    was CALLED rather than on the response: the body is identical either way, so a
+    response-shaped assertion would pass whether or not the verifier ran.
+    """
+    from apps.api.core import auth as auth_module
+
+    entered: list[str] = []
+    real = auth_module.current_admin
+
+    async def counted(request: Any) -> Any:
+        entered.append("x")
+        return await real(request)
+
+    monkeypatch.setattr(auth_module, "current_admin", counted)
+
+    anonymous = await _get("/healthz/ready")
+    assert anonymous.status_code == 503
+    assert entered == [], "a probe with no credential paid for the verifier anyway"
+
+    # The paired positive: the short-circuit is a cost saving, NOT the access control.
+    # A caller who does present something reaches the real ladder and is judged by it.
+    await _get("/healthz/ready", token="not-a-token-at-all")
+    assert entered == ["x"], "presenting a credential must still be checked properly"
+
+
+async def test_the_probe_cannot_be_used_to_spend_the_pool_the_verifier_runs_on(
+    missing_a_credential: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bound, measured at its peak rather than asserted from the source.
+
+    A slow verifier stands in for the JWKS fetch an unknown `kid` forces. Twelve
+    concurrent bogus credentials arrive at an endpoint with no rate-limit profile; at most
+    `_DETAIL_GATE_CONCURRENCY` of them may be inside the verifier at once, and every one
+    of the twelve must still get its probe answer — denying the DETAIL under contention is
+    the intended failure, denying the PROBE would be an outage.
+    """
+    from apps.api.core import auth as auth_module
+
+    live = 0
+    peak = 0
+
+    async def slow(request: Any) -> Any:
+        nonlocal live, peak
+        live += 1
+        peak = max(peak, live)
+        try:
+            await asyncio.sleep(0.05)
+            raise ProblemError.forbidden("no")
+        finally:
+            live -= 1
+
+    monkeypatch.setattr(auth_module, "current_admin", slow)
+
+    async with _client() as http:
+        responses = await asyncio.gather(
+            *(
+                http.get("/healthz/ready", headers={"Authorization": f"Bearer forged-{n}"})
+                for n in range(12)
+            )
+        )
+
+    assert peak <= bootstrap_module._DETAIL_GATE_CONCURRENCY, (
+        f"{peak} verifications at once on a route with no rate limit"
+    )
+    assert [r.status_code for r in responses] == [503] * 12, "every probe still answered"
+    assert all(set(r.json()) == {"status", "service"} for r in responses), (
+        "and none of them leaked the detail on the way past the bound"
+    )
+
+
+async def test_the_saturation_refusal_is_visible_to_an_operator(
+    missing_a_credential: None, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A silent bound is a bound nobody can tell is being hit. This log line is the only
+    place the shape of an amplification attempt on this route is visible."""
+    from apps.api.core import auth as auth_module
+
+    async def slow(request: Any) -> Any:
+        await asyncio.sleep(0.05)
+        raise ProblemError.forbidden("no")
+
+    monkeypatch.setattr(auth_module, "current_admin", slow)
+    with caplog.at_level(logging.WARNING, logger="apps.api.core.bootstrap"):
+        async with _client() as http:
+            await asyncio.gather(
+                *(
+                    http.get("/healthz", headers={"Authorization": f"Bearer forged-{n}"})
+                    for n in range(8)
+                )
+            )
+    assert [r for r in caplog.records if r.getMessage() == "health_detail_gate_saturated"]
+
+
+async def test_an_authorised_operator_alone_is_never_the_one_denied(
+    missing_a_credential: None,
+) -> None:
+    """The bound must not cost the person it exists for. One operator, one request, and
+    the detail arrives — the ordinary case, which every other test here shortcuts past."""
+    response = await _get("/healthz/ready", token=await _make_admin())
+    assert set(response.json()) >= READY_DETAIL
 
 
 async def test_liveness_never_grows_a_detail_for_anybody(healthy: None) -> None:

@@ -17,11 +17,12 @@
  *   every client's campaign may dial. It runs on the admin realm's own session
  *   (`adminSession()`, no tenant), exactly as the platform switches do.
  * - **Both writes carry a step-up header, and the two are DIFFERENT strings.** Adding is
- *   `suppress_number_platform_wide`; lifting is `release_number_platform_wide`. The API
- *   binds them separately so a header captured for a suppression cannot release one
+ *   `suppress_number_platform_wide`; lifting is `release_number_platform_wide:<entryId>`,
+ *   bound to the row it lifts. The API binds them separately so neither a header captured
+ *   for a suppression nor one captured for a DIFFERENT row can release this one
  *   (`national_dnd_routes.py`), and `runbooks/dnc-complaint.md` §6 prints both verbatim
- *   for the console-is-down fallback — which is why they are exported constants pinned
- *   by a test rather than string literals at the call site.
+ *   for the console-is-down fallback — which is why they are exported here rather than
+ *   written as string literals at the call site.
  * - **Nothing here ever holds a phone number the server did not mask.** The list route
  *   answers with `phone_masked` and the add route answers with three counts; the only
  *   full number in this module is the one an operator typed, on its way out.
@@ -49,13 +50,20 @@ export const OPS_DNC_GLOBAL_QUERY_KEY = ["admin", "ops", "dnc-global"] as const;
 
 /**
  * Copied VERBATIM from `apps/api/compliance/national_dnd_routes.py`, like every other
- * confirmation in this console. Two constants and not one function, because the API
- * declares two constants: the direction is the part of this act an operator could get
- * wrong by replaying a header they already had, and it is the direction that decides
- * whether somebody who asked not to be called gets called.
+ * confirmation in this console.
+ *
+ * One constant and one BUILDER, mirroring the API exactly. Adding names only the act:
+ * its subject is a list of phone numbers, and hard rule 6 keeps those out of a header
+ * that access logs and browser history would carry. Releasing names the act AND the row,
+ * because its subject is an `entry_id` that is already the last segment of the request
+ * path — so binding it costs no disclosure and buys the property `core/stepup.py` exists
+ * for: the confirmation typed for one number cannot lift another.
  */
 export const SUPPRESS_GLOBALLY_CONFIRMATION = "suppress_number_platform_wide";
 export const RELEASE_GLOBALLY_CONFIRMATION = "release_number_platform_wide";
+export function releaseGloballyConfirmation(entryId: string): string {
+  return `${RELEASE_GLOBALLY_CONFIRMATION}:${entryId}`;
+}
 
 /**
  * Every platform-wide suppression, masked and newest first.
@@ -110,7 +118,7 @@ export function useReleaseGlobally() {
     mutationFn: (entryId: string) =>
       apiRequest<void>(adminSession(), `${OPS_DNC_GLOBAL_PATH}/${encodeURIComponent(entryId)}`, {
         method: "DELETE",
-        confirmAction: RELEASE_GLOBALLY_CONFIRMATION,
+        confirmAction: releaseGloballyConfirmation(entryId),
       }),
     onSuccess: () => void client.invalidateQueries({ queryKey: OPS_DNC_GLOBAL_QUERY_KEY }),
   });

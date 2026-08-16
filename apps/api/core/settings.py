@@ -111,11 +111,28 @@ def validate_bootstrap_env(environ: dict[str, str] | None = None) -> None:
     # `.get`, not `[...]`: presence is guaranteed by the check above only for as long as
     # APP_ENV stays in BOOTSTRAP_REQUIRED, and a KeyError escaping the gate whose whole
     # job is producing a readable failure would be a poor way to learn that it moved.
-    stated = env.get("APP_ENV", "").strip()
+    #
+    # THE RAW VALUE, not a stripped one, and the difference is the whole point of the
+    # gate. This line used to compare `.strip()`ed text, so `APP_ENV='prod\n'` — an echo
+    # into `.env`, a heredoc, a CI secret pasted with a line break — passed here and then
+    # died in `Settings()` with the Pydantic ValidationError this step exists to convert
+    # into a sentence. Pydantic does not strip; a gate that is more lenient than the type
+    # it guards is not a gate. It still fails closed either way, which is why the message
+    # is the fix: an operator told `'prod\n' is not an environment this build knows` goes
+    # and re-reads a word they spelled correctly.
+    stated = env.get("APP_ENV", "")
     if stated not in ENVIRONMENTS:
+        padded = stated.strip() in ENVIRONMENTS
         raise BootstrapError(
-            f"APP_ENV is {stated!r}, which is not an environment this build knows. "
-            f"Set it to one of {'|'.join(ENVIRONMENTS)} (DEV-SETUP §4)."
+            f"APP_ENV is {stated!r}, which is "
+            + (
+                "the right word with surrounding whitespace attached. Remove the "
+                "whitespace — the value is compared exactly, here and in Settings."
+                if padded
+                else f"not an environment this build knows. "
+                f"Set it to one of {'|'.join(ENVIRONMENTS)}"
+            )
+            + " (DEV-SETUP §4)."
         )
 
 
@@ -482,6 +499,19 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
             missing.append("CLERK_CLIENT_SECRET_KEY")
         if not cfg.clerk_admin_secret_key:
             missing.append("CLERK_ADMIN_SECRET_KEY")
+        # The SECRET keys above say this deployment can talk to Clerk. They say nothing
+        # about WHOSE keys each realm verifies signatures with, and that is the property
+        # TRD §11 / D-37 rest on: `core/auth.py::jwks_url` argues that one JWKS for both
+        # realms leaves `admin_users` membership as the only thing between a client token
+        # and the operator console. A prod host with both secrets and neither PUBLISHABLE
+        # key resolved both realms to `CLERK_FRONTEND_API` and answered this function with
+        # `[]` — the same shape of silent gap as the `app_env` default above.
+        #
+        # Imported inside the function for the reason `missing_engine_credential_keys` is:
+        # `core.auth` imports THIS module, so a module-level import is a cycle.
+        from apps.api.core.auth import missing_realm_separation_keys
+
+        missing.extend(missing_realm_separation_keys(cfg))
         # D-22 view-as signs its grants with this and REFUSES to mint or verify without
         # it outside `local` (`core/impersonation.py::_signing_key`). Reported here so a
         # deploy that forgot it is a red readiness probe, not an operator discovering

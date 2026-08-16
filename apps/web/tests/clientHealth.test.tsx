@@ -57,7 +57,7 @@ function row(over: Partial<ClientHealth> = {}): ClientHealth {
     spend_used_inr: "900.5000",
     spend_cap_inr: "1000.0000",
     ...over,
-  } as ClientHealth;
+  };
 }
 
 describe("the client health board", () => {

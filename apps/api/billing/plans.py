@@ -203,16 +203,29 @@ def month_pricing_instant(month: str, *, now: datetime | None = None) -> datetim
     """
     year, mon = parse_billing_month(month)
     start = datetime(year, mon, 1, tzinfo=IST)
+    moment = (now or datetime.now(UTC)).astimezone(UTC)
+    return min(max(moment, start.astimezone(UTC)), ist_month_end(month))
+
+
+def ist_month_end(month: str) -> datetime:
+    """The last instant that is still IN an IST billing month, in UTC.
+
+    Extracted from `month_pricing_instant`, which computed it inline, when a second
+    caller appeared (`billing/ai_quota.py` asks how much of the month is left before it
+    will sell an allowance for it). Two hand-rolled "add one month, subtract an epsilon"
+    calculations is how a December purchase ends up dated to month 13.
+
+    The epsilon is a MICROSECOND because that is `timestamptz`'s own resolution: the
+    half-open window `at < effective_to` must not admit the next month's plan, and a
+    coarser step would leave a real instant in neither month.
+    """
+    year, mon = parse_billing_month(month)
     next_month = (
         datetime(year + 1, 1, 1, tzinfo=IST)
         if mon == 12
         else datetime(year, mon + 1, 1, tzinfo=IST)
     )
-    # The last instant that is still IN the month, at timestamptz's own resolution —
-    # the half-open window's `at < effective_to` must not admit the NEXT month's plan.
-    end = next_month - timedelta(microseconds=1)
-    moment = (now or datetime.now(UTC)).astimezone(UTC)
-    return min(max(moment, start.astimezone(UTC)), end.astimezone(UTC))
+    return (next_month - timedelta(microseconds=1)).astimezone(UTC)
 
 
 async def warn_no_plan_in_effect(
@@ -257,6 +270,7 @@ __all__ = [
     "IST",
     "NOW_SQL",
     "ist_billing_month",
+    "ist_month_end",
     "month_pricing_instant",
     "parse_billing_month",
     "plan_in_effect_sql",

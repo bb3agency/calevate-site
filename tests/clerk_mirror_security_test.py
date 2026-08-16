@@ -14,6 +14,7 @@ import json
 import time
 import uuid
 
+import pytest
 from apps.api.core.settings import get_settings
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
@@ -70,6 +71,110 @@ def test_a_replayed_old_request_fails_even_with_a_valid_signature() -> None:
 def test_missing_headers_fail_closed() -> None:
     body = _user_event("user_x", "x@example.com")
     assert not verify_svix(secret=SECRET, headers={}, body=body)
+
+
+#: `svix-timestamp` values a stranger can put on the wire that are not timestamps.
+#: The 400-digit one is the whole point of the parametrisation: it parses as an `int`
+#: (Python integers are arbitrary precision) and only stops being usable at the moment it
+#: meets a float. See the test below.
+HOSTILE_TIMESTAMPS = ("9" * 400, "-" + "9" * 400, "1e400", "0x10", " 1755000000 ", "")
+
+
+@pytest.mark.parametrize("timestamp", HOSTILE_TIMESTAMPS)
+def test_a_hostile_timestamp_is_a_refusal_not_an_unhandled_error(timestamp: str) -> None:
+    """A header value nobody authenticated must never leave this function by raising.
+
+    THE DEFECT, measured before the fix: `abs(time.time() - sent_at)` coerces `sent_at`
+    to a float, and a 400-digit integer cannot be one — `OverflowError: int too large to
+    convert to float`. `OverflowError` is not `ValueError`, so the guard above it never
+    saw it, and it escaped `clerk_webhook` as an unhandled exception: a 500 plus an
+    `internal_error` alert, on an UNAUTHENTICATED route, from one header any stranger can
+    set. The module docstring already states the rule for the body ("an unverifiable
+    request must come back as a refusal, never as an unhandled exception on an
+    unauthenticated route"); the timestamp line was the half that did not follow it.
+
+    The fix is integer arithmetic rather than a bounded parse: Python's ints do not
+    overflow, so the comparison is total over every value `int()` accepts, and there is
+    no second length rule for a future reader to get wrong.
+    """
+    body = _user_event("user_x", "x@example.com")
+    headers = _sign(body, svix_id="msg_1")
+    headers["svix-timestamp"] = timestamp
+    assert verify_svix(secret=SECRET, headers=headers, body=body) is False
+
+
+async def test_a_hostile_timestamp_reaches_the_endpoint_as_a_401(monkeypatch) -> None:
+    """The same defect end to end, because the unit above would still pass if the
+    exception moved rather than disappeared."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "clerk_webhook_secret", SECRET)
+    body = _user_event(f"user_{uuid.uuid4().hex[:12]}", "x@example.com")
+    headers = _sign(body, svix_id=f"msg_{uuid.uuid4().hex[:10]}")
+    headers["svix-timestamp"] = "9" * 400
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        response = await http.post("/hooks/v1/clerk", content=body, headers=headers)
+
+    assert response.status_code == 401, response.text
+    assert not str(response.json()["type"]).endswith("/internal_error"), response.text
+
+
+async def test_a_late_update_does_not_resurrect_a_deleted_account(monkeypatch) -> None:
+    """Svix does not guarantee ORDER, so `user.updated` can land after `user.deleted`.
+
+    `mirror_clerk_user` leaves `deactivated_at` out of its `DO UPDATE` set for exactly
+    this reason and says so in a comment; nothing held it to that. The consequence if it
+    ever changes is not cosmetic — `resolve_mirrored_user` reads that column on every
+    single request, so clearing it restores a revoked account's access to every tenant it
+    belonged to, silently, from an event Clerk sent in good faith.
+
+    Both directions are driven: the stale update still refreshes the DISPLAY fields (it
+    is not ignored), and the account stays refused at the door.
+    """
+    settings = get_settings()
+    monkeypatch.setattr(settings, "clerk_webhook_secret", SECRET)
+
+    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
+    email = f"{clerk_id}@example.com"
+    created = _user_event(clerk_id, email)
+    deleted = json.dumps({"type": "user.deleted", "data": {"id": clerk_id}}).encode()
+    late = json.dumps(
+        {
+            "type": "user.updated",
+            "data": {
+                "id": clerk_id,
+                "first_name": "Resurrected",
+                "last_name": "Account",
+                "primary_email_address_id": "idn_1",
+                "email_addresses": [{"id": "idn_1", "email_address": email}],
+            },
+        }
+    ).encode()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        for payload in (created, deleted, late):
+            response = await http.post(
+                "/hooks/v1/clerk",
+                content=payload,
+                headers=_sign(payload, svix_id=f"m_{uuid.uuid4().hex[:8]}"),
+            )
+            assert response.status_code == 202, response.text
+        refused = await http.get(
+            "/v1/agents", headers={"Authorization": f"Bearer dev:client:{clerk_id}"}
+        )
+
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text("SELECT deactivated_at, name FROM users WHERE clerk_user_id = :c"),
+                {"c": clerk_id},
+            )
+        ).first()
+    assert row is not None
+    assert row[0] is not None, "a late user.updated cleared the deletion"
+    assert row[1] == "Resurrected Account", "the stale event was ignored entirely, not merged"
+    assert refused.status_code == 401, refused.text
+    assert "deactivated" in refused.json()["detail"].lower(), refused.text
 
 
 def test_multiple_signatures_pass_if_any_matches() -> None:

@@ -34,6 +34,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.transition import transition_status
 from apps.api.engine import get_engine, require_capability
+from apps.api.kb.models import KB_STATUSES
 
 log = get_logger(__name__)
 
@@ -66,7 +67,18 @@ SUPPORTED_SUBMISSION_KINDS: frozenset[str] = frozenset({"text"})
 
 def chunk_text(body: str) -> list[str]:
     """Split on paragraph boundaries, packing up to the cap; only split a paragraph
-    that exceeds the cap on its own, and then on sentence ends."""
+    that exceeds the cap on its own, and then on sentence ends.
+
+    **LOSSLESS, and that is a property this function is tested on rather than a hope.**
+    Every non-whitespace character of `body` appears in exactly one chunk, in order
+    (`tests/kb_workflow_test.py::test_chunking_never_drops_a_character_of_the_submission`).
+    It was not: a sentence longer than the cap used to be assigned as `sentence[:MAX]`
+    and the remainder dropped on the floor, so a 2,000-character run-on paragraph
+    reached the agent as its first 700 characters with nothing anywhere saying so. The
+    approval gate cannot catch that — a reviewer reads the preview to judge the WORDING,
+    not to diff it against the paste buffer — and the client's 201 said `chunks: 1`,
+    which was true and useless.
+    """
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
     chunks: list[str] = []
     buffer = ""
@@ -77,14 +89,24 @@ def chunk_text(body: str) -> list[str]:
                 buffer = ""
             chunks.extend(_split_sentences(paragraph))
             continue
-        if len(buffer) + len(paragraph) + 2 <= MAX_CHUNK_CHARS:
-            buffer = f"{buffer}\n\n{paragraph}" if buffer else paragraph
+        # The candidate carries its own joiner, so the two-character cost of `\n\n` is
+        # counted when there IS a joiner and not when there is not. Charging for it
+        # unconditionally is what used to append `buffer` while `buffer` was the empty
+        # string: a paragraph of 699 or 700 characters arriving on an empty buffer took
+        # the else branch and wrote a zero-length chunk into `kb_documents`, which the
+        # preview then showed the reviewer as an empty box and the publish pushed to the
+        # engine as a blank document.
+        candidate = f"{buffer}\n\n{paragraph}" if buffer else paragraph
+        if len(candidate) <= MAX_CHUNK_CHARS:
+            buffer = candidate
         else:
-            chunks.append(buffer)
+            if buffer:
+                chunks.append(buffer)
             buffer = paragraph
     if buffer:
         chunks.append(buffer)
-    # Fold a stub tail into its predecessor: a two-word chunk retrieves noisily.
+    # Fold a stub tail into its predecessor: a two-word chunk retrieves noisily. This is
+    # the ONE place a chunk may exceed the cap, by at most MIN_CHUNK_CHARS + 2.
     if len(chunks) > 1 and len(chunks[-1]) < MIN_CHUNK_CHARS:
         chunks[-2] = f"{chunks[-2]}\n\n{chunks[-1]}"
         chunks.pop()
@@ -98,13 +120,47 @@ def _split_sentences(paragraph: str) -> list[str]:
     for sentence in sentences:
         if len(buffer) + len(sentence) + 1 <= MAX_CHUNK_CHARS:
             buffer = f"{buffer} {sentence}".strip()
-        else:
-            if buffer:
-                out.append(buffer)
-            buffer = sentence[:MAX_CHUNK_CHARS]
+            continue
+        if buffer:
+            out.append(buffer)
+            buffer = ""
+        if len(sentence) <= MAX_CHUNK_CHARS:
+            buffer = sentence
+            continue
+        # A single sentence longer than the cap. There is no boundary left to respect,
+        # so it is WRAPPED rather than cut short — see `chunk_text` on why dropping the
+        # tail is the worst of the three options. The last piece stays in the buffer so
+        # a following short sentence can pack onto it.
+        *complete, buffer = _wrap_long_sentence(sentence)
+        out.extend(complete)
     if buffer:
         out.append(buffer)
     return out
+
+
+def _wrap_long_sentence(sentence: str) -> list[str]:
+    """A sentence past the cap, cut into cap-sized pieces on the last space that fits.
+
+    Never on a character boundary if a word boundary is available, because a chunk is
+    read aloud: "the consultation fee is five hu / ndred rupees" is what a mid-word cut
+    sounds like when retrieval returns only the first piece. A run with no space in the
+    whole window (a pasted id, a URL, a script that does not space its words) falls back
+    to the character cut — progress has to be guaranteed or this loops forever.
+
+    Returns at least one piece; the caller relies on that to unpack the tail.
+    """
+    pieces: list[str] = []
+    rest = sentence
+    while len(rest) > MAX_CHUNK_CHARS:
+        # +1 so a space sitting exactly at the cap is a legal cut point.
+        cut = rest[: MAX_CHUNK_CHARS + 1].rfind(" ")
+        if cut < MIN_CHUNK_CHARS:
+            cut = MAX_CHUNK_CHARS
+        pieces.append(rest[:cut].rstrip())
+        rest = rest[cut:].lstrip()
+    if rest:
+        pieces.append(rest)
+    return pieces
 
 
 async def _assert_agent_is_ours(session: AsyncSession, agent_id: UUID) -> None:
@@ -185,6 +241,23 @@ async def submit_source(
 
     await _assert_agent_is_ours(session, agent_id)
 
+    # `MAX(version) + 1` under an advisory lock on the named source, not a read-then-write.
+    # Two people submitting under the same name at the same instant — the shape a client's
+    # owner and manager reach by both pasting an updated price list — otherwise computed
+    # the SAME next version, and the second INSERT died on
+    # `uq_kb_sources_agent_id_name_version`. That IntegrityError escaped to the generic
+    # handler: a 500 and a crash alert, where the honest outcome is that both submissions
+    # are recorded as consecutive versions and both are reviewable.
+    #
+    # Same primitive, same argument and the same key shape as `ops/secret_service.install`
+    # (BACKEND-PATTERNS §5) — one way per problem. It is taken AFTER the authorisation
+    # read, so naming another tenant's agent cannot make us hold a lock on their name.
+    # The key is deliberately distinct from `_lock_agent_publishes`': submitting a draft
+    # and publishing a live version share no state and must not block each other.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"kb:submit:{agent_id}:{name}"},
+    )
     current = (
         await session.execute(
             text(
@@ -239,6 +312,29 @@ async def submit_source(
 
 
 async def preview(session: AsyncSession, source_id: UUID) -> list[dict[str, Any]]:
+    """The chunks a reviewer reads, or a 404 — never an empty list standing in for one.
+
+    THE SOURCE ROW IS LOOKED UP FIRST, and it is the only reason this is not a one-line
+    read of `kb_documents`. Both tables are RLS'd on `tenant_id`, so a neighbour's id and
+    a uuid nobody minted were both `200 []` — and so was a real source of this tenant's
+    whose chunking produced nothing. Three different facts, one answer, none of them
+    distinguishable on the screen this endpoint exists to draw.
+
+    404 for the first two is this repo's discriminator doctrine ("absent or invisible =
+    404"), and `approve_source` below already states it about this very table: answering
+    otherwise "told an operator a source EXISTS when the id was another tenant's". The
+    two cases stay ONE answer deliberately — an invisible source that 404'd differently
+    from an absent one would be an oracle for which source ids exist.
+
+    It is not an existence oracle in the other direction either: reaching this function
+    at all requires `agents:read` in a tenant, and the lookup runs under that tenant's
+    session, so the only ids it can confirm are ids the caller may already list.
+    """
+    exists = (
+        await session.execute(text("SELECT 1 FROM kb_sources WHERE id = :sid"), {"sid": source_id})
+    ).first()
+    if exists is None:
+        raise ProblemError.not_found("Knowledge source")
     rows = (
         await session.execute(
             text("SELECT idx, content FROM kb_documents WHERE source_id = :sid ORDER BY idx"),
@@ -356,6 +452,76 @@ async def _remember_engine_kb_ref(
     )
 
 
+def publish_lock_key(agent_id: UUID) -> str:
+    """The advisory-lock key one agent's KB publishes serialize on.
+
+    A function rather than an f-string written twice, because there is now a SECOND
+    holder: the periodic drift sweep takes the same lock with `pg_try_advisory_xact_lock`
+    so it never observes an agent mid-publish (`kb/reconciliation.py`). Two modules
+    spelling the same key is one typo away from a sweep that locks nothing and reports
+    the detach-then-attach window as a divergence — a lock whose key can drift is not a
+    lock, so the string has one home.
+    """
+    return f"kb:publish:{agent_id}"
+
+
+async def _lock_agent_publishes(session: AsyncSession, *, agent_id: UUID) -> None:
+    """Serialize KB publishes for ONE agent, for the length of the caller's transaction.
+
+    `publish_source` is a read-decide-write whose middle is a sequence of network calls:
+    it reads which versions are live, withdraws them from the engine, attaches the new
+    one, and only then flips `is_active`. Nothing in that made two concurrent publishes
+    of the same name exclusive, and the failure it produced is the exact divergence
+    D-41's detach-then-attach ordering exists to prevent — TWO live versions, both
+    attached, the agent free to answer from either, our tables reporting both as live.
+
+    It needed no vendor weirdness to reach. Two approved versions of one name with
+    nothing live yet (an admin working a queue, two admins, a double-click on two rows)
+    both read `superseded = []`, both find no own handle to withdraw, both attach, and
+    both `UPDATE ... SET is_active = true` on rows the other's WHERE clause never named.
+    Under READ COMMITTED there is no conflict to detect. Where a predecessor DID exist
+    the second detach 404'd and the publish refused, which is why this only ever showed
+    up on the first publish of a name — the case a client hits once per source.
+
+    `pg_advisory_xact_lock(hashtextextended(key, 0))` is the house primitive for
+    exactly this shape (BACKEND-PATTERNS §5, `compliance/audit.py`, `billing/service.py`,
+    `ops/secret_service.py`): the critical section IS a database transaction, so the lock
+    is released by COMMIT *or* ROLLBACK — the two events that decide whether the flip
+    happened — and there is no TTL to outlive an engine call of unknown length.
+
+    **THE KEY IS THE AGENT, NOT `(agent, name)`, AND THE NARROWER KEY WAS TRIED FIRST.**
+    Different named sources on one agent supersede independently
+    (`test_publishing_one_source_does_not_withdraw_the_others`), so a name-scoped lock
+    looks like the tighter, better one. It is not, because every publish ALSO ends in
+    `recompile_t0`, and a prompt version is numbered per AGENT under
+    `UNIQUE (agent_id, version)`. Two publishes of DIFFERENT names therefore raced into
+    `insert_prompt_version`, and the loser got `prompt_version_conflict` — a clean 409,
+    but one whose remediation ("reload the version history and submit again") describes
+    an action the operator never took, and whose rollback discards a `kb_documents` row
+    for a copy already ATTACHED to the engine. The next publish then finds that copy
+    unaccounted for and refuses with `kb_engine_out_of_sync`, which needs support. A
+    409 that bricks the workflow it interrupted is worse than a queue: the prompt
+    sequence is per agent, so publishes for one agent have to serialize anyway, and the
+    only choice is whether they do it by waiting or by failing.
+
+    Rejected: a partial unique index on `(agent_id, name) WHERE is_active`. It states the
+    invariant more durably, and it is the wrong tool alone — the loser would learn it had
+    lost only AFTER attaching its copy to the engine, leaving a document our rolled-back
+    rows can no longer address. The lock stops the second publish before it spends a
+    vendor call. (Adding both would be two mechanisms for one problem, and the index is
+    the one that cannot prevent, only detect.)
+
+    What it costs, stated plainly: publishes for one agent queue, each for the length of
+    its engine round trips (`engine.REQUEST_TIMEOUT_S` is 10s per call, a handful of
+    calls). This is an admin-console path, not the audio path, and it is per agent — no
+    other agent, tenant or surface waits.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": publish_lock_key(agent_id)},
+    )
+
+
 async def _superseded_versions(
     session: AsyncSession, *, agent_id: UUID, name: str, keep: UUID
 ) -> list[tuple[UUID, str | None]]:
@@ -407,12 +573,24 @@ def _require_addressable(superseded: list[tuple[UUID, str | None]]) -> None:
         )
 
 
-async def _recorded_handles_of_agent(session: AsyncSession, agent_id: UUID) -> set[str]:
+async def recorded_handles_of_agent(session: AsyncSession, agent_id: UUID) -> set[str]:
     """Every engine handle we believe is attached to this agent, across all its sources.
 
     Agent-wide rather than per-name: an agent's KB is several named sources, and the
     question the reconciliation asks is "can we account for everything the engine is
     holding", which no single name can answer.
+
+    PUBLIC because the periodic sweep (D-158, `kb/reconciliation.py`) asks the identical
+    question on a schedule, and "what do we believe is attached" must have exactly one
+    definition — a sweep with its own copy of this query would eventually disagree with
+    the publish gate about which handles are accounted for, and the two would then reach
+    opposite verdicts about the same agent with nothing able to see it. It stays a plain
+    read on the caller's session so RLS decides what is visible.
+
+    Deliberately NOT filtered to `is_active` sources. A superseded version has its handle
+    CLEARED on detach (`_detach_superseded`), so a handle still recorded against an
+    archived source means a detach that never completed — a divergence, not noise, and
+    exactly the residue `_reattach_after_failed_publish` documents itself as leaving.
     """
     rows = (
         await session.execute(
@@ -690,6 +868,13 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
             "Publish the agent to the voice platform before adding knowledge.",
         )
 
+    # BEFORE the first read of `is_active` and before the first engine call: everything
+    # from here to COMMIT is one publisher's, per agent. `agent_id` is read above rather
+    # than under the lock because nothing in this repository ever rewrites it on an
+    # existing row — the columns that move (`status`, `is_active`, `approved_at`) are all
+    # read after it.
+    await _lock_agent_publishes(session, agent_id=agent_id)
+
     chunks = await _chunks_of(session, source_id)
 
     engine = get_engine()
@@ -715,7 +900,7 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         engine,
         engine_ref,
         agent_id=agent_id,
-        accounted=await _recorded_handles_of_agent(session, agent_id),
+        accounted=await recorded_handles_of_agent(session, agent_id),
     )
 
     # Everything to withdraw before the attach: the other live version(s) of this named
@@ -799,6 +984,27 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
 
 
 async def list_sources(session: AsyncSession, *, status: str | None = None) -> list[dict[str, Any]]:
+    """The tenant's sources, newest activity first; `status` filters, RLS scopes.
+
+    A status this column cannot hold is REFUSED rather than answered with `[]`. The
+    filter feeds the admin console's approval queue, and an empty list is a positive
+    claim — "nobody is waiting for you" — which is the one answer a reviewer acts on by
+    doing nothing. A typo or a renamed status returning that claim is how a queue goes
+    unread. `KB_STATUSES` is the same tuple the column's CHECK constraint is built from,
+    so the API and the database cannot disagree about what a status is.
+    """
+    if status is not None and status not in KB_STATUSES:
+        raise ProblemError(
+            kind="validation",
+            code="kb_status_unknown",
+            title="Unknown status filter",
+            # The caller's own value, echoed so a typo is obvious, TRUNCATED so an
+            # unbounded query string cannot be reflected back through the error shape
+            # (the `RequestValidationError` handler drops `input` for the same reason).
+            detail=f"There is no knowledge-source status called {status[:40]!r}.",
+            remediation=f"Use one of: {', '.join(KB_STATUSES)}.",
+            status=422,
+        )
     clause = "WHERE status = :status" if status else ""
     rows = (
         await session.execute(
@@ -834,7 +1040,9 @@ __all__ = [
     "chunk_text",
     "list_sources",
     "preview",
+    "publish_lock_key",
     "publish_source",
+    "recorded_handles_of_agent",
     "reject_source",
     "submit_source",
 ]

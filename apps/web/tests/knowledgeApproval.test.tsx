@@ -78,7 +78,7 @@ function source(over: Partial<KbSource> = {}): KbSource {
     is_active: false,
     published_at: null,
     ...over,
-  } as KbSource;
+  };
 }
 
 async function renderKnowledge(sources: KbSource[] | ProblemResponse, over: Routes = {}) {

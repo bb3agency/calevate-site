@@ -27,6 +27,7 @@ import subprocess
 import sys
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
@@ -37,11 +38,14 @@ import httpx
 import pytest
 import webhook_routes
 from apps.api.core.errors import ProblemError
+from apps.api.core.redis import get_redis
 from apps.api.db.session import get_engine as get_db_engine
 from apps.api.db.session import untenanted_session
 from apps.api.engine import bolna
 from apps.api.engine.bolna import BolnaEngine
 from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, FakeEngine
+from apps.api.reliability import service as reliability
+from apps.api.reliability.service import body_hash
 from calevate_shared.config import (
     DEFAULT_BOLNA_SOURCE_IPS,
     Settings,
@@ -254,6 +258,33 @@ class _EchoesTheLastWrite(FakeEngine):
         )
 
 
+class _ArchivesNothing(FakeEngine):
+    """Carries no raw document out of `get_execution` — the shipped state D-126 lived in.
+
+    `storage.archive_payload`, `calls.engine_payload_ref` and
+    `retention._erase_engine_payloads` all exist; with no document to archive they guard a
+    store nothing writes to, and TRD §5's escape valve for hard rule 2 (raw vendor payloads
+    in object storage, never in typed columns) describes an empty bucket. Nothing 500s,
+    nothing logs, every other clause passes — which is why it needs a clause of its own.
+    """
+
+    async def get_execution(self, call_id: str) -> ExecutionSnapshot:
+        return (await super().get_execution(call_id)).model_copy(update={"raw_document": None})
+
+
+class _ArchivesOneDocumentForEveryCall(FakeEngine):
+    """Answers every execution with the same bytes.
+
+    Subtler than carrying none and worse in one way: the archive EXISTS, under each call's
+    own erasure prefix, and describes none of them. An operator reconciling a disputed
+    call would read a document belonging to no call and have no way to tell.
+    """
+
+    async def get_execution(self, call_id: str) -> ExecutionSnapshot:
+        snapshot = await super().get_execution(call_id)
+        return snapshot.model_copy(update={"raw_document": b'{"execution_id":"the-same-one"}'})
+
+
 class _ClaimsToReadKbRefsAndReadsNone(FakeEngine):
     """Reports `knowledge_base_refs_readable=True` with an empty list.
 
@@ -397,6 +428,8 @@ class _ClaimsATransferItCannotPerform(FakeEngine):
 
 SABOTEURS: dict[str, Callable[[], VoiceEngine]] = {
     "agent-read-back-echoes-the-last-write": _EchoesTheLastWrite,
+    "archives-nothing": _ArchivesNothing,
+    "archives-one-document-for-every-call": _ArchivesOneDocumentForEveryCall,
     "claims-to-read-kb-refs-and-reads-none": _ClaimsToReadKbRefsAndReadsNone,
     "accepts-any-source-ip": _AcceptsAnySource,
     "drops-engine-agent-ref": _DropsAgentRef,
@@ -532,6 +565,25 @@ async def test_x_ack_ms_is_reported_on_every_response_path() -> None:
         assert float(response.headers["X-Ack-Ms"]) >= 0, f"the {label} path reports a non-number"
 
     assert await _inbox_row(execution_id, status) is not None
+
+
+async def _inbox_payload_hash(execution_id: str, raw_status: str) -> str | None:
+    """The hash the inbox actually stored for one transition.
+
+    Read from the row rather than reasoned about: whether the receiver hands the inbox a
+    hash of the DELIVERY or of the UNIT OF WORK decides whether every ordinary status
+    transition raises `webhook_payload_mismatch`, and that is a fact about a column.
+    """
+    async with untenanted_session() as session:
+        return (
+            await session.execute(
+                text(
+                    "SELECT payload_hash FROM webhook_inbox_events "
+                    "WHERE provider = 'bolna' AND event_key = :k"
+                ),
+                {"k": f"{execution_id}:{raw_status}"},
+            )
+        ).scalar()
 
 
 # --- 2b. hostile input is answered, never 500'd -------------------------------
@@ -681,6 +733,28 @@ async def test_a_later_status_transition_is_not_reported_as_a_doctored_payload()
     are asserted below, because the failure this test exists to prevent is a 409 plus a
     `webhook_payload_mismatch` alert on healthy traffic, and either half regressing
     brings it back.
+
+    **WHAT "NOT REPORTED AS A DOCTORED PAYLOAD" ACTUALLY MEANS HERE, asserted rather than
+    inferred (D-147).** This test used to reach its conclusion through `duplicate_count >=
+    1`, which proved only that a second delivery had touched Postgres — and that is not the
+    same claim. `duplicate_count` counts arrivals; it moves identically for a byte-identical
+    replay and for a rewritten one, so it can neither report a doctored payload nor refute
+    one. The three assertions below say the real thing instead:
+
+    * no `webhook_payload_mismatch` alert fires, which is the alarm the title is about;
+    * the `payload_hash` the inbox stores is a pure function of the KEY, recomputed here
+      from both bodies and shown equal — so the inbox's "same key, different hash" branch
+      is a tautology at this endpoint and cannot fire on a body change at all. That is the
+      design (`_claim_and_enqueue` argues it) and it predates the fast-path key move;
+    * the divergence is nevertheless COUNTED. Since nothing compares bodies at the durable
+      layer, the fast path does it: its key is the transition and its VALUE is the digest of
+      the delivery that settled it, so a replay with different bytes increments
+      `webhook_replay_divergence` without costing a Postgres transaction. Before D-147 that
+      replay cost three statements and produced no signal whatsoever.
+
+    The fast-path key is deleted once, mid-test, so the durable claim is exercised too —
+    otherwise every assertion here would be satisfied by Redis and the inbox would be
+    untested.
     """
     token = uuid.uuid4().hex[:12]
     execution_id = f"exec_{token}"
@@ -692,10 +766,27 @@ async def test_a_later_status_transition_is_not_reported_as_a_doctored_payload()
     # finishing its own bookkeeping. Same work, different bytes.
     retry = {"execution_id": execution_id, "status": completed, "total_cost": 8.5, "extra": "x"}
 
-    async with _client() as http:
-        opened = await http.post(HOOK, json=first, headers=_engine_headers())
-        transitioned = await http.post(HOOK, json=later, headers=_engine_headers())
-        repeated = await http.post(HOOK, json=retry, headers=_engine_headers())
+    alerts: list[str] = []
+    divergences: list[str] = []
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(reliability, "alert", lambda _stage, code, **_f: alerts.append(code))
+        patch.setattr(webhook_routes, "alert", lambda _stage, code, **_f: alerts.append(code))
+        patch.setattr(
+            webhook_routes,
+            "record_webhook_replay_divergence",
+            lambda *, provider: divergences.append(provider),
+        )
+        async with _client() as http:
+            opened = await http.post(HOOK, json=first, headers=_engine_headers())
+            transitioned = await http.post(HOOK, json=later, headers=_engine_headers())
+            # FIRST through the warm cache, which is the path production takes: the key
+            # holds the digest of `later`, this body is `retry`, so the bytes diverge.
+            cached = await http.post(HOOK, json=retry, headers=_engine_headers())
+            # THEN with the key removed, so the inbox — where the tautology above lives —
+            # is exercised rather than assumed.
+            settled = f"calevate:wh:bolna:{execution_id}:{completed}"
+            assert await get_redis().delete(settled) == 1, "the accepted transition was not cached"
+            repeated = await http.post(HOOK, json=retry, headers=_engine_headers())
 
     assert opened.status_code == 202, opened.text
     assert opened.json()["status"] == "accepted"
@@ -715,10 +806,36 @@ async def test_a_later_status_transition_is_not_reported_as_a_doctored_payload()
     assert repeated.json()["status"] == "duplicate", (
         "a bigger body for the same transition is a retry, not a doctored replay"
     )
+    assert cached.json()["status"] == "duplicate", (
+        "a fuller body must not defeat the cache; that was a free Postgres transaction "
+        "per replay at an endpoint anyone past the source check can post to"
+    )
 
+    assert "webhook_payload_mismatch" not in alerts, (
+        f"a fuller retry raised the spoofing alarm this test exists to keep quiet: {alerts}"
+    )
+
+    # The inbox is handed a hash of the UNIT OF WORK. Recomputed from the receiver's own
+    # helper for both bodies: identical, therefore no body can ever produce a mismatch.
+    unit = {"engine": "bolna", "execution_id": execution_id, "raw_status": completed}
+    assert body_hash(unit) == body_hash(dict(unit)), "the hash must not depend on identity"
+    assert body_hash(later) != body_hash(retry), "the premise: the two BODIES do differ"
     row = await _inbox_row(execution_id, completed)
     assert row is not None
-    assert row[1] >= 1, "the retry is counted as a delivery, not rejected"
+    assert row[1] >= 1, "the retry reached the durable claim and was counted"
+    stored = await _inbox_payload_hash(execution_id, completed)
+    assert stored == body_hash(unit), (
+        "the inbox stores a hash of {engine, execution_id, raw_status}; if it ever stores "
+        "a hash of the delivery again, every status transition becomes a spoofing alarm"
+    )
+
+    # And the divergence nobody could see before: two replays with rewritten bytes, one
+    # through the cache. Only the cached one can report it — the durable layer has no body
+    # to compare — which is exactly why the signal lives where it does.
+    assert divergences == ["bolna"], (
+        "a replay with different bytes must be counted at the fast path; without it an "
+        f"unsigned endpoint has no replay signal at all: {divergences}"
+    )
 
 
 # --- 2e. the allowlist is operable ------------------------------------------
@@ -1119,25 +1236,152 @@ async def test_a_long_retry_after_fails_fast_instead_of_holding_the_request_open
     assert len(seen) == 1
 
 
-# Keys that exist only in Bolna's vocabulary. Reading one outside `apps/api/engine/`
-# is a vendor shape escaping the adapter — hard rule 2 — even though no import moved.
+# =============================================================================
+# Section 4 — hard rule 2 measured as DATA FLOW, not as imports
+#
+# The import-linter contract in `pyproject.toml` is a claim about IMPORTS. A vendor shape
+# does not need one: `payload["telephony_data"]` is a Bolna field name learned by a module
+# that imports nothing from `apps/api/engine/`, and it arrives with no import for a
+# reviewer to notice. So the boundary is measured here by reading every module's dict-key
+# accesses out of its AST and comparing them against the vocabulary the adapters speak.
+#
+# THE CLASSIFICATION BELOW IS THE WHOLE MECHANISM, and it is split in two on purpose.
+# A single "banned words" list rots the moment an adapter learns a new field — the list is
+# edited by whoever remembers, which is the failure mode CLAUDE.md's hard rule 4 note and
+# D-103/D-105 are all about. So every key an ADAPTER reads must appear in exactly one of
+# the two sets below (`test_every_payload_key_an_adapter_reads_is_classified`), which makes
+# triaging a new vendor field a build failure rather than an act of vigilance.
+# =============================================================================
+
+#: Keys that exist ONLY in a vendor's vocabulary. Reading one outside `apps/api/engine/`
+#: is a vendor shape escaping the adapter — hard rule 2 — even though no import moved.
+#:
+#: The test for membership is not "does an adapter read it" (that is both sets) but "would
+#: this word be a surprise in our own vocabulary". `telephony_data` and `outbound_calls`
+#: are a vendor's nouns; `status` and `duration` are everybody's.
 _VENDOR_ONLY_KEYS = frozenset(
     {
-        "telephony_data",
-        "cost_breakdown",
-        "conversation_duration",
-        "extracted_data",
-        "total_cost",
-        "recipient_phone_number",
+        # Bolna (docs.bolna.ai, hand-maintained — they publish no OpenAPI spec).
         "agent_config",
+        "agent_name",
         "agent_prompts",
+        "conversation_duration",
+        "cost_breakdown",
+        "cost_currency",
+        "executions",
+        "extracted_data",
+        "knowledgebases",
         "rag_id",
+        "recipient_phone_number",
+        "synthesizer",
+        "task_1",
+        "tasks",
+        "telephony_data",
+        "tools_config",
+        "total_cost",
+        "transcriber",
         "user_data",
-        "recording_url",
-        "transcript",
-        "from_number",
-        "to_number",
+        # Cartesia Line (TRD §10.5; the adapter marks which shapes are sourced).
+        "agent_call_id",
+        "document_ids",
+        "duration_seconds",
+        "from_number_id",
+        "has_more",
+        "next_page",
+        "outbound_calls",
     }
+)
+
+#: Keys an adapter reads that are ALSO ours. Being here is not permission to read a vendor
+#: payload — it is an admission that this word carries no evidence either way, so the
+#: repo-wide scan cannot use it. The places where a shared word still matters are covered
+#: by a POSITIVE allowlist instead: `_RECEIVER_PAYLOAD_KEYS` below.
+#:
+#: Four of these were in the ban list before this section existed — `transcript`,
+#: `recording_url`, `from_number`, `to_number` — and they worked there only because that
+#: check was scoped to two files. Repo-wide they name `ExecutionSnapshot.recording_url`,
+#: the golden-fixture `case["transcript"]` in `scripts/eval.py` and the columns
+#: `calls.from_e164`/`to_e164` are read beside. A guard that cries wolf on our own
+#: vocabulary is a guard somebody switches off.
+_SHARED_PAYLOAD_KEYS = frozenset(
+    {
+        "agent",
+        "agent_id",
+        "agent_ref",
+        "calls",
+        "completed_at",
+        "content",
+        "context_note",
+        "created_at",
+        "currency",
+        "data",
+        "direction",
+        "documents",
+        "duration",
+        "duration_s",
+        "ended_at",
+        "event",
+        "execution_id",
+        "from_e164",
+        "from_number",
+        "id",
+        "lead_id",
+        "lead_name",
+        "llm",
+        "model",
+        "name",
+        "network",
+        "next",
+        "platform",
+        "prior_call_summary",
+        "recording_url",
+        "retry-after",
+        "role",
+        "speaker",
+        "started_at",
+        "status",
+        "stt",
+        "system_prompt",
+        "text",
+        "to_e164",
+        "to_number",
+        "transcript",
+        "transfer_warm",
+        "transferred_to",
+        "tts",
+        "updated_at",
+        "webhook_url",
+    }
+)
+
+#: EVERY key the voice-runtime receiver may pull out of a mapping — an allowlist, not a
+#: denylist, because this is the one module where a shared word is as dangerous as a
+#: vendor one. Hard rule 3 gives it three payload fields: the execution id under any of
+#: its spellings (the dedupe key), the status (the other half of that key, D-40) and the
+#: agent ref (a routing hint the worker re-derives anyway). Reading a fourth is not a
+#: leak of Bolna's shape in particular — it is the receiver starting to interpret a
+#: payload that is only ever a HINT (D-31).
+#:
+#: The two header names are here because an AST cannot tell `headers["content-length"]`
+#: from `payload["content-length"]`. That is the cost of the stronger check, and it is
+#: cheap: the set is short, and every addition is a line somebody has to write here.
+_RECEIVER_PAYLOAD_KEYS = frozenset(
+    {"execution_id", "id", "call_id", "status", "agent_id", "X-Ack-Ms", "content-length"}
+)
+
+#: The modules the repo-wide scan holds to hard rule 2. Shipped code only: the conformance
+#: stub and the pilot fixtures BUILD vendor payloads on purpose (a stub of a vendor has to
+#: speak the vendor's shape, and `conftest._bolna_handler` says so at length), so scanning
+#: them would only teach the next person to add an exemption.
+_SHIPPED_ROOTS = ("apps", "packages/shared/src", "scripts")
+
+#: The one package allowed to hold a vendor payload shape at all (hard rule 2).
+_ADAPTER_PACKAGE = "apps/api/engine"
+
+_ADAPTER_SOURCES = (
+    "apps/api/engine/bolna.py",
+    "apps/api/engine/cartesia.py",
+    "apps/api/engine/fake.py",
 )
 
 
@@ -1163,22 +1407,278 @@ def _dict_keys_read(source: str) -> set[str]:
     return found
 
 
-def test_the_receiver_holds_no_vendor_payload_shape() -> None:
-    """Hard rule 2 from the side the guardrail cannot see.
+def _string_constants(source: str) -> set[str]:
+    """Every string literal in a module, docstrings included. Used only to ask whether a
+    banned word is still SPOKEN by an adapter — a ban list naming a field no vendor has is
+    a rule that cannot fail, which is the same defect as no rule."""
+    return {
+        node.value
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
 
-    The import-linter contract catches `from apps.api.engine.bolna import ...`. It does
-    NOT catch this module learning that a Bolna execution carries `telephony_data` or
-    `cost_breakdown` and quietly reading one — a vendor shape travels through a dict
-    just as easily as through an import, and arrives with no import to review.
 
-    The receiver is allowed exactly three keys (`execution_id`/`id`, `status`,
-    `agent_id`), because those are the dedupe key and the routing hint. Everything
-    else about the payload is the adapter's business, in a worker, later.
+def _shipped_modules() -> list[Path]:
+    """Every shipped `.py` outside the adapter package. Tests are not shipped and are
+    excluded by root, never by an exemption list."""
+    found: list[Path] = []
+    for root in _SHIPPED_ROOTS:
+        for path in sorted((REPO_ROOT / root).rglob("*.py")):
+            relative = path.relative_to(REPO_ROOT).as_posix()
+            if "__pycache__" in relative or relative.startswith(_ADAPTER_PACKAGE):
+                continue
+            found.append(path)
+    return found
+
+
+def test_no_shipped_module_outside_the_adapters_reads_a_vendor_payload_key() -> None:
+    """HARD RULE 2, MEASURED OVER THE WHOLE TREE RATHER THAN ASSERTED ABOUT IMPORTS.
+
+    This is the check the import-linter contract cannot be: that contract forbids naming
+    `apps.api.engine.bolna` in an import, and a vendor field name needs no import to
+    travel — it rides inside a `dict[str, Any]`, arrives in a worker, and gets read. The
+    scan below is what turns "only the adapter sees vendor payload shapes" from a claim
+    into a measurement, and it covers `apps/`, `packages/shared/src` and `scripts/`
+    rather than the two receiver files the previous version of this check looked at.
+
+    A failure here has exactly two honest fixes: map the field inside the adapter and add
+    it to `ExecutionSnapshot`/`CallEvent`, or carry it as OPAQUE BYTES like
+    `ExecutionSnapshot.raw_document` does for D-126's archive. Adding the key to
+    `_SHARED_PAYLOAD_KEYS` is not one of them.
+
+    `apps/voice-runtime/` IS SCANNED, which is stricter than hard rule 2 reads — the rule
+    permits "the voice-runtime twin" to see a vendor shape. The twin's own discipline is
+    what closes that gap: hard rule 3 gives it authenticity and a dedupe key and forbids
+    interpretation, so there is no vendor field it is entitled to read and
+    `_RECEIVER_PAYLOAD_KEYS` says which five words it may touch at all.
+    """
+    leaks: dict[str, list[str]] = {}
+    for path in _shipped_modules():
+        found = sorted(_dict_keys_read(path.read_text(encoding="utf-8")) & _VENDOR_ONLY_KEYS)
+        if found:
+            leaks[path.relative_to(REPO_ROOT).as_posix()] = found
+    assert not leaks, (
+        f"vendor payload keys are read outside {_ADAPTER_PACKAGE}/: {leaks}. A vendor "
+        "shape crossed the boundary inside a dict, which no import contract can see "
+        "(hard rule 2)."
+    )
+
+
+def test_every_payload_key_an_adapter_reads_is_classified() -> None:
+    """The clause that stops the ban list above from rotting.
+
+    A denylist is only as good as the day it was written: the moment an adapter learns a
+    new vendor field, the list is one word short and nothing says so. So every key an
+    adapter reads out of a mapping must be classified as vendor-only or as shared
+    vocabulary, and a new one fails this test until somebody decides which it is. That
+    decision takes a second and is exactly the second at which it is cheapest.
+
+    The two sets must also stay DISJOINT — a key in both would be banned and permitted at
+    once, and the repo-wide scan would silently take the permissive reading.
+    """
+    overlap = sorted(_VENDOR_ONLY_KEYS & _SHARED_PAYLOAD_KEYS)
+    assert not overlap, f"these keys are classified twice: {overlap}"
+
+    unclassified: dict[str, list[str]] = {}
+    for source in _ADAPTER_SOURCES:
+        keys = _dict_keys_read((REPO_ROOT / source).read_text(encoding="utf-8"))
+        missing = sorted(keys - _VENDOR_ONLY_KEYS - _SHARED_PAYLOAD_KEYS)
+        if missing:
+            unclassified[source] = missing
+    assert not unclassified, (
+        f"these payload keys are read by an adapter and classified nowhere: {unclassified}. "
+        "Put each in `_VENDOR_ONLY_KEYS` (a vendor's own noun, banned everywhere else) or "
+        "in `_SHARED_PAYLOAD_KEYS` (a word we use too, so it proves nothing)."
+    )
+
+
+def test_every_banned_key_is_still_a_word_some_adapter_speaks() -> None:
+    """The other direction, and the reason it is worth a clause of its own.
+
+    A ban list that outlives its subject is a rule that cannot fail. If Bolna's
+    `telephony_data` is renamed and the adapter follows, the entry here goes on passing
+    forever while protecting nothing — and the NEW field name is unguarded, because
+    nobody re-derived the list. Checked against every string constant in the adapters
+    (not just keys they read) so a field an adapter only WRITES — `recipient_phone_number`,
+    `user_data`, `from_number_id` — still counts as spoken.
+    """
+    spoken: set[str] = set()
+    for source in _ADAPTER_SOURCES:
+        spoken |= _string_constants((REPO_ROOT / source).read_text(encoding="utf-8"))
+    stale = sorted(key for key in _VENDOR_ONLY_KEYS if key not in spoken)
+    assert not stale, (
+        f"`_VENDOR_ONLY_KEYS` bans words no adapter uses any more: {stale}. Either the "
+        "vendor renamed the field (in which case the NEW name is what needs banning) or "
+        "the entry was never real."
+    )
+
+
+def test_the_receiver_reads_only_the_keys_hard_rule_3_gives_it() -> None:
+    """The receiver, held to an ALLOWLIST rather than to a list of forbidden words.
+
+    Denying vendor nouns is the right check for the tree and the wrong one here. This
+    module acks in under 500ms for an unsigned, at-most-once vendor (D-31), and the
+    payload is a HINT — so the danger is not specifically that it learns `telephony_data`,
+    it is that it starts interpreting the payload at all. `duration_s` would be just as
+    wrong and appears in no denylist, because it is our own word.
+
+    So: three payload fields, named in `_RECEIVER_PAYLOAD_KEYS`, and anything else is a
+    failure whether or not a vendor invented it.
     """
     for module in (engine_intake, webhook_routes):
         path = Path(inspect.getsourcefile(module) or "")
-        leaked = sorted(_dict_keys_read(path.read_text(encoding="utf-8")) & _VENDOR_ONLY_KEYS)
-        assert not leaked, (
-            f"{module.__name__} reads vendor-only keys {leaked} — that shape belongs in "
-            "apps/api/engine/ (hard rule 2)"
+        extra = sorted(_dict_keys_read(path.read_text(encoding="utf-8")) - _RECEIVER_PAYLOAD_KEYS)
+        assert not extra, (
+            f"{module.__name__} reads {extra} out of a mapping. The receiver's whole job "
+            "is authenticity and a dedupe key; interpreting a payload it is told to treat "
+            "as a hint belongs in apps/api/engine/, in a worker, later (hard rules 2 and 3)."
         )
+
+
+# =============================================================================
+# Section 5 — hard rule 6 on the adapter surface, measured rather than reviewed
+#
+# "Never log phone numbers, transcript text, or extraction payloads. Log ids." The
+# adapters are the one layer that HOLDS all three: they parse the vendor's execution
+# document, which carries the caller's number and every word both parties said. Every log
+# call in `apps/api/engine/` was written to pass ids and counts, and reading them and
+# agreeing is not evidence — the leak that matters is the one that arrives by accident,
+# through an exception message, a route string or a field somebody added to an `extra`.
+#
+# So the adapters are DRIVEN, across the paths that log, against a payload whose number
+# and transcript are unique strings, and every record the run emits is searched for them.
+# =============================================================================
+
+#: A number and two utterances that appear nowhere else in this repository, so a hit is a
+#: leak and never a coincidence. The number is in the RFC 5737-equivalent space for Indian
+#: E.164 that this suite already uses for fixtures: unroutable in practice, and prefixed
+#: `+915` like every other synthetic caller here.
+_PII_NUMBER = "+915000700071"
+_PII_TRANSCRIPT_TURN = "zzq-caller-said-this-out-loud"
+_PII_EXTRACTED_VALUE = "zzq-extracted-field-value"
+
+
+def _pii_execution(execution_id: str) -> dict[str, Any]:
+    """A completed execution in Bolna's documented shape, carrying the three things hard
+    rule 6 names: a caller's number, transcript text and an extraction payload."""
+    return {
+        "id": execution_id,
+        "agent_id": "agent_pii",
+        "status": "completed",
+        "direction": "inbound",
+        "created_at": "2026-08-10T09:15:00Z",
+        "ended_at": "2026-08-10T09:16:35Z",
+        "conversation_duration": 95,
+        "total_cost": 8.5,
+        # An unconvertible currency, so `engine_cost_currency_unsupported` fires on a
+        # payload that also holds the number and the transcript.
+        "currency": "XAU",
+        "telephony_data": {
+            "from_number": _PII_NUMBER,
+            "to_number": "+911140000000",
+            "recording_url": f"https://s3.example.invalid/{execution_id}.wav?token=zzq-secret",
+        },
+        # The FIRST line carries no speaker prefix, so `parse_transcript` can place it
+        # nowhere and counts it as lost — the branch whose whole promise is that what
+        # cannot become a `TranscriptTurn` is COUNTED and discarded, never kept for
+        # inspection. It holds the caller's number so the discard is measured with real
+        # material rather than with filler.
+        "transcript": f"{_PII_NUMBER} {_PII_TRANSCRIPT_TURN}\nuser: {_PII_TRANSCRIPT_TURN}",
+        "extracted_data": {"lead_name": _PII_EXTRACTED_VALUE},
+    }
+
+
+async def test_no_adapter_logs_a_phone_number_a_transcript_or_an_extraction(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HARD RULE 6, DRIVEN THROUGH THE PATHS THAT ACTUALLY LOG.
+
+    A quiet adapter proves nothing: every log site in `apps/api/engine/` sits on a failure
+    branch, so a run that never fails never reaches one. This drives the branches on
+    purpose — an unconvertible currency, an off-origin continuation link, an exhausted
+    throttle, a vendor rejection, an unparseable transcript line — with a payload that
+    carries a caller's number, a spoken line and an extracted value.
+
+    The captured record is searched WHOLE, attributes included, not just its message:
+    `log.warning("x", extra={"payload": ...})` puts the leak in a field, which is exactly
+    how one arrives. The presigned recording URL is in the fixture for the same reason —
+    it is a credential in a query string (`scripts/pilot/record.py` says so), and it rides
+    on the same object.
+
+    READ AT THE RECORD, NOT AT THE FORMATTED LINE, and that is the one place this differs
+    from `tests/pii_logging_sweep_test.py` — deliberately, because the two are asking
+    different questions rather than the same one twice. That file reads formatted output
+    because redaction lives in `JsonFormatter.format`, and what it proves is that nothing
+    reaches the log STREAM. This asks whether the adapter HANDED the logger a caller's
+    number in the first place, which the redactor would then have to catch — so it must
+    look before the redactor runs, and it is strictly the stricter of the two on this
+    surface. A leak the formatter happens to scrub is still an adapter bug: it is one
+    redaction-pattern change away from being a live one.
+    """
+    listings = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal listings
+        path = request.url.path
+        if path == "/executions":
+            listings += 1
+        if path == "/executions" and listings > 1:
+            # A second listing request: throttled forever, so the ladder logs
+            # `engine_throttled` and then `engine_throttle_exhausted`.
+            return httpx.Response(429, json={"error": "slow down"})
+        if path == "/executions":
+            # A full page, no metadata, and an OFF-ORIGIN continuation the adapter must
+            # refuse (`engine_listing_next_link_rejected`) — then report incomplete.
+            return httpx.Response(
+                200,
+                json={
+                    "data": [_pii_execution(f"exec_pii_{i}") for i in range(10)],
+                    "next": f"https://attacker.example.invalid/steal?n={_PII_NUMBER}",
+                },
+            )
+        if path.startswith("/executions/"):
+            return httpx.Response(200, json=_pii_execution("exec_pii_one"))
+        # Every other route refuses, so `engine_error` fires with a body that carries PII.
+        return httpx.Response(
+            400, json={"error": f"bad request for {_PII_NUMBER}: {_PII_TRANSCRIPT_TURN}"}
+        )
+
+    engine = BolnaEngine(
+        api_key="test-key",
+        fx_rate=Decimal("88.00"),
+        client=httpx.AsyncClient(
+            base_url="https://api.bolna.ai", transport=httpx.MockTransport(handler)
+        ),
+    )
+    monkeypatch.setattr(bolna, "throttle_delay_s", lambda *a, **k: 0.0)
+
+    with caplog.at_level("DEBUG"):
+        snapshot = await engine.get_execution("exec_pii_one")
+        listing = await engine.list_executions(since=datetime(2026, 8, 10, tzinfo=UTC))
+        with pytest.raises(ProblemError):
+            await engine.list_executions(since=datetime(2026, 8, 10, tzinfo=UTC))
+        with pytest.raises(ProblemError):
+            await engine.get_agent("agent_pii")
+        engine.parse_webhook(_pii_execution("exec_pii_hook"))
+        engine.verify_webhook({}, b"{}", ATTACKER_IP)
+
+    # The run really did reach the material: without this the test could pass on an
+    # adapter that logged nothing because it parsed nothing.
+    assert snapshot.from_e164 == _PII_NUMBER, "the fixture did not carry a caller's number"
+    assert any(_PII_TRANSCRIPT_TURN in turn.text for turn in snapshot.transcript)
+    assert snapshot.transcript_lines_unparsed == 1, "the unparseable-line branch was not reached"
+    assert snapshot.cost is None, "the unsupported-currency branch was not reached"
+    assert not listing.complete, "the listing branches were not reached"
+
+    emitted = "\n".join(
+        f"{record.getMessage()} {sorted(vars(record).items(), key=str)}"
+        for record in caplog.records
+    )
+    assert emitted.strip(), "nothing was logged at all, so this test measured nothing"
+    for secret, what in (
+        (_PII_NUMBER, "a caller's phone number"),
+        (_PII_TRANSCRIPT_TURN, "transcript text"),
+        (_PII_EXTRACTED_VALUE, "an extracted field value"),
+        ("zzq-secret", "a presigned recording credential"),
+    ):
+        assert secret not in emitted, f"an adapter logged {what} (hard rule 6)"

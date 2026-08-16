@@ -24,6 +24,7 @@ import {
 
 import type { components } from "./schema";
 
+import { aiQuotaKey } from "./aiQuota";
 import {
   apiRequest,
   type CallDetail,
@@ -238,6 +239,40 @@ export function useCallBack(session: Session, callId: string) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["callback-check", callId] });
       void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
+    },
+  });
+}
+
+/**
+ * Ask the assistant to re-summarise one call (D-127 — the G-2/G-5/G-6 surface).
+ *
+ * **The `Idempotency-Key` is minted here, once per hook instance, and reused on retry.**
+ * The server REQUIRES one (`crm/routes.assist_call`) because a repeat of this request is
+ * a second silent payment to Google — and the value has to be stable across a retry of
+ * the SAME attempt while being fresh for a new one, which is exactly what a value bound
+ * to a mutation's lifetime is not. So it is minted per SUBMISSION: `mutationFn` takes no
+ * argument and generates the key at call time, so the two clicks a person makes a minute
+ * apart are two attempts and the framework's own retry of one click is one.
+ *
+ * `retry: false` is the app-wide mutation default (`app/providers.tsx`) and is right
+ * here for its own reason: the failures worth surfacing are refusals with a remediation
+ * (`ai_quota_exceeded` opens the wallet dialog), and retrying one three times shows the
+ * person the same refusal three times.
+ *
+ * On success the AI allowance is invalidated rather than patched: the assist moved
+ * `used_inr` by an amount only the server knows, and a browser that guessed it would be
+ * dividing rupees, which is what `lib/api/aiQuota.ts` exists not to do.
+ */
+export function useCallAssist(session: Session, callId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<components["schemas"]["CallAssistOut"]>(session, `/v1/calls/${callId}/assist`, {
+        method: "POST",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: aiQuotaKey(session.orgSlug) });
     },
   });
 }

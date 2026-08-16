@@ -62,8 +62,44 @@ class CallSummaryOut(Strict):
     lead_id: UUID | None = None
 
 
+class CallMomentOut(Strict):
+    """One jump-to point in a call's recording.
+
+    `label` follows the SAME redaction switch as the transcript on the model it hangs
+    off: `get_call(raw=False)` fills it from the redacted text and `raw=True` from the
+    raw, so a marker can never be the one field on this screen that leaks (hard rule 5).
+    There is no second `label_raw` on the wire — one field whose contents depend on the
+    endpoint you called is the shape the transcript already established, and a second
+    field would be a second thing to forget to gate.
+
+    `source` is what a reader needs to know how much to trust `at_ms`. A `derived` marker
+    was computed from the transcript's own turn offsets and cannot be at the wrong second;
+    a `model` one is a suggestion from an unmeasured model (D-36) and the screen says so.
+    """
+
+    at_ms: int
+    kind: Literal["field_captured", "opt_out", "highlight"]
+    label: str
+    source: Literal["derived", "model"]
+
+
 class CallDetailOut(CallSummaryOut):
     transcript: list[TranscriptTurnOut] = Field(default_factory=list)
+    #: REQUIRED, with no default, and that is deliberate rather than an oversight.
+    #:
+    #: A `default_factory` does not emit a schema `default`, so the property generates as
+    #: OPTIONAL TypeScript — the optional-on-the-wire trap this repo has now been bitten
+    #: by five times, and the reason `transcript` above is `transcript?:` in the client
+    #: while the server has never once omitted it. Declaring it required makes the
+    #: generated type say the true thing and deletes a branch the screen would otherwise
+    #: carry for a case that cannot happen. `duration_s` on `RecordingLinkOut` and the
+    #: whole of `TierSplitOut` were written the same way today; `transcript` is the older
+    #: shape and moving it is a wider change than this one.
+    #:
+    #: Empty covers BOTH "the call had none" and "nobody has looked yet" — the screen
+    #: hides the panel either way, and the distinction that matters to an operator is
+    #: NULL-versus-`[]` in the column, which is not a client's question.
+    moments: list[CallMomentOut]
     extraction: dict[str, Any] = Field(default_factory=dict)
     extraction_valid: bool = True
     has_recording: bool = False
@@ -71,8 +107,23 @@ class CallDetailOut(CallSummaryOut):
 
 
 class RecordingLinkOut(Strict):
+    """A short-lived link to OUR copy of a call's audio, and what the player needs to
+    render before a single byte of it has arrived.
+
+    `duration_s` is the CALL's metered length, which is what the seek bar is drawn from
+    on first paint — `<audio>` reports `duration` as `NaN` until enough of the file has
+    been fetched to know, and a scrubber that appears a second after the play button is
+    a scrubber people click through. It is nullable because a call the poller never
+    resolved has no metered length, and inventing one would put a wrong end on the bar.
+
+    `expires_in_s` is DERIVED from that duration (`recording_link_ttl_s`), not a
+    constant: a link shorter than its own audio expires mid-playback and the browser
+    reports it as an unexplained network error.
+    """
+
     url: str
     expires_in_s: int
+    duration_s: int | None
 
 
 class LeadOut(Strict):
@@ -523,6 +574,43 @@ class CallbackEligibilityOut(Strict):
     reason: str | None = None
     rule: str | None = None
     follow_up_number: int | None = None
+
+
+class CallAssistOut(Strict):
+    """One user-triggered re-summarise of a call (D-127 G-2/G-5/G-6).
+
+    **EVERY FIELD IS REQUIRED — none carries a Pydantic default.** A default here
+    generates an OPTIONAL property in the client this repo generates from OpenAPI, and
+    all three of these are facts the screen has to state rather than shapes it may skip:
+    an absent `disclosure` would render a Sarvam answer as the assistant's own (the one
+    outcome G-6 rules out), and an absent `metered` would render "this cost you nothing"
+    as the default for an assist that cost the allowance.
+
+    Nothing here is persisted. The stored `calls.summary` is the FIRST pass, over the raw
+    transcript; this is a second reading over the redacted copy, held for as long as the
+    person is looking at it (`crm/assist.py` argues why overwriting one with the other
+    would degrade the lead and rewrite history).
+    """
+
+    #: Transcript-DERIVED prose, and therefore treated exactly like `calls.summary`: it
+    #: goes out through `crm.service.redacted_summary`, the same `redact()` pass that
+    #: produced the `text_redacted` the model was given. Belt and braces — the model
+    #: never saw an unredacted digit to copy — and the reason the redaction guardrail's
+    #: entry for this field can say the same sentence as `CallDetailOut.summary`'s.
+    #:
+    #: MAY BE EMPTY, and the screen states that rather than rendering blankness: an
+    #: assist that returned nothing is an outcome the client paid for and §52 does not
+    #: let an empty state stand in for it.
+    summary: str
+    #: G-6. Non-null EXACTLY when something other than the assistant model answered, and
+    #: the sentence is the one `AssistCapability.disclosure` composes — written once, so
+    #: two surfaces cannot say different things about the same substitution.
+    disclosure: str | None
+    #: Did this reach `usage_events`? False for a disclosed Sarvam fallback (D-36 prices
+    #: that leg at zero) and for a Gemini answer Vertex did not count. The screen says
+    #: "this did not use any of your allowance" only when this is False, because saying
+    #: it when it is True would be a claim about a client's money that is not true.
+    metered: bool
 
 
 class DashboardDayOut(Strict):

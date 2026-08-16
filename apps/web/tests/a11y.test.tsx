@@ -1,6 +1,8 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { Margin } from "@/lib/api/admin";
+import type { CallDetail } from "@/lib/api/client";
 import AdminSignInPage from "@/app/(auth)/admin/sign-in/[[...sign-in]]/page";
 import AdminLayout from "@/app/admin/layout";
 import ClientSignInPage from "@/app/(auth)/sign-in/[[...sign-in]]/page";
@@ -83,7 +85,7 @@ import { renderClientPage, type Routes } from "./harness";
  * given a reason in `UNSWEPT_SCREENS`.
  */
 
-const ORG = { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" };
+const ORG = { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" };
 
 /** An owner: the role that can see the most, and therefore renders the most markup. */
 const ME = {
@@ -202,7 +204,9 @@ const CALL = {
   id: "c1",
   agent_id: "a1",
   agent_name: "Reception",
-  direction: "inbound",
+  // `as const` so the literal survives into `satisfies CallDetail` below: a widened
+  // `string` is not the closed union the wire declares.
+  direction: "inbound" as const,
   status: "completed",
   caller_masked: "+9198765•••10",
   started_at: "2026-08-13T04:30:00Z",
@@ -512,7 +516,15 @@ const TENANT_ROUTES: Routes = {
     cost_inr: "402350.50",
     margin_inr: "613549.50",
     margin_pct: "60.39",
-  },
+    tiers: {
+      minutes_premium: "900.00",
+      minutes_value: "280.00",
+      minutes_unattributed: "24.50",
+      cost_premium_inr: "300000.00",
+      cost_value_inr: "90000.00",
+      cost_unattributed_inr: "12350.50",
+    },
+  } satisfies Margin,
   "/v1/kb/sources?status=pending_approval": [],
   "/v1/kb/sources?status=approved": [],
   "/v1/agents": [AGENT],
@@ -683,15 +695,26 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <CallDetailPage params={Promise.resolve({ slug: "acme", callId: "c1" })} />,
     routes: {
       "/v1/me": ME,
+      // The REAL field names. This fixture used to send `turns` / `role` / `at_ms` /
+      // `recording_available` — none of which the API has — so the page rendered an
+      // empty transcript and no recording control, and axe was scanning a screen with
+      // most of its content missing. The compiler could not catch it because a `Routes`
+      // value is `unknown`; `satisfies CallDetail` is what makes it catchable now.
       "/v1/calls/c1": {
         ...CALL,
-        turns: [
-          { idx: 0, role: "agent", text_redacted: "Namaskaram, Sri Clinic.", at_ms: 0, redacted: true },
-          { idx: 1, role: "caller", text_redacted: "I need a Tuesday slot.", at_ms: 2400, redacted: true },
+        transcript: [
+          { idx: 0, speaker: "agent", text: "Namaskaram, Sri Clinic.", start_ms: 0, redacted: true },
+          { idx: 1, speaker: "caller", text: "I need a Tuesday slot.", start_ms: 2400, redacted: true },
         ],
-        recording_available: false,
+        has_recording: true,
+        disclosure_played: true,
         extraction: { name: "Ramesh Kumar" },
-      },
+        extraction_valid: true,
+        moments: [
+          { at_ms: 2400, kind: "field_captured", label: "Name captured", source: "derived" },
+          { at_ms: 9000, kind: "highlight", label: "Caller asked about price", source: "model" },
+        ],
+      } satisfies CallDetail,
       "/v1/calls/c1/callback": { eligible: false, reason: "consent_missing" },
     },
   },

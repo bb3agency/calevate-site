@@ -226,20 +226,31 @@ class Settings(BaseSettings):
     # we could not make. Vertex takes an OAuth2 bearer, never an API key in a query
     # string, so this value cannot reach the replacement path even by accident.
     #
-    # IT IS STILL DECLARED, and that is deliberate rather than an oversight. `Settings`
-    # is `extra="forbid"` over a dotenv file, so DELETING a field that a deployment's
-    # `.env` still declares is not a cleanup — it is a boot failure with a Pydantic
-    # traceback, in every environment that has not yet edited its env. Hard rule 8's
-    # two-step deprecation is a rule about columns for exactly this reason and it applies
-    # unchanged to a config key: stop reading it (done — nothing in the tree does), then
-    # drop it in a later release once no environment declares it.
+    # IT IS KEPT, PERMANENTLY, AND THIS IS NOT A DEPRECATION — which is what this comment
+    # used to claim, in a paragraph that contradicted itself two sentences later. It said
+    # hard rule 8's two-step applied and that step one was done, "nothing in the tree
+    # [reads] it", and then said it is read in exactly one place. Both cannot be true, and
+    # the second one is: `assist_capability()` reads it on every call. A field that is
+    # READ has not had step one taken, so there is no step two to schedule and the
+    # sentence promising a later release was a schedule wearing a rule's clothes
+    # (CLAUDE.md: a deferral is a decision-log entry naming what closes it, or it is not
+    # a deferral).
     #
-    # SO IT IS NOT A FIELD THAT SILENTLY DOES NOTHING, which PLATFORM-CONFIG §8 rightly
-    # calls worse than no field. It is read in exactly one place — `assist_capability()` —
-    # and its only effect is to turn the generic "no credential" refusal into the one an
-    # operator who installed it actually needs: this build reaches Gemini through Vertex
-    # AI and an AI Studio key opens no door here, install a GCP project and service
-    # account instead.
+    # WHAT IT IS INSTEAD is the one input that separates "this deployment has no AI
+    # credential" from "this deployment has the WRONG KIND of AI credential", and those
+    # two need different sentences on the screen: the first sends an operator to install
+    # something, the second sends them to install something ELSE and explains why the
+    # thing they already installed is refused. Delete the field and `assist_capability()`
+    # can only answer `no_credential`, which would send an operator who did install a
+    # Gemini key to go and check their typing. That is not a field that silently does
+    # nothing (PLATFORM-CONFIG §8's objection); it is a field whose entire job is the
+    # error message, and `tests/vertex_extraction_test.py` pins both that it produces
+    # `ai_studio_key_disqualified` and that nothing else in the tree reads it.
+    #
+    # Deleting it would ALSO be a boot failure rather than a cleanup — `Settings` is
+    # `extra="forbid"` over a dotenv — but that is the smaller reason and it is recorded
+    # second on purpose, because it is the one that would come back if the field ever did
+    # become genuinely dead.
     gemini_api_key: str | None = None
     # The GCP project the Vertex AI calls bill to and run in (D-127 G-1/G-3). ONE
     # Calevate-owned project, cost absorbed and metered per tenant — never per-tenant

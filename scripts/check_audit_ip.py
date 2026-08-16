@@ -22,18 +22,31 @@ run over files that no test imports.
 
 TWO CHECKS, because there are two ways to lose the property:
 
-1. **No handler reads the socket peer.** `request.client` anywhere under `apps/api`
-   outside the one permitted line is the defect returning. Not `ip=` specifically: the
-   next author will spell it differently, and what is actually wrong is CONSULTING the
-   peer rather than the predicate.
-2. **The permitted line is still inside the predicate.** An exception that outlives the
-   function it was granted for is a hole with a comment on it, so the allowance names the
-   function and fails if `client_request_ip` stops containing it — which is what would
-   happen if somebody "simplified" the resolver back to a peer read.
+1. **No handler reads the socket peer.** A peer read anywhere under `apps/api` outside the
+   permitted functions is the defect returning. Not `ip=` specifically: the next author
+   will spell it differently, and what is actually wrong is CONSULTING the peer rather
+   than the predicate.
+2. **The permitted lines are still inside the predicates.** An exception that outlives the
+   function it was granted for is a hole with a comment on it, so each allowance names its
+   function and fails if that function stops containing the read — which is what would
+   happen if somebody "simplified" a resolver back to something else.
+
+**BOTH SPELLINGS OF THE PEER READ, which is what this check missed when it shipped.** Its
+own rationale is that the next author will write it differently, and a different spelling
+was already in the tree the day it landed: `core/middleware.py` reads the ASGI scope
+(`scope.get("client")`) rather than `request.client`, because it runs before a `Request`
+object exists. So the AST walk below matches the peer in every form `apps/api` can reach
+it — `request.client`, `scope["client"]`, `scope.get("client")` and the same two through
+`request.scope` — and grants a SECOND named allowance, to `RateLimitMiddleware.
+_address_subject`, on identical grounds to the first. A guard that only knew one spelling
+would have passed a handler that stamped `request.scope["client"][0]` into an audit row.
 
 `apps/voice-runtime` is deliberately OUT OF SCOPE and not an oversight: it reads the peer
 to decide whether the peer is trusted, which is the same argument-not-answer distinction
-the allowance below rests on, and its own suite pins it (`voice_runtime_security_test`).
+the allowances below rest on, and its own suite pins it (`voice_runtime_security_test`).
+`apps/workers` is out of scope because it CANNOT hold the defect — verified, not assumed:
+it has no `Request`, no ASGI scope, and no `write_audit` call at all (the post-call
+pipeline's provenance is the engine's execution id, not a caller address).
 
 Run: `uv run python -m scripts.check_audit_ip`   (also in `make guardrails`)
 """
@@ -48,41 +61,80 @@ from typing import Final
 REPO_ROOT: Final = Path(__file__).resolve().parent.parent
 SCOPE: Final = REPO_ROOT / "apps" / "api"
 
-#: The ONE place `apps/api` may read the socket peer, and why. `client_ip` takes the peer
-#: as an ARGUMENT and decides whether it is a trusted proxy before believing any header it
-#: sent — so the read is an input to the judgement, not a substitute for it.
+#: The places `apps/api` may read the socket peer, and why. In both, `client_ip` takes the
+#: peer as an ARGUMENT and decides whether it is a trusted proxy before believing any
+#: header it sent — the read is an input to the judgement, not a substitute for it. Each
+#: entry is `(file, function)`: bound to the FUNCTION, so moving the read one function
+#: down does not inherit the exception, and every entry must still be present (below).
+PERMITTED: Final[tuple[tuple[Path, str], ...]] = (
+    (SCOPE / "core" / "auth.py", "client_request_ip"),
+    # Runs before routing, so there is no `Request` to ask — hence the ASGI spelling, and
+    # hence the second allowance rather than a second definition of "who is calling".
+    (SCOPE / "core" / "middleware.py", "_address_subject"),
+)
+#: Named in the failure message as the remedy.
 PERMITTED_FUNCTION: Final = "client_request_ip"
-PERMITTED_FILE: Final = SCOPE / "core" / "auth.py"
+
+
+def _is_peer_read(node: ast.AST) -> bool:
+    """True for every way `apps/api` can reach the socket peer.
+
+    Three shapes, one meaning:
+      - `request.client`                        — the `Request` attribute
+      - `scope["client"]` / `request.scope[...]` — the ASGI mapping, subscripted
+      - `scope.get("client")` / `request.scope.get(...)` — the same, defensively
+
+    The mapping forms are recognised only on something SPELLED `scope` (a bare name, or an
+    attribute access ending in `.scope`), so an unrelated dict with a `"client"` key is not
+    a finding. AST rather than a regex so the prose explaining this rule — which
+    `core/auth.py`, `core/middleware.py` and this file all contain — is not one either.
+    """
+    if isinstance(node, ast.Attribute) and node.attr == "client":
+        return isinstance(node.value, ast.Name) and node.value.id == "request"
+    if isinstance(node, ast.Subscript):
+        key = node.slice
+        return isinstance(key, ast.Constant) and key.value == "client" and _is_scope(node.value)
+    if isinstance(node, ast.Call):
+        func = node.func
+        return (
+            isinstance(func, ast.Attribute)
+            and func.attr == "get"
+            and _is_scope(func.value)
+            and bool(node.args)
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "client"
+        )
+    return False
+
+
+def _is_scope(node: ast.AST) -> bool:
+    """`scope`, or anything's `.scope` — the two ways the ASGI mapping is named here."""
+    if isinstance(node, ast.Name):
+        return node.id == "scope"
+    return isinstance(node, ast.Attribute) and node.attr == "scope"
 
 
 def _peer_reads(tree: ast.AST) -> list[tuple[int, str | None]]:
-    """Every `request.client` attribute access, with the enclosing function's name.
-
-    AST rather than a regex so a `request.client` inside a docstring or a comment — of
-    which `core/auth.py` has several, explaining this very rule — is not a finding.
-    """
+    """Every socket-peer read, with the enclosing function's name."""
     enclosing: dict[int, str] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             for child in ast.walk(node):
-                if isinstance(child, ast.Attribute) and child.attr == "client":
+                if _is_peer_read(child):
                     enclosing[id(child)] = node.name
 
-    found: list[tuple[int, str | None]] = []
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Attribute)
-            and node.attr == "client"
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "request"
-        ):
-            found.append((node.lineno, enclosing.get(id(node))))
-    return found
+    # `ast.expr`, not `ast.AST`: every shape `_is_peer_read` matches is an expression, so
+    # `lineno` is guaranteed — `ast.AST` alone does not carry position information.
+    return [
+        (node.lineno, enclosing.get(id(node)))
+        for node in ast.walk(tree)
+        if isinstance(node, ast.expr) and _is_peer_read(node)
+    ]
 
 
 def main() -> int:
     problems: list[str] = []
-    permitted_seen = False
+    seen: set[tuple[Path, str]] = set()
 
     for path in sorted(SCOPE.rglob("*.py")):
         try:
@@ -92,25 +144,26 @@ def main() -> int:
             continue
 
         for lineno, function in _peer_reads(tree):
-            allowed = path == PERMITTED_FILE and function == PERMITTED_FUNCTION
-            if allowed:
-                permitted_seen = True
+            if function is not None and (path, function) in PERMITTED:
+                seen.add((path, function))
                 continue
             problems.append(
-                f"{path.relative_to(REPO_ROOT)}:{lineno} reads `request.client` "
+                f"{path.relative_to(REPO_ROOT)}:{lineno} reads the socket peer "
                 f"in `{function or '<module>'}` — behind nginx that is the PROXY, not the "
                 f"caller. Use `core.auth.{PERMITTED_FUNCTION}(request)`, which asks "
                 f"whether the peer is a trusted proxy before believing its headers "
                 f"(SEC-COMP §5, D-131/D-139)."
             )
 
-    if not permitted_seen:
+    for file, function in PERMITTED:
+        if (file, function) in seen:
+            continue
         problems.append(
-            f"`{PERMITTED_FUNCTION}` in {PERMITTED_FILE.relative_to(REPO_ROOT)} no longer "
-            "reads `request.client`. Either it stopped resolving the caller — in which "
-            "case every audit row's `ip` is now decided somewhere this check cannot see — "
-            "or it moved, and this allowance must move with it. An exception that "
-            "outlives its reason is a hole with a comment on it."
+            f"`{function}` in {file.relative_to(REPO_ROOT)} no longer reads the socket "
+            "peer. Either it stopped resolving the caller — in which case the address it "
+            "answered for is now decided somewhere this check cannot see — or it moved, "
+            "and this allowance must move with it. An exception that outlives its reason "
+            "is a hole with a comment on it."
         )
 
     if problems:
@@ -119,7 +172,8 @@ def main() -> int:
             print(f"  - {line}")
         return 1
 
-    print(f"AUDIT IP: OK (one caller of the socket peer: {PERMITTED_FUNCTION})")
+    named = ", ".join(function for _, function in PERMITTED)
+    print(f"AUDIT IP: OK (callers of the socket peer: {named})")
     return 0
 
 

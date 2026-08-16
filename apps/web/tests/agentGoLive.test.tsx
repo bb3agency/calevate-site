@@ -180,6 +180,35 @@ describe("putting an agent on the voice platform for the first time", () => {
     expect(screen.queryByText(/has never reached the voice platform/)).toBeNull();
   });
 
+  /**
+   * `/v1/agents/lanes` supplies the call-cap box's `min`/`max`, so a FAILED read strips
+   * the bounds off a control that stays pressable. Before this, the panel simply omitted
+   * the "Allowed 60–3600s" sentence — indistinguishable on screen from a build that never
+   * printed one — and the operator learned the range only from the server's rejection.
+   * §52: failure is a refusal, and here the refusal is a sentence rather than a withdrawn
+   * control, because the server is the enforcement and disabling the field would block
+   * work the operator can still legitimately do.
+   */
+  it("says the allowed call-cap range is unknown rather than showing an unbounded box", async () => {
+    const { container } = await render({
+      [LANES_PATH]: problem(503, { title: "Upstream unavailable" }),
+    });
+
+    await screen.findByText(/The allowed range could not be read/);
+    // Not a manufactured range, and not silence either.
+    expect(container.textContent).not.toContain("Allowed 60–3600s");
+    // The box is still there: the operator can act, they are just told what we do not know.
+    expect(screen.getByLabelText("Seconds")).toBeTruthy();
+  });
+
+  it("prints the allowed range when the read succeeded", async () => {
+    // The other half of the pair. If this and the test above ever agree, the panel has
+    // stopped telling a failed read apart from a successful one.
+    const { container } = await render();
+    await screen.findByText(/Allowed 60–3600s/);
+    expect(container.textContent).not.toContain("The allowed range could not be read");
+  });
+
   it("offers no first publish for an agent already on the platform, and says why", async () => {
     await render({ [PENDING_PATH]: pending({ published: true, agent_status: "live" }) });
 

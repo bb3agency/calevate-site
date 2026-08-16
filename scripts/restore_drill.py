@@ -960,12 +960,25 @@ class RestoreDrill:
             # An attacker with owner rights would have to do exactly this: the trigger
             # blocks the edit, so it has to come off first and go back on afterwards.
             # The point of the drill is that the hash chain notices anyway.
+            #
+            # RE-ARMED IN THE MODE IT WAS IN, read from the catalog rather than assumed.
+            # Plain `ENABLE TRIGGER` always sets `tgenabled = 'O'` (ORIGIN), so re-arming
+            # an `ENABLE ALWAYS` trigger (which every append-only trigger has been since
+            # migration a2e9f31c605d) quietly demotes it — the drill would leave the
+            # restored copy weaker than the backup it came from, and a subsequent
+            # immutability check on that copy would fail for a reason the drill caused.
+            mode = _scalar(
+                dsn,
+                "SELECT tgenabled FROM pg_trigger "
+                f"WHERE tgrelid = '{table}'::regclass AND tgname = '{trigger}'",
+            )
+            rearm = {"A": "ENABLE ALWAYS", "R": "ENABLE REPLICA"}.get(str(mode), "ENABLE")
             _execute(
                 dsn,
                 [
                     f'ALTER TABLE {table} DISABLE TRIGGER "{trigger}"',
                     f"UPDATE {table} SET action = 'drill.tampered' WHERE id = '{entry}'",
-                    f'ALTER TABLE {table} ENABLE TRIGGER "{trigger}"',
+                    f'ALTER TABLE {table} {rearm} TRIGGER "{trigger}"',
                 ],
             )
             print(f"    [SABOTAGE] edited {table} row {entry} and re-armed its trigger")

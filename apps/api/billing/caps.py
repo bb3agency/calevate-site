@@ -82,6 +82,15 @@ a counter table, not a ledger: the append-only set is `db.registry.APPEND_ONLY_T
 (named, not re-listed here — this comment used to enumerate four of it and the set has
 grown twice since), `spend_state` is not in it, and nothing in it is written here.
 
+**A SHARED EXPRESSION WAS NOT ENOUGH, AND THIS PARAGRAPH IS THE CORRECTION.** The three
+writers agreeing about the DEFINITION of "over cap" says nothing about their agreeing on
+the INPUTS, and they did not: the client's stop button and the post-call meter read the
+ceiling out of `plans` and write the flag into `spend_state`, two tables, so blocking on
+the `spend_state` row serialized half the decision. The meter would unblock, pair the
+new counters with the ceiling from before the client lowered it, and un-cap them. All
+three now take `lock_tenant_spend_state` before the statement that reads the ceiling —
+which is the guarantee the shared expression was being asked to provide and could not.
+
 THE OPS WRITER EXISTS BECAUSE THE OTHER TWO CANNOT REACH THE CASE
 ------------------------------------------------------------------
 A capped tenant meters nothing, so the meter can never clear what it armed; and the
@@ -137,6 +146,46 @@ EFFECTIVE_CAP_SPEND_SQL = "LEAST(hard_cap_spend, client_cap_spend)"
 CAPS_CTE = plan_in_effect_sql(
     f"{EFFECTIVE_CAP_MIN_SQL} AS cap_min, {EFFECTIVE_CAP_SPEND_SQL} AS cap_spend", at=NOW_SQL
 )
+
+
+async def lock_tenant_spend_state(session: AsyncSession, tenant_id: UUID) -> None:
+    """Serialize every writer of `spend_state.capped` for this tenant, for the rest of
+    the transaction. **Take it BEFORE the statement that reads `plans`.**
+
+    THE DEFECT THIS CLOSES, and it is not a theoretical one — it reproduces on demand.
+    A client presses their own stop button (`apply_client_caps` writes
+    `plans.client_cap_spend` and re-derives the flag in one transaction) while the
+    post-call meter's `spend_state` upsert is already in flight. The meter's statement
+    blocks on the `spend_state` ROW, which looks like serialization and is not:
+
+        READ COMMITTED ... "it is possible for an updating command to see an
+        inconsistent snapshot: it can see the effects of concurrent updating commands on
+        the same rows it is trying to update, but it does not see effects of those
+        commands on other rows in the database."
+        — postgresql.org/docs/16/transaction-iso.html §13.2.1
+
+    `spend_state` is the row it is updating; `plans` is another row. So the meter
+    unblocks, reads the NEW counters and the OLD ceiling, computes `capped = false` and
+    overwrites the flag the client just armed. Their outbound calling resumes until the
+    next completed call happens to re-derive it — which, for the runaway campaign this
+    button exists to stop, is immediately and repeatedly.
+
+    A row lock is therefore the wrong tool and no amount of ordering fixes it: the
+    ceiling and the counters live in two tables and the guarantee has to span both. An
+    advisory lock taken before the reading statement does span it — the waiter's next
+    statement takes a fresh snapshot after the holder commits, so it reads the ceiling
+    that was just written. Same idiom, same reasoning and same failure mode as
+    `service.lock_tenant_credits`, which is why it is spelled the same way.
+
+    Its own key, not `credit:`: these serialize different things, and one key would put
+    every completed call behind every wallet write. Deadlock-free because the two are
+    never taken in opposite orders — the meter takes `credit:` (inside `charge_for_call`)
+    and then this one, and nothing takes this one before `credit:`.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"spend_state:{tenant_id}"},
+    )
 
 
 def over_cap_sql(minutes_expr: str, spend_expr: str) -> str:
@@ -281,12 +330,24 @@ class SpendCounters:
 NO_SPEND_THIS_MONTH = SpendCounters(Decimal("0"), Decimal("0"), False)
 
 
-async def read_spend_counters(session: AsyncSession, *, tenant_id: UUID) -> SpendCounters:
-    """The CURRENT billing month's counters, or zeros when the row is absent or stale."""
+async def read_spend_counters(
+    session: AsyncSession, *, tenant_id: UUID, month: str | None = None
+) -> SpendCounters:
+    """The CURRENT billing month's counters, or zeros when the row is absent or stale.
+
+    `month` lets a caller that has ALREADY decided which month is "now" hand that
+    decision in rather than have this function take its own reading of the clock. It is
+    not a filter — passing a closed month does not fetch that month's counters, because
+    `spend_state` keeps no history — it is the instant the staleness test is made
+    against. `usage_summary` passes it because it asks this question and then asks
+    `_spend_used` the same question again: at 00:00:00 IST on the 1st those two readings
+    can straddle the roll, and the panel then reports a closed month's spend as ₹0.00
+    while reading its minutes correctly from the ledger. One reading, one answer.
+    """
     from apps.api.billing.service import current_billing_month
 
     row = (await session.execute(text(_SPEND_STATE_SELECT), {"tid": tenant_id})).first()
-    if row is None or str(row[3]) != current_billing_month():
+    if row is None or str(row[3]) != (month or current_billing_month()):
         return NO_SPEND_THIS_MONTH
     return SpendCounters(Decimal(str(row[0])), Decimal(str(row[1])), bool(row[2]))
 
@@ -311,6 +372,10 @@ async def recompute_capped(session: AsyncSession, *, tenant_id: UUID) -> bool | 
     # the IST billing month, which is the only other way out.
     from apps.api.billing.service import current_billing_month
 
+    # Before the statement, because the statement READS `plans` (through `CAPS_CTE`) and
+    # WRITES `spend_state`. Re-entrant, so `apply_client_caps` holding it already costs
+    # nothing; the ops recompute reaches this function with nothing held and needs it.
+    await lock_tenant_spend_state(session, tenant_id)
     result = await session.execute(
         text(_RECOMPUTE_CAPPED), {"tid": tenant_id, "month": current_billing_month()}
     )
@@ -376,6 +441,12 @@ async def apply_client_caps(
     meters, and for an outbound-only tenant the next call is exactly what the cap was
     supposed to stop.
     """
+    # FIRST, before the `plans` read this write depends on. A ceiling read outside the
+    # lock is the same check-then-write hole a balance read outside `lock_tenant_credits`
+    # is, and the concurrent writer here is the post-call meter — see
+    # `lock_tenant_spend_state` for the Postgres semantics that make a row lock
+    # insufficient.
+    await lock_tenant_spend_state(session, tenant_id)
     caps = await read_caps(session, tenant_id=tenant_id)
     _refuse_looser(kind="minute", admin=caps.admin_cap_min, client=cap_min)
     _refuse_looser(kind="spend", admin=caps.admin_cap_spend, client=cap_spend)
@@ -419,6 +490,7 @@ __all__ = [
     "SpendCounters",
     "apply_client_caps",
     "effective_cap",
+    "lock_tenant_spend_state",
     "over_cap_sql",
     "read_caps",
     "read_spend_counters",
