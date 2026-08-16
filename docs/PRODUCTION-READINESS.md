@@ -1099,8 +1099,8 @@ un-tickable — which the docs say honestly. What this register did **not** reco
 `scripts/restore_drill.py` (69KB, D-92, *"the executable half of
 runbooks/backup-restore-drill.md"*) is wired to nothing.
 
-- Its own usage block says `make restore-drill`. **There is no such target.** A committed file
-  naming a command that does not exist.
+- Its own usage block tells the reader to run a Makefile target named restore-drill.
+  **There is no such target.** A committed file naming a command that does not exist.
 - `runbooks/backup-restore-drill.md` never mentions `restore_drill` — zero hits. The runbook it
   is the executable half of does not know it exists.
 - It is in no CI step and no `make check`.
@@ -1109,7 +1109,8 @@ So the one part of the backup design exercisable **without a cloud account** —
 is proving the verifier goes red — has, by the same reasoning this register applies to terraform,
 almost certainly never run.
 
-**FIX:** add the `restore-drill` target, cite it from the runbook, run it once, commit the output.
+**FIX:** add the restore-drill target to the Makefile, cite it from the runbook, run it once,
+commit the output.
 Everything in `infra/backup/` §8 steps 1-11 remains genuinely EXTERNAL.
 
 ### P5.13 — `/healthz/ready` is called "the GO-LIVE GATE" and nothing polls it · SERIOUS · OURS
@@ -1485,7 +1486,7 @@ its alias symbol is declared in `lib.es5.d.ts`, and `aliasTypeArguments` is neve
 And the defect is present behind one of them: the fixture at `:161` builds turns as
 `{idx, speaker, text}` while **`TranscriptTurnOut.redacted` is required on the wire**. The turn
 at `:241` includes it; the one at `:161` does not. Two spellings of one shape in one file, and
-`pnpm typecheck` is green — verified.
+`pnpm -C apps/web typecheck` is green — verified.
 
 **FIX:** walk `type.aliasTypeArguments`, add the mapped-type node forms to `targetsWireType`,
 delete the three assertions, add `redacted` to the fixture, and add a `bannedPartialAssertion`
