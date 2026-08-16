@@ -653,3 +653,215 @@ exception messages are withheld rather than masked. OTel is redacted at the expo
 has both `scrub_event` and `scrub_breadcrumb`. All three compliance jobs are registered.
 
 ---
+
+## PART 4 — Data, tenancy and schema integrity
+
+**Why this part matters most for the FIRST deploy:** P4.1 means a successful, green deploy
+still cannot onboard client #1. It also corrects this register's closing claim.
+
+**The four structural questions, answered by rebuilding the revision map from source:**
+the chain is **linear — 65 revisions, one root (`05bba2f3c19c`), one head (`a7c31e05b8d4`),
+no branch, no orphan, no cycle**. No revision has an empty or `pass`-only downgrade; the
+three containing `raise` are all the count-before-you-drop refusal pattern, not
+irreversibility. All nine `ADD CONSTRAINT ... NOT VALID` are paired with a `VALIDATE` in the
+same `upgrade()`. All 42 tenant tables get a behavioural cross-tenant test, not just the
+sweep — `rls_sweep_test.py:327` drives a wrongly-addressed INSERT against every discovered
+table and asserts sqlstate `42501`, with `assert len(refused) == len(sweep.tables)` so it
+cannot pass on a partial probe. One dead table (`kb_retrieval_logs`), properly recorded in
+`UNWIRED_BASELINE` with dated reasons and a test that fails the day anything names it.
+
+### P4.1 — There is no way to create the first `admin_users` row · BLOCKER · OURS
+
+`admin_users` is the allowlist the whole admin realm resolves against (`core/auth.py:691`),
+and `core/clerk_identity.py:80` states the design: *"The admin realm is never reconciled.
+`admin_users` is not a Clerk mirror; it is an ops-managed allowlist."*
+
+**Nothing in the repository ever inserts a row.** Not `scripts/seed.py`, not
+`scripts/vps-deploy.sh`, not `compose.prod.yml`, not `docs/DEPLOYMENT.md`, not any runbook —
+the string does not appear in any of them. It is the one table with zero writers that is NOT
+recorded as deliberately dead.
+
+After `alembic upgrade head` on a fresh VPS the table is empty, so **every admin-realm request
+403s**: no organization can be created, no platform setting written, no secret stored, no
+first-campaign review decided, no KYC verified. The deploy comes up green and the product is
+unreachable. It fails closed, so it is not a security hole — it is a deployment that cannot
+onboard anyone.
+
+**FIX:** one INSERT, but it needs a home that is not a shell history. Either
+`scripts/bootstrap_admin.py` in the family of `scripts/seed.py` (Clerk user id + role,
+`ON CONFLICT DO NOTHING`), or a numbered step in DEPLOYMENT.md with the exact SQL. The Clerk
+account is external; **the row is ours.**
+
+### P4.2 — `scripts/seed.py` never runs on a production deploy, so `reserved_slugs` is empty · SERIOUS · OURS
+
+`vps-deploy.sh:412` runs `compose --profile migrate run --rm --no-deps migrate`, whose command
+is `["alembic","upgrade","head"]` (`compose.prod.yml:167`). That is the entire database step.
+`scripts.seed` is invoked in exactly one place in the tree — `runbooks/stale-dev-database.md:43`,
+as part of the explicitly-dev `make db-reset`.
+
+`reserved_slugs` is the only global row the seed writes and the sole enforcement of slug
+reservation (`admin/service.py:207`). Against an empty table that probe always misses, so
+`admin`, `api`, `app`, `www`, `hooks`, `login`, `billing`, `support`, `security` and
+`calevate` are all claimable in production.
+
+Stated so it is not overclaimed: vertical templates and retention defaults are unaffected
+(Python constants, not DB rows), and self-serve signup is off by default. So today the
+exposure is the admin console's own org-creation wizard — and **it becomes a public
+impersonation surface the minute `SELF_SERVE_SIGNUP_ENABLED=true`**, because
+`tenancy/signup_routes.py:83` is mounted and gated only by `current_identity`.
+
+**FIX:** add the seed to the deploy's migrate step, or a second one-shot profile beside it. It
+is idempotent by construction.
+
+### P4.3 — Seven live columns are missing from `Base.metadata`, so the next autogenerate proposes DROPPING them · SERIOUS · OURS
+
+`alembic/env.py:19` sets `target_metadata = Base.metadata` and CLAUDE.md's workflow is
+"autogenerate + hand-review diff". Seven columns exist in the migrated schema, are written and
+read by production code, and are absent from the ORM models:
+
+| Column | Created | Live use | Model omitting it |
+|---|---|---|---|
+| `campaigns.dnc_scrubbed_at` | `a1c8e40f27b9:163` | read `campaigns/service.py:1175`, exposed `routes.py:260` | `campaigns/models.py:63` |
+| `engine_agent_routes.drift_state/_checked_at/_detected_at` | `d4b8e1c73f05:138` | the D-121 sweep's whole record | `reliability/models.py:99` |
+| `engine_agent_routes.kb_drift_state/_checked_at/_detected_at` | `a7c31e05b8d4:140` | the D-158 sweep | same |
+
+`dnc_scrubbed_at` is **compliance evidence** — when our own DNC scrub ran, half of SEC-COMP §3's
+DNC bullet. The six drift columns are the ones the RLS exemption spends fourteen lines
+justifying.
+
+Two compounding effects. `check_wiring.py:298` reads its column universe from `models.py`, so
+all seven are **outside the wiring guard entirely**. And this repo has recognised the
+autogenerate round-trip hazard three times — `call_latency_column_test.py`,
+`prefix_index_audit_test.py`, `credit_ledger_index_prune_test.py` — each time only in the
+REMOVAL direction. The opposite direction has no guard and seven instances.
+
+**FIX:** declare the seven. Then one general check that `Base.metadata` and the migrated schema
+agree in BOTH directions (alembic's `compare_metadata` against a migrated DB, in the family of
+`check_rls_coverage`, which already builds an owner-role engine).
+
+### P4.4 — Four write-only columns, none recorded, in the exact shape `check_wiring` names as its blind spot · SERIOUS · OURS
+
+`check_wiring.py:29` says it outright: *"a column with a writer and no reader is NOT caught
+here."* Four live instances:
+
+- **`phone_numbers.engine_number_ref`** — the only INSERT does not list it and nothing reads
+  it. It escapes even the "no code touches it" check because `_referenced_names` matches the
+  bare name and `calevate_shared/engine.py:597` declares an identically-named field on a
+  **non-DB Pydantic model**. *A namesake on a different class satisfies the guard.* Its two
+  siblings (`Agent.engine_staging_ref`, `Campaign.engine_campaign_ref`) ARE in
+  `UNWIRED_BASELINE`.
+- **`campaign_contacts.dedupe_hash`** — written every insert as `sha256(phone)[:16]`, read
+  nowhere, no index; dedupe is actually done by an in-memory set and `ON CONFLICT` two lines
+  above.
+- **`leads.first_call_id`** — written at `pipeline.py:1200`, read nowhere, while its twin
+  `last_call_id` is read six ways.
+- **`platform_state.changed_by`/`changed_at`** — written by both writers, and **neither reader
+  selects them**. Who threw the big red switch is answerable only from `audit_log`.
+
+**FIX:** one line each. `dedupe_hash` and `first_call_id` are droppable under rule 8's two-step.
+`engine_number_ref` belongs in `UNWIRED_BASELINE` beside its siblings, closing when
+`PROVISIONING_IMPLEMENTED` does. The guard's name-matching hole deserves a note in its own
+docstring, which documents its other blind spots honestly.
+
+### P4.5 — The ledger guardrail's docstring enumerates four ledgers; there are eight · SERIOUS · OURS
+
+`check_ledger_immutability.py:3` names `usage_events`, `consent_ledger`, `credit_ledger`,
+`audit_log`. `APPEND_ONLY_TABLES` holds **eight** — plus `one_time_charges`,
+`whatsapp_alert_optin_ledger`, `preference_scrub_runs`, `platform_secrets`.
+
+This is precisely the defect CLAUDE.md hard rule 4 names in its own commentary — *"a count in
+prose is the defect class D-103/D-105 exist for"* — on the first line of prose in the file
+whose entire job is rule 4. The code is correct (every function iterates the constant);
+migration `a2e9f31c605d:9` gets it right, so the two disagree.
+
+Same class, lower stakes: `migration_reversibility_test.py:4` says the walk ran "over all 62
+revisions"; there are 65.
+
+**FIX:** replace the enumeration with a reference to the constant, exactly as CLAUDE.md does.
+
+### P4.6 — `RLS_EXEMPT_TENANT_COLUMNS` claims to be the one list of what is not tenant-isolated, and three tables are missing · SERIOUS · OURS
+
+`db/registry.py:135` states the contract: two shapes share one dict because they share *"the
+only property that matters to a reviewer — 'this table is deliberately not tenant-isolated,
+and here is why' — so they share one list rather than growing a second one nobody would think
+to read."* Three tables of exactly those shapes are absent:
+
+- **`webhook_deliveries`** — the important one. No `tenant_id`, no policy, and it holds
+  `payload_ref`: the object-storage key of a CRM payload containing a lead's name and number.
+  Its "why" lives only in a model docstring no guardrail reads and no test pins.
+- **`platform_state`** — the big red switch and the TM registration; same shape as
+  `platform_settings`, which IS listed.
+- **`platform_ai_spend`** — whose own migration asserts the equivalence the registry does not
+  honour (`e1a7c93d5b02:109`).
+
+`check_rls_coverage` never flags them because rule 1 only iterates tables carrying `tenant_id`.
+So the list is complete for the guardrail and incomplete for the reader it says it exists for —
+and `guardrail_audit_test.py` pins the exact key set, so the omission is load-bearing.
+
+**Credit where due:** every one of the five `webhook_deliveries` query sites carries
+`AND endpoint_id IN (SELECT id FROM outbound_webhooks)`, each with its reason written above it.
+The auditor looked for the one that forgot; there isn't one.
+
+**FIX:** add the three with the reasons already in their model docstrings, and widen the dict's
+comment from `platform_*` to "any table deliberately outside tenant isolation".
+
+### P4.7 — Prose contradicting schema · MINOR · OURS
+
+- `reliability/models.py:110` calls `engine_agent_routes` *"deliberately boring: two opaque ids
+  and the pair they map to."* It now carries six drift columns (P4.3) — and that sentence is
+  the load-bearing half of the RLS exemption's "carries no PII and no call data" argument.
+- `docs/OPERATIONS.md:244` still lists *"latency stage breakdown (stt/llm_ttft/tts_ttfa/turn
+  p50/p95)"* among the dashboards. `f1a7c39d5be2:100` flagged this when it dropped the column
+  and declined to edit a doc it did not own. DATA-MODEL §4 and TRD §4 were fixed; OPERATIONS
+  was not.
+
+### P4.8 — Two `ON DELETE` clauses encoding deletions the schema forbids · MINOR · OURS
+
+- `preference_scrub_runs.campaign_id → ON DELETE SET NULL` on an append-only table with an
+  `ENABLE ALWAYS BEFORE UPDATE` trigger. A campaign delete fires the cascade's UPDATE, the
+  trigger raises, and the delete fails with an error **naming a table the operator was not
+  touching**. Latent today (no `DELETE FROM campaigns` exists).
+- `webhook_deliveries.endpoint_id → ON DELETE SET NULL`. If an endpoint were hard-deleted, its
+  delivery rows would go `endpoint_id = NULL` and become unreachable to **every** query in
+  P4.6's list — including the retention sweep, which would then never clear their `payload_ref`
+  nor delete the objects behind them. Personal data outliving its TTL with nothing pointing at
+  it. The saving invariant is real and documented (*"endpoints are DEACTIVATED, never
+  deleted"*) — but the FK says the opposite of the invariant, and the FK is what a future route
+  author reads.
+
+### P4.9 — `lock_timeout` is doctrine in some migrations and absent in twelve · MINOR · OURS
+
+`f1a7c39d5be2:105` argues the rule at length under a "LOCKING (hard rule 8)" heading. Twelve
+migrations taking `ACCESS EXCLUSIVE` do not set it, and two post-date the doctrine:
+`f8c1d47a90e3` (two revisions from head, `add_column` on `call_extractions` — written on every
+call) and `d7b1c48a2e93:81` (a CHECK swap on `agents`, which still scans under ACCESS EXCLUSIVE
+on the ADD). Irrelevant for a first deploy against an empty database; **the second deploy pays.**
+
+### Checked and clean (data/tenancy)
+
+All 42 `TENANT_TABLES` receive ENABLE + FORCE + a `tenant_isolation` policy in the migration
+that creates the table; `organizations` is special-cased on `id` in both guardrail and sweep;
+registry drift is checked in BOTH directions and the arithmetic balances (44 − 2 = 42). The
+uniform `FOR ALL … USING`-only policy shape is *measured* rather than asserted —
+`rls_sweep_test.py:396` demonstrates why it refuses a self-hijack via two independent
+PostgreSQL checks. The owner role never appears in app code; `alembic/env.py:34` refuses to
+fall back to `DATABASE_URL`. The five GUC-widening sessions each widen exactly one `USING`
+clause and no `WITH CHECK`, all transaction-local. No `UPDATE`/`DELETE`/`TRUNCATE` against any
+of the eight ledgers in the four trees the guardrail does NOT scan; no FK into a ledger uses
+CASCADE. Zero `DateTime()` without `timezone=True`; zero `datetime.now()`/`utcnow()` anywhere;
+the only `sa.Float` is on the dead table. First-deploy DDL is sound: idempotent role creation,
+`ALTER DEFAULT PRIVILEGES` covering later migrations, the one sequence granted explicitly, both
+`NO FORCE`/`FORCE` brackets inside alembic's per-revision transaction, and the single
+`CREATE INDEX CONCURRENTLY` correctly in an `autocommit_block`. ORM and migration TABLE sets
+are exactly equal at 57; only the column sets diverge, at P4.3's seven.
+
+### Correction to Section C of this register
+
+Section C should list a fourth never-run item: **the database's first-run state**. `alembic
+upgrade head` is the only database step the deploy performs, and it produces a schema with an
+empty `admin_users` (P4.1) and an empty `reserved_slugs` (P4.2). This register's closing
+sentence — *"the gap is almost entirely accounts, registrations and one never-executed deploy —
+not code"* — is right about the shape and **wrong by two rows**: both are ours, both are small,
+and the first means a successful deploy still cannot onboard client #1.
+
+---
