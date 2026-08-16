@@ -178,7 +178,15 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "session, and the alternative was an exemption on `agents` itself. Those three "
         "columns hold a verdict from a fixed five-value vocabulary and two timestamps — "
         "no prompt, no disclosure line, no detail sentence, which is why the operator-"
-        "readable sentence stays on the tenant-scoped per-agent endpoint."
+        "readable sentence stays on the tenant-scoped per-agent endpoint. The KNOWLEDGE "
+        "sweep's record lives here for identical reasons (`kb_drift_state`, "
+        "`kb_drift_checked_at`, `kb_drift_detected_at`; migration a7c31e05b8d4): its unit "
+        "of observation is one `list_kb(agent_ref)` round trip — an AGENT, not a source — "
+        "and the engine-side copy no row of ours names has no `kb_sources` row to be "
+        "written on at all, while `kb_sources` is FORCE-RLS'd and so can answer neither "
+        "the global staleness queue nor the cross-tenant ops summary. Those three hold a "
+        "verdict from a fixed six-value vocabulary and two timestamps: no source name, no "
+        "chunk, and no engine handle."
     ),
     "platform_settings": (
         "platform-scoped, admin realm only (PLATFORM-CONFIG §5). One engine selection, "

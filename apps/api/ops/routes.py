@@ -104,6 +104,7 @@ from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import require_step_up
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
+from apps.api.kb.reconciliation import read_kb_drift
 from apps.api.ops.service import (
     TmRegistration,
     read_halt_state,
@@ -230,6 +231,47 @@ class EngineDriftOut(BaseModel):
     oldest_checked_at: datetime | None
 
 
+class KbDriftOut(BaseModel):
+    """How far the KNOWLEDGE on the voice platform has drifted from what we approved
+    (D-158) — the same measurement as `EngineDriftOut`, on the other object.
+
+    WHY A SECOND FIELD AND NOT A SECOND ENDPOINT: `EngineDriftOut`'s argument exactly —
+    one read, one permission, and no new entry in `ADMIN_CONSOLE_GETS` (a GET declaring
+    `ops:manage` has to be allowlisted, and `tests/impersonation_reads_test.py` warns that
+    entries are how that list "quietly becomes a hole").
+
+    WHY A SECOND FIELD AND NOT MORE COLUMNS ON `EngineDriftOut`: the two sweeps run on
+    different schedules over different objects and each `oldest_checked_at` is its OWN
+    sweep's pulse. Folding them into one panel would let a healthy agent sweep's timestamp
+    vouch for a KB sweep that had died — which is precisely the "lying by omission" the
+    pulse field exists to prevent.
+
+    THE ALARM IS `out_of_sync`, and `undetermined` is deliberately NOT folded into it. It
+    carries more weight here than on the agent panel: an empty knowledge listing is
+    ambiguous between "the documents are gone" and "the vendor's listing does not attribute
+    rows to agents" (pilot gate 8, open), so a large `undetermined` is a real and
+    actionable signal about the VENDOR rather than a count of drifted clients.
+
+    COUNTS AND TIMESTAMPS ONLY (hard rule 6). No source name, no chunk, no engine handle.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    live_agents: int
+    # Never swept. Distinct from `in_sync` for `live_verify_state`'s reason: an agent
+    # nobody has looked at must not be counted as one we looked at and liked.
+    never_checked: int
+    out_of_sync: int
+    in_sync: int
+    undetermined: int
+    # Null exactly when `out_of_sync` is 0. Age is what separates a publish that raced a
+    # sweep from a vendor-console edit nobody has noticed for a month.
+    oldest_drift_at: datetime | None
+    # THIS SWEEP'S OWN PULSE. If the cron dies every count above freezes and
+    # `out_of_sync: 0` reads as "all clear" forever. Null when nothing has been swept.
+    oldest_checked_at: datetime | None
+
+
 class PlatformStateOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -274,6 +316,14 @@ class PlatformStateOut(BaseModel):
     # `state.engine_drift?.out_of_sync ?? 0` has a `0` for "the field is missing", which is
     # the exact conflation this whole panel exists to prevent.
     engine_drift: EngineDriftOut
+    # The third measurement, and the answer to "is the agent SAYING what we approved" —
+    # `engine_drift` above answers "is it CONFIGURED as we published". They are separate
+    # objects at the vendor, read by separate sweeps, and an agent whose prompt is
+    # perfectly in sync can still be answering questions from a knowledge base somebody
+    # pasted into Bolna's console. NO DEFAULT, for `engine_drift`'s reason: a Pydantic
+    # field with one generates an OPTIONAL TypeScript property, and `?? 0` for "the field
+    # is missing" is the conflation this panel exists to prevent.
+    kb_drift: KbDriftOut
 
 
 class TmRegistrationIn(BaseModel):
@@ -500,6 +550,9 @@ async def _platform_out(session: AsyncSession, *, load_shed_mode: str) -> Platfo
     # previous vendor is not something the sweep reads back, so counting it here would
     # report a permanent `never_checked` nothing can ever clear.
     drift = await read_engine_drift(session, engine=get_engine().name)
+    # Scoped to the configured engine for the same reason and read on the same session, so
+    # both drift panels describe the same instant as the halt and the dead-letter depth.
+    kb_drift = await read_kb_drift(session, engine=get_engine().name)
     return PlatformStateOut(
         load_shed_mode=load_shed_mode,
         outbound_halted=halt.outbound_halted,
@@ -524,6 +577,15 @@ async def _platform_out(session: AsyncSession, *, load_shed_mode: str) -> Platfo
             undetermined=drift.undetermined,
             oldest_drift_at=drift.oldest_drift_at,
             oldest_checked_at=drift.oldest_checked_at,
+        ),
+        kb_drift=KbDriftOut(
+            live_agents=kb_drift.live_agents,
+            never_checked=kb_drift.never_checked,
+            out_of_sync=kb_drift.out_of_sync,
+            in_sync=kb_drift.in_sync,
+            undetermined=kb_drift.undetermined,
+            oldest_drift_at=kb_drift.oldest_drift_at,
+            oldest_checked_at=kb_drift.oldest_checked_at,
         ),
     )
 
