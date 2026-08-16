@@ -8,8 +8,8 @@ next. For a knowledge base that is not "soon": a client pastes their price list 
 does not touch it again for months.
 
     A VENDOR-DASHBOARD EDIT   somebody adds, replaces or deletes a knowledge base in
-                              Bolna's own console. Nothing of ours ran, so every table we
-                              own agrees with itself and is wrong.
+                              the vendor's own console. Nothing of ours ran, so every
+                              table we own agrees with itself and is wrong.
     A LOST-RESPONSE PUBLISH   the vendor took the attach and our COMMIT failed after it.
                               Our rows rolled back; the engine kept the document. The
                               divergence points the other way and re-reading our own
@@ -112,11 +112,15 @@ def classify_kb_drift(
     2. the vendor's listing does not attribute rows to agents at all, so the adapter's
        per-agent filter matches nothing and EVERY agent lists empty.
 
-    World 2 is not hypothetical: `apps/api/engine/bolna.py::list_kb` reads
-    `GET /knowledgebase/all` and keeps rows whose `agent_id` equals the ref, and whether
-    that field exists is pilot gate 8's `kb_list_carries_agent_linkage` — still open,
-    because Bolna publishes no OpenAPI spec and every body on that path is a hand-
-    maintained claim (`scripts/pilot/knowledge.py`). `_reconcile_engine_state` already
+    World 2 is not hypothetical. The primary engine's adapter implements `list_kb` by
+    reading an ACCOUNT-WIDE listing and keeping the rows whose agent linkage equals the
+    ref — and whether that linkage field exists at all is pilot gate 8's
+    `kb_list_carries_agent_linkage`, still open, because the vendor publishes no OpenAPI
+    spec and every body on that path is a hand-maintained claim
+    (`scripts/pilot/knowledge.py`). The adapter is named in `apps/api/engine/`, not here:
+    hard rule 2 is a rule about this file's VOCABULARY as much as its imports, and
+    `tests/kb_boundaries_test.py` scans this directory as text for exactly that reason.
+    `_reconcile_engine_state` already
     refuses to draw any conclusion from a listing it could not obtain, for the same reason
     stated the same way: "It can prove a divergence; it can never prove the absence of
     one."
