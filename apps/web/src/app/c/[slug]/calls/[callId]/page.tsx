@@ -145,7 +145,7 @@ export default function CallDetailPage({
         Call logs
       </Link>
 
-      <Card bodyClassName="p-5">
+      <Card bodyClassName="p-4 sm:p-5">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {/* MASKED, always. The API sends no other form to this screen, and no other
               form may reach the DOM (hard rule 6). */}

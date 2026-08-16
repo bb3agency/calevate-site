@@ -1613,7 +1613,12 @@ function OutboxReplayPanel({
               Replaying re-sends them; an old one arrives at a client who has already dealt
               with it by other means.
             </p>
-            <table className="mt-3 w-full text-left text-xs">
+            {/* The scroll container every other table in this repo already has. Its
+                three columns (a job name, a count, an IST timestamp) do not fit 320px,
+                and inside the shell's `overflow-hidden` the excess was CLIPPED rather
+                than scrollable — the "Oldest" column was simply unreachable. */}
+            <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-left text-xs">
               <thead className="text-ink-faint">
                 <tr>
                   <th className="pb-1 font-medium">Job</th>
@@ -1633,6 +1638,7 @@ function OutboxReplayPanel({
                 ))}
               </tbody>
             </table>
+            </div>
           </NoticeBox>
         )}
 
