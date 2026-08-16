@@ -380,9 +380,20 @@ class Settings(BaseSettings):
     # was, and making it typeable would let a staging host silently deliver to a log.
     email_provider: str | None = Field(default=None, max_length=64)
 
-    # The Resend API key (`re_…`). Injected from the secrets manager exactly like
-    # BOLNA_API_KEY — `is_secret_key` catches it by name, so it lives encrypted in
-    # `platform_secrets` and is set from `admin.calevate.tech/ops`, never in `.env`.
+    # The Resend API key (`re_…`). **ENV-ONLY, and NOT for the usual bootstrap reason** —
+    # `core/settings.ENV_ONLY_REASONS` carries the argument and
+    # `tests/resend_env_only_test.py` pins it. This comment shipped saying the opposite
+    # ("lives encrypted in `platform_secrets`, set from `admin.calevate.tech/ops`"), which
+    # was the right home for a vendor credential and the wrong one for THIS credential:
+    # `scripts/host_alert.py` runs on the database host, opens no database connection, and
+    # is what pages a human when a backup fails — so it can only ever read this key from
+    # its own environment. Offering the console as a second home would mean an operator
+    # rotating it on a screen, seeing it accepted, and watching mail keep going out under
+    # the old key, because the environment silently wins in `apply_platform_overrides`.
+    #
+    # `EMAIL_PROVIDER` above is deliberately NOT env-only: selection is exactly the change
+    # the console exists for. One fact, two hosts, no shared secret.
+    #
     # Unset with `EMAIL_PROVIDER=resend` is a refusal by name (`no_resend_api_key`),
     # never a transport that reports success having sent nothing.
     resend_api_key: str | None = None
