@@ -400,11 +400,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "audit_chain_secret_retired": AppliesRule(LIVE),
     "idempotency_scope_secret": AppliesRule(LIVE),
     "impersonation_grant_secret": AppliesRule(LIVE),  # core/impersonation, per mint
-    # The Resend API key. `live` for the same checked reason `email_provider` is: the
-    # transport is constructed per send from `get_settings()`, so a rotation reaches the
-    # next hot-lead email and the next alert without a restart. This is the difference
-    # from `bolna_api_key`, which a cached adapter captures once.
-    "resend_api_key": AppliesRule(LIVE),
     "smtp_password": AppliesRule(LIVE),  # workers/transport.get_transport(), per send
     "backup_heartbeat_url": AppliesRule(LIVE),
     "google_sheets_service_account_json": AppliesRule(LIVE),

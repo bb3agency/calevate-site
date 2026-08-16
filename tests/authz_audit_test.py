@@ -178,6 +178,11 @@ def _prod_settings(**update: object) -> object:
             "impersonation_grant_secret": "i" * 32,
             "audit_chain_secret": "a" * 32,
             "idempotency_scope_secret": "d" * 32,
+            # The KEK joined the readiness list with the ops sweep. Present for the same
+            # reason as every secret above it: this file is about REALM SEPARATION, and a
+            # key reported from anywhere else is noise these assertions cannot tell apart
+            # from the thing they measure — the control below asserts an EMPTY list.
+            "platform_kek": base64.b64encode(b"k" * 32).decode(),
             **update,
         }
     )

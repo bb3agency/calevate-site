@@ -237,9 +237,22 @@ def console_managed() -> set[str]:
     copy of the managed set would answer a question about itself.
     """
     from apps.api.core.platform_config import managed_fields
+    from apps.api.core.settings import ENV_ONLY_DISPLAY
     from apps.api.ops.secret_service import manageable_secret_keys
 
-    return set(managed_fields()) | set(manageable_secret_keys())
+    # THREE surfaces. The third is not a loophole: `GET /v1/ops/config` renders every
+    # `ENV_ONLY_DISPLAY` entry with its key, its ENVIRONMENT VARIABLE NAME, the reason it
+    # cannot be edited here, and whether this host currently declares it — strictly more
+    # than `.env.example` tells anybody, because it says both where the value goes and
+    # whether it arrived.
+    #
+    # It matters now because `ENV_ONLY_KEYS` has a second category. The bootstrap six
+    # cannot come from the store because the store cannot be READ without them;
+    # `resend_api_key` can be, and must not be, because `scripts/host_alert.py` runs on
+    # the database host with no database connection and can only read it from the
+    # environment. Without this clause that key is undiscoverable to this check — which
+    # is exactly what it reported.
+    return set(managed_fields()) | set(manageable_secret_keys()) | set(ENV_ONLY_DISPLAY)
 
 
 def evaluate(

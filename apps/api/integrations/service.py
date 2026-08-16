@@ -77,6 +77,18 @@ SHEET_KIND = "google_sheets"
 # so the reverse (a kind a client can configure and nothing delivers) cannot come back.
 DELIVERABLE_KINDS: tuple[str, ...] = (WEBHOOK_KIND, SHEET_KIND)
 
+#: The arq job this module fans out to, promoted from a bare literal (P6.9). A job name
+#: passed inline is invisible to `tests/job_registration_test.py`, whose entire purpose is
+#: noticing a name no worker answers to — and the outbox publishes an unrecognised name
+#: straight into arq's void while every screen above reports the message as queued.
+#:
+#: Spelled here rather than imported from `apps/workers/outbound_webhooks.py`, following
+#: `compliance/deletion.DELETION_JOB`: the constant lives with the ENQUEUER so `apps/api`
+#: never imports a worker module to name a job. `apps/workers/pipeline.py` declares the
+#: same name as `OUTBOUND_WEBHOOK_JOB` for its own call site, and the registration guard
+#: is what keeps the two agreeing with `settings.FUNCTIONS`.
+OUTBOUND_WEBHOOK_JOB = "deliver_outbound_webhook"
+
 SIGNATURE_HEADER = "X-Calevate-Signature"
 TIMESTAMP_HEADER = "X-Calevate-Timestamp"
 EVENT_HEADER = "X-Calevate-Event"
@@ -252,8 +264,7 @@ async def enqueue_events(
         for data in rows:
             await enqueue_outbox(
                 session,
-                queue="default",
-                job="deliver_outbound_webhook",
+                job=OUTBOUND_WEBHOOK_JOB,
                 payload={
                     "tenant_id": str(tenant_id),
                     "endpoint_id": str(endpoint_id),

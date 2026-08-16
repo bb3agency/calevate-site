@@ -135,7 +135,6 @@ log = get_logger(__name__)
 # dispatcher publishes `job` verbatim, so this string IS the contract with the worker
 # (`tests/job_registration_test.py` is what stops it becoming a DLQ generator).
 TENANT_ERASURE_JOB: Final = "execute_tenant_erasure"
-TENANT_ERASURE_QUEUE: Final = "default"
 
 STATUS_PENDING: Final = "pending"
 STATUS_COMPLETED: Final = "completed"
@@ -470,7 +469,6 @@ async def request_tenant_erasure(
 
     await enqueue_outbox(
         session,
-        queue=TENANT_ERASURE_QUEUE,
         job=TENANT_ERASURE_JOB,
         payload={"tenant_id": str(tenant_id), "request_id": str(request_id)},
     )
@@ -587,7 +585,6 @@ __all__ = [
     "TENANT_ERASURE_EXCEPTIONS",
     "TENANT_ERASURE_JOB",
     "TENANT_ERASURE_LIMITATIONS",
-    "TENANT_ERASURE_QUEUE",
     "TenantErasureRecord",
     "assert_erasable",
     "certificate",

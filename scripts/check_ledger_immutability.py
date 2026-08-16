@@ -1,6 +1,13 @@
 """Guardrail: the append-only ledgers stay append-only (hard rule 4).
 
-`usage_events`, `consent_ledger`, `credit_ledger` and `audit_log` are INSERT-only.
+**Every table in `apps/api/db/registry.APPEND_ONLY_TABLES` is INSERT-only** — the
+constant, deliberately not a list spelled out here. This line used to enumerate four
+(`usage_events`, `consent_ledger`, `credit_ledger`, `audit_log`) while the constant held
+eight, in the first line of prose in the file whose entire job is hard rule 4 — which is
+the exact defect that rule's own commentary names: *"a count in prose is the defect class
+D-103/D-105 exist for"*. The CODE was always right (every check below iterates the
+constant), so the only thing the enumeration could ever do was go stale, and it did.
+
 Fixes are compensating entries, never edits — that is what makes them evidence rather
 than records. Three independent failure modes, so three checks:
 

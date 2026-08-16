@@ -529,8 +529,9 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
    that wants its own datacenter slug (a DO Spaces endpoint wants `blr1`, matching the
    host in `OBJECT_STORE_ENDPOINT`).
 
-   Everything else — Clerk keys, `BOLNA_API_KEY`, Sarvam, email (`EMAIL_PROVIDER` +
-   `RESEND_API_KEY`), Razorpay, the GST
+   `RESEND_API_KEY` is the third env-only key and the ONLY credential that is (see the
+   email block below for why). Everything else — Clerk keys, `BOLNA_API_KEY`, Sarvam,
+   `EMAIL_PROVIDER`, Razorpay, the GST
    invoice identity, `ENGINE`, calling windows, `USD_INR_RATE`, `ALERTS_EMAIL`, all 50 of
    them — is set afterwards from `admin.calevate.tech/ops`, live, without an SSH session
    and without a restart. **That screen is now part of go-live** (§9): a freshly
@@ -547,9 +548,25 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
    - `EMAIL_PROVIDER=resend` — the platform's choice. `smtp` is still selectable and is
      the escape hatch for a suspended account or a provider outage; any other name
      refuses by name (`provider_not_implemented:<name>`) rather than looking configured.
-   - `RESEND_API_KEY` — a `platform_secrets` entry like `BOLNA_API_KEY`, never in `.env`
-     and never in git. Create it in Resend with **Sending access** scoped to the sender
-     domain, not Full access: this platform only ever sends.
+   - `RESEND_API_KEY` — **ENVIRONMENT ONLY, on every host, and the one vendor credential
+     that is not console-managed.** Create it in Resend with **Sending access** scoped to
+     the sender domain, not Full access: this platform only ever sends.
+
+     The reason is not encryption, it is reach. `scripts/host_alert.py` runs on the
+     DATABASE host (§2 puts Postgres on its own box), opens no database connection, and
+     is what pages a human when a backup fails or a disk fills — it can only read this
+     from its own environment. Given that the key is required in an environment file
+     anyway, ALSO offering it in the console would be two homes for one credential, and
+     the environment wins silently (`apply_platform_overrides`): an operator would rotate
+     the key on a screen, see it accepted, and watch mail keep going out under the old
+     one. So the console shows it, names the variable and says whether this host declares
+     it — and refuses to store it. `POST /v1/ops/secrets/resend_api_key/test` still works
+     on a CANDIDATE value, which is the chance to catch a wrong key before the deploy.
+
+     `EMAIL_PROVIDER` is deliberately NOT env-only: it is a selection, not a secret, and
+     switching to `smtp` during a Resend outage must not need a deploy. The api/worker
+     hosts read it from the store; the database host reads it from its own
+     `EnvironmentFile` alongside the key.
    - `NOTIFICATIONS_FROM` — defaults to `support@calevate.tech`. It is also the alert
      sender, deliberately: one address, because a client who allowlists one and not the
      other has half a channel.

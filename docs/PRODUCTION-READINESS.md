@@ -1861,8 +1861,54 @@ is the only place it CAN be verified.
 
 ## Stage 4 — Guards, drift and the rest
 
-P4.3 (seven unmapped columns), P4.5/P4.6 (registry and docstring counts), P6.9 (the
-job-registration guard's blind spots), P2.6, P6.7, P6.8, P7.3, and the remaining MINORs.
+| # | Fix | Part | State |
+|---|---|---|---|
+| 22 | The ledger guardrail references the constant instead of enumerating four of eight; the migration walk stops quoting a revision count | P4.5 | done |
+| 23 | Three tables registered, plus **rule 7** — the guardrail can now see the two shapes it structurally could not | P4.6 | done |
+| 24 | `AnnAssign` constants read; the literal check looks where the job name actually sits per callee; two literals promoted | P6.9 | done |
+| 25 | `enqueue_outbox` stops taking a `queue` nothing routes on (two-step, D-162) | P6.8 | done |
+| 26 | Seven unmapped columns | P4.3 | open |
+| 27 | `_already_enqueued`'s unindexed scan; neither outbox table is ever pruned | P6.7 | open |
+| 28 | Contract and guard drift bundle | P2.6 | open |
+| 29 | nginx realm isolation (two `server` blocks) | P7.3 | external to `apps/` |
+
+**P4.5 and P4.6 are one defect in two registers, and P4.6's fix is the durable half.**
+The ledger guardrail's first line of prose enumerated four ledgers while the constant it
+iterates held eight — in the file whose entire job is hard rule 4, whose own commentary
+says *"a count in prose is the defect class D-103/D-105 exist for"*. That one is a
+docstring. The registry one is not: `RLS_EXEMPT_TENANT_COLUMNS` states that it is the ONE
+place a reviewer learns what is deliberately not tenant-isolated, and three tables of
+exactly that shape were absent — `platform_state`, `platform_ai_spend`, and
+`webhook_deliveries`, which holds `payload_ref`, the object-storage key of a CRM payload
+carrying a lead's name and number.
+
+**They were absent for a structural reason, so the fix is structural.** Every rule in
+`check_rls_coverage` is driven by the `tenant_id` COLUMN, so a table without one is
+invisible to all of them — which is correct for `users` and `alembic_version`, and is how
+three tables sat outside the dict for months with nothing able to notice. Rule 7 adds the
+two narrow questions worth asking: every `platform_*` table must be registered (that
+prefix is this repo's own convention for "one row for the whole deployment"), and every
+table holding an object-storage key that dereferences to tenant data must be
+tenant-isolated OR registered. Deliberately narrow rather than "every unpoliced table" —
+the broad version would demand entries for ~20 tables nobody would ask about, and a list
+that long is the failure mode the dict exists to avoid.
+
+**P6.9's fix immediately found the two literals the finding predicted.** The guard read
+`ast.Assign` only, so the annotated spelling half this repo's constants use
+(`TENANT_ERASURE_JOB: Final = "..."`) was never checked; and the literal check inspected
+`node.args[0]` for every enqueuer, while `enqueue_outbox`'s first positional is the
+SESSION — so it was **entirely inert for every outbox call site**, which is the path where
+an unrecognised job name is published and reported as queued. Both closed, both
+sabotage-verified, and the guard's own docstring corrected: it claimed one blind spot and
+had four.
+
+**P6.8 took the two-step, and the refusal is the decision.** `queue` was a second encoding
+of `job` — six call sites chose the value as a pure function of which job they enqueued —
+and nothing routed on it. Honouring it means a SECOND DEPLOYABLE, because arq routes by
+`_queue_name` consumed by a worker whose `queue_name` matches and one worker consumes one
+queue; and passing `_queue_name` today with no worker on that queue would silently stop
+every notification. D-162 records the fork, names what closes it, and the column stays
+because hard rule 8 forbids dropping in the release that stops writing it.
 
 **Already closed, out of order, because Stage 3 was in the same files:** P6.10 (Stage 1's
 object-store client cache), P7.2 (the `Partial<T>` hole — the guard now walks

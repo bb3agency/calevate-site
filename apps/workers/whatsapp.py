@@ -736,7 +736,6 @@ async def enqueue_hot_lead_whatsapp(
         return False
     await enqueue_outbox(
         session,
-        queue="notifications",
         job=JOB_NAME,
         payload={
             "tenant_id": str(tenant_id),
@@ -1158,7 +1157,6 @@ async def enqueue_campaign_escalation(
         return False
     await enqueue_outbox(
         session,
-        queue="notifications",
         job=ESCALATION_JOB_NAME,
         payload={
             "tenant_id": str(tenant_id),

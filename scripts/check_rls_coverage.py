@@ -15,7 +15,18 @@ that CLAIMS to have created a policy:
    reason and are listed in the same place) and carry a reason a reviewer can weigh;
 5. the registry's `TENANT_TABLES` stays in sync with reality, both directions;
 6. every append-only ledger has an immutability trigger that actually blocks
-   (shared with `check_ledger_immutability`, so the two cannot drift).
+   (shared with `check_ledger_immutability`, so the two cannot drift);
+7. **the two shapes rules 1-5 structurally cannot see** (P4.6) — they are driven by the
+   `tenant_id` COLUMN, so a table without one is invisible to all of them. Three tables
+   of exactly the kind a reviewer would ask about sat outside the exemption dict for
+   months with nothing able to notice. (a) every `platform_*` table must be registered —
+   that prefix is this repo's convention for "one row for the whole deployment", and two
+   were created after two siblings had already been listed; (b) every table holding an
+   object-storage key that dereferences to tenant data (`payload_ref`, `recording_url`)
+   must be tenant-isolated OR registered, because such a row is tenant data at one
+   remove. `webhook_deliveries` is the table (b) exists for: no tenant_id, no policy, and
+   a `payload_ref` pointing at a CRM payload with a lead's name and number, whose "why"
+   lived only in a model docstring no guardrail reads.
 
 Run: uv run python -m scripts.check_rls_coverage   (needs migrated DB; owner URL)
 """
@@ -68,6 +79,21 @@ _ALL_TABLE_SQL = text(
     "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')"
 )
 
+#: Tables that hold an OBJECT-STORAGE KEY pointing at tenant data. The column names are
+#: enumerated rather than pattern-matched because the property that matters is "this
+#: string dereferences to a lead's name and number in a bucket", and that is a judgement
+#: about a column, not a spelling. Adding a column of this kind to a new table is exactly
+#: the moment rule 7b should fire.
+_OBJECT_REF_COLUMNS = ("payload_ref", "engine_payload_ref", "recording_url", "object_key")
+
+_OBJECT_REF_TABLE_SQL = text(
+    "SELECT DISTINCT c.relname FROM pg_class c "
+    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "JOIN pg_attribute a ON a.attrelid = c.oid "
+    "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') "
+    "AND a.attname = ANY(:cols) AND a.attnum > 0 AND NOT a.attisdropped"
+)
+
 _POLICY_SQL = text(
     "SELECT c.relname, p.polname, c.relrowsecurity, c.relforcerowsecurity, "
     "pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid), "
@@ -105,6 +131,12 @@ class SchemaState:
     #: synthetic states in `tests/guardrail_audit_test.py` keep constructing, and empty
     #: is safe there because the staleness rule also accepts `model_tables`.
     all_tables: frozenset[str] = frozenset()
+    #: Tables carrying an object-storage key that dereferences to tenant data
+    #: (`_OBJECT_REF_COLUMNS`). Read so rule 7b can ask the question the column-driven
+    #: rules structurally cannot — see `evaluate`. Defaulted empty for the synthetic
+    #: states in `tests/guardrail_audit_test.py`, where an empty set makes 7b vacuous
+    #: rather than wrong.
+    object_ref_tables: frozenset[str] = frozenset()
 
     def for_table(self, table: str) -> list[PolicyFacts]:
         return [p for p in self.policies if p.table == table]
@@ -114,6 +146,9 @@ def fetch_state(engine: Engine) -> SchemaState:
     with engine.connect() as conn:
         tenant_tables = {r[0] for r in conn.execute(_TENANT_COLUMN_SQL)}
         all_tables = {r[0] for r in conn.execute(_ALL_TABLE_SQL)}
+        object_ref_tables = {
+            r[0] for r in conn.execute(_OBJECT_REF_TABLE_SQL, {"cols": list(_OBJECT_REF_COLUMNS)})
+        }
         policies = tuple(
             PolicyFacts(
                 table=r[0],
@@ -132,6 +167,7 @@ def fetch_state(engine: Engine) -> SchemaState:
         policies=policies,
         model_tables=frozenset(Base.metadata.tables),
         all_tables=frozenset(all_tables),
+        object_ref_tables=frozenset(object_ref_tables),
     )
 
 
@@ -231,6 +267,47 @@ def evaluate(
     unknown = actual - state.model_tables
     if unknown:
         failures.append(f"tables in DB not in model metadata: {sorted(unknown)}")
+
+    # 7. THE TABLES THIS CHECK STRUCTURALLY CANNOT SEE (P4.6).
+    #
+    # Rules 1-5 are driven by the `tenant_id` COLUMN. A table without one is invisible to
+    # every one of them — which is fine for `users` or `alembic_version`, and was not fine
+    # for three tables that sat outside `RLS_EXEMPT_TENANT_COLUMNS` for months with nothing
+    # able to notice, while that dict's own contract says it is the ONE place a reviewer
+    # learns what is deliberately not tenant-isolated.
+    #
+    # Two narrow rules rather than "every unpoliced table must be registered", because the
+    # broad version would demand entries for ~20 tables nobody would ever ask about and a
+    # list that long is a list nobody reads — the failure mode the dict exists to avoid.
+    # Each rule names a SHAPE that is genuinely worth a reviewer's attention:
+    #
+    # (a) PLATFORM STATE. `platform_*` is this repo's naming convention for "one row for
+    #     the whole deployment" (PLATFORM-CONFIG §5): the big red switch, the TM
+    #     registration, the config version, the vendor credentials, the AI spend ceiling.
+    #     Every one of them is a thing a reviewer asks "why can any tenant session touch
+    #     this?" about, and `platform_state` and `platform_ai_spend` were both created
+    #     after two siblings had already been registered.
+    for table in sorted(t for t in state.all_tables if t.startswith("platform_")):
+        if table not in exempt:
+            failures.append(
+                f"{table}: platform-scoped table not in RLS_EXEMPT_TENANT_COLUMNS. "
+                "It carries no tenant_id, so no column-driven rule above can see it — "
+                "state why cross-tenant access is correct and what stops PII leaking, "
+                "beside its siblings."
+            )
+    # (b) AN OBJECT-STORAGE KEY WITH NO TENANT. A row holding `payload_ref` or
+    #     `recording_url` is a pointer INTO tenant data, so it is tenant data at one
+    #     remove. If the table carries a tenant_id, rules 1-3 already own it. If it does
+    #     not, the reason has to be written down: `webhook_deliveries` is the table this
+    #     rule exists for, and its "why" lived only in a model docstring that no guardrail
+    #     reads and no test pinned.
+    for table in sorted(state.object_ref_tables - state.tenant_column_tables):
+        if table not in exempt:
+            failures.append(
+                f"{table}: holds an object-storage reference to tenant data and has "
+                "no tenant_id, so nothing above can check it. Register it in "
+                "RLS_EXEMPT_TENANT_COLUMNS with what stops the reference leaking."
+            )
     return failures
 
 

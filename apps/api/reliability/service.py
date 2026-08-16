@@ -264,10 +264,34 @@ async def sweep_idempotency(session: AsyncSession) -> int:
 # --- Outbox -------------------------------------------------------------------
 
 
+#: The one worker fleet this deployment runs, written into `outbox_messages.queue`.
+#:
+#: THE PARAMETER THAT USED TO CHOOSE THIS IS GONE, and that is step 1 of a two-step
+#: deprecation (hard rule 8), not a simplification (P6.8). Six call sites passed
+#: `queue="notifications"` or `queue="default"`; the column is NOT NULL and
+#: `claim_outbox_batch` selects it — and then `dispatch_outbox` published WITHOUT it and
+#: `WorkerSettings` sets no `queue_name`, so every job landed on arq's single default
+#: queue regardless. **It read as routing and routed nothing**, which is the shape that
+#: makes an operator believe notifications are isolated from CRM deliveries when they are
+#: sharing one worker's ten slots — a belief that costs most on the night it matters.
+#:
+#: It was also a SECOND ENCODING of a fact already on the row: every call site chose the
+#: value as a pure function of `job`. So there was nothing to preserve.
+#:
+#: HONOURING IT WAS THE OTHER FORK AND IS DELIBERATELY NOT TAKEN TODAY. arq routes by
+#: `enqueue_job(_queue_name=...)` consumed by a worker whose `WorkerSettings.queue_name`
+#: matches, and one worker consumes exactly one queue — so honouring this column means a
+#: SECOND DEPLOYABLE (container, deploy step, CI job) for a platform with no clients yet,
+#: which ROADMAP §6 requires a decision for and CLAUDE.md's "monolith module before new
+#: service" argues against. Worse, passing `_queue_name` today with no worker consuming
+#: that queue would silently stop every notification. D-162 records the fork and names
+#: what closes it: the column is dropped, or a second fleet arrives with a filter on it.
+OUTBOX_FLEET = "default"
+
+
 async def enqueue_outbox(
     session: AsyncSession,
     *,
-    queue: str,
     job: str,
     payload: dict[str, Any],
 ) -> UUID:
@@ -280,7 +304,7 @@ async def enqueue_outbox(
             "created_at, updated_at) VALUES (:id, :queue, :job, CAST(:payload AS jsonb), "
             "'pending', 0, now(), now())"
         ),
-        {"id": message_id, "queue": queue, "job": job, "payload": json.dumps(payload)},
+        {"id": message_id, "queue": OUTBOX_FLEET, "job": job, "payload": json.dumps(payload)},
     )
     return message_id
 

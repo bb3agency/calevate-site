@@ -215,6 +215,43 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "the fact it carries is 'the platform's configuration moved' — there is no "
         "per-tenant version of that. Holds no PII, no credential and no tenant data."
     ),
+    "platform_state": (
+        "platform-scoped, admin realm only. The big red switch and the telemarketer "
+        "registration: one halt for every client at the same instant, and one TM "
+        "registration for Calevate as an entity — the same shape as platform_settings "
+        "above and listed for the same reason. No tenant_id, because there is no tenant "
+        "whose row this could be; a decorative one would make it LOOK tenant-scoped to "
+        "every column-driven sweep and invite a policy that would let one client's "
+        "session see, or worse clear, the global halt. Holds no PII."
+    ),
+    "platform_ai_spend": (
+        "platform-scoped, admin realm only. The dashboard AI's monthly spend against the "
+        "platform ceiling (D-127) — OUR bill to Google, not a client's, so there is no "
+        "tenant whose row it could be. Its own migration (e1a7c93d5b02) already asserted "
+        "the equivalence with platform_settings that this registry did not honour until "
+        "now. Holds a month key and NUMERIC totals: no prompt, no answer text, no PII."
+    ),
+    "webhook_deliveries": (
+        "THE ONE THAT WAS MISSING AND MATTERED (P4.6). Forensic trail for every webhook "
+        "in and out (SEC-COMP §4). No tenant_id and no policy, and both are deliberate: "
+        "an INBOUND engine webhook is recorded BEFORE tenant resolution — that is the "
+        "whole point of the record, since a delivery we could not attribute is exactly "
+        "the one a breach investigation needs — so there is no tenant to scope it to at "
+        "write time.\n\n"
+        "WHAT KEEPS IT FROM BEING A LEAK, stated here rather than only in a model "
+        "docstring no guardrail reads: it carries `payload_ref`, an OBJECT-STORAGE KEY, "
+        "never a payload, and the bytes behind that key are reachable only through "
+        "`workers/storage`, which no client-facing route calls for this table. The "
+        "OUTBOUND half IS client-visible, and it is scoped THROUGH `outbound_webhooks` "
+        "— which is tenant-RLS'd — by joining on `endpoint_id` rather than by a policy "
+        "here (migration 4be32bf3d12c). `reason` is an authored refusal code or an "
+        "exception TYPE, never vendor prose, because vendor prose can quote the payload "
+        "(hard rule 6, and the column's own comment argues it).\n\n"
+        "It was absent from this list for the reason absences here are dangerous: it has "
+        "no `tenant_id`, so the column-driven sweep never asked about it, and a reviewer "
+        "looking for 'what is deliberately not tenant-isolated' would not have found the "
+        "table holding references to every lead payload we have ever sent."
+    ),
 }
 
 # INSERT-only ledgers (hard rule 4): immutability triggers in the migration.

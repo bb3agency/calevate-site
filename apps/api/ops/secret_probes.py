@@ -158,6 +158,12 @@ PROBES: Mapping[str, Probe] = {
     # other three probes use, which is what keeps a probe from authenticating differently
     # from the thing it tests. The `/domains` PATH is REPORTED, NOT READ
     # (`resend.com` is refused by this environment's egress proxy).
+    # STILL PROBEABLE THOUGH NO LONGER STORABLE, and that is deliberate rather than an
+    # oversight left behind by the env-only move. `/test` takes a CANDIDATE the caller
+    # already holds and stores nothing, so "check this key before I put it in the host's
+    # environment" is exactly the question it answers — and it is the only chance to
+    # catch a wrong Resend key before a deploy, since the console can no longer set it.
+    # `manageable_secret_keys` excludes it; `probe_credential` deliberately does not.
     "resend_api_key": Probe(
         method="GET",
         url="https://api.resend.com/domains",

@@ -3759,6 +3759,67 @@ already been solved twice in this repository — `billing/payments.py`, `engine/
 — before the adapter actually going to production missed it, so the test AST-scans every
 file in `apps/api/engine/` including the adapters that do not exist yet.
 
+## §74 — Stage 4's guards: four checks that reported coverage they did not have
+
+Every item in this slice is the same defect at a different address: **a guard whose own
+docstring overstated what it could see.** That is worse than a missing guard, because a
+missing one is a known gap and an overstating one is a gap somebody has already decided
+not to look at.
+
+**The ledger guardrail enumerated four ledgers; the constant it iterates held eight.** On
+the first line of prose in the file whose entire job is hard rule 4 — whose own commentary
+in CLAUDE.md says *"a count in prose is the defect class D-103/D-105 exist for"*. The code
+was always right, which is precisely why the prose could rot: nothing depended on it. It
+now references the constant, and `migration_reversibility_test` stops quoting a revision
+count for the same reason (it said 62; there were 65).
+
+**`RLS_EXEMPT_TENANT_COLUMNS` claims to be the one place a reviewer learns what is
+deliberately not tenant-isolated, and three tables of exactly that shape were absent** —
+`platform_state`, `platform_ai_spend`, and `webhook_deliveries`, which holds `payload_ref`:
+the object-storage key of a CRM payload carrying a lead's name and number, with its "why"
+living only in a model docstring no guardrail reads.
+
+**They were absent for a structural reason, so the fix is structural rather than three
+dict entries.** Every rule in `check_rls_coverage` is driven by the `tenant_id` COLUMN, so
+a table without one is invisible to all of them — correct for `users`, and how three
+tables sat outside the dict for months with nothing able to notice. Rule 7 asks the two
+questions worth asking: every `platform_*` table must be registered (that prefix is this
+repo's own convention for "one row for the whole deployment", and two of the five were
+created after two siblings had already been listed), and every table holding an
+object-storage key that dereferences to tenant data must be tenant-isolated OR registered.
+Deliberately narrow — "every unpoliced table must be registered" would demand ~20 entries
+nobody would ever ask about, and a list that long is the exact failure mode the dict
+exists to avoid.
+
+**The job-registration guard claimed ONE blind spot and had FOUR.** It read `ast.Assign`
+only, so `TENANT_ERASURE_JOB: Final = "..."` — the annotated spelling half this repo's
+constants use — was never checked; and its literal check inspected `node.args[0]` for
+every enqueuer, while `enqueue_outbox`'s first positional is the SESSION. It was therefore
+**entirely inert for every outbox call site**, which is the path where an unrecognised job
+name gets published and reported as queued. Fixing it immediately produced the two
+literals the finding predicted (`notify_hot_lead`, `deliver_outbound_webhook`), both now
+constants — and the poller's settled-probe interpolates the same constant its writer
+passes, so the test that used to compare two literals by eye now asserts they agree by
+construction.
+
+**`outbox_messages.queue` read as routing and routed nothing.** Six call sites passed
+`"notifications"` or `"default"`, the column is NOT NULL, `claim_outbox_batch` selects
+it — and `dispatch_outbox` published without it while `WorkerSettings` sets no
+`queue_name`, so everything landed on arq's one default queue regardless. The hazard is
+comprehension rather than capacity: a column that reads as routing makes an operator
+believe notifications are isolated from CRM deliveries when the two are sharing one
+worker's ten slots.
+
+**The refusal is the decision (D-162).** Honouring it means a SECOND DEPLOYABLE — arq
+routes by `_queue_name` consumed by a worker whose `queue_name` matches, and one worker
+consumes exactly one queue — for a platform with no clients, against "monolith module
+before new service"; and passing `_queue_name` today with no worker on that queue would
+silently stop every notification. So step 1 of a two-step retirement: the parameter goes,
+one constant is written, the column stays because hard rule 8 forbids dropping it in the
+release that stops writing it, and the decision entry names both things that would close
+it. It was a second encoding anyway — every call site chose the value as a pure function
+of `job`.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"

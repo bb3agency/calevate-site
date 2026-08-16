@@ -279,11 +279,25 @@ def test_a_call_that_did_not_complete_owes_nothing() -> None:
 
 def test_the_probe_and_the_writer_match_the_same_outbox_row() -> None:
     """Two spellings of "has this call been fanned out" is how a probe and a writer stop
-    agreeing. Both use the `deliver_outbound_webhook` job name and both match on
-    `(event, call_id)`; this pins that they still name the same job."""
+    agreeing.
+
+    THIS USED TO COMPARE TWO LITERALS, which is the weaker form of the same idea: it
+    proved the two strings were equal on the day it ran and would have kept passing if
+    somebody changed one to a constant and the other to a different constant of the same
+    value. Both now reference `pipeline.OUTBOUND_WEBHOOK_JOB` — the probe interpolates it
+    into its SQL, the writer passes it to `enqueue_outbox` — so they agree BY
+    CONSTRUCTION, and what is left to pin is that neither has quietly gone back to a
+    literal of its own.
+    """
     from apps.workers import pipeline
 
     probe = inspect.getsource(pipeline._pipeline_settled)
     writer = inspect.getsource(pipeline._post_call_stages)
-    assert "deliver_outbound_webhook" in probe and "deliver_outbound_webhook" in writer
+    assert "OUTBOUND_WEBHOOK_JOB" in probe and "OUTBOUND_WEBHOOK_JOB" in writer, (
+        "the probe and the writer must name the job through the one constant; two "
+        "literals agree only until somebody edits one of them"
+    )
+    assert '"deliver_outbound_webhook"' not in probe + writer, (
+        "a literal came back beside the constant — that is two names for one job again"
+    )
     assert "'call.completed'" in probe and '"call.completed"' in writer

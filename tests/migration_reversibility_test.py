@@ -1,8 +1,12 @@
 """Hard rule 8's "reversible", checked on every revision rather than on the new one.
 
 The full proof is a WALK — `upgrade head`, step down to base one revision at a time,
-step back up — and it was run over all 62 revisions on a scratch database while writing
-this file. It is not in the suite: it takes about ninety seconds and needs a database of
+step back up — and it was run over EVERY revision in the tree on a scratch database while
+writing this file. The count is not written down, for `check_ledger_immutability`'s
+reason: this file once said "all 62 revisions" when there were 65, and a number in prose
+beside a directory that grows every week is a claim that is wrong by default.
+
+The walk is not in the suite: it takes about ninety seconds and needs a database of
 its own, and a test that slow gets skipped, which is worse than a test that is narrower
 and always runs. What IS here is the two defect CLASSES the walk exists to catch, both
 of which are decidable from the source, plus the one cluster-level hazard the walk found.

@@ -370,9 +370,24 @@ async def test_the_ops_read_counts_deferred_messages_during_an_outage(
     depth for both the metric and `GET /v1/ops/platform`, so this is the number the
     console actually renders rather than a second count written for the test.
 
-    **THE COUNT IS COMPARED AS A DELTA, not as an absolute.** `outbox_messages` is
-    platform-wide and other suites leave rows in it; a bare `deferred == 3` would be
-    asserting about the whole database's mood. The delta is this file's own doing.
+    **THE COUNT IS COMPARED AS A DELTA, not as an absolute** — `outbox_messages` is
+    platform-wide and other suites leave rows in it, so a bare `deferred == 3` would be
+    asserting about the whole database's mood.
+
+    **AND THE DELTA IS NOT THIS FILE'S OWN DOING, which is what this docstring used to
+    claim and why this test failed on a busy database.** `only_mine` filters the claim's
+    RESULT, but it runs the real `claim_outbox_batch` first — and that stamps a
+    two-minute `locked_until` on every row in the batch, up to `OUTBOX_BATCH`. The
+    production code says so itself: `read_dead_letter_queue` counts "a PENDING one
+    holding a lease into the future", and its own comment records that this is
+    indistinguishable from a claimed in-flight message by deliberate design. So on a
+    database where other suites have left 50 pending rows, the delta is 50, and the
+    equality was asserting the batch size.
+
+    What is actually being measured is that the ops read COUNTS a deferred message at
+    all — the console published `depth` alone and rendered a green "Nothing is
+    dead-lettered" through a five-minute outage. That property is exact per ROW, and the
+    fleet number can only be bounded from below.
     """
     ids = await _seed(3)
     only_mine(ids)
@@ -386,10 +401,27 @@ async def test_the_ops_read_counts_deferred_messages_during_an_outage(
     async with untenanted_session() as session:
         during = await rel.read_dead_letter_queue(session)
 
-    assert during.deferred - before.deferred == len(ids), (
-        f"three messages were handed back with a backoff and the ops read moved from "
-        f"{before.deferred} to {during.deferred} deferred — the console cannot show a "
-        "backlog it does not count, which is how an outage renders as 'nothing wrong'"
+    # THE EXACT HALF: each of OUR three is pending, holding a backoff, and un-dead.
+    for message_id, (status, _attempts, deferred, _error) in (await _rows(ids)).items():
+        assert status == "pending", f"{message_id} left `pending` during a queue outage"
+        assert deferred, f"{message_id} was handed back without a backoff"
+
+    # THE FLEET HALF, as an ABSOLUTE FLOOR rather than a delta — because a delta is not
+    # measurable here at all. `only_mine` runs the real claim, which stamps a two-minute
+    # `locked_until` on up to `OUTBOX_BATCH` rows belonging to other suites, and
+    # `read_dead_letter_queue`'s own comment records that a lease and a backoff are one
+    # column by design. So every reading of this number during this test is dominated by
+    # rows this file did not create, and both the before/after equality and the delta are
+    # assertions about the rest of the database.
+    #
+    # What IS provable from the fleet number, and is the original defect, is that the read
+    # counts the pending-with-a-lease slice AT ALL: the console published `depth` alone
+    # and rendered a green "Nothing is dead-lettered" through a five-minute outage. A read
+    # that lost that FILTER returns 0 here, whatever else is in the table.
+    assert during.deferred >= len(ids), (
+        f"three messages are holding a backoff and the ops read says {during.deferred} "
+        "deferred — the console cannot show a backlog it does not count, which is how an "
+        "outage renders as 'nothing wrong'"
     )
     # The DLQ is genuinely EMPTY of our rows, and that is the whole point: the number that
     # used to be the only one on screen is still telling the truth, and the truth was
@@ -408,10 +440,25 @@ async def test_the_ops_read_counts_deferred_messages_during_an_outage(
 
     async with untenanted_session() as session:
         after = await rel.read_dead_letter_queue(session)
-    assert after.deferred == before.deferred, (
-        f"the deferred count did not come back down after the queue recovered "
-        f"({before.deferred} -> {during.deferred} -> {after.deferred})"
-    )
+
+    # SAME SPLIT AS ABOVE, and for the same reason: `after.deferred == before.deferred`
+    # is an equality over the WHOLE table, and `before` was itself taken after a real
+    # claim leased up to `OUTBOX_BATCH` of other suites' rows — rows whose two-minute
+    # leases outlive this test. What recovery means exactly is that OUR three left the
+    # deferred set, which is a per-row fact.
+    for message_id, (status, _attempts, deferred, _error) in (await _rows(ids)).items():
+        assert status == "published", f"{message_id} was not published once the queue came back"
+        assert not deferred, (
+            f"{message_id} is still holding a backoff after a successful publish — a "
+            "gauge that only rises is a gauge an operator learns to ignore"
+        )
+    # NO FLEET ASSERTION ON RECOVERY, deliberately. The recovering tick runs the real
+    # claim a second time and leases another batch of other suites' rows, so
+    # `after.deferred` RISES on a busy database however perfectly our three recovered —
+    # measured, not assumed. The per-row loop above is the whole property, and it is the
+    # exact one: our rows left the deferred set. `after` is read so the failure message
+    # above can show the trajectory.
+    assert after.depth == during.depth, "recovery must not dead-letter anything either"
 
 
 async def _publishes(job: str, *args: Any, job_id: str | None = None, **kwargs: Any) -> str | None:

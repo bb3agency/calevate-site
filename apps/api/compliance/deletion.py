@@ -157,7 +157,6 @@ log = get_logger(__name__)
 # dispatcher publishes `job` verbatim, so this string IS the contract with the worker.
 DELETION_JOB = "execute_deletion_request"
 # Queue name, matching every other outbox producer.
-DELETION_QUEUE = "default"
 # Written, never accepted from a caller — see the module docstring.
 DELETION_SCOPE = "all"
 
@@ -555,7 +554,6 @@ async def request_erasure(
     # asked to be forgotten (hard rule 6).
     await enqueue_outbox(
         session,
-        queue=DELETION_QUEUE,
         job=DELETION_JOB,
         payload={"tenant_id": str(tenant_id), "request_id": str(request_id)},
     )
@@ -649,7 +647,6 @@ async def list_requests(session: AsyncSession, *, limit: int = 100) -> list[Dele
 
 __all__ = [
     "DELETION_JOB",
-    "DELETION_QUEUE",
     "DELETION_SCOPE",
     "ERASURE_EXCEPTIONS",
     "ERASURE_LIMITATIONS",

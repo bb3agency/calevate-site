@@ -256,7 +256,8 @@ request path. No WhatsApp sink: that is a BSP decision (see the open items in RO
 and a second delivery mechanism is a second thing to be broken on the night it is needed.
 
 - **Configuration**: `ALERTS_EMAIL` plus a working email transport — `EMAIL_PROVIDER`
-  and its credential (`resend` + `RESEND_API_KEY`; `smtp` + `SMTP_HOST` remains the
+  and its credential (`resend` + `RESEND_API_KEY`, which is ENV-ONLY on every host —
+  DEPLOYMENT §6 carries the reason; `smtp` + `SMTP_HOST` remains the
   escape hatch). A non-local service booting with no recipient logs
   `alert_delivery_unconfigured`, and one with a recipient but no transport logs
   `alert_delivery_has_no_transport` **with the reason** — `no_email_provider`,

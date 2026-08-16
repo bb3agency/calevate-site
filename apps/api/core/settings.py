@@ -209,7 +209,42 @@ BOOTSTRAP_REASONS: dict[str, str] = {
     "redis_url": "workers need it before settings resolve.",
 }
 
-ENV_ONLY_KEYS: frozenset[str] = frozenset(BOOTSTRAP_REASONS)
+#: Env-only WITHOUT being bootstrap — a second category, and the distinction is real.
+#:
+#: The six above cannot come from the store because the store cannot be READ without
+#: them. This one can be read from the store perfectly well; it must not be, for a
+#: different reason: **the process that has to send the most important email cannot reach
+#: the store at all.** `scripts/host_alert.py` runs on the DATABASE host (D-26 puts
+#: Postgres on its own box) and opens no database connection — it is what pages a human
+#: when a backup fails or the disk fills. So the credential is required in that host's
+#: environment no matter what the console holds.
+#:
+#: Given that, "also offer it in the console" is not a convenience, it is TWO HOMES FOR
+#: ONE CREDENTIAL — and the environment silently wins (`apply_platform_overrides`), so
+#: the failure mode is an operator rotating the key on a screen, seeing it accepted, and
+#: watching mail keep going out under the old one. One way per problem: the environment.
+#:
+#: `email_provider` is deliberately NOT here. It is a SELECTION, not a credential; a
+#: deployment turning email on or off is exactly the kind of change D-95 built the
+#: console for, and the api/worker hosts read it from the store while the database host
+#: reads it from its own `EnvironmentFile` — one fact, two hosts, no shared secret.
+ENV_ONLY_REASONS: dict[str, str] = {
+    "resend_api_key": (
+        "the alert relay on the database host (`scripts/host_alert.py`) opens no "
+        "database connection, so it can only read this from the environment — and a "
+        "credential with two homes is one an operator can rotate in the place that does "
+        "not win. Set RESEND_API_KEY in each host's environment (DEPLOYMENT §6)."
+    ),
+}
+
+#: What may never be read from `platform_settings`: the bootstrap six, plus the
+#: non-bootstrap entries above. `check_bootstrap_keys` asserts the SIX are a subset of
+#: this, so widening it here can never weaken §4.
+ENV_ONLY_KEYS: frozenset[str] = frozenset(BOOTSTRAP_REASONS) | frozenset(ENV_ONLY_REASONS)
+
+#: Everything the console shows as "real, env-only, and here is why", in one mapping so
+#: the surface cannot learn about one category and not the other.
+ENV_ONLY_DISPLAY: dict[str, str] = {**BOOTSTRAP_REASONS, **ENV_ONLY_REASONS}
 
 # Values resolved from `platform_settings` and layered UNDER the environment.
 #
@@ -621,7 +656,9 @@ __all__ = [
     "BOOTSTRAP_REASONS",
     "BOOTSTRAP_REQUIRED",
     "ENVIRONMENTS",
+    "ENV_ONLY_DISPLAY",
     "ENV_ONLY_KEYS",
+    "ENV_ONLY_REASONS",
     "MIN_HMAC_KEY_BYTES",
     "BootstrapError",
     "apply_platform_overrides",

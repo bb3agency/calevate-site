@@ -89,6 +89,19 @@ log = get_logger(__name__)
 
 POSTCALL_JOB = "run_post_call_pipeline"
 INGEST_JOB = "ingest_engine_event"
+# The two names this module ENQUEUES rather than defines, promoted from literals (P6.9).
+# They lived as bare strings at four call sites, which made them invisible to
+# `tests/job_registration_test.py` — the guard whose entire job is noticing a job name no
+# worker answers to. That guard could not see them because it inspected `node.args[0]` for
+# every enqueuer, and `enqueue_outbox`'s first positional is the SESSION.
+#
+# Declared HERE rather than beside their functions for `compliance/deletion.DELETION_JOB`'s
+# reason: the constant sits with the enqueuer, so `apps/api` never has to import
+# `apps/workers` to name a job. `notify_hot_lead` lives in `workers/notifications.py` and
+# `deliver_outbound_webhook` in `workers/outbound_webhooks.py`; both are registered in
+# `settings.FUNCTIONS`, which is now what the guard actually checks these against.
+HOT_LEAD_JOB = "notify_hot_lead"
+OUTBOUND_WEBHOOK_JOB = "deliver_outbound_webhook"
 
 # Hot-lead rule (FLOWS §6): these reach the owner within 2 minutes.
 HOT_LEAD_STATUSES = frozenset({"hot"})
@@ -899,7 +912,7 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         # the same call — the client would simply be told twice.
         if snapshot.status == "completed" and not await _already_enqueued(
             session,
-            job="deliver_outbound_webhook",
+            job=OUTBOUND_WEBHOOK_JOB,
             matcher={"event": "call.completed", "data": {"call_id": str(call_id)}},
         ):
             await integrations.enqueue_event(
@@ -1811,14 +1824,13 @@ async def _maybe_notify_hot_lead(
         )
         if await _already_enqueued(
             session,
-            job="notify_hot_lead",
+            job=HOT_LEAD_JOB,
             matcher={"lead_id": str(lead_id), "call_id": str(call_id)},
         ):
             return "already_queued"
         await enqueue_outbox(
             session,
-            queue="notifications",
-            job="notify_hot_lead",
+            job=HOT_LEAD_JOB,
             payload={
                 "tenant_id": str(tenant_id),
                 "lead_id": str(lead_id),
@@ -2020,8 +2032,14 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
                     # never deleted from the outbox (`mark_outbox_published` only moves
                     # status), so presence is durable proof and not a race with the
                     # dispatcher.
+                    #
+                    # The job name is INTERPOLATED from the constant rather than spelled
+                    # again (P6.9's promotion): "same job name" was previously two literals
+                    # a reader had to compare by eye, and a test that compared them by eye
+                    # too. It is a module constant, never caller input, so there is nothing
+                    # for an f-string to inject.
                     "  EXISTS (SELECT 1 FROM outbox_messages o "
-                    "    WHERE o.job = 'deliver_outbound_webhook' "
+                    f"    WHERE o.job = '{OUTBOUND_WEBHOOK_JOB}' "
                     "    AND o.payload @> jsonb_build_object("
                     "      'event', 'call.completed', "
                     "      'data', jsonb_build_object('call_id', c.id::text))) AS has_crm_fanout, "
