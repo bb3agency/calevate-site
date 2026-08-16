@@ -52,3 +52,12 @@ dump.rdb
 # whatever the last committer's box happened to be running.
 .deploy-state/
 
+
+# Agent worktrees. `.claude/worktrees/<id>/` is a FULL working copy of this repository,
+# created per background agent and removed when it finishes — committing one would nest
+# the whole tree inside itself, and the copies are transient by construction.
+#
+# Scoped to `worktrees/` rather than all of `.claude/` on purpose: agent definitions and
+# project settings under `.claude/` are the kind of thing a repo legitimately checks in,
+# and a blanket ignore would silently swallow them the day somebody adds one.
+.claude/worktrees/
