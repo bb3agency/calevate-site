@@ -1216,3 +1216,429 @@ three substituted variables and the script substitutes five; `core/bootstrap.py:
 `http://localhost:3000` in `DEFAULT_CORS_ORIGINS` unconditionally, including production.
 
 ---
+
+## PART 6 — Workers, jobs and the reliability triad
+
+**The cron register**, dumped from `settings.py` rather than read off the comments. `max_tries`
+is **implicit (=1)** on six of ten crons, and `cron()` defaults it to 1 — confirmed in the
+installed arq (`cron.py:143`):
+
+| cron | interval | overlap prevented? | `max_tries` |
+|---|---|---|---|
+| `dispatch_outbox` | 10s | N/A — `FOR UPDATE SKIP LOCKED` + lease | **implicit 1** |
+| `reconcile_executions` | 10min | incidentally (`job_timeout` < interval); no lease, no assertion | **implicit 1** |
+| `report_stalled_pipeline` | :05,:35 | ≤300s < 30min | **implicit 1** |
+| `dispatch_campaign_tick` | 30s | **YES** — Redis lease, TTL 330 > timeout 300 | implicit 1 (moot) |
+| `sweep_expired` | daily | daily | **implicit 1** |
+| `draw_qa_samples` | weekly | weekly | explicit 3 |
+| `apply_retention` | daily | daily | **implicit 1** ← P6.2 |
+| `sweep_engine_drift` | 30min | **YES — asserted at import** | explicit 3 |
+| `sweep_kb_drift` | hourly | **YES — asserted at import** | explicit 3 |
+| `issue_one_time_charges` | daily | daily | explicit 3 |
+
+Unset and therefore arq defaults: `max_jobs=10`, **`job_completion_wait=0`** (P6.1), and
+**`timezone=None`** — no `TZ` in the Dockerfile or compose, so every "nightly" cron above runs
+**05:30–08:30 IST**, i.e. the retention sweep's bulk UPDATEs and S3 deletes land in Indian
+business hours.
+
+### P6.1 — The worker does not drain on SIGTERM; it hard-cancels, and three documents say otherwise · BLOCKER · OURS
+
+`WorkerSettings` does not set `job_completion_wait`; arq's default `0` selects `handle_sig`
+rather than `handle_sig_wait_for_completion`, which **cancels every in-flight job task in the
+first millisecond of SIGTERM** (`arq/worker.py:852`). Three places state the opposite:
+`compose.prod.yml:146` (*"give the current job a chance to finish"*, 60s grace),
+`DEPLOYMENT.md:288` (*"in-flight work finishes instead of being killed"*), and
+BACKEND-PATTERNS §10 (*"drain-then-quit shutdown"*). **The 60-second grace is handed to a
+process that has already cancelled its work.**
+
+At the container swap: the nine `FUNCTIONS` jobs requeue and burn one of three attempts —
+recoverable. But **the six `max_tries=1` crons** requeue, then fail on pickup with
+`job_try=2 > 1` → `JobExecutionFailed`, a `logger.warning`, and the job is dropped. Four
+self-heal on their next tick. **`apply_retention` and `sweep_expired` do not — they are gone
+until tomorrow, with no alert.** A deploy at 03:40 UTC silently skips the night's retention
+sweep, which is a legal obligation.
+
+**FIX:** set `job_completion_wait` under the 60s grace (e.g. 45), pinned by a test the way
+`dispatch_tick_lease_test.py:235` pins `job_timeout < TICK_LEASE_TTL_S`.
+
+### P6.2 — `apply_retention`: `max_tries=1`, no per-tenant isolation, no alert, 24-hour gap · BLOCKER · OURS
+
+Three defects compounding on the cron that is a legal obligation. (1) `max_tries` defaults to 1
+— the exact omission the same file argues against **four times** for its neighbours. (2)
+`sweep_tenants` loops `await sweep_tenant(...)` with **no `try`**, so one tenant's error aborts
+the sweep for **every tenant after it** — and `_due_tenants` has **no `ORDER BY`**, so which
+tenants get swept is planner-dependent night to night. Its own sibling
+`qa_sampling.draw_for_tenants` does this correctly and cites `sweep_tenants` as the pattern it
+was split out to match. (3) The raise is not `arq.Retry`, so arq finishes it after one attempt
+with a `logger.exception` and **nothing alerts**.
+
+**FIX:** `max_tries=WORKER_MAX_TRIES`; wrap `sweep_tenant` in the try/except + failure counter
+the sibling already uses; `ORDER BY tenant_id`; alert when the failure count is non-zero. Same
+three apply to `sweep_expired` and `report_stalled_pipeline`'s unisolated loop.
+
+### P6.3 — A blocking SMTP client on the worker's event loop, inside an open transaction · BLOCKER · OURS
+
+The class D-159 fixed in `storage.py` is still live. `notifications.py:304` is an `async def`
+that calls `get_transport().send(...)` — plain `smtplib.SMTP` with `starttls()` and `login()`,
+15s timeout, **no `await`, no `to_thread`**. The `async def` makes the call site read as
+deferred while doing nothing of the kind. It is called at `:118` **inside** the
+`async with tenant_session(...)` opened at `:98`, so up to 15 seconds of synchronous socket I/O
+holds an open Postgres transaction and a pooled connection **while stalling all 10 concurrent
+arq jobs**.
+
+The repo states the rule twice and violates it here: `transport.py:7` (*"callers on a latency
+budget defer rather than adapt it"* — `alerting.py` defers, this does not) and `whatsapp.py:219`
+(*"would park the loop … and stall every other job on the same worker"* — written about the
+WhatsApp twin of this exact call, on the same lead, in the same transaction). That loop also
+runs `dispatch_outbox` (10s) and `dispatch_campaign_tick` (30s), and hard rule 5's DNC deadline
+is "before the next dispatch tick".
+
+**FIX:** `await asyncio.to_thread(get_transport().send, ...)`, and move the send outside the
+`tenant_session` block.
+
+### P6.4 — D-31's guarantee of record does not cover the last three pipeline steps · BLOCKER · OURS
+
+Direct answer to "does the pipeline recover from a crash at every step?" — **no.**
+`_expected_artifacts` covers three things (`transcript`, `usage`, `extraction`);
+`_post_call_stages` has **eight** steps. Steps 6–8 — hot-lead notification, campaign contact
+resolution, and the **D-23 CRM fan-out** — all run *after* step 5's metering, each in its own
+transaction.
+
+So a pipeline that dies between step 5's commit and step 8 leaves `usage_events` written, which
+makes `_pipeline_settled` return `settled` — and **the poller never re-drives it. The client's
+CRM is never told about that call, and nothing records that it was not told.**
+`report_stalled_pipeline` cannot see it either; `EXTRACTION_OWED_SQL` asks only about
+extraction. The docstring's justification (*"a pipeline that reached metering reached the lead
+upsert"*) is true of step 4, which precedes metering, and proves nothing about 6–8.
+
+**FIX:** add a fourth artefact. `outbox_messages` already holds the durable proof and
+`_already_enqueued` already knows how to ask: expect a `deliver_outbound_webhook` row matching
+the call whenever `status == "completed"`.
+
+### P6.5 — There is no ARQ DLQ, and three docstrings say there is · SERIOUS · OURS
+
+`settings.py:6` promises every job *"lands in a DLQ with an alert on exhaustion"`;
+`kb_reconciliation.py:381` and `billing.py:171` repeat it. **There is no such queue.** The only
+DLQ is the outbox's `status='failed'`, which is fully wired — but that covers the *enqueue* leg,
+not the *execution* leg. An ARQ job that exhausts its ladder is `zrem`'d off the queue, written
+to a result key for an hour, and gone. **Nothing in `apps/` or `scripts/` reads an arq result
+key, job status, or failed-job set.**
+
+Six jobs compensate by alerting before giving up. **Three do not**: `sweep_engine_drift`,
+`sweep_kb_drift` (whose docstring names the phantom console) and `draw_qa_samples` — so every
+client's live agent can go unwatched with the console green.
+
+Also missing: **nothing surfaces an erasure request that never completed.** `deletion_requests`
+rows sit `completed_at IS NULL` forever with no cron, no alert, no ops query.
+`report_stalled_pipeline` exists for calls; the DPDP equivalent does not.
+
+**FIX:** correct the three docstrings; give the three sweeps the `attempt < WORKER_MAX_TRIES` /
+else-alert shape the other six already use (copying, not designing); add an overdue-erasure probe.
+
+### P6.6 — `execute_tenant_erasure` can exceed `job_timeout` and roll back the whole erasure, terminally · SERIOUS · OURS
+
+It wraps the entire walk of a tenant's calls and leads in **one transaction**, and pages 500 at
+a time with **one `list_objects_v2` round trip per call, serially** — 500 sequential S3 listings
+per page, 10–25s per page, against `job_timeout=300`.
+
+`retention.py:1200` argues this exact question and concludes *"if that stops being true the fix
+is a resumable cursor ON THE REQUEST ROW, **not a budget that silently half-erases**"* — naming
+the population as *"Indian SMBs with thousands of calls"*. **`job_timeout=300` IS that budget,
+it already exists, and thousands of calls is exactly where it bites.** `TimeoutError` is not
+`Retry`, so arq finishes after ONE attempt with no alert; the transaction rolls back,
+`completed_at` stays NULL, and nothing re-drives it.
+
+**FIX:** batch the prefix listings into one paginated walk per tenant (`keys_under` already
+pages inside one thread hop), then either an explicit `timeout=` or the resumable cursor the
+comment already names.
+
+### P6.7 — `_already_enqueued` sequential-scans a never-pruned table, twice per call, under the per-call lock · SERIOUS · OURS
+
+`outbox_messages` has exactly one index — `(status, created_at)` — nothing on `job`, no GIN on
+`payload`. And **nothing anywhere deletes from it.** So every completed call runs two unindexed
+containment scans over a permanently-growing table, once holding `lock_call_writes`, on the
+2-minute SLO path, contending with `dispatch_outbox` every 10 seconds. `LIMIT 1` does not help:
+the common case is "no prior enqueue", which is a full scan. `webhook_inbox_events` is likewise
+never pruned.
+
+**FIX:** replace the containment probe with the fact it stands in for (a `call_id` column, or a
+`calls.crm_notified_at` guard), and add both tables to the retention sweep with a floor longer
+than any re-drive window.
+
+### P6.8 — `outbox_messages.queue` is written by six call sites and read by nothing · SERIOUS · OURS
+
+`enqueue_outbox` takes and stores `queue=`; the column is NOT NULL; `claim_outbox_batch` selects
+it. Then `dispatch_outbox` publishes **without it**, and `WorkerSettings` sets no `queue_name`,
+so everything lands on arq's default queue. Callers pass `"notifications"` and `"default"`. **It
+reads as routing and routes nothing** — the shape that would make an operator believe
+notifications are isolated from CRM deliveries when they share one worker's ten slots.
+
+**FIX:** honour it (`_queue_name=` plus a second `WorkerSettings` — a new deployable, so a
+ROADMAP §6 entry) or delete it in a two-step deprecation. Do not leave it.
+
+### P6.9 — The job-registration guard has two verified blind spots · SERIOUS · OURS
+
+`_job_name_constants` reads only `ast.Assign`, so `TENANT_ERASURE_JOB: Final = "..."` — an
+`AnnAssign` — **is not checked at all**. And the literal check inspects only `node.args[0]`,
+while `enqueue_outbox`'s first positional is `session`, so it is **entirely inert for every
+outbox call site**. Run against the tree: one missed constant, two invisible keyword literals.
+All three name jobs that *are* registered, so there is no live outage — but the guard's own
+docstring claims *"a literal that never became a constant is the one shape this file cannot
+see"*, and it currently cannot see three more.
+
+**FIX:** handle `AnnAssign`; check `node.keywords` for `job=`; promote the two literals.
+
+### P6.10 — `presigned_url` is the last sync-boto3-on-the-loop call, and the comment excusing it is stale · SERIOUS · OURS
+
+Every other function in `storage.py` is thread-hopped after D-159. `presigned_url` is not, and
+is called from an `async def` route handler. Measured in this venv: `import boto3` 144ms, first
+`boto3.client()` 95.7ms, subsequent ~12–15ms (there is no client cache) — so ~240ms on the event
+loop for the first recording link after a deploy. `storage.py:325` still says *"The rest of this
+module is still called synchronously from async code … moving them is a change to `retention`,
+`outbound_webhooks` and two route modules at once."* **Those moves have happened; one call site
+remains and the paragraph names four.**
+
+**FIX:** make it `async` with `to_thread`, memoise `_client()` with a reset hook beside
+`google_sheets.reset_caches`, and rewrite the stale paragraph.
+
+### P6.11 — Minor · OURS
+
+- **Outbound deliveries are unordered and nothing says so.** `max_jobs` unset → 10 concurrent,
+  and a failed message's `locked_until` pushes it *behind* messages written later, so a client's
+  CRM can receive `lead.updated` before `lead.created`. WEBHOOKS.md disclaims ordering for
+  *inbound* Meta events and is silent on outbound. One sentence, or a per-(endpoint,subject)
+  sequence number.
+- `campaign_dispatch.py:150` claims `settings.py` asserts the lease/timeout relation at import.
+  **It does not** — there is no `assert` in that file. The property is enforced by
+  `dispatch_tick_lease_test.py:235`, which `settings.py:299` credits correctly. Two comments,
+  one wrong.
+- `deliver_outbound_webhook` parses its payload outside any failure policy, so a malformed
+  payload raises `KeyError` — not `Retry` — and dies after one attempt with no alert. Both
+  pipeline jobs solved this with a validation `ProblemError`; the delivery worker did not adopt
+  it.
+- `_copy_recording_once`'s re-drive guard reads the DB column, not the bucket, so a crash
+  between the PUT and the UPDATE re-fetches from a vendor link that may have expired — on bytes
+  we already hold. `recording_key` is a pure function of (tenant, call), so a `head_object` would
+  answer. The docstring argues this exact scenario and stops one step short.
+
+### Checked and clean (workers)
+
+**All 24 `(ctx, …)`-shaped coroutines are accounted for** — 9 in `FUNCTIONS`, 10 crons, 4
+lifecycle hooks, 1 wrapper. No unregistered job, no orphan enqueue point. **The outbox is
+correct and completely wired**: committed attempt bump + lease, `MATERIALIZED` + total ordering
+so LIMIT means limit, `_dead_letter_exhausted_claims` for claims that die without reporting, CAS
+on every terminal write, systemic-vs-poison split, replay behind step-up, DLQ depth as a metric
+and on the console. The auditor looked for a row that could be dispatched twice or lost and did
+not find one. Idempotency and inbox both handle the abandoned-`PROCESSING` case by CAS, and a
+payload-hash mismatch alerts rather than dedupes. `lock_call_writes` is taken before all three
+read-then-writes it names. **The campaign claim is the best-built thing in the package** —
+`MATERIALIZED` + `FOR UPDATE SKIP LOCKED`, status re-read inside the claiming transaction, claim
+committed before the first dial, every dial its own transaction. Blocking-call sweep was
+exhaustive: `time.sleep` only on alerting's own daemon thread and a non-async script; no
+`requests`, no sync psycopg, no `subprocess`, no bare `open()` in `apps/`. The two real findings
+are P6.3 and P6.10; nothing else.
+
+---
+
+## PART 7 — The frontend
+
+**Two of this audit's findings independently reproduce P5.4 and P5.5** from the ops audit —
+`pm2 reload` with nothing registered, and a browser bundle built with no browser variables.
+Two agents reaching the same two blockers from opposite directions is the strongest signal in
+this document after P1.2/P2.5. They are not repeated here.
+
+### P7.1 — A *paused* query is neither loading nor failed, and six screens render its empty state as fact · SERIOUS · OURS
+
+Measured against the installed library, not inferred. `queryObserver.js:310` computes
+`isLoading = isPending && isFetching`, and `query.js:415` sets
+`fetchStatus: canFetch(networkMode) ? "fetching" : "paused"`. `providers.tsx` sets no
+`networkMode`, so the default `"online"` applies — and **nothing in `apps/web` reads `isPaused`,
+`onlineManager` or `navigator.onLine`.**
+
+So a console tab open when the network drops — which `client.ts:84` calls *"the normal case, not
+an edge"* — then navigated to a screen with no cached data yields `isLoading === false`,
+`error === null`, `data === undefined`. A two-arm ladder falls through to its data branch with
+nothing. `isLoading` is also exactly the spelling that does **not** narrow `q.data`, and it
+satisfies the §52 guard's gate; the guard says so itself: *"'Loading is a skeleton' is not
+decidable here."*
+
+Six screens each state something false: the client dashboard (**"No call history yet"**, **"No
+calls yet"**), the call log (**"No calls yet"**), the client health board (**"Every client looks
+healthy"**), the hold queue (**"Nobody is waiting on us"**), QA sampling (**"Every sampled call
+has been reviewed"**) and quality reports. The two admin ones are sharpest: `admin/holds` itself
+says *"'Nobody is waiting' is a claim about the world, and a failed read is not evidence for
+it — an operator told the queue was clear because a token expired would stop looking."* The
+error arm honours that; the paused arm walks past it into the sentence.
+
+**FIX:** three characters per site — `q.isLoading || !q.data` — which is the spelling
+`ConfigPanel`/`SecretsPanel` already use. Then teach the guard: this one IS syntactically
+decidable.
+
+### P7.2 — `Partial<WireType>` is a hole in the wire-fixture guard, and one live site hides a missing required field · SERIOUS · OURS
+
+The guard resolves an assertion target to its declaring file and recurses through union members
+and `getTypeArguments`. **`Partial<T>` is a mapped type**, so `getTypeArguments` returns `[]`,
+its alias symbol is declared in `lib.es5.d.ts`, and `aliasTypeArguments` is never consulted.
+`as Partial<Me>` and `as unknown as Partial<CallDetail>` pass. Three live sites, all in
+`callDetail.test.tsx`.
+
+And the defect is present behind one of them: the fixture at `:161` builds turns as
+`{idx, speaker, text}` while **`TranscriptTurnOut.redacted` is required on the wire**. The turn
+at `:241` includes it; the one at `:161` does not. Two spellings of one shape in one file, and
+`pnpm typecheck` is green — verified.
+
+**FIX:** walk `type.aliasTypeArguments`, add the mapped-type node forms to `targetsWireType`,
+delete the three assertions, add `redacted` to the fixture, and add a `bannedPartialAssertion`
+marker to the negative controls.
+
+### P7.3 — nginx serves the admin console on the client hostname, so the realm-isolation premise is unenforced · SERIOUS · OURS
+
+`calevate.conf.template:61` is a **single server block** for `admin.` and `app.`, with one
+`location /` proxying everything. `clerkRuntime.tsx:29` reasons from the opposite premise:
+*"disjoint route trees on disjoint hostnames … so only one realm's provider is ever mounted."*
+In the shipped config they are not disjoint: `app.calevate.tech/admin` serves the operator
+console and `admin.calevate.tech/c/<slug>` serves a client dashboard.
+
+Not an authorization hole — the admin realm resolves against its own JWKS,
+`assertMountedApplication` catches a provider mismatch, and cookies are per-key-suffixed. It is
+an **unenforced premise** with one concrete consequence: **the operator sign-in surface is served
+on the hostname clients are told to visit**, which is phishing surface for the console holding
+cross-client data.
+
+**FIX:** two server blocks; `location ^~ /admin { return 404; }` on `app.` and `^~ /c/` on
+`admin.`. Then the docstring's sentence is a fact.
+
+### P7.4 — Campaign launch is one click, and the server's own docstring assumes a confirmation the screen does not have · SERIOUS · OURS
+
+Under "Everything checks out." sits a bare `<button onClick={() => launch.mutate()}>`. No second
+step, no typed confirmation, no restatement of how many numbers are about to be dialled.
+`campaigns/service.py:911` writes: *"the 'N contacts will be dialled' number **the client
+confirms** is true."* **No client confirms anything.**
+
+This is out of step with every comparable control: bulk lead edit is two-step plus type-the-count,
+DPDP erasure types `ERASE`, the big red switch has a consequences panel plus typed reason plus
+typed word, global DNC release types `RELEASE`. **Launching a campaign is the client action with
+the largest irreversible blast radius in the product — it dials real Indian phone numbers under
+TRAI — and it is the only one with no gate.**
+
+**FIX:** reuse the `BulkActionBar` shape verbatim — a review step restating the dialable count,
+the calling window and the number, then the danger button. Correct the server docstring either
+way.
+
+### P7.5 — The money dialog has no focus trap and never restores focus; 96 skeletons announce nothing · SERIOUS · OURS
+
+Both are exactly what `a11y.ts:42` says the axe sweep cannot see. `KNOWN_A11Y_EXEMPTIONS` is
+`{}` and `UNSWEPT_SCREENS` has one justified entry — both clean; these are outside their reach.
+
+**(a)** `AcceptChargeDialog` — the one control that debits a wallet — moves focus on open and
+handles Escape, and that is all. **No Tab cycling**, so the first Tab lands on the page behind
+the `aria-modal="true"` panel; **no focus restore**, so Escape drops focus to `<body>`.
+`navDrawer.tsx:143` is the repo's own APG implementation with cycling, Escape and restore, and
+describes itself as *"the first"* focus-trap idiom. The money dialog is the second modal and did
+not borrow it.
+
+**(b)** `Skeleton` renders `<div aria-hidden>` with no `aria-busy`, no `role="status"`, and no
+visually-hidden label anywhere in `src/` (zero `aria-busy` hits). Across **96 skeleton sites** a
+screen-reader user gets nothing during every load and nothing when data arrives — the audible
+equivalent of P7.1, on the audience `a11y.ts:16` names.
+
+**FIX:** extract `navDrawer`'s trap into `useFocusTrap(ref, active)` and call it from both; give
+`Skeleton` an `sr-only` label and `role="status"`.
+
+### P7.6 — Minor · OURS
+
+- **The team screen offers "remove" on your own row when it does not know who you are.**
+  `myId = me.data?.user_id ?? null` with `me.error` unread, so on failure `isMe` is false for
+  every row and the owner gets the role select and Remove on themselves. The API refuses it, so
+  nothing is lost — the screen offers an action it cannot honour and then 403s.
+- The client sidebar renders `—` for org and role with `me.error` unread — an honest absence
+  marker, but permanent and unexplained. `TopHeader` and `HeldCount` both solved this with an
+  amber badge naming the failure.
+- **The homepage's scrollability depends on `:has()` and fails closed.** A browser without it
+  gets the `overflow:hidden` pin and no override, so `/` is clipped at the fold. Tailwind v4's
+  floor already excludes those browsers, which is why this is MINOR — but **the polarity is
+  wrong**: default to `visible` and pin with `html:has([data-app-shell])`, so a `:has()` failure
+  costs the app shell some rubber-banding rather than costing a stranger the homepage.
+- Two API hooks have no caller anywhere (`useAgent`, `useVoiceCatalogue`), and `voices.ts:12`
+  justifies the client-realm route as *"a client may HEAR what their agent sounds like"* — no
+  client screen reads the catalogue, and the `Voice` schema carries **no sample or preview URL
+  at all**, so the sentence describes a capability that is neither wired nor representable.
+- `session.tsx:39` says a client typing `?view=admin` *"gets 401s, not a banner"*; since the
+  branch was wrapped in `protect` they get redirected to `/admin/sign-in`.
+
+### Checked and clean (frontend)
+
+**All 34 routes are reachable — zero orphan routes**, enumerated with their entry points; the
+half-wiring runs the other way (two hooks with no screen). All three type-aware guards have
+empty `EXEMPT` lists with staleness assertions present. `KNOWN_A11Y_EXEMPTIONS` is `{}` and the
+sweep reads routes off disk so it cannot fall behind the router. **Realm separation is intact in
+code** — the two realm modules import each other never, their only shared module holds no
+session, and `adminSession()` is built per call rather than read from context. **No dev-token
+path is reachable in a production build** — two independent `NODE_ENV` guards, and the client
+bundle's `NODE_ENV` is inlined at build so runtime env cannot re-open it. The `?? 0` / `|| 0`
+sweep found **no optional-on-the-wire trap** in `src/`. Every irreversible action has a
+confirmation **except campaign launch** (P7.4). The marketing homepage is readable with no JS —
+prose is server-rendered and GSAP animates *from* a displaced state, so there is no `opacity:0`
+resting rule to strand it.
+
+---
+---
+
+# The fix sequence — what to do, in what order
+
+All seven audits are in. **34 findings: 12 BLOCKER, 17 SERIOUS, plus the minors.** Nothing below
+is scheduling; it is dependency order.
+
+## Stage 1 — Make the deploy possible at all (nothing external)
+
+Until these are done, a deploy cannot succeed. All are small.
+
+| # | Fix | Part |
+|---|---|---|
+| 1 | Start `redis` as a first-class step | P5.1 |
+| 2 | Commit `apps/web/ecosystem.config.cjs`; `pm2 describe \|\| pm2 start` | P5.4 / P7 |
+| 3 | Place and preflight `apps/web/.env.local`; fail the build on empty publishable keys | P5.5 / P7 |
+| 4 | Give the S3 client `region_name` + credentials; add the three vars to `.env.example`, DEPLOYMENT §6 and preflight | P5.6 / P6.11 |
+| 5 | `scripts/bootstrap_admin.py` — **without it nobody can log in to the admin realm at all** | P4.1 |
+| 6 | Run `scripts/seed.py` in the deploy's migrate step | P4.2 / P5.10 |
+| 7 | Set `transaction_per_migration=True`; correct the three documents | P5.3 |
+| 8 | Move the five nginx exports and the `pnpm`/`pm2` checks into `preflight()` | P5.9 / P5.4 |
+
+## Stage 2 — Do not lose money or break the law on day one
+
+| # | Fix | Part |
+|---|---|---|
+| 9 | `charge_for_call` bills at the CLIENT rate, not our supplier cost | P1.1 |
+| 10 | Alert + count completed calls with no usage row; conformance clause for `billable_ready` without cost | P1.2 / P2.5 |
+| 11 | `campaign_contacts` in both erasure paths, `status='dnc_blocked'`, counted in the proof | P3.1 |
+| 12 | `spend_state.billed_inr` at the client rate; cap and client panel read it | P1.3 |
+| 13 | `job_completion_wait`; `max_tries` on `apply_retention` + `sweep_expired`; per-tenant isolation | P6.1 / P6.2 |
+| 14 | `await asyncio.to_thread` on the SMTP send, outside the transaction | P6.3 |
+| 15 | Fourth expected artefact so the poller re-drives the CRM fan-out | P6.4 |
+
+## Stage 3 — Close the things that mislead an operator
+
+P5.2 (rollback), P5.7 (dev compose file), P5.8 (nginx install-before-test), P5.12
+(restore drill), P5.13 + P2.1 (delete the two `/healthz/` lines from the hooks vhost — this
+closes the ack-path finding at the edge), P6.5 (the phantom DLQ), P2.2/P2.3 (the two escaping
+exceptions), P3.3 (disclosure), P7.1 (paused queries), P7.4 (campaign launch confirmation).
+
+## Stage 4 — Guards, drift and the rest
+
+P4.3 (seven unmapped columns), P4.5/P4.6 (registry and docstring counts), P6.9/P7.2 (the two
+holed guards), P2.6, P6.7, P6.8, P6.10, P7.3, P7.5, and every MINOR.
+
+## Stage 5 — Only after an account exists
+
+Gates 1–14, per Section A. Nothing in Stages 1–4 waits on any of them.
+
+---
+
+## What this audit changed about the earlier register
+
+Three claims above were wrong and are corrected in place: the deploy scripts are **not**
+"complete" (P5); "billing and invoicing" is **not** safely shipped (P1); and the closing claim
+that the remaining gap is "almost entirely accounts, registrations and one never-executed
+deploy — not code" is **wrong by the whole of Stage 1**. The shape of that claim was right —
+there is no large engineering effort left — but the specific work in Stage 1 is small, ours, and
+absolutely blocking.
